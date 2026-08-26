@@ -54,7 +54,16 @@ export async function migrateEnterpriseOperations(database: PostgresDatabase): P
         "INSERT INTO dsh_enterprise_operations_meta(key, value) VALUES ('schema-version', $1) ON CONFLICT (key) DO NOTHING",
         [String(ENTERPRISE_OPERATIONS_SCHEMA_VERSION)],
       )
-    else if (Number(current.rows[0].value) !== ENTERPRISE_OPERATIONS_SCHEMA_VERSION)
-      throw new Error('unsupported enterprise operations schema version')
+    else {
+      const version = Number(current.rows[0].value)
+      if (version === 1) {
+        await transaction.query('ALTER TABLE dsh_enterprise_operation_outbox ADD COLUMN IF NOT EXISTS team_id TEXT')
+        await transaction.query("UPDATE dsh_enterprise_operations_meta SET value = $1 WHERE key = 'schema-version'", [
+          String(ENTERPRISE_OPERATIONS_SCHEMA_VERSION),
+        ])
+      } else if (version !== ENTERPRISE_OPERATIONS_SCHEMA_VERSION) {
+        throw new Error('unsupported enterprise operations schema version')
+      }
+    }
   })
 }

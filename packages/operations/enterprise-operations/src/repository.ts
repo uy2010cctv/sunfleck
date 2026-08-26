@@ -128,11 +128,11 @@ export class EnterpriseOperationsRepository {
     await database.query('SELECT pg_advisory_xact_lock(hashtext($1))', [key])
   }
   private async requireSession(orgId: string, sessionId: string): Promise<void> {
-    if ((await this.options.resolveSession?.(orgId, sessionId)) !== true)
+    if (this.options.resolveSession !== undefined && !(await this.options.resolveSession(orgId, sessionId)))
       throw new Error(`native session ${sessionId} was not found in organization ${orgId}`)
   }
   private async requireRelease(orgId: string, releaseId: string): Promise<void> {
-    if ((await this.options.resolveRelease?.(orgId, releaseId)) !== true)
+    if (this.options.resolveRelease !== undefined && !(await this.options.resolveRelease(orgId, releaseId)))
       throw new Error(`native employee release ${releaseId} was not found in organization ${orgId}`)
   }
   private async teamTarget(database: PostgresDatabase, orgId: string, teamId: string): Promise<TeamRow> {
@@ -170,6 +170,7 @@ export class EnterpriseOperationsRepository {
       if (owner.rows[0] !== undefined && owner.rows[0].org_id !== input.orgId)
         throw new Error(`work record ${input.sessionId} is outside organization ${input.orgId}`)
       await Promise.all([this.requireSession(input.orgId, input.sessionId), this.requireRelease(input.orgId, input.employeeReleaseId)])
+      if (input.teamId !== undefined) await this.teamTarget(database, input.orgId, input.teamId)
       const result = await database.query<WorkRow>(
         'SELECT * FROM dsh_enterprise_work_records WHERE org_id = $1 AND session_id = $2 AND employee_release_id = $3 FOR UPDATE',
         [input.orgId, input.sessionId, input.employeeReleaseId],

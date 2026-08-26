@@ -93,6 +93,14 @@ class MemoryPostgresDatabase implements PostgresDatabase {
   private tail = Promise.resolve()
   failNextOutboxInsert = false
 
+  constructor(schemaVersion?: number) {
+    if (schemaVersion !== undefined) this.meta.set('schema-version', String(schemaVersion))
+  }
+
+  get schemaVersion(): string | undefined {
+    return this.meta.get('schema-version')
+  }
+
   async transaction<T>(operation: (database: MemoryPostgresDatabase) => Promise<T>): Promise<T> {
     const run = this.tail.then(async () => {
       const checkpoint = structuredClone({
@@ -128,12 +136,16 @@ class MemoryPostgresDatabase implements PostgresDatabase {
   }
 
   private rows(text: string, values: readonly unknown[]): Record<string, unknown>[] {
-    if (text.startsWith('CREATE ') || text.startsWith('SELECT pg_advisory_xact_lock')) return []
+    if (text.startsWith('CREATE ') || text.startsWith('ALTER ') || text.startsWith('SELECT pg_advisory_xact_lock')) return []
     if (text.startsWith('SELECT value FROM dsh_enterprise_operations_meta')) {
       const value = this.meta.get('schema-version')
       return value === undefined ? [] : [{ value }]
     }
     if (text.startsWith('INSERT INTO dsh_enterprise_operations_meta')) {
+      this.meta.set('schema-version', String(values[0]))
+      return []
+    }
+    if (text.startsWith('UPDATE dsh_enterprise_operations_meta')) {
       this.meta.set('schema-version', String(values[0]))
       return []
     }
@@ -364,6 +376,29 @@ function repository(database = new MemoryPostgresDatabase(), now?: () => number)
 }
 
 describe('EnterpriseOperationsRepository', () => {
+  it('migrates an existing schema version one database to version two', async () => {
+    const database = new MemoryPostgresDatabase(1)
+    const operations = new EnterpriseOperationsRepository(database)
+
+    await operations.createApprovalRequest({
+      approvalId: 'approval-migration',
+      orgId: 'org-a',
+      kind: 'publish',
+      subjectType: 'employee-release',
+      subjectId: 'release-a',
+      requestedBy: 'owner-a',
+      idempotencyKey: 'approval-migration-create',
+    })
+
+    expect(database.schemaVersion).toBe('2')
+  })
+
+  it('preserves local writes when native reference resolvers are not configured', async () => {
+    const operations = new EnterpriseOperationsRepository(new MemoryPostgresDatabase())
+
+    await expect(operations.upsertWorkRecord(work)).resolves.toMatchObject({ sessionId: 'session-a' })
+  })
+
   it('keeps native session source references immutable while projecting one work record', async () => {
     const operations = repository(new MemoryPostgresDatabase(), () => 100)
     const created = await operations.upsertWorkRecord(work)
@@ -566,5 +601,17 @@ describe('EnterpriseOperationsRepository', () => {
         idempotencyKey: 'missing-release-work',
       }),
     ).rejects.toThrow('native employee release missing-release was not found in organization org-a')
+  })
+
+  it('rejects a work record that references a team outside the organization', async () => {
+    const operations = repository()
+
+    await expect(
+      operations.upsertWorkRecord({
+        ...work,
+        teamId: 'missing-team',
+        idempotencyKey: 'missing-team-work',
+      }),
+    ).rejects.toThrow('fixed team missing-team was not found in organization org-a')
   })
 })
