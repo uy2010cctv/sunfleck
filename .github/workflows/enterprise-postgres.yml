@@ -1,0 +1,50 @@
+name: Enterprise PostgreSQL integration
+
+on:
+  pull_request:
+    paths:
+      - 'packages/catalog/enterprise-catalog/**'
+      - 'packages/identity/enterprise-identity-postgres/**'
+      - 'packages/session/session-persistence-postgres/**'
+      - 'pnpm-lock.yaml'
+      - '.github/workflows/enterprise-postgres.yml'
+  push:
+    branches: [master]
+    paths:
+      - 'packages/catalog/enterprise-catalog/**'
+      - 'packages/identity/enterprise-identity-postgres/**'
+      - 'packages/session/session-persistence-postgres/**'
+      - 'pnpm-lock.yaml'
+      - '.github/workflows/enterprise-postgres.yml'
+
+jobs:
+  postgres-integration:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: dsh_enterprise_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d dsh_enterprise_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.7.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.19.0
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Run enterprise PostgreSQL integration tests
+        env:
+          CI: 'true'
+          DSH_TEST_POSTGRES_URL: postgresql://postgres:postgres@127.0.0.1:5432/dsh_enterprise_test
+        run: pnpm exec vitest run packages/catalog/enterprise-catalog/tests/postgres.integration.spec.ts
