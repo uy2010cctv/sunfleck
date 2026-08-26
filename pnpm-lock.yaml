@@ -1467,6 +1467,9 @@ importers:
       '@deepseek-ai/dsh-session-log-export':
         specifier: workspace:^
         version: link:../../session-query/session-log-export
+      '@deepseek-ai/dsh-session-persistence-postgres':
+        specifier: workspace:^
+        version: link:../../session/session-persistence-postgres
       '@deepseek-ai/dsh-session-projection-cache':
         specifier: workspace:^
         version: link:../../session/session-projection-cache
@@ -1519,6 +1522,15 @@ importers:
       '@deepseek-ai/dsh-system-prompt':
         specifier: workspace:^
         version: link:../../core/system-prompt
+
+  packages/catalog/enterprise-catalog:
+    devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: workspace:^
+        version: link:../../../vendor/cordis
+      '@deepseek-ai/dsh-invariants':
+        specifier: workspace:^
+        version: link:../../runtime-diagnostics/invariants
 
   packages/channel/channel-kernel:
     devDependencies:
