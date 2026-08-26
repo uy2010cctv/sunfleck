@@ -556,6 +556,22 @@ describe('agent-preset schemas', () => {
     expect(() => agentPresetEntrySchema.parse({ id: '', trust: 'user', isDefault: false })).toThrow()
   })
 
+  it('accepts enterprise employee presentation and rejects non-text capabilities', () => {
+    expect(agentPresetEntrySchema.parse({
+      id: 'standard',
+      trust: 'system',
+      isDefault: true,
+      employee: {
+        position: '通用执行员工',
+        department: '数字化运营',
+        capabilities: ['文件执行'],
+      },
+    })).toMatchObject({ employee: { position: '通用执行员工' } })
+    expect(() => agentPresetEntrySchema.parse({
+      id: 'standard', trust: 'system', isDefault: true, employee: { capabilities: [1] },
+    })).toThrow()
+  })
+
   it('accepts an empty roster', () => {
     // A deployment composing no presets still reports its authoring and
     // native-open capabilities, so a surface knows what to offer.

@@ -2974,6 +2974,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             isDefault: preset.id === defaultId,
             ...preset.name === undefined ? {} : { name: preset.name },
             ...preset.description === undefined ? {} : { description: preset.description },
+            ...preset.employee === undefined ? {} : { employee: preset.employee },
             ...preset.broken === undefined ? {} : { broken: preset.broken },
           })),
           authorable: presets.authorable,
@@ -3049,6 +3050,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             content: await presets.read(preset.id),
             ...preset.name === undefined ? {} : { name: preset.name },
             ...preset.description === undefined ? {} : { description: preset.description },
+            ...preset.employee === undefined ? {} : { employee: preset.employee },
           })
         } catch (error: unknown) {
           return err(request, presetError(agentPreset, error))

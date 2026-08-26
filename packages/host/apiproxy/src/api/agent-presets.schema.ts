@@ -9,6 +9,13 @@ import type { Wire } from './rpc.schema.ts'
 import { sessionIdSchema } from './sessions.schema.ts'
 import type { AgentPresetEntry } from './agent-presets.ts'
 
+/** Optional enterprise presentation nested under a preset row. */
+const agentPresetEmployeeSchema = z.object({
+  position: z.string().min(1).optional(),
+  department: z.string().min(1).optional(),
+  capabilities: z.array(z.string().min(1)).optional(),
+})
+
 /** AgentPresetEntry row of agentPreset.list. */
 export const agentPresetEntrySchema = z.object({
   id: z.string().min(1),
@@ -16,6 +23,7 @@ export const agentPresetEntrySchema = z.object({
   isDefault: z.boolean(),
   name: z.string().optional(),
   description: z.string().optional(),
+  employee: agentPresetEmployeeSchema.optional(),
   broken: z.string().min(1).optional(),
 }) satisfies z.ZodType<Wire<AgentPresetEntry>>
 
@@ -53,6 +61,7 @@ export const agentPresetReadValueSchema = z.object({
   content: z.string(),
   name: z.string().optional(),
   description: z.string().optional(),
+  employee: agentPresetEmployeeSchema.optional(),
 }) satisfies z.ZodType<Wire<ResponseValue<'agentPreset.read'>>>
 
 /** agentPreset.copy request payload. */

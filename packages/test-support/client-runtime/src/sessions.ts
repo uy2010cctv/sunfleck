@@ -185,12 +185,23 @@ export class TestSessions implements ISessions {
   /** Calls observed on the service-level face, newest last. */
   readonly calls: {
     method: 'open' | 'openSubagent' | 'setSubagentCatalogOpen' | 'refreshSubagents'
-      | 'clear' | 'search' | 'fork'
+      | 'clear' | 'search' | 'fork' | 'create'
     args: unknown[]
   }[] = []
 
   /** The wire schema's `session.search` result bound (production parity). */
   readonly searchResultLimit = SESSION_SEARCH_RESULT_LIMIT
+
+  /**
+   * Fail-loud service stub. A feature test that creates Sessions must provide
+   * its own runtime/API harness rather than silently minting an incomplete fixture.
+   * @param opts - requested Host creation options, retained in the call ledger.
+   * @returns never — always rejects.
+   */
+  create(opts: Parameters<ISessions['create']>[0] = {}): Promise<SessionId> {
+    this.calls.push({ method: 'create', args: [opts] })
+    return Promise.reject(new Error('test sessions: create is not stubbed — use a real SessionRuntime/API harness'))
+  }
 
   /** Replaceable search behavior (see {@link TestSessions.stubSearch}). */
   private searchStub: ((query: string, signal: AbortSignal) => { items: SessionSearchResultItem[]; hasMore: boolean }) | undefined

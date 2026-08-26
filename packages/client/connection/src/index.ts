@@ -1,5 +1,6 @@
 /** Host HTTP bridge for browser-client RPC. */
 import type { Context } from '@deepseek-ai/cordis'
+import { randomUUID } from 'node:crypto'
 import z from '@deepseek-ai/schemastery'
 import type {} from '@deepseek-ai/dsh-attachment'
 // Activates the webServer Context merge used below.
@@ -9,7 +10,10 @@ import { API_PATH, HOST_EVENTS_PATH, MUX_EVENTS_PATH } from './api-path.ts'
 import { bridge, DEFAULT_MAX_REQUEST_BODY_BYTES } from './http-bridge.ts'
 import { assertTrustedAuthority, isTrustedApiRequest } from './api-request-trust.ts'
 import { HostConnectionService } from './rpc-host.ts'
-import { rejectWebSocketUpgrade, WebSocketDownlinks } from './websocket-downlink.ts'
+import {
+  rejectUnauthorizedWebSocketUpgrade, rejectWebSocketUpgrade, WebSocketDownlinks,
+} from './websocket-downlink.ts'
+import type {} from '@deepseek-ai/dsh-enterprise-auth-web'
 
 export type {
   ConnectionRpcAuthority,
@@ -184,6 +188,22 @@ export function apply(ctx: Context, config?: ConnectionConfig): void {
           if (!isTrustedApiRequest(req, trustedHosts)) {
             rejectWebSocketUpgrade(socket)
             return
+          }
+          const security = apiCtx.get('enterpriseSecurity')
+          if (security !== undefined) {
+            const cookie = typeof req.headers.cookie === 'string' ? req.headers.cookie : ''
+            const principal = security.authenticateCookie(cookie)
+            if (principal === undefined) {
+              rejectUnauthorizedWebSocketUpgrade(socket)
+              return
+            }
+            const endpoint = path === MUX_EVENTS_PATH ? 'events.mux' : 'events.host'
+            const decision = security.authorizeApi(principal, endpoint, {})
+            security.auditApi(principal, endpoint, {}, decision, randomUUID())
+            if (!decision.allowed) {
+              rejectWebSocketUpgrade(socket)
+              return
+            }
           }
           return handle(req, socket, head)
         },

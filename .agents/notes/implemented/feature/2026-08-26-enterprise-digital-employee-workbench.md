@@ -1,0 +1,62 @@
+# Agent Note: Enterprise digital-employee workbench
+
+Status: implemented
+
+English | [中文](2026-08-26-enterprise-digital-employee-workbench.zh.md)
+
+## Problem
+
+DSH exposes Agent Presets, Workspaces, Sessions, and Session Events as separate developer-facing concepts. An enterprise operator needs one coherent roster-and-work view, but a second employee or task engine would duplicate lifecycle and audit state and eventually disagree with the runtime.
+
+## Decision
+
+The enterprise operations layer is a DSH-native projection. Agent Presets are employee definitions, Workspaces are business spaces, Sessions are work records, and Session Events remain the audit source of truth.
+
+The browser surface is additive: one Sidebar footer action and one frame overlay. Starting work delegates to `SessionRuntime.create({ agentPreset })`; selecting existing work opens the original Session. The enterprise package stores no duplicate work lifecycle.
+
+## Preset metadata
+
+`preset.yml` has an optional `employee` presentation block with position, department, and capability labels. The fields are deliberately non-authoritative: the Preset id stays the identity, and the mounted composition stays the capability and permission authority. Copying a Preset retains reusable presentation while continuing to drop the source name and roster order.
+
+## StaffDeck provenance boundary
+
+OpenBMB StaffDeck informed the employee-roster and operations information architecture. No StaffDeck React components, FastAPI models, illustrations, avatars, logos, or source files are copied. DSH keeps its MIT source, Cordis plugin topology, runtime services, event log, theme tokens, and browser slot system.
+
+## Multi-user boundary
+
+The selected deployment target is one enterprise intranet with multiple users. This feature establishes the employee and operations projection but does not mislabel the current Host as authenticated multi-user infrastructure. A later authenticated identity and authorization provider must enforce record visibility and administrative actions before that deployment claim is complete. `trustedHosts` and loopback checks remain DNS-rebinding/reachability controls only.
+
+## Channel Kernel
+
+`@deepseek-ai/dsh-channel-kernel` establishes provider-neutral command, Sticky Employee, intent/default routing, canonical channel identity, inbound idempotency, retry timing, token/heartbeat health, Session recovery, and redacted message-audit contracts. Personal WeChat and WeCom Bot login, transport, durable inbox/outbox storage, and provider acknowledgements remain adapter responsibilities. The kernel routes into native Sessions and never creates another conversation store.
+
+## Enterprise governance kernel
+
+`@deepseek-ai/dsh-enterprise-governance` establishes organization-first authorization, administrator/creator/operator/auditor/member roles, employee and Session visibility, deployment readiness, and attributable audit contracts. It does not authenticate users or store secrets. LAN and Public deployment remain blocked until identity, RBAC, encrypted credentials, durable audit, single-port packaging, and Public TLS evidence are supplied by deployment adapters.
+
+## Authenticated enterprise deployment
+
+The opt-in enterprise overlay replaces the managed plaintext credential provider with AES-256-GCM envelope storage, mounts SQLite identity/session/resource-policy/audit persistence, and exposes local plus OIDC/SAML/LDAP login through `/auth` on the same Web port. The Connection carrier authenticates and authorizes every shared HTTP RPC, Typert endpoint, dedicated RPC channel, and WebSocket downlink when `ctx.enterpriseSecurity` is present; unknown endpoints fail closed. The browser adds a full-frame login gate and an administrator-only organization/user/role/asset-policy/audit ledger.
+
+External SSO is implementation-complete but deployment-validation-dependent. Protocol-library and simulated-provider tests prove PKCE/state/nonce, SAML signature/InResponseTo configuration, LDAP TLS/filter/bind behavior, and canonical claim mapping. They do not prove a customer's real IdP metadata, certificate chain, directory schema, group mapping, TLS termination, or secret-manager custody.
+
+## Alternatives considered
+
+**A separate StaffDeck-style employee backend.** Rejected because it would create another task, audit, and employee identity plane that must synchronize with Sessions and Presets.
+
+**Replacing the native Sidebar and Conversation.** Rejected because it would fork DSH navigation and execution behavior instead of composing with the existing slot system.
+
+**Calling trusted-host checks multi-user security.** Rejected because reachability and DNS-rebinding controls do not authenticate a person or authorize a record.
+
+**Embedding provider SDKs and RBAC directly in the workbench UI.** Rejected because transport and authorization must protect every Host entry point, not only one browser surface.
+
+**Enabling authentication in the ordinary developer Web profile.** Rejected because it would break the existing loopback development workflow and turn missing enterprise secrets into a default startup failure. Enterprise security is an explicit overlay with fail-closed required key material.
+
+## Consequences
+
+- The workbench immediately benefits from existing Session resume, replay, fork, Jobs, approval, subagent, and workflow facts.
+- Employee metadata can evolve without migrating session storage.
+- No synchronization or conflict policy is needed between two employee engines.
+- Enterprise roles, approval inboxes, persistent teams, and cross-user authorization remain explicit follow-up capabilities rather than UI-only claims.
+- Channel and governance policy can be tested before any provider SDK or SSO system is selected.
+- Desktop, LAN, and Public deployments share one-port `/auth` and `/api` transport; Public still requires deployment TLS.

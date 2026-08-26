@@ -1,3 +1,10 @@
 name: PTC 模式
 description: 具备标准模式的全部能力，并通过 Code Mode SDK 呈现工具，让模型用一个 TypeScript 程序组合多步操作。
 order: 2
+employee:
+  position: 自动化编排员工
+  department: 数字化运营
+  capabilities:
+    - Code Mode
+    - 批量工具编排
+    - 任务协作

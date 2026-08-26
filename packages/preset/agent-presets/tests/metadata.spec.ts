@@ -85,6 +85,40 @@ describe('reading display metadata', () => {
     // shipped one; identity comes from the directory and the root it sits in.
     expect(await readPresetMetadata(dir)).toEqual({ name: 'mine' })
   })
+
+  it('reads enterprise employee metadata', async () => {
+    const dir = await presetDir([
+      'name: 标准模式',
+      'employee:',
+      '  position: 通用执行员工',
+      '  department: 数字化运营',
+      '  capabilities: [文件执行, 信息检索]',
+      '',
+    ].join('\n'))
+
+    expect(await readPresetMetadata(dir)).toEqual({
+      name: '标准模式',
+      employee: {
+        position: '通用执行员工',
+        department: '数字化运营',
+        capabilities: ['文件执行', '信息检索'],
+      },
+    })
+  })
+
+  it('keeps only valid employee metadata fields', async () => {
+    const dir = await presetDir([
+      'employee:',
+      '  position: " "',
+      '  department: 42',
+      '  capabilities: [文件执行, 42, "", 信息检索]',
+      '',
+    ].join('\n'))
+
+    expect(await readPresetMetadata(dir)).toEqual({
+      employee: { capabilities: ['文件执行', '信息检索'] },
+    })
+  })
 })
 
 describe('rendering display metadata', () => {
@@ -110,5 +144,24 @@ describe('rendering display metadata', () => {
     // an intentional blank name.
     expect(renderPresetMetadata({})).toBeUndefined()
     expect(renderPresetMetadata({ name: '  ', description: '' })).toBeUndefined()
+  })
+
+  it('round-trips enterprise employee metadata', async () => {
+    const rendered = renderPresetMetadata({
+      employee: {
+        position: '员工构建师',
+        department: '平台工程',
+        capabilities: ['Preset 设计', '插件实验'],
+      },
+    })
+    const dir = await presetDir(rendered)
+
+    expect(await readPresetMetadata(dir)).toEqual({
+      employee: {
+        position: '员工构建师',
+        department: '平台工程',
+        capabilities: ['Preset 设计', '插件实验'],
+      },
+    })
   })
 })

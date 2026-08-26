@@ -39,10 +39,19 @@ function stubAgent(session: Session): Agent {
  * `apps/cli`. Ids listed in `userIds` present as locally authored; the rest
  * ship with the deployment.
  */
-function roster(ids: readonly string[], userIds: readonly string[] = []): unknown {
+function roster(
+  ids: readonly string[],
+  userIds: readonly string[] = [],
+  employeeById: Readonly<Record<string, object>> = {},
+): unknown {
   const trustOf = (id: string): 'system' | 'user' => (userIds.includes(id) ? 'user' : 'system')
   const presetOf = (id: string): object =>
-    ({ id, trust: trustOf(id), path: `/presets/${id}/agent.cordis.yml` })
+    ({
+      id,
+      trust: trustOf(id),
+      path: `/presets/${id}/agent.cordis.yml`,
+      ...employeeById[id] === undefined ? {} : { employee: employeeById[id] },
+    })
   return {
     defaultId: ids[0],
     list: () => Promise.resolve(ids.map(presetOf)),
@@ -104,7 +113,11 @@ const services = new Map<string, Record<string, unknown>>()
 async function harness(
   presets?: readonly string[],
   persistence?: unknown,
-  options: { userIds?: readonly string[]; defaults?: Record<string, unknown> } = {},
+  options: {
+    userIds?: readonly string[]
+    employeeById?: Readonly<Record<string, object>>
+    defaults?: Record<string, unknown>
+  } = {},
 ) {
   const cwd = realpathSync(mkdtempSync(join(tmpdir(), 'dsh-apiproxy-preset-')))
   const ctx = new Context()
@@ -112,7 +125,9 @@ async function harness(
   await ctx.plugin(AgentRegistry)
   await ctx.plugin(UserQuestionService)
   ctx.provide('sessionPersistence', (persistence ?? { list: () => Promise.resolve([]) }) as never)
-  if (presets !== undefined) ctx.provide('agentPresets', roster(presets, options.userIds) as never)
+  if (presets !== undefined) {
+    ctx.provide('agentPresets', roster(presets, options.userIds, options.employeeById) as never)
+  }
 
   const factory: AgentFactory = {
     async createAgent(_ownerCtx, options) {
@@ -338,6 +353,33 @@ describe('agentPreset.list', () => {
     // Nothing to write to either, so a surface offering "new preset" knows to
     // stay hidden rather than offering a button whose save always fails.
     expect(response.result.value.authorable).toBe(false)
+  })
+
+  it('projects enterprise employee metadata without changing preset identity', async () => {
+    const { api } = await harness(['standard'], undefined, {
+      employeeById: {
+        standard: {
+          position: '通用执行员工',
+          department: '数字化运营',
+          capabilities: ['文件执行', '信息检索'],
+        },
+      },
+    })
+
+    const response = await api.agentPresets.list(request({}))
+
+    expect(response.result.ok).toBe(true)
+    if (!response.result.ok) throw new Error('unreachable')
+    expect(response.result.value.presets[0]).toEqual({
+      id: 'standard',
+      trust: 'system',
+      isDefault: true,
+      employee: {
+        position: '通用执行员工',
+        department: '数字化运营',
+        capabilities: ['文件执行', '信息检索'],
+      },
+    })
   })
 })
 

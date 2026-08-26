@@ -10,6 +10,7 @@ import type { ApiProxy } from '@deepseek-ai/dsh-host-apiproxy/api'
 import type { AttachmentStore } from '@deepseek-ai/dsh-attachment'
 import { RpcId, type ClientRequest } from '@deepseek-ai/dsh-host-apiproxy/api'
 import type { WebServer, WebRoute, WebUpgradeRoute } from '@deepseek-ai/dsh-host-webserver'
+import type { EnterpriseSecurity } from '@deepseek-ai/dsh-enterprise-auth-web'
 import { API_PATH, apply, HOST_EVENTS_PATH, inject, MUX_EVENTS_PATH, type HostConnectionHandle } from '../src/index.ts'
 import { DEFAULT_MAX_REQUEST_BODY_BYTES } from '../src/http-bridge.ts'
 
@@ -154,6 +155,53 @@ describe('connection node half', () => {
     await ended
     expect(Buffer.concat(chunks).toString()).toContain('HTTP/1.1 403 Forbidden')
     await dispose()
+  })
+
+  it('enforces enterprise authentication and RBAC before HTTP and WebSocket Host APIs', async () => {
+    const ctx = new Context()
+    const routes: WebRoute[] = []
+    const upgrades: WebUpgradeRoute[] = []
+    const audits: unknown[] = []
+    const principal = {
+      userId: 'member-1', orgId: 'org-a', username: 'member', displayName: 'Member', roles: ['member'] as const,
+    }
+    ctx.provide('webServer', fakeHttpServer(routes, upgrades) as WebServer)
+    ctx.provide('apiProxy', {} as ApiProxy)
+    ctx.provide('enterpriseSecurity', {
+      authenticateCookie: (cookie: string) => cookie.includes('dsh_session=valid') ? principal : undefined,
+      authorizeApi: (_principal: unknown, endpoint: string) => endpoint === 'sessions.list' || endpoint === 'events.mux'
+        ? { allowed: true, reason: 'resource-visible' }
+        : { allowed: false, reason: 'insufficient-role' },
+      auditApi: (...args: unknown[]) => { audits.push(args) },
+    } as unknown as EnterpriseSecurity)
+    const fiber = ctx.plugin({ inject: [...inject], apply })
+    await fiber.await()
+    const route = routes.find(candidate => candidate.path === API_PATH)!
+    const listRequest: ClientRequest = {
+      type: 'client-request', rpcId: RpcId('enterprise-list'), method: 'sessions.list', payload: {},
+    }
+
+    const anonymous = fakeResponse()
+    await route.handler(fakePost({ host: '127.0.0.1:3080' }, '/api/sessions.list', listRequest), anonymous.response)
+    expect(anonymous.state).toMatchObject({ status: 401, body: 'unauthorized' })
+
+    const forbidden = fakeResponse()
+    await route.handler(fakePost({
+      host: '127.0.0.1:3080', cookie: 'dsh_session=valid',
+    }, '/api/credentials.set', {
+      type: 'client-request', rpcId: 'enterprise-denied', method: 'credentials.set', payload: {},
+    }), forbidden.response)
+    expect(forbidden.state).toMatchObject({ status: 403, body: 'forbidden' })
+    expect(audits).toHaveLength(1)
+
+    const socket = new PassThrough()
+    const chunks: Buffer[] = []
+    socket.on('data', (chunk: Buffer) => { chunks.push(chunk) })
+    const ended = once(socket, 'end')
+    await upgrades[0]!.handler(fakeRequest({ host: '127.0.0.1:3080' }, MUX_EVENTS_PATH), socket, Buffer.alloc(0))
+    await ended
+    expect(Buffer.concat(chunks).toString()).toContain('HTTP/1.1 401 Unauthorized')
+    await fiber.dispose()
   })
 
   it('refuses an untrusted Host on any /api path before the bridge runs', async () => {

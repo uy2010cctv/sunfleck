@@ -12,6 +12,16 @@
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { RpcRequest, RpcResponse } from './rpc.ts'
 
+/** Optional enterprise presentation projected from a preset's metadata. */
+export interface AgentPresetEmployee {
+  /** Human-facing position. */
+  readonly position?: string
+  /** Human-facing department. */
+  readonly department?: string
+  /** Capability labels derived from the preset's real composition. */
+  readonly capabilities?: readonly string[]
+}
+
 /** One preset the deployment can compose a session's agent from. */
 export interface AgentPresetEntry {
   /** Stable identifier, also the display name until presets carry metadata. */
@@ -33,6 +43,8 @@ export interface AgentPresetEntry {
   readonly name?: string
   /** One sentence on what the preset is for, when it published one. */
   readonly description?: string
+  /** Enterprise roster presentation; the preset id remains the employee identity. */
+  readonly employee?: AgentPresetEmployee
   /**
    * Why this preset cannot compose a session, absent when it can. A broken
    * preset stays listed — its directory still occupies the id, so a surface
@@ -84,6 +96,7 @@ export interface AgentPresetsApi {
     content: string
     name?: string
     description?: string
+    employee?: AgentPresetEmployee
   }>>
 
   /**

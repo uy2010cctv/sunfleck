@@ -75,9 +75,13 @@ A preset may publish display text in an optional `preset.yml` beside its composi
 ```yaml
 name: 极简模式
 description: 仅提供持久 bash 与 str_replace_editor 的双工具编码 Agent。
+employee:
+  position: 轻量开发员工
+  department: 研发支持
+  capabilities: [持久终端, 精确文件编辑]
 ```
 
-It carries display text ONLY. `id` is the directory name and `trust` comes from the root the preset was discovered under, so neither is writable here — otherwise a locally authored preset could name itself into the shipped set. It is a separate file because the composition is a top-level list of plugin rows: YAML cannot carry sibling keys beside it, and a fake metadata row would hand the Loader something to load.
+It carries presentation ONLY. `id` is the directory name and `trust` comes from the root the preset was discovered under, so neither is writable here — otherwise a locally authored preset could name itself into the shipped set. Optional `employee` fields describe the Preset's position, department, and capability labels for an enterprise roster; they grant no tools or permissions. It is a separate file because the composition is a top-level list of plugin rows: YAML cannot carry sibling keys beside it, and a fake metadata row would hand the Loader something to load.
 
 Every read failure degrades to no metadata — absent, malformed, wrongly typed, or blank all mean the same thing, and a picker falls back to the id. Presentation is not capability: a preset with a broken name still mounts.
 

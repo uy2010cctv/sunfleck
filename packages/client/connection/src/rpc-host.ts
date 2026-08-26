@@ -73,18 +73,48 @@ export class HostConnectionService extends Service implements HostConnectionHand
     fallback: FetchHandler,
   ): FetchHandler {
     return {
-      fetch: (request) => {
-        const endpoint = endpointFromPath(channel, new URL(request.url).pathname)
-        const interceptor = this.interceptors.get(channel)
-        if (endpoint === undefined || interceptor === undefined || !interceptor.matches(endpoint)) {
-          return fallback.fetch(request)
-        }
-        if (interceptor.options.authority === 'loopback' && !isTrustedApiRequest(request, [])) {
-          return Promise.resolve(new Response('forbidden', { status: 403 }))
-        }
-        return interceptor.fetchHandler.fetch(request)
-      },
+      fetch: request => this.authorizeFetch(channel, request, {
+        fetch: (authorizedRequest) => {
+          const endpoint = endpointFromPath(channel, new URL(authorizedRequest.url).pathname)
+          const interceptor = this.interceptors.get(channel)
+          if (endpoint === undefined || interceptor === undefined || !interceptor.matches(endpoint)) {
+            return fallback.fetch(authorizedRequest)
+          }
+          if (interceptor.options.authority === 'loopback' && !isTrustedApiRequest(authorizedRequest, [])) {
+            return Promise.resolve(new Response('forbidden', { status: 403 }))
+          }
+          return interceptor.fetchHandler.fetch(authorizedRequest)
+        },
+      }),
     }
+  }
+
+  private async authorizeFetch(channel: string, request: Request, target: FetchHandler): Promise<Response> {
+    const security = this.ctx.get('enterpriseSecurity')
+    if (security === undefined) return target.fetch(request)
+    const principal = security.authenticateCookie(request.headers.get('cookie') ?? '')
+    if (principal === undefined) return new Response('unauthorized', { status: 401 })
+    const rawEndpoint = endpointFromPath(channel, new URL(request.url).pathname)
+    if (rawEndpoint === undefined) return new Response('forbidden', { status: 403 })
+    const endpoint = rawEndpoint.replaceAll('/', '.')
+    let payload: unknown = {}
+    let correlationId = 'non-rpc-request'
+    if (request.method === 'POST') {
+      try {
+        const body: unknown = await request.clone().json()
+        const parsed = clientRequestSchema.safeParse(body)
+        if (parsed.success) {
+          payload = parsed.data.payload
+          correlationId = parsed.data.rpcId
+        }
+      } catch {
+        // The target handler owns malformed-body diagnostics after authentication.
+      }
+    }
+    const decision = security.authorizeApi(principal, endpoint, payload)
+    security.auditApi(principal, endpoint, payload, decision, correlationId)
+    if (!decision.allowed) return new Response('forbidden', { status: 403 })
+    return target.fetch(request)
   }
 
   private register(
@@ -105,7 +135,7 @@ export class HostConnectionService extends Service implements HostConnectionHand
           res.end('forbidden')
           return
         }
-        await bridge(req, res, fetchHandler)
+        await bridge(req, res, { fetch: request => this.authorizeFetch(channel, request, fetchHandler) })
       },
     }
     return owner.effect(
