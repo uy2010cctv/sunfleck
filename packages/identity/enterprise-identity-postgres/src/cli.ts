@@ -1,0 +1,53 @@
+/** Command-line entry point for one-shot SQLite to PostgreSQL identity migration. */
+
+import { Pool } from 'pg'
+import { migrateSqliteEnterpriseIdentityToPostgres } from './migration.ts'
+
+interface CliOptions {
+  readonly sqliteFilename: string
+  readonly databaseUrl: string
+  readonly dryRun: boolean
+}
+
+function parseOptions(argv: readonly string[]): CliOptions {
+  let sqliteFilename: string | undefined
+  let databaseUrl: string | undefined
+  let dryRun = false
+  for (let index = 0; index < argv.length; index += 1) {
+    const argument = argv[index]
+    if (argument === '--dry-run') dryRun = true
+    else if (argument === '--sqlite') sqliteFilename = argv[index + 1]
+    else if (argument === '--database-url') databaseUrl = argv[index + 1]
+    else throw new Error(`unknown migration argument: ${argument}`)
+    if (argument === '--sqlite' || argument === '--database-url') index += 1
+  }
+  if (sqliteFilename === undefined || databaseUrl === undefined) {
+    throw new Error('usage: dsh-enterprise-identity-migrate --sqlite <identity.sqlite> --database-url <postgres-url> [--dry-run]')
+  }
+  return { sqliteFilename, databaseUrl, dryRun }
+}
+
+/** Runs the migration CLI and writes only counts/checksums, never database secrets or tokens. */
+export async function runMigrationCli(argv: readonly string[], write: (line: string) => void = console.log): Promise<void> {
+  const options = parseOptions(argv)
+  if (options.dryRun) {
+    const report = await migrateSqliteEnterpriseIdentityToPostgres({
+      sqliteFilename: options.sqliteFilename,
+      target: { async query() { throw new Error('dry run must not query PostgreSQL') } },
+      dryRun: true,
+    })
+    write(JSON.stringify(report))
+    return
+  }
+  const pool = new Pool({ connectionString: options.databaseUrl })
+  try {
+    const report = await migrateSqliteEnterpriseIdentityToPostgres({ sqliteFilename: options.sqliteFilename, target: pool })
+    write(JSON.stringify(report))
+  } finally {
+    await pool.end()
+  }
+}
+
+if (import.meta.url === `file://${process.argv[1]}`) {
+  await runMigrationCli(process.argv.slice(2))
+}
