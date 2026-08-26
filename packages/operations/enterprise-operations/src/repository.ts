@@ -4,6 +4,7 @@ import type {
   ApprovalKind,
   ApprovalView,
   BusinessState,
+  EnterpriseOperationsRepositoryOptions,
   FixedTeamView,
   PostgresDatabase,
   ScheduleFireView,
@@ -100,12 +101,21 @@ interface TeamRow extends Record<string, unknown> {
   created_at: number | string
   updated_at: number | string
 }
+interface OutboxRow extends Record<string, unknown> {
+  command_id: string
+  org_id: string
+  schedule_id: string
+  occurrence_key: string
+  work_session_id: string
+  employee_release_id: string
+  team_id: string | null
+}
 
 export class EnterpriseOperationsRepository {
   private initialized: Promise<void> | undefined
   constructor(
     private readonly database: PostgresDatabase,
-    private readonly options: { now?: () => number } = {},
+    private readonly options: EnterpriseOperationsRepositoryOptions = {},
   ) {}
   private now(): number {
     return this.options.now?.() ?? Date.now()
@@ -116,6 +126,23 @@ export class EnterpriseOperationsRepository {
   }
   private async lock(database: PostgresDatabase, key: string): Promise<void> {
     await database.query('SELECT pg_advisory_xact_lock(hashtext($1))', [key])
+  }
+  private async requireSession(orgId: string, sessionId: string): Promise<void> {
+    if ((await this.options.resolveSession?.(orgId, sessionId)) !== true)
+      throw new Error(`native session ${sessionId} was not found in organization ${orgId}`)
+  }
+  private async requireRelease(orgId: string, releaseId: string): Promise<void> {
+    if ((await this.options.resolveRelease?.(orgId, releaseId)) !== true)
+      throw new Error(`native employee release ${releaseId} was not found in organization ${orgId}`)
+  }
+  private async teamTarget(database: PostgresDatabase, orgId: string, teamId: string): Promise<TeamRow> {
+    const result = await database.query<TeamRow>(
+      'SELECT * FROM dsh_enterprise_fixed_teams WHERE team_id = $1 AND org_id = $2',
+      [teamId, orgId],
+    )
+    const team = result.rows[0]
+    if (team === undefined || team.org_id !== orgId) throw new Error(`fixed team ${teamId} was not found in organization ${orgId}`)
+    return team
   }
   private async idempotent<T>(database: PostgresDatabase, orgId: string, operation: string, key: string): Promise<T | undefined> {
     const result = await database.query<{ result_json: unknown }>(
@@ -136,9 +163,16 @@ export class EnterpriseOperationsRepository {
       await this.lock(database, `work:${input.sessionId}:${input.employeeReleaseId}`)
       const prior = await this.idempotent<WorkRecordView>(database, input.orgId, 'work', input.idempotencyKey)
       if (prior !== undefined) return prior
-      const result = await database.query<WorkRow>(
+      const owner = await database.query<WorkRow>(
         'SELECT * FROM dsh_enterprise_work_records WHERE session_id = $1 AND employee_release_id = $2 FOR UPDATE',
         [input.sessionId, input.employeeReleaseId],
+      )
+      if (owner.rows[0] !== undefined && owner.rows[0].org_id !== input.orgId)
+        throw new Error(`work record ${input.sessionId} is outside organization ${input.orgId}`)
+      await Promise.all([this.requireSession(input.orgId, input.sessionId), this.requireRelease(input.orgId, input.employeeReleaseId)])
+      const result = await database.query<WorkRow>(
+        'SELECT * FROM dsh_enterprise_work_records WHERE org_id = $1 AND session_id = $2 AND employee_release_id = $3 FOR UPDATE',
+        [input.orgId, input.sessionId, input.employeeReleaseId],
       )
       const current = result.rows[0]
       const now = this.now()
@@ -164,7 +198,6 @@ export class EnterpriseOperationsRepository {
         return view
       }
       const before = this.work(current)
-      if (before.orgId !== input.orgId) throw new Error(`work record ${input.sessionId} is outside organization ${input.orgId}`)
       assertSourceImmutable(before, input)
       if (before.revision !== input.expectedRevision) throw new Error(`work record ${input.sessionId} revision conflict`)
       const updated = await database.query<WorkRow>(
@@ -182,8 +215,8 @@ export class EnterpriseOperationsRepository {
   async getWorkRecord(orgId: string, sessionId: string, employeeReleaseId: string): Promise<WorkRecordView | undefined> {
     await this.initialize()
     const result = await this.database.query<WorkRow>(
-      'SELECT * FROM dsh_enterprise_work_records WHERE session_id = $1 AND employee_release_id = $2',
-      [sessionId, employeeReleaseId],
+      'SELECT * FROM dsh_enterprise_work_records WHERE org_id = $1 AND session_id = $2 AND employee_release_id = $3',
+      [orgId, sessionId, employeeReleaseId],
     )
     const row = result.rows[0]
     return row === undefined || row.org_id !== orgId ? undefined : this.work(row)
@@ -275,6 +308,8 @@ export class EnterpriseOperationsRepository {
       const prior = await this.idempotent<ScheduleView>(database, input.orgId, 'schedule-create', input.idempotencyKey)
       if (prior !== undefined) return prior
       if (input.expectedRevision !== 0) throw new Error(`schedule ${input.scheduleId} revision conflict`)
+      if (input.target.kind === 'employee') await this.requireRelease(input.orgId, input.target.employeeReleaseId)
+      else await this.teamTarget(database, input.orgId, input.target.teamId)
       const now = this.now()
       const result = await database.query<ScheduleRow>(
         'INSERT INTO dsh_enterprise_schedules(schedule_id,org_id,target_json,timezone,rule,input_json,state,' +
@@ -317,6 +352,28 @@ export class EnterpriseOperationsRepository {
     await this.initialize()
     return this.database.transaction(async (database) => {
       await this.lock(database, `schedule:${input.scheduleId}`)
+      const occurrence = await database.query<OutboxRow>(
+        'SELECT * FROM dsh_enterprise_operation_outbox WHERE schedule_id = $1 AND occurrence_key = $2 AND org_id = $3',
+        [input.scheduleId, input.occurrenceKey, input.orgId],
+      )
+      const existing = occurrence.rows[0]
+      if (existing !== undefined) {
+        const work = await database.query<WorkRow>(
+          'SELECT * FROM dsh_enterprise_work_records WHERE org_id = $1 AND session_id = $2 AND employee_release_id = $3',
+          [input.orgId, existing.work_session_id, existing.employee_release_id],
+        )
+        const view: ScheduleFireView = {
+          workRecord: this.work(required(work.rows[0], 'existing schedule work record')),
+          command: {
+            kind: 'start-session',
+            sessionId: existing.work_session_id,
+            employeeReleaseId: existing.employee_release_id,
+            ...(existing.team_id === null ? {} : { teamId: existing.team_id }),
+          },
+        }
+        await this.remember(database, input.orgId, 'schedule-fire', input.idempotencyKey, view)
+        return view
+      }
       const prior = await this.idempotent<ScheduleFireView>(database, input.orgId, 'schedule-fire', input.idempotencyKey)
       if (prior !== undefined) return prior
       const scheduleResult = await database.query<ScheduleRow>(
@@ -326,9 +383,11 @@ export class EnterpriseOperationsRepository {
       const schedule = scheduleResult.rows[0]
       if (schedule === undefined || schedule.org_id !== input.orgId) throw new Error('schedule not found')
       if (Number(schedule.revision) !== input.expectedRevision) throw new Error(`schedule ${input.scheduleId} revision conflict`)
-      const target = record(schedule.target_json)
-      const employeeReleaseId = typeof target.employeeReleaseId === 'string' ? target.employeeReleaseId : undefined
-      if (employeeReleaseId === undefined) throw new Error('schedule target has no employee release')
+      const target = scheduleTarget(schedule.target_json)
+      const team = target.kind === 'team' ? await this.teamTarget(database, input.orgId, target.teamId) : undefined
+      const employeeReleaseId = target.kind === 'employee' ? target.employeeReleaseId : required(team, 'fixed team').leader_release_id
+      const teamId = target.kind === 'team' ? target.teamId : undefined
+      await Promise.all([this.requireSession(input.orgId, input.sessionId), this.requireRelease(input.orgId, employeeReleaseId)])
       const work = await database.query<WorkRow>(
         'INSERT INTO dsh_enterprise_work_records(org_id, session_id, employee_release_id, team_id, source, ' +
           'business_state, source_references_json, revision, created_at, updated_at) ' +
@@ -337,7 +396,7 @@ export class EnterpriseOperationsRepository {
           input.orgId,
           input.sessionId,
           employeeReleaseId,
-          null,
+          teamId ?? null,
           'schedule',
           'active',
           JSON.stringify({ scheduleId: input.scheduleId, occurrenceKey: input.occurrenceKey }),
@@ -346,7 +405,7 @@ export class EnterpriseOperationsRepository {
       )
       const outbox = await database.query(
         'INSERT INTO dsh_enterprise_operation_outbox(command_id,org_id,schedule_id,occurrence_key,work_session_id,' +
-          "employee_release_id,payload_json,state,created_at) VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb,'pending',$8) RETURNING *",
+          "employee_release_id,team_id,payload_json,state,created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,'pending',$9) RETURNING *",
         [
           randomUUID(),
           input.orgId,
@@ -354,6 +413,7 @@ export class EnterpriseOperationsRepository {
           input.occurrenceKey,
           input.sessionId,
           employeeReleaseId,
+          teamId ?? null,
           JSON.stringify({ input: parse(schedule.input_json) }),
           input.firedAt,
         ],
@@ -367,7 +427,7 @@ export class EnterpriseOperationsRepository {
       if (updated.rows[0] === undefined) throw new Error(`schedule ${input.scheduleId} revision conflict`)
       const view: ScheduleFireView = {
         workRecord: this.work(required(work.rows[0], 'work record')),
-        command: { kind: 'start-session', sessionId: input.sessionId, employeeReleaseId },
+        command: { kind: 'start-session', sessionId: input.sessionId, employeeReleaseId, ...(teamId === undefined ? {} : { teamId }) },
       }
       await this.remember(database, input.orgId, 'schedule-fire', input.idempotencyKey, view)
       return view
@@ -389,6 +449,10 @@ export class EnterpriseOperationsRepository {
       const prior = await this.idempotent<FixedTeamView>(database, input.orgId, 'team-create', input.idempotencyKey)
       if (prior !== undefined) return prior
       if (input.expectedRevision !== 0) throw new Error(`fixed team ${input.teamId} revision conflict`)
+      await Promise.all([
+        this.requireRelease(input.orgId, input.leaderEmployeeReleaseId),
+        ...input.members.map(member => this.requireRelease(input.orgId, member.employeeReleaseId)),
+      ])
       const now = this.now()
       const result = await database.query<TeamRow>(
         'INSERT INTO dsh_enterprise_fixed_teams(team_id,org_id,leader_release_id,workflow_template_json,' +

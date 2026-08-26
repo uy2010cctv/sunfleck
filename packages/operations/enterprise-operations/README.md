@@ -4,9 +4,9 @@ English | [中文](README.zh.md)
 
 Durable operation projections over native DSH execution:
 
-- Work records reference native Session IDs and never duplicate event bodies.
+- Work records reference native Session IDs and employee releases only after injected resolvers confirm both in the same organization; they never duplicate event bodies.
 - Approval requests use optimistic revisions and auditable transitions.
-- Schedules create one idempotent start-session Outbox command per occurrence.
+- Employee and fixed-team schedules create one idempotent start-session Outbox command per occurrence; retries with another request idempotency key return the original command.
 - Fixed teams bind a leader, members, Workflow template, and approval policy.
 - PostgreSQL transactions and organization-scoped queries preserve boundaries.
 

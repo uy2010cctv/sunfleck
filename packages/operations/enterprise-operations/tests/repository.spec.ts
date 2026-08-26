@@ -74,6 +74,7 @@ interface OutboxRow {
   occurrence_key: string
   work_session_id: string
   employee_release_id: string
+  team_id: string | null
   payload_json: unknown
   state: string
   created_at: number
@@ -145,8 +146,14 @@ class MemoryPostgresDatabase implements PostgresDatabase {
       return []
     }
     if (text.startsWith('SELECT ') && text.includes('FROM dsh_enterprise_work_records')) {
+      if (text.includes('WHERE org_id = $1') && text.includes('session_id = $2')) {
+        const row = this.workRecords.get(`${String(values[0])}:${String(values[1])}:${String(values[2])}`)
+        return row === undefined ? [] : [clone(row)]
+      }
       if (text.includes('WHERE session_id = $1')) {
-        const row = this.workRecords.get(`${String(values[0])}:${String(values[1])}`)
+        const row = [...this.workRecords.values()].find(
+          candidate => candidate.session_id === String(values[0]) && candidate.employee_release_id === String(values[1]),
+        )
         return row === undefined ? [] : [clone(row)]
       }
       return [...this.workRecords.values()]
@@ -168,11 +175,11 @@ class MemoryPostgresDatabase implements PostgresDatabase {
         created_at: Number(values[7]),
         updated_at: Number(values[7]),
       }
-      this.workRecords.set(`${row.session_id}:${row.employee_release_id}`, row)
+      this.workRecords.set(`${row.org_id}:${row.session_id}:${row.employee_release_id}`, row)
       return [clone(row)]
     }
     if (text.startsWith('UPDATE dsh_enterprise_work_records')) {
-      const row = this.workRecords.get(`${String(values.at(-2))}:${String(values.at(-1))}`)
+      const row = this.workRecords.get(`${String(values[3])}:${String(values.at(-2))}:${String(values.at(-1))}`)
       if (row === undefined) return []
       row.team_id = values[0] === null ? null : String(values[0])
       row.business_state = String(values[1])
@@ -245,7 +252,10 @@ class MemoryPostgresDatabase implements PostgresDatabase {
     }
     if (text.startsWith('SELECT ') && text.includes('FROM dsh_enterprise_operation_outbox')) {
       const row = [...this.outbox.values()].find(
-        candidate => candidate.schedule_id === String(values[0]) && candidate.occurrence_key === String(values[1]),
+        candidate =>
+          candidate.schedule_id === String(values[0]) &&
+          candidate.occurrence_key === String(values[1]) &&
+          candidate.org_id === String(values[2]),
       )
       return row === undefined ? [] : [clone(row)]
     }
@@ -261,9 +271,10 @@ class MemoryPostgresDatabase implements PostgresDatabase {
         occurrence_key: String(values[3]),
         work_session_id: String(values[4]),
         employee_release_id: String(values[5]),
-        payload_json: parse(values[6]),
+        team_id: values[6] === null ? null : String(values[6]),
+        payload_json: parse(values[7]),
         state: 'pending',
-        created_at: Number(values[7]),
+        created_at: Number(values[8]),
       }
       this.outbox.set(row.command_id, row)
       return [clone(row)]
@@ -343,15 +354,24 @@ const work = {
   idempotencyKey: 'work-a',
 }
 
+const references = {
+  resolveSession: async (orgId: string, sessionId: string) => orgId === 'org-a' && !sessionId.startsWith('missing'),
+  resolveRelease: async (orgId: string, releaseId: string) => orgId === 'org-a' && !releaseId.startsWith('missing'),
+}
+
+function repository(database = new MemoryPostgresDatabase(), now?: () => number): EnterpriseOperationsRepository {
+  return new EnterpriseOperationsRepository(database, { ...references, ...(now === undefined ? {} : { now }) })
+}
+
 describe('EnterpriseOperationsRepository', () => {
   it('keeps native session source references immutable while projecting one work record', async () => {
-    const repository = new EnterpriseOperationsRepository(new MemoryPostgresDatabase(), { now: () => 100 })
-    const created = await repository.upsertWorkRecord(work)
-    const retried = await repository.upsertWorkRecord({ ...work, businessState: 'completed' })
+    const operations = repository(new MemoryPostgresDatabase(), () => 100)
+    const created = await operations.upsertWorkRecord(work)
+    const retried = await operations.upsertWorkRecord({ ...work, businessState: 'completed' })
 
     expect(retried).toEqual(created)
     await expect(
-      repository.upsertWorkRecord({
+      operations.upsertWorkRecord({
         ...work,
         expectedRevision: 1,
         idempotencyKey: 'work-mutate-source',
@@ -361,8 +381,8 @@ describe('EnterpriseOperationsRepository', () => {
   })
 
   it('allows one pending approval transition and rejects a concurrent stale reviewer', async () => {
-    const repository = new EnterpriseOperationsRepository(new MemoryPostgresDatabase())
-    await repository.createApprovalRequest({
+    const operations = repository()
+    await operations.createApprovalRequest({
       approvalId: 'approval-a',
       orgId: 'org-a',
       kind: 'publish',
@@ -372,7 +392,7 @@ describe('EnterpriseOperationsRepository', () => {
       idempotencyKey: 'approval-create',
     })
     const settled = await Promise.allSettled([
-      repository.transitionApproval({
+      operations.transitionApproval({
         approvalId: 'approval-a',
         orgId: 'org-a',
         expectedRevision: 1,
@@ -380,7 +400,7 @@ describe('EnterpriseOperationsRepository', () => {
         state: 'approved',
         reviewerUserId: 'reviewer-a',
       }),
-      repository.transitionApproval({
+      operations.transitionApproval({
         approvalId: 'approval-a',
         orgId: 'org-a',
         expectedRevision: 1,
@@ -398,8 +418,8 @@ describe('EnterpriseOperationsRepository', () => {
   })
 
   it('fires a schedule once per occurrence and creates one session command outbox record', async () => {
-    const repository = new EnterpriseOperationsRepository(new MemoryPostgresDatabase(), { now: () => 200 })
-    await repository.createSchedule({
+    const operations = repository(new MemoryPostgresDatabase(), () => 200)
+    await operations.createSchedule({
       scheduleId: 'schedule-a',
       orgId: 'org-a',
       target: { kind: 'employee', employeeReleaseId: 'release-a' },
@@ -420,28 +440,35 @@ describe('EnterpriseOperationsRepository', () => {
       firedAt: 200,
       nextRunAt: 300,
     }
-    const [first, second] = await Promise.all([repository.fireSchedule(fire), repository.fireSchedule(fire)])
+    const [first, second] = await Promise.all([operations.fireSchedule(fire), operations.fireSchedule(fire)])
+    const replayedOccurrence = await operations.fireSchedule({
+      ...fire,
+      expectedRevision: 0,
+      idempotencyKey: 'fire-a-fresh-key',
+      sessionId: 'missing-session-is-ignored-for-an-existing-occurrence',
+    })
 
     expect(second).toEqual(first)
+    expect(replayedOccurrence).toEqual(first)
     expect(first.workRecord.source).toBe('schedule')
     expect(first.command.kind).toBe('start-session')
-    expect((await repository.listWorkRecords({ orgId: 'org-a' })).items).toHaveLength(1)
+    expect((await operations.listWorkRecords({ orgId: 'org-a' })).items).toHaveLength(1)
   })
 
   it('does not reveal or mutate records outside the requested organization', async () => {
-    const repository = new EnterpriseOperationsRepository(new MemoryPostgresDatabase())
-    await repository.upsertWorkRecord(work)
+    const operations = repository()
+    await operations.upsertWorkRecord(work)
 
-    await expect(repository.getWorkRecord('org-b', 'session-a', 'release-a')).resolves.toBeUndefined()
-    await expect(repository.upsertWorkRecord({ ...work, orgId: 'org-b', expectedRevision: 0, idempotencyKey: 'org-b' })).rejects.toThrow(
+    await expect(operations.getWorkRecord('org-b', 'session-a', 'release-a')).resolves.toBeUndefined()
+    await expect(operations.upsertWorkRecord({ ...work, orgId: 'org-b', expectedRevision: 0, idempotencyKey: 'org-b' })).rejects.toThrow(
       'outside organization org-b',
     )
   })
 
   it('rolls back schedule state and work record when outbox creation fails', async () => {
     const database = new MemoryPostgresDatabase()
-    const repository = new EnterpriseOperationsRepository(database)
-    await repository.createSchedule({
+    const operations = repository(database)
+    await operations.createSchedule({
       scheduleId: 'schedule-b',
       orgId: 'org-a',
       target: { kind: 'employee', employeeReleaseId: 'release-a' },
@@ -455,7 +482,7 @@ describe('EnterpriseOperationsRepository', () => {
     database.failNextOutboxInsert = true
 
     await expect(
-      repository.fireSchedule({
+      operations.fireSchedule({
         scheduleId: 'schedule-b',
         orgId: 'org-a',
         expectedRevision: 1,
@@ -466,13 +493,13 @@ describe('EnterpriseOperationsRepository', () => {
         nextRunAt: 200,
       }),
     ).rejects.toThrow('injected outbox failure')
-    await expect(repository.getWorkRecord('org-a', 'session-b', 'release-a')).resolves.toBeUndefined()
-    await expect(repository.getSchedule('org-a', 'schedule-b')).resolves.toMatchObject({ revision: 1, lastRunAt: null })
+    await expect(operations.getWorkRecord('org-a', 'session-b', 'release-a')).resolves.toBeUndefined()
+    await expect(operations.getSchedule('org-a', 'schedule-b')).resolves.toMatchObject({ revision: 1, lastRunAt: null })
   })
 
   it('stores a fixed team without bidding or shared-blackboard fields', async () => {
-    const repository = new EnterpriseOperationsRepository(new MemoryPostgresDatabase())
-    const team = await repository.createFixedTeam({
+    const operations = repository()
+    const team = await operations.createFixedTeam({
       teamId: 'team-a',
       orgId: 'org-a',
       leaderEmployeeReleaseId: 'release-lead',
@@ -488,5 +515,56 @@ describe('EnterpriseOperationsRepository', () => {
       leaderEmployeeReleaseId: 'release-lead',
       members: [{ employeeReleaseId: 'release-worker', role: 'researcher' }],
     })
+  })
+
+  it('fires a team schedule through the organization-owned team leader', async () => {
+    const operations = repository()
+    await operations.createFixedTeam({
+      teamId: 'team-scheduled',
+      orgId: 'org-a',
+      leaderEmployeeReleaseId: 'release-lead',
+      members: [{ employeeReleaseId: 'release-worker', role: 'researcher' }],
+      workflowTemplate: {},
+      approvalPolicy: {},
+      expectedRevision: 0,
+      idempotencyKey: 'team-scheduled-create',
+    })
+    await operations.createSchedule({
+      scheduleId: 'schedule-team',
+      orgId: 'org-a',
+      target: { kind: 'team', teamId: 'team-scheduled' },
+      timezone: 'UTC',
+      rule: '0 9 * * *',
+      input: {},
+      nextRunAt: 100,
+      expectedRevision: 0,
+      idempotencyKey: 'schedule-team-create',
+    })
+
+    const fired = await operations.fireSchedule({
+      scheduleId: 'schedule-team',
+      orgId: 'org-a',
+      expectedRevision: 1,
+      idempotencyKey: 'schedule-team-fire',
+      occurrenceKey: 'team-occurrence',
+      sessionId: 'session-team',
+      firedAt: 100,
+      nextRunAt: 200,
+    })
+
+    expect(fired.workRecord).toMatchObject({ teamId: 'team-scheduled', employeeReleaseId: 'release-lead' })
+    expect(fired.command).toMatchObject({ teamId: 'team-scheduled', employeeReleaseId: 'release-lead' })
+  })
+
+  it('rejects work records whose native session or release cannot be resolved', async () => {
+    const operations = repository()
+
+    await expect(
+      operations.upsertWorkRecord({
+        ...work,
+        employeeReleaseId: 'missing-release',
+        idempotencyKey: 'missing-release-work',
+      }),
+    ).rejects.toThrow('native employee release missing-release was not found in organization org-a')
   })
 })

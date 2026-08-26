@@ -1,13 +1,14 @@
 /** PostgreSQL schema for work records, approvals, schedules, teams, and outbox. */
 import type { PostgresDatabase } from './types.ts'
-export const ENTERPRISE_OPERATIONS_SCHEMA_VERSION = 1
+export const ENTERPRISE_OPERATIONS_SCHEMA_VERSION = 2
 const statements = [
   'CREATE TABLE IF NOT EXISTS dsh_enterprise_operations_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)',
   `CREATE TABLE IF NOT EXISTS dsh_enterprise_work_records (
     org_id TEXT NOT NULL, session_id TEXT NOT NULL, employee_release_id TEXT NOT NULL,
     team_id TEXT, source TEXT NOT NULL, business_state TEXT NOT NULL,
     source_references_json JSONB NOT NULL, revision BIGINT NOT NULL, created_at BIGINT NOT NULL,
-    updated_at BIGINT NOT NULL, PRIMARY KEY(session_id, employee_release_id)
+    updated_at BIGINT NOT NULL, PRIMARY KEY(org_id, session_id, employee_release_id),
+    UNIQUE(session_id, employee_release_id)
   )`,
   `CREATE TABLE IF NOT EXISTS dsh_enterprise_approval_requests (
     approval_id TEXT PRIMARY KEY, org_id TEXT NOT NULL, kind TEXT NOT NULL,
@@ -32,7 +33,7 @@ const statements = [
   )`,
   `CREATE TABLE IF NOT EXISTS dsh_enterprise_operation_outbox (
     command_id TEXT PRIMARY KEY, org_id TEXT NOT NULL, schedule_id TEXT NOT NULL,
-    occurrence_key TEXT NOT NULL, work_session_id TEXT NOT NULL, employee_release_id TEXT NOT NULL,
+    occurrence_key TEXT NOT NULL, work_session_id TEXT NOT NULL, employee_release_id TEXT NOT NULL, team_id TEXT,
     payload_json JSONB NOT NULL, state TEXT NOT NULL, created_at BIGINT NOT NULL,
     UNIQUE(org_id, schedule_id, occurrence_key)
   )`,

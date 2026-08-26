@@ -38,11 +38,9 @@ export interface ApprovalView {
   readonly createdAt: number
   readonly updatedAt: number
 }
-export interface ScheduleTarget {
-  readonly kind: 'employee' | 'team'
-  readonly employeeReleaseId?: string
-  readonly teamId?: string
-}
+export type ScheduleTarget =
+  | { readonly kind: 'employee'; readonly employeeReleaseId: string }
+  | { readonly kind: 'team'; readonly teamId: string }
 export interface ScheduleView {
   readonly scheduleId: string
   readonly orgId: string
@@ -59,7 +57,12 @@ export interface ScheduleView {
 }
 export interface ScheduleFireView {
   readonly workRecord: WorkRecordView
-  readonly command: { readonly kind: 'start-session'; readonly sessionId: string; readonly employeeReleaseId: string }
+  readonly command: {
+    readonly kind: 'start-session'
+    readonly sessionId: string
+    readonly employeeReleaseId: string
+    readonly teamId?: string
+  }
 }
 export interface FixedTeamView {
   readonly teamId: string
@@ -79,4 +82,10 @@ export interface PostgresQueryResult<Row extends Record<string, unknown> = Recor
 export interface PostgresDatabase {
   query<Row extends Record<string, unknown>>(text: string, values?: readonly unknown[]): Promise<PostgresQueryResult<Row>>
   transaction<T>(operation: (database: PostgresDatabase) => Promise<T>): Promise<T>
+}
+
+export interface EnterpriseOperationsRepositoryOptions {
+  readonly now?: () => number
+  readonly resolveSession?: (orgId: string, sessionId: string) => boolean | Promise<boolean>
+  readonly resolveRelease?: (orgId: string, employeeReleaseId: string) => boolean | Promise<boolean>
 }
