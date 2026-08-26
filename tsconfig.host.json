@@ -113,6 +113,12 @@
     "scripts/client-bundle-css.spec.ts",
     "packages/typert/generator/tests/fixtures/**",
     "scripts/client-bundle-purity.spec.ts"
+    ,"packages/catalog/enterprise-catalog/tests/**"
+    ,"packages/channel/channel-wecom/tests/**"
+    ,"packages/identity/enterprise-identity-postgres/tests/**"
+    ,"packages/knowledge/knowledge-pgvector/tests/**"
+    ,"packages/operations/enterprise-operations/tests/**"
+    ,"packages/session/session-persistence-postgres/tests/**"
   ],
   "references": [
     { "path": "./packages/channel/channel-kernel" },
