@@ -1524,6 +1524,10 @@ importers:
         version: link:../../core/system-prompt
 
   packages/catalog/enterprise-catalog:
+    dependencies:
+      pg:
+        specifier: ^8.16.3
+        version: 8.23.0
     devDependencies:
       '@deepseek-ai/cordis':
         specifier: workspace:^
@@ -1534,6 +1538,9 @@ importers:
       '@deepseek-ai/dsh-invariants':
         specifier: workspace:^
         version: link:../../runtime-diagnostics/invariants
+      '@types/pg':
+        specifier: ^8.15.5
+        version: 8.23.1
 
   packages/channel/channel-kernel:
     devDependencies:

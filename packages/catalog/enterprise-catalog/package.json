@@ -18,9 +18,11 @@
     "@deepseek-ai/dsh-credentials": "workspace:^",
     "@deepseek-ai/dsh-invariants": "workspace:^"
   },
+  "dependencies": { "pg": "^8.16.3" },
   "devDependencies": {
     "@deepseek-ai/dsh-credentials": "workspace:^",
     "@deepseek-ai/dsh-invariants": "workspace:^",
-    "@deepseek-ai/cordis": "workspace:^"
+    "@deepseek-ai/cordis": "workspace:^",
+    "@types/pg": "^8.15.5"
   }
 }

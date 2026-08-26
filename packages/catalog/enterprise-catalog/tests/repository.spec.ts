@@ -338,6 +338,12 @@ describe('EnterpriseCatalogRepository', () => {
       profile: { ...firstDraft.profile, toolPolicy: { token: 'raw-secret' } },
     }))
       .rejects.toThrow('secret-bearing field token')
+    for (const field of ['api-key', 'access_token', 'private_key', 'auth', 'headers']) {
+      await expect(repository.saveAssetVersion({
+        assetId: `tool-${field}`, orgId: 'org-a', kind: 'tool', name: 'Dangerous', expectedRevision: 0,
+        idempotencyKey: `secret-${field}`, content: { [field]: 'raw-secret' }, createdBy: 'user-a',
+      })).rejects.toThrow('secret-bearing field')
+    }
   })
 
   it('rolls back all release writes when binding insertion fails', async () => {
