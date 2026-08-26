@@ -11,6 +11,7 @@
 - PostgreSQL 事务和组织范围查询保持边界。
 - 原生引用在缺失解析器时会快速失败。生产环境可设置 `requireNativeReferences`；测试和本地开发必须显式设置 `allowUnverifiedReferences` 才能跳过解析。两项设置互斥。
 - 幂等键会绑定 SHA-256 请求摘要，使用不同输入重复该键会被拒绝。只有 active 调度可执行；Outbox 命令负责创建新的调度 Session。
+- `EnterpriseOperationsWorker` 每次领取一条 Outbox 命令，调用注入的原生 Session 创建器，然后完成或标记该任务失败。重试时间由调用方通过 `nextAttemptAt` 提供。
 
 ## Model Experience
 

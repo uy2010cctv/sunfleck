@@ -11,6 +11,7 @@ Durable operation projections over native DSH execution:
 - PostgreSQL transactions and organization-scoped queries preserve boundaries.
 - Native references fail closed when their resolver is missing. Production may set `requireNativeReferences`; tests and local development must explicitly set `allowUnverifiedReferences` to bypass resolution. The two settings are mutually exclusive.
 - Idempotency keys bind a SHA-256 request digest, and reuse with different input is rejected. Only active schedules can fire; the Outbox command creates the new scheduled Session.
+- `EnterpriseOperationsWorker` claims one Outbox command, invokes an injected native Session creator, then completes or fails the claim. Retry timing is supplied by the caller through `nextAttemptAt`.
 
 ## Model Experience
 
