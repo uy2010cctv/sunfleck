@@ -6,25 +6,34 @@ import { migrateSqliteEnterpriseIdentityToPostgres } from './migration.ts'
 interface CliOptions {
   readonly sqliteFilename: string
   readonly databaseUrl: string
+  readonly backupFilename: string | undefined
   readonly dryRun: boolean
+  readonly targetBackupConfirmed: boolean
 }
 
 function parseOptions(argv: readonly string[]): CliOptions {
   let sqliteFilename: string | undefined
   let databaseUrl: string | undefined
+  let backupFilename: string | undefined
   let dryRun = false
+  let targetBackupConfirmed = false
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index]
     if (argument === '--dry-run') dryRun = true
+    else if (argument === '--target-backup-confirmed') targetBackupConfirmed = true
     else if (argument === '--sqlite') sqliteFilename = argv[index + 1]
     else if (argument === '--database-url') databaseUrl = argv[index + 1]
+    else if (argument === '--backup') backupFilename = argv[index + 1]
     else throw new Error(`unknown migration argument: ${argument}`)
-    if (argument === '--sqlite' || argument === '--database-url') index += 1
+    if (argument === '--sqlite' || argument === '--database-url' || argument === '--backup') index += 1
   }
   if (sqliteFilename === undefined || databaseUrl === undefined) {
-    throw new Error('usage: dsh-enterprise-identity-migrate --sqlite <identity.sqlite> --database-url <postgres-url> [--dry-run]')
+    throw new Error('usage: dsh-enterprise-identity-migrate --sqlite <identity.sqlite> --database-url <postgres-url> [--backup <backup.sqlite>] [--dry-run | --target-backup-confirmed]')
   }
-  return { sqliteFilename, databaseUrl, dryRun }
+  if (!dryRun && !targetBackupConfirmed) {
+    throw new Error('refusing to write PostgreSQL without --target-backup-confirmed')
+  }
+  return { sqliteFilename, databaseUrl, backupFilename, dryRun, targetBackupConfirmed }
 }
 
 /** Runs the migration CLI and writes only counts/checksums, never database secrets or tokens. */
@@ -41,7 +50,12 @@ export async function runMigrationCli(argv: readonly string[], write: (line: str
   }
   const pool = new Pool({ connectionString: options.databaseUrl })
   try {
-    const report = await migrateSqliteEnterpriseIdentityToPostgres({ sqliteFilename: options.sqliteFilename, target: pool })
+    const report = await migrateSqliteEnterpriseIdentityToPostgres({
+      sqliteFilename: options.sqliteFilename,
+      target: pool,
+      ...(options.backupFilename === undefined ? {} : { backupFilename: options.backupFilename }),
+      targetBackupConfirmed: options.targetBackupConfirmed,
+    })
     write(JSON.stringify(report))
   } finally {
     await pool.end()

@@ -31,8 +31,18 @@ Run a read-only preflight first:
 dsh-enterprise-identity-migrate --sqlite /path/identity.sqlite --database-url "$DSH_DATABASE_URL" --dry-run
 ```
 
-Then run the same command without `--dry-run`. Output contains only row counts and checksums;
-it never prints passwords, raw bearer tokens, or connection strings.
+Then run the write command only after independently backing up the PostgreSQL target:
+
+```sh
+dsh-enterprise-identity-migrate --sqlite /path/identity.sqlite --backup /safe/identity.before-postgres.sqlite \
+  --database-url "$DSH_DATABASE_URL" --target-backup-confirmed
+```
+
+`--backup` is optional; its default is `<sqlite>.pre-postgres-migration.bak`. The command checks
+SQLite integrity, copies its database and WAL sidecars before target writes, obtains an advisory
+migration lock, rejects a non-empty target, and rolls back if imported destination counts or
+checksums differ. Output contains only row counts and checksums; it never prints passwords, raw
+bearer tokens, backup contents, or connection strings.
 
 ## Known Limitations and Deferred Work
 
@@ -40,3 +50,5 @@ it never prints passwords, raw bearer tokens, or connection strings.
   the enterprise PostgreSQL deployment transition.
 - A production PostgreSQL/pgvector rollout still needs deployment-owned backup, TLS, and
   connection-pool configuration.
+- Driver-agnostic tests cover migration safety. A real PostgreSQL integration test needs a
+  deployment-owned PostgreSQL endpoint and remains deferred.

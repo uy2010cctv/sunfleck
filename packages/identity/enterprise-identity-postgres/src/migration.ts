@@ -1,6 +1,8 @@
 /** One-shot, transaction-safe SQLite to PostgreSQL identity migration. */
 
 import { createHash } from 'node:crypto'
+import { copyFileSync, existsSync } from 'node:fs'
+import { constants } from 'node:fs'
 import { DatabaseSync } from 'node:sqlite'
 import { migrateEnterpriseIdentityPostgres } from './schema.ts'
 import type { PostgresDatabase } from './types.ts'
@@ -34,6 +36,10 @@ export interface SqliteToPostgresMigrationOptions {
   readonly sqliteFilename: string
   readonly target: PostgresDatabase
   readonly dryRun?: boolean
+  /** Destination for the source SQLite snapshot; defaults beside the source file. */
+  readonly backupFilename?: string
+  /** Explicit acknowledgement that the operator backed up the PostgreSQL target. */
+  readonly targetBackupConfirmed?: boolean
 }
 
 interface MigrationSnapshot {
@@ -49,6 +55,25 @@ interface MigrationSnapshot {
 
 function rows(database: DatabaseSync, statement: string): MigrationRow[] {
   return database.prepare(statement).all() as MigrationRow[]
+}
+
+function verifySqliteIntegrity(sqliteFilename: string): void {
+  const database = new DatabaseSync(sqliteFilename, { readOnly: true })
+  try {
+    const result = database.prepare('PRAGMA integrity_check').get() as { integrity_check: string } | undefined
+    if (result?.integrity_check !== 'ok') throw new Error('source SQLite integrity_check did not return ok')
+  } finally {
+    database.close()
+  }
+}
+
+function backupSqlite(sqliteFilename: string, backupFilename: string): void {
+  if (sqliteFilename === backupFilename) throw new Error('SQLite backup filename must differ from the source filename')
+  copyFileSync(sqliteFilename, backupFilename, constants.COPYFILE_EXCL)
+  for (const suffix of ['-wal', '-shm']) {
+    const sidecar = `${sqliteFilename}${suffix}`
+    if (existsSync(sidecar)) copyFileSync(sidecar, `${backupFilename}${suffix}`, constants.COPYFILE_EXCL)
+  }
 }
 
 function readSnapshot(sqliteFilename: string): MigrationSnapshot {
@@ -91,16 +116,60 @@ function tableSummary(values: readonly MigrationRow[]): MigrationTableSummary {
 }
 
 function summarize(snapshot: MigrationSnapshot): EnterpriseIdentityMigrationSummary {
+  const normalized = normalizeSnapshot(snapshot)
   return {
-    organizations: tableSummary(snapshot.organizations),
-    users: tableSummary(snapshot.users),
-    userRoles: tableSummary(snapshot.userRoles),
-    externalIdentities: tableSummary(snapshot.externalIdentities),
-    authSessions: tableSummary(snapshot.authSessions),
-    resourcePolicies: tableSummary(snapshot.resourcePolicies),
-    managedAssets: tableSummary(snapshot.managedAssets),
-    auditEvents: tableSummary(snapshot.auditEvents),
+    organizations: tableSummary(normalized.organizations),
+    users: tableSummary(normalized.users),
+    userRoles: tableSummary(normalized.userRoles),
+    externalIdentities: tableSummary(normalized.externalIdentities),
+    authSessions: tableSummary(normalized.authSessions),
+    resourcePolicies: tableSummary(normalized.resourcePolicies),
+    managedAssets: tableSummary(normalized.managedAssets),
+    auditEvents: tableSummary(normalized.auditEvents),
   }
+}
+
+function parseJson(value: unknown): unknown {
+  return typeof value === 'string' ? JSON.parse(value) : value
+}
+
+function normalizeRow(row: MigrationRow, jsonKeys: readonly string[] = []): MigrationRow {
+  const normalized: MigrationRow = { ...row }
+  if (normalized['disabled'] === 0 || normalized['disabled'] === 1) normalized['disabled'] = normalized['disabled'] === 1
+  for (const key of jsonKeys) normalized[key] = parseJson(normalized[key])
+  return normalized
+}
+
+function normalizeSnapshot(snapshot: MigrationSnapshot): MigrationSnapshot {
+  return {
+    organizations: snapshot.organizations.map(row => normalizeRow(row)),
+    users: snapshot.users.map(row => normalizeRow(row)),
+    userRoles: snapshot.userRoles.map(row => normalizeRow(row)),
+    externalIdentities: snapshot.externalIdentities.map(row => normalizeRow(row)),
+    authSessions: snapshot.authSessions.map(row => normalizeRow(row)),
+    resourcePolicies: snapshot.resourcePolicies.map(row => normalizeRow(row, ['allowed_user_ids'])),
+    managedAssets: snapshot.managedAssets.map(row => normalizeRow(row, ['config_json'])),
+    auditEvents: snapshot.auditEvents.map(row => normalizeRow(row, ['details_json'])),
+  }
+}
+
+function assertNoSecretFields(value: unknown, path = 'config'): void {
+  if (Array.isArray(value)) {
+    for (const [index, item] of value.entries()) assertNoSecretFields(item, `${path}[${String(index)}]`)
+    return
+  }
+  if (typeof value !== 'object' || value === null) return
+  for (const [key, child] of Object.entries(value)) {
+    const fieldPath = `${path}.${key}`
+    if (!key.endsWith('Ref') && /(token|secret|password|apiKey|privateKey|credential)/iu.test(key)) {
+      throw new Error(`managed asset config contains secret-bearing field ${fieldPath}`)
+    }
+    assertNoSecretFields(child, fieldPath)
+  }
+}
+
+function validateSnapshot(snapshot: MigrationSnapshot): void {
+  for (const asset of snapshot.managedAssets) assertNoSecretFields(parseJson(asset['config_json']))
 }
 
 function string(row: MigrationRow, key: string): string {
@@ -196,6 +265,44 @@ async function importSnapshot(target: PostgresDatabase, snapshot: MigrationSnaps
   }
 }
 
+async function readPostgresSnapshot(target: PostgresDatabase): Promise<MigrationSnapshot> {
+  const select = async (statement: string): Promise<MigrationRow[]> => (await target.query(statement)).rows as MigrationRow[]
+  return {
+    organizations: await select('SELECT id, name FROM organizations ORDER BY id'),
+    users: await select('SELECT id, org_id, username, display_name, disabled, password_verifier FROM users ORDER BY id'),
+    userRoles: await select('SELECT user_id, role FROM user_roles ORDER BY user_id, role'),
+    externalIdentities: await select('SELECT provider_id, subject, user_id FROM external_identities ORDER BY provider_id, subject'),
+    authSessions: await select(`SELECT token_hash, user_id, created_at, expires_at, last_seen_at, revoked_at
+      FROM auth_sessions ORDER BY token_hash`),
+    resourcePolicies: await select(`SELECT resource_type, resource_id, org_id, creator_user_id, visibility, allowed_user_ids
+      FROM resource_policies ORDER BY resource_type, resource_id`),
+    managedAssets: await select('SELECT org_id, type, id, name, config_json FROM managed_assets ORDER BY org_id, type, id'),
+    auditEvents: await select(`SELECT id, org_id, actor_user_id, action, resource_type, resource_id,
+      decision, reason, correlation_id, created_at, details_json FROM audit_events ORDER BY id`),
+  }
+}
+
+async function withMigrationLock<T>(target: PostgresDatabase, operation: () => Promise<T>): Promise<T> {
+  const lock = await target.query<{ acquired: boolean }>(
+    "SELECT pg_try_advisory_lock(hashtext('dsh-enterprise-identity-migrate-v1')) AS acquired",
+  )
+  if (lock.rows[0]?.acquired !== true) throw new Error('enterprise identity migration lock is unavailable')
+  try {
+    return await operation()
+  } finally {
+    await target.query("SELECT pg_advisory_unlock(hashtext('dsh-enterprise-identity-migrate-v1'))")
+  }
+}
+
+async function assertEmptyTarget(target: PostgresDatabase): Promise<void> {
+  const table = await target.query<{ table_name: string | null }>("SELECT to_regclass('public.organizations') AS table_name")
+  if (table.rows[0]?.table_name === null || table.rows[0] === undefined) return
+  const content = await target.query<{ has_rows: boolean }>(
+    'SELECT EXISTS (SELECT 1 FROM organizations LIMIT 1) AS has_rows',
+  )
+  if (content.rows[0]?.has_rows === true) throw new Error('PostgreSQL enterprise identity target is not empty')
+}
+
 /**
  * Imports a complete SQLite identity database into an empty PostgreSQL target.
  * Dry run opens SQLite only; the target is untouched. Import runs as one transaction,
@@ -204,9 +311,25 @@ async function importSnapshot(target: PostgresDatabase, snapshot: MigrationSnaps
 export async function migrateSqliteEnterpriseIdentityToPostgres(
   options: SqliteToPostgresMigrationOptions,
 ): Promise<EnterpriseIdentityMigrationReport> {
+  verifySqliteIntegrity(options.sqliteFilename)
   const snapshot = readSnapshot(options.sqliteFilename)
+  validateSnapshot(snapshot)
   const source = summarize(snapshot)
   if (options.dryRun === true) return { dryRun: true, source, destination: undefined }
-  await withTransaction(options.target, target => importSnapshot(target, snapshot))
-  return { dryRun: false, source, destination: source }
+  if (options.targetBackupConfirmed !== true) {
+    throw new Error('PostgreSQL target backup confirmation is required before migration')
+  }
+  backupSqlite(options.sqliteFilename, options.backupFilename ?? `${options.sqliteFilename}.pre-postgres-migration.bak`)
+  const destination = await withMigrationLock(options.target, async () => {
+    await assertEmptyTarget(options.target)
+    return await withTransaction(options.target, async (target) => {
+      await importSnapshot(target, snapshot)
+      const imported = summarize(await readPostgresSnapshot(target))
+      if (canonicalJson(imported) !== canonicalJson(source)) {
+        throw new Error('PostgreSQL destination count or checksum mismatch after import')
+      }
+      return imported
+    })
+  })
+  return { dryRun: false, source, destination }
 }
