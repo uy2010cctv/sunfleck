@@ -101,9 +101,18 @@ export function classifyApiEndpoint(endpoint: string, input: unknown): ApiClassi
       return { action: 'operation.read', resourceType: 'work-record', ...sessionId === undefined ? {} : { resourceId: sessionId } }
     }
     if (operation.startsWith('workRecords.') || operation.startsWith('outbox.')) return { action: 'operation.manage', resourceType: 'work-record', ...sessionId === undefined ? {} : { resourceId: sessionId } }
-    if (operation.startsWith('approvals.')) return { action: 'approval.manage', resourceType: 'approval', ...stringField(payload, 'approvalId') === undefined ? {} : { resourceId: stringField(payload, 'approvalId') } }
-    if (operation.startsWith('schedules.')) return { action: 'schedule.manage', resourceType: 'schedule', ...stringField(payload, 'scheduleId') === undefined ? {} : { resourceId: stringField(payload, 'scheduleId') } }
-    if (operation.startsWith('teams.')) return { action: 'team.manage', resourceType: 'fixed-team', ...stringField(payload, 'teamId') === undefined ? {} : { resourceId: stringField(payload, 'teamId') } }
+    if (operation.startsWith('approvals.')) {
+      const resourceId = stringField(payload, 'approvalId')
+      return { action: 'approval.manage', resourceType: 'approval', ...(resourceId === undefined ? {} : { resourceId }) }
+    }
+    if (operation.startsWith('schedules.')) {
+      const resourceId = stringField(payload, 'scheduleId')
+      return { action: 'schedule.manage', resourceType: 'schedule', ...(resourceId === undefined ? {} : { resourceId }) }
+    }
+    if (operation.startsWith('teams.')) {
+      const resourceId = stringField(payload, 'teamId')
+      return { action: 'team.manage', resourceType: 'fixed-team', ...(resourceId === undefined ? {} : { resourceId }) }
+    }
   }
   return undefined
 }
