@@ -262,7 +262,7 @@ describe('EnterpriseCatalogRepository', () => {
     await repository.saveAssetVersion({
       assetId: 'model-standard', orgId: 'org-a', kind: 'model', name: 'Standard model', expectedRevision: 0,
       idempotencyKey: 'model-v1',
-      content: { provider: 'deepseek', model: 'chat', credentialRef: 'credential:model-standard' },
+      content: { provider: 'deepseek', model: 'chat', credentialRef: 'DSH_MODEL_KEY' },
       createdBy: 'user-a',
     })
     await repository.saveAssetVersion({

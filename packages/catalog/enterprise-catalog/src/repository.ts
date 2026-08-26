@@ -1,6 +1,7 @@
 /** Transactional employee draft/release and versioned asset repository. */
 
 import { createHash, randomUUID } from 'node:crypto'
+import { isCredentialRefName } from '@deepseek-ai/dsh-credentials'
 import type {
   CatalogAssetKind, EmployeeDraftInput, EmployeeDraftView, EmployeeReleaseView,
   EnterpriseAssetRef, EnterpriseAssetVersionView, PostgresDatabase,
@@ -48,7 +49,7 @@ function assertNoSecrets(value: unknown, path = 'config'): void {
   for (const [key, child] of Object.entries(value)) {
     const fieldPath = `${path}.${key}`
     if (/credentialRef$/u.test(key)) {
-      if (typeof child !== 'string' || !/^[A-Za-z0-9._:/-]+$/u.test(child)) {
+      if (typeof child !== 'string' || !isCredentialRefName(child)) {
         throw new Error(`catalog config contains invalid credential reference at ${fieldPath}`)
       }
       continue
