@@ -1,6 +1,6 @@
 /** PostgreSQL schema for work records, approvals, schedules, teams, and outbox. */
 import type { PostgresDatabase } from './types.ts'
-export const ENTERPRISE_OPERATIONS_SCHEMA_VERSION = 2
+export const ENTERPRISE_OPERATIONS_SCHEMA_VERSION = 3
 const statements = [
   'CREATE TABLE IF NOT EXISTS dsh_enterprise_operations_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)',
   `CREATE TABLE IF NOT EXISTS dsh_enterprise_work_records (
@@ -60,6 +60,11 @@ export async function migrateEnterpriseOperations(database: PostgresDatabase): P
       const version = Number(current.rows[0].value)
       if (version === 1) {
         await transaction.query('ALTER TABLE dsh_enterprise_operation_outbox ADD COLUMN IF NOT EXISTS team_id TEXT')
+      }
+      if (version === 1 || version === 2) {
+        await transaction.query("ALTER TABLE dsh_enterprise_work_records ADD CONSTRAINT dsh_work_source_check CHECK (source IN ('console', 'schedule', 'wecom'))")
+        await transaction.query("ALTER TABLE dsh_enterprise_work_records ADD CONSTRAINT dsh_work_state_check CHECK (business_state IN ('active', 'waiting-approval', 'completed', 'failed'))")
+        await transaction.query("ALTER TABLE dsh_enterprise_schedules ADD CONSTRAINT dsh_schedule_state_check CHECK (state IN ('active', 'paused', 'archived'))")
         await transaction.query("UPDATE dsh_enterprise_operations_meta SET value = $1 WHERE key = 'schema-version'", [
           String(ENTERPRISE_OPERATIONS_SCHEMA_VERSION),
         ])

@@ -9,7 +9,7 @@ Durable operation projections over native DSH execution:
 - Employee and fixed-team schedules create one idempotent start-session Outbox command per occurrence; retries with another request idempotency key return the original command.
 - Fixed teams bind a leader, members, Workflow template, and approval policy.
 - PostgreSQL transactions and organization-scoped queries preserve boundaries.
-- `requireNativeReferences` makes missing Session or release resolvers a hard error; local development may set `allowUnverifiedReferences` instead. The two settings are mutually exclusive.
+- Native references fail closed when their resolver is missing. Production may set `requireNativeReferences`; tests and local development must explicitly set `allowUnverifiedReferences` to bypass resolution. The two settings are mutually exclusive.
 - Idempotency keys bind a SHA-256 request digest, and reuse with different input is rejected. Only active schedules can fire; the Outbox command creates the new scheduled Session.
 
 ## Model Experience

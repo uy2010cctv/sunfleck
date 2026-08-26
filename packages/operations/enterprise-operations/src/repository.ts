@@ -134,13 +134,13 @@ export class EnterpriseOperationsRepository {
     await database.query('SELECT pg_advisory_xact_lock(hashtext($1))', [key])
   }
   private async requireSession(orgId: string, sessionId: string): Promise<void> {
-    if (this.options.resolveSession === undefined && this.options.requireNativeReferences === true)
+    if (this.options.resolveSession === undefined && this.options.allowUnverifiedReferences !== true)
       throw new Error('native session resolver is required')
     if (this.options.resolveSession !== undefined && !(await this.options.resolveSession(orgId, sessionId)))
       throw new Error(`native session ${sessionId} was not found in organization ${orgId}`)
   }
   private async requireRelease(orgId: string, releaseId: string): Promise<void> {
-    if (this.options.resolveRelease === undefined && this.options.requireNativeReferences === true)
+    if (this.options.resolveRelease === undefined && this.options.allowUnverifiedReferences !== true)
       throw new Error('native employee release resolver is required')
     if (this.options.resolveRelease !== undefined && !(await this.options.resolveRelease(orgId, releaseId)))
       throw new Error(`native employee release ${releaseId} was not found in organization ${orgId}`)
@@ -166,6 +166,9 @@ export class EnterpriseOperationsRepository {
     if (envelope.requestDigest !== requestDigest(request)) throw new Error(`idempotency key ${key} was reused with a different request`)
     return envelope.result as T
   }
+  private async lockIdempotency(database: PostgresDatabase, orgId: string, operation: string, key: string): Promise<void> {
+    await this.lock(database, `idempotency:${orgId}:${operation}:${key}`)
+  }
   private async remember(
     database: PostgresDatabase, orgId: string, operation: string, key: string, request: unknown, value: unknown,
   ): Promise<void> {
@@ -178,6 +181,7 @@ export class EnterpriseOperationsRepository {
     await this.initialize()
     return this.database.transaction(async (database) => {
       await this.lock(database, `work:${input.sessionId}:${input.employeeReleaseId}`)
+      await this.lockIdempotency(database, input.orgId, 'work', input.idempotencyKey)
       const prior = await this.idempotent<WorkRecordView>(database, input.orgId, 'work', input.idempotencyKey, input)
       if (prior !== undefined) return prior
       const owner = await database.query<WorkRow>(
@@ -261,6 +265,7 @@ export class EnterpriseOperationsRepository {
     await this.initialize()
     return this.database.transaction(async (database) => {
       await this.lock(database, `approval:${input.approvalId}`)
+      await this.lockIdempotency(database, input.orgId, 'approval-create', input.idempotencyKey)
       const prior = await this.idempotent<ApprovalView>(database, input.orgId, 'approval-create', input.idempotencyKey, input)
       if (prior !== undefined) return prior
       const now = this.now()
@@ -286,6 +291,7 @@ export class EnterpriseOperationsRepository {
     await this.initialize()
     return this.database.transaction(async (database) => {
       await this.lock(database, `approval:${input.approvalId}`)
+      await this.lockIdempotency(database, input.orgId, 'approval-transition', input.idempotencyKey)
       const prior = await this.idempotent<ApprovalView>(database, input.orgId, 'approval-transition', input.idempotencyKey, input)
       if (prior !== undefined) return prior
       const result = await database.query<ApprovalRow>(
@@ -323,6 +329,7 @@ export class EnterpriseOperationsRepository {
     await this.initialize()
     return this.database.transaction(async (database) => {
       await this.lock(database, `schedule:${input.scheduleId}`)
+      await this.lockIdempotency(database, input.orgId, 'schedule-create', input.idempotencyKey)
       const prior = await this.idempotent<ScheduleView>(database, input.orgId, 'schedule-create', input.idempotencyKey, input)
       if (prior !== undefined) return prior
       if (input.expectedRevision !== 0) throw new Error(`schedule ${input.scheduleId} revision conflict`)
@@ -370,6 +377,9 @@ export class EnterpriseOperationsRepository {
     await this.initialize()
     return this.database.transaction(async (database) => {
       await this.lock(database, `schedule:${input.scheduleId}`)
+      await this.lockIdempotency(database, input.orgId, 'schedule-fire', input.idempotencyKey)
+      const prior = await this.idempotent<ScheduleFireView>(database, input.orgId, 'schedule-fire', input.idempotencyKey, input)
+      if (prior !== undefined) return prior
       const occurrence = await database.query<OutboxRow>(
         'SELECT * FROM dsh_enterprise_operation_outbox WHERE schedule_id = $1 AND occurrence_key = $2 AND org_id = $3',
         [input.scheduleId, input.occurrenceKey, input.orgId],
@@ -392,8 +402,6 @@ export class EnterpriseOperationsRepository {
         await this.remember(database, input.orgId, 'schedule-fire', input.idempotencyKey, input, view)
         return view
       }
-      const prior = await this.idempotent<ScheduleFireView>(database, input.orgId, 'schedule-fire', input.idempotencyKey, input)
-      if (prior !== undefined) return prior
       const scheduleResult = await database.query<ScheduleRow>(
         'SELECT * FROM dsh_enterprise_schedules WHERE schedule_id = $1 AND org_id = $2 FOR UPDATE',
         [input.scheduleId, input.orgId],
@@ -465,6 +473,7 @@ export class EnterpriseOperationsRepository {
     await this.initialize()
     return this.database.transaction(async (database) => {
       await this.lock(database, `team:${input.teamId}`)
+      await this.lockIdempotency(database, input.orgId, 'team-create', input.idempotencyKey)
       const prior = await this.idempotent<FixedTeamView>(database, input.orgId, 'team-create', input.idempotencyKey, input)
       if (prior !== undefined) return prior
       if (input.expectedRevision !== 0) throw new Error(`fixed team ${input.teamId} revision conflict`)

@@ -69,11 +69,14 @@ describe.skipIf(database === undefined)('enterprise operations PostgreSQL', () =
       scheduleId: 'pg-schedule', orgId: 'pg-org', target: { kind: 'team', teamId: 'pg-team' }, timezone: 'UTC',
       rule: '0 * * * *', input: {}, nextRunAt: 1, expectedRevision: 0, idempotencyKey: 'pg-schedule-create',
     })
-    const fired = await operations.fireSchedule({
+    const fire = {
       scheduleId: 'pg-schedule', orgId: 'pg-org', expectedRevision: 1, idempotencyKey: 'pg-fire',
       occurrenceKey: 'one', sessionId: 'pg-session', firedAt: 1, nextRunAt: 2,
-    })
+    }
+    const fired = await operations.fireSchedule(fire)
+    const retried = await operations.fireSchedule(fire)
     expect(fired.command).toMatchObject({ employeeReleaseId: 'pg-lead', teamId: 'pg-team' })
+    expect(retried).toEqual(fired)
 
     await postgres.query("UPDATE dsh_enterprise_schedules SET state = 'paused' WHERE schedule_id = 'pg-schedule'")
     await expect(operations.fireSchedule({

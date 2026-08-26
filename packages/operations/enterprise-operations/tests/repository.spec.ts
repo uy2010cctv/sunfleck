@@ -159,7 +159,9 @@ class MemoryPostgresDatabase implements PostgresDatabase {
       return value === undefined ? [] : [{ result_json: clone(value) }]
     }
     if (text.startsWith('INSERT INTO dsh_enterprise_operations_idempotency')) {
-      this.idempotency.set(`${String(values[0])}:${String(values[1])}:${String(values[2])}`, parse(values[3]))
+      const key = `${String(values[0])}:${String(values[1])}:${String(values[2])}`
+      if (this.idempotency.has(key)) throw new Error('duplicate idempotency key')
+      this.idempotency.set(key, parse(values[3]))
       return []
     }
     if (text.startsWith('SELECT ') && text.includes('FROM dsh_enterprise_work_records')) {
@@ -395,13 +397,15 @@ describe('EnterpriseOperationsRepository', () => {
       idempotencyKey: 'approval-migration-create',
     })
 
-    expect(database.schemaVersion).toBe('2')
+    expect(database.schemaVersion).toBe('3')
   })
 
-  it('preserves local writes when native reference resolvers are not configured', async () => {
-    const operations = new EnterpriseOperationsRepository(new MemoryPostgresDatabase())
+  it('permits unverified local writes only through explicit configuration', async () => {
+    const operations = new EnterpriseOperationsRepository(new MemoryPostgresDatabase(), { allowUnverifiedReferences: true })
 
     await expect(operations.upsertWorkRecord(work)).resolves.toMatchObject({ sessionId: 'session-a' })
+    await expect(new EnterpriseOperationsRepository(new MemoryPostgresDatabase()).upsertWorkRecord(work))
+      .rejects.toThrow('native session resolver is required')
   })
 
   it('keeps native session source references immutable while projecting one work record', async () => {
