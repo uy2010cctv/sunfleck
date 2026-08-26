@@ -21,9 +21,12 @@ class MemoryPostgresDatabase implements PostgresDatabase {
   private readonly headers = new Map<string, Header>()
   private readonly events = new Map<string, Map<number, Event>>()
   private tail = Promise.resolve()
+  transactionCalls = 0
+  readonly queries: string[] = []
   failNextEventInsert = false
 
   async transaction<T>(action: (transaction: MemoryPostgresDatabase) => Promise<T>): Promise<T> {
+    this.transactionCalls += 1
     const run = this.tail.then(async () => {
       const checkpoint = this.snapshot()
       try {
@@ -41,6 +44,7 @@ class MemoryPostgresDatabase implements PostgresDatabase {
     text: string,
     values: readonly unknown[] = [],
   ): Promise<PostgresQueryResult<Row>> {
+    this.queries.push(text)
     const rows = this.rows(text, values)
     return { rows: rows as Row[], rowCount: rows.length }
   }
@@ -52,15 +56,22 @@ class MemoryPostgresDatabase implements PostgresDatabase {
     session.set(tail, { seq: tail, event_json: '{' })
   }
 
+  removeEvent(id: string, seq: number): void {
+    this.events.get(id)?.delete(seq)
+  }
+
   private rows(text: string, values: readonly unknown[]): Record<string, unknown>[] {
-    if (text.startsWith('CREATE ') || text.startsWith('CREATE INDEX')) return []
+    if (text.startsWith('CREATE ') || text.startsWith('CREATE INDEX') || text.startsWith('SET TRANSACTION') || text.startsWith('SELECT pg_advisory_xact_lock')) return []
     if (text.startsWith('SELECT value FROM dsh_session_persistence_meta')) {
-      const value = this.meta.get(values[0] as string)
+      const key = text.includes("'schema-version'") ? 'schema-version' : 'store-id'
+      const value = this.meta.get(key)
       return value === undefined ? [] : [{ value }]
     }
     if (text.startsWith('INSERT INTO dsh_session_persistence_meta')) {
-      this.meta.set(values[0] as string, values[1] as string)
-      return []
+      const key = text.includes("'schema-version'") ? 'schema-version' : 'store-id'
+      const value = this.meta.get(key) ?? values[0] as string
+      this.meta.set(key, value)
+      return text.includes('RETURNING value') ? [{ value }] : []
     }
     if (text.startsWith('INSERT INTO dsh_session_headers')) {
       const id = values[0] as string
@@ -141,22 +152,12 @@ describe('PostgresSessionStore', () => {
   })
 
   it('creates the durable session schema before the first append', async () => {
-    const queries: string[] = []
-    const database = {
-      async query(text: string) {
-        queries.push(text)
-        return { rows: [], rowCount: 0 }
-      },
-      async transaction<T>(action: (tx: typeof database) => Promise<T>): Promise<T> {
-        return action(database)
-      },
-    }
-
+    const database = new MemoryPostgresDatabase()
     const store = new PostgresSessionStore(database)
     await store.initialize()
 
-    expect(queries.join('\n')).toContain('CREATE TABLE IF NOT EXISTS dsh_session_headers')
-    expect(queries.join('\n')).toContain('CREATE TABLE IF NOT EXISTS dsh_session_events')
+    expect(database.queries.join('\n')).toContain('CREATE TABLE IF NOT EXISTS dsh_session_headers')
+    expect(database.queries.join('\n')).toContain('CREATE TABLE IF NOT EXISTS dsh_session_events')
   })
 
   it('persists ordered events and advances one source-qualified revision per append', async () => {
@@ -169,6 +170,33 @@ describe('PostgresSessionStore', () => {
 
     expect(second?.events).toEqual([turnStart, turnEnd])
     expect(second?.revision).not.toBe(first?.revision)
+  })
+
+  it('accepts an existing header whose PostgreSQL JSONB keys are returned in another order', async () => {
+    const database = new MemoryPostgresDatabase()
+    const store = new PostgresSessionStore(database)
+    const original = {
+      id: 'session-ordered-header', version: 1, createdAt: 1, cwd: '/work',
+      runtime: { model: { provider: 'deepseek', name: 'chat' }, tools: ['bash', 'read'] },
+    } as const
+    const reordered = {
+      runtime: { tools: ['bash', 'read'], model: { name: 'chat', provider: 'deepseek' } },
+      cwd: '/work', createdAt: 1, id: 'session-ordered-header', version: 1,
+    } as const
+    await store.appendBatch(original, [turnStart], false)
+
+    await expect(store.appendBatch(reordered, [turnEnd], true)).resolves.toBeUndefined()
+  })
+
+  it('reads a header, events, and revision from one database transaction snapshot', async () => {
+    const database = new MemoryPostgresDatabase()
+    const store = new PostgresSessionStore(database)
+    await store.appendBatch(header, [turnStart], false)
+    database.transactionCalls = 0
+
+    await store.loadStored(header.id)
+
+    expect(database.transactionCalls).toBe(1)
   })
 
   it('rejects concurrent writers that claim the same next sequence', async () => {
@@ -205,5 +233,37 @@ describe('PostgresSessionStore', () => {
     expect(torn?.tornMarker).toBe(1)
     await store.commitRepair(header, torn?.tornMarker, [])
     expect((await store.loadStored(header.id))?.events).toEqual([turnStart])
+  })
+
+  it('rejects a requested suffix when an earlier sequence is missing', async () => {
+    const database = new MemoryPostgresDatabase()
+    const store = new PostgresSessionStore(database)
+    await store.appendBatch(header, [turnStart, turnEnd], false)
+    database.removeEvent(header.id, 0)
+
+    await expect(store.loadStoredFrom(header.id, 1)).rejects.toThrow('corrupt event in requested suffix')
+  })
+
+  it('rejects a corrupt event inside a requested suffix', async () => {
+    const database = new MemoryPostgresDatabase()
+    const store = new PostgresSessionStore(database)
+    await store.appendBatch(header, [turnStart, turnEnd], false)
+    database.corruptTail(header.id)
+
+    await expect(store.loadStoredFrom(header.id, 1)).rejects.toThrow('corrupt event in requested suffix')
+  })
+
+  it('takes the session schema advisory lock before checking or creating its store identity', async () => {
+    const database = new MemoryPostgresDatabase()
+
+    await new PostgresSessionStore(database).initialize()
+
+    const lock = database.queries.indexOf('SELECT pg_advisory_xact_lock($1)')
+    const schema = database.queries.findIndex(query => query.startsWith('CREATE TABLE'))
+    const identity = database.queries.findIndex(query => query.startsWith('INSERT INTO dsh_session_persistence_meta') && query.includes("'store-id'"))
+    expect(lock).toBeGreaterThanOrEqual(0)
+    expect(schema).toBeGreaterThan(lock)
+    expect(identity).toBeGreaterThan(schema)
+    expect(database.queries[identity]).toContain('ON CONFLICT (key)')
   })
 })

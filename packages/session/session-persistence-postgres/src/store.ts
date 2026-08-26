@@ -10,7 +10,7 @@ import {
   type StoredSuffix,
 } from '@deepseek-ai/dsh-session-persistence'
 import { migratePostgresSessionPersistence } from './schema.ts'
-import type { PostgresDatabase } from './types.ts'
+import type { PostgresDatabase, PostgresQueryable } from './types.ts'
 
 interface HeaderRow extends Record<string, unknown> {
   readonly id: string
@@ -35,16 +35,25 @@ export class PostgresSessionStore implements PersistenceBackend<number> {
   /** Initializes the package-owned schema once. */
   initialize(): Promise<void> {
     this.initialized ??= this.database.transaction(async (transaction) => {
+      await transaction.query('SELECT pg_advisory_xact_lock($1)', [0x44534850])
       await migratePostgresSessionPersistence(transaction)
       const existing = await transaction.query<{ value: string }>(
         "SELECT value FROM dsh_session_persistence_meta WHERE key = 'store-id'",
       )
       if (existing.rows[0] === undefined) {
         const identity = randomUUID()
-        await transaction.query(
-          "INSERT INTO dsh_session_persistence_meta(key, value) VALUES ('store-id', $1)", [identity],
+        const inserted = await transaction.query<{ value: string }>(
+          `INSERT INTO dsh_session_persistence_meta(key, value) VALUES ('store-id', $1)
+           ON CONFLICT (key) DO NOTHING RETURNING value`, [identity],
         )
-        this.storeIdentity = identity
+        if (inserted.rows[0] !== undefined) this.storeIdentity = inserted.rows[0].value
+        else {
+          const current = await transaction.query<{ value: string }>(
+            "SELECT value FROM dsh_session_persistence_meta WHERE key = 'store-id'",
+          )
+          if (current.rows[0] === undefined) throw new Error('session persistence PostgreSQL store identity is unavailable')
+          this.storeIdentity = current.rows[0].value
+        }
       } else {
         this.storeIdentity = existing.rows[0].value
       }
@@ -54,20 +63,22 @@ export class PostgresSessionStore implements PersistenceBackend<number> {
 
   async loadStored(id: SessionId, signal?: AbortSignal): Promise<StoredPrefix<number> | undefined> {
     await this.observe(signal)
-    const result = await this.database.query<HeaderRow>(
-      'SELECT id, header_json, incarnation, revision FROM dsh_session_headers WHERE id = $1', [id],
-    )
-    signal?.throwIfAborted()
-    const header = result.rows[0]
-    if (header === undefined) return undefined
-    const events = await this.readEvents(id, signal)
-    const parsed = parseContiguousEvents(id, events)
-    return {
-      meta: parseHeader(header.header_json),
-      events: parsed.events,
-      revision: this.revision(header),
-      ...(parsed.tornMarker === undefined ? {} : { tornMarker: parsed.tornMarker }),
-    }
+    return this.database.transaction(async (transaction) => {
+      await transaction.query('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY')
+      const result = await transaction.query<HeaderRow>(
+        'SELECT id, header_json, incarnation, revision FROM dsh_session_headers WHERE id = $1', [id],
+      )
+      const header = result.rows[0]
+      if (header === undefined) return undefined
+      const parsed = parseContiguousEvents(id, await this.readEvents(transaction, id))
+      signal?.throwIfAborted()
+      return {
+        meta: parseHeader(header.header_json),
+        events: parsed.events,
+        revision: this.revision(header),
+        ...(parsed.tornMarker === undefined ? {} : { tornMarker: parsed.tornMarker }),
+      }
+    })
   }
 
   async readStoredRevision(id: SessionId, signal?: AbortSignal) {
@@ -82,24 +93,20 @@ export class PostgresSessionStore implements PersistenceBackend<number> {
 
   async loadStoredFrom(id: SessionId, fromSeq: number, signal?: AbortSignal): Promise<StoredSuffix | undefined> {
     await this.observe(signal)
-    const headers = await this.database.query<HeaderRow>(
-      'SELECT id, header_json, incarnation, revision FROM dsh_session_headers WHERE id = $1', [id],
-    )
-    const header = headers.rows[0]
-    if (header === undefined) return undefined
-    const rows = await this.database.query<EventRow>(
-      'SELECT seq, event_json FROM dsh_session_events WHERE session_id = $1 AND seq >= $2 ORDER BY seq',
-      [id, fromSeq],
-    )
-    signal?.throwIfAborted()
-    const events: SessionEvent[] = []
-    for (const row of rows.rows) {
-      const seq = integer(row.seq, 'event sequence')
-      const event = parseEvent(row.event_json)
-      if (event.seq !== seq) throw new Error(`session ${id} event row ${seq} has mismatched event seq`)
-      events.push(event)
-    }
-    return { meta: parseHeader(header.header_json), events }
+    return this.database.transaction(async (transaction) => {
+      await transaction.query('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY')
+      const headers = await transaction.query<HeaderRow>(
+        'SELECT id, header_json, incarnation, revision FROM dsh_session_headers WHERE id = $1', [id],
+      )
+      const header = headers.rows[0]
+      if (header === undefined) return undefined
+      const parsed = parseContiguousEvents(id, await this.readEvents(transaction, id))
+      signal?.throwIfAborted()
+      if (parsed.tornMarker !== undefined && parsed.tornMarker >= fromSeq) {
+        throw new Error(`session ${id} has a corrupt event in requested suffix at seq ${parsed.tornMarker}`)
+      }
+      return { meta: parseHeader(header.header_json), events: parsed.events.filter(event => event.seq >= fromSeq) }
+    })
   }
 
   async appendBatch(meta: SessionHeader, events: readonly SessionEvent[], isMaterialized: boolean): Promise<void> {
@@ -213,11 +220,10 @@ export class PostgresSessionStore implements PersistenceBackend<number> {
     signal?.throwIfAborted()
   }
 
-  private async readEvents(id: SessionId, signal?: AbortSignal): Promise<readonly EventRow[]> {
-    const result = await this.database.query<EventRow>(
+  private async readEvents(database: PostgresQueryable, id: SessionId): Promise<readonly EventRow[]> {
+    const result = await database.query<EventRow>(
       'SELECT seq, event_json FROM dsh_session_events WHERE session_id = $1 ORDER BY seq', [id],
     )
-    signal?.throwIfAborted()
     return result.rows
   }
 
@@ -284,7 +290,16 @@ function assertContiguousAppend(id: SessionId, events: readonly SessionEvent[], 
 }
 
 function assertSameHeader(expected: SessionHeader, actual: SessionHeader): void {
-  if (JSON.stringify(expected) !== JSON.stringify(actual)) {
+  if (canonicalJson(expected) !== canonicalJson(actual)) {
     throw new Error(`session ${expected.id} metadata does not match its existing durable header`)
   }
+}
+
+function canonicalJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`
+  if (value !== null && typeof value === 'object') {
+    const record = value as Record<string, unknown>
+    return `{${Object.keys(record).sort().map(key => `${JSON.stringify(key)}:${canonicalJson(record[key])}`).join(',')}}`
+  }
+  return JSON.stringify(value)
 }
