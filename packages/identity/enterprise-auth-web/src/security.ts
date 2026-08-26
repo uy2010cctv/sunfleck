@@ -6,7 +6,7 @@ import type {
 } from '@deepseek-ai/dsh-enterprise-governance'
 import { authorizeEnterprise } from '@deepseek-ai/dsh-enterprise-governance'
 import {
-  type EnterpriseIdentityRepository,
+  type EnterpriseIdentityStore,
   type EnterprisePrincipalView,
 } from '@deepseek-ai/dsh-enterprise-identity'
 import { verifyPassword } from '@deepseek-ai/dsh-enterprise-sso'
@@ -111,7 +111,7 @@ export class EnterpriseSecurity {
   private readonly randomId: () => string
 
   constructor(
-    readonly repository: EnterpriseIdentityRepository,
+    readonly repository: EnterpriseIdentityStore,
     readonly config: EnterpriseSecurityConfig,
     options: EnterpriseSecurityOptions = {},
   ) {
