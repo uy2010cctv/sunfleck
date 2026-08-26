@@ -95,6 +95,16 @@ export function classifyApiEndpoint(endpoint: string, input: unknown): ApiClassi
   if (endpoint.startsWith('credentials.')) return { action: 'credential.manage', resourceType: 'credential' }
   if (endpoint.startsWith('enterpriseAdmin.')) return { action: 'user.manage', resourceType: 'enterprise-admin' }
   if (endpoint === 'enterpriseAudit.list') return { action: 'audit.read', resourceType: 'audit' }
+  if (endpoint.startsWith('enterpriseOperation.')) {
+    const operation = endpoint.slice('enterpriseOperation.'.length)
+    if (operation.startsWith('workRecords.') && (operation.endsWith('.get') || operation.endsWith('.list'))) {
+      return { action: 'operation.read', resourceType: 'work-record', ...sessionId === undefined ? {} : { resourceId: sessionId } }
+    }
+    if (operation.startsWith('workRecords.') || operation.startsWith('outbox.')) return { action: 'operation.manage', resourceType: 'work-record', ...sessionId === undefined ? {} : { resourceId: sessionId } }
+    if (operation.startsWith('approvals.')) return { action: 'approval.manage', resourceType: 'approval', ...stringField(payload, 'approvalId') === undefined ? {} : { resourceId: stringField(payload, 'approvalId') } }
+    if (operation.startsWith('schedules.')) return { action: 'schedule.manage', resourceType: 'schedule', ...stringField(payload, 'scheduleId') === undefined ? {} : { resourceId: stringField(payload, 'scheduleId') } }
+    if (operation.startsWith('teams.')) return { action: 'team.manage', resourceType: 'fixed-team', ...stringField(payload, 'teamId') === undefined ? {} : { resourceId: stringField(payload, 'teamId') } }
+  }
   return undefined
 }
 
