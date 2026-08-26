@@ -47,7 +47,13 @@ function assertNoSecrets(value: unknown, path = 'config'): void {
   if (typeof value !== 'object' || value === null) return
   for (const [key, child] of Object.entries(value)) {
     const fieldPath = `${path}.${key}`
-    if (!key.endsWith('Ref') && /(token|secret|password|apiKey|privateKey|credential)/iu.test(key)) {
+    if (/credentialRef$/u.test(key)) {
+      if (typeof child !== 'string' || !/^[A-Za-z0-9._:/-]+$/u.test(child)) {
+        throw new Error(`catalog config contains invalid credential reference at ${fieldPath}`)
+      }
+      continue
+    }
+    if (/(token|secret|password|apiKey|api_key|privateKey|credential|authorization|bearer|accessToken|headers)/iu.test(key)) {
       throw new Error(`catalog config contains secret-bearing field ${key} at ${fieldPath}`)
     }
     assertNoSecrets(child, fieldPath)
@@ -127,12 +133,15 @@ export class EnterpriseCatalogRepository {
     assertNoSecrets(input.profile)
     assertNoSecrets(input.bindings)
     return this.database.transaction(async (database) => {
-      const prior = await this.idempotent<EmployeeDraftView>(database, input.orgId, input.idempotencyKey)
+      const prior = await this.idempotent<EmployeeDraftView>(database, input.orgId, 'draft', input.idempotencyKey)
       if (prior !== undefined) return prior
       const current = await database.query<DraftRow>(
-        'SELECT * FROM dsh_enterprise_employee_drafts WHERE preset_id = $1', [input.presetId],
+        'SELECT * FROM dsh_enterprise_employee_drafts WHERE preset_id = $1 FOR UPDATE', [input.presetId],
       )
       const row = current.rows[0]
+      if (row !== undefined && row.org_id !== input.orgId) {
+        throw new Error(`employee draft ${input.presetId} is outside organization ${input.orgId}`)
+      }
       const actual = row === undefined ? 0 : Number(row.revision)
       if (actual !== input.expectedRevision) {
         throw new EmployeeDraftRevisionConflictError(input.presetId, input.expectedRevision, actual)
@@ -155,15 +164,15 @@ export class EnterpriseCatalogRepository {
             JSON.stringify(input.bindings), updatedAt, input.presetId],
         )
       const view = this.draft(required(result.rows[0], 'catalog draft insert returned no row'))
-      await this.remember(database, input.orgId, input.idempotencyKey, view)
+      await this.remember(database, input.orgId, 'draft', input.idempotencyKey, view)
       return view
     })
   }
 
-  async getDraft(presetId: string): Promise<EmployeeDraftView | undefined> {
+  async getDraft(presetId: string, orgId: string): Promise<EmployeeDraftView | undefined> {
     await this.initialize()
     const result = await this.database.query<DraftRow>(
-      'SELECT * FROM dsh_enterprise_employee_drafts WHERE preset_id = $1', [presetId],
+      'SELECT * FROM dsh_enterprise_employee_drafts WHERE preset_id = $1 AND org_id = $2', [presetId, orgId],
     )
     return result.rows[0] === undefined ? undefined : this.draft(result.rows[0])
   }
@@ -172,12 +181,15 @@ export class EnterpriseCatalogRepository {
     await this.initialize()
     assertNoSecrets(input.content)
     return this.database.transaction(async (database) => {
-      const prior = await this.idempotent<EnterpriseAssetVersionView>(database, input.orgId, input.idempotencyKey)
+      const prior = await this.idempotent<EnterpriseAssetVersionView>(database, input.orgId, 'asset', input.idempotencyKey)
       if (prior !== undefined) return prior
       const existing = await database.query<AssetRow>(
-        'SELECT * FROM dsh_enterprise_asset_catalog WHERE asset_id = $1', [input.assetId],
+        'SELECT * FROM dsh_enterprise_asset_catalog WHERE asset_id = $1 FOR UPDATE', [input.assetId],
       )
       const asset = existing.rows[0]
+      if (asset !== undefined && (asset.org_id !== input.orgId || asset.kind !== input.kind)) {
+        throw new Error(`asset ${input.assetId} is outside organization ${input.orgId} or has a different kind`)
+      }
       const actual = asset === undefined ? 0 : Number(asset.revision)
       if (actual !== input.expectedRevision) {
         throw new EmployeeDraftRevisionConflictError(input.assetId, input.expectedRevision, actual)
@@ -207,12 +219,13 @@ export class EnterpriseCatalogRepository {
         [input.assetId, version, JSON.stringify(input.content), input.createdBy, this.now()],
       )
       const view = this.version(required(result.rows[0], 'catalog asset version insert returned no row'))
-      await this.remember(database, input.orgId, input.idempotencyKey, view)
+      await this.remember(database, input.orgId, 'asset', input.idempotencyKey, view)
       return view
     })
   }
 
   async publishDraft(input: {
+    orgId: string
     presetId: string
     expectedRevision: number
     idempotencyKey: string
@@ -220,16 +233,29 @@ export class EnterpriseCatalogRepository {
   }): Promise<EmployeeReleaseView> {
     await this.initialize()
     return this.database.transaction(async (database) => {
+      const prior = await this.idempotent<EmployeeReleaseView>(database, input.orgId, 'publish', input.idempotencyKey)
+      if (prior !== undefined) return prior
       const draftResult = await database.query<DraftRow>(
-        'SELECT * FROM dsh_enterprise_employee_drafts WHERE preset_id = $1', [input.presetId],
+        'SELECT * FROM dsh_enterprise_employee_drafts WHERE preset_id = $1 FOR UPDATE', [input.presetId],
       )
       const draft = draftResult.rows[0]
       if (draft === undefined) throw new Error(`employee draft ${input.presetId} does not exist`)
+      if (draft.org_id !== input.orgId) throw new Error(`employee draft ${input.presetId} is outside organization ${input.orgId}`)
       if (Number(draft.revision) !== input.expectedRevision) {
         throw new EmployeeDraftRevisionConflictError(input.presetId, input.expectedRevision, Number(draft.revision))
       }
       const snapshot = { profile: object(draft.profile_json), bindings: refs(draft.bindings_json) }
       assertNoSecrets(snapshot)
+      const modelRef = snapshot.profile['modelRef']
+      if (modelRef !== undefined) {
+        if (typeof modelRef !== 'object' || modelRef === null || Array.isArray(modelRef)) {
+          throw new Error('employee release modelRef is invalid')
+        }
+        const ref = modelRef as Record<string, unknown>
+        const bound = snapshot.bindings.some(binding => binding.kind === 'model'
+          && binding.assetId === ref['assetId'] && binding.version === ref['version'])
+        if (!bound) throw new Error('employee release modelRef is not pinned in bindings')
+      }
       const max = await database.query<{ version: number | string }>(
         'SELECT MAX(version) AS version FROM dsh_enterprise_employee_releases WHERE preset_id = $1', [input.presetId],
       )
@@ -244,6 +270,18 @@ export class EnterpriseCatalogRepository {
           JSON.stringify(snapshot), input.publishedBy, this.now()],
       )
       for (const binding of snapshot.bindings) {
+        const asset = await database.query<AssetRow>(
+          'SELECT * FROM dsh_enterprise_asset_catalog WHERE asset_id = $1 FOR UPDATE', [binding.assetId],
+        )
+        const assetRow = asset.rows[0]
+        if (assetRow === undefined || assetRow.org_id !== draft.org_id || assetRow.kind !== binding.kind || assetRow.archived) {
+          throw new Error(`employee release binding ${binding.assetId} is unavailable in organization ${draft.org_id}`)
+        }
+        const assetVersion = await database.query<VersionRow>(
+          'SELECT * FROM dsh_enterprise_asset_versions WHERE asset_id = $1 AND version = $2',
+          [binding.assetId, binding.version],
+        )
+        if (assetVersion.rows[0] === undefined) throw new Error(`employee release binding ${binding.assetId}@${String(binding.version)} does not exist`)
         await database.query(
           'INSERT INTO dsh_enterprise_employee_release_assets(release_id, kind, asset_id, asset_version) VALUES ($1, $2, $3, $4)',
           [releaseId, binding.kind, binding.assetId, binding.version],
@@ -253,19 +291,22 @@ export class EnterpriseCatalogRepository {
         "UPDATE dsh_enterprise_employee_drafts SET status = 'published', revision = revision + 1 WHERE preset_id = $1",
         [input.presetId],
       )
-      return this.release(required(release.rows[0], 'catalog release insert returned no row'))
+      const view = this.release(required(release.rows[0], 'catalog release insert returned no row'))
+      await this.remember(database, draft.org_id, 'publish', input.idempotencyKey, view)
+      return view
     })
   }
 
-  async listReleases(presetId: string): Promise<EmployeeReleaseView[]> {
+  async listReleases(presetId: string, orgId: string): Promise<EmployeeReleaseView[]> {
     await this.initialize()
     const result = await this.database.query<ReleaseRow>(
-      'SELECT * FROM dsh_enterprise_employee_releases WHERE preset_id = $1 ORDER BY version', [presetId],
+      'SELECT * FROM dsh_enterprise_employee_releases WHERE preset_id = $1 AND org_id = $2 ORDER BY version', [presetId, orgId],
     )
     return result.rows.map(row => this.release(row))
   }
 
   async rollbackRelease(input: {
+    orgId: string
     presetId: string
     releaseId: string
     expectedRevision: number
@@ -274,17 +315,22 @@ export class EnterpriseCatalogRepository {
   }): Promise<EmployeeReleaseView> {
     await this.initialize()
     return this.database.transaction(async (database) => {
-      const prior = await this.idempotent<EmployeeReleaseView>(database, 'rollback', input.idempotencyKey)
+      const prior = await this.idempotent<EmployeeReleaseView>(database, input.orgId, 'rollback', input.idempotencyKey)
       if (prior !== undefined) return prior
       const sourceResult = await database.query<ReleaseRow>(
-        'SELECT * FROM dsh_enterprise_employee_releases WHERE release_id = $1', [input.releaseId],
+        'SELECT * FROM dsh_enterprise_employee_releases WHERE release_id = $1 FOR UPDATE', [input.releaseId],
       )
       const source = sourceResult.rows[0]
       if (source === undefined || source.preset_id !== input.presetId) {
         throw new Error(`employee release ${input.releaseId} does not exist`)
       }
-      const draft = await this.getDraft(input.presetId)
-      if (draft === undefined) throw new Error(`employee draft ${input.presetId} does not exist`)
+      if (source.org_id !== input.orgId) throw new Error(`employee release ${input.releaseId} is outside organization ${input.orgId}`)
+      const draftResult = await database.query<DraftRow>(
+        'SELECT * FROM dsh_enterprise_employee_drafts WHERE preset_id = $1 FOR UPDATE', [input.presetId],
+      )
+      const draftRow = draftResult.rows[0]
+      if (draftRow === undefined) throw new Error(`employee draft ${input.presetId} does not exist`)
+      const draft = this.draft(draftRow)
       if (draft.revision !== input.expectedRevision) {
         throw new EmployeeDraftRevisionConflictError(input.presetId, input.expectedRevision, draft.revision)
       }
@@ -300,22 +346,39 @@ export class EnterpriseCatalogRepository {
         [randomUUID(), source.preset_id, source.org_id, version, source.digest,
           JSON.stringify(parse(source.snapshot_json)), input.publishedBy, this.now(), source.release_id],
       )
+      const newReleaseId = release.rows[0]?.release_id
+      if (newReleaseId === undefined) throw new Error('catalog rollback insert returned no row')
+      const bindings = await database.query<{
+        kind: string
+        asset_id: string
+        asset_version: number | string
+      }>(
+        'SELECT kind, asset_id, asset_version FROM dsh_enterprise_employee_release_assets WHERE release_id = $1',
+        [source.release_id],
+      )
+      for (const binding of bindings.rows) {
+        await database.query(
+          'INSERT INTO dsh_enterprise_employee_release_assets(release_id, kind, asset_id, asset_version) VALUES ($1, $2, $3, $4)',
+          [newReleaseId, binding.kind, binding.asset_id, Number(binding.asset_version)],
+        )
+      }
       const view = this.release(required(release.rows[0], 'catalog rollback insert returned no row'))
-      await this.remember(database, 'rollback', input.idempotencyKey, view)
+      await this.remember(database, input.orgId, 'rollback', input.idempotencyKey, view)
       return view
     })
   }
 
-  private async idempotent<T>(database: PostgresDatabase, orgId: string, key: string): Promise<T | undefined> {
+  private async idempotent<T>(database: PostgresDatabase, orgId: string, operation: string, key: string): Promise<T | undefined> {
     const result = await database.query<{ result_json: unknown }>(
-      'SELECT result_json FROM dsh_enterprise_catalog_idempotency WHERE org_id = $1 AND key = $2', [orgId, key],
+      'SELECT result_json FROM dsh_enterprise_catalog_idempotency WHERE org_id = $1 AND key = $2',
+      [orgId, `${operation}:${key}`],
     )
     return result.rows[0] === undefined ? undefined : parse(result.rows[0].result_json) as T
   }
-  private async remember(database: PostgresDatabase, orgId: string, key: string, value: unknown): Promise<void> {
+  private async remember(database: PostgresDatabase, orgId: string, operation: string, key: string, value: unknown): Promise<void> {
     await database.query(
       'INSERT INTO dsh_enterprise_catalog_idempotency(org_id, key, result_json) VALUES ($1, $2, $3::jsonb)',
-      [orgId, key, JSON.stringify(value)],
+      [orgId, `${operation}:${key}`, JSON.stringify(value)],
     )
   }
   private draft(row: DraftRow): EmployeeDraftView {
@@ -327,10 +390,14 @@ export class EnterpriseCatalogRepository {
   }
   private release(row: ReleaseRow): EmployeeReleaseView {
     const snapshot = object(row.snapshot_json)
+    const normalizedSnapshot = { profile: object(snapshot.profile), bindings: refs(snapshot.bindings) }
+    if (catalogDigest(normalizedSnapshot) !== row.digest) {
+      throw new Error(`catalog release ${row.release_id} digest verification failed`)
+    }
     return {
       releaseId: row.release_id, presetId: row.preset_id, orgId: row.org_id,
       version: Number(row.version), digest: row.digest,
-      snapshot: { profile: object(snapshot.profile), bindings: refs(snapshot.bindings) },
+      snapshot: normalizedSnapshot,
       publishedBy: row.published_by, publishedAt: Number(row.published_at),
       ...(row.source_release_id === null ? {} : { sourceReleaseId: row.source_release_id }),
     }

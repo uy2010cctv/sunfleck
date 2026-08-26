@@ -184,6 +184,9 @@ class MemoryPostgresDatabase implements PostgresDatabase {
       return [...this.releases.values()].filter(row => row.preset_id === String(values[0]))
         .sort((left, right) => left.version - right.version).map(clone)
     }
+    if (text.startsWith('SELECT kind, asset_id, asset_version FROM dsh_enterprise_employee_release_assets')) {
+      return [...this.bindings.values()].filter(row => row.release_id === String(values[0])).map(clone)
+    }
     if (text.startsWith('INSERT INTO dsh_enterprise_employee_release_assets')) {
       if (this.failNextReleaseBinding) { this.failNextReleaseBinding = false; throw new Error('injected release binding failure') }
       const row = { release_id: String(values[0]), kind: String(values[1]), asset_id: String(values[2]), asset_version: Number(values[3]) }
@@ -242,7 +245,7 @@ describe('EnterpriseCatalogRepository', () => {
 
     await expect(repository.saveDraft({ ...firstDraft, idempotencyKey: 'draft-stale', profile: { ...firstDraft.profile, name: 'Stale' } }))
       .rejects.toBeInstanceOf(EmployeeDraftRevisionConflictError)
-    await expect(repository.getDraft('preset-sales')).resolves.toMatchObject({ profile: { name: 'Sales assistant' }, revision: 1 })
+    await expect(repository.getDraft('preset-sales', 'org-a')).resolves.toMatchObject({ profile: { name: 'Sales assistant' }, revision: 1 })
   })
 
   it('returns the original result for an idempotent draft save', async () => {
@@ -266,12 +269,17 @@ describe('EnterpriseCatalogRepository', () => {
       idempotencyKey: 'sop-v1', content: { steps: [{ action: 'check quote' }] }, createdBy: 'user-a',
     })
     await repository.saveDraft({
-      ...firstDraft, bindings: [{ kind: 'sop', assetId: 'sop-quote', version: 1 }], idempotencyKey: 'draft-with-sop',
+      ...firstDraft,
+      bindings: [
+        { kind: 'model', assetId: 'model-standard', version: 1 },
+        { kind: 'sop', assetId: 'sop-quote', version: 1 },
+      ],
+      idempotencyKey: 'draft-with-sop',
       profile: { ...firstDraft.profile, modelRef: { kind: 'model', assetId: 'model-standard', version: 1 } },
     })
-    const draft = await repository.getDraft('preset-sales')
+    const draft = await repository.getDraft('preset-sales', 'org-a')
     const release = await repository.publishDraft({
-      presetId: 'preset-sales', expectedRevision: draft!.revision,
+      orgId: 'org-a', presetId: 'preset-sales', expectedRevision: draft!.revision,
       idempotencyKey: 'release-1', publishedBy: 'user-a',
     })
     await repository.saveAssetVersion({
@@ -279,31 +287,34 @@ describe('EnterpriseCatalogRepository', () => {
       idempotencyKey: 'sop-v2', content: { steps: [{ action: 'check quote' }, { action: 'confirm tax' }] }, createdBy: 'user-a',
     })
 
-    expect(release.snapshot.bindings).toEqual([{ kind: 'sop', assetId: 'sop-quote', version: 1 }])
-    expect((await repository.listReleases('preset-sales'))[0]).toEqual(release)
-    expect((await repository.listReleases('preset-sales'))[0].snapshot.profile.prompt).toBe('Help the sales team.')
+    expect(release.snapshot.bindings).toEqual([
+      { kind: 'model', assetId: 'model-standard', version: 1 },
+      { kind: 'sop', assetId: 'sop-quote', version: 1 },
+    ])
+    expect((await repository.listReleases('preset-sales', 'org-a'))[0]).toEqual(release)
+    expect((await repository.listReleases('preset-sales', 'org-a'))[0].snapshot.profile.prompt).toBe('Help the sales team.')
   })
 
   it('rolls back by creating a new release from an immutable prior snapshot', async () => {
     const repository = new EnterpriseCatalogRepository(new MemoryPostgresDatabase())
     await repository.saveDraft(firstDraft)
     const first = await repository.publishDraft({
-      presetId: 'preset-sales', expectedRevision: 1,
+      orgId: 'org-a', presetId: 'preset-sales', expectedRevision: 1,
       idempotencyKey: 'publish-one', publishedBy: 'user-a',
     })
-    const draft = await repository.getDraft('preset-sales')
+    const draft = await repository.getDraft('preset-sales', 'org-a')
     await repository.saveDraft({
       ...firstDraft, expectedRevision: draft!.revision, idempotencyKey: 'draft-two',
       profile: { ...firstDraft.profile, prompt: 'A new instruction.' },
     })
-    const secondDraft = await repository.getDraft('preset-sales')
+    const secondDraft = await repository.getDraft('preset-sales', 'org-a')
     await repository.publishDraft({
-      presetId: 'preset-sales', expectedRevision: secondDraft!.revision,
+      orgId: 'org-a', presetId: 'preset-sales', expectedRevision: secondDraft!.revision,
       idempotencyKey: 'publish-two', publishedBy: 'user-a',
     })
-    const currentDraft = await repository.getDraft('preset-sales')
+    const currentDraft = await repository.getDraft('preset-sales', 'org-a')
     const rollback = await repository.rollbackRelease({
-      presetId: 'preset-sales', releaseId: first.releaseId,
+      orgId: 'org-a', presetId: 'preset-sales', releaseId: first.releaseId,
       expectedRevision: currentDraft!.revision,
       idempotencyKey: 'rollback-one', publishedBy: 'user-a',
     })
@@ -339,11 +350,11 @@ describe('EnterpriseCatalogRepository', () => {
     database.failNextReleaseBinding = true
 
     await expect(repository.publishDraft({
-      presetId: 'preset-sales', expectedRevision: 1,
+      orgId: 'org-a', presetId: 'preset-sales', expectedRevision: 1,
       idempotencyKey: 'broken-release', publishedBy: 'user-a',
     }))
       .rejects.toThrow('injected release binding failure')
-    await expect(repository.listReleases('preset-sales')).resolves.toEqual([])
-    await expect(repository.getDraft('preset-sales')).resolves.toMatchObject({ revision: 1, status: 'draft' })
+    await expect(repository.listReleases('preset-sales', 'org-a')).resolves.toEqual([])
+    await expect(repository.getDraft('preset-sales', 'org-a')).resolves.toMatchObject({ revision: 1, status: 'draft' })
   })
 })
