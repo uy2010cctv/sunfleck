@@ -101,6 +101,11 @@ class MemoryPostgresDatabase implements PostgresDatabase {
     return this.meta.get('schema-version')
   }
 
+  setScheduleState(scheduleId: string, state: string): void {
+    const row = this.schedules.get(scheduleId)
+    if (row !== undefined) row.state = state
+  }
+
   async transaction<T>(operation: (database: MemoryPostgresDatabase) => Promise<T>): Promise<T> {
     const run = this.tail.then(async () => {
       const checkpoint = structuredClone({
@@ -402,9 +407,12 @@ describe('EnterpriseOperationsRepository', () => {
   it('keeps native session source references immutable while projecting one work record', async () => {
     const operations = repository(new MemoryPostgresDatabase(), () => 100)
     const created = await operations.upsertWorkRecord(work)
-    const retried = await operations.upsertWorkRecord({ ...work, businessState: 'completed' })
+    const retried = await operations.upsertWorkRecord(work)
 
     expect(retried).toEqual(created)
+    await expect(operations.upsertWorkRecord({ ...work, businessState: 'completed' })).rejects.toThrow(
+      'idempotency key work-a was reused with a different request',
+    )
     await expect(
       operations.upsertWorkRecord({
         ...work,
@@ -589,6 +597,35 @@ describe('EnterpriseOperationsRepository', () => {
 
     expect(fired.workRecord).toMatchObject({ teamId: 'team-scheduled', employeeReleaseId: 'release-lead' })
     expect(fired.command).toMatchObject({ teamId: 'team-scheduled', employeeReleaseId: 'release-lead' })
+  })
+
+  it('creates a scheduled session without requiring that new session to exist', async () => {
+    const operations = repository()
+    await operations.createSchedule({
+      scheduleId: 'schedule-new-session', orgId: 'org-a', target: { kind: 'employee', employeeReleaseId: 'release-a' },
+      timezone: 'UTC', rule: '0 9 * * *', input: {}, nextRunAt: 100, expectedRevision: 0, idempotencyKey: 'new-session-create',
+    })
+
+    await expect(operations.fireSchedule({
+      scheduleId: 'schedule-new-session', orgId: 'org-a', expectedRevision: 1, idempotencyKey: 'new-session-fire',
+      occurrenceKey: 'new-session-occurrence', sessionId: 'missing-new-session', firedAt: 100, nextRunAt: 200,
+    })).resolves.toMatchObject({ command: { sessionId: 'missing-new-session' } })
+  })
+
+  it('rejects a paused schedule without creating work', async () => {
+    const database = new MemoryPostgresDatabase()
+    const operations = repository(database)
+    await operations.createSchedule({
+      scheduleId: 'schedule-paused', orgId: 'org-a', target: { kind: 'employee', employeeReleaseId: 'release-a' },
+      timezone: 'UTC', rule: '0 9 * * *', input: {}, nextRunAt: 100, expectedRevision: 0, idempotencyKey: 'paused-create',
+    })
+    database.setScheduleState('schedule-paused', 'paused')
+
+    await expect(operations.fireSchedule({
+      scheduleId: 'schedule-paused', orgId: 'org-a', expectedRevision: 1, idempotencyKey: 'paused-fire',
+      occurrenceKey: 'paused-occurrence', sessionId: 'session-paused', firedAt: 100, nextRunAt: 200,
+    })).rejects.toThrow('schedule schedule-paused is not active')
+    await expect(operations.getWorkRecord('org-a', 'session-paused', 'release-a')).resolves.toBeUndefined()
   })
 
   it('rejects work records whose native session or release cannot be resolved', async () => {

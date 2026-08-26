@@ -88,4 +88,6 @@ export interface EnterpriseOperationsRepositoryOptions {
   readonly now?: () => number
   readonly resolveSession?: (orgId: string, sessionId: string) => boolean | Promise<boolean>
   readonly resolveRelease?: (orgId: string, employeeReleaseId: string) => boolean | Promise<boolean>
+  readonly requireNativeReferences?: boolean
+  readonly allowUnverifiedReferences?: boolean
 }

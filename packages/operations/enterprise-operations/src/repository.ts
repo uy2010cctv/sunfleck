@@ -1,5 +1,5 @@
 /** Transactional enterprise operations repository. */
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import type {
   ApprovalKind,
   ApprovalView,
@@ -33,6 +33,9 @@ function scheduleTarget(value: unknown): ScheduleTarget {
 function required<Row>(row: Row | undefined, entity: string): Row {
   if (row === undefined) throw new Error(`${entity} insert returned no row`)
   return row
+}
+function requestDigest(value: unknown): string {
+  return createHash('sha256').update(JSON.stringify(value)).digest('hex')
 }
 function assertSourceImmutable(before: WorkRecordView, after: WorkRecordInput): void {
   if (
@@ -116,7 +119,10 @@ export class EnterpriseOperationsRepository {
   constructor(
     private readonly database: PostgresDatabase,
     private readonly options: EnterpriseOperationsRepositoryOptions = {},
-  ) {}
+  ) {
+    if (options.requireNativeReferences === true && options.allowUnverifiedReferences === true)
+      throw new Error('requireNativeReferences and allowUnverifiedReferences cannot both be enabled')
+  }
   private now(): number {
     return this.options.now?.() ?? Date.now()
   }
@@ -128,10 +134,14 @@ export class EnterpriseOperationsRepository {
     await database.query('SELECT pg_advisory_xact_lock(hashtext($1))', [key])
   }
   private async requireSession(orgId: string, sessionId: string): Promise<void> {
+    if (this.options.resolveSession === undefined && this.options.requireNativeReferences === true)
+      throw new Error('native session resolver is required')
     if (this.options.resolveSession !== undefined && !(await this.options.resolveSession(orgId, sessionId)))
       throw new Error(`native session ${sessionId} was not found in organization ${orgId}`)
   }
   private async requireRelease(orgId: string, releaseId: string): Promise<void> {
+    if (this.options.resolveRelease === undefined && this.options.requireNativeReferences === true)
+      throw new Error('native employee release resolver is required')
     if (this.options.resolveRelease !== undefined && !(await this.options.resolveRelease(orgId, releaseId)))
       throw new Error(`native employee release ${releaseId} was not found in organization ${orgId}`)
   }
@@ -144,24 +154,31 @@ export class EnterpriseOperationsRepository {
     if (team === undefined || team.org_id !== orgId) throw new Error(`fixed team ${teamId} was not found in organization ${orgId}`)
     return team
   }
-  private async idempotent<T>(database: PostgresDatabase, orgId: string, operation: string, key: string): Promise<T | undefined> {
+  private async idempotent<T>(
+    database: PostgresDatabase, orgId: string, operation: string, key: string, request: unknown,
+  ): Promise<T | undefined> {
     const result = await database.query<{ result_json: unknown }>(
       'SELECT result_json FROM dsh_enterprise_operations_idempotency WHERE org_id = $1 AND operation = $2 AND key = $3',
       [orgId, operation, key],
     )
-    return result.rows[0] === undefined ? undefined : (parse(result.rows[0].result_json) as T)
+    if (result.rows[0] === undefined) return undefined
+    const envelope = record(result.rows[0].result_json)
+    if (envelope.requestDigest !== requestDigest(request)) throw new Error(`idempotency key ${key} was reused with a different request`)
+    return envelope.result as T
   }
-  private async remember(database: PostgresDatabase, orgId: string, operation: string, key: string, value: unknown): Promise<void> {
+  private async remember(
+    database: PostgresDatabase, orgId: string, operation: string, key: string, request: unknown, value: unknown,
+  ): Promise<void> {
     await database.query(
       'INSERT INTO dsh_enterprise_operations_idempotency(org_id, operation, key, result_json) VALUES ($1, $2, $3, $4::jsonb)',
-      [orgId, operation, key, JSON.stringify(value)],
+      [orgId, operation, key, JSON.stringify({ requestDigest: requestDigest(request), result: value })],
     )
   }
   async upsertWorkRecord(input: WorkRecordInput): Promise<WorkRecordView> {
     await this.initialize()
     return this.database.transaction(async (database) => {
       await this.lock(database, `work:${input.sessionId}:${input.employeeReleaseId}`)
-      const prior = await this.idempotent<WorkRecordView>(database, input.orgId, 'work', input.idempotencyKey)
+      const prior = await this.idempotent<WorkRecordView>(database, input.orgId, 'work', input.idempotencyKey, input)
       if (prior !== undefined) return prior
       const owner = await database.query<WorkRow>(
         'SELECT * FROM dsh_enterprise_work_records WHERE session_id = $1 AND employee_release_id = $2 FOR UPDATE',
@@ -195,7 +212,7 @@ export class EnterpriseOperationsRepository {
           ],
         )
         const view = this.work(required(inserted.rows[0], 'work record'))
-        await this.remember(database, input.orgId, 'work', input.idempotencyKey, view)
+        await this.remember(database, input.orgId, 'work', input.idempotencyKey, input, view)
         return view
       }
       const before = this.work(current)
@@ -209,7 +226,7 @@ export class EnterpriseOperationsRepository {
       )
       if (updated.rows[0] === undefined) throw new Error(`work record ${input.sessionId} revision conflict`)
       const view = this.work(updated.rows[0])
-      await this.remember(database, input.orgId, 'work', input.idempotencyKey, view)
+      await this.remember(database, input.orgId, 'work', input.idempotencyKey, input, view)
       return view
     })
   }
@@ -244,7 +261,7 @@ export class EnterpriseOperationsRepository {
     await this.initialize()
     return this.database.transaction(async (database) => {
       await this.lock(database, `approval:${input.approvalId}`)
-      const prior = await this.idempotent<ApprovalView>(database, input.orgId, 'approval-create', input.idempotencyKey)
+      const prior = await this.idempotent<ApprovalView>(database, input.orgId, 'approval-create', input.idempotencyKey, input)
       if (prior !== undefined) return prior
       const now = this.now()
       const result = await database.query<ApprovalRow>(
@@ -253,7 +270,7 @@ export class EnterpriseOperationsRepository {
         [input.approvalId, input.orgId, input.kind, input.subjectType, input.subjectId, input.requestedBy, now],
       )
       const view = this.approval(required(result.rows[0], 'approval request'))
-      await this.remember(database, input.orgId, 'approval-create', input.idempotencyKey, view)
+      await this.remember(database, input.orgId, 'approval-create', input.idempotencyKey, input, view)
       return view
     })
   }
@@ -269,7 +286,7 @@ export class EnterpriseOperationsRepository {
     await this.initialize()
     return this.database.transaction(async (database) => {
       await this.lock(database, `approval:${input.approvalId}`)
-      const prior = await this.idempotent<ApprovalView>(database, input.orgId, 'approval-transition', input.idempotencyKey)
+      const prior = await this.idempotent<ApprovalView>(database, input.orgId, 'approval-transition', input.idempotencyKey, input)
       if (prior !== undefined) return prior
       const result = await database.query<ApprovalRow>(
         'SELECT * FROM dsh_enterprise_approval_requests WHERE approval_id = $1 AND org_id = $2 FOR UPDATE',
@@ -288,7 +305,7 @@ export class EnterpriseOperationsRepository {
       if (updated.rows[0] === undefined)
         throw new ApprovalRevisionConflictError(input.approvalId, input.expectedRevision, Number(current.revision))
       const view = this.approval(updated.rows[0])
-      await this.remember(database, input.orgId, 'approval-transition', input.idempotencyKey, view)
+      await this.remember(database, input.orgId, 'approval-transition', input.idempotencyKey, input, view)
       return view
     })
   }
@@ -306,7 +323,7 @@ export class EnterpriseOperationsRepository {
     await this.initialize()
     return this.database.transaction(async (database) => {
       await this.lock(database, `schedule:${input.scheduleId}`)
-      const prior = await this.idempotent<ScheduleView>(database, input.orgId, 'schedule-create', input.idempotencyKey)
+      const prior = await this.idempotent<ScheduleView>(database, input.orgId, 'schedule-create', input.idempotencyKey, input)
       if (prior !== undefined) return prior
       if (input.expectedRevision !== 0) throw new Error(`schedule ${input.scheduleId} revision conflict`)
       if (input.target.kind === 'employee') await this.requireRelease(input.orgId, input.target.employeeReleaseId)
@@ -327,7 +344,7 @@ export class EnterpriseOperationsRepository {
         ],
       )
       const view = this.schedule(required(result.rows[0], 'schedule'))
-      await this.remember(database, input.orgId, 'schedule-create', input.idempotencyKey, view)
+      await this.remember(database, input.orgId, 'schedule-create', input.idempotencyKey, input, view)
       return view
     })
   }
@@ -372,10 +389,10 @@ export class EnterpriseOperationsRepository {
             ...(existing.team_id === null ? {} : { teamId: existing.team_id }),
           },
         }
-        await this.remember(database, input.orgId, 'schedule-fire', input.idempotencyKey, view)
+        await this.remember(database, input.orgId, 'schedule-fire', input.idempotencyKey, input, view)
         return view
       }
-      const prior = await this.idempotent<ScheduleFireView>(database, input.orgId, 'schedule-fire', input.idempotencyKey)
+      const prior = await this.idempotent<ScheduleFireView>(database, input.orgId, 'schedule-fire', input.idempotencyKey, input)
       if (prior !== undefined) return prior
       const scheduleResult = await database.query<ScheduleRow>(
         'SELECT * FROM dsh_enterprise_schedules WHERE schedule_id = $1 AND org_id = $2 FOR UPDATE',
@@ -383,12 +400,13 @@ export class EnterpriseOperationsRepository {
       )
       const schedule = scheduleResult.rows[0]
       if (schedule === undefined || schedule.org_id !== input.orgId) throw new Error('schedule not found')
+      if (schedule.state !== 'active') throw new Error(`schedule ${input.scheduleId} is not active`)
       if (Number(schedule.revision) !== input.expectedRevision) throw new Error(`schedule ${input.scheduleId} revision conflict`)
       const target = scheduleTarget(schedule.target_json)
       const team = target.kind === 'team' ? await this.teamTarget(database, input.orgId, target.teamId) : undefined
       const employeeReleaseId = target.kind === 'employee' ? target.employeeReleaseId : required(team, 'fixed team').leader_release_id
       const teamId = target.kind === 'team' ? target.teamId : undefined
-      await Promise.all([this.requireSession(input.orgId, input.sessionId), this.requireRelease(input.orgId, employeeReleaseId)])
+      await this.requireRelease(input.orgId, employeeReleaseId)
       const work = await database.query<WorkRow>(
         'INSERT INTO dsh_enterprise_work_records(org_id, session_id, employee_release_id, team_id, source, ' +
           'business_state, source_references_json, revision, created_at, updated_at) ' +
@@ -430,7 +448,7 @@ export class EnterpriseOperationsRepository {
         workRecord: this.work(required(work.rows[0], 'work record')),
         command: { kind: 'start-session', sessionId: input.sessionId, employeeReleaseId, ...(teamId === undefined ? {} : { teamId }) },
       }
-      await this.remember(database, input.orgId, 'schedule-fire', input.idempotencyKey, view)
+      await this.remember(database, input.orgId, 'schedule-fire', input.idempotencyKey, input, view)
       return view
     })
   }
@@ -447,7 +465,7 @@ export class EnterpriseOperationsRepository {
     await this.initialize()
     return this.database.transaction(async (database) => {
       await this.lock(database, `team:${input.teamId}`)
-      const prior = await this.idempotent<FixedTeamView>(database, input.orgId, 'team-create', input.idempotencyKey)
+      const prior = await this.idempotent<FixedTeamView>(database, input.orgId, 'team-create', input.idempotencyKey, input)
       if (prior !== undefined) return prior
       if (input.expectedRevision !== 0) throw new Error(`fixed team ${input.teamId} revision conflict`)
       await Promise.all([
@@ -474,7 +492,7 @@ export class EnterpriseOperationsRepository {
           member.role,
         ])
       const view = this.team(required(result.rows[0], 'fixed team'), input.members)
-      await this.remember(database, input.orgId, 'team-create', input.idempotencyKey, view)
+      await this.remember(database, input.orgId, 'team-create', input.idempotencyKey, input, view)
       return view
     })
   }

@@ -5,6 +5,7 @@ on:
     paths:
       - 'packages/catalog/enterprise-catalog/**'
       - 'packages/identity/enterprise-identity-postgres/**'
+      - 'packages/operations/enterprise-operations/**'
       - 'packages/session/session-persistence-postgres/**'
       - 'pnpm-lock.yaml'
       - '.github/workflows/enterprise-postgres.yml'
@@ -13,6 +14,7 @@ on:
     paths:
       - 'packages/catalog/enterprise-catalog/**'
       - 'packages/identity/enterprise-identity-postgres/**'
+      - 'packages/operations/enterprise-operations/**'
       - 'packages/session/session-persistence-postgres/**'
       - 'pnpm-lock.yaml'
       - '.github/workflows/enterprise-postgres.yml'
@@ -47,4 +49,7 @@ jobs:
         env:
           CI: 'true'
           DSH_TEST_POSTGRES_URL: postgresql://postgres:postgres@127.0.0.1:5432/dsh_enterprise_test
-        run: pnpm exec vitest run packages/catalog/enterprise-catalog/tests/postgres.integration.spec.ts
+        run: >-
+          pnpm exec vitest run
+          packages/catalog/enterprise-catalog/tests/postgres.integration.spec.ts
+          packages/operations/enterprise-operations/tests/postgres.integration.spec.ts

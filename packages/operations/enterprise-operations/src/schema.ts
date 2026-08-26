@@ -5,7 +5,8 @@ const statements = [
   'CREATE TABLE IF NOT EXISTS dsh_enterprise_operations_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)',
   `CREATE TABLE IF NOT EXISTS dsh_enterprise_work_records (
     org_id TEXT NOT NULL, session_id TEXT NOT NULL, employee_release_id TEXT NOT NULL,
-    team_id TEXT, source TEXT NOT NULL, business_state TEXT NOT NULL,
+    team_id TEXT, source TEXT NOT NULL CHECK (source IN ('console', 'schedule', 'wecom')),
+    business_state TEXT NOT NULL CHECK (business_state IN ('active', 'waiting-approval', 'completed', 'failed')),
     source_references_json JSONB NOT NULL, revision BIGINT NOT NULL, created_at BIGINT NOT NULL,
     updated_at BIGINT NOT NULL, PRIMARY KEY(org_id, session_id, employee_release_id),
     UNIQUE(session_id, employee_release_id)
@@ -19,7 +20,8 @@ const statements = [
   `CREATE TABLE IF NOT EXISTS dsh_enterprise_schedules (
     schedule_id TEXT PRIMARY KEY, org_id TEXT NOT NULL, target_json JSONB NOT NULL,
     timezone TEXT NOT NULL, rule TEXT NOT NULL, input_json JSONB NOT NULL,
-    state TEXT NOT NULL, next_run_at BIGINT, last_run_at BIGINT, revision BIGINT NOT NULL,
+    state TEXT NOT NULL CHECK (state IN ('active', 'paused', 'archived')),
+    next_run_at BIGINT, last_run_at BIGINT, revision BIGINT NOT NULL,
     created_at BIGINT NOT NULL, updated_at BIGINT NOT NULL
   )`,
   `CREATE TABLE IF NOT EXISTS dsh_enterprise_fixed_teams (

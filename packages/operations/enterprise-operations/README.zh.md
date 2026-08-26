@@ -9,6 +9,8 @@
 - 员工和固定团队调度每次 occurrence 只创建一条幂等的启动 Session Outbox 命令；即使重试使用另一个请求幂等键，也会返回原命令。
 - 固定团队绑定负责人、成员、Workflow 模板和审批策略。
 - PostgreSQL 事务和组织范围查询保持边界。
+- `requireNativeReferences` 会把缺失 Session 或发布版解析器视为硬错误；本地开发可改用 `allowUnverifiedReferences`。两项设置互斥。
+- 幂等键会绑定 SHA-256 请求摘要，使用不同输入重复该键会被拒绝。只有 active 调度可执行；Outbox 命令负责创建新的调度 Session。
 
 ## Model Experience
 
