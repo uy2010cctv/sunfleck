@@ -114,7 +114,8 @@ class MemoryPostgresDatabase implements PostgresDatabase {
       return [clone(row)]
     }
     if (text.startsWith('UPDATE dsh_enterprise_employee_drafts')) {
-      const row = this.drafts.get(String(values.at(-1)))
+      const draftId = text.includes("status = 'published'") ? values[0] : values.at(-1)
+      const row = this.drafts.get(String(draftId))
       if (row === undefined) return []
       if (text.includes('profile_json')) {
         row.org_id = String(values[0]); row.owner_user_id = String(values[1]); row.visibility = String(values[2])
