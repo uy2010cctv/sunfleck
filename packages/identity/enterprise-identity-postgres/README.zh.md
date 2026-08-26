@@ -32,10 +32,10 @@ dsh-enterprise-identity-migrate --sqlite /path/identity.sqlite --database-url "$
 
 ```sh
 dsh-enterprise-identity-migrate --sqlite /path/identity.sqlite --backup /safe/identity.before-postgres.sqlite \
-  --database-url "$DSH_DATABASE_URL" --target-backup-confirmed
+  --database-url "$DSH_DATABASE_URL" --source-quiesced --target-backup-confirmed
 ```
 
-`--backup` 为可选项；默认路径为 `<sqlite>.pre-postgres-migration.bak`。命令会在写入目标前检查 SQLite 完整性、复制数据库及 WAL 边车文件、取得迁移咨询锁并拒绝非空目标；导入后目标行数或校验和不一致会回滚。输出只包含行数和校验和；绝不打印密码、原始 Bearer Token、备份内容或连接字符串。
+`--backup` 为可选项；默认路径为 `<sqlite>.pre-postgres-migration.bak`。写入模式前必须停止所有会写入源数据库的进程，然后通过 `--source-quiesced` 确认该状态。命令会在该静止源契约下检查 SQLite 完整性并复制数据库及 WAL 边车文件，随后取得迁移咨询锁并拒绝非空目标；导入后目标行数或校验和不一致会回滚。输出只包含行数和校验和；绝不打印密码、原始 Bearer Token、备份内容或连接字符串。
 
 ## Known Limitations and Deferred Work
 

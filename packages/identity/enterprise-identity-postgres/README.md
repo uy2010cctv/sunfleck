@@ -35,11 +35,13 @@ Then run the write command only after independently backing up the PostgreSQL ta
 
 ```sh
 dsh-enterprise-identity-migrate --sqlite /path/identity.sqlite --backup /safe/identity.before-postgres.sqlite \
-  --database-url "$DSH_DATABASE_URL" --target-backup-confirmed
+  --database-url "$DSH_DATABASE_URL" --source-quiesced --target-backup-confirmed
 ```
 
-`--backup` is optional; its default is `<sqlite>.pre-postgres-migration.bak`. The command checks
-SQLite integrity, copies its database and WAL sidecars before target writes, obtains an advisory
+`--backup` is optional; its default is `<sqlite>.pre-postgres-migration.bak`. Before write mode,
+stop every process that can write the source database, then acknowledge that state with
+`--source-quiesced`. The command checks SQLite integrity, copies its database and WAL sidecars
+under that quiescent-source contract before target writes, obtains an advisory
 migration lock, rejects a non-empty target, and rolls back if imported destination counts or
 checksums differ. Output contains only row counts and checksums; it never prints passwords, raw
 bearer tokens, backup contents, or connection strings.

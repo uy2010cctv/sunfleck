@@ -40,6 +40,8 @@ export interface SqliteToPostgresMigrationOptions {
   readonly backupFilename?: string
   /** Explicit acknowledgement that the operator backed up the PostgreSQL target. */
   readonly targetBackupConfirmed?: boolean
+  /** Set only after all processes that can write the source SQLite database are stopped. */
+  readonly sourceQuiesced?: boolean
 }
 
 interface MigrationSnapshot {
@@ -69,10 +71,15 @@ function verifySqliteIntegrity(sqliteFilename: string): void {
 
 function backupSqlite(sqliteFilename: string, backupFilename: string): void {
   if (sqliteFilename === backupFilename) throw new Error('SQLite backup filename must differ from the source filename')
-  copyFileSync(sqliteFilename, backupFilename, constants.COPYFILE_EXCL)
-  for (const suffix of ['-wal', '-shm']) {
-    const sidecar = `${sqliteFilename}${suffix}`
-    if (existsSync(sidecar)) copyFileSync(sidecar, `${backupFilename}${suffix}`, constants.COPYFILE_EXCL)
+  if (existsSync(backupFilename)) throw new Error('SQLite backup destination already exists')
+  try {
+    copyFileSync(sqliteFilename, backupFilename, constants.COPYFILE_EXCL)
+    for (const suffix of ['-wal', '-shm']) {
+      const sidecar = `${sqliteFilename}${suffix}`
+      if (existsSync(sidecar)) copyFileSync(sidecar, `${backupFilename}${suffix}`, constants.COPYFILE_EXCL)
+    }
+  } catch (cause) {
+    throw new Error(`SQLite backup failed: ${cause instanceof Error ? cause.message : 'unknown failure'}`)
   }
 }
 
@@ -140,16 +147,38 @@ function normalizeRow(row: MigrationRow, jsonKeys: readonly string[] = []): Migr
   return normalized
 }
 
+function canonicalTimestamp(value: unknown, field: string): string {
+  if (typeof value === 'number') {
+    if (!Number.isSafeInteger(value)) throw new Error(`migration timestamp ${field} is not a safe integer`)
+    return String(value)
+  }
+  if (typeof value === 'bigint') return value.toString()
+  if (typeof value === 'string' && /^-?(?:0|[1-9]\d*)$/u.test(value)) return BigInt(value).toString()
+  throw new Error(`migration timestamp ${field} is not an integer`)
+}
+
+function normalizeTimestamps(row: MigrationRow, fields: readonly string[]): MigrationRow {
+  const normalized = { ...row }
+  for (const field of fields) {
+    if (normalized[field] !== null && normalized[field] !== undefined) {
+      normalized[field] = canonicalTimestamp(normalized[field], field)
+    }
+  }
+  return normalized
+}
+
 function normalizeSnapshot(snapshot: MigrationSnapshot): MigrationSnapshot {
   return {
     organizations: snapshot.organizations.map(row => normalizeRow(row)),
     users: snapshot.users.map(row => normalizeRow(row)),
     userRoles: snapshot.userRoles.map(row => normalizeRow(row)),
     externalIdentities: snapshot.externalIdentities.map(row => normalizeRow(row)),
-    authSessions: snapshot.authSessions.map(row => normalizeRow(row)),
+    authSessions: snapshot.authSessions.map(row => normalizeTimestamps(normalizeRow(row), [
+      'created_at', 'expires_at', 'last_seen_at', 'revoked_at',
+    ])),
     resourcePolicies: snapshot.resourcePolicies.map(row => normalizeRow(row, ['allowed_user_ids'])),
     managedAssets: snapshot.managedAssets.map(row => normalizeRow(row, ['config_json'])),
-    auditEvents: snapshot.auditEvents.map(row => normalizeRow(row, ['details_json'])),
+    auditEvents: snapshot.auditEvents.map(row => normalizeTimestamps(normalizeRow(row, ['details_json']), ['created_at'])),
   }
 }
 
@@ -186,7 +215,7 @@ function nullableString(row: MigrationRow, key: string): string | null {
 
 function number(row: MigrationRow, key: string): number {
   const value = row[key]
-  if (typeof value !== 'number') throw new Error(`SQLite migration row has invalid ${key}`)
+  if (typeof value !== 'number' || !Number.isSafeInteger(value)) throw new Error(`SQLite migration row has invalid ${key}`)
   return value
 }
 
@@ -196,10 +225,14 @@ function sqliteBoolean(row: MigrationRow, key: string): boolean {
   return value === 1
 }
 
-async function withTransaction<T>(target: PostgresDatabase, operation: (database: PostgresDatabase) => Promise<T>): Promise<T> {
+async function withLockedTransaction<T>(target: PostgresDatabase, operation: (database: PostgresDatabase) => Promise<T>): Promise<T> {
   const database = target.connect === undefined ? target : await target.connect()
   await database.query('BEGIN')
   try {
+    const lock = await database.query<{ acquired: boolean }>(
+      "SELECT pg_try_advisory_xact_lock(hashtext('dsh-enterprise-identity-migrate-v1')) AS acquired",
+    )
+    if (lock.rows[0]?.acquired !== true) throw new Error('enterprise identity migration lock is unavailable')
     const result = await operation(database)
     await database.query('COMMIT')
     return result
@@ -282,18 +315,6 @@ async function readPostgresSnapshot(target: PostgresDatabase): Promise<Migration
   }
 }
 
-async function withMigrationLock<T>(target: PostgresDatabase, operation: () => Promise<T>): Promise<T> {
-  const lock = await target.query<{ acquired: boolean }>(
-    "SELECT pg_try_advisory_lock(hashtext('dsh-enterprise-identity-migrate-v1')) AS acquired",
-  )
-  if (lock.rows[0]?.acquired !== true) throw new Error('enterprise identity migration lock is unavailable')
-  try {
-    return await operation()
-  } finally {
-    await target.query("SELECT pg_advisory_unlock(hashtext('dsh-enterprise-identity-migrate-v1'))")
-  }
-}
-
 async function assertEmptyTarget(target: PostgresDatabase): Promise<void> {
   const table = await target.query<{ table_name: string | null }>("SELECT to_regclass('public.organizations') AS table_name")
   if (table.rows[0]?.table_name === null || table.rows[0] === undefined) return
@@ -312,24 +333,31 @@ export async function migrateSqliteEnterpriseIdentityToPostgres(
   options: SqliteToPostgresMigrationOptions,
 ): Promise<EnterpriseIdentityMigrationReport> {
   verifySqliteIntegrity(options.sqliteFilename)
-  const snapshot = readSnapshot(options.sqliteFilename)
-  validateSnapshot(snapshot)
-  const source = summarize(snapshot)
-  if (options.dryRun === true) return { dryRun: true, source, destination: undefined }
+  if (options.dryRun === true) {
+    const snapshot = readSnapshot(options.sqliteFilename)
+    validateSnapshot(snapshot)
+    return { dryRun: true, source: summarize(snapshot), destination: undefined }
+  }
+  if (options.sourceQuiesced !== true) {
+    throw new Error('source SQLite must be quiesced before migration; pass sourceQuiesced only after stopping all writers')
+  }
   if (options.targetBackupConfirmed !== true) {
     throw new Error('PostgreSQL target backup confirmation is required before migration')
   }
-  backupSqlite(options.sqliteFilename, options.backupFilename ?? `${options.sqliteFilename}.pre-postgres-migration.bak`)
-  const destination = await withMigrationLock(options.target, async () => {
-    await assertEmptyTarget(options.target)
-    return await withTransaction(options.target, async (target) => {
-      await importSnapshot(target, snapshot)
-      const imported = summarize(await readPostgresSnapshot(target))
-      if (canonicalJson(imported) !== canonicalJson(source)) {
-        throw new Error('PostgreSQL destination count or checksum mismatch after import')
-      }
-      return imported
-    })
+  const backupFilename = options.backupFilename ?? `${options.sqliteFilename}.pre-postgres-migration.bak`
+  backupSqlite(options.sqliteFilename, backupFilename)
+  verifySqliteIntegrity(backupFilename)
+  const snapshot = readSnapshot(backupFilename)
+  validateSnapshot(snapshot)
+  const source = summarize(snapshot)
+  const destination = await withLockedTransaction(options.target, async (target) => {
+    await assertEmptyTarget(target)
+    await importSnapshot(target, snapshot)
+    const imported = summarize(await readPostgresSnapshot(target))
+    if (canonicalJson(imported) !== canonicalJson(source)) {
+      throw new Error('PostgreSQL destination count or checksum mismatch after import')
+    }
+    return imported
   })
   return { dryRun: false, source, destination }
 }

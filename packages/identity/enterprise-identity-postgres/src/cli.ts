@@ -9,6 +9,7 @@ interface CliOptions {
   readonly backupFilename: string | undefined
   readonly dryRun: boolean
   readonly targetBackupConfirmed: boolean
+  readonly sourceQuiesced: boolean
 }
 
 function parseOptions(argv: readonly string[]): CliOptions {
@@ -17,10 +18,12 @@ function parseOptions(argv: readonly string[]): CliOptions {
   let backupFilename: string | undefined
   let dryRun = false
   let targetBackupConfirmed = false
+  let sourceQuiesced = false
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index]
     if (argument === '--dry-run') dryRun = true
     else if (argument === '--target-backup-confirmed') targetBackupConfirmed = true
+    else if (argument === '--source-quiesced') sourceQuiesced = true
     else if (argument === '--sqlite') sqliteFilename = argv[index + 1]
     else if (argument === '--database-url') databaseUrl = argv[index + 1]
     else if (argument === '--backup') backupFilename = argv[index + 1]
@@ -28,12 +31,13 @@ function parseOptions(argv: readonly string[]): CliOptions {
     if (argument === '--sqlite' || argument === '--database-url' || argument === '--backup') index += 1
   }
   if (sqliteFilename === undefined || databaseUrl === undefined) {
-    throw new Error('usage: dsh-enterprise-identity-migrate --sqlite <identity.sqlite> --database-url <postgres-url> [--backup <backup.sqlite>] [--dry-run | --target-backup-confirmed]')
+    throw new Error('usage: dsh-enterprise-identity-migrate --sqlite <identity.sqlite> --database-url <postgres-url> [--backup <backup.sqlite>] [--dry-run | --source-quiesced --target-backup-confirmed]')
   }
   if (!dryRun && !targetBackupConfirmed) {
     throw new Error('refusing to write PostgreSQL without --target-backup-confirmed')
   }
-  return { sqliteFilename, databaseUrl, backupFilename, dryRun, targetBackupConfirmed }
+  if (!dryRun && !sourceQuiesced) throw new Error('refusing to copy SQLite without --source-quiesced')
+  return { sqliteFilename, databaseUrl, backupFilename, dryRun, targetBackupConfirmed, sourceQuiesced }
 }
 
 /** Runs the migration CLI and writes only counts/checksums, never database secrets or tokens. */
@@ -55,6 +59,7 @@ export async function runMigrationCli(argv: readonly string[], write: (line: str
       target: pool,
       ...(options.backupFilename === undefined ? {} : { backupFilename: options.backupFilename }),
       targetBackupConfirmed: options.targetBackupConfirmed,
+      sourceQuiesced: options.sourceQuiesced,
     })
     write(JSON.stringify(report))
   } finally {

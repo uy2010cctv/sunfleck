@@ -24,8 +24,7 @@ class RecordingDatabase implements PostgresDatabase {
     values: readonly unknown[] = [],
   ): Promise<PostgresQueryResult<Row>> {
     this.queries.push({ text, values })
-    if (text.includes('pg_try_advisory_lock')) return { rows: [{ acquired: true }] as Row[], rowCount: 1 }
-    if (text.includes('pg_advisory_unlock')) return { rows: [{ pg_advisory_unlock: true }] as Row[], rowCount: 1 }
+    if (text.includes('pg_try_advisory_xact_lock')) return { rows: [{ acquired: true }] as Row[], rowCount: 1 }
     if (text.includes('to_regclass')) return { rows: [{ table_name: null }] as Row[], rowCount: 1 }
     return { rows: [], rowCount: 1 }
   }
@@ -63,6 +62,11 @@ describe('migrateSqliteEnterpriseIdentityToPostgres', () => {
     source.createUser({ id: 'user-1', orgId: 'org-a', username: 'alice', displayName: 'Alice', disabled: false })
     source.setRoles('user-1', ['administrator'])
     source.createSession({ token: 'never-store-this-token', userId: 'user-1', expiresAt: 1_800_000_000_000 })
+    source.appendAudit({
+      id: 'audit-1', orgId: 'org-a', actorUserId: 'user-1', action: 'user.manage',
+      resourceType: 'user', resourceId: 'user-1', decision: 'allowed', reason: 'administrator',
+      correlationId: 'migration-test', at: 1_700_000_000_001, details: {},
+    })
   })
 
   afterEach(async () => {
@@ -87,7 +91,7 @@ describe('migrateSqliteEnterpriseIdentityToPostgres', () => {
     expect(target.queries).toEqual([])
   })
 
-  it('imports hashed session values in one PostgreSQL transaction while preserving IDs', async () => {
+  it('normalizes pg BIGINT result strings without timestamp precision loss', async () => {
     class VerifiedDatabase extends RecordingDatabase {
       override async query<Row extends Record<string, unknown> = Record<string, unknown>>(
         text: string, values: readonly unknown[] = [],
@@ -98,10 +102,15 @@ describe('migrateSqliteEnterpriseIdentityToPostgres', () => {
           }]
             : text.includes('FROM user_roles ORDER BY user_id, role') ? [{ user_id: 'user-1', role: 'administrator' }]
               : text.includes('FROM auth_sessions ORDER BY token_hash') ? [{
-                token_hash: sessionTokenHash('never-store-this-token'), user_id: 'user-1', created_at: 1_700_000_000_000,
-                expires_at: 1_800_000_000_000, last_seen_at: 1_700_000_000_000, revoked_at: null,
+                token_hash: sessionTokenHash('never-store-this-token'), user_id: 'user-1', created_at: '1700000000000',
+                expires_at: '1800000000000', last_seen_at: '1700000000000', revoked_at: null,
               }]
-                : undefined
+                : text.includes('FROM audit_events ORDER BY id') ? [{
+                  id: 'audit-1', org_id: 'org-a', actor_user_id: 'user-1', action: 'user.manage',
+                  resource_type: 'user', resource_id: 'user-1', decision: 'allowed', reason: 'administrator',
+                  correlation_id: 'migration-test', created_at: '1700000000001', details_json: {},
+                }]
+                  : undefined
         if (rows !== undefined) return { rows: rows as Row[], rowCount: rows.length }
         return super.query(text, values)
       }
@@ -109,7 +118,7 @@ describe('migrateSqliteEnterpriseIdentityToPostgres', () => {
     const target = new VerifiedDatabase()
 
     const report = await migrateSqliteEnterpriseIdentityToPostgres({
-      sqliteFilename: sqlitePath, target, targetBackupConfirmed: true,
+      sqliteFilename: sqlitePath, target, sourceQuiesced: true, targetBackupConfirmed: true,
     })
 
     expect(report.dryRun).toBe(false)
@@ -122,15 +131,26 @@ describe('migrateSqliteEnterpriseIdentityToPostgres', () => {
     expect(sessionWrite?.values[0]).toMatch(/^[a-f0-9]{64}$/)
   })
 
-  it('creates a source backup after SQLite integrity validation before importing', async () => {
+  it('creates a native consistent source backup after SQLite integrity validation before importing', async () => {
     const backupFilename = join(root, 'identity.before-postgres.sqlite')
     const target = new RecordingDatabase()
 
     await expect(migrateSqliteEnterpriseIdentityToPostgres({
-      sqliteFilename: sqlitePath, backupFilename, target, targetBackupConfirmed: true,
+      sqliteFilename: sqlitePath, backupFilename, target, sourceQuiesced: true, targetBackupConfirmed: true,
     })).rejects.toThrow(/checksum mismatch/i)
 
     await expect(access(backupFilename)).resolves.toBeUndefined()
+  })
+
+  it('fails closed before PostgreSQL access when a requested source snapshot path already exists', async () => {
+    const backupFilename = join(root, 'already-exists.sqlite')
+    await writeFile(backupFilename, 'reserved snapshot path')
+    const target = new RecordingDatabase()
+
+    await expect(migrateSqliteEnterpriseIdentityToPostgres({
+      sqliteFilename: sqlitePath, backupFilename, target, sourceQuiesced: true, targetBackupConfirmed: true,
+    })).rejects.toThrow(/backup/i)
+    expect(target.queries).toEqual([])
   })
 
   it('does not touch PostgreSQL when the source SQLite integrity check cannot pass', async () => {
@@ -139,7 +159,7 @@ describe('migrateSqliteEnterpriseIdentityToPostgres', () => {
     const target = new RecordingDatabase()
 
     await expect(migrateSqliteEnterpriseIdentityToPostgres({
-      sqliteFilename: corruptFilename, target, targetBackupConfirmed: true,
+      sqliteFilename: corruptFilename, target, sourceQuiesced: true, targetBackupConfirmed: true,
     })).rejects.toThrow()
     expect(target.queries).toEqual([])
   })
@@ -147,8 +167,19 @@ describe('migrateSqliteEnterpriseIdentityToPostgres', () => {
   it('fails closed when target backup was not explicitly confirmed', async () => {
     const target = new RecordingDatabase()
 
-    await expect(migrateSqliteEnterpriseIdentityToPostgres({ sqliteFilename: sqlitePath, target }))
+    await expect(migrateSqliteEnterpriseIdentityToPostgres({
+      sqliteFilename: sqlitePath, target, sourceQuiesced: true,
+    }))
       .rejects.toThrow(/target backup confirmation/i)
+    expect(target.queries).toEqual([])
+  })
+
+  it('fails closed before PostgreSQL access until the source SQLite writers are stopped', async () => {
+    const target = new RecordingDatabase()
+
+    await expect(migrateSqliteEnterpriseIdentityToPostgres({
+      sqliteFilename: sqlitePath, target, targetBackupConfirmed: true,
+    })).rejects.toThrow(/quiesced/i)
     expect(target.queries).toEqual([])
   })
 
@@ -165,9 +196,10 @@ describe('migrateSqliteEnterpriseIdentityToPostgres', () => {
     const target = new NonEmptyDatabase()
 
     await expect(migrateSqliteEnterpriseIdentityToPostgres({
-      sqliteFilename: sqlitePath, target, targetBackupConfirmed: true,
+      sqliteFilename: sqlitePath, target, sourceQuiesced: true, targetBackupConfirmed: true,
     })).rejects.toThrow(/not empty/i)
-    expect(target.queries.map(query => query.text)).not.toContain('BEGIN')
+    expect(target.queries.map(query => query.text)).toContain('BEGIN')
+    expect(target.queries.map(query => query.text)).toContain('ROLLBACK')
     expect(target.queries.some(query => query.text.startsWith('CREATE TABLE'))).toBe(false)
   })
 
@@ -183,7 +215,7 @@ describe('migrateSqliteEnterpriseIdentityToPostgres', () => {
     const target = new FailingDatabase()
 
     await expect(migrateSqliteEnterpriseIdentityToPostgres({
-      sqliteFilename: sqlitePath, target, targetBackupConfirmed: true,
+      sqliteFilename: sqlitePath, target, sourceQuiesced: true, targetBackupConfirmed: true,
     })).rejects.toThrow(/injected user write failure/)
     expect(target.queries.map(query => query.text)).toContain('ROLLBACK')
     expect(target.queries.map(query => query.text)).not.toContain('COMMIT')
@@ -201,7 +233,7 @@ describe('migrateSqliteEnterpriseIdentityToPostgres', () => {
     const target = new MismatchDatabase()
 
     await expect(migrateSqliteEnterpriseIdentityToPostgres({
-      sqliteFilename: sqlitePath, target, targetBackupConfirmed: true,
+      sqliteFilename: sqlitePath, target, sourceQuiesced: true, targetBackupConfirmed: true,
     })).rejects.toThrow(/checksum mismatch/i)
     expect(target.queries.map(query => query.text)).toContain('ROLLBACK')
   })
@@ -214,11 +246,39 @@ describe('migrateSqliteEnterpriseIdentityToPostgres', () => {
     const target = new RecordingDatabase()
 
     const error = await migrateSqliteEnterpriseIdentityToPostgres({
-      sqliteFilename: sqlitePath, target, targetBackupConfirmed: true,
+      sqliteFilename: sqlitePath, target, sourceQuiesced: true, targetBackupConfirmed: true,
     }).catch(cause => cause)
     expect(error).toBeInstanceOf(Error)
     expect((error as Error).message).toMatch(/config\.settings\.token/)
     expect((error as Error).message).not.toContain('do-not-log')
     expect(target.queries).toEqual([])
+  })
+
+  it('uses one connected pg client for transaction lock, preflight, import, readback, and release', async () => {
+    class PoolLikeDatabase implements PostgresDatabase {
+      readonly rootQueries: RecordedQuery[] = []
+      readonly client = new RecordingDatabase()
+
+      async connect(): Promise<PostgresDatabase> {
+        return this.client
+      }
+
+      async query<Row extends Record<string, unknown> = Record<string, unknown>>(
+        text: string, values: readonly unknown[] = [],
+      ): Promise<PostgresQueryResult<Row>> {
+        this.rootQueries.push({ text, values })
+        throw new Error('root pool query must not be used once a migration client is acquired')
+      }
+    }
+    const target = new PoolLikeDatabase()
+
+    await expect(migrateSqliteEnterpriseIdentityToPostgres({
+      sqliteFilename: sqlitePath, target, sourceQuiesced: true, targetBackupConfirmed: true,
+    })).rejects.toThrow(/checksum mismatch/i)
+    expect(target.rootQueries).toEqual([])
+    expect(target.client.queries.map(query => query.text)).toContain('BEGIN')
+    expect(target.client.queries.some(query => query.text.includes('pg_try_advisory_xact_lock'))).toBe(true)
+    expect(target.client.queries.some(query => query.text.includes('INSERT INTO organizations'))).toBe(true)
+    expect(target.client.queries.some(query => query.text.includes('FROM organizations ORDER BY id'))).toBe(true)
   })
 })
