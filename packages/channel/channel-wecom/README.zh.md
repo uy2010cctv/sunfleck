@@ -1,0 +1,24 @@
+# `@deepseek-ai/dsh-channel-wecom`
+
+[English](README.md) | 中文
+
+DSH 的企业微信企业应用适配器合同。本包只支持企业微信企业应用；个人微信和个人号自动化明确不在产品边界内。
+
+本包提供：
+
+- 常量时间 SHA-1 回调验签；
+- 企业微信 AES-256-CBC、32 字节 PKCS#7 回调信封和 URL 校验；
+- 与传输无关的快速 `success` ACK 合同；
+- 入站身份规范化及 Channel Kernel 幂等键；
+- Token 临期／过期和入站心跳健康提醒；
+- 确定性的、理解提供方错误的出站重试／死信决策。
+
+本包不包含 HTTP 客户端、Webhook 服务、Token 缓存、数据库或消息发送器。Host 必须在持久化接纳前完成验签并返回快速 ACK，然后由 PostgreSQL 入站／出站 Worker 异步处理解密信封。凭据值必须来自 DSH Credentials，不得写入审计记录。
+
+## Model Experience
+
+适配器不贡献 Prompt 分区、Tool Schema、模型调用或 Token 用量，只负责把提供方线格式转换为与提供方无关的 Channel Kernel 和 Host 合同。
+
+## 可靠性边界
+
+`nextWeComDeliveryAttempt` 只返回决策，不休眠也不发送。持久化 Worker 负责租约／fencing、幂等 Outbox 认领、重试持久化、提供方回执和死信回放。提供方 `Retry-After` 最长遵循 24 小时；非瞬态 HTTP 错误失败关闭。
