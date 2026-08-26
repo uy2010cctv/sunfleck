@@ -92,4 +92,25 @@ describe.skipIf(database === undefined)('enterprise operations PostgreSQL', () =
     })).rejects.toThrow()
     await expect(operations.getWorkRecord('pg-org', 'pg-rollback-session', 'pg-lead')).resolves.toBeUndefined()
   })
+
+  it('serializes a reused idempotency key across concurrent resources', async () => {
+    const operations = new EnterpriseOperationsRepository(postgres, { allowUnverifiedReferences: true })
+    for (const suffix of ['a', 'b']) {
+      await operations.createFixedTeam({
+        teamId: `team-${suffix}`, orgId: 'race-org', leaderEmployeeReleaseId: `lead-${suffix}`, members: [],
+        workflowTemplate: {}, approvalPolicy: {}, expectedRevision: 0, idempotencyKey: `team-${suffix}`,
+      })
+      await operations.createSchedule({
+        scheduleId: `schedule-${suffix}`, orgId: 'race-org', target: { kind: 'team', teamId: `team-${suffix}` }, timezone: 'UTC',
+        rule: '* * * * *', input: {}, nextRunAt: 1, expectedRevision: 0, idempotencyKey: `schedule-${suffix}`,
+      })
+    }
+    const results = await Promise.allSettled(['a', 'b'].map(suffix => operations.fireSchedule({
+      scheduleId: `schedule-${suffix}`, orgId: 'race-org', expectedRevision: 1, idempotencyKey: 'same-fire-key',
+      occurrenceKey: suffix, sessionId: `session-${suffix}`, firedAt: 1, nextRunAt: 2,
+    })))
+    expect(results.filter(result => result.status === 'fulfilled')).toHaveLength(1)
+    expect(results.filter(result => result.status === 'rejected')).toHaveLength(1)
+    expect(String((results.find(result => result.status === 'rejected') as PromiseRejectedResult).reason)).toContain('different request')
+  })
 })
