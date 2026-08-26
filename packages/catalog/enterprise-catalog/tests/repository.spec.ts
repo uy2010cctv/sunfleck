@@ -338,7 +338,11 @@ describe('EnterpriseCatalogRepository', () => {
       profile: { ...firstDraft.profile, toolPolicy: { token: 'raw-secret' } },
     }))
       .rejects.toThrow('secret-bearing field token')
-    for (const field of ['api-key', 'access_token', 'private_key', 'auth', 'headers']) {
+    for (const field of [
+      'api-key', 'access_token', 'private_key', 'auth', 'headers',
+      'refreshToken', 'openaiApiKey', 'webhookSecret', 'dbPassword',
+      'proxyAuthorization', 'customHeaders',
+    ]) {
       await expect(repository.saveAssetVersion({
         assetId: `tool-${field}`, orgId: 'org-a', kind: 'tool', name: 'Dangerous', expectedRevision: 0,
         idempotencyKey: `secret-${field}`, content: { [field]: 'raw-secret' }, createdBy: 'user-a',

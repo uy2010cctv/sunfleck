@@ -5,6 +5,9 @@ import { EnterpriseCatalogRepository } from '../src/index.ts'
 import type { PostgresDatabase, PostgresQueryResult } from '../src/types.ts'
 
 const url = process.env.DSH_TEST_POSTGRES_URL
+if (url === undefined && process.env.CI === 'true') {
+  throw new Error('DSH_TEST_POSTGRES_URL is required for enterprise catalog PostgreSQL integration tests in CI')
+}
 
 class PgSchemaDatabase implements PostgresDatabase {
   constructor(private readonly client: PoolClient, private readonly schema: string) {}
@@ -84,6 +87,6 @@ describe.skipIf(url === undefined)('enterprise catalog PostgreSQL integration', 
     expect(writes.filter(item => item.status === 'fulfilled')).toHaveLength(1)
     const rejected = writes.find(item => item.status === 'rejected')
     const reason: unknown = rejected?.status === 'rejected' ? (rejected.reason as unknown) : undefined
-    expect(reason instanceof Error ? reason.message : String(reason)).toMatch(/revision conflict|duplicate key/i)
+    expect(reason instanceof Error ? reason.message : String(reason)).toMatch(/revision conflict/i)
   })
 })

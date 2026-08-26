@@ -55,8 +55,8 @@ function assertNoSecrets(value: unknown, path = 'config'): void {
       continue
     }
     const normalizedKey = key.replaceAll(/[^a-z0-9]/giu, '').toLowerCase()
-    if (/^(?:token|accesstoken|apikey|secret|password|privatekey|credential|authorization|bearer|headers|auth|clientsecret)$/u
-      .test(normalizedKey)) {
+    if (/(?:token|accesstoken|apikey|secret|password|privatekey|credential|authorization|bearer|headers|clientsecret)/u
+      .test(normalizedKey) || normalizedKey === 'auth') {
       throw new Error(`catalog config contains secret-bearing field ${key} at ${fieldPath}`)
     }
     assertNoSecrets(child, fieldPath)
