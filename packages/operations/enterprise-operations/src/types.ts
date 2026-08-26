@@ -106,6 +106,6 @@ export interface EnterpriseOperationsRepositoryOptions {
   readonly now?: () => number
   readonly resolveSession?: (orgId: string, sessionId: string) => boolean | Promise<boolean>
   readonly resolveRelease?: (orgId: string, employeeReleaseId: string) => boolean | Promise<boolean>
-  readonly requireNativeReferences?: boolean
+  /** Explicit test/development escape hatch; production composition must omit it. */
   readonly allowUnverifiedReferences?: boolean
 }

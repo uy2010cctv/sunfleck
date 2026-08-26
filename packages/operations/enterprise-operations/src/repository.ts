@@ -151,10 +151,7 @@ export class EnterpriseOperationsRepository {
   constructor(
     private readonly database: PostgresDatabase,
     private readonly options: EnterpriseOperationsRepositoryOptions = {},
-  ) {
-    if (options.requireNativeReferences === true && options.allowUnverifiedReferences === true)
-      throw new Error('requireNativeReferences and allowUnverifiedReferences cannot both be enabled')
-  }
+  ) {}
   private now(): number {
     return this.options.now?.() ?? Date.now()
   }
