@@ -2,5 +2,9 @@
   "extends": "../../../tsconfig.base.json",
   "compilerOptions": { "rootDir": "src", "outDir": "lib/types" },
   "include": ["src"],
-  "references": [{ "path": "../../runtime-diagnostics/invariants" }, { "path": "../../../vendor/cordis" }]
+  "references": [
+    { "path": "../../runtime-diagnostics/invariants" },
+    { "path": "../../governance/enterprise-governance" },
+    { "path": "../../../vendor/cordis" }
+  ]
 }

@@ -13,6 +13,28 @@ Durable operation projections over native DSH execution:
 - Idempotency keys bind a SHA-256 request digest, and reuse with different input is rejected. Only active schedules can fire; the Outbox command creates the new scheduled Session.
 - `EnterpriseOperationsWorker` claims one Outbox command, invokes an injected native Session creator, then completes or fails the claim. Retry timing is supplied by the caller through `nextAttemptAt`.
 
+## Host API service contract
+
+`EnterpriseOperationsService` is the driver-neutral Host/API facade. It accepts an
+`EnterprisePrincipal` and requires `authorize` and `audit` callbacks. Organization
+scope is checked before authorization, and denied requests never reach the driver.
+Each method uses a typed `enterpriseOperation.*` endpoint and injects the principal's
+organization ID into the driver, so request payloads cannot switch organizations.
+Production composition should connect `authorize` to the central
+`EnterpriseSecurity.authorizeApi` policy and `audit` to the durable audit repository.
+
+```ts
+const service = new EnterpriseOperationsService(repository, {
+  authorize: (principal, endpoint, input) => security.authorizeApi(principal, endpoint, input),
+  audit: event => auditRepository.append(event),
+})
+const records = await service.listWorkRecords(principal, { businessState: 'waiting-approval' })
+```
+
+The service only owns the Host boundary and delegation; it does not replace the
+native DSH Session/Workflow execution loop. The product composition injects the
+PostgreSQL driver, native Session creator, and outbox worker.
+
 ## Model Experience
 
 ### Operation projections

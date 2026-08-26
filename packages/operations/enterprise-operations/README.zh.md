@@ -13,6 +13,26 @@
 - 幂等键会绑定 SHA-256 请求摘要，使用不同输入重复该键会被拒绝。只有 active 调度可执行；Outbox 命令负责创建新的调度 Session。
 - `EnterpriseOperationsWorker` 每次领取一条 Outbox 命令，调用注入的原生 Session 创建器，然后完成或标记该任务失败。重试时间由调用方通过 `nextAttemptAt` 提供。
 
+## Host API 服务合同
+
+`EnterpriseOperationsService` 是 Host/API 层的 driver-neutral 门面。它接收
+`EnterprisePrincipal`，并在调用底层 driver 前强制执行组织范围检查、`authorize`
+回调和 `audit` 回调；未授权请求不会触达数据库 driver。所有方法使用
+`enterpriseOperation.*` 类型化端点，且将组织 ID 从 principal 注入 driver，调用方不能
+借由请求体切换组织。生产组合应将 `authorize` 连接到统一的
+`EnterpriseSecurity.authorizeApi`，将 `audit` 连接到统一审计仓储。
+
+```ts
+const service = new EnterpriseOperationsService(repository, {
+  authorize: (principal, endpoint, input) => security.authorizeApi(principal, endpoint, input),
+  audit: event => auditRepository.append(event),
+})
+const records = await service.listWorkRecords(principal, { businessState: 'waiting-approval' })
+```
+
+Service 只负责 Host 边界与委派，不改变原生 DSH Session/Workflow 的执行循环；真实
+PostgreSQL driver、Session 创建器和 Outbox worker 由产品组合层注入。
+
 ## Model Experience
 
 ### 运营投影
