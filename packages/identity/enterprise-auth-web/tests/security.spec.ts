@@ -1,0 +1,116 @@
+import { mkdtemp, rm } from 'node:fs/promises'
+import { join } from 'node:path'
+import { tmpdir } from 'node:os'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { EnterpriseIdentityRepository } from '@deepseek-ai/dsh-enterprise-identity'
+import { createPasswordVerifier } from '@deepseek-ai/dsh-enterprise-sso'
+import {
+  EnterpriseSecurity,
+  classifyApiEndpoint,
+  parseSessionCookie,
+  type EnterpriseSecurityConfig,
+} from '../src/index.ts'
+
+describe('EnterpriseSecurity', () => {
+  let root: string
+  let repository: EnterpriseIdentityRepository
+  let security: EnterpriseSecurity
+  let now: number
+  const config: EnterpriseSecurityConfig = {
+    organizationId: 'org-a', sessionCookieName: 'dsh_enterprise_session', sessionTtlMs: 60_000,
+    secureCookies: true, autoProvisionSsoUsers: true,
+  }
+
+  beforeEach(async () => {
+    root = await mkdtemp(join(tmpdir(), 'dsh-enterprise-security-'))
+    now = Date.UTC(2026, 7, 26, 12)
+    repository = new EnterpriseIdentityRepository(join(root, 'identity.sqlite'), { now: () => now })
+    repository.createOrganization({ id: 'org-a', name: 'Example' })
+    repository.createUser({
+      id: 'admin-1', orgId: 'org-a', username: 'admin', displayName: 'Admin', disabled: false,
+    })
+    repository.setRoles('admin-1', ['administrator'])
+    repository.setPasswordVerifier('admin-1', createPasswordVerifier('enterprise-password'))
+    repository.createUser({
+      id: 'member-1', orgId: 'org-a', username: 'member', displayName: 'Member', disabled: false,
+    })
+    repository.setRoles('member-1', ['member'])
+    repository.setPasswordVerifier('member-1', createPasswordVerifier('enterprise-password'))
+    let token = 0
+    security = new EnterpriseSecurity(repository, config, {
+      now: () => now,
+      randomToken: () => ++token === 1 ? 'issued-token' : `issued-token-${String(token)}`,
+    })
+  })
+
+  afterEach(async () => {
+    repository.close()
+    await rm(root, { recursive: true, force: true })
+  })
+
+  it('issues an HttpOnly session for local login and authenticates its cookie', () => {
+    expect(security.loginLocal('org-a', 'admin', 'wrong')).toBeUndefined()
+    const login = security.loginLocal('org-a', 'admin', 'enterprise-password')
+    expect(login?.cookie).toContain('HttpOnly')
+    expect(login?.cookie).toContain('Secure')
+    expect(parseSessionCookie(login?.cookie ?? '', config.sessionCookieName)).toBe('issued-token')
+    expect(security.authenticateCookie(login?.cookie ?? '')).toMatchObject({
+      userId: 'admin-1', roles: ['administrator'],
+    })
+  })
+
+  it('classifies every existing API family and fails closed for unknown endpoints', () => {
+    expect(classifyApiEndpoint('sessions.history', { sessionId: 'session-1' }))
+      .toMatchObject({ action: 'session.read', resourceType: 'session', resourceId: 'session-1' })
+    expect(classifyApiEndpoint('credentials.set', {})).toMatchObject({ action: 'credential.manage' })
+    expect(classifyApiEndpoint('agentPreset.copy', {})).toMatchObject({ action: 'employee.create' })
+    expect(classifyApiEndpoint('unknown.execute', {})).toBeUndefined()
+  })
+
+  it('classifies developer inventory endpoints as administrator-only system inspection', () => {
+    expect(classifyApiEndpoint('dynamicCordisRunner.inventory', {})).toEqual({
+      action: 'system.inspect', resourceType: 'system-inspection',
+    })
+    expect(classifyApiEndpoint('dynamicCordisRunner.syncInspectManifest', {})).toEqual({
+      action: 'system.inspect', resourceType: 'system-inspection',
+    })
+  })
+
+  it('enforces endpoint roles and restricted resource visibility', () => {
+    const admin = security.loginLocal('org-a', 'admin', 'enterprise-password')?.principal
+    const member = security.loginLocal('org-a', 'member', 'enterprise-password')?.principal
+    expect(admin).toBeDefined()
+    expect(member).toBeDefined()
+    expect(security.authorizeApi(admin!, 'credentials.set', {}).allowed).toBe(true)
+    expect(security.authorizeApi(member!, 'credentials.set', {}).allowed).toBe(false)
+    expect(security.authorizeApi(member!, 'sessions.list', {}).allowed).toBe(true)
+    expect(security.authorizeApi(member!, 'session.list', {}).allowed).toBe(true)
+    expect(security.authorizeApi(member!, 'session.create', {}).allowed).toBe(true)
+
+    repository.putResourcePolicy({
+      resourceType: 'session', resourceId: 'session-1', orgId: 'org-a', creatorUserId: 'admin-1',
+      visibility: 'private', allowedUserIds: [],
+    })
+    expect(security.authorizeApi(member!, 'sessions.history', { sessionId: 'session-1' }))
+      .toEqual({ allowed: false, reason: 'resource-hidden' })
+  })
+
+  it('records every allowed and denied API decision with correlation evidence', () => {
+    const member = security.loginLocal('org-a', 'member', 'enterprise-password')?.principal
+    security.auditApi(member!, 'credentials.set', {}, { allowed: false, reason: 'insufficient-role' }, 'rpc-1')
+    expect(repository.listAudit({ orgId: 'org-a', limit: 10 })).toEqual([
+      expect.objectContaining({
+        actorUserId: 'member-1', action: 'credential.manage', decision: 'denied', correlationId: 'rpc-1',
+      }),
+    ])
+  })
+
+  it('revokes logout sessions and expires them at the configured boundary', () => {
+    const login = security.loginLocal('org-a', 'admin', 'enterprise-password')!
+    security.logout(login.cookie)
+    expect(security.authenticateCookie(login.cookie)).toBeUndefined()
+    const next = security.loginLocal('org-a', 'admin', 'enterprise-password')!
+    now += config.sessionTtlMs + 1
+    expect(security.authenticateCookie(next.cookie)).toBeUndefined()
+  })
+})

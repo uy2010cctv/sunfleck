@@ -1,6 +1,6 @@
 /** PostgreSQL schema for work records, approvals, schedules, teams, and outbox. */
 import type { PostgresDatabase } from './types.ts'
-export const ENTERPRISE_OPERATIONS_SCHEMA_VERSION = 3
+export const ENTERPRISE_OPERATIONS_SCHEMA_VERSION = 4
 const statements = [
   'CREATE TABLE IF NOT EXISTS dsh_enterprise_operations_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)',
   `CREATE TABLE IF NOT EXISTS dsh_enterprise_work_records (
@@ -36,7 +36,9 @@ const statements = [
   `CREATE TABLE IF NOT EXISTS dsh_enterprise_operation_outbox (
     command_id TEXT PRIMARY KEY, org_id TEXT NOT NULL, schedule_id TEXT NOT NULL,
     occurrence_key TEXT NOT NULL, work_session_id TEXT NOT NULL, employee_release_id TEXT NOT NULL, team_id TEXT,
-    payload_json JSONB NOT NULL, state TEXT NOT NULL, created_at BIGINT NOT NULL,
+    payload_json JSONB NOT NULL, state TEXT NOT NULL CHECK (state IN ('pending', 'processing', 'completed', 'failed')),
+    attempt_count INTEGER NOT NULL DEFAULT 0, lease_owner TEXT, lease_expires_at BIGINT,
+    last_error TEXT, completed_at BIGINT, created_at BIGINT NOT NULL,
     UNIQUE(org_id, schedule_id, occurrence_key)
   )`,
   `CREATE TABLE IF NOT EXISTS dsh_enterprise_operations_idempotency (
@@ -62,9 +64,33 @@ export async function migrateEnterpriseOperations(database: PostgresDatabase): P
         await transaction.query('ALTER TABLE dsh_enterprise_operation_outbox ADD COLUMN IF NOT EXISTS team_id TEXT')
       }
       if (version === 1 || version === 2) {
-        await transaction.query("ALTER TABLE dsh_enterprise_work_records ADD CONSTRAINT dsh_work_source_check CHECK (source IN ('console', 'schedule', 'wecom'))")
-        await transaction.query("ALTER TABLE dsh_enterprise_work_records ADD CONSTRAINT dsh_work_state_check CHECK (business_state IN ('active', 'waiting-approval', 'completed', 'failed'))")
-        await transaction.query("ALTER TABLE dsh_enterprise_schedules ADD CONSTRAINT dsh_schedule_state_check CHECK (state IN ('active', 'paused', 'archived'))")
+        await transaction.query(
+          "ALTER TABLE dsh_enterprise_work_records ADD CONSTRAINT dsh_work_source_check CHECK (source IN ('console', 'schedule', 'wecom'))",
+        )
+        await transaction.query(
+          "ALTER TABLE dsh_enterprise_work_records ADD CONSTRAINT dsh_work_state_check CHECK (business_state IN ('active', 'waiting-approval', 'completed', 'failed'))",
+        )
+        await transaction.query(
+          "ALTER TABLE dsh_enterprise_schedules ADD CONSTRAINT dsh_schedule_state_check CHECK (state IN ('active', 'paused', 'archived'))",
+        )
+        await transaction.query("UPDATE dsh_enterprise_operations_meta SET value = $1 WHERE key = 'schema-version'", [
+          String(ENTERPRISE_OPERATIONS_SCHEMA_VERSION),
+        ])
+      }
+      if (version < 4) {
+        await transaction.query(
+          'ALTER TABLE dsh_enterprise_operation_outbox ADD COLUMN IF NOT EXISTS attempt_count INTEGER NOT NULL DEFAULT 0',
+        )
+        await transaction.query('ALTER TABLE dsh_enterprise_operation_outbox ADD COLUMN IF NOT EXISTS lease_owner TEXT')
+        await transaction.query('ALTER TABLE dsh_enterprise_operation_outbox ADD COLUMN IF NOT EXISTS lease_expires_at BIGINT')
+        await transaction.query('ALTER TABLE dsh_enterprise_operation_outbox ADD COLUMN IF NOT EXISTS last_error TEXT')
+        await transaction.query('ALTER TABLE dsh_enterprise_operation_outbox ADD COLUMN IF NOT EXISTS completed_at BIGINT')
+        await transaction.query(
+          "UPDATE dsh_enterprise_operation_outbox SET state = 'pending' WHERE state NOT IN ('pending','processing','completed','failed')",
+        )
+        await transaction.query(
+          "UPDATE dsh_enterprise_operations_idempotency SET result_json = jsonb_build_object('requestDigest', '', 'result', result_json) WHERE jsonb_typeof(result_json) <> 'object' OR NOT (result_json ? 'result')",
+        )
         await transaction.query("UPDATE dsh_enterprise_operations_meta SET value = $1 WHERE key = 'schema-version'", [
           String(ENTERPRISE_OPERATIONS_SCHEMA_VERSION),
         ])

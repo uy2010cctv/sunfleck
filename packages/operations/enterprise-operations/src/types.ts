@@ -64,6 +64,24 @@ export interface ScheduleFireView {
     readonly teamId?: string
   }
 }
+export type OutboxState = 'pending' | 'processing' | 'completed' | 'failed'
+export interface OutboxCommandView {
+  readonly commandId: string
+  readonly orgId: string
+  readonly scheduleId: string
+  readonly occurrenceKey: string
+  readonly workSessionId: string
+  readonly employeeReleaseId: string
+  readonly teamId?: string
+  readonly payload: Readonly<Record<string, unknown>>
+  readonly state: OutboxState
+  readonly attemptCount: number
+  readonly leaseOwner?: string
+  readonly leaseExpiresAt?: number
+  readonly lastError?: string
+  readonly completedAt?: number
+  readonly createdAt: number
+}
 export interface FixedTeamView {
   readonly teamId: string
   readonly orgId: string

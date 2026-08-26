@@ -154,6 +154,14 @@ class MemoryPostgresDatabase implements PostgresDatabase {
       this.meta.set('schema-version', String(values[0]))
       return []
     }
+    if (text.startsWith('UPDATE dsh_enterprise_operation_outbox SET state')) return []
+    if (text.startsWith('UPDATE dsh_enterprise_operations_idempotency SET result_json')) {
+      for (const [key, value] of this.idempotency) {
+        if (typeof value === 'object' && value !== null && 'result' in value) continue
+        this.idempotency.set(key, { requestDigest: '', result: value })
+      }
+      return []
+    }
     if (text.startsWith('SELECT result_json FROM dsh_enterprise_operations_idempotency')) {
       const value = this.idempotency.get(`${String(values[0])}:${String(values[1])}:${String(values[2])}`)
       return value === undefined ? [] : [{ result_json: clone(value) }]
@@ -397,7 +405,7 @@ describe('EnterpriseOperationsRepository', () => {
       idempotencyKey: 'approval-migration-create',
     })
 
-    expect(database.schemaVersion).toBe('3')
+    expect(database.schemaVersion).toBe('4')
   })
 
   it('permits unverified local writes only through explicit configuration', async () => {

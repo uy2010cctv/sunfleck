@@ -10,11 +10,22 @@ import type {
   ScheduleFireView,
   ScheduleTarget,
   ScheduleView,
+  OutboxCommandView,
+  OutboxState,
   WorkRecordInput,
   WorkRecordPage,
   WorkRecordView,
 } from './types.ts'
 import { migrateEnterpriseOperations } from './schema.ts'
+function canonical(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonical)
+  if (typeof value !== 'object' || value === null) return value
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([key, item]) => [key, canonical(item)]),
+  )
+}
 function parse(value: unknown): unknown {
   return typeof value === 'string' ? JSON.parse(value) : value
 }
@@ -35,15 +46,28 @@ function required<Row>(row: Row | undefined, entity: string): Row {
   return row
 }
 function requestDigest(value: unknown): string {
-  return createHash('sha256').update(JSON.stringify(value)).digest('hex')
+  return createHash('sha256')
+    .update(JSON.stringify(canonical(value)))
+    .digest('hex')
 }
 function assertSourceImmutable(before: WorkRecordView, after: WorkRecordInput): void {
   if (
-    JSON.stringify(before.sourceReferences) !== JSON.stringify(after.sourceReferences) ||
+    JSON.stringify(canonical(before.sourceReferences)) !== JSON.stringify(canonical(after.sourceReferences)) ||
     before.sessionId !== after.sessionId ||
-    before.employeeReleaseId !== after.employeeReleaseId
+    before.employeeReleaseId !== after.employeeReleaseId ||
+    before.source !== after.source
   )
     throw new Error('source references are immutable')
+}
+function assertBusinessTransition(before: BusinessState, after: BusinessState): void {
+  if (before === after) return
+  const allowed: Record<BusinessState, readonly BusinessState[]> = {
+    active: ['waiting-approval', 'completed', 'failed'],
+    'waiting-approval': ['active', 'completed', 'failed'],
+    completed: [],
+    failed: ['active'],
+  }
+  if (!allowed[before].includes(after)) throw new Error(`invalid work record state transition: ${before} -> ${after}`)
 }
 export class ApprovalRevisionConflictError extends Error {
   constructor(
@@ -112,6 +136,14 @@ interface OutboxRow extends Record<string, unknown> {
   work_session_id: string
   employee_release_id: string
   team_id: string | null
+  payload_json: unknown
+  state: OutboxState
+  attempt_count: number | string
+  lease_owner: string | null
+  lease_expires_at: number | string | null
+  last_error: string | null
+  completed_at: number | string | null
+  created_at: number | string
 }
 
 export class EnterpriseOperationsRepository {
@@ -146,16 +178,20 @@ export class EnterpriseOperationsRepository {
       throw new Error(`native employee release ${releaseId} was not found in organization ${orgId}`)
   }
   private async teamTarget(database: PostgresDatabase, orgId: string, teamId: string): Promise<TeamRow> {
-    const result = await database.query<TeamRow>(
-      'SELECT * FROM dsh_enterprise_fixed_teams WHERE team_id = $1 AND org_id = $2',
-      [teamId, orgId],
-    )
+    const result = await database.query<TeamRow>('SELECT * FROM dsh_enterprise_fixed_teams WHERE team_id = $1 AND org_id = $2', [
+      teamId,
+      orgId,
+    ])
     const team = result.rows[0]
     if (team === undefined || team.org_id !== orgId) throw new Error(`fixed team ${teamId} was not found in organization ${orgId}`)
     return team
   }
   private async idempotent<T>(
-    database: PostgresDatabase, orgId: string, operation: string, key: string, request: unknown,
+    database: PostgresDatabase,
+    orgId: string,
+    operation: string,
+    key: string,
+    request: unknown,
   ): Promise<T | undefined> {
     const result = await database.query<{ result_json: unknown }>(
       'SELECT result_json FROM dsh_enterprise_operations_idempotency WHERE org_id = $1 AND operation = $2 AND key = $3',
@@ -163,14 +199,20 @@ export class EnterpriseOperationsRepository {
     )
     if (result.rows[0] === undefined) return undefined
     const envelope = record(result.rows[0].result_json)
-    if (envelope.requestDigest !== requestDigest(request)) throw new Error(`idempotency key ${key} was reused with a different request`)
+    if (envelope.requestDigest !== '' && envelope.requestDigest !== requestDigest(request))
+      throw new Error(`idempotency key ${key} was reused with a different request`)
     return envelope.result as T
   }
   private async lockIdempotency(database: PostgresDatabase, orgId: string, operation: string, key: string): Promise<void> {
     await this.lock(database, `idempotency:${orgId}:${operation}:${key}`)
   }
   private async remember(
-    database: PostgresDatabase, orgId: string, operation: string, key: string, request: unknown, value: unknown,
+    database: PostgresDatabase,
+    orgId: string,
+    operation: string,
+    key: string,
+    request: unknown,
+    value: unknown,
   ): Promise<void> {
     await database.query(
       'INSERT INTO dsh_enterprise_operations_idempotency(org_id, operation, key, result_json) VALUES ($1, $2, $3, $4::jsonb)',
@@ -221,6 +263,7 @@ export class EnterpriseOperationsRepository {
       }
       const before = this.work(current)
       assertSourceImmutable(before, input)
+      assertBusinessTransition(before.businessState, input.businessState)
       if (before.revision !== input.expectedRevision) throw new Error(`work record ${input.sessionId} revision conflict`)
       const updated = await database.query<WorkRow>(
         'UPDATE dsh_enterprise_work_records SET team_id = $1, business_state = $2, updated_at = $3, ' +
@@ -364,6 +407,44 @@ export class EnterpriseOperationsRepository {
     const row = result.rows[0]
     return row === undefined || row.org_id !== orgId ? undefined : this.schedule(row)
   }
+  async listSchedules(orgId: string): Promise<readonly ScheduleView[]> {
+    await this.initialize()
+    const result = await this.database.query<ScheduleRow>(
+      'SELECT * FROM dsh_enterprise_schedules WHERE org_id = $1 ORDER BY updated_at DESC, schedule_id',
+      [orgId],
+    )
+    return result.rows.map(row => this.schedule(row))
+  }
+  async transitionSchedule(input: {
+    orgId: string
+    scheduleId: string
+    expectedRevision: number
+    state: 'active' | 'paused' | 'archived'
+    idempotencyKey: string
+  }): Promise<ScheduleView> {
+    await this.initialize()
+    return this.database.transaction(async (database) => {
+      await this.lock(database, `schedule:${input.scheduleId}`)
+      await this.lockIdempotency(database, input.orgId, 'schedule-transition', input.idempotencyKey)
+      const prior = await this.idempotent<ScheduleView>(database, input.orgId, 'schedule-transition', input.idempotencyKey, input)
+      if (prior !== undefined) return prior
+      const current = await database.query<ScheduleRow>(
+        'SELECT * FROM dsh_enterprise_schedules WHERE schedule_id = $1 AND org_id = $2 FOR UPDATE',
+        [input.scheduleId, input.orgId],
+      )
+      const row = current.rows[0]
+      if (row === undefined) throw new Error('schedule not found')
+      if (Number(row.revision) !== input.expectedRevision) throw new Error(`schedule ${input.scheduleId} revision conflict`)
+      if (row.state === 'archived' && input.state !== 'archived') throw new Error('archived schedule cannot be resumed')
+      const updated = await database.query<ScheduleRow>(
+        'UPDATE dsh_enterprise_schedules SET state = $1, updated_at = $2, revision = revision + 1 WHERE schedule_id = $3 AND org_id = $4 AND revision = $5 RETURNING *',
+        [input.state, this.now(), input.scheduleId, input.orgId, input.expectedRevision],
+      )
+      const view = this.schedule(required(updated.rows[0], 'schedule'))
+      await this.remember(database, input.orgId, 'schedule-transition', input.idempotencyKey, input, view)
+      return view
+    })
+  }
   async fireSchedule(input: {
     scheduleId: string
     orgId: string
@@ -432,7 +513,7 @@ export class EnterpriseOperationsRepository {
       )
       const outbox = await database.query(
         'INSERT INTO dsh_enterprise_operation_outbox(command_id,org_id,schedule_id,occurrence_key,work_session_id,' +
-          "employee_release_id,team_id,payload_json,state,created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,'pending',$9) RETURNING *",
+          "employee_release_id,team_id,payload_json,state,attempt_count,created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,'pending',0,$9) RETURNING *",
         [
           randomUUID(),
           input.orgId,
@@ -458,6 +539,54 @@ export class EnterpriseOperationsRepository {
       }
       await this.remember(database, input.orgId, 'schedule-fire', input.idempotencyKey, input, view)
       return view
+    })
+  }
+  /** Claim pending or expired outbox commands using a worker lease (fencing token). */
+  async claimOutbox(input: { orgId: string; workerId: string; leaseMs: number; limit?: number }): Promise<readonly OutboxCommandView[]> {
+    await this.initialize()
+    return this.database.transaction(async (database) => {
+      const now = this.now()
+      const limit = Math.max(1, Math.min(100, input.limit ?? 10))
+      const rows = await database.query<OutboxRow>(
+        "SELECT * FROM dsh_enterprise_operation_outbox WHERE org_id = $1 AND (state = 'pending' OR (state = 'processing' AND lease_expires_at IS NOT NULL AND lease_expires_at < $2) OR state = 'failed') ORDER BY created_at, command_id FOR UPDATE SKIP LOCKED LIMIT $3",
+        [input.orgId, now, limit],
+      )
+      const claimed: OutboxCommandView[] = []
+      for (const row of rows.rows) {
+        const result = await database.query<OutboxRow>(
+          "UPDATE dsh_enterprise_operation_outbox SET state = 'processing', lease_owner = $1, lease_expires_at = $2, attempt_count = attempt_count + 1, last_error = NULL WHERE command_id = $3 RETURNING *",
+          [input.workerId, now + input.leaseMs, row.command_id],
+        )
+        if (result.rows[0] !== undefined) claimed.push(this.outbox(result.rows[0]))
+      }
+      return claimed
+    })
+  }
+  async completeOutbox(input: { orgId: string; commandId: string; workerId: string }): Promise<OutboxCommandView> {
+    await this.initialize()
+    return this.database.transaction(async (database) => {
+      const result = await database.query<OutboxRow>(
+        "UPDATE dsh_enterprise_operation_outbox SET state = 'completed', lease_owner = NULL, lease_expires_at = NULL, completed_at = $1 WHERE command_id = $2 AND org_id = $3 AND state = 'processing' AND lease_owner = $4 RETURNING *",
+        [this.now(), input.commandId, input.orgId, input.workerId],
+      )
+      return this.outbox(required(result.rows[0], 'outbox command'))
+    })
+  }
+  async failOutbox(input: {
+    orgId: string
+    commandId: string
+    workerId: string
+    error: string
+    retryable: boolean
+  }): Promise<OutboxCommandView> {
+    await this.initialize()
+    return this.database.transaction(async (database) => {
+      const state: OutboxState = input.retryable ? 'pending' : 'failed'
+      const result = await database.query<OutboxRow>(
+        "UPDATE dsh_enterprise_operation_outbox SET state = $1, lease_owner = NULL, lease_expires_at = NULL, last_error = $2 WHERE command_id = $3 AND org_id = $4 AND state = 'processing' AND lease_owner = $5 RETURNING *",
+        [state, input.error.slice(0, 2000), input.commandId, input.orgId, input.workerId],
+      )
+      return this.outbox(required(result.rows[0], 'outbox command'))
     })
   }
   async createFixedTeam(input: {
@@ -549,6 +678,25 @@ export class EnterpriseOperationsRepository {
       revision: Number(row.revision),
       createdAt: Number(row.created_at),
       updatedAt: Number(row.updated_at),
+    }
+  }
+  private outbox(row: OutboxRow): OutboxCommandView {
+    return {
+      commandId: row.command_id,
+      orgId: row.org_id,
+      scheduleId: row.schedule_id,
+      occurrenceKey: row.occurrence_key,
+      workSessionId: row.work_session_id,
+      employeeReleaseId: row.employee_release_id,
+      ...(row.team_id === null ? {} : { teamId: row.team_id }),
+      payload: record(row.payload_json),
+      state: row.state,
+      attemptCount: Number(row.attempt_count),
+      ...(row.lease_owner === null ? {} : { leaseOwner: row.lease_owner }),
+      ...(row.lease_expires_at === null ? {} : { leaseExpiresAt: Number(row.lease_expires_at) }),
+      ...(row.last_error === null ? {} : { lastError: row.last_error }),
+      ...(row.completed_at === null ? {} : { completedAt: Number(row.completed_at) }),
+      createdAt: Number(row.created_at),
     }
   }
   private team(row: TeamRow, members: readonly { employeeReleaseId: string; role: string }[]): FixedTeamView {
