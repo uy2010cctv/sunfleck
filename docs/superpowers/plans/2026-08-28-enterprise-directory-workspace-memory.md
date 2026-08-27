@@ -1,5 +1,7 @@
 # Enterprise Directory, Workspace, and Memory Implementation Plan
 
+English | [中文](2026-08-28-enterprise-directory-workspace-memory.zh.md)
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add a production-backed department tree, department-aware user administration, isolated personal and shared department workspaces, sandbox governance, and privacy-reviewed organizational memory to DSH Enterprise.

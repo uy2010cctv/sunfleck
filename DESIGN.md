@@ -59,6 +59,14 @@ Employee Operations Deck. The interface treats digital employees as finite opera
 - Selecting a work record closes the overlay and opens the source Session.
 - Starting work with an employee creates a Session using that Agent Preset, then opens the existing conversation.
 
+## Governance directory and memory
+
+- The organization surface is a split view: keyboard-operable department tree on the left, selected department identity, members, and shared Workspace evidence on the right.
+- User rows keep role, department membership, primary department, status, and action visible together; department selection uses native multi-select behavior rather than custom draggable chips.
+- Workspace rows distinguish personal from department scope, show the real managed root, and expose the sandbox mode as an operational control. The UI states that changes apply to new Sessions.
+- The memory surface separates proposed items from the approved enterprise awareness stream. It shows a short business summary, stable memory id, scope, kind, and source digest prefix, never raw conversation content.
+- Memory approval requires a visible reason. Privacy rejection remains an error state rather than silently rewriting the proposed summary.
+
 ## Employee card
 
 - Identity: display name, stable preset id as employee code, position, department.

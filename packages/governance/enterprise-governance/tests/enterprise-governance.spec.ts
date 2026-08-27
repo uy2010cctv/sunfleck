@@ -28,6 +28,18 @@ describe('enterprise authorization', () => {
     }
   })
 
+  it('lets a member manage only a personal workspace they own', () => {
+    const member = { userId: 'member-1', orgId: 'org-a', roles: ['member'] as const }
+    expect(authorizeEnterprise({
+      principal: member, action: 'workspace.manage',
+      resource: { orgId: 'org-a', creatorUserId: 'member-1', visibility: 'private' },
+    })).toEqual({ allowed: true, reason: 'creator-owner' })
+    expect(authorizeEnterprise({
+      principal: member, action: 'workspace.manage',
+      resource: { orgId: 'org-a', creatorUserId: 'other', visibility: 'private' },
+    })).toEqual({ allowed: false, reason: 'insufficient-role' })
+  })
+
   it('lets creators create employees and update only employee definitions they own', () => {
     const principal = { userId: 'creator-1', orgId: 'org-a', roles: ['creator'] as const }
     expect(authorizeEnterprise({ principal, action: 'employee.create' }))

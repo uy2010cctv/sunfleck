@@ -16,6 +16,7 @@ export type EnterpriseAction =
   | 'audit.read'
   | 'session.read'
   | 'session.create'
+  | 'workspace.manage'
   | 'channel.manage'
   | 'operation.read'
   | 'operation.manage'
@@ -100,6 +101,9 @@ export function authorizeEnterprise(input: EnterpriseAuthorizationInput): Enterp
   }
   if (action === 'employee.update' && hasRole(principal, 'creator')
     && resource?.creatorUserId === principal.userId) {
+    return { allowed: true, reason: 'creator-owner' }
+  }
+  if (action === 'workspace.manage' && resource?.creatorUserId === principal.userId) {
     return { allowed: true, reason: 'creator-owner' }
   }
 

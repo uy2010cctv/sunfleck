@@ -18,6 +18,8 @@ import { EnterpriseAuthHttpHandler } from './http.ts'
 import { EnterpriseRequestContext } from './request-context.ts'
 import { EnterpriseSecurity, type EnterpriseSecurityConfig } from './security.ts'
 import type { EnterprisePrincipal, EnterpriseResource } from '@deepseek-ai/dsh-enterprise-governance'
+import type { WorkspaceRegistry } from '@deepseek-ai/dsh-workspace'
+import { EnterpriseWorkspaceProvisioner } from './workspace-provisioner.ts'
 
 export interface BootstrapAdminConfig {
   readonly userId: string
@@ -37,6 +39,8 @@ export interface EnterpriseAuthWebConfig extends EnterpriseSecurityConfig {
   readonly databaseMode?: 'sqlite' | 'postgres'
   /** Deployment-owned identity store. This is the seam for enterprise persistence adapters. */
   readonly identityStore?: EnterpriseIdentityStore
+  /** Deployment-owned directory under which user and department workspaces are created. */
+  readonly workspaceRoot?: string
   readonly organizationName: string
   readonly localEnabled: boolean
   readonly bootstrapAdmin?: BootstrapAdminConfig
@@ -45,7 +49,7 @@ export interface EnterpriseAuthWebConfig extends EnterpriseSecurityConfig {
   readonly ldap: readonly EnterpriseLdapConfig[]
 }
 
-export const inject = ['webServer', 'credentials', 'enterprisePostgres']
+export const inject = ['webServer', 'credentials', 'enterprisePostgres', 'workspaceRegistry']
 
 async function authRequest(req: IncomingMessage, handler: EnterpriseAuthHttpHandler): Promise<Response> {
   const chunks: Buffer[] = []
@@ -92,6 +96,13 @@ export async function apply(ctx: Context, config: EnterpriseAuthWebConfig): Prom
       ownsRepository = true
       return new EnterpriseIdentityRepository(databasePath)
     })()
+  const workspaceRegistry: WorkspaceRegistry | undefined = ctx.get('workspaceRegistry')
+  const workspaceProvisioner = config.workspaceRoot === undefined
+    ? undefined
+    : (() => {
+      if (workspaceRegistry === undefined) throw new Error('enterprise workspace registry is unavailable')
+      return new EnterpriseWorkspaceProvisioner(repository, { root: config.workspaceRoot, registry: workspaceRegistry })
+    })()
   const closeOwnedRepository = (): void => {
     if (ownsRepository) void repository.close()
   }
@@ -114,18 +125,48 @@ export async function apply(ctx: Context, config: EnterpriseAuthWebConfig): Prom
       await repository.setRoles(config.bootstrapAdmin.userId, ['administrator'])
       await repository.setPasswordVerifier(config.bootstrapAdmin.userId, createPasswordVerifier(resolved.value))
     }
+    if (workspaceProvisioner !== undefined) {
+      const admin = config.bootstrapAdmin === undefined
+        ? undefined
+        : await repository.findUser(config.organizationId, config.bootstrapAdmin.username)
+      if (admin !== undefined) await workspaceProvisioner.ensurePersonal(admin)
+    }
 
     const security = new EnterpriseSecurity(repository, config, {
-      ...config.databaseMode !== 'postgres' || postgres?.catalog === undefined ? {} : {
-        resourcePolicyResolver: async (resourceType: string, resourceId: string, principal: EnterprisePrincipal) => {
-          if (resourceType !== 'employee') return undefined
-          const draft = await postgres.catalog?.getDraft(resourceId, principal.orgId)
+      resourcePolicyResolver: async (resourceType: string, resourceId: string, principal: EnterprisePrincipal) => {
+        if (resourceType === 'employee') {
+          const draft = await postgres?.catalog?.getDraft(resourceId, principal.orgId)
           return draft === undefined ? null : {
             orgId: principal.orgId,
             creatorUserId: draft.ownerUserId,
             visibility: draft.visibility,
           }
-        },
+        }
+        if (resourceType === 'workspace') {
+          const grant = await repository.workspaceGrant(resourceId)
+          if (grant === undefined) return null
+          if (grant.kind === 'personal') {
+            if (grant.ownerUserId === undefined) return null
+            return { orgId: grant.orgId, creatorUserId: grant.ownerUserId, visibility: 'private' }
+          }
+          const allowedUserIds = (await repository.listUsers(grant.orgId))
+            .filter(user => grant.departmentId !== undefined && user.departmentIds.includes(grant.departmentId))
+            .map(user => user.id)
+          return { orgId: grant.orgId, visibility: 'restricted', allowedUserIds }
+        }
+        if (resourceType === 'session') {
+          const grant = await repository.sessionWorkspaceGrant(resourceId)
+          if (grant === undefined) return null
+          if (grant.kind === 'personal') {
+            if (grant.ownerUserId === undefined) return null
+            return { orgId: grant.orgId, creatorUserId: grant.ownerUserId, visibility: 'private' }
+          }
+          const allowedUserIds = (await repository.listUsers(grant.orgId))
+            .filter(user => grant.departmentId !== undefined && user.departmentIds.includes(grant.departmentId))
+            .map(user => user.id)
+          return { orgId: grant.orgId, visibility: 'restricted', allowedUserIds }
+        }
+        return undefined
       },
     })
     requestContext = new EnterpriseRequestContext()
@@ -145,7 +186,7 @@ export async function apply(ctx: Context, config: EnterpriseAuthWebConfig): Prom
     }))
     const handler = new EnterpriseAuthHttpHandler(security, {
       localEnabled: config.localEnabled, oidc, saml, ldap,
-    })
+    }, workspaceProvisioner === undefined ? {} : { workspaceProvisioner })
     ctx.provide('enterpriseSecurity', security)
     ctx.provide('enterpriseRequestContext', activeRequestContext)
     const route: WebRoute = {

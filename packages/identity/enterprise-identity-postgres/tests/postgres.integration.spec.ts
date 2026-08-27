@@ -63,6 +63,9 @@ describe.skipIf(url === undefined)('enterprise identity PostgreSQL directory int
     await expect(repository.listWorkspaceGrants({ orgId: 'org-a', userId: 'user-1' }))
       .resolves.toEqual([expect.objectContaining({ workspaceId: 'workspace-alice' }), expect.objectContaining({ workspaceId: 'workspace-ops' })])
     await expect(repository.listWorkspaceGrants({ orgId: 'org-a', userId: 'user-2' })).resolves.toEqual([])
+    await repository.bindSessionWorkspace({ sessionId: 'session-pg', workspaceId: 'workspace-alice', orgId: 'org-a' })
+    await expect(repository.sessionWorkspaceGrant('session-pg'))
+      .resolves.toMatchObject({ workspaceId: 'workspace-alice', ownerUserId: 'user-1' })
   })
 
   it('stores only reviewed enterprise memory in scoped queries', async () => {

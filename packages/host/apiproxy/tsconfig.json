@@ -75,6 +75,9 @@
       "path": "../../session/session-title"
     },
     {
+      "path": "../../sandbox/sandbox-policy"
+    },
+    {
       "path": "../../session-query/session-query"
     },
     {

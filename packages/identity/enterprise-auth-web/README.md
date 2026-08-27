@@ -8,7 +8,10 @@ Persistent Web authentication and authorization:
 - HttpOnly SameSite session cookies with hashed durable sessions.
 - Central authentication/RBAC/audit before every HTTP RPC, Typert endpoint, dedicated channel, and WebSocket downlink when composed.
 - `EnterpriseRequestContext`, an `AsyncLocalStorage` service exposing the authenticated `EnterprisePrincipal` only while authorized Host HTTP and WebSocket work is active.
-- Organization, user, role, disable, resource-policy, and audit administration APIs.
+- Organization, department tree, user membership, managed Workspace/sandbox, reviewed memory,
+  role, disable, resource-policy, and audit administration APIs.
+- A default managed personal DSH Workspace on bootstrap/login, department shared Workspaces,
+  and member-created personal Workspaces below the deployment-owned root.
 - Unknown Host endpoints fail closed.
 
 Enterprise HTTP RPC payloads reserve the top-level `principal` key. After session authentication, the transport rejects it with HTTP 400 before authorization, audit, or dispatch, so no invalid request is recorded as allowed and downstream code reads identity only from `ctx.enterpriseRequestContext.requirePrincipal()`. Profiles without enterprise security keep the ordinary transport contract and may use that payload key as application data. Plugin disposal disables the request context so outstanding asynchronous work cannot retain a principal across unload or reload.
@@ -39,7 +42,5 @@ None; rejected calls never reach a model request and allowed calls preserve thei
 
 - Public deployment still requires TLS termination and secure-cookie configuration.
 - External SSO readiness remains deployment-specific until real endpoints and certificates pass controlled login tests.
-- The PostgreSQL repository is asynchronous; a deployment composing it with this
-  synchronous Host package must provide the documented synchronous store bridge
-  (or use the async Host composition when enabled). The Web package does not
-  instantiate a database driver itself.
+- The Web package does not instantiate a database driver; production receives the asynchronous
+  PostgreSQL identity store from the enterprise composition.

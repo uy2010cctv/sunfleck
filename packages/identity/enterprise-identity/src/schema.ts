@@ -2,7 +2,7 @@
 
 import type { DatabaseSync } from 'node:sqlite'
 
-export const ENTERPRISE_IDENTITY_SCHEMA_VERSION = 3
+export const ENTERPRISE_IDENTITY_SCHEMA_VERSION = 4
 
 /** Create or validate the enterprise identity schema. */
 export function migrateEnterpriseIdentity(database: DatabaseSync): void {
@@ -136,6 +136,11 @@ export function migrateEnterpriseIdentity(database: DatabaseSync): void {
     ) STRICT;
     CREATE INDEX IF NOT EXISTS enterprise_memories_scope_status
       ON enterprise_memories(org_id, scope_type, department_id, status, updated_at DESC, id);
+    CREATE TABLE IF NOT EXISTS enterprise_session_workspaces (
+      session_id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL REFERENCES enterprise_workspace_grants(workspace_id) ON DELETE RESTRICT,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE
+    ) STRICT;
   `)
   const version = database.prepare("SELECT value FROM enterprise_meta WHERE key = 'schema-version'")
     .get() as { value: string } | undefined
@@ -146,7 +151,7 @@ export function migrateEnterpriseIdentity(database: DatabaseSync): void {
     database.exec('ALTER TABLE users ADD COLUMN department_revision INTEGER NOT NULL DEFAULT 0')
     database.prepare("UPDATE enterprise_meta SET value = ? WHERE key = 'schema-version'")
       .run(String(ENTERPRISE_IDENTITY_SCHEMA_VERSION))
-  } else if (Number(version.value) === 2) {
+  } else if (Number(version.value) === 2 || Number(version.value) === 3) {
     database.prepare("UPDATE enterprise_meta SET value = ? WHERE key = 'schema-version'")
       .run(String(ENTERPRISE_IDENTITY_SCHEMA_VERSION))
   } else if (Number(version.value) !== ENTERPRISE_IDENTITY_SCHEMA_VERSION) {

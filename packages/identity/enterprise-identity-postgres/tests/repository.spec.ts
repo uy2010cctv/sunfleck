@@ -98,7 +98,8 @@ describe('migrateSqliteEnterpriseIdentityToPostgres', () => {
       ): Promise<PostgresQueryResult<Row>> {
         const rows = text.includes('FROM organizations ORDER BY id') ? [{ id: 'org-a', name: '深度求索' }]
           : text.includes('FROM users ORDER BY id') ? [{
-            id: 'user-1', org_id: 'org-a', username: 'alice', display_name: 'Alice', disabled: false, password_verifier: null,
+            id: 'user-1', org_id: 'org-a', username: 'alice', display_name: 'Alice', disabled: false,
+            password_verifier: null, department_revision: '0',
           }]
             : text.includes('FROM user_roles ORDER BY user_id, role') ? [{ user_id: 'user-1', role: 'administrator' }]
               : text.includes('FROM auth_sessions ORDER BY token_hash') ? [{

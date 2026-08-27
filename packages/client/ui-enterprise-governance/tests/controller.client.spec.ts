@@ -44,6 +44,9 @@ describe('EnterpriseGovernanceController', () => {
       if (path.endsWith('/assets')) return Promise.resolve(response([]))
       if (path.endsWith('/organizations')) return Promise.resolve(response([{ id: 'org-a', name: 'Example' }]))
       if (path.endsWith('/resource-policies')) return Promise.resolve(response([]))
+      if (path.endsWith('/departments')) return Promise.resolve(response([{ id: 'dept-1', name: 'Operations', parentId: null }]))
+      if (path.endsWith('/workspaces')) return Promise.resolve(response([{ workspaceId: 'workspace-1', kind: 'personal' }]))
+      if (path.endsWith('/memories')) return Promise.resolve(response([{ id: 'memory-1', status: 'proposed' }]))
       if (path.endsWith('/audit')) return Promise.resolve(response([{ id: 'audit-1', action: 'user.manage' }]))
       throw new Error(path)
     })
@@ -55,6 +58,9 @@ describe('EnterpriseGovernanceController', () => {
     expect(controller.store.getSnapshot()).toMatchObject({
       phase: 'ready', organizations: [{ id: 'org-a', name: 'Example' }],
       users: [{ id: 'admin-1', roles: ['administrator'] }],
+      departments: [{ id: 'dept-1', name: 'Operations', parentId: null }],
+      workspaces: [{ workspaceId: 'workspace-1', kind: 'personal' }],
+      memories: [{ id: 'memory-1', status: 'proposed' }],
       policies: [], audit: [{ id: 'audit-1', action: 'user.manage' }],
     })
   })
@@ -88,10 +94,18 @@ describe('EnterpriseGovernanceController', () => {
       if (url.endsWith('/organizations') && init?.method === 'POST') return Promise.resolve(response({}, 201))
       if (url.includes('/users/') && init?.method === 'PATCH') return Promise.resolve(response(undefined, 204))
       if (url.endsWith('/resource-policies') && init?.method === 'POST') return Promise.resolve(response(undefined, 204))
+      if (url.endsWith('/departments') && init?.method === 'POST') return Promise.resolve(response({}, 201))
+      if (url.endsWith('/workspaces') && init?.method === 'POST') return Promise.resolve(response({}, 201))
+      if (url.endsWith('/memories') && init?.method === 'POST') return Promise.resolve(response({}, 201))
+      if (url.includes('/memories/') && init?.method === 'PATCH') return Promise.resolve(response({}))
+      if (url.includes('/workspaces/') && init?.method === 'PATCH') return Promise.resolve(response({}))
       if (url.endsWith('/users')) return Promise.resolve(response([]))
       if (url.endsWith('/assets')) return Promise.resolve(response([]))
       if (url.endsWith('/organizations')) return Promise.resolve(response([]))
       if (url.endsWith('/resource-policies')) return Promise.resolve(response([]))
+      if (url.endsWith('/departments')) return Promise.resolve(response([]))
+      if (url.endsWith('/workspaces')) return Promise.resolve(response([]))
+      if (url.endsWith('/memories')) return Promise.resolve(response([]))
       if (url.includes('/audit')) return Promise.resolve(response([]))
       throw new Error(url)
     })
@@ -100,6 +114,14 @@ describe('EnterpriseGovernanceController', () => {
     await controller.createAsset({ type: 'channel', id: 'wecom-main', name: 'WeCom', config: {} })
     await controller.createUser({ id: 'operator-1', username: 'operator', displayName: 'Operator', roles: ['operator'] })
     await controller.updateUser('operator-1', { roles: ['auditor'], disabled: false })
+    await controller.saveDepartment({ id: 'dept-1', name: 'Operations', parentId: null, sortOrder: 0, expectedRevision: 0 })
+    await controller.createWorkspace({ name: '专项空间', idempotencyKey: 'workspace-1' })
+    await controller.updateWorkspace('workspace-1', { sandboxMode: 'read-only', expectedRevision: 1 })
+    await controller.proposeMemory({
+      id: 'memory-1', scope: 'organization', kind: 'business-fact', summary: '使用统一合同编号。',
+      sourceDigest: 'a'.repeat(64),
+    })
+    await controller.reviewMemory('memory-1', { decision: 'approved', reason: 'verified', expectedRevision: 1 })
     await controller.savePolicy({
       resourceType: 'channel', resourceId: 'wecom-main', visibility: 'restricted', allowedUserIds: ['operator-1'],
     })
@@ -108,6 +130,11 @@ describe('EnterpriseGovernanceController', () => {
       'POST /auth/admin/organizations',
       'POST /auth/admin/assets',
       'PATCH /auth/admin/users/operator-1',
+      'POST /auth/admin/departments',
+      'POST /auth/workspaces',
+      'PATCH /auth/admin/workspaces/workspace-1',
+      'POST /auth/admin/memories',
+      'PATCH /auth/admin/memories/memory-1',
       'POST /auth/admin/resource-policies',
     ]))
   })

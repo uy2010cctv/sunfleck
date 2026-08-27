@@ -65,6 +65,18 @@ describe('EnterpriseSecurity', () => {
     expect(classifyApiEndpoint('credentials.set', {})).toMatchObject({ action: 'credential.manage' })
     expect(classifyApiEndpoint('agentPreset.copy', {})).toMatchObject({ action: 'employee.create' })
     expect(classifyApiEndpoint('unknown.execute', {})).toBeUndefined()
+    expect(classifyApiEndpoint('workspace.list', { workspaceId: 'workspace-1' })).toEqual({
+      action: 'session.read', resourceType: 'workspace', resourceId: 'workspace-1',
+    })
+    expect(classifyApiEndpoint('session.create', { workspaceId: 'workspace-1' })).toEqual({
+      action: 'session.create', resourceType: 'workspace', resourceId: 'workspace-1',
+    })
+    expect(classifyApiEndpoint('workspace.create', { path: '/tmp/outside' })).toEqual({
+      action: 'workspace.manage', resourceType: 'workspace',
+    })
+    expect(classifyApiEndpoint('enterpriseWorkspace.create', {})).toEqual({
+      action: 'session.create', resourceType: 'workspace-catalog',
+    })
   })
 
   it('classifies enterprise ApiProxy resources without prefix fallthrough', () => {
@@ -96,7 +108,9 @@ describe('EnterpriseSecurity', () => {
     expect(security.authorizeApi(member!, 'credentials.set', {}).allowed).toBe(false)
     expect(security.authorizeApi(member!, 'sessions.list', {}).allowed).toBe(true)
     expect(security.authorizeApi(member!, 'session.list', {}).allowed).toBe(true)
-    expect(security.authorizeApi(member!, 'session.create', {}).allowed).toBe(true)
+    expect(security.authorizeApi(member!, 'session.create', {})).toEqual({
+      allowed: false, reason: 'insufficient-role',
+    })
 
     repository.putResourcePolicy({
       resourceType: 'session', resourceId: 'session-1', orgId: 'org-a', creatorUserId: 'admin-1',

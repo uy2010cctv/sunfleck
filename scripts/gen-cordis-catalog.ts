@@ -598,6 +598,7 @@ export const TYPE_LINK_EXEMPTIONS: Readonly<Record<string, string>> = {
   DynamicCordisRunResponse: 'dynamic-package payload contract is owned by packages/extensions/cordis-host-runner/src/types.ts',
   DynamicCordisSnapshotRow: 'dynamic-package payload contract is owned by packages/extensions/cordis-host-runner/src/types.ts',
   DynamicCordisStopResponse: 'dynamic Plugin stop result is owned by packages/extensions/cordis-host-runner/src/types.ts',
+  EnterpriseEventPayload: 'enterprise Host push payload is owned by packages/host/apiproxy/src/api-proxy.ts',
   DynamicCordisUndefineReceipt: 'dynamic-package payload contract is owned by packages/extensions/cordis-host-runner/src/types.ts',
   HostCordisInspectProviderRegistration: 'Host inspect provider registration is owned by packages/extensions/cordis-host-runner/src/inspect-registry.ts',
   DomainImpl: 'domain implementation contract is owned by packages/storage/storage-domain/README.md',

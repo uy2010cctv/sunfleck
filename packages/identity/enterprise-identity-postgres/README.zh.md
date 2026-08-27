@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-为 DSH 企业组织、用户、角色、外部身份、哈希会话、资源策略、受管资产和可归因审计记录提供 PostgreSQL 持久化。SQLite 迁移命令会保留 ID，并在一个事务内导入所有控制面记录。
+为 DSH 企业组织、用户、角色、外部身份、哈希会话、部门树、Workspace 授权、Session 绑定、已审核记忆、资源策略、受管资产和可归因审计记录提供 PostgreSQL 持久化。SQLite 迁移命令会保留 ID，并在一个事务内导入所有控制面记录。
 
 ## Model Experience
 
@@ -41,4 +41,4 @@ dsh-enterprise-identity-migrate --sqlite /path/identity.sqlite --backup /safe/id
 
 - 该适配器是异步的；现有仅 SQLite 的调用方必须在企业 PostgreSQL 部署切换时显式完成组合。
 - 生产 PostgreSQL/pgvector 上线仍需要部署方提供备份、TLS 和连接池配置。
-- 驱动无关测试覆盖迁移安全性。真实 PostgreSQL 集成测试需要部署方提供 PostgreSQL 端点，暂缓执行。
+- 驱动无关迁移测试和可选的真实 PostgreSQL 集成测试覆盖部门、Workspace、Session 绑定与已审核记忆契约。

@@ -10,6 +10,11 @@ declare module '@deepseek-ai/cordis' {
 }
 
 export { EnterpriseRequestContext } from './request-context.ts'
+export {
+  EnterpriseWorkspaceProvisioner,
+  type EnterpriseWorkspaceProvisionerOptions,
+  type EnterpriseWorkspaceRegistry,
+} from './workspace-provisioner.ts'
 
 export {
   clearSessionCookie,
@@ -26,6 +31,7 @@ export {
 } from './security.ts'
 export {
   EnterpriseAuthHttpHandler,
+  type EnterpriseAuthHttpOptions,
   type EnterpriseAuthProviders,
 } from './http.ts'
 export {

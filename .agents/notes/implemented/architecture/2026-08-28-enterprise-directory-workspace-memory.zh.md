@@ -1,6 +1,6 @@
 # Agent Note: Enterprise directory, workspace compartments, and reviewed memory
 
-Status: proposed
+Status: implemented
 
 [English](2026-08-28-enterprise-directory-workspace-memory.md) | 中文
 
@@ -10,9 +10,9 @@ Status: proposed
 
 系统也缺少长期组织记忆。如果直接把原始对话写入共享存储，会泄露个人信息、固化提示词注入，并且无法审计地更正或删除；如果所有有价值的信息只留在单个用户的 Session 中，企业又无法沉淀流程、术语和公司知识。
 
-## Proposal
+## Decision
 
-企业身份存储负责部门树、用户部门成员关系和工作区授权。DSH Workspace 继续作为运行时身份，Session cwd 继续作为沙盒边界。每个用户自动获得一个带私有资源策略的受管个人 Workspace；用户可以在自己的受管根目录下继续创建个人 Workspace。部门获得一个受管共享 Workspace，其 restricted 策略与有效部门成员同步。
+企业身份存储负责部门树、用户部门成员关系、Workspace 授权和 Session-Workspace 绑定。DSH Workspace 继续作为运行时身份，Session cwd 继续作为沙盒边界。每个用户自动获得一个受管个人 Workspace；用户可以在自己的受管根目录下继续创建个人 Workspace。部门获得一个受管共享 Workspace，其当前可见性从有效部门成员关系动态推导。
 
 记忆按照与访问权限相同的隔离区流动。记忆候选仅包含简短业务摘要、类型、作用域、不可变来源摘要和隐私检测结果，不保存原始对话正文。确定性筛查拒绝常见个人标识符和凭据形态内容；授权审核者批准或驳回候选。只有已批准的企业记忆，以及当前工作区适用的已批准部门记忆，才进入模型上下文。
 
@@ -28,7 +28,7 @@ Status: proposed
 
 **只提供企业级全局记忆。** 不采用，因为部门专属的运营细节不应自动扩散到全公司；从部门作用域晋升到企业作用域必须是显式操作。
 
-## Acceptance criteria
+## Verification
 
 - 管理员可以编辑无环的部门树，并为用户分配部门和一个主部门。
 - 新用户自动获得私有受管 DSH Workspace；部门成员能看到共享 Workspace，无关用户不能看到。
@@ -37,6 +37,6 @@ Status: proposed
 - 模型上下文只包含已批准的企业记忆和适用部门记忆，并带隐私规范和稳定 ID。
 - 治理 UI 支持键盘和 320/768/1440px，不产生页面级横向滚动。
 
-## Risks
+## Consequences
 
 部门成员关系变更必须原子更新工作区策略，否则访问权限可能滞后。确定性隐私检测既会误报也会漏报，因此它只是人工审核之前的门禁，不能宣称完整的数据泄露防护。企业记忆仍可能传播错误业务事实；版本化审核、来源摘要和删除能力必须保留。

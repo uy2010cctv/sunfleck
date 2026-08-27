@@ -91,6 +91,23 @@ export function classifyApiEndpoint(endpoint: string, input: unknown): ApiClassi
   if (endpoint === 'dynamicCordisRunner.inventory' || endpoint === 'dynamicCordisRunner.syncInspectManifest') {
     return { action: 'system.inspect', resourceType: 'system-inspection' }
   }
+  if (endpoint === 'enterpriseWorkspace.list') {
+    return { action: 'session.read', resourceType: 'workspace-catalog' }
+  }
+  if (endpoint === 'enterpriseWorkspace.create') {
+    return { action: 'session.create', resourceType: 'workspace-catalog' }
+  }
+  const workspaceId = stringField(payload, 'workspaceId')
+  if (endpoint === 'workspace.create') return { action: 'workspace.manage', resourceType: 'workspace' }
+  if (endpoint.startsWith('workspace.') && workspaceId !== undefined) {
+    return {
+      action: endpoint === 'workspace.list' ? 'session.read' : 'workspace.manage',
+      resourceType: 'workspace', resourceId: workspaceId,
+    }
+  }
+  if (endpoint === 'session.create' && workspaceId !== undefined) {
+    return { action: 'session.create', resourceType: 'workspace', resourceId: workspaceId }
+  }
   const sessionId = stringField(payload, 'sessionId', 'parentSessionId', 'childSessionId')
   if (SESSION_READ.has(endpoint)) return { action: 'session.read', resourceType: 'session', ...sessionId === undefined ? {} : { resourceId: sessionId } }
   if (SESSION_WRITE.has(endpoint)) return { action: 'session.create', resourceType: 'session', ...sessionId === undefined ? {} : { resourceId: sessionId } }
@@ -301,6 +318,10 @@ export class EnterpriseSecurity {
   }
 
   async authorizeApiAsync(principal: EnterprisePrincipal, endpoint: string, input: unknown): Promise<EnterpriseAuthorizationDecision> {
+    if ((endpoint === 'session.create' || endpoint === 'sessions.create')
+      && stringField(payloadOf(input), 'workspaceId') === undefined) {
+      return { allowed: false, reason: 'insufficient-role' }
+    }
     const classification = classifyApiEndpoint(endpoint, input)
     if (classification === undefined) return { allowed: false, reason: 'insufficient-role' }
     let resource: EnterpriseResource | undefined
@@ -314,6 +335,29 @@ export class EnterpriseSecurity {
       resource ??= { orgId: principal.orgId, visibility: 'organization' }
     }
     return authorizeEnterprise({ principal, action: classification.action, ...resource === undefined ? {} : { resource } })
+  }
+
+  /** Bind a Session to a workspace only after the principal can create work in that compartment. */
+  async bindSessionWorkspaceAsync(
+    principal: EnterprisePrincipal,
+    sessionId: string,
+    workspaceId: string,
+  ): Promise<void> {
+    const decision = await this.authorizeApiAsync(principal, 'session.create', { workspaceId })
+    if (!decision.allowed) throw new Error('enterprise session workspace binding is forbidden')
+    await this.repository.bindSessionWorkspace({ sessionId, workspaceId, orgId: principal.orgId })
+  }
+
+  /** Resolve the durable sandbox mode a newly bound Session must snapshot. */
+  async workspaceSandboxModeAsync(
+    principal: EnterprisePrincipal,
+    workspaceId: string,
+  ): Promise<'read-only' | 'workspace-write'> {
+    const decision = await this.authorizeApiAsync(principal, 'session.create', { workspaceId })
+    if (!decision.allowed) throw new Error('enterprise workspace sandbox mode is forbidden')
+    const grant = await this.repository.workspaceGrant(workspaceId)
+    if (grant === undefined || grant.orgId !== principal.orgId) throw new Error('enterprise workspace is unavailable')
+    return grant.sandboxMode
   }
 
   async auditApiAsync(
@@ -336,6 +380,10 @@ export class EnterpriseSecurity {
   }
 
   authorizeApi(principal: EnterprisePrincipal, endpoint: string, input: unknown): EnterpriseAuthorizationDecision {
+    if ((endpoint === 'session.create' || endpoint === 'sessions.create')
+      && stringField(payloadOf(input), 'workspaceId') === undefined) {
+      return { allowed: false, reason: 'insufficient-role' }
+    }
     const classification = classifyApiEndpoint(endpoint, input)
     if (classification === undefined) return { allowed: false, reason: 'insufficient-role' }
     let resource: EnterpriseResource | undefined

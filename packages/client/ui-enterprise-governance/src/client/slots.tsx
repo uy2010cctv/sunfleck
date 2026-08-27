@@ -18,6 +18,11 @@ export function GovernanceSettingsSlot({ useGovernance, controller }: {
     createUser={input => controller.createUser(input)}
     createAsset={input => controller.createAsset(input)}
     updateUser={(id, input) => controller.updateUser(id, input)}
+    saveDepartment={input => controller.saveDepartment(input)}
+    createWorkspace={input => controller.createWorkspace(input)}
+    updateWorkspace={(id, input) => controller.updateWorkspace(id, input)}
+    proposeMemory={input => controller.proposeMemory(input)}
+    reviewMemory={(id, input) => controller.reviewMemory(id, input)}
     savePolicy={input => controller.savePolicy(input)}
     filterAudit={input => controller.filterAudit(input)}
   />
@@ -35,6 +40,11 @@ export function GovernanceAuthGateSlot({ useGovernance, controller }: {
     createUser={input => controller.createUser(input)}
     createAsset={input => controller.createAsset(input)}
     updateUser={(id, input) => controller.updateUser(id, input)}
+    saveDepartment={input => controller.saveDepartment(input)}
+    createWorkspace={input => controller.createWorkspace(input)}
+    updateWorkspace={(id, input) => controller.updateWorkspace(id, input)}
+    proposeMemory={input => controller.proposeMemory(input)}
+    reviewMemory={(id, input) => controller.reviewMemory(id, input)}
     savePolicy={input => controller.savePolicy(input)}
     filterAudit={input => controller.filterAudit(input)}
   />

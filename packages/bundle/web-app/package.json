@@ -66,6 +66,7 @@
     "@deepseek-ai/dsh-client-ui-enterprise-governance": "workspace:^",
     "@deepseek-ai/dsh-credentials-encrypted": "workspace:^",
     "@deepseek-ai/dsh-enterprise-auth-web": "workspace:^",
+    "@deepseek-ai/dsh-enterprise-memory-context": "workspace:^",
     "@deepseek-ai/dsh-enterprise-governance": "workspace:^",
     "@deepseek-ai/dsh-enterprise-identity": "workspace:^",
     "@deepseek-ai/dsh-enterprise-sso": "workspace:^",

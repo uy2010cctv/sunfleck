@@ -23,6 +23,52 @@ export interface GovernanceUser {
   readonly displayName: string
   readonly disabled: boolean
   readonly roles: readonly string[]
+  readonly departmentIds?: readonly string[]
+  readonly primaryDepartmentId?: string
+  readonly departmentRevision?: number
+}
+
+export interface GovernanceDepartment {
+  readonly id: string
+  readonly orgId: string
+  readonly parentId: string | null
+  readonly name: string
+  readonly sortOrder: number
+  readonly revision: number
+  readonly createdAt: number
+  readonly updatedAt: number
+}
+
+export interface GovernanceWorkspace {
+  readonly workspaceId: string
+  readonly orgId: string
+  readonly name: string
+  readonly kind: 'personal' | 'department'
+  readonly ownerUserId?: string
+  readonly departmentId?: string
+  readonly rootPath: string
+  readonly sandboxMode: 'read-only' | 'workspace-write'
+  readonly revision: number
+  readonly createdAt: number
+  readonly updatedAt: number
+}
+
+export interface GovernanceMemory {
+  readonly id: string
+  readonly orgId: string
+  readonly scope: 'organization' | 'department'
+  readonly departmentId?: string
+  readonly kind: 'business-fact' | 'process' | 'terminology' | 'decision'
+  readonly status: 'proposed' | 'approved' | 'rejected' | 'retired'
+  readonly summary: string
+  readonly sourceDigest: string
+  readonly privacyFindings: readonly string[]
+  readonly createdBy: string
+  readonly reviewedBy?: string
+  readonly reviewReason?: string
+  readonly revision: number
+  readonly createdAt: number
+  readonly updatedAt: number
 }
 
 export interface GovernanceOrganization {
@@ -61,6 +107,9 @@ export interface EnterpriseGovernanceState {
   readonly auth?: GovernanceAuthStatus
   readonly organizations: readonly GovernanceOrganization[]
   readonly users: readonly GovernanceUser[]
+  readonly departments: readonly GovernanceDepartment[]
+  readonly workspaces: readonly GovernanceWorkspace[]
+  readonly memories: readonly GovernanceMemory[]
   readonly assets: readonly GovernanceAsset[]
   readonly policies: readonly GovernancePolicy[]
   readonly audit: readonly GovernanceAudit[]
@@ -69,7 +118,8 @@ export interface EnterpriseGovernanceState {
 type Fetcher = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
 
 const INITIAL: EnterpriseGovernanceState = {
-  phase: 'loading', error: null, organizations: [], users: [], assets: [], policies: [], audit: [],
+  phase: 'loading', error: null, organizations: [], users: [], departments: [], workspaces: [], memories: [],
+  assets: [], policies: [], audit: [],
 }
 
 export class EnterpriseGovernanceController {
@@ -107,15 +157,19 @@ export class EnterpriseGovernanceController {
 
   async loadAdmin(): Promise<void> {
     try {
-      const [organizations, users, assets, policies, audit] = await Promise.all([
+      const [organizations, users, departments, workspaces, memories, assets, policies, audit] = await Promise.all([
         this.get<GovernanceOrganization[]>('/auth/admin/organizations'),
         this.get<GovernanceUser[]>('/auth/admin/users'),
+        this.get<GovernanceDepartment[]>('/auth/admin/departments'),
+        this.get<GovernanceWorkspace[]>('/auth/admin/workspaces'),
+        this.get<GovernanceMemory[]>('/auth/admin/memories'),
         this.get<GovernanceAsset[]>('/auth/admin/assets'),
         this.get<GovernancePolicy[]>('/auth/admin/resource-policies'),
         this.get<GovernanceAudit[]>('/auth/admin/audit?limit=200'),
       ])
       this.store.set({
-        ...this.store.getSnapshot(), phase: 'ready', error: null, organizations, users, assets, policies, audit,
+        ...this.store.getSnapshot(), phase: 'ready', error: null,
+        organizations, users, departments, workspaces, memories, assets, policies, audit,
       })
     } catch (error) {
       this.fail(error)
@@ -137,8 +191,63 @@ export class EnterpriseGovernanceController {
     await this.loadAdmin()
   }
 
-  async updateUser(userId: string, input: { roles?: readonly string[]; disabled?: boolean }): Promise<void> {
+  async updateUser(userId: string, input: {
+    roles?: readonly string[]
+    disabled?: boolean
+    departmentIds?: readonly string[]
+    primaryDepartmentId?: string
+    expectedRevision?: number
+  }): Promise<void> {
     await this.request(`/auth/admin/users/${encodeURIComponent(userId)}`, {
+      method: 'PATCH', body: JSON.stringify(input),
+    })
+    await this.loadAdmin()
+  }
+
+  async saveDepartment(input: {
+    id: string
+    name: string
+    parentId: string | null
+    sortOrder: number
+    expectedRevision: number
+  }): Promise<void> {
+    await this.request('/auth/admin/departments', { method: 'POST', body: JSON.stringify(input) })
+    await this.loadAdmin()
+  }
+
+  async createWorkspace(input: { name: string; idempotencyKey: string }): Promise<void> {
+    await this.request('/auth/workspaces', { method: 'POST', body: JSON.stringify(input) })
+    await this.loadAdmin()
+  }
+
+  async updateWorkspace(workspaceId: string, input: {
+    sandboxMode: GovernanceWorkspace['sandboxMode']
+    expectedRevision: number
+  }): Promise<void> {
+    await this.request(`/auth/admin/workspaces/${encodeURIComponent(workspaceId)}`, {
+      method: 'PATCH', body: JSON.stringify(input),
+    })
+    await this.loadAdmin()
+  }
+
+  async proposeMemory(input: {
+    id: string
+    scope: GovernanceMemory['scope']
+    departmentId?: string
+    kind: GovernanceMemory['kind']
+    summary: string
+    sourceDigest: string
+  }): Promise<void> {
+    await this.request('/auth/admin/memories', { method: 'POST', body: JSON.stringify(input) })
+    await this.loadAdmin()
+  }
+
+  async reviewMemory(memoryId: string, input: {
+    decision: 'approved' | 'rejected' | 'retired'
+    reason: string
+    expectedRevision: number
+  }): Promise<void> {
+    await this.request(`/auth/admin/memories/${encodeURIComponent(memoryId)}`, {
       method: 'PATCH', body: JSON.stringify(input),
     })
     await this.loadAdmin()

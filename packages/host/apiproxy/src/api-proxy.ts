@@ -24,6 +24,7 @@ import { SessionQueryError, type SessionSearchCursor } from '@deepseek-ai/dsh-se
 import { SubagentError } from '@deepseek-ai/dsh-subagent'
 import type { SubagentListEntry as CatalogSubagentListEntry } from '@deepseek-ai/dsh-subagent'
 import { isUserInvocable } from '@deepseek-ai/dsh-skill'
+import { setSandboxMode } from '@deepseek-ai/dsh-sandbox-policy'
 import type { Workspace, WorkspaceRecord } from '@deepseek-ai/dsh-workspace'
 import {
   workspaceDomainState, workspaceRecord, WorkspaceId as brandWorkspaceId,
@@ -124,15 +125,35 @@ interface EnterpriseEventPayload {
 
 declare module '@deepseek-ai/cordis' {
   interface Events {
-    /** @mode parallel @param payload Committed enterprise employee update. */
+    /**
+     * An enterprise employee mutation committed; listeners may refresh the addressed employee.
+     * @param payload - Stable organization, resource, and event identity.
+     * @mode parallel
+     */
     'enterprise/employee-updated'(payload: EnterpriseEventPayload): void
-    /** @mode parallel @param payload Committed enterprise asset update. */
+    /**
+     * An enterprise asset mutation committed; listeners may refresh the addressed asset.
+     * @param payload - Stable organization, resource, and event identity.
+     * @mode parallel
+     */
     'enterprise/asset-updated'(payload: EnterpriseEventPayload): void
-    /** @mode parallel @param payload Committed enterprise team update. */
+    /**
+     * An enterprise team mutation committed; listeners may refresh the addressed team.
+     * @param payload - Stable organization, resource, and event identity.
+     * @mode parallel
+     */
     'enterprise/team-updated'(payload: EnterpriseEventPayload): void
-    /** @mode parallel @param payload Committed enterprise operational update. */
+    /**
+     * An enterprise operational record committed; listeners may refresh the addressed record.
+     * @param payload - Stable organization, resource, and event identity.
+     * @mode parallel
+     */
     'enterprise/operation-updated'(payload: EnterpriseEventPayload): void
-    /** @mode parallel @param payload Committed approval request. */
+    /**
+     * An enterprise approval request committed; listeners may surface the pending review.
+     * @param payload - Stable organization, resource, and event identity.
+     * @mode parallel
+     */
     'enterprise/approval-requested'(payload: EnterpriseEventPayload): void
   }
 }
@@ -408,6 +429,21 @@ class FrameQueue<F> {
       signal.removeEventListener('abort', onAbort)
       cleanup()
     }
+  }
+}
+
+/** Preserve frame order while asynchronously dropping unauthorized payloads. */
+class AuthorizedFrameQueue<F> extends FrameQueue<F> {
+  private tail = Promise.resolve()
+
+  constructor(private readonly authorize: (item: F) => Promise<boolean>) {
+    super()
+  }
+
+  override push(item: F): void {
+    this.tail = this.tail.then(async () => {
+      if (await this.authorize(item)) super.push(item)
+    }).catch(() => undefined)
   }
 }
 
@@ -1768,7 +1804,12 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
       }
     }
     items.sort((a, b) => b.updatedAt - a.updatedAt)
-    return items
+    const environment = enterpriseAccessEnvironment()
+    if (environment === undefined) return items
+    const decisions = await Promise.all(items.map(item => environment.security.authorizeApiAsync(
+      environment.principal, 'session.list', { sessionId: String(item.sessionId) },
+    )))
+    return items.filter((_item, index) => decisions[index]?.allowed === true)
   }
 
   /**
@@ -1987,6 +2028,12 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
       principal: EnterprisePrincipal, endpoint: string, input: unknown,
       decision: { allowed: boolean; reason?: string }, correlationId: string,
     ): Promise<void>
+    bindSessionWorkspaceAsync?(
+      principal: EnterprisePrincipal, sessionId: string, workspaceId: string,
+    ): Promise<void>
+    workspaceSandboxModeAsync?(
+      principal: EnterprisePrincipal, workspaceId: string,
+    ): Promise<'read-only' | 'workspace-write'>
   }
   type EnterpriseCatalogLike = {
     listDrafts(input: Record<string, unknown>): Promise<unknown>
@@ -2006,6 +2053,31 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
     security: EnterpriseSecurityLike
     catalog: EnterpriseCatalogLike
     operations: ConstructorParameters<typeof EnterpriseOperationsService>[0]
+  }
+
+  function enterpriseAccessEnvironment(): {
+    principal: EnterprisePrincipal
+    security: EnterpriseSecurityLike
+  } | undefined {
+    const get = ctx.get.bind(ctx) as (name: string) => unknown
+    const requestContext = get('enterpriseRequestContext') as {
+      current(): EnterprisePrincipal | undefined
+    } | undefined
+    const principal = requestContext?.current()
+    const security = get('enterpriseSecurity') as EnterpriseSecurityLike | undefined
+    return principal === undefined || security === undefined ? undefined : { principal, security }
+  }
+
+  async function visibleWorkspaceViews(): Promise<WorkspaceView[]> {
+    const workspaces = ctx.workspaceRegistry.list()
+    const environment = enterpriseAccessEnvironment()
+    if (environment === undefined) return workspaces.map(workspaceView)
+    const decisions = await Promise.all(workspaces.map(workspace => environment.security.authorizeApiAsync(
+      environment.principal,
+      'workspace.list',
+      { workspaceId: String(workspace.id) },
+    )))
+    return workspaces.filter((_workspace, index) => decisions[index]?.allowed === true).map(workspaceView)
   }
 
   function enterpriseEnvironment(): EnterpriseEnvironment | undefined {
@@ -2274,6 +2346,28 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
               message: `session "${sessionId}" was created but could not attach to workspace "${workspace.id}": ${String(error)}`,
               details: { sessionId, workspaceId: workspace.id },
             })
+          }
+          const environment = enterpriseAccessEnvironment()
+          if (environment?.security.bindSessionWorkspaceAsync !== undefined) {
+            try {
+              await environment.security.bindSessionWorkspaceAsync(
+                environment.principal, String(sessionId), String(workspace.id),
+              )
+              if (environment.security.workspaceSandboxModeAsync !== undefined) {
+                const mode = await environment.security.workspaceSandboxModeAsync(
+                  environment.principal, String(workspace.id),
+                )
+                const session = ctx.sessions.get(sessionId)
+                if (session === undefined) throw new Error('enterprise Session disappeared before sandbox initialization')
+                setSandboxMode(session, mode)
+              }
+            } catch (_error) {
+              return err(request, {
+                code: 'enterprise-forbidden',
+                message: 'session could not be bound to the enterprise workspace',
+                details: { endpoint: 'session.create' },
+              })
+            }
           }
         }
         // Echo the composition the session RUNS so a client can label it
@@ -2838,11 +2932,11 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
     },
 
     workspace: {
-      list(request) {
-        return Promise.resolve(ok(request, {
-          items: ctx.workspaceRegistry.list().map(workspaceView),
+      async list(request) {
+        return ok(request, {
+          items: await visibleWorkspaceViews(),
           archivedSessionIds: [...ctx.workspaceRegistry.archivedSessionIds],
-        }))
+        })
       },
 
       async create(request) {
@@ -3682,7 +3776,17 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
 
     events: {
       mux(_request, signal) {
-        const queue = new FrameQueue<RpcRequest<MuxFrame>>()
+        const access = enterpriseAccessEnvironment()
+        const queue: FrameQueue<RpcRequest<MuxFrame>> = access === undefined
+          ? new FrameQueue<RpcRequest<MuxFrame>>()
+          : new AuthorizedFrameQueue(async (item) => {
+            const payload = item.payload as MuxFrame & { sessionId?: unknown }
+            if (typeof payload.sessionId !== 'string') return true
+            const decision = await access.security.authorizeApiAsync(
+              access.principal, 'session.list', { sessionId: payload.sessionId },
+            )
+            return decision.allowed
+          })
         muxQueues.add(queue)
         for (const session of ctx.sessions.list()) {
           subscribeSession(queue, session)
@@ -3786,11 +3890,49 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
       },
 
       host(_request, signal) {
-        const queue = new FrameQueue<RpcRequest<HostFrame>>()
+        const access = enterpriseAccessEnvironment()
+        const queue: FrameQueue<RpcRequest<HostFrame>> = access === undefined
+          ? new FrameQueue<RpcRequest<HostFrame>>()
+          : new AuthorizedFrameQueue(async (item) => {
+            const payload = item.payload as HostFrame & { sessionId?: unknown }
+            if (typeof payload.sessionId !== 'string') return true
+            const decision = await access.security.authorizeApiAsync(
+              access.principal, 'session.list', { sessionId: payload.sessionId },
+            )
+            return decision.allowed
+          })
         const requestContext = (ctx.get.bind(ctx) as (name: string) => unknown)('enterpriseRequestContext') as { current(): EnterprisePrincipal | undefined } | undefined
         const enterprisePrincipal = requestContext?.current()
         const enterpriseSecurity = (ctx.get.bind(ctx) as (name: string) => unknown)('enterpriseSecurity') as EnterpriseSecurityLike | undefined
         let enterpriseDelivery = Promise.resolve()
+        let workspaceDelivery = Promise.resolve()
+        const deliverWorkspace = (workspaceId: string, deliver: () => void): void => {
+          if (enterprisePrincipal === undefined || enterpriseSecurity === undefined) {
+            deliver()
+            return
+          }
+          workspaceDelivery = workspaceDelivery.then(async () => {
+            const decision = await enterpriseSecurity.authorizeApiAsync(
+              enterprisePrincipal, 'workspace.list', { workspaceId },
+            )
+            if (decision.allowed) deliver()
+          }).catch(() => undefined)
+        }
+        const deliverWorkspaceOrder = (workspaceIds: readonly WorkspaceId[]): void => {
+          if (enterprisePrincipal === undefined || enterpriseSecurity === undefined) {
+            queue.push(frame({ type: 'host/workspace-order-changed', workspaceIds: [...workspaceIds] }))
+            return
+          }
+          workspaceDelivery = workspaceDelivery.then(async () => {
+            const decisions = await Promise.all(workspaceIds.map(workspaceId => enterpriseSecurity.authorizeApiAsync(
+              enterprisePrincipal, 'workspace.list', { workspaceId: String(workspaceId) },
+            )))
+            queue.push(frame({
+              type: 'host/workspace-order-changed',
+              workspaceIds: workspaceIds.filter((_workspaceId, index) => decisions[index]?.allowed === true),
+            }))
+          }).catch(() => undefined)
+        }
         const deliverEnterprise = (event: EnterpriseHostEventName, payload: EnterpriseEventPayload): void => {
           if (enterprisePrincipal === undefined || enterpriseSecurity === undefined || payload.orgId !== enterprisePrincipal.orgId) return
           const address = payload.resourceType === 'employee'
@@ -3860,14 +4002,13 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
                   throw new Error(`committed workspace registry references missing workspace "${workspaceId}"`)
                 }
                 committedWorkspaceIds.add(workspaceId)
-                queue.push(frame({ type: 'host/workspace-changed', workspace: workspaceView(workspace) }))
+                deliverWorkspace(String(workspace.id), () => {
+                  queue.push(frame({ type: 'host/workspace-changed', workspace: workspaceView(workspace) }))
+                })
               }
               committedWorkspaceOrder = [...state.workspaceIds]
               if (orderChanged) {
-                queue.push(frame({
-                  type: 'host/workspace-order-changed',
-                  workspaceIds: [...state.workspaceIds],
-                }))
+                deliverWorkspaceOrder(state.workspaceIds)
               }
               if (state.archivedSessionIds.length !== archivedSessionIds.length
                 || state.archivedSessionIds.some((id, index) => id !== archivedSessionIds[index])) {
@@ -3882,19 +4023,23 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             if (change.table !== 'workspaces') return
             if (change.operation === 'deleted') {
               if (!committedWorkspaceIds.delete(change.key)) return
-              queue.push(frame({
-                type: 'host/workspace-removed',
-                workspaceId: change.key as WorkspaceId,
-              }))
+              deliverWorkspace(change.key, () => {
+                queue.push(frame({
+                  type: 'host/workspace-removed',
+                  workspaceId: change.key as WorkspaceId,
+                }))
+              })
               return
             }
             if (!committedWorkspaceIds.has(change.key)) return
             // Existing-entity table writes are complete attach/touch commits.
             // A new entity's first put waits for the global registry write above.
-            queue.push(frame({
-              type: 'host/workspace-changed',
-              workspace: changedWorkspaceView(change.key, change.value),
-            }))
+            deliverWorkspace(change.key, () => {
+              queue.push(frame({
+                type: 'host/workspace-changed',
+                workspace: changedWorkspaceView(change.key, change.value),
+              }))
+            })
           }),
           // Allowlisted host events ride one verbatim wrapper frame each. The
           // allowlist is api-remotes', and `ctx.remote.$on` is the consumer

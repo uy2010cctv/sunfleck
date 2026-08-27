@@ -16,6 +16,11 @@ type TableName =
   | 'resourcePolicies'
   | 'managedAssets'
   | 'auditEvents'
+  | 'departments'
+  | 'userDepartments'
+  | 'workspaceGrants'
+  | 'memories'
+  | 'sessionWorkspaces'
 
 type MigrationRow = Record<string, unknown>
 
@@ -53,10 +58,15 @@ interface MigrationSnapshot {
   readonly resourcePolicies: readonly MigrationRow[]
   readonly managedAssets: readonly MigrationRow[]
   readonly auditEvents: readonly MigrationRow[]
+  readonly departments: readonly MigrationRow[]
+  readonly userDepartments: readonly MigrationRow[]
+  readonly workspaceGrants: readonly MigrationRow[]
+  readonly memories: readonly MigrationRow[]
+  readonly sessionWorkspaces: readonly MigrationRow[]
 }
 
 function rows(database: DatabaseSync, statement: string): MigrationRow[] {
-  return database.prepare(statement).all() as MigrationRow[]
+  return database.prepare(statement).all()
 }
 
 function verifySqliteIntegrity(sqliteFilename: string): void {
@@ -88,7 +98,7 @@ function readSnapshot(sqliteFilename: string): MigrationSnapshot {
   try {
     return {
       organizations: rows(database, 'SELECT id, name FROM organizations ORDER BY id'),
-      users: rows(database, `SELECT id, org_id, username, display_name, disabled, password_verifier
+      users: rows(database, `SELECT id, org_id, username, display_name, disabled, password_verifier, department_revision
         FROM users ORDER BY id`),
       userRoles: rows(database, 'SELECT user_id, role FROM user_roles ORDER BY user_id, role'),
       externalIdentities: rows(database, `SELECT provider_id, subject, user_id
@@ -100,6 +110,26 @@ function readSnapshot(sqliteFilename: string): MigrationSnapshot {
       managedAssets: rows(database, 'SELECT org_id, type, id, name, config_json FROM managed_assets ORDER BY org_id, type, id'),
       auditEvents: rows(database, `SELECT id, org_id, actor_user_id, action, resource_type, resource_id,
         decision, reason, correlation_id, created_at, details_json FROM audit_events ORDER BY id`),
+      departments: rows(database, `WITH RECURSIVE tree(id, org_id, parent_id, name, sort_order, revision,
+        created_at, updated_at, depth) AS (
+          SELECT id, org_id, parent_id, name, sort_order, revision, created_at, updated_at, 0
+          FROM departments WHERE parent_id IS NULL
+          UNION ALL
+          SELECT child.id, child.org_id, child.parent_id, child.name, child.sort_order, child.revision,
+            child.created_at, child.updated_at, tree.depth + 1
+          FROM departments child JOIN tree ON child.parent_id = tree.id
+        ) SELECT id, org_id, parent_id, name, sort_order, revision, created_at, updated_at
+        FROM tree ORDER BY depth, id`),
+      userDepartments: rows(database, `SELECT user_id, department_id, is_primary
+        FROM user_departments ORDER BY user_id, department_id`),
+      workspaceGrants: rows(database, `SELECT workspace_id, org_id, name, kind, owner_user_id, department_id,
+        root_path, sandbox_mode, revision, created_at, updated_at
+        FROM enterprise_workspace_grants ORDER BY workspace_id`),
+      memories: rows(database, `SELECT id, org_id, scope_type, department_id, kind, status, summary, source_digest,
+        privacy_findings, created_by, reviewed_by, review_reason, revision, created_at, updated_at
+        FROM enterprise_memories ORDER BY id`),
+      sessionWorkspaces: rows(database, `SELECT session_id, workspace_id, org_id
+        FROM enterprise_session_workspaces ORDER BY session_id`),
     }
   } finally {
     database.close()
@@ -133,6 +163,11 @@ function summarize(snapshot: MigrationSnapshot): EnterpriseIdentityMigrationSumm
     resourcePolicies: tableSummary(normalized.resourcePolicies),
     managedAssets: tableSummary(normalized.managedAssets),
     auditEvents: tableSummary(normalized.auditEvents),
+    departments: tableSummary(normalized.departments),
+    userDepartments: tableSummary(normalized.userDepartments),
+    workspaceGrants: tableSummary(normalized.workspaceGrants),
+    memories: tableSummary(normalized.memories),
+    sessionWorkspaces: tableSummary(normalized.sessionWorkspaces),
   }
 }
 
@@ -157,7 +192,7 @@ function canonicalTimestamp(value: unknown, field: string): string {
   throw new Error(`migration timestamp ${field} is not an integer`)
 }
 
-function normalizeTimestamps(row: MigrationRow, fields: readonly string[]): MigrationRow {
+function normalizeIntegers(row: MigrationRow, fields: readonly string[]): MigrationRow {
   const normalized = { ...row }
   for (const field of fields) {
     if (normalized[field] !== null && normalized[field] !== undefined) {
@@ -170,15 +205,28 @@ function normalizeTimestamps(row: MigrationRow, fields: readonly string[]): Migr
 function normalizeSnapshot(snapshot: MigrationSnapshot): MigrationSnapshot {
   return {
     organizations: snapshot.organizations.map(row => normalizeRow(row)),
-    users: snapshot.users.map(row => normalizeRow(row)),
+    users: snapshot.users.map(row => normalizeIntegers(normalizeRow(row), ['department_revision'])),
     userRoles: snapshot.userRoles.map(row => normalizeRow(row)),
     externalIdentities: snapshot.externalIdentities.map(row => normalizeRow(row)),
-    authSessions: snapshot.authSessions.map(row => normalizeTimestamps(normalizeRow(row), [
+    authSessions: snapshot.authSessions.map(row => normalizeIntegers(normalizeRow(row), [
       'created_at', 'expires_at', 'last_seen_at', 'revoked_at',
     ])),
     resourcePolicies: snapshot.resourcePolicies.map(row => normalizeRow(row, ['allowed_user_ids'])),
     managedAssets: snapshot.managedAssets.map(row => normalizeRow(row, ['config_json'])),
-    auditEvents: snapshot.auditEvents.map(row => normalizeTimestamps(normalizeRow(row, ['details_json']), ['created_at'])),
+    auditEvents: snapshot.auditEvents.map(row => normalizeIntegers(normalizeRow(row, ['details_json']), ['created_at'])),
+    departments: snapshot.departments.map(row => normalizeIntegers(
+      normalizeRow(row), ['sort_order', 'revision', 'created_at', 'updated_at'],
+    )),
+    userDepartments: snapshot.userDepartments.map(row => ({
+      ...normalizeRow(row), is_primary: sqliteBoolean(row, 'is_primary'),
+    })),
+    workspaceGrants: snapshot.workspaceGrants.map(row => normalizeIntegers(
+      normalizeRow(row), ['revision', 'created_at', 'updated_at'],
+    )),
+    memories: snapshot.memories.map(row => normalizeIntegers(
+      normalizeRow(row, ['privacy_findings']), ['revision', 'created_at', 'updated_at'],
+    )),
+    sessionWorkspaces: snapshot.sessionWorkspaces.map(row => normalizeRow(row)),
   }
 }
 
@@ -251,10 +299,10 @@ async function importSnapshot(target: PostgresDatabase, snapshot: MigrationSnaps
   }
   for (const row of snapshot.users) {
     await target.query(
-      `INSERT INTO users(id, org_id, username, display_name, disabled, password_verifier)
-       VALUES ($1, $2, $3, $4, $5, $6)`,
+      `INSERT INTO users(id, org_id, username, display_name, disabled, password_verifier, department_revision)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
       [string(row, 'id'), string(row, 'org_id'), string(row, 'username'), string(row, 'display_name'),
-        sqliteBoolean(row, 'disabled'), nullableString(row, 'password_verifier')],
+        sqliteBoolean(row, 'disabled'), nullableString(row, 'password_verifier'), number(row, 'department_revision')],
     )
   }
   for (const row of snapshot.userRoles) {
@@ -296,13 +344,51 @@ async function importSnapshot(target: PostgresDatabase, snapshot: MigrationSnaps
         string(row, 'correlation_id'), number(row, 'created_at'), string(row, 'details_json')],
     )
   }
+  for (const row of snapshot.departments) {
+    await target.query(`INSERT INTO departments(id, org_id, parent_id, name, sort_order, revision, created_at, updated_at)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`, [
+      string(row, 'id'), string(row, 'org_id'), nullableString(row, 'parent_id'), string(row, 'name'),
+      number(row, 'sort_order'), number(row, 'revision'), number(row, 'created_at'), number(row, 'updated_at'),
+    ])
+  }
+  for (const row of snapshot.userDepartments) {
+    await target.query('INSERT INTO user_departments(user_id, department_id, is_primary) VALUES ($1, $2, $3)', [
+      string(row, 'user_id'), string(row, 'department_id'), sqliteBoolean(row, 'is_primary'),
+    ])
+  }
+  for (const row of snapshot.workspaceGrants) {
+    await target.query(`INSERT INTO enterprise_workspace_grants(workspace_id, org_id, name, kind, owner_user_id,
+      department_id, root_path, sandbox_mode, revision, created_at, updated_at)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`, [
+      string(row, 'workspace_id'), string(row, 'org_id'), string(row, 'name'), string(row, 'kind'),
+      nullableString(row, 'owner_user_id'), nullableString(row, 'department_id'), string(row, 'root_path'),
+      string(row, 'sandbox_mode'), number(row, 'revision'), number(row, 'created_at'), number(row, 'updated_at'),
+    ])
+  }
+  for (const row of snapshot.memories) {
+    await target.query(`INSERT INTO enterprise_memories(id, org_id, scope_type, department_id, kind, status,
+      summary, source_digest, privacy_findings, created_by, reviewed_by, review_reason, revision, created_at, updated_at)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10, $11, $12, $13, $14, $15)`, [
+      string(row, 'id'), string(row, 'org_id'), string(row, 'scope_type'), nullableString(row, 'department_id'),
+      string(row, 'kind'), string(row, 'status'), string(row, 'summary'), string(row, 'source_digest'),
+      string(row, 'privacy_findings'), string(row, 'created_by'), nullableString(row, 'reviewed_by'),
+      nullableString(row, 'review_reason'), number(row, 'revision'), number(row, 'created_at'), number(row, 'updated_at'),
+    ])
+  }
+  for (const row of snapshot.sessionWorkspaces) {
+    await target.query(
+      'INSERT INTO enterprise_session_workspaces(session_id, workspace_id, org_id) VALUES ($1, $2, $3)',
+      [string(row, 'session_id'), string(row, 'workspace_id'), string(row, 'org_id')],
+    )
+  }
 }
 
 async function readPostgresSnapshot(target: PostgresDatabase): Promise<MigrationSnapshot> {
   const select = async (statement: string): Promise<MigrationRow[]> => (await target.query(statement)).rows as MigrationRow[]
   return {
     organizations: await select('SELECT id, name FROM organizations ORDER BY id'),
-    users: await select('SELECT id, org_id, username, display_name, disabled, password_verifier FROM users ORDER BY id'),
+    users: await select(`SELECT id, org_id, username, display_name, disabled, password_verifier, department_revision
+      FROM users ORDER BY id`),
     userRoles: await select('SELECT user_id, role FROM user_roles ORDER BY user_id, role'),
     externalIdentities: await select('SELECT provider_id, subject, user_id FROM external_identities ORDER BY provider_id, subject'),
     authSessions: await select(`SELECT token_hash, user_id, created_at, expires_at, last_seen_at, revoked_at
@@ -312,6 +398,26 @@ async function readPostgresSnapshot(target: PostgresDatabase): Promise<Migration
     managedAssets: await select('SELECT org_id, type, id, name, config_json FROM managed_assets ORDER BY org_id, type, id'),
     auditEvents: await select(`SELECT id, org_id, actor_user_id, action, resource_type, resource_id,
       decision, reason, correlation_id, created_at, details_json FROM audit_events ORDER BY id`),
+    departments: await select(`WITH RECURSIVE tree(id, org_id, parent_id, name, sort_order, revision,
+      created_at, updated_at, depth) AS (
+        SELECT id, org_id, parent_id, name, sort_order, revision, created_at, updated_at, 0
+        FROM departments WHERE parent_id IS NULL
+        UNION ALL
+        SELECT child.id, child.org_id, child.parent_id, child.name, child.sort_order, child.revision,
+          child.created_at, child.updated_at, tree.depth + 1
+        FROM departments child JOIN tree ON child.parent_id = tree.id
+      ) SELECT id, org_id, parent_id, name, sort_order, revision, created_at, updated_at
+      FROM tree ORDER BY depth, id`),
+    userDepartments: await select(`SELECT user_id, department_id, is_primary
+      FROM user_departments ORDER BY user_id, department_id`),
+    workspaceGrants: await select(`SELECT workspace_id, org_id, name, kind, owner_user_id, department_id,
+      root_path, sandbox_mode, revision, created_at, updated_at
+      FROM enterprise_workspace_grants ORDER BY workspace_id`),
+    memories: await select(`SELECT id, org_id, scope_type, department_id, kind, status, summary, source_digest,
+      privacy_findings, created_by, reviewed_by, review_reason, revision, created_at, updated_at
+      FROM enterprise_memories ORDER BY id`),
+    sessionWorkspaces: await select(`SELECT session_id, workspace_id, org_id
+      FROM enterprise_session_workspaces ORDER BY session_id`),
   }
 }
 

@@ -19,6 +19,9 @@ describe('enterprise auth Web plugin', () => {
     root = await mkdtemp(join(tmpdir(), 'dsh-enterprise-auth-plugin-'))
     const routes: WebRoute[] = []
     const ctx = new Context()
+    ctx.provide('workspaceRegistry', {
+      create: async (path: string, title?: string) => ({ id: 'workspace-admin', path, title: title ?? 'workspace' }),
+    } as never)
     ctx.provide('webServer', {
       register: (route: WebRoute) => { routes.push(route); return () => { routes.splice(routes.indexOf(route), 1) } },
     } as WebServer)
@@ -28,6 +31,7 @@ describe('enterprise auth Web plugin', () => {
     ctx.provide('enterprisePostgres', {} as never)
     const fiber = ctx.plugin({ inject: [...inject], apply }, {
       databasePath: join(root, 'identity.sqlite'),
+      workspaceRoot: join(root, 'managed-workspaces'),
       organizationId: 'org-a', organizationName: 'Example',
       sessionCookieName: 'dsh_session', sessionTtlMs: 60_000, secureCookies: false,
       autoProvisionSsoUsers: true, localEnabled: true,
@@ -43,6 +47,8 @@ describe('enterprise auth Web plugin', () => {
     expect(ctx.enterpriseSecurity.repository.listUsers('org-a')).toEqual([
       expect.objectContaining({ id: 'admin-1', roles: ['administrator'] }),
     ])
+    expect(ctx.enterpriseSecurity.repository.listWorkspaceGrants({ orgId: 'org-a', userId: 'admin-1' }))
+      .toEqual([expect.objectContaining({ workspaceId: 'workspace-admin', ownerUserId: 'admin-1' })])
     expect(ctx.enterpriseRequestContext.current()).toBeUndefined()
     expect(ctx.enterpriseSecurity.loginLocal('org-a', 'admin', 'enterprise-password')).toBeDefined()
     const closeOwnedRepository = vi.spyOn(ctx.enterpriseSecurity.repository, 'close')
@@ -78,6 +84,7 @@ describe('enterprise auth Web plugin', () => {
     root = await mkdtemp(join(tmpdir(), 'dsh-enterprise-auth-injected-'))
     const routes: WebRoute[] = []
     const ctx = new Context()
+    ctx.provide('workspaceRegistry', {} as never)
     ctx.provide('webServer', {
       register: (route: WebRoute) => { routes.push(route); return () => { routes.splice(routes.indexOf(route), 1) } },
     } as WebServer)
@@ -122,6 +129,7 @@ describe('enterprise auth Web plugin', () => {
     root = await mkdtemp(join(tmpdir(), 'dsh-enterprise-auth-failed-init-'))
     const dispose = vi.spyOn(EnterpriseRequestContext.prototype, 'dispose')
     const ctx = new Context()
+    ctx.provide('workspaceRegistry', {} as never)
     ctx.provide('webServer', { register: () => () => {} } as unknown as WebServer)
     ctx.provide('credentials', {
       resolve: () => Promise.resolve(undefined),

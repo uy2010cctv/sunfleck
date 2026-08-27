@@ -261,6 +261,101 @@ describe('host.openPath', () => {
 })
 
 describe('workspace.create', () => {
+  it('binds a newly created enterprise Session to its authorized workspace', async () => {
+    const { api, ctx, root } = await harness()
+    const workspace = await ctx.workspaceRegistry.create(stageDir(root, 'bound-session'))
+    const bindSessionWorkspaceAsync = vi.fn(() => Promise.resolve())
+    ctx.provide('enterpriseRequestContext' as never, {
+      current: () => ({ userId: 'member-1', orgId: 'org-a', roles: ['member'] }),
+    } as never)
+    ctx.provide('enterpriseSecurity' as never, {
+      authorizeApiAsync: async () => ({ allowed: true, reason: 'resource-visible' }),
+      auditApiAsync: async () => undefined,
+      bindSessionWorkspaceAsync,
+      workspaceSandboxModeAsync: async () => 'workspace-write',
+    } as never)
+    const created = expectOk(await api.sessions.create(request({ workspaceId: workspace.id })))
+    expect(bindSessionWorkspaceAsync).toHaveBeenCalledWith(
+      { userId: 'member-1', orgId: 'org-a', roles: ['member'] }, created.sessionId, String(workspace.id),
+    )
+    expect(ctx.sessions.get(created.sessionId)?.events).toContainEqual(
+      expect.objectContaining({ type: 'sandbox/mode', data: { mode: 'workspace-write' } }),
+    )
+  })
+
+  it('filters Session baselines and mux subscriptions by enterprise workspace visibility', async () => {
+    const { api, ctx, root } = await harness()
+    const firstWorkspace = await ctx.workspaceRegistry.create(stageDir(root, 'session-visible'))
+    const secondWorkspace = await ctx.workspaceRegistry.create(stageDir(root, 'session-hidden'))
+    const visible = expectOk(await api.sessions.create(request({ workspaceId: firstWorkspace.id }))).sessionId
+    await api.sessions.create(request({ workspaceId: secondWorkspace.id }))
+    ctx.provide('enterpriseRequestContext' as never, {
+      current: () => ({ userId: 'member-1', orgId: 'org-a', roles: ['member'] }),
+    } as never)
+    ctx.provide('enterpriseSecurity' as never, {
+      authorizeApiAsync: async (_principal: unknown, endpoint: string, input: unknown) => ({
+        allowed: endpoint === 'session.list' && (input as { sessionId?: string }).sessionId === String(visible),
+        reason: 'resource-visible',
+      }),
+      auditApiAsync: async () => undefined,
+    } as never)
+
+    expect(expectOk(await api.sessions.list(request({}))).items.map(item => item.sessionId)).toEqual([visible])
+    const abort = new AbortController()
+    const stream = api.events.mux(request({}), abort.signal)[Symbol.asyncIterator]()
+    await expect(stream.next()).resolves.toMatchObject({
+      value: { payload: { type: 'session/subscribed', sessionId: visible } },
+    })
+    abort.abort()
+  })
+
+  it('filters the enterprise workspace baseline with the authenticated principal', async () => {
+    const { api, ctx, root } = await harness()
+    const visible = await ctx.workspaceRegistry.create(stageDir(root, 'visible'))
+    await ctx.workspaceRegistry.create(stageDir(root, 'hidden'))
+    ctx.provide('enterpriseRequestContext' as never, {
+      current: () => ({ userId: 'member-1', orgId: 'org-a', roles: ['member'] }),
+      requirePrincipal: () => ({ userId: 'member-1', orgId: 'org-a', roles: ['member'] }),
+    } as never)
+    ctx.provide('enterpriseSecurity' as never, {
+      authorizeApiAsync: async (_principal: unknown, endpoint: string, input: unknown) => ({
+        allowed: endpoint === 'workspace.list'
+          && (input as { workspaceId?: string }).workspaceId === String(visible.id),
+        reason: 'resource-visible',
+      }),
+      auditApiAsync: async () => undefined,
+    } as never)
+
+    expect(expectOk(await api.workspace.list(request({}))).items.map(item => item.workspaceId))
+      .toEqual([visible.id])
+  })
+
+  it('suppresses unauthorized workspace change frames on enterprise streams', async () => {
+    const { api, ctx, root } = await harness()
+    const visible = await ctx.workspaceRegistry.create(stageDir(root, 'visible-events'))
+    const hidden = await ctx.workspaceRegistry.create(stageDir(root, 'hidden-events'))
+    ctx.provide('enterpriseRequestContext' as never, {
+      current: () => ({ userId: 'member-1', orgId: 'org-a', roles: ['member'] }),
+    } as never)
+    ctx.provide('enterpriseSecurity' as never, {
+      authorizeApiAsync: async (_principal: unknown, endpoint: string, input: unknown) => ({
+        allowed: endpoint === 'workspace.list'
+          && (input as { workspaceId?: string }).workspaceId === String(visible.id),
+        reason: 'resource-visible',
+      }),
+      auditApiAsync: async () => undefined,
+    } as never)
+    const abort = new AbortController()
+    const stream = api.events.host(request({}), abort.signal)[Symbol.asyncIterator]()
+    await api.workspace.rename(request({ workspaceId: hidden.id, title: 'hidden renamed' }))
+    await api.workspace.rename(request({ workspaceId: visible.id, title: 'visible renamed' }))
+
+    await expect(nextHostFrame(stream)).resolves.toMatchObject({
+      payload: { type: 'host/workspace-changed', workspace: { workspaceId: visible.id, title: 'visible renamed' } },
+    })
+    abort.abort()
+  })
+
   it('serializes concurrent creates of one path into a single registration', async () => {
     const { api, root } = await harness()
     const target = stageDir(root, 'alpha')

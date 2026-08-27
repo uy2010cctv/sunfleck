@@ -46,6 +46,7 @@
       config:
         databaseMode: postgres
         databasePath: !!js dshHomePath('enterprise/identity.sqlite')
+        workspaceRoot: !!js process.env.DSH_ENTERPRISE_WORKSPACE_ROOT ?? dshHomePath('enterprise/workspaces')
         organizationId: !!js process.env.DSH_ENTERPRISE_ORG_ID ?? 'default-enterprise'
         organizationName: !!js process.env.DSH_ENTERPRISE_ORG_NAME ?? 'DeepSeek Harness Enterprise'
         sessionCookieName: dsh_enterprise_session
@@ -61,6 +62,12 @@
         oidc: !!js JSON.parse(process.env.DSH_ENTERPRISE_OIDC ?? '[]')
         saml: !!js JSON.parse(process.env.DSH_ENTERPRISE_SAML ?? '[]')
         ldap: !!js JSON.parse(process.env.DSH_ENTERPRISE_LDAP ?? '[]')
+
+    - id: enterprise-memory-context
+      name: '@deepseek-ai/dsh-enterprise-memory-context'
+      config:
+        maxEntries: 40
+        maxChars: 12000
 
     - id: ui-enterprise-governance
       name: '@deepseek-ai/dsh-client-ui-enterprise-governance'

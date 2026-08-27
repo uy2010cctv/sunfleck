@@ -3,7 +3,8 @@
 English | [中文](README.zh.md)
 
 PostgreSQL persistence for DSH enterprise organizations, users, roles, external identities,
-hashed sessions, resource policies, managed assets, and attributable audit records. Its
+hashed sessions, department trees, Workspace grants, Session bindings, reviewed memory,
+resource policies, managed assets, and attributable audit records. Its
 SQLite migration command preserves IDs and imports all control-plane rows in one transaction.
 
 ## Model Experience
@@ -52,5 +53,5 @@ bearer tokens, backup contents, or connection strings.
   the enterprise PostgreSQL deployment transition.
 - A production PostgreSQL/pgvector rollout still needs deployment-owned backup, TLS, and
   connection-pool configuration.
-- Driver-agnostic tests cover migration safety. A real PostgreSQL integration test needs a
-  deployment-owned PostgreSQL endpoint and remains deferred.
+- Driver-agnostic migration tests and optional real PostgreSQL integration tests cover the
+  directory, Workspace, Session-binding, and reviewed-memory contracts.

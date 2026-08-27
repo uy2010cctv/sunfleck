@@ -14,7 +14,8 @@ describe.skipIf(url === undefined)('enterprise PostgreSQL production composition
     try {
       const result = await composition.database.query<{ table_name: string }>(
         `SELECT table_name FROM information_schema.tables
-         WHERE table_name IN ('organizations', 'dsh_session_headers', 'dsh_enterprise_employee_drafts',
+         WHERE table_schema = current_schema()
+           AND table_name IN ('organizations', 'dsh_session_headers', 'dsh_enterprise_employee_drafts',
            'dsh_enterprise_work_records', 'dsh_knowledge_documents') ORDER BY table_name`,
       )
       expect(result.rows.map(row => row.table_name)).toEqual([

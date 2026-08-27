@@ -41,6 +41,9 @@ async function loaderContext(bootstrapPassword?: string): Promise<Context> {
   await ctx.plugin(SessionStore)
   await ctx.plugin(UserQuestionService)
   await ctx.plugin(AgentRegistry)
+  ctx.provide('workspaceRegistry', {
+    list: () => [], archivedSessionIds: [], get: () => undefined,
+  } as never)
   ctx.provide('apiProxy', createApiProxy(ctx, {
     defaultModelSelection: () => ({ provider: 'p', model: 'm' }), cwd: '/tmp',
   }))

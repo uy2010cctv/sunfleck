@@ -396,6 +396,13 @@ export class PgEnterpriseIdentityRepository {
     return result.rows[0] === undefined ? undefined : this.workspaceGrantFromRow(result.rows[0])
   }
 
+  async workspaceGrantByRootPath(rootPath: string): Promise<EnterpriseWorkspaceGrant | undefined> {
+    const result = await this.database.query<WorkspaceGrantRow>(
+      'SELECT * FROM enterprise_workspace_grants WHERE root_path = $1', [rootPath],
+    )
+    return result.rows[0] === undefined ? undefined : this.workspaceGrantFromRow(result.rows[0])
+  }
+
   async listWorkspaceGrants(input: { orgId: string; userId: string }): Promise<EnterpriseWorkspaceGrant[]> {
     const result = await this.database.query<WorkspaceGrantRow>(`SELECT workspace.* FROM enterprise_workspace_grants workspace
       LEFT JOIN user_departments membership ON membership.department_id = workspace.department_id AND membership.user_id = $1
@@ -419,6 +426,40 @@ export class PgEnterpriseIdentityRepository {
       rootPath: row.root_path, sandboxMode: row.sandbox_mode, revision: Number(row.revision),
       createdAt: Number(row.created_at), updatedAt: Number(row.updated_at),
     }
+  }
+
+  async bindSessionWorkspace(input: { sessionId: string; workspaceId: string; orgId: string }): Promise<void> {
+    await this.transaction(async (database) => {
+      const grant = await database.query<{ org_id: string }>(
+        'SELECT org_id FROM enterprise_workspace_grants WHERE workspace_id = $1', [input.workspaceId],
+      )
+      if (grant.rows[0]?.org_id !== input.orgId) {
+        throw new Error('enterprise session workspace is outside organization or missing')
+      }
+      const existing = await database.query<{ workspace_id: string; org_id: string }>(
+        'SELECT workspace_id, org_id FROM enterprise_session_workspaces WHERE session_id = $1 FOR UPDATE',
+        [input.sessionId],
+      )
+      const row = existing.rows[0]
+      if (row !== undefined) {
+        if (row.workspace_id !== input.workspaceId || row.org_id !== input.orgId) {
+          throw new Error('enterprise session is already bound to another workspace')
+        }
+        return
+      }
+      await database.query(
+        'INSERT INTO enterprise_session_workspaces(session_id, workspace_id, org_id) VALUES ($1, $2, $3)',
+        [input.sessionId, input.workspaceId, input.orgId],
+      )
+    })
+  }
+
+  async sessionWorkspaceGrant(sessionId: string): Promise<EnterpriseWorkspaceGrant | undefined> {
+    const result = await this.database.query<WorkspaceGrantRow>(`SELECT workspace.*
+      FROM enterprise_session_workspaces binding
+      JOIN enterprise_workspace_grants workspace ON workspace.workspace_id = binding.workspace_id
+      WHERE binding.session_id = $1`, [sessionId])
+    return result.rows[0] === undefined ? undefined : this.workspaceGrantFromRow(result.rows[0])
   }
 
   async proposeMemory(input: ProposeEnterpriseMemoryInput): Promise<EnterpriseMemoryEntry> {

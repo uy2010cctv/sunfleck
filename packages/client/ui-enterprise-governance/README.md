@@ -5,7 +5,10 @@ English | [中文](README.zh.md)
 Enterprise login and administration surface:
 
 - Full-frame authentication gate with local and configured SSO providers.
-- Organization and user creation, role changes, enable/disable controls.
+- Organization and tree-structured department editing, user membership, primary department,
+  role changes, and enable/disable controls.
+- Personal and department Workspace inventory with governed sandbox modes.
+- Privacy-screened memory proposals, review queue, and the approved enterprise awareness stream.
 - Visibility policy management for employees, models, capabilities, and channels.
 - Persistent audit ledger with actor and action filters.
 - Administrator-only Settings section with no duplicate Sidebar entry; Host RBAC remains authoritative.

@@ -38,6 +38,9 @@ The enterprise layer is a projection and control plane over the real DSH runtime
 - The target is single-enterprise intranet multi-user, not public anonymous access or cloud multi-tenancy.
 - The enterprise security overlay adds authenticated identity and authorization before every HTTP RPC, Typert endpoint, dedicated RPC channel, and WebSocket downlink. The ordinary Web profile remains a developer profile and its loopback/trusted-host checks remain transport fences only.
 - Organization isolation, cross-enterprise tenancy, billing, and public SaaS administration are outside the first release.
+- The single enterprise has a cycle-free department tree. Users may belong to multiple departments with one primary department.
+- Each user receives a managed personal DSH Workspace and may create more below the deployment-owned root. Departments receive managed shared Workspaces; Session-to-Workspace bindings drive current membership visibility.
+- Shared memory contains reviewed business summaries and source digests, not raw conversations. Organization memory is enterprise-wide; department memory follows the Workspace compartment and never models personal preferences.
 - Existing DSH routes, plugin ownership, session formats, conversation behavior, and runtime services must remain compatible.
 - StaffDeck is AGPL-3.0; only independently implemented product concepts may be reused unless separate licensing permits more.
 
@@ -61,6 +64,7 @@ The enterprise layer is a projection and control plane over the real DSH runtime
 3. Keep enterprise controls reversible, permission-aware, and attributable to an authenticated user.
 4. Preserve DSH composability: enterprise capabilities arrive as plugins, services, events, and Preset metadata.
 5. Treat intranet reachability as transport, never as authentication or authorization.
+6. Treat organizational memory as reviewed business evidence, never as a profile assembled from employee conversations.
 
 ## Channel Plane
 

@@ -1440,6 +1440,9 @@ importers:
       '@deepseek-ai/dsh-enterprise-identity-postgres':
         specifier: workspace:^
         version: link:../../identity/enterprise-identity-postgres
+      '@deepseek-ai/dsh-enterprise-memory-context':
+        specifier: workspace:^
+        version: link:../../context/enterprise-memory-context
       '@deepseek-ai/dsh-enterprise-operations':
         specifier: workspace:^
         version: link:../../operations/enterprise-operations
@@ -3629,6 +3632,28 @@ importers:
         specifier: workspace:^
         version: link:../../core/tools
 
+  packages/context/enterprise-memory-context:
+    dependencies:
+      '@deepseek-ai/schemastery':
+        specifier: link:../../../vendor/schemastery
+        version: link:../../../vendor/schemastery
+    devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: workspace:^
+        version: link:../../../vendor/cordis
+      '@deepseek-ai/dsh-agent':
+        specifier: workspace:^
+        version: link:../../core/agent
+      '@deepseek-ai/dsh-enterprise-identity':
+        specifier: workspace:^
+        version: link:../../identity/enterprise-identity
+      '@deepseek-ai/dsh-invariants':
+        specifier: workspace:^
+        version: link:../../runtime-diagnostics/invariants
+      '@deepseek-ai/dsh-system-prompt':
+        specifier: workspace:^
+        version: link:../../core/system-prompt
+
   packages/context/file-reference:
     dependencies:
       zod:
@@ -5242,6 +5267,9 @@ importers:
       '@deepseek-ai/dsh-native-command':
         specifier: workspace:^
         version: link:../../util/native-command
+      '@deepseek-ai/dsh-sandbox-policy':
+        specifier: workspace:^
+        version: link:../../sandbox/sandbox-policy
       '@deepseek-ai/dsh-session':
         specifier: workspace:^
         version: link:../../core/session
@@ -5494,6 +5522,9 @@ importers:
       '@deepseek-ai/dsh-invariants':
         specifier: workspace:^
         version: link:../../runtime-diagnostics/invariants
+      '@deepseek-ai/dsh-workspace':
+        specifier: workspace:^
+        version: link:../../workspace/workspace
 
   packages/identity/enterprise-identity:
     devDependencies:

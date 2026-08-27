@@ -26,7 +26,7 @@ interface EventRow extends Record<string, unknown> {
 
 /** PostgreSQL implementation of the persistence coordinator's durable hooks. */
 export class PostgresSessionStore implements PersistenceBackend<number> {
-  readonly name = 'session-persistence-postgres'
+  readonly name: string = 'session-persistence-postgres'
   private initialized: Promise<void> | undefined
   private storeIdentity: string | undefined
 
@@ -81,7 +81,10 @@ export class PostgresSessionStore implements PersistenceBackend<number> {
     })
   }
 
-  async readStoredRevision(id: SessionId, signal?: AbortSignal) {
+  async readStoredRevision(
+    id: SessionId,
+    signal?: AbortSignal,
+  ): Promise<SessionPersistenceRevision | undefined> {
     await this.observe(signal)
     const result = await this.database.query<HeaderRow>(
       'SELECT id, header_json, incarnation, revision FROM dsh_session_headers WHERE id = $1', [id],

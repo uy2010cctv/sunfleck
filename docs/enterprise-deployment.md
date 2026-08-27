@@ -8,12 +8,17 @@ The ordinary `dsh web` profile remains the loopback developer profile. Enable au
 export DSH_ENTERPRISE_MASTER_KEY='<base64 32-byte key>'
 export DSH_ENTERPRISE_ADMIN_PASSWORD='<initial 12+ character password>'
 export DSH_ENTERPRISE_DATABASE_URL='postgresql://user:password@db.internal:5432/dsh_enterprise'
+export DSH_ENTERPRISE_WORKSPACE_ROOT='/srv/dsh-enterprise/workspaces'
 pnpm dsh web --patch apps/cli/config/enterprise.cordis.patch.yml --host 127.0.0.1 --port 3081
 ```
 
 Generate and custody `DSH_ENTERPRISE_MASTER_KEY` in the deployment secret manager. Do not store it beside the encrypted credential document. The overlay derives a stable catalog cursor key with HMAC-SHA256 and the domain label `dsh-enterprise-catalog/cursor-signing/v1`; this key is neither persisted nor reused as the credential-encryption key. Rotating the master key invalidates outstanding management-list cursors. The initial administrator password is read through the Credential seam and is used only when the bootstrap administrator does not exist.
 
 The current enterprise overlay uses the PostgreSQL production composition from `DSH_ENTERPRISE_DATABASE_URL`; PostgreSQL stores identity, Session, employee catalog, operations, and knowledge index data. The database role must install `pgvector` and `pg_trgm`, or the deployment must preinstall both extensions. `credentials.enc.json` stores AES-256-GCM envelopes only.
+
+`DSH_ENTERPRISE_WORKSPACE_ROOT` is the only filesystem parent used for automatically provisioned user and department Workspaces. The service creates traversal-safe hashed compartments below `users/` and `departments/`; users never submit host paths through the enterprise creation endpoint. Personal Workspaces default to `workspace-write`, department Workspaces default to `read-only`, and the selected DSH Session cwd remains the sandbox enforcement boundary.
+
+Shared memory stores reviewed business summaries and SHA-256 source digests only. It rejects common personal identifiers, credential-shaped text, personal preferences, and prompt-injection phrases before review; it does not store the raw source conversation. Approved organization memory and the current Workspace's department memory are the only entries projected into Agent context.
 
 ## SSO configuration
 

@@ -230,8 +230,11 @@ export interface EnterpriseIdentityStore {
   setUserDepartments(input: SetUserDepartmentsInput): IdentityAwaitable<EnterpriseUserView>
   saveWorkspaceGrant(input: SaveEnterpriseWorkspaceGrantInput): IdentityAwaitable<EnterpriseWorkspaceGrant>
   workspaceGrant(workspaceId: string): IdentityAwaitable<EnterpriseWorkspaceGrant | undefined>
+  workspaceGrantByRootPath(rootPath: string): IdentityAwaitable<EnterpriseWorkspaceGrant | undefined>
   listWorkspaceGrants(input: { orgId: string; userId: string }): IdentityAwaitable<EnterpriseWorkspaceGrant[]>
   listOrganizationWorkspaceGrants(orgId: string): IdentityAwaitable<EnterpriseWorkspaceGrant[]>
+  bindSessionWorkspace(input: { sessionId: string; workspaceId: string; orgId: string }): IdentityAwaitable<void>
+  sessionWorkspaceGrant(sessionId: string): IdentityAwaitable<EnterpriseWorkspaceGrant | undefined>
   proposeMemory(input: ProposeEnterpriseMemoryInput): IdentityAwaitable<EnterpriseMemoryEntry>
   reviewMemory(input: ReviewEnterpriseMemoryInput): IdentityAwaitable<EnterpriseMemoryEntry>
   listMemories(input: {
@@ -572,6 +575,12 @@ export class EnterpriseIdentityRepository implements EnterpriseIdentityStore {
     return row === undefined ? undefined : this.workspaceGrantFromRow(row)
   }
 
+  workspaceGrantByRootPath(rootPath: string): EnterpriseWorkspaceGrant | undefined {
+    const row = this.database.prepare('SELECT * FROM enterprise_workspace_grants WHERE root_path = ?')
+      .get(rootPath) as SqliteWorkspaceGrantRow | undefined
+    return row === undefined ? undefined : this.workspaceGrantFromRow(row)
+  }
+
   listWorkspaceGrants(input: { orgId: string; userId: string }): EnterpriseWorkspaceGrant[] {
     const rows = this.database.prepare(`SELECT workspace.* FROM enterprise_workspace_grants workspace
       LEFT JOIN user_departments membership ON membership.department_id = workspace.department_id AND membership.user_id = ?
@@ -595,6 +604,30 @@ export class EnterpriseIdentityRepository implements EnterpriseIdentityStore {
       rootPath: row.root_path, sandboxMode: row.sandbox_mode, revision: row.revision,
       createdAt: row.created_at, updatedAt: row.updated_at,
     }
+  }
+
+  bindSessionWorkspace(input: { sessionId: string; workspaceId: string; orgId: string }): void {
+    const grant = this.workspaceGrant(input.workspaceId)
+    if (grant === undefined || grant.orgId !== input.orgId) {
+      throw new Error('enterprise session workspace is outside organization or missing')
+    }
+    const existing = this.database.prepare('SELECT workspace_id, org_id FROM enterprise_session_workspaces WHERE session_id = ?')
+      .get(input.sessionId) as { workspace_id: string; org_id: string } | undefined
+    if (existing !== undefined) {
+      if (existing.workspace_id !== input.workspaceId || existing.org_id !== input.orgId) {
+        throw new Error('enterprise session is already bound to another workspace')
+      }
+      return
+    }
+    this.database.prepare('INSERT INTO enterprise_session_workspaces(session_id, workspace_id, org_id) VALUES (?, ?, ?)')
+      .run(input.sessionId, input.workspaceId, input.orgId)
+  }
+
+  sessionWorkspaceGrant(sessionId: string): EnterpriseWorkspaceGrant | undefined {
+    const row = this.database.prepare(`SELECT workspace.* FROM enterprise_session_workspaces binding
+      JOIN enterprise_workspace_grants workspace ON workspace.workspace_id = binding.workspace_id
+      WHERE binding.session_id = ?`).get(sessionId) as SqliteWorkspaceGrantRow | undefined
+    return row === undefined ? undefined : this.workspaceGrantFromRow(row)
   }
 
   proposeMemory(input: ProposeEnterpriseMemoryInput): EnterpriseMemoryEntry {

@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-SQLite persistence for organizations, users, roles, external identities, hashed login sessions, resource policies, and attributable audit records. Bearer tokens and passwords are never stored directly.
+SQLite persistence for organizations, nested departments, users and memberships, roles, external identities, hashed login sessions, managed Workspace grants, Session-to-Workspace bindings, reviewed organizational memory, resource policies, and attributable audit records. Bearer tokens, passwords, and raw memory source conversations are never stored directly.
 
 `EnterpriseIdentityStore` is the Host-facing persistence contract. The SQLite
 `EnterpriseIdentityRepository` is one implementation; deployments may inject a
@@ -32,3 +32,4 @@ None; identity persistence does not assemble provider requests.
   `EnterpriseIdentityStore` composition seam. Clustered deployments require a
   shared transactional backend.
 - External IdP and LDAP live validation requires deployment-owned endpoints and certificates.
+- Memory privacy screening is a deterministic pre-review gate, not a complete DLP product; a human reviewer remains required before shared use.
