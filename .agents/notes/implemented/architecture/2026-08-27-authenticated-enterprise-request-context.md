@@ -37,3 +37,5 @@ Enterprise Host code has one request-scoped identity authority that propagates a
 The enterprise overlay has a deliberate startup dependency from PostgreSQL through auth to Connection. Ordinary profiles do not acquire enterprise dependencies or reserved payload keys. `AsyncLocalStorage` makes this service Node Host-only; browser and transport-independent business contracts do not import it.
 
 Focused tests pin anonymous rejection, callback lifetime, concurrent isolation, HTTP reserved-key rejection, WebSocket propagation, ordinary-profile compatibility, and Loader activation order.
+
+A real Loader integration test mounts the shipped WebServer, Enterprise Postgres, enterprise auth, and Connection packages. With `DSH_TEST_POSTGRES_URL`, it observes `/auth/status` returning 200 and anonymous `/api` returning 401 after the enterprise dependency chain settles; its always-on ordinary-profile case observes `/api` returning the original 404 without enterprise services. Enterprise Postgres pool close is idempotent because Loader disposal may revisit the same asynchronous close boundary while dependents unload.

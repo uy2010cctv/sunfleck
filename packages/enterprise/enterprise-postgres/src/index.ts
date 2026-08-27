@@ -18,6 +18,8 @@ type AnyResult = IdentityResult & SessionResult & CatalogResult & OperationsResu
 /** One transaction-aware wrapper shared by all enterprise PG adapters. */
 export class EnterprisePostgresDatabase implements
   IdentityDatabase, SessionDatabase, CatalogDatabase, OperationsDatabase, KnowledgeDatabase {
+  private ending: Promise<void> | undefined
+
   constructor(readonly pool: Pool, readonly client?: PoolClient) {}
 
   async query<Row extends Record<string, unknown> = Record<string, unknown>>(
@@ -33,7 +35,7 @@ export class EnterprisePostgresDatabase implements
 
   release(): void { this.client?.release() }
 
-  async end(): Promise<void> { await this.pool.end() }
+  async end(): Promise<void> { await (this.ending ??= this.pool.end()) }
 
   async transaction<T>(operation: (database: EnterprisePostgresDatabase) => Promise<T>): Promise<T> {
     const transaction = this.client === undefined ? await this.connect() : this

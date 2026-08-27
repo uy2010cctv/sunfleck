@@ -27,4 +27,14 @@ describe('enterprise PostgreSQL composition', () => {
     await expect(database.transaction(async () => { throw new Error('boom') })).rejects.toThrow('boom')
     expect(pool.calls).toEqual(['client:BEGIN', 'client:SELECT 1', 'client:COMMIT', 'release', 'client:BEGIN', 'client:ROLLBACK', 'release'])
   })
+
+  it('closes one shared pool only once across repeated disposal', async () => {
+    const pool = fakePool()
+    const database = new EnterprisePostgresDatabase(pool as never)
+
+    await Promise.all([database.end(), database.end()])
+    await database.end()
+
+    expect(pool.calls).toEqual(['end'])
+  })
 })
