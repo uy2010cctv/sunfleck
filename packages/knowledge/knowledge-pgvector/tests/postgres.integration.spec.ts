@@ -33,7 +33,9 @@ describe.skipIf(url === undefined)('knowledge PostgreSQL/pgvector integration', 
     client = await pool.connect()
     schema = `dsh_knowledge_test_${Date.now().toString(36)}`
     await client.query(`CREATE SCHEMA "${schema}"`)
-    await client.query(`SET search_path TO "${schema}"`)
+    // Keep the test tables isolated while retaining access to extension-owned
+    // types such as public.vector.
+    await client.query(`SET search_path TO "${schema}", public`)
     repository = new EnterpriseKnowledgeRepository(new PgDatabase(client), { now: () => 1_700_000_000_000 })
   })
 

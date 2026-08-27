@@ -344,7 +344,7 @@ export class EnterpriseKnowledgeRepository implements KnowledgeRepository {
            OR EXISTS (SELECT 1 FROM dsh_knowledge_acl a WHERE a.document_id = d.document_id AND a.principal_type = 'user' AND a.principal_id = $2 AND a.can_read)
            OR EXISTS (SELECT 1 FROM dsh_knowledge_acl a WHERE a.document_id = d.document_id AND a.principal_type = 'group' AND a.principal_id = ANY($3::text[]) AND a.can_read)
            OR EXISTS (SELECT 1 FROM dsh_knowledge_acl a WHERE a.document_id = d.document_id AND a.principal_type = 'role' AND a.principal_id = ANY($4::text[]) AND a.can_read))
-       ORDER BY c.embedding <=> $5::vector LIMIT $6`,
+       ORDER BY c.embedding <=> $5::vector LIMIT $7`,
       [input.orgId, input.userId, [...input.groupIds ?? []], [...input.roleIds ?? []], embedding, input.version ?? null, limit],
     )
     return result.rows.map(row => ({
