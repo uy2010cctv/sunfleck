@@ -141,8 +141,13 @@ export async function createEnterprisePostgresComposition(config: EnterprisePost
         )
         return result.rows[0] !== undefined
       },
-      resolveSession: async (_orgId, sessionId) => {
-        const result = await database.query('SELECT 1 FROM dsh_session_headers WHERE id = $1', [sessionId])
+      resolveSession: async (orgId, sessionId) => {
+        const result = await database.query(
+          `SELECT 1 FROM dsh_session_headers AS session
+           JOIN resource_policies AS policy
+             ON policy.resource_type = 'session' AND policy.resource_id = session.id
+           WHERE session.id = $1 AND policy.org_id = $2`, [sessionId, orgId],
+        )
         return result.rows[0] !== undefined
       },
     })

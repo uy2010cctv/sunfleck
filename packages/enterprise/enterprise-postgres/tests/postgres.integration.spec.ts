@@ -33,6 +33,24 @@ describe.skipIf(url === undefined)('enterprise PostgreSQL production composition
          VALUES ($1,$2,$3,1,'digest','{}'::jsonb,'tester',1) ON CONFLICT (release_id) DO NOTHING`,
         ['resolver-release', 'resolver-preset', 'resolver-org'],
       )
+      await composition.database.query(
+        "INSERT INTO organizations(id,name) VALUES ('resolver-org','Resolver Org'),('other-org','Other Org') ON CONFLICT (id) DO NOTHING",
+      )
+      await expect(composition.operations.upsertWorkRecord({
+        orgId: 'resolver-org', sessionId: 'resolver-session', employeeReleaseId: 'resolver-release',
+        source: 'console', businessState: 'active', sourceReferences: {}, expectedRevision: 0, idempotencyKey: 'resolver-no-policy',
+      })).rejects.toThrow(/was not found/)
+      await composition.database.query(
+        `INSERT INTO resource_policies(resource_type,resource_id,org_id,creator_user_id,visibility,allowed_user_ids)
+         VALUES ('session',$1,'other-org',NULL,'organization','[]'::jsonb)`, ['resolver-session'],
+      )
+      await expect(composition.operations.upsertWorkRecord({
+        orgId: 'resolver-org', sessionId: 'resolver-session', employeeReleaseId: 'resolver-release',
+        source: 'console', businessState: 'active', sourceReferences: {}, expectedRevision: 0, idempotencyKey: 'resolver-cross-org',
+      })).rejects.toThrow(/was not found/)
+      await composition.database.query(
+        "UPDATE resource_policies SET org_id = 'resolver-org' WHERE resource_type = 'session' AND resource_id = $1", ['resolver-session'],
+      )
       await expect(composition.operations.upsertWorkRecord({
         orgId: 'resolver-org', sessionId: 'resolver-session', employeeReleaseId: 'resolver-release',
         source: 'console', businessState: 'active', sourceReferences: {}, expectedRevision: 0, idempotencyKey: 'resolver-found',
@@ -42,7 +60,9 @@ describe.skipIf(url === undefined)('enterprise PostgreSQL production composition
       await composition.database.query("DELETE FROM dsh_enterprise_operations_idempotency WHERE org_id = 'resolver-org'")
       await composition.database.query("DELETE FROM dsh_enterprise_work_records WHERE org_id = 'resolver-org'")
       await composition.database.query("DELETE FROM dsh_enterprise_employee_releases WHERE release_id = 'resolver-release'")
+      await composition.database.query("DELETE FROM resource_policies WHERE resource_type = 'session' AND resource_id = 'resolver-session'")
       await composition.database.query("DELETE FROM dsh_session_headers WHERE id = 'resolver-session'")
+      await composition.database.query("DELETE FROM organizations WHERE id IN ('resolver-org','other-org')")
       await composition.close()
     }
   })

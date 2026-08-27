@@ -15,6 +15,7 @@ import type {
   FixedTeamView,
   OutboxCommandView,
   ScheduleFireView,
+  SchedulePage,
   ScheduleTarget,
   ScheduleView,
   WorkRecordInput,
@@ -62,6 +63,18 @@ export type EnterpriseApprovalListInput = WithoutOrganization<DriverInput<'listA
 export type EnterpriseApprovalTransitionInput = WithoutOrganization<DriverInput<'transitionApproval'>>
 export type EnterpriseScheduleCreateInput = WithoutOrganization<DriverInput<'createSchedule'>>
 export type EnterpriseScheduleSaveInput = WithoutOrganization<DriverInput<'saveSchedule'>>
+export interface EnterpriseScheduleListInput {
+  readonly orgId?: string
+  readonly state?: ScheduleView['state']
+  readonly limit?: number
+  readonly cursor?: string
+}
+export interface EnterpriseScheduleLegacyListInput {
+  readonly orgId?: string
+  readonly state?: never
+  readonly limit?: never
+  readonly cursor?: never
+}
 export interface EnterpriseScheduleLookup {
   readonly orgId?: string
   readonly scheduleId: string
@@ -232,14 +245,25 @@ export class EnterpriseOperationsService {
   }
 
   async transitionApproval(principal: EnterprisePrincipal, input: EnterpriseApprovalTransitionInput): Promise<ApprovalView> {
-    const scoped = await this.authorize(principal, 'enterpriseOperation.approvals.transition', input)
-    if (scoped.state === 'cancelled') {
-      const approval = await this.driver.getApproval(scoped.orgId, scoped.approvalId)
-      if (approval === undefined || (approval.requestedBy !== principal.userId && !principal.roles.includes('administrator')))
+    if (input.state === 'cancelled') {
+      if (input.orgId !== undefined && input.orgId !== principal.orgId)
+        await this.authorize(principal, 'enterpriseOperation.approvals.transition', input)
+      const approval = await this.driver.getApproval(principal.orgId, input.approvalId)
+      if (approval === undefined || (approval.requestedBy !== principal.userId && !principal.roles.includes('administrator'))) {
+        const decision = { allowed: false, reason: 'insufficient-role' } as const
+        await this.options.audit({
+          principal,
+          endpoint: 'enterpriseOperation.approvals.transition',
+          decision,
+          ...resource('enterpriseOperation.approvals.transition', input),
+          correlationId: this.correlationId(),
+        })
         throw new EnterpriseOperationsAuthorizationError('insufficient-role', 'enterpriseOperation.approvals.transition')
+      }
+      const scoped = await this.authorize(principal, 'enterpriseOperation.approvals.transition', input)
       return this.driver.transitionApproval({ ...scoped, actorUserId: principal.userId })
     }
-    return this.driver.transitionApproval(scoped)
+    return this.driver.transitionApproval(await this.authorize(principal, 'enterpriseOperation.approvals.transition', input))
   }
 
   async createSchedule(principal: EnterprisePrincipal, input: EnterpriseScheduleCreateInput): Promise<ScheduleView> {
@@ -254,9 +278,16 @@ export class EnterpriseOperationsService {
     return this.driver.getSchedule(scoped.orgId, scoped.scheduleId)
   }
 
-  async listSchedules(principal: EnterprisePrincipal, input: { readonly orgId?: string } = {}): Promise<readonly ScheduleView[]> {
+  async listSchedules(principal: EnterprisePrincipal, input?: EnterpriseScheduleLegacyListInput): Promise<readonly ScheduleView[]>
+  async listSchedules(principal: EnterprisePrincipal, input: EnterpriseScheduleListInput): Promise<SchedulePage>
+  async listSchedules(
+    principal: EnterprisePrincipal,
+    input: EnterpriseScheduleListInput = {},
+  ): Promise<readonly ScheduleView[] | SchedulePage> {
     const scoped = await this.authorize(principal, 'enterpriseOperation.schedules.list', input)
-    return this.driver.listSchedules(scoped.orgId)
+    if (scoped.state === undefined && scoped.limit === undefined && scoped.cursor === undefined)
+      return this.driver.listSchedules(scoped.orgId)
+    return this.driver.listSchedules(scoped)
   }
 
   async transitionSchedule(principal: EnterprisePrincipal, input: EnterpriseScheduleTransitionInput): Promise<ScheduleView> {

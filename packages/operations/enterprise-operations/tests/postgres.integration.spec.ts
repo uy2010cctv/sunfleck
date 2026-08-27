@@ -155,11 +155,14 @@ describe.skipIf(database === undefined)('enterprise operations PostgreSQL', () =
       expectedRevision: 1, idempotencyKey: 'managed-team-save',
     })).resolves.toMatchObject({ revision: 2, members: [{ employeeReleaseId: 'managed-release-c', role: 'reviewer' }] })
 
-    await postgres.query('SET enable_seqscan = off')
-    const explain = await postgres.query<{ 'QUERY PLAN': string }>(
-      `EXPLAIN (COSTS OFF) SELECT * FROM dsh_enterprise_work_records
-       WHERE org_id = $1 ORDER BY updated_at DESC, session_id DESC, employee_release_id DESC LIMIT 10`, ['managed-org'],
-    )
-    expect(explain.rows.map(row => row['QUERY PLAN']).join('\n')).toContain('dsh_enterprise_work_records_page_idx')
+    const plan = await postgres.transaction(async (transaction) => {
+      await transaction.query('SET LOCAL enable_seqscan = off')
+      const explain = await transaction.query<{ 'QUERY PLAN': string }>(
+        `EXPLAIN (COSTS OFF) SELECT * FROM dsh_enterprise_work_records
+         WHERE org_id = $1 ORDER BY updated_at DESC, session_id DESC, employee_release_id DESC LIMIT 10`, ['managed-org'],
+      )
+      return explain.rows.map(row => row['QUERY PLAN']).join('\n')
+    })
+    expect(plan).toContain('dsh_enterprise_work_records_page_idx')
   })
 })

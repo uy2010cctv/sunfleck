@@ -23,6 +23,8 @@ export type {
   EnterpriseApprovalTransitionInput,
   EnterpriseScheduleCreateInput,
   EnterpriseScheduleSaveInput,
+  EnterpriseScheduleListInput,
+  EnterpriseScheduleLegacyListInput,
   EnterpriseScheduleLookup,
   EnterpriseScheduleTransitionInput,
   EnterpriseScheduleFireInput,

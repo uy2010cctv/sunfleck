@@ -84,10 +84,30 @@ describe('EnterpriseOperationsService', () => {
     const operations = driver({
       getApproval: vi.fn().mockResolvedValue({ approvalId: 'approval-a', orgId: 'org-a', requestedBy: 'owner-a', state: 'pending' }),
     })
-    const service = new EnterpriseOperationsService(operations, { authorize: vi.fn().mockResolvedValue(true), audit: vi.fn() })
+    const authorize = vi.fn().mockResolvedValue(true)
+    const audit = vi.fn()
+    const service = new EnterpriseOperationsService(operations, { authorize, audit })
     await expect(service.transitionApproval(principal, {
       approvalId: 'approval-a', expectedRevision: 1, idempotencyKey: 'cancel-a', state: 'cancelled', actorUserId: 'user-a',
     })).rejects.toMatchObject<EnterpriseOperationsAuthorizationError>({ code: 'insufficient-role' })
     expect(operations.transitionApproval).not.toHaveBeenCalled()
+    expect(authorize).not.toHaveBeenCalled()
+    expect(audit).toHaveBeenCalledTimes(1)
+    expect(audit).toHaveBeenCalledWith(expect.objectContaining({
+      endpoint: 'enterpriseOperation.approvals.transition',
+      decision: { allowed: false, reason: 'insufficient-role' },
+      resourceType: 'approval', resourceId: 'approval-a',
+    }))
+  })
+
+  it('forwards schedule filters and cursor through the scoped page contract', async () => {
+    const page = { items: [], nextCursor: 'next' }
+    const operations = driver({ listSchedules: vi.fn().mockResolvedValue(page) })
+    const service = new EnterpriseOperationsService(operations, { authorize: vi.fn().mockResolvedValue(true), audit: vi.fn() })
+
+    await expect(service.listSchedules(principal, { state: 'paused', limit: 10, cursor: 'cursor' })).resolves.toEqual(page)
+    expect(operations.listSchedules).toHaveBeenCalledWith({
+      orgId: 'org-a', state: 'paused', limit: 10, cursor: 'cursor',
+    })
   })
 })

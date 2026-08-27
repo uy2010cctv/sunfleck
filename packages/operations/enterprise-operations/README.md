@@ -29,6 +29,11 @@ Production composition should connect `authorize` to the central
 The production PostgreSQL composition derives separate Catalog and Operations cursor
 keys from deployment secret material and resolves employee releases and native Session
 headers directly from their source tables.
+Session resolution additionally requires a matching `resource_policies` row for
+`resource_type = 'session'` and the caller's organization. Missing or cross-organization
+policies fail closed. Cancellation ownership is resolved before authorization is audited,
+so an ownership denial emits only a denied audit decision. Filtered schedule listing
+returns a cursor page; the no-filter service overload retains the legacy array result.
 
 ```ts
 const service = new EnterpriseOperationsService(repository, {

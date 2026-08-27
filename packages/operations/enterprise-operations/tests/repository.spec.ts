@@ -1,3 +1,4 @@
+/* eslint-disable typescript/no-base-to-string -- the SQL double stringifies repository parameter primitives. */
 import { describe, expect, it } from 'vitest'
 import {
   ApprovalRevisionConflictError,
