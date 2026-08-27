@@ -85,6 +85,8 @@ export function apply(ctx: ClientContext): void {
     saveAssetVersion: input => controller.saveAssetVersion(input),
     archiveAsset: asset => controller.archiveAsset(asset),
     saveTeam: input => controller.saveTeam(input),
+    retryMutation: () => controller.retryMutation(),
+    dismissMutationError: () => { controller.dismissMutationError() },
   })
 
   ctx.slots.inject('sidebar.footer.action', () => ctx.slots.register({

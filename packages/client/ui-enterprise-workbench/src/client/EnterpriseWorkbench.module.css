@@ -111,16 +111,16 @@
 .nav {
   flex: none;
   min-inline-size: 0;
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--dse-space-3xs);
-  overflow-x: auto;
   padding: var(--dse-space-xs);
   border-block-end: 1px solid var(--dse-color-border);
   background: var(--dse-color-surface);
 }
 
 .nav button {
-  flex: none;
+  min-inline-size: 0;
   min-block-size: 40px;
   padding-inline: var(--dse-space-xs);
   border: 0;
@@ -296,6 +296,7 @@
 .validation { border-color: var(--dse-color-error); color: var(--dse-color-error); }
 .validation ul { margin: var(--dse-space-2xs) 0 0; padding-inline-start: var(--dse-space-md); }
 .code { color: var(--dse-color-muted); font-family: var(--dse-font-code); font-size: 0.75rem; }
+.editorFields { min-inline-size: 0; margin: 0; padding: 0; border: 0; }
 
 .filters,
 .createBar,
@@ -347,6 +348,20 @@
 .inlineField { inline-size: min(100%, 14rem); }
 .loadMore { margin-block-start: var(--dse-space-sm); }
 .fieldError { color: var(--dse-color-error); font-size: 0.75rem; }
+.mutationError {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--dse-space-xs);
+  padding: var(--dse-space-xs) var(--dse-space-md);
+  border-block-end: 1px solid var(--dse-color-error);
+  background: var(--dse-color-surface-raised);
+  color: var(--dse-color-error);
+  font-size: 0.8125rem;
+}
+.mutationError span { flex: 1; min-inline-size: 0; overflow-wrap: anywhere; }
+.mutationError button { min-block-size: 36px; border: 1px solid currentColor; border-radius: var(--dse-radius-control); background: transparent; color: inherit; padding-inline: var(--dse-space-xs); cursor: pointer; }
+.mutationError button:focus-visible { outline: 2px solid var(--dse-color-focus); outline-offset: 2px; }
 
 .recordList { border-block-start: 1px solid var(--dse-color-border); }
 .record {
@@ -409,7 +424,7 @@
 
 @media (min-width: 48rem) {
   .shell { flex-direction: row; }
-  .nav { inline-size: 13rem; flex-direction: column; overflow-x: visible; overflow-y: auto; border-inline-end: 1px solid var(--dse-color-border); border-block-end: 0; padding: var(--dse-space-sm); }
+  .nav { inline-size: 13rem; grid-template-columns: minmax(0, 1fr); overflow-y: auto; border-inline-end: 1px solid var(--dse-color-border); border-block-end: 0; padding: var(--dse-space-sm); }
   .nav button { inline-size: 100%; }
   .main { padding: var(--dse-space-md); }
   .filters { grid-template-columns: minmax(12rem, 2fr) repeat(3, minmax(8rem, 1fr)) auto; align-items: end; }

@@ -293,12 +293,95 @@ describe('EnterpriseWorkbenchController edits, mutations, and events', () => {
     const services = controllerServices()
     const controller = new EnterpriseWorkbenchController(api as never, services.sessions as never, services.workspaces as never)
     await controller.refresh()
-    const frame = { type: 'enterprise/event', event: 'enterprise/asset-updated', eventId: 'event-1', orgId: 'server-org', resourceId: 'asset-1' } as const
+    const frame = {
+      type: 'enterprise/event', event: 'enterprise/asset-updated', eventId: 'event-1',
+      orgId: 'server-org', resourceId: 'asset-1', resourceType: 'asset',
+    } as const
 
     await controller.handleHostFrame(frame)
     await controller.handleHostFrame(frame)
 
     expect(listAssets).toHaveBeenCalledTimes(2)
     expect(listEmployees).toHaveBeenCalledTimes(1)
+  })
+
+  it('routes background operation events by resourceType instead of the visible page', async () => {
+    const listWorkRecords = vi.fn(() => ok({ items: [] }))
+    const listApprovals = vi.fn(() => ok({ items: [] }))
+    const listSchedules = vi.fn(() => ok({ items: [] }))
+    const api = controllerApi({ enterpriseOperations: {
+      ...controllerApi().enterpriseOperations, listWorkRecords, listApprovals, listSchedules,
+    } })
+    const services = controllerServices()
+    const controller = new EnterpriseWorkbenchController(api as never, services.sessions as never, services.workspaces as never)
+    await controller.refresh()
+
+    await controller.handleHostFrame({
+      type: 'enterprise/event', event: 'enterprise/operation-updated', eventId: 'approval-event',
+      orgId: 'server-org', resourceId: 'approval-1', resourceType: 'approval',
+    })
+    await controller.handleHostFrame({
+      type: 'enterprise/event', event: 'enterprise/operation-updated', eventId: 'schedule-event',
+      orgId: 'server-org', resourceId: 'schedule-1', resourceType: 'schedule',
+    })
+    await controller.handleHostFrame({
+      type: 'enterprise/event', event: 'enterprise/operation-updated', eventId: 'outbox-event',
+      orgId: 'server-org', resourceId: 'outbox-1', resourceType: 'outbox',
+    })
+
+    expect(listApprovals).toHaveBeenCalledTimes(2)
+    expect(listSchedules).toHaveBeenCalledTimes(2)
+    expect(listWorkRecords).toHaveBeenCalledTimes(2)
+  })
+
+  it('contains mutation failures and exposes a retry action without rejecting', async () => {
+    const transitionApproval = vi.fn()
+      .mockRejectedValueOnce(new Error('network unavailable'))
+      .mockImplementation(() => ok({}))
+    const api = controllerApi({ enterpriseOperations: {
+      ...controllerApi().enterpriseOperations, transitionApproval,
+    } })
+    const services = controllerServices()
+    const controller = new EnterpriseWorkbenchController(api as never, services.sessions as never, services.workspaces as never)
+    const approval = {
+      approvalId: 'approval-1', orgId: 'server-org', kind: 'business', subjectType: 'order',
+      subjectId: 'order-1', requestedBy: 'owner-1', state: 'pending', revision: 2,
+      createdAt: 10, updatedAt: 20,
+    } as const
+
+    await expect(controller.transitionApproval(approval, 'approved')).resolves.toBeUndefined()
+    expect(controller.store.getSnapshot()).toMatchObject({
+      mutationPhase: 'error', mutationError: 'network unavailable', retryAction: 'approval-transition',
+    })
+    await controller.retryMutation()
+    expect(transitionApproval).toHaveBeenCalledTimes(2)
+    expect(controller.store.getSnapshot()).toMatchObject({
+      mutationPhase: 'idle', mutationError: null, retryAction: null,
+    })
+  })
+
+  it('locks programmatic employee edits while a save is in flight', async () => {
+    let resolveSave!: (value: Awaited<ReturnType<typeof ok>>) => void
+    const saveDraft = vi.fn((_payload: unknown) => new Promise<Awaited<ReturnType<typeof ok>>>((resolve) => { resolveSave = resolve }))
+    const api = controllerApi({ enterpriseEmployees: { ...controllerApi().enterpriseEmployees, saveDraft } })
+    const services = controllerServices()
+    const controller = new EnterpriseWorkbenchController(api as never, services.sessions as never, services.workspaces as never)
+    await controller.openEmployeeDraft('buyer')
+    controller.patchEmployeeDraft({ name: '保存中的名称' })
+
+    const saving = controller.saveEmployeeDraft()
+    controller.patchEmployeeDraft({ name: '不得覆盖' })
+    expect(controller.store.getSnapshot().employeeEditor).toMatchObject({
+      saving: true, fields: { name: '保存中的名称' },
+    })
+    resolveSave(await ok({
+      presetId: 'buyer', orgId: 'server-org', ownerUserId: 'owner-1', visibility: 'restricted',
+      profile: { name: '保存后的名称', prompt: '核验供应商', modelRef: 'deepseek-chat' },
+      bindings: [], revision: 5, status: 'draft', updatedAt: 30,
+    }))
+    await saving
+    expect(controller.store.getSnapshot().employeeEditor).toMatchObject({
+      saving: false, dirty: false, fields: { name: '保存后的名称' },
+    })
   })
 })

@@ -119,7 +119,7 @@ interface EnterpriseEventPayload {
   eventId: string
   orgId: string
   resourceId: string
-  resourceType: 'employee' | 'asset' | 'team' | 'work-record' | 'approval' | 'schedule'
+  resourceType: 'employee' | 'asset' | 'team' | 'work-record' | 'approval' | 'schedule' | 'outbox'
 }
 
 declare module '@deepseek-ai/cordis' {
@@ -3803,13 +3803,15 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
                   ? { endpoint: 'enterpriseOperation.approvals.get', input: { approvalId: payload.resourceId } }
                   : payload.resourceType === 'schedule'
                     ? { endpoint: 'enterpriseOperation.schedules.get', input: { scheduleId: payload.resourceId } }
-                    : { endpoint: 'enterpriseOperation.workRecords.get', input: { sessionId: payload.resourceId } }
+                    : payload.resourceType === 'outbox'
+                      ? { endpoint: 'enterpriseOperation.workRecords.list', input: {} }
+                      : { endpoint: 'enterpriseOperation.workRecords.get', input: { sessionId: payload.resourceId } }
           enterpriseDelivery = enterpriseDelivery.then(async () => {
             const decision = await enterpriseSecurity.authorizeApiAsync(enterprisePrincipal, address.endpoint, address.input)
             if (!decision.allowed) return
             queue.push(frame({
               type: 'enterprise/event', event, eventId: payload.eventId,
-              orgId: payload.orgId, resourceId: payload.resourceId,
+              orgId: payload.orgId, resourceId: payload.resourceId, resourceType: payload.resourceType,
             }))
           }).catch(() => undefined)
         }

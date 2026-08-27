@@ -126,6 +126,9 @@ export interface EnterpriseWorkbenchState {
   readonly assets: EnterprisePageState<EnterpriseAsset>
   readonly teams: EnterprisePageState<EnterpriseTeam>
   readonly employeeEditor?: EnterpriseEmployeeEditorState
+  readonly mutationPhase: 'idle' | 'running' | 'error' | 'conflict'
+  readonly mutationError: string | null
+  readonly retryAction: string | null
 }
 
 /** True when a session has a user decision pending. */
@@ -237,6 +240,9 @@ const INITIAL_STATE: EnterpriseWorkbenchState = {
   schedules: emptyPage(),
   assets: emptyPage(),
   teams: emptyPage(),
+  mutationPhase: 'idle',
+  mutationError: null,
+  retryAction: null,
 }
 
 class EnterpriseApiError extends Error {
@@ -254,6 +260,11 @@ function isUnavailable(error: unknown): boolean {
   return error instanceof EnterpriseApiError
     && error.code === 'internal'
     && /enterprise api is unavailable/iu.test(error.message)
+}
+
+function isMutationConflict(error: unknown): boolean {
+  return error instanceof EnterpriseApiError
+    && (error.code === 'enterprise-conflict' || error.code === 'version-conflict')
 }
 
 function pageFailure<T>(before: EnterprisePageState<T>, error: unknown): EnterprisePageState<T> {
@@ -306,6 +317,8 @@ export class EnterpriseWorkbenchController {
   readonly store: SnapshotStore<EnterpriseWorkbenchState> = createSnapshotStore(INITIAL_STATE)
   private roster: readonly AgentPresetEntry[] = []
   private readonly seenEventIds = new Set<string>()
+  private retryMutationAction: (() => Promise<void>) | undefined
+  private saveGeneration = 0
 
   /**
    * @param api - existing Host API; only the Agent Preset roster is read.
@@ -431,12 +444,12 @@ export class EnterpriseWorkbenchController {
     }
   }
 
-  private async loadPage<T>(
-    key: 'workRecords' | 'approvals' | 'schedules' | 'assets' | 'teams',
-    load: () => Promise<{ items: readonly T[]; nextCursor?: string }>,
+  private async loadPage<K extends 'workRecords' | 'approvals' | 'schedules' | 'assets' | 'teams'>(
+    key: K,
+    load: () => Promise<{ items: EnterpriseWorkbenchState[K]['items']; nextCursor?: string }>,
   ): Promise<void> {
     const before = this.store.getSnapshot()
-    const previous = before[key] as EnterprisePageState<T>
+    const previous = before[key]
     this.store.set({ ...before, [key]: { ...previous, phase: 'loading', error: null } })
     try {
       const page = await load()
@@ -446,7 +459,12 @@ export class EnterpriseWorkbenchController {
       } })
     } catch (error) {
       const current = this.store.getSnapshot()
-      this.store.set({ ...current, [key]: pageFailure(previous, error) })
+      const permission = error instanceof EnterpriseApiError && error.code === 'enterprise-forbidden'
+      this.store.set({ ...current, [key]: {
+        ...previous,
+        phase: permission ? 'permission' : 'error',
+        error: error instanceof Error ? error.message : String(error),
+      } })
     }
   }
 
@@ -516,7 +534,7 @@ export class EnterpriseWorkbenchController {
   patchEmployeeDraft(patch: Partial<EnterpriseEmployeeDraftFields>): void {
     const state = this.store.getSnapshot()
     const editor = state.employeeEditor
-    if (editor?.fields === undefined) return
+    if (editor?.fields === undefined || editor.saving) return
     const fields = { ...editor.fields, ...patch }
     this.store.set({ ...state, employeeEditor: {
       ...editor, fields, dirty: true, conflict: false, errors: validateEmployeeDraft(fields), error: null,
@@ -533,54 +551,63 @@ export class EnterpriseWorkbenchController {
       this.store.set({ ...before, employeeEditor: { ...editor, errors } })
       return
     }
+    const generation = ++this.saveGeneration
+    const expectedRevision = editor.revision
     this.store.set({ ...before, employeeEditor: { ...editor, saving: true, conflict: false, error: null } })
     const { presetId, visibility, bindings, name, description, position, department, prompt, modelRef, capabilities } = editor.fields
-    try {
-      const saved = valueOf(await this.api.enterpriseEmployees.saveDraft({
-        presetId, expectedRevision: editor.revision, idempotencyKey: mutationKey('employee-save'), visibility,
-        profile: { name, description, position, department, prompt, modelRef, capabilities }, bindings,
-      }))
-      this.store.set({ ...this.store.getSnapshot(), employeeEditor: {
-        ...editor, fields: draftFields(saved), revision: saved.revision,
+    await this.runMutation('employee-save', async () => valueOf(await this.api.enterpriseEmployees.saveDraft({
+      presetId, expectedRevision, idempotencyKey: mutationKey('employee-save'), visibility,
+      profile: { name, description, position, department, prompt, modelRef, capabilities }, bindings,
+    })), async (saved) => {
+      const current = this.store.getSnapshot()
+      const currentEditor = current.employeeEditor
+      if (generation !== this.saveGeneration || currentEditor === undefined
+        || currentEditor.revision !== expectedRevision) return
+      this.store.set({ ...current, employeeEditor: {
+        ...currentEditor, fields: draftFields(saved), revision: saved.revision,
         saving: false, dirty: false, conflict: false, errors: [], error: null,
       } })
       await this.refreshEmployees()
-    } catch (error) {
-      const conflict = error instanceof EnterpriseApiError
-        && (error.code === 'enterprise-conflict' || error.code === 'version-conflict')
-      this.store.set({ ...this.store.getSnapshot(), employeeEditor: {
-        ...editor, saving: false, dirty: true, conflict,
+    }, (error) => {
+      const current = this.store.getSnapshot()
+      const currentEditor = current.employeeEditor
+      if (generation !== this.saveGeneration || currentEditor === undefined) return
+      const conflict = isMutationConflict(error)
+      this.store.set({ ...current, employeeEditor: {
+        ...currentEditor, saving: false, dirty: true, conflict,
         error: error instanceof Error ? error.message : String(error),
       } })
-    }
+    })
   }
 
   /** Publish the saved draft and refresh its release history. */
   async publishEmployee(): Promise<void> {
     const editor = this.store.getSnapshot().employeeEditor
     if (editor?.fields === undefined || editor.revision === undefined || editor.dirty) return
-    try {
-      await this.api.enterpriseEmployees.publish({
-        presetId: editor.fields.presetId, expectedRevision: editor.revision,
-        idempotencyKey: mutationKey('employee-publish'),
-      }).then(valueOf)
-      await this.openEmployeeDraft(editor.fields.presetId)
+    const presetId = editor.fields.presetId
+    const expectedRevision = editor.revision
+    await this.runMutation('employee-publish', async () => valueOf(await this.api.enterpriseEmployees.publish({
+      presetId, expectedRevision,
+      idempotencyKey: mutationKey('employee-publish'),
+    })), async () => {
+      await this.openEmployeeDraft(presetId)
       await this.refreshEmployees()
-    } catch (error) { this.setEditorFailure(error) }
+    }, (error) => { this.setEditorFailure(error) })
   }
 
   /** Roll back by publishing a historical release as a new release. */
   async rollbackEmployee(releaseId: string): Promise<void> {
     const editor = this.store.getSnapshot().employeeEditor
     if (editor?.fields === undefined || editor.revision === undefined) return
-    try {
-      await this.api.enterpriseEmployees.rollback({
-        presetId: editor.fields.presetId, releaseId, expectedRevision: editor.revision,
-        idempotencyKey: mutationKey('employee-rollback'),
-      }).then(valueOf)
-      await this.openEmployeeDraft(editor.fields.presetId)
+    const presetId = editor.fields.presetId
+    const expectedRevision = editor.revision
+    await this.runMutation('employee-rollback', async () => valueOf(await this.api.enterpriseEmployees.rollback({
+      presetId, releaseId, expectedRevision,
+      idempotencyKey: mutationKey('employee-rollback'),
+    })), async () => {
+      await this.openEmployeeDraft(presetId)
       await this.refreshEmployees()
-    } catch (error) { this.setEditorFailure(error) }
+    }, (error) => { this.setEditorFailure(error) })
   }
 
   /** Close the editor after the view has handled dirty confirmation. */
@@ -595,38 +622,35 @@ export class EnterpriseWorkbenchController {
     if (state.employeeEditor === undefined) return
     this.store.set({ ...state, employeeEditor: {
       ...state.employeeEditor, saving: false,
-      conflict: error instanceof EnterpriseApiError && error.code === 'enterprise-conflict',
+      conflict: isMutationConflict(error),
       error: error instanceof Error ? error.message : String(error),
     } })
   }
 
   /** Update the real business state of one work record. */
   async updateWorkRecord(record: EnterpriseOperationWorkRecord, businessState: EnterpriseBusinessState): Promise<void> {
-    await this.api.enterpriseOperations.updateWorkRecord({
+    await this.runMutation('work-record-update', async () => valueOf(await this.api.enterpriseOperations.updateWorkRecord({
       sessionId: record.sessionId, employeeReleaseId: record.employeeReleaseId,
       ...(record.teamId === undefined ? {} : { teamId: record.teamId }),
       source: record.source, businessState, sourceReferences: record.sourceReferences,
       expectedRevision: record.revision, idempotencyKey: mutationKey('work-record'),
-    }).then(valueOf)
-    await this.refreshWorkRecords()
+    })), () => this.refreshWorkRecords())
   }
 
   /** Approve or reject a pending enterprise approval. */
   async transitionApproval(approval: EnterpriseApproval, state: 'approved' | 'rejected', reason?: string): Promise<void> {
-    await this.api.enterpriseOperations.transitionApproval({
+    await this.runMutation('approval-transition', async () => valueOf(await this.api.enterpriseOperations.transitionApproval({
       approvalId: approval.approvalId, state, ...(reason === undefined ? {} : { reason }),
       expectedRevision: approval.revision, idempotencyKey: mutationKey('approval-transition'),
-    }).then(valueOf)
-    await this.refreshApprovals()
+    })), () => this.refreshApprovals())
   }
 
   /** Cancel an approval request. */
   async cancelApproval(approval: EnterpriseApproval, reason?: string): Promise<void> {
-    await this.api.enterpriseOperations.cancelApproval({
+    await this.runMutation('approval-cancel', async () => valueOf(await this.api.enterpriseOperations.cancelApproval({
       approvalId: approval.approvalId, ...(reason === undefined ? {} : { reason }),
       expectedRevision: approval.revision, idempotencyKey: mutationKey('approval-cancel'),
-    }).then(valueOf)
-    await this.refreshApprovals()
+    })), () => this.refreshApprovals())
   }
 
   /** Create or edit a schedule. */
@@ -639,17 +663,17 @@ export class EnterpriseWorkbenchController {
     nextRunAt: number | null
     expectedRevision: number
   }): Promise<void> {
-    await this.api.enterpriseOperations.saveSchedule({ ...input, idempotencyKey: mutationKey('schedule-save') }).then(valueOf)
-    await this.refreshSchedules()
+    await this.runMutation('schedule-save', async () => valueOf(await this.api.enterpriseOperations.saveSchedule({
+      ...input, idempotencyKey: mutationKey('schedule-save'),
+    })), () => this.refreshSchedules())
   }
 
   /** Pause, resume, or archive a schedule. */
   async transitionSchedule(schedule: EnterpriseSchedule, state: EnterpriseSchedule['state']): Promise<void> {
-    await this.api.enterpriseOperations.transitionSchedule({
+    await this.runMutation('schedule-transition', async () => valueOf(await this.api.enterpriseOperations.transitionSchedule({
       scheduleId: schedule.scheduleId, state, expectedRevision: schedule.revision,
       idempotencyKey: mutationKey('schedule-transition'),
-    }).then(valueOf)
-    await this.refreshSchedules()
+    })), () => this.refreshSchedules())
   }
 
   /** Save a versioned capability asset. */
@@ -660,16 +684,16 @@ export class EnterpriseWorkbenchController {
     content: Readonly<Record<string, unknown>>
     expectedRevision: number
   }): Promise<void> {
-    await this.api.enterpriseAssets.saveVersion({ ...input, idempotencyKey: mutationKey('asset-save') }).then(valueOf)
-    await this.refreshAssets()
+    await this.runMutation('asset-save', async () => valueOf(await this.api.enterpriseAssets.saveVersion({
+      ...input, idempotencyKey: mutationKey('asset-save'),
+    })), () => this.refreshAssets())
   }
 
   /** Archive a capability asset. */
   async archiveAsset(asset: EnterpriseAsset): Promise<void> {
-    await this.api.enterpriseAssets.archive({
+    await this.runMutation('asset-archive', async () => valueOf(await this.api.enterpriseAssets.archive({
       assetId: asset.assetId, expectedRevision: asset.revision, idempotencyKey: mutationKey('asset-archive'),
-    }).then(valueOf)
-    await this.refreshAssets()
+    })), () => this.refreshAssets())
   }
 
   /** Save a fixed employee team. */
@@ -681,8 +705,52 @@ export class EnterpriseWorkbenchController {
     approvalPolicy: Readonly<Record<string, unknown>>
     expectedRevision: number
   }): Promise<void> {
-    await this.api.enterpriseTeams.save({ ...input, idempotencyKey: mutationKey('team-save') }).then(valueOf)
-    await this.refreshTeams()
+    await this.runMutation('team-save', async () => valueOf(await this.api.enterpriseTeams.save({
+      ...input, idempotencyKey: mutationKey('team-save'),
+    })), () => this.refreshTeams())
+  }
+
+  private async runMutation<T>(
+    action: string,
+    operation: () => Promise<T>,
+    onSuccess: (value: T) => Promise<void> | void = () => {},
+    onFailure: (error: unknown) => void = () => {},
+  ): Promise<void> {
+    const execute = async (): Promise<void> => {
+      const before = this.store.getSnapshot()
+      this.store.set({ ...before, mutationPhase: 'running', mutationError: null, retryAction: action })
+      try {
+        const value = await operation()
+        await onSuccess(value)
+        this.retryMutationAction = undefined
+        this.store.set({
+          ...this.store.getSnapshot(), mutationPhase: 'idle', mutationError: null, retryAction: null,
+        })
+      } catch (error) {
+        onFailure(error)
+        this.store.set({
+          ...this.store.getSnapshot(),
+          mutationPhase: isMutationConflict(error) ? 'conflict' : 'error',
+          mutationError: error instanceof Error ? error.message : String(error),
+          retryAction: action,
+        })
+      }
+    }
+    this.retryMutationAction = execute
+    await execute()
+  }
+
+  /** Retry the most recent contained mutation failure. */
+  async retryMutation(): Promise<void> {
+    await this.retryMutationAction?.()
+  }
+
+  /** Dismiss the persistent mutation error and discard its retry closure. */
+  dismissMutationError(): void {
+    this.retryMutationAction = undefined
+    this.store.set({
+      ...this.store.getSnapshot(), mutationPhase: 'idle', mutationError: null, retryAction: null,
+    })
   }
 
   /** Fold one HostFrame once and refresh only the owning enterprise read model. */
@@ -690,16 +758,19 @@ export class EnterpriseWorkbenchController {
     if (frame.type !== 'enterprise/event' || this.seenEventIds.has(frame.eventId)) return
     this.seenEventIds.add(frame.eventId)
     if (this.seenEventIds.size > 256) this.seenEventIds.delete(this.seenEventIds.values().next().value as string)
-    const refreshByEvent: Record<EnterpriseHostEventName, () => Promise<void>> = {
+    const refreshByEvent: Record<Exclude<EnterpriseHostEventName, 'enterprise/operation-updated'>, () => Promise<void>> = {
       'enterprise/employee-updated': () => this.refreshEmployees(),
       'enterprise/asset-updated': () => this.refreshAssets(),
       'enterprise/team-updated': () => this.refreshTeams(),
       'enterprise/approval-requested': () => this.refreshApprovals(),
-      'enterprise/operation-updated': () => this.store.getSnapshot().page === 'approvals'
-        ? this.refreshApprovals()
-        : this.store.getSnapshot().page === 'schedules' ? this.refreshSchedules() : this.refreshWorkRecords(),
     }
-    await refreshByEvent[frame.event]()
+    if (frame.event !== 'enterprise/operation-updated') {
+      await refreshByEvent[frame.event]()
+      return
+    }
+    if (frame.resourceType === 'approval') await this.refreshApprovals()
+    else if (frame.resourceType === 'schedule') await this.refreshSchedules()
+    else await this.refreshWorkRecords()
   }
 
   /** Create and open work under one Agent Preset. */

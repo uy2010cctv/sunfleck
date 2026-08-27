@@ -60,6 +60,7 @@ const BASE_STATE: EnterpriseWorkbenchState = {
   error: null, busyEmployee: null, employeeFilters: {}, employees: EMPTY_PAGE,
   workRecords: EMPTY_PAGE, approvals: EMPTY_PAGE, schedules: EMPTY_PAGE,
   assets: EMPTY_PAGE, teams: EMPTY_PAGE,
+  mutationPhase: 'idle', mutationError: null, retryAction: null,
 }
 
 function workbenchProps(overrides: Partial<EnterpriseWorkbenchProps> & {
@@ -145,6 +146,69 @@ describe('EnterpriseWorkbench', () => {
     expect(setPage).not.toHaveBeenCalled()
     fireEvent.click(screen.getByRole('button', { name: '保存草稿' }))
     expect(saveEmployeeDraft).toHaveBeenCalled()
+  })
+
+  it('uses one dirty guard for editor back, rollback, navigation, and overlay close', () => {
+    const close = vi.fn(); const setPage = vi.fn(); const closeEmployeeEditor = vi.fn(); const rollbackEmployee = vi.fn()
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    render(<EnterpriseWorkbench {...workbenchProps({
+      state: {
+        mode: 'enterprise', employeeEditor: {
+          phase: 'ready', dirty: true, saving: false, conflict: false, errors: [], error: null, revision: 4,
+          fields: { presetId: 'buyer', name: '未保存名称', description: '', position: '', department: '', prompt: '职责', modelRef: 'model', visibility: 'private', bindings: [] },
+          releases: [{ releaseId: 'release-1', presetId: 'buyer', orgId: 'server-org', version: 1, digest: 'digest', snapshot: { profile: {}, bindings: [] }, publishedBy: 'owner-1', publishedAt: 20 }],
+        },
+      }, close, setPage, closeEmployeeEditor, rollbackEmployee,
+    } as never)} />)
+
+    fireEvent.click(screen.getByRole('button', { name: zh['editor.back'] }))
+    fireEvent.click(screen.getByRole('button', { name: '回滚到版本 1' }))
+    fireEvent.click(screen.getByRole('button', { name: zh['nav.work-records'] }))
+    fireEvent.click(screen.getByRole('button', { name: zh.close }))
+
+    expect(confirmSpy).toHaveBeenCalledTimes(4)
+    expect(closeEmployeeEditor).not.toHaveBeenCalled()
+    expect(rollbackEmployee).not.toHaveBeenCalled()
+    expect(setPage).not.toHaveBeenCalled()
+    expect(close).not.toHaveBeenCalled()
+    expect(screen.getByDisplayValue('未保存名称')).toBeDefined()
+  })
+
+  it('locks employee fields while saving and renders persistent mutation recovery', () => {
+    const retryMutation = vi.fn(() => Promise.resolve()); const dismissMutationError = vi.fn()
+    render(<EnterpriseWorkbench {...workbenchProps({
+      state: {
+        mode: 'enterprise', mutationPhase: 'error', mutationError: '保存失败', retryAction: 'employee-save',
+        employeeEditor: {
+          phase: 'ready', dirty: true, saving: true, conflict: false, errors: [], error: null, revision: 4, releases: [],
+          fields: { presetId: 'buyer', name: '采购专员', description: '', position: '', department: '', prompt: '职责', modelRef: 'model', visibility: 'private', bindings: [] },
+        },
+      }, retryMutation, dismissMutationError,
+    } as never)} />)
+
+    expect(screen.getByLabelText(zh['editor.name']).matches(':disabled')).toBe(true)
+    const error = screen.getByRole('alert', { name: zh['mutation.errorAria'] })
+    expect(error.textContent).toContain('保存失败')
+    fireEvent.click(within(error).getByRole('button', { name: zh['mutation.retry'] }))
+    fireEvent.click(within(error).getByRole('button', { name: zh['mutation.dismiss'] }))
+    expect(retryMutation).toHaveBeenCalled()
+    expect(dismissMutationError).toHaveBeenCalled()
+  })
+
+  it('renders enterprise enum values through the Chinese locale', () => {
+    render(<EnterpriseWorkbench {...workbenchProps({ state: {
+      mode: 'enterprise', employees: { phase: 'ready', error: null, items: [{
+        presetId: 'buyer', orgId: 'server-org', ownerUserId: 'owner-1', visibility: 'restricted',
+        profile: { name: '采购专员' }, bindings: [{ kind: 'knowledge', assetId: 'kb', version: 1 }],
+        revision: 2, status: 'published', updatedAt: 20,
+      }] },
+    } })} />)
+
+    expect(screen.getAllByText('已发布').length).toBeGreaterThan(0)
+    expect(screen.getAllByText(/受限可见/u).length).toBeGreaterThan(0)
+    expect(screen.getAllByText(/知识/u).length).toBeGreaterThan(0)
+    expect(screen.queryByText('published')).toBeNull()
+    expect(screen.queryByText(/restricted/u)).toBeNull()
   })
 
   it('renders honest metrics, employee identity, capability labels, and work records', () => {

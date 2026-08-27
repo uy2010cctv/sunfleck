@@ -141,7 +141,14 @@ export type HostFrame =
   | { type: 'host/workspace-removed'; workspaceId: WorkspaceView['workspaceId'] }
   | { type: 'host/workspace-order-changed'; workspaceIds: WorkspaceView['workspaceId'][] }
   | { type: 'host/archived-sessions-changed'; archivedSessionIds: SessionId[] }
-  | { type: 'enterprise/event'; event: EnterpriseHostEventName; eventId: string; orgId: string; resourceId: string }
+  | {
+    type: 'enterprise/event'
+    event: EnterpriseHostEventName
+    eventId: string
+    orgId: string
+    resourceId: string
+    resourceType: EnterpriseHostResourceType
+  }
   /**
    * One allowlisted host cordis event forwarded verbatim. The allowlist is
    * owned by `@deepseek-ai/dsh-api-remotes` (`API_REMOTE_FORWARDED_EVENTS`),
@@ -161,3 +168,12 @@ export type EnterpriseHostEventName =
   | 'enterprise/team-updated'
   | 'enterprise/operation-updated'
   | 'enterprise/approval-requested'
+
+export type EnterpriseHostResourceType =
+  | 'employee'
+  | 'asset'
+  | 'team'
+  | 'work-record'
+  | 'approval'
+  | 'schedule'
+  | 'outbox'

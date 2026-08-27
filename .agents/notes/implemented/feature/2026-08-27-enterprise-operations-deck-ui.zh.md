@@ -14,7 +14,7 @@ Status: implemented
 
 员工名册把搜索、状态、可见性、负责人、limit 和 cursor 发送到 Host。员工编辑器加载一份持久草稿及其发布历史，在显式保存前只保留本地变更，校验受支持的 profile 字段，发送当前 `expectedRevision`，在 `enterprise-conflict` 时保留 dirty 输入，并把发布和回滚暴露为独立 mutation。工作、审批、调度、资产和团队页使用它们各自的强类型 read model 与 revision-fenced mutation。浏览器 payload 不包含 `orgId` 或 `principal`，这些值归经过身份校验的 Host 所有。
 
-Runtime 的唯一 Host 流消费者在原生 Session 和 Workspace fold 之后发射已解码的 `connection/host-frame` 事件。工作台消费 `enterprise/event` frame，对 `eventId` 进行有界去重，只刷新事件归属的员工、资产、团队、审批、调度或工作记录页。各页状态相互独立，因此 forbidden 或失败读取可以与已成功可用的页面共存。
+Runtime 的唯一 Host 流消费者在原生 Session 和 Workspace fold 之后发射已解码的 `connection/host-frame` 事件。每个企业 frame 都携带资源类型（`employee`、`asset`、`team`、`work-record`、`approval`、`schedule` 或 `outbox`）。工作台对 `eventId` 进行有界去重，按资源类型刷新对应 read model，不从当前可见页面猜测。所有 mutation 经过同一套可控错误、conflict 和重试状态，失败不会以未处理 rejection 逃逸。各页状态相互独立，因此 forbidden 或失败读取可以与已成功可用的页面共存。
 
 普通 Profile 只在 `enterpriseEmployee.list` 明确报告企业 API 不可用时，才 fallback 到 Agent Preset、Session 和 Workspace 投影。授权、cursor、传输和其他内部失败保持可见，绝不触发 fallback。
 

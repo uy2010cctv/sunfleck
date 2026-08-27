@@ -90,6 +90,7 @@ export const hostFrameSchema = z.discriminatedUnion('type', [
     eventId: z.string().length(64),
     orgId: z.string().min(1),
     resourceId: z.string().min(1),
+    resourceType: z.enum(['employee', 'asset', 'team', 'work-record', 'approval', 'schedule', 'outbox']),
   }),
   // args stays wide, the same posture as session/projection's value: the frame
   // arrives from JSON.parse, so every element is already a JSON value, and the

@@ -204,7 +204,10 @@ describe('summary blank = conversation not started', () => {
       eventId: 'b'.repeat(64), orgId: 'org-real', resourceId: 'asset-visible', resourceType: 'asset',
     })
     await expect(next).resolves.toMatchObject({
-      value: { payload: { type: 'enterprise/event', event: 'enterprise/asset-updated', eventId: 'b'.repeat(64), orgId: 'org-real', resourceId: 'asset-visible' } },
+      value: { payload: {
+        type: 'enterprise/event', event: 'enterprise/asset-updated', eventId: 'b'.repeat(64),
+        orgId: 'org-real', resourceId: 'asset-visible', resourceType: 'asset',
+      } },
     })
     abort.abort()
     await iterator.return?.()
