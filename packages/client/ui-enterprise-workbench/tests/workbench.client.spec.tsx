@@ -7,7 +7,7 @@ import {
   EnterpriseWorkbench, type EnterpriseWorkbenchProps,
 } from '../src/client/EnterpriseWorkbench.tsx'
 import { zh } from '../src/client/locales.ts'
-import type { EnterpriseView } from '../src/client/store.ts'
+import type { EnterpriseView, EnterpriseWorkbenchState } from '../src/client/store.ts'
 
 afterEach(() => {
   cleanup()
@@ -54,10 +54,18 @@ const VIEW: EnterpriseView = {
   metrics: { employees: 2, active: 1, attention: 0, workRecords: 1, workspaces: 1 },
 }
 
+const EMPTY_PAGE = { phase: 'idle' as const, items: [], error: null }
+const BASE_STATE: EnterpriseWorkbenchState = {
+  open: true, phase: 'ready', mode: 'fallback', page: 'employees', view: VIEW,
+  error: null, busyEmployee: null, employeeFilters: {}, employees: EMPTY_PAGE,
+  workRecords: EMPTY_PAGE, approvals: EMPTY_PAGE, schedules: EMPTY_PAGE,
+  assets: EMPTY_PAGE, teams: EMPTY_PAGE,
+}
+
 function workbenchProps(overrides: Partial<EnterpriseWorkbenchProps> & {
-  state?: Parameters<EnterpriseWorkbenchProps['useEnterprise']>[0] extends (state: infer S) => unknown ? S : never
+  state?: Partial<EnterpriseWorkbenchState>
 } = {}): EnterpriseWorkbenchProps {
-  const state = overrides.state ?? { open: true, phase: 'ready', view: VIEW, error: null, busyEmployee: null }
+  const state: EnterpriseWorkbenchState = { ...BASE_STATE, ...overrides.state }
   const { state: _state, ...rest } = overrides
   return {
     useEnterprise: select => select(state),
@@ -87,6 +95,58 @@ describe('EnterpriseTrigger', () => {
 })
 
 describe('EnterpriseWorkbench', () => {
+  it('provides local management navigation and opens the employee draft editor from the roster', () => {
+    const openEmployeeDraft = vi.fn(() => Promise.resolve())
+    render(<EnterpriseWorkbench {...workbenchProps({
+      state: {
+        open: true, phase: 'ready', mode: 'enterprise', page: 'employees', view: VIEW,
+        error: null, busyEmployee: null,
+        employees: { phase: 'ready', items: [{
+          presetId: 'buyer', orgId: 'server-org', ownerUserId: 'owner-1', visibility: 'restricted',
+          profile: { name: '采购专员', position: '采购执行', capabilities: ['询价'] },
+          bindings: [{ kind: 'sop', assetId: 'rfq', version: 2 }], revision: 4,
+          status: 'published', updatedAt: 20,
+        }], error: null },
+      } as never,
+      openEmployeeDraft,
+    })} />)
+
+    expect(screen.getByRole('navigation', { name: '管理台导航' })).toBeDefined()
+    for (const label of ['数字员工', '工作记录', '审批', '定时任务', '能力资产', '团队']) {
+      expect(screen.getByRole('button', { name: label })).toBeDefined()
+    }
+    fireEvent.click(screen.getByRole('button', { name: '编辑采购专员' }))
+    expect(openEmployeeDraft).toHaveBeenCalledWith('buyer')
+  })
+
+  it('renders one-page employee fields, validation summary, explicit save, and dirty leave guard', () => {
+    const setPage = vi.fn()
+    const saveEmployeeDraft = vi.fn(() => Promise.resolve())
+    const patchEmployeeDraft = vi.fn()
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    render(<EnterpriseWorkbench {...workbenchProps({
+      state: {
+        open: true, phase: 'ready', mode: 'enterprise', page: 'employees', error: null,
+        busyEmployee: null, employees: { phase: 'ready', items: [], error: null },
+        employeeEditor: {
+          phase: 'ready', dirty: true, saving: false, conflict: false, errors: ['职责 Prompt 不能为空'],
+          fields: { presetId: 'buyer', name: '采购专员', description: '', position: '采购执行', department: '采购部', prompt: '', modelRef: 'deepseek-chat', visibility: 'restricted', bindings: [] },
+          revision: 4, releases: [], error: null,
+        },
+      } as never,
+      setPage, saveEmployeeDraft, patchEmployeeDraft,
+    })} />)
+
+    expect(screen.getByLabelText('职责 Prompt')).toBeDefined()
+    expect(screen.getByLabelText('模型引用')).toBeDefined()
+    expect(screen.getByRole('alert').textContent).toContain('职责 Prompt 不能为空')
+    fireEvent.click(screen.getByRole('button', { name: '工作记录' }))
+    expect(confirmSpy).toHaveBeenCalled()
+    expect(setPage).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: '保存草稿' }))
+    expect(saveEmployeeDraft).toHaveBeenCalled()
+  })
+
   it('renders honest metrics, employee identity, capability labels, and work records', () => {
     render(<EnterpriseWorkbench {...workbenchProps()} />)
 
@@ -119,7 +179,7 @@ describe('EnterpriseWorkbench', () => {
     const close = vi.fn()
     const { rerender } = render(
       <EnterpriseWorkbench {...workbenchProps({
-        state: { open: true, phase: 'loading', error: null, busyEmployee: null }, close,
+        state: { open: true, phase: 'loading', mode: null, error: null, busyEmployee: null }, close,
       })} />,
     )
     expect(screen.getByRole('status').textContent).toContain(zh['loading'])

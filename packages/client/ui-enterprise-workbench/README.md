@@ -2,14 +2,18 @@
 
 English | [中文](README.zh.md)
 
-Enterprise digital-employee operations surface for the DSH Web client. It projects the existing runtime instead of creating another business data plane:
+Enterprise digital-employee operations surface for the DSH Web client. The enterprise profile reads authenticated PostgreSQL catalog and operations projections through the typed Host API, while an ordinary profile retains the native runtime projection when those enterprise domains explicitly report unavailable:
 
 - Agent Presets are digital employees.
 - Workspaces are business spaces.
 - Sessions are work records.
 - Pending interactions, running state, completion hints, Jobs, and Session projections remain owned by their existing packages.
 
-The browser plugin contributes two additive entries: `enterprise-workbench` under `sidebar.footer.action`, and the matching overlay under `shell.overlay`. It replaces neither the Sidebar nor the Conversation. Selecting a work record closes the overlay and opens the source Session; starting with an employee calls the existing Session creation path with that Agent Preset and opens the resulting Conversation.
+The browser plugin contributes two additive entries: `enterprise-workbench` under `sidebar.footer.action`, and the matching overlay under `shell.overlay`. It replaces neither the Sidebar nor the Conversation. Enterprise governance remains under Settings. The overlay owns local navigation for employees, work records, approvals, schedules, capability assets, and teams; desktop uses a navigation rail, narrow viewports use a contained horizontal strip, and the document never needs horizontal scrolling.
+
+The controller calls `enterpriseEmployees`, `enterpriseAssets`, `enterpriseTeams`, and `enterpriseOperations` without accepting or sending an organization or principal. The Host injects the authenticated principal. Roster search, release status, visibility, and owner filters are server-side and cursor-paginated. Employee edits are explicit-save drafts protected by `expectedRevision`; conflict state preserves unsaved input. Publishing, release history, rollback, work-state updates, approval decisions, schedule lifecycle, versioned assets, and fixed-team saves all use their real typed mutations.
+
+Enterprise Host frames are forwarded by the runtime's single stream owner. The workbench deduplicates `eventId` values and refreshes only the owning page. Independent page failures remain local: loading, empty, error, forbidden, and partial-success states do not erase read models that loaded successfully.
 
 Optional employee presentation comes from the Preset's `preset.yml`:
 
@@ -24,9 +28,13 @@ employee:
 
 These fields are display metadata only. The Preset id remains the stable runtime and employee identity; capability labels never grant tools or permissions.
 
+## Ordinary-profile fallback
+
+Fallback activates only when `enterpriseEmployee.list` returns the explicit enterprise-unavailable response. Other transport, authorization, cursor, and server failures stay visible as failures; they do not silently downgrade to the broader native projection. In fallback mode, selecting a work record opens its source Session and starting an employee creates a native Session with the corresponding Agent Preset.
+
 ## Security boundary
 
-This surface does not authenticate users or authorize enterprise records. A deployment exposed to multiple intranet users still requires an authenticated Host identity and authorization policy before it can claim multi-user isolation. Loopback/trusted-host checks are transport fences, not authentication.
+This surface does not authenticate users or authorize enterprise records. It consumes the Host's authenticated, permission-filtered read models and never sends `orgId` or `principal` in mutation payloads. A deployment exposed to multiple intranet users still requires the enterprise Host identity and authorization composition. Loopback/trusted-host checks are transport fences, not authentication.
 
 ## Model Experience
 
@@ -46,6 +54,7 @@ None. Opening the workbench does not assemble or mutate a provider request.
 
 ## Known Limitations and Deferred Work
 
-- Employee state is derived from the current browser Session mirror; it is not an HR presence system.
-- Work-record counts are Session counts, not business outcome or productivity metrics.
-- The first release has no enterprise user/role provider, cross-user visibility filter, approval inbox aggregation, or persistent team definition.
+- The enterprise UI displays only fields present in catalog and operations read models; it does not infer productivity, SLA, completion percentage, or business outcomes.
+- Draft profile fields are a typed UI projection over an open JSON profile. Unknown profile keys are retained by the server contract only when a caller includes them; this editor writes its supported profile fields.
+- Capability binding and team policy composition remain ID/JSON-oriented operator workflows until dedicated pickers are added.
+- Authentication, role assignment, credentials, model administration, and organization governance remain Settings concerns.

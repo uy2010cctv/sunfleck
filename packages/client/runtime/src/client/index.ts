@@ -165,6 +165,8 @@ declare module '@deepseek-ai/cordis' {
      * @mode emit
      */
     'connection/reset'(): void
+    /** Decoded Host frame for additive host-level read-model consumers. */
+    'connection/host-frame'(frame: import('@deepseek-ai/dsh-api-remotes/client').HostFrame): void
   }
   interface Context {
     slots: import('./slots.ts').SlotRegistry
@@ -208,6 +210,7 @@ export function apply(ctx: Context): void {
     onHostEnvelope: (envelope) => {
       sessions.handleHostEnvelope(envelope)
       workspaces.handleHostEnvelope(envelope)
+      ctx.emit('connection/host-frame', envelope.payload)
       // Forwarded-event bridge: the session layer ignores registry frames (no
       // session routing). This plugin owns the frame sink, so it hands the
       // decoded frame straight to the Remote service, which fans it out to

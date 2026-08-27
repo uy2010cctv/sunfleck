@@ -1,6 +1,7 @@
 /** Browser plugin wiring the enterprise workbench into DSH's additive slots. */
 
 import type { ConnectionHandle } from '@deepseek-ai/dsh-api-remotes/client'
+import type { HostFrame } from '@deepseek-ai/dsh-host-apiproxy/api'
 import type { ClientContext, SnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import type {} from '@deepseek-ai/dsh-client-connection/client'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
@@ -17,6 +18,13 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface LocaleNamespaceMap {
     /** Enterprise digital-employee workbench copy. */
     'enterprise.workbench': EnterpriseWorkbenchKey
+  }
+}
+
+declare module '@deepseek-ai/cordis' {
+  interface Events {
+    /** Decoded Host frame published by the runtime's single stream owner. */
+    'connection/host-frame'(frame: HostFrame): void
   }
 }
 
@@ -44,6 +52,7 @@ export function apply(ctx: ClientContext): void {
       ctx.on('connection/reset', () => {
         if (controller.store.getSnapshot().open) void controller.refresh()
       }),
+      ctx.on('connection/host-frame', (frame) => { void controller.handleHostFrame(frame) }),
     ]
     return () => { for (const dispose of disposers) dispose() }
   }, 'enterprise-workbench: projection subscriptions')
@@ -56,8 +65,26 @@ export function apply(ctx: ClientContext): void {
     hooks: { enterprise: controller.store },
     close: () => { controller.close() },
     refresh: () => controller.refresh(),
+    setPage: (page) => { controller.setPage(page) },
+    setEmployeeFilters: (filters) => { controller.setEmployeeFilters(filters) },
+    refreshEmployees: () => controller.refreshEmployees(),
+    loadMoreEmployees: () => controller.loadMoreEmployees(),
+    openEmployeeDraft: id => controller.openEmployeeDraft(id),
+    patchEmployeeDraft: (patch) => { controller.patchEmployeeDraft(patch) },
+    saveEmployeeDraft: () => controller.saveEmployeeDraft(),
+    publishEmployee: () => controller.publishEmployee(),
+    rollbackEmployee: releaseId => controller.rollbackEmployee(releaseId),
+    closeEmployeeEditor: () => { controller.closeEmployeeEditor() },
     startEmployee: id => controller.startEmployee(id),
     openRecord: (id) => { controller.openRecord(id) },
+    updateWorkRecord: (record, state) => controller.updateWorkRecord(record, state),
+    transitionApproval: (approval, state, reason) => controller.transitionApproval(approval, state, reason),
+    cancelApproval: (approval, reason) => controller.cancelApproval(approval, reason),
+    saveSchedule: input => controller.saveSchedule(input),
+    transitionSchedule: (schedule, state) => controller.transitionSchedule(schedule, state),
+    saveAssetVersion: input => controller.saveAssetVersion(input),
+    archiveAsset: asset => controller.archiveAsset(asset),
+    saveTeam: input => controller.saveTeam(input),
   })
 
   ctx.slots.inject('sidebar.footer.action', () => ctx.slots.register({

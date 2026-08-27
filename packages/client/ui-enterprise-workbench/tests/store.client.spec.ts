@@ -1,10 +1,10 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type { SessionId, WorkspaceId } from '@deepseek-ai/dsh-api-remotes/client'
 import type { AgentPresetEntry } from '@deepseek-ai/dsh-host-apiproxy/api'
 import type {
   SessionListState, SessionSummary, WorkspaceListState,
 } from '@deepseek-ai/dsh-client-runtime/client'
-import { deriveEnterpriseView } from '../src/client/store.ts'
+import { deriveEnterpriseView, EnterpriseWorkbenchController } from '../src/client/store.ts'
 
 const STANDARD: AgentPresetEntry = {
   id: 'standard',
@@ -147,5 +147,158 @@ describe('deriveEnterpriseView records and metrics', () => {
     })
     expect(view.records[0]).not.toHaveProperty('employeeId')
     expect(view.records[0]).not.toHaveProperty('employeeName')
+  })
+})
+
+const ok = <T>(value: T) => Promise.resolve({ result: { ok: true as const, value } })
+const unavailable = () => Promise.resolve({
+  result: {
+    ok: false as const,
+    error: { code: 'internal', message: 'enterprise API is unavailable in this profile', details: {} },
+  },
+})
+
+function controllerApi(overrides: Record<string, unknown> = {}) {
+  return {
+    agentPresets: { list: () => ok({ presets: [STANDARD], authorable: false, hasDocument: false }) },
+    enterpriseEmployees: {
+      list: () => ok({ items: [{
+        presetId: 'buyer', orgId: 'server-org', ownerUserId: 'owner-1', visibility: 'restricted',
+        profile: { name: '采购专员', position: '采购执行', capabilities: ['询价'] },
+        bindings: [{ kind: 'sop', assetId: 'rfq', version: 2 }], revision: 4,
+        status: 'published', updatedAt: 20,
+      }], nextCursor: 'employee-next' }),
+      getDraft: () => ok({
+        presetId: 'buyer', orgId: 'server-org', ownerUserId: 'owner-1', visibility: 'restricted',
+        profile: { name: '采购专员', prompt: '核验供应商', modelRef: 'deepseek-chat' }, bindings: [],
+        revision: 4, status: 'published', updatedAt: 20,
+      }),
+      saveDraft: () => ok({}), publish: () => ok({}), listReleases: () => ok([]), rollback: () => ok({}),
+    },
+    enterpriseAssets: {
+      list: () => ok({ items: [] }), get: () => ok({}), saveVersion: () => ok({}),
+      listVersions: () => ok([]), archive: () => ok({}),
+    },
+    enterpriseTeams: { list: () => ok({ items: [] }), get: () => ok({}), save: () => ok({}) },
+    enterpriseOperations: {
+      listWorkRecords: () => ok({ items: [{
+        orgId: 'server-org', sessionId: 'session-1', employeeReleaseId: 'release-2', source: 'console',
+        businessState: 'active', sourceReferences: { presetId: 'buyer', title: '核验供应商' },
+        revision: 3, createdAt: 10, updatedAt: 30,
+      }] }),
+      getWorkRecord: () => ok({}), updateWorkRecord: () => ok({}),
+      listApprovals: () => ok({ items: [] }), getApproval: () => ok({}),
+      createApproval: () => ok({}), transitionApproval: () => ok({}), cancelApproval: () => ok({}),
+      listSchedules: () => ok({ items: [] }), getSchedule: () => ok({}), saveSchedule: () => ok({}), transitionSchedule: () => ok({}),
+    },
+    ...overrides,
+  }
+}
+
+function controllerServices() {
+  return {
+    sessions: {
+      list: { getSnapshot: () => sessions([]), subscribe: () => () => {} },
+      create: () => Promise.resolve('session-new' as SessionId), open: () => {},
+    },
+    workspaces: { list: { getSnapshot: workspaces, subscribe: () => () => {} } },
+  }
+}
+
+describe('EnterpriseWorkbenchController enterprise read models', () => {
+  it('loads PostgreSQL employee and operations pages and forwards roster filters/cursor', async () => {
+    const list = vi.fn(controllerApi().enterpriseEmployees.list)
+    const api = controllerApi({ enterpriseEmployees: { ...controllerApi().enterpriseEmployees, list } })
+    const services = controllerServices()
+    const controller = new EnterpriseWorkbenchController(api as never, services.sessions as never, services.workspaces as never)
+
+    controller.setEmployeeFilters({ search: '采购', status: 'published', visibility: 'restricted', ownerUserId: 'owner-1' })
+    await controller.refresh()
+    await controller.loadMoreEmployees()
+
+    expect(list).toHaveBeenNthCalledWith(1, {
+      limit: 24, search: '采购', status: 'published', visibility: 'restricted', ownerUserId: 'owner-1',
+    })
+    expect(list).toHaveBeenNthCalledWith(2, {
+      limit: 24, cursor: 'employee-next', search: '采购', status: 'published', visibility: 'restricted', ownerUserId: 'owner-1',
+    })
+    expect(controller.store.getSnapshot()).toMatchObject({
+      mode: 'enterprise',
+      employees: { phase: 'ready', nextCursor: 'employee-next' },
+      workRecords: { phase: 'ready' },
+    })
+  })
+
+  it('falls back to native AgentPreset/Session projections only when enterprise is unavailable', async () => {
+    const api = controllerApi({
+      enterpriseEmployees: { ...controllerApi().enterpriseEmployees, list: unavailable },
+    })
+    const services = controllerServices()
+    const controller = new EnterpriseWorkbenchController(api as never, services.sessions as never, services.workspaces as never)
+
+    await controller.refresh()
+
+    expect(controller.store.getSnapshot()).toMatchObject({ mode: 'fallback', phase: 'ready' })
+    expect(controller.store.getSnapshot().view?.employees[0]?.id).toBe('standard')
+  })
+})
+
+describe('EnterpriseWorkbenchController edits, mutations, and events', () => {
+  it('saves the explicit employee draft without sending principal or organization fields', async () => {
+    const saveDraft = vi.fn((_payload: unknown) => ok({
+      presetId: 'buyer', orgId: 'server-org', ownerUserId: 'owner-1', visibility: 'private',
+      profile: { name: '采购员' }, bindings: [], revision: 5, status: 'draft', updatedAt: 30,
+    }))
+    const api = controllerApi({ enterpriseEmployees: { ...controllerApi().enterpriseEmployees, saveDraft } })
+    const services = controllerServices()
+    const controller = new EnterpriseWorkbenchController(api as never, services.sessions as never, services.workspaces as never)
+    await controller.openEmployeeDraft('buyer')
+    controller.patchEmployeeDraft({ name: '采购员', visibility: 'private' })
+
+    await controller.saveEmployeeDraft()
+
+    expect(saveDraft).toHaveBeenCalledTimes(1)
+    const payload = saveDraft.mock.calls[0]?.[0] as Record<string, unknown>
+    expect(payload).toMatchObject({ presetId: 'buyer', expectedRevision: 4, visibility: 'private' })
+    expect(payload).not.toHaveProperty('orgId')
+    expect(payload).not.toHaveProperty('principal')
+    expect(controller.store.getSnapshot().employeeEditor).toMatchObject({ dirty: false, conflict: false })
+  })
+
+  it('keeps dirty input and exposes revision conflict when a save loses the revision race', async () => {
+    const saveDraft = (_payload: unknown) => Promise.resolve({ result: {
+      ok: false as const,
+      error: { code: 'version-conflict', message: 'revision conflict', details: {} },
+    } })
+    const api = controllerApi({ enterpriseEmployees: { ...controllerApi().enterpriseEmployees, saveDraft } })
+    const services = controllerServices()
+    const controller = new EnterpriseWorkbenchController(api as never, services.sessions as never, services.workspaces as never)
+    await controller.openEmployeeDraft('buyer')
+    controller.patchEmployeeDraft({ prompt: '新职责' })
+
+    await controller.saveEmployeeDraft()
+
+    expect(controller.store.getSnapshot().employeeEditor).toMatchObject({
+      dirty: true, conflict: true, fields: { prompt: '新职责' },
+    })
+  })
+
+  it('deduplicates enterprise HostFrames and refreshes only the owning workbench page', async () => {
+    const listAssets = vi.fn(() => ok({ items: [] }))
+    const listEmployees = vi.fn(controllerApi().enterpriseEmployees.list)
+    const api = controllerApi({
+      enterpriseEmployees: { ...controllerApi().enterpriseEmployees, list: listEmployees },
+      enterpriseAssets: { ...controllerApi().enterpriseAssets, list: listAssets },
+    })
+    const services = controllerServices()
+    const controller = new EnterpriseWorkbenchController(api as never, services.sessions as never, services.workspaces as never)
+    await controller.refresh()
+    const frame = { type: 'enterprise/event', event: 'enterprise/asset-updated', eventId: 'event-1', orgId: 'server-org', resourceId: 'asset-1' } as const
+
+    await controller.handleHostFrame(frame)
+    await controller.handleHostFrame(frame)
+
+    expect(listAssets).toHaveBeenCalledTimes(2)
+    expect(listEmployees).toHaveBeenCalledTimes(1)
   })
 })
