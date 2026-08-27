@@ -2,7 +2,7 @@
 
 import type { PostgresDatabase } from './types.ts'
 
-export const ENTERPRISE_IDENTITY_POSTGRES_SCHEMA_VERSION = 2
+export const ENTERPRISE_IDENTITY_POSTGRES_SCHEMA_VERSION = 3
 
 const STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS enterprise_meta (
@@ -113,6 +113,27 @@ const STATEMENTS = [
   )`,
   `CREATE INDEX IF NOT EXISTS enterprise_workspace_grants_org_kind
     ON enterprise_workspace_grants(org_id, kind, name, workspace_id)`,
+  `CREATE TABLE IF NOT EXISTS enterprise_memories (
+    id TEXT PRIMARY KEY,
+    org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+    scope_type TEXT NOT NULL CHECK (scope_type IN ('organization', 'department')),
+    department_id TEXT REFERENCES departments(id) ON DELETE CASCADE,
+    kind TEXT NOT NULL CHECK (kind IN ('business-fact', 'process', 'terminology', 'decision')),
+    status TEXT NOT NULL CHECK (status IN ('proposed', 'approved', 'rejected', 'retired')),
+    summary TEXT NOT NULL,
+    source_digest TEXT NOT NULL,
+    privacy_findings JSONB NOT NULL,
+    created_by TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+    reviewed_by TEXT REFERENCES users(id) ON DELETE RESTRICT,
+    review_reason TEXT,
+    revision BIGINT NOT NULL,
+    created_at BIGINT NOT NULL,
+    updated_at BIGINT NOT NULL,
+    CHECK ((scope_type = 'organization' AND department_id IS NULL)
+      OR (scope_type = 'department' AND department_id IS NOT NULL))
+  )`,
+  `CREATE INDEX IF NOT EXISTS enterprise_memories_scope_status
+    ON enterprise_memories(org_id, scope_type, department_id, status, updated_at DESC, id)`,
 ] as const
 
 /** Creates the schema in the current transaction; callers own commit or rollback. */
@@ -131,6 +152,10 @@ export async function migrateEnterpriseIdentityPostgres(database: PostgresDataba
   }
   if (Number(version) === 1) {
     await database.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS department_revision BIGINT NOT NULL DEFAULT 0')
+    await database.query("UPDATE enterprise_meta SET value = $1 WHERE key = 'schema-version'", [String(ENTERPRISE_IDENTITY_POSTGRES_SCHEMA_VERSION)])
+    return
+  }
+  if (Number(version) === 2) {
     await database.query("UPDATE enterprise_meta SET value = $1 WHERE key = 'schema-version'", [String(ENTERPRISE_IDENTITY_POSTGRES_SCHEMA_VERSION)])
     return
   }

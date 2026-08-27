@@ -64,4 +64,18 @@ describe.skipIf(url === undefined)('enterprise identity PostgreSQL directory int
       .resolves.toEqual([expect.objectContaining({ workspaceId: 'workspace-alice' }), expect.objectContaining({ workspaceId: 'workspace-ops' })])
     await expect(repository.listWorkspaceGrants({ orgId: 'org-a', userId: 'user-2' })).resolves.toEqual([])
   })
+
+  it('stores only reviewed enterprise memory in scoped queries', async () => {
+    const proposed = await repository.proposeMemory({
+      id: 'memory-pg', orgId: 'org-a', scope: 'organization', kind: 'business-fact',
+      summary: '合同归档使用统一编号。', sourceDigest: 'c'.repeat(64), createdBy: 'user-1',
+    })
+    await expect(repository.listMemories({ orgId: 'org-a', statuses: ['approved'] })).resolves.toEqual([])
+    await repository.reviewMemory({
+      id: proposed.id, orgId: 'org-a', decision: 'approved', reviewedBy: 'user-1',
+      reason: '制度已核验', expectedRevision: proposed.revision,
+    })
+    await expect(repository.listMemories({ orgId: 'org-a', statuses: ['approved'] }))
+      .resolves.toEqual([expect.objectContaining({ id: 'memory-pg', sourceDigest: 'c'.repeat(64) })])
+  })
 })

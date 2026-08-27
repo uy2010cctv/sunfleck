@@ -2,7 +2,7 @@
 
 import type { DatabaseSync } from 'node:sqlite'
 
-export const ENTERPRISE_IDENTITY_SCHEMA_VERSION = 2
+export const ENTERPRISE_IDENTITY_SCHEMA_VERSION = 3
 
 /** Create or validate the enterprise identity schema. */
 export function migrateEnterpriseIdentity(database: DatabaseSync): void {
@@ -115,6 +115,27 @@ export function migrateEnterpriseIdentity(database: DatabaseSync): void {
     ) STRICT;
     CREATE INDEX IF NOT EXISTS enterprise_workspace_grants_org_kind
       ON enterprise_workspace_grants(org_id, kind, name, workspace_id);
+    CREATE TABLE IF NOT EXISTS enterprise_memories (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      scope_type TEXT NOT NULL CHECK (scope_type IN ('organization', 'department')),
+      department_id TEXT REFERENCES departments(id) ON DELETE CASCADE,
+      kind TEXT NOT NULL CHECK (kind IN ('business-fact', 'process', 'terminology', 'decision')),
+      status TEXT NOT NULL CHECK (status IN ('proposed', 'approved', 'rejected', 'retired')),
+      summary TEXT NOT NULL,
+      source_digest TEXT NOT NULL,
+      privacy_findings TEXT NOT NULL,
+      created_by TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+      reviewed_by TEXT REFERENCES users(id) ON DELETE RESTRICT,
+      review_reason TEXT,
+      revision INTEGER NOT NULL,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      CHECK ((scope_type = 'organization' AND department_id IS NULL)
+        OR (scope_type = 'department' AND department_id IS NOT NULL))
+    ) STRICT;
+    CREATE INDEX IF NOT EXISTS enterprise_memories_scope_status
+      ON enterprise_memories(org_id, scope_type, department_id, status, updated_at DESC, id);
   `)
   const version = database.prepare("SELECT value FROM enterprise_meta WHERE key = 'schema-version'")
     .get() as { value: string } | undefined
@@ -123,6 +144,9 @@ export function migrateEnterpriseIdentity(database: DatabaseSync): void {
       .run(String(ENTERPRISE_IDENTITY_SCHEMA_VERSION))
   } else if (Number(version.value) === 1) {
     database.exec('ALTER TABLE users ADD COLUMN department_revision INTEGER NOT NULL DEFAULT 0')
+    database.prepare("UPDATE enterprise_meta SET value = ? WHERE key = 'schema-version'")
+      .run(String(ENTERPRISE_IDENTITY_SCHEMA_VERSION))
+  } else if (Number(version.value) === 2) {
     database.prepare("UPDATE enterprise_meta SET value = ? WHERE key = 'schema-version'")
       .run(String(ENTERPRISE_IDENTITY_SCHEMA_VERSION))
   } else if (Number(version.value) !== ENTERPRISE_IDENTITY_SCHEMA_VERSION) {

@@ -4,6 +4,8 @@ import type {
   AuditQuery,
   EnterpriseAuditRecord,
   EnterpriseDepartment,
+  EnterpriseMemoryEntry,
+  EnterpriseMemoryPrivacyFinding,
   EnterpriseManagedAsset,
   EnterpriseOrganization,
   EnterprisePrincipalView,
@@ -13,11 +15,13 @@ import type {
   EnterpriseWorkspaceGrant,
   ExternalIdentityBinding,
   RepositoryOptions,
+  ProposeEnterpriseMemoryInput,
+  ReviewEnterpriseMemoryInput,
   SaveEnterpriseDepartmentInput,
   SaveEnterpriseWorkspaceGrantInput,
   SetUserDepartmentsInput,
 } from '@deepseek-ai/dsh-enterprise-identity'
-import { sessionTokenHash } from '@deepseek-ai/dsh-enterprise-identity'
+import { inspectEnterpriseMemory, sessionTokenHash } from '@deepseek-ai/dsh-enterprise-identity'
 import type { EnterpriseRole } from '@deepseek-ai/dsh-enterprise-governance'
 import type { PostgresDatabase } from './types.ts'
 
@@ -80,6 +84,24 @@ interface WorkspaceGrantRow extends Record<string, unknown> {
   readonly department_id: string | null
   readonly root_path: string
   readonly sandbox_mode: 'read-only' | 'workspace-write'
+  readonly revision: number | string
+  readonly created_at: number | string
+  readonly updated_at: number | string
+}
+
+interface MemoryRow extends Record<string, unknown> {
+  readonly id: string
+  readonly org_id: string
+  readonly scope_type: 'organization' | 'department'
+  readonly department_id: string | null
+  readonly kind: EnterpriseMemoryEntry['kind']
+  readonly status: EnterpriseMemoryEntry['status']
+  readonly summary: string
+  readonly source_digest: string
+  readonly privacy_findings: unknown
+  readonly created_by: string
+  readonly reviewed_by: string | null
+  readonly review_reason: string | null
   readonly revision: number | string
   readonly created_at: number | string
   readonly updated_at: number | string
@@ -396,6 +418,110 @@ export class PgEnterpriseIdentityRepository {
       ...(row.department_id === null ? {} : { departmentId: row.department_id }),
       rootPath: row.root_path, sandboxMode: row.sandbox_mode, revision: Number(row.revision),
       createdAt: Number(row.created_at), updatedAt: Number(row.updated_at),
+    }
+  }
+
+  async proposeMemory(input: ProposeEnterpriseMemoryInput): Promise<EnterpriseMemoryEntry> {
+    const summary = input.summary.trim()
+    const inspection = inspectEnterpriseMemory(summary)
+    if (!inspection.allowed) {
+      throw new Error(`enterprise memory privacy check failed: ${inspection.findings.join(',')}`)
+    }
+    if (!input.id.trim() || !summary || !/^[a-f0-9]{64}$/u.test(input.sourceDigest)) {
+      throw new Error('enterprise memory id, summary, and SHA-256 source digest are required')
+    }
+    if ((input.scope === 'organization' && input.departmentId !== undefined)
+      || (input.scope === 'department' && input.departmentId === undefined)) {
+      throw new Error('enterprise memory scope and department do not match')
+    }
+    return this.transaction(async (database) => {
+      await this.assertMemoryReferences(database, input.orgId, input.createdBy, input.departmentId)
+      const at = this.now()
+      const result = await database.query<MemoryRow>(`INSERT INTO enterprise_memories(id, org_id, scope_type,
+        department_id, kind, status, summary, source_digest, privacy_findings, created_by, reviewed_by,
+        review_reason, revision, created_at, updated_at)
+        VALUES ($1, $2, $3, $4, $5, 'proposed', $6, $7, $8::jsonb, $9, NULL, NULL, 1, $10, $10) RETURNING *`,
+      [input.id, input.orgId, input.scope, input.departmentId ?? null, input.kind, summary,
+        input.sourceDigest, JSON.stringify(inspection.findings), input.createdBy, at])
+      const row = result.rows[0]
+      if (row === undefined) throw new Error('enterprise memory proposal returned no row')
+      return this.memoryFromRow(row)
+    })
+  }
+
+  async reviewMemory(input: ReviewEnterpriseMemoryInput): Promise<EnterpriseMemoryEntry> {
+    if (!input.reason.trim()) throw new Error('enterprise memory review reason is required')
+    return this.transaction(async (database) => {
+      const result = await database.query<MemoryRow>(
+        'SELECT * FROM enterprise_memories WHERE id = $1 FOR UPDATE', [input.id],
+      )
+      const current = result.rows[0]
+      if (current === undefined || current.org_id !== input.orgId) {
+        throw new Error('enterprise memory is outside organization or missing')
+      }
+      const actual = Number(current.revision)
+      if (actual !== input.expectedRevision) {
+        throw new Error(`enterprise memory revision conflict: expected ${input.expectedRevision}, actual ${actual}`)
+      }
+      if (current.status !== 'proposed' && input.decision !== 'retired') {
+        throw new Error('enterprise memory is not pending review')
+      }
+      if (input.decision === 'retired' && current.status !== 'approved') {
+        throw new Error('only approved enterprise memory can be retired')
+      }
+      await this.assertMemoryReferences(database, input.orgId, input.reviewedBy)
+      const updated = await database.query<MemoryRow>(`UPDATE enterprise_memories SET status = $1,
+        reviewed_by = $2, review_reason = $3, revision = revision + 1, updated_at = $4 WHERE id = $5 RETURNING *`,
+      [input.decision, input.reviewedBy, input.reason.trim(), this.now(), input.id])
+      const row = updated.rows[0]
+      if (row === undefined) throw new Error('enterprise memory review returned no row')
+      return this.memoryFromRow(row)
+    })
+  }
+
+  async listMemories(input: {
+    orgId: string
+    departmentIds?: readonly string[]
+    statuses?: readonly EnterpriseMemoryEntry['status'][]
+  }): Promise<EnterpriseMemoryEntry[]> {
+    const departmentIds = [...new Set(input.departmentIds ?? [])]
+    const statuses = [...new Set(input.statuses ?? ['proposed', 'approved', 'rejected', 'retired'])]
+    if (statuses.length === 0) return []
+    const result = await this.database.query<MemoryRow>(`SELECT * FROM enterprise_memories
+      WHERE org_id = $1
+        AND (scope_type = 'organization' OR (cardinality($2::text[]) > 0 AND department_id = ANY($2::text[])))
+        AND status = ANY($3::text[]) ORDER BY updated_at DESC, id`, [input.orgId, departmentIds, statuses])
+    return result.rows.map(row => this.memoryFromRow(row))
+  }
+
+  private async assertMemoryReferences(
+    database: PostgresDatabase,
+    orgId: string,
+    userId: string,
+    departmentId?: string,
+  ): Promise<void> {
+    const user = await database.query<{ org_id: string }>('SELECT org_id FROM users WHERE id = $1', [userId])
+    if (user.rows[0]?.org_id !== orgId) throw new Error('enterprise memory user is outside organization or missing')
+    if (departmentId !== undefined) {
+      const department = await database.query<{ org_id: string }>(
+        'SELECT org_id FROM departments WHERE id = $1', [departmentId],
+      )
+      if (department.rows[0]?.org_id !== orgId) {
+        throw new Error('enterprise memory department is outside organization or missing')
+      }
+    }
+  }
+
+  private memoryFromRow(row: MemoryRow): EnterpriseMemoryEntry {
+    return {
+      id: row.id, orgId: row.org_id, scope: row.scope_type,
+      ...(row.department_id === null ? {} : { departmentId: row.department_id }),
+      kind: row.kind, status: row.status, summary: row.summary, sourceDigest: row.source_digest,
+      privacyFindings: safeStringArray(row.privacy_findings) as EnterpriseMemoryPrivacyFinding[],
+      createdBy: row.created_by,
+      ...(row.reviewed_by === null ? {} : { reviewedBy: row.reviewed_by }),
+      ...(row.review_reason === null ? {} : { reviewReason: row.review_reason }),
+      revision: Number(row.revision), createdAt: Number(row.created_at), updatedAt: Number(row.updated_at),
     }
   }
 

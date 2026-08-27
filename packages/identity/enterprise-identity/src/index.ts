@@ -2,6 +2,12 @@
 
 export { ENTERPRISE_IDENTITY_SCHEMA_VERSION, migrateEnterpriseIdentity } from './schema.ts'
 export {
+  inspectEnterpriseMemory,
+  memorySourceDigest,
+  type EnterpriseMemoryInspection,
+  type EnterpriseMemoryPrivacyFinding,
+} from './memory-policy.ts'
+export {
   EnterpriseIdentityRepository,
   type IdentityAwaitable,
   type EnterpriseIdentityStore,
@@ -19,6 +25,9 @@ export {
   type SetUserDepartmentsInput,
   type EnterpriseWorkspaceGrant,
   type SaveEnterpriseWorkspaceGrantInput,
+  type EnterpriseMemoryEntry,
+  type ProposeEnterpriseMemoryInput,
+  type ReviewEnterpriseMemoryInput,
   type ExternalIdentityBinding,
   type RepositoryOptions,
 } from './repository.ts'

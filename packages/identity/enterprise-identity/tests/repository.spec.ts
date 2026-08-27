@@ -178,4 +178,24 @@ describe('EnterpriseIdentityRepository', () => {
       rootPath: '/managed/bad', sandboxMode: 'workspace-write', expectedRevision: 0,
     })).toThrow(/owner/i)
   })
+
+  it('reviews privacy-screened department and organization memory without raw conversation storage', () => {
+    repository.saveDepartment({ id: 'dept-ops', orgId: 'org-a', name: '运营部', parentId: null, sortOrder: 0, expectedRevision: 0 })
+    const proposed = repository.proposeMemory({
+      id: 'memory-1', orgId: 'org-a', scope: 'department', departmentId: 'dept-ops', kind: 'process',
+      summary: '采购订单必须在入库前完成审批。', sourceDigest: 'a'.repeat(64), createdBy: 'user-1',
+    })
+    expect(proposed).toMatchObject({ status: 'proposed', revision: 1, privacyFindings: [] })
+    expect(JSON.stringify(proposed)).not.toContain('raw conversation')
+    expect(repository.reviewMemory({
+      id: 'memory-1', orgId: 'org-a', decision: 'approved', reviewedBy: 'user-1',
+      reason: '已核对采购制度', expectedRevision: 1,
+    })).toMatchObject({ status: 'approved', revision: 2, reviewedBy: 'user-1' })
+    expect(repository.listMemories({ orgId: 'org-a', departmentIds: ['dept-ops'], statuses: ['approved'] }))
+      .toEqual([expect.objectContaining({ id: 'memory-1' })])
+    expect(() => repository.proposeMemory({
+      id: 'memory-sensitive', orgId: 'org-a', scope: 'organization', kind: 'business-fact',
+      summary: '客户邮箱 alice@example.com', sourceDigest: 'b'.repeat(64), createdBy: 'user-1',
+    })).toThrow(/privacy/i)
+  })
 })

@@ -7,6 +7,7 @@ import { DatabaseSync } from 'node:sqlite'
 import type {
   EnterpriseAction, EnterpriseResource, EnterpriseRole,
 } from '@deepseek-ai/dsh-enterprise-governance'
+import { inspectEnterpriseMemory, type EnterpriseMemoryPrivacyFinding } from './memory-policy.ts'
 import { migrateEnterpriseIdentity } from './schema.ts'
 
 export interface EnterpriseOrganization {
@@ -72,6 +73,44 @@ export interface EnterpriseWorkspaceGrant {
 }
 
 export interface SaveEnterpriseWorkspaceGrantInput extends Omit<EnterpriseWorkspaceGrant, 'revision' | 'createdAt' | 'updatedAt'> {
+  readonly expectedRevision: number
+}
+
+export interface EnterpriseMemoryEntry {
+  readonly id: string
+  readonly orgId: string
+  readonly scope: 'organization' | 'department'
+  readonly departmentId?: string
+  readonly kind: 'business-fact' | 'process' | 'terminology' | 'decision'
+  readonly status: 'proposed' | 'approved' | 'rejected' | 'retired'
+  readonly summary: string
+  readonly sourceDigest: string
+  readonly privacyFindings: readonly EnterpriseMemoryPrivacyFinding[]
+  readonly createdBy: string
+  readonly reviewedBy?: string
+  readonly reviewReason?: string
+  readonly revision: number
+  readonly createdAt: number
+  readonly updatedAt: number
+}
+
+export interface ProposeEnterpriseMemoryInput {
+  readonly id: string
+  readonly orgId: string
+  readonly scope: EnterpriseMemoryEntry['scope']
+  readonly departmentId?: string
+  readonly kind: EnterpriseMemoryEntry['kind']
+  readonly summary: string
+  readonly sourceDigest: string
+  readonly createdBy: string
+}
+
+export interface ReviewEnterpriseMemoryInput {
+  readonly id: string
+  readonly orgId: string
+  readonly decision: 'approved' | 'rejected' | 'retired'
+  readonly reviewedBy: string
+  readonly reason: string
   readonly expectedRevision: number
 }
 
@@ -153,6 +192,24 @@ interface SqliteWorkspaceGrantRow {
   updated_at: number
 }
 
+interface SqliteMemoryRow {
+  id: string
+  org_id: string
+  scope_type: 'organization' | 'department'
+  department_id: string | null
+  kind: EnterpriseMemoryEntry['kind']
+  status: EnterpriseMemoryEntry['status']
+  summary: string
+  source_digest: string
+  privacy_findings: string
+  created_by: string
+  reviewed_by: string | null
+  review_reason: string | null
+  revision: number
+  created_at: number
+  updated_at: number
+}
+
 /**
  * Persistence surface consumed by the synchronous authentication and governance
  * services. Implementations may be backed by SQLite, an in-process cache, or an
@@ -175,6 +232,13 @@ export interface EnterpriseIdentityStore {
   workspaceGrant(workspaceId: string): IdentityAwaitable<EnterpriseWorkspaceGrant | undefined>
   listWorkspaceGrants(input: { orgId: string; userId: string }): IdentityAwaitable<EnterpriseWorkspaceGrant[]>
   listOrganizationWorkspaceGrants(orgId: string): IdentityAwaitable<EnterpriseWorkspaceGrant[]>
+  proposeMemory(input: ProposeEnterpriseMemoryInput): IdentityAwaitable<EnterpriseMemoryEntry>
+  reviewMemory(input: ReviewEnterpriseMemoryInput): IdentityAwaitable<EnterpriseMemoryEntry>
+  listMemories(input: {
+    orgId: string
+    departmentIds?: readonly string[]
+    statuses?: readonly EnterpriseMemoryEntry['status'][]
+  }): IdentityAwaitable<EnterpriseMemoryEntry[]>
   setPasswordVerifier(userId: string, verifier: string): IdentityAwaitable<void>
   passwordLoginRecord(orgId: string, username: string): IdentityAwaitable<{
     userId: string
@@ -412,7 +476,7 @@ export class EnterpriseIdentityRepository implements EnterpriseIdentityStore {
 
   listDepartments(orgId: string): EnterpriseDepartment[] {
     return (this.database.prepare(`SELECT * FROM departments WHERE org_id = ?
-      ORDER BY parent_id IS NOT NULL, parent_id, sort_order, name, id`).all(orgId) as SqliteDepartmentRow[]).map(row => ({
+      ORDER BY parent_id IS NOT NULL, parent_id, sort_order, name, id`).all(orgId) as unknown as SqliteDepartmentRow[]).map(row => ({
       id: row.id, orgId: row.org_id, parentId: row.parent_id, name: row.name, sortOrder: row.sort_order,
       revision: row.revision, createdAt: row.created_at, updatedAt: row.updated_at,
     }))
@@ -513,13 +577,13 @@ export class EnterpriseIdentityRepository implements EnterpriseIdentityStore {
       LEFT JOIN user_departments membership ON membership.department_id = workspace.department_id AND membership.user_id = ?
       WHERE workspace.org_id = ? AND (workspace.owner_user_id = ? OR membership.user_id IS NOT NULL)
       ORDER BY CASE workspace.kind WHEN 'personal' THEN 0 ELSE 1 END, workspace.name, workspace.workspace_id`)
-      .all(input.userId, input.orgId, input.userId) as SqliteWorkspaceGrantRow[]
+      .all(input.userId, input.orgId, input.userId) as unknown as SqliteWorkspaceGrantRow[]
     return rows.map(row => this.workspaceGrantFromRow(row))
   }
 
   listOrganizationWorkspaceGrants(orgId: string): EnterpriseWorkspaceGrant[] {
     return (this.database.prepare(`SELECT * FROM enterprise_workspace_grants WHERE org_id = ?
-      ORDER BY kind, name, workspace_id`).all(orgId) as SqliteWorkspaceGrantRow[])
+      ORDER BY kind, name, workspace_id`).all(orgId) as unknown as SqliteWorkspaceGrantRow[])
       .map(row => this.workspaceGrantFromRow(row))
   }
 
@@ -530,6 +594,131 @@ export class EnterpriseIdentityRepository implements EnterpriseIdentityStore {
       ...(row.department_id === null ? {} : { departmentId: row.department_id }),
       rootPath: row.root_path, sandboxMode: row.sandbox_mode, revision: row.revision,
       createdAt: row.created_at, updatedAt: row.updated_at,
+    }
+  }
+
+  proposeMemory(input: ProposeEnterpriseMemoryInput): EnterpriseMemoryEntry {
+    const summary = input.summary.trim()
+    const inspection = inspectEnterpriseMemory(summary)
+    if (!inspection.allowed) {
+      throw new Error(`enterprise memory privacy check failed: ${inspection.findings.join(',')}`)
+    }
+    if (!input.id.trim() || !summary || !/^[a-f0-9]{64}$/u.test(input.sourceDigest)) {
+      throw new Error('enterprise memory id, summary, and SHA-256 source digest are required')
+    }
+    if ((input.scope === 'organization' && input.departmentId !== undefined)
+      || (input.scope === 'department' && input.departmentId === undefined)) {
+      throw new Error('enterprise memory scope and department do not match')
+    }
+    this.database.exec('BEGIN IMMEDIATE')
+    try {
+      this.assertMemoryReferences(input.orgId, input.createdBy, input.departmentId)
+      const at = this.now()
+      this.database.prepare(`INSERT INTO enterprise_memories(id, org_id, scope_type, department_id, kind, status,
+        summary, source_digest, privacy_findings, created_by, reviewed_by, review_reason, revision, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, 'proposed', ?, ?, ?, ?, NULL, NULL, 1, ?, ?)`)
+        .run(input.id, input.orgId, input.scope, input.departmentId ?? null, input.kind, summary,
+          input.sourceDigest, JSON.stringify(inspection.findings), input.createdBy, at, at)
+      const value = this.memory(input.id)
+      this.database.exec('COMMIT')
+      if (value === undefined) throw new Error('enterprise memory proposal returned no row')
+      return value
+    } catch (error) {
+      this.database.exec('ROLLBACK')
+      throw error
+    }
+  }
+
+  reviewMemory(input: ReviewEnterpriseMemoryInput): EnterpriseMemoryEntry {
+    if (!input.reason.trim()) throw new Error('enterprise memory review reason is required')
+    this.database.exec('BEGIN IMMEDIATE')
+    try {
+      const current = this.database.prepare(
+        'SELECT org_id, status, revision FROM enterprise_memories WHERE id = ?',
+      ).get(input.id) as {
+        org_id: string
+        status: EnterpriseMemoryEntry['status']
+        revision: number
+      } | undefined
+      if (current === undefined || current.org_id !== input.orgId) {
+        throw new Error('enterprise memory is outside organization or missing')
+      }
+      if (current.revision !== input.expectedRevision) {
+        throw new Error(
+          `enterprise memory revision conflict: expected ${input.expectedRevision}, actual ${current.revision}`,
+        )
+      }
+      if (current.status !== 'proposed' && input.decision !== 'retired') {
+        throw new Error('enterprise memory is not pending review')
+      }
+      if (input.decision === 'retired' && current.status !== 'approved') {
+        throw new Error('only approved enterprise memory can be retired')
+      }
+      this.assertMemoryReferences(input.orgId, input.reviewedBy)
+      this.database.prepare(`UPDATE enterprise_memories SET status = ?, reviewed_by = ?, review_reason = ?,
+        revision = revision + 1, updated_at = ? WHERE id = ?`)
+        .run(input.decision, input.reviewedBy, input.reason.trim(), this.now(), input.id)
+      const value = this.memory(input.id)
+      this.database.exec('COMMIT')
+      if (value === undefined) throw new Error('enterprise memory review returned no row')
+      return value
+    } catch (error) {
+      this.database.exec('ROLLBACK')
+      throw error
+    }
+  }
+
+  listMemories(input: {
+    orgId: string
+    departmentIds?: readonly string[]
+    statuses?: readonly EnterpriseMemoryEntry['status'][]
+  }): EnterpriseMemoryEntry[] {
+    const departmentIds = [...new Set(input.departmentIds ?? [])]
+    const statuses = [...new Set(input.statuses ?? ['proposed', 'approved', 'rejected', 'retired'])]
+    if (statuses.length === 0) return []
+    const statusSlots = statuses.map(() => '?').join(',')
+    const departmentSlots = departmentIds.map(() => '?').join(',')
+    const scope = departmentIds.length === 0
+      ? "scope_type = 'organization'"
+      : `(scope_type = 'organization' OR department_id IN (${departmentSlots}))`
+    const rows = this.database.prepare(`SELECT * FROM enterprise_memories WHERE org_id = ? AND ${scope}
+      AND status IN (${statusSlots}) ORDER BY updated_at DESC, id`)
+      .all(input.orgId, ...departmentIds, ...statuses) as unknown as SqliteMemoryRow[]
+    return rows.map(row => this.memoryFromRow(row))
+  }
+
+  private assertMemoryReferences(orgId: string, userId: string, departmentId?: string): void {
+    const user = this.database.prepare('SELECT org_id FROM users WHERE id = ?').get(userId) as
+      | { org_id: string }
+      | undefined
+    if (user?.org_id !== orgId) throw new Error('enterprise memory user is outside organization or missing')
+    if (departmentId !== undefined) {
+      const department = this.database.prepare('SELECT org_id FROM departments WHERE id = ?').get(departmentId) as
+        | { org_id: string }
+        | undefined
+      if (department?.org_id !== orgId) {
+        throw new Error('enterprise memory department is outside organization or missing')
+      }
+    }
+  }
+
+  private memory(id: string): EnterpriseMemoryEntry | undefined {
+    const row = this.database.prepare('SELECT * FROM enterprise_memories WHERE id = ?').get(id) as
+      | SqliteMemoryRow
+      | undefined
+    return row === undefined ? undefined : this.memoryFromRow(row)
+  }
+
+  private memoryFromRow(row: SqliteMemoryRow): EnterpriseMemoryEntry {
+    return {
+      id: row.id, orgId: row.org_id, scope: row.scope_type,
+      ...(row.department_id === null ? {} : { departmentId: row.department_id }),
+      kind: row.kind, status: row.status, summary: row.summary, sourceDigest: row.source_digest,
+      privacyFindings: safeJsonArray(row.privacy_findings) as EnterpriseMemoryPrivacyFinding[],
+      createdBy: row.created_by,
+      ...(row.reviewed_by === null ? {} : { reviewedBy: row.reviewed_by }),
+      ...(row.review_reason === null ? {} : { reviewReason: row.review_reason }),
+      revision: row.revision, createdAt: row.created_at, updatedAt: row.updated_at,
     }
   }
 
