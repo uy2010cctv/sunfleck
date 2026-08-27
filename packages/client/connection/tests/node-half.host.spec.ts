@@ -234,7 +234,7 @@ describe('connection node half', () => {
     const seen: unknown[] = []
     ctx.connection.rpc.intercept('/api', () => true, async (_endpoint, payload) => {
       seen.push({ principal: requestContext.requirePrincipal(), payload })
-      return { ok: true }
+      return { ok: true, value: {} }
     }, { authority: 'trusted-host' })
     const request: ClientRequest = {
       type: 'client-request',
@@ -266,7 +266,7 @@ describe('connection node half', () => {
     const seen: unknown[] = []
     ctx.connection.rpc.intercept('/api', () => true, async (_endpoint, payload) => {
       seen.push(payload)
-      return { ok: true }
+      return { ok: true, value: {} }
     }, { authority: 'trusted-host' })
     const payload = { principal: { externalId: 'ordinary-profile-data' } }
     const response = fakeResponse()

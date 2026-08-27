@@ -62,9 +62,11 @@ describe('enterprise workbench Web composition', () => {
   it('makes enterprise Postgres and auth visible before Loader activates connection', async () => {
     const rows = readEnterpriseOverlay()
     const connection = rows.find(row => row.id === 'connection')
-    expect(connection?.inject).toEqual([
+    const connectionInject = connection?.inject
+    expect(connectionInject).toEqual([
       'webRuntime', 'enterpriseSecurity', 'enterpriseRequestContext',
     ])
+    if (connectionInject === undefined) throw new Error('enterprise connection injection is missing')
     const ordinaryRows = load(
       readFileSync(`${PACKAGE_ROOT}/cordis.patch.yml`, 'utf8'),
       { schema: entryListSchema },
@@ -107,9 +109,9 @@ describe('enterprise workbench Web composition', () => {
     } as unknown as NonNullable<typeof ctx.loader.internal>
 
     try {
-      await ctx.loader.create({ id: 'connection', name: '@test/connection', inject: connection!.inject })
-      await ctx.loader.create({ id: 'auth', name: '@test/auth' })
-      await ctx.loader.create({ id: 'postgres', name: '@test/postgres' })
+      await ctx.loader.create({ name: '@test/connection', inject: connectionInject })
+      await ctx.loader.create({ name: '@test/auth' })
+      await ctx.loader.create({ name: '@test/postgres' })
       await ctx.loader.await()
       expect(order).toEqual(['postgres', 'auth', 'connection'])
     } finally {
