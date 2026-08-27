@@ -28,6 +28,10 @@ function scriptedApi(overrides: {
   settings?: Partial<ApiProxy['settings']>
   credentials?: Partial<ApiProxy['credentials']>
   llm?: Partial<ApiProxy['llm']>
+  enterpriseEmployees?: Partial<ApiProxy['enterpriseEmployees']>
+  enterpriseAssets?: Partial<ApiProxy['enterpriseAssets']>
+  enterpriseTeams?: Partial<ApiProxy['enterpriseTeams']>
+  enterpriseOperations?: Partial<ApiProxy['enterpriseOperations']>
   respond?: ApiProxy['respond']
 } = {}): ApiProxy {
   async function *empty<F>(): AsyncGenerator<RpcRequest<F>> { /* no frames */ }
@@ -128,6 +132,21 @@ function scriptedApi(overrides: {
       discoverModels: err,
       ...overrides.llm,
     },
+    enterpriseEmployees: {
+      list: err, getDraft: err, saveDraft: err, publish: err, listReleases: err, rollback: err,
+      ...overrides.enterpriseEmployees,
+    },
+    enterpriseAssets: {
+      list: err, get: err, saveVersion: err, listVersions: err, archive: err,
+      ...overrides.enterpriseAssets,
+    },
+    enterpriseTeams: { list: err, get: err, save: err, ...overrides.enterpriseTeams },
+    enterpriseOperations: {
+      listWorkRecords: err, getWorkRecord: err, updateWorkRecord: err,
+      listApprovals: err, getApproval: err, createApproval: err, transitionApproval: err, cancelApproval: err,
+      listSchedules: err, getSchedule: err, saveSchedule: err, transitionSchedule: err,
+      ...overrides.enterpriseOperations,
+    },
     events: { mux: () => empty<MuxFrame>(), host: () => empty<HostFrame>(), ...overrides.events },
     respond: overrides.respond ?? (() => Promise.resolve({ accepted: false as const, reason: 'not-pending' as const })),
     downloads: { sessionLog: async () => new Response('stub', { status: 404 }) },
@@ -148,6 +167,18 @@ function recorderInto(seen: { method: string; payload: unknown }[]) {
 }
 
 describe('unary round trip', () => {
+  it('carries an enterprise domain through client, handler, and value validation', async () => {
+    const api = scriptedApi({
+      enterpriseAssets: {
+        get: r => ok(r, { assetId: r.payload.assetId, orgId: 'org-1', kind: 'sop' as const, name: 'Runbook', revision: 2, archived: false, updatedAt: 10 }),
+      },
+    })
+    const response = await client(api).enterpriseAssets.get({ assetId: 'asset-1' })
+    expect(response.result).toEqual({
+      ok: true,
+      value: { assetId: 'asset-1', orgId: 'org-1', kind: 'sop', name: 'Runbook', revision: 2, archived: false, updatedAt: 10 },
+    })
+  })
   it('carries payload out and value back through the full wire form', async () => {
     let seen: RpcRequest<{ cursor?: string }> | undefined
     const api = scriptedApi({

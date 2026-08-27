@@ -102,7 +102,26 @@ export function classifyApiEndpoint(endpoint: string, input: unknown): ApiClassi
   if (endpoint.startsWith('credentials.')) return { action: 'credential.manage', resourceType: 'credential' }
   if (endpoint.startsWith('enterpriseAdmin.')) return { action: 'user.manage', resourceType: 'enterprise-admin' }
   if (endpoint === 'enterpriseAudit.list') return { action: 'audit.read', resourceType: 'audit' }
-  if (endpoint.startsWith('enterpriseOperation.')) {
+  if (['enterpriseEmployee.list', 'enterpriseEmployee.getDraft', 'enterpriseEmployee.saveDraft', 'enterpriseEmployee.publish', 'enterpriseEmployee.listReleases', 'enterpriseEmployee.rollback'].includes(endpoint)) {
+    const resourceId = stringField(payload, 'presetId', 'releaseId')
+    const read = endpoint === 'enterpriseEmployee.list' || endpoint === 'enterpriseEmployee.getDraft' || endpoint === 'enterpriseEmployee.listReleases'
+    const create = endpoint === 'enterpriseEmployee.saveDraft' && payload['expectedRevision'] === 0
+    return { action: read ? 'employee.read' : create ? 'employee.create' : 'employee.update', resourceType: 'employee', ...(resourceId === undefined ? {} : { resourceId }) }
+  }
+  if (['enterpriseAsset.list', 'enterpriseAsset.get', 'enterpriseAsset.saveVersion', 'enterpriseAsset.listVersions', 'enterpriseAsset.archive'].includes(endpoint)) {
+    const resourceId = stringField(payload, 'assetId')
+    const read = endpoint === 'enterpriseAsset.list' || endpoint === 'enterpriseAsset.get' || endpoint === 'enterpriseAsset.listVersions'
+    return { action: read ? 'capability.read' : 'capability.manage', resourceType: 'enterprise-asset', ...(resourceId === undefined ? {} : { resourceId }) }
+  }
+  if (['enterpriseTeam.list', 'enterpriseTeam.get', 'enterpriseTeam.save'].includes(endpoint)) {
+    const resourceId = stringField(payload, 'teamId')
+    return { action: endpoint === 'enterpriseTeam.list' || endpoint === 'enterpriseTeam.get' ? 'team.read' : 'team.manage', resourceType: 'fixed-team', ...(resourceId === undefined ? {} : { resourceId }) }
+  }
+  if (['enterpriseOperation.workRecords.list', 'enterpriseOperation.workRecords.get', 'enterpriseOperation.workRecords.update', 'enterpriseOperation.workRecords.upsert',
+    'enterpriseOperation.approvals.list', 'enterpriseOperation.approvals.get', 'enterpriseOperation.approvals.create', 'enterpriseOperation.approvals.transition', 'enterpriseOperation.approvals.cancel',
+    'enterpriseOperation.schedules.list', 'enterpriseOperation.schedules.get', 'enterpriseOperation.schedules.create', 'enterpriseOperation.schedules.save', 'enterpriseOperation.schedules.transition', 'enterpriseOperation.schedules.fire',
+    'enterpriseOperation.outbox.claim', 'enterpriseOperation.outbox.complete', 'enterpriseOperation.outbox.fail',
+    'enterpriseOperation.teams.list', 'enterpriseOperation.teams.get', 'enterpriseOperation.teams.create', 'enterpriseOperation.teams.save'].includes(endpoint)) {
     const operation = endpoint.slice('enterpriseOperation.'.length)
     if (operation.startsWith('workRecords.') && (operation.endsWith('.get') || operation.endsWith('.list'))) {
       return { action: 'operation.read', resourceType: 'work-record', ...sessionId === undefined ? {} : { resourceId: sessionId } }
@@ -110,15 +129,18 @@ export function classifyApiEndpoint(endpoint: string, input: unknown): ApiClassi
     if (operation.startsWith('workRecords.') || operation.startsWith('outbox.')) return { action: 'operation.manage', resourceType: 'work-record', ...sessionId === undefined ? {} : { resourceId: sessionId } }
     if (operation.startsWith('approvals.')) {
       const resourceId = stringField(payload, 'approvalId')
-      return { action: 'approval.manage', resourceType: 'approval', ...(resourceId === undefined ? {} : { resourceId }) }
+      const read = operation === 'approvals.get' || operation === 'approvals.list'
+      return { action: read ? 'approval.read' : 'approval.manage', resourceType: 'approval', ...(resourceId === undefined ? {} : { resourceId }) }
     }
     if (operation.startsWith('schedules.')) {
       const resourceId = stringField(payload, 'scheduleId')
-      return { action: 'schedule.manage', resourceType: 'schedule', ...(resourceId === undefined ? {} : { resourceId }) }
+      const read = operation === 'schedules.get' || operation === 'schedules.list'
+      return { action: read ? 'schedule.read' : 'schedule.manage', resourceType: 'schedule', ...(resourceId === undefined ? {} : { resourceId }) }
     }
     if (operation.startsWith('teams.')) {
       const resourceId = stringField(payload, 'teamId')
-      return { action: 'team.manage', resourceType: 'fixed-team', ...(resourceId === undefined ? {} : { resourceId }) }
+      const read = operation === 'teams.get' || operation === 'teams.list'
+      return { action: read ? 'team.read' : 'team.manage', resourceType: 'fixed-team', ...(resourceId === undefined ? {} : { resourceId }) }
     }
   }
   return undefined

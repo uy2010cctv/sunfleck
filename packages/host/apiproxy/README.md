@@ -22,6 +22,12 @@ Wire messages form a four-quadrant discriminated union — who initiates × requ
 
 The layering/protocol decisions are recorded in the [GUI layering and RPC protocol RFC](../../../.agents/notes/implemented/architecture/2026-07-19-gui-layering-and-rpc-protocol.md); the browser-side consumption architecture in the [web client architecture RFC](../../../.agents/notes/implemented/architecture/2026-07-19-gui-web-client-architecture.md).
 
+### Enterprise management domains
+
+The optional `enterpriseEmployees`, `enterpriseAssets`, `enterpriseTeams`, and `enterpriseOperations` domains expose the PostgreSQL catalog and operations drivers through the typed unary carrier. Their payloads never accept `principal` or `orgId`; handlers require the server-authenticated principal from `ctx.enterpriseRequestContext`, inject its organization and actor fields, and return an explicit `internal` unavailable response when the enterprise composition is absent. Catalog calls authorize and audit through `ctx.enterpriseSecurity`; team and operations calls use `EnterpriseOperationsService`. Every mutation carries `expectedRevision` and `idempotencyKey`, and repository failures map to stable enterprise conflict, forbidden, not-found, invalid-state, or idempotency-conflict codes without returning database diagnostics.
+
+Committed mutations emit organization-tagged `enterprise/*-updated` or `enterprise/approval-requested` events. The host stream subscribes only when the opening request has an enterprise principal and forwards only matching `orgId` frames. These events are invalidation signals; clients re-read the corresponding list or entity after receipt.
+
 Question responses are validated against their pending request before the first answer claims it. A multi-select item may carry both requested option labels in `selected` and non-empty `custom` text; a single-select item must use one or the other. Duplicate labels, unknown labels, mismatched ids, incomplete batches, and empty custom text are rejected as `bad-response`.
 
 `session.history` reads an attached Session in memory or inspects a cold log through persistence without resuming or publishing an Agent, then pages on append-origin message boundaries. `maxMessages` counts `user/message` and `assistant/message` events that entered the surface by appending, so a model-only replacement copy consumes no quota. Each page stays one contiguous raw event range, which keeps a compaction's log-only `compaction/summary` record on the same page as the replacement that cites it.

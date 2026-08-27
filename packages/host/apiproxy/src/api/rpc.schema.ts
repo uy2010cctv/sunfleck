@@ -74,6 +74,11 @@ export const rpcErrorSchema: z.ZodType<RpcError> = z.discriminatedUnion('code', 
   z.object({ code: z.literal('subagent-not-resumable'), message: z.string(), details: z.object({ childSessionId: z.string() }) }),
   z.object({ code: z.literal('subagent-unauthorized'), message: z.string(), details: z.object({ childSessionId: z.string() }) }),
   z.object({ code: z.literal('subagent-delivery-unavailable'), message: z.string(), details: z.object({ childSessionId: z.string() }) }),
+  z.object({ code: z.literal('enterprise-conflict'), message: z.string(), details: z.object({ resourceType: z.string(), resourceId: z.string().optional() }) }),
+  z.object({ code: z.literal('enterprise-forbidden'), message: z.string(), details: z.object({ endpoint: z.string() }) }),
+  z.object({ code: z.literal('enterprise-not-found'), message: z.string(), details: z.object({ resourceType: z.string(), resourceId: z.string() }) }),
+  z.object({ code: z.literal('enterprise-invalid-state'), message: z.string(), details: z.object({ resourceType: z.string(), resourceId: z.string() }) }),
+  z.object({ code: z.literal('enterprise-idempotency-conflict'), message: z.string(), details: z.object({ resourceType: z.string() }) }),
   z.object({ code: z.literal('internal'), message: z.string(), details: z.object({}) }),
 ]) as unknown as z.ZodType<RpcError>
 

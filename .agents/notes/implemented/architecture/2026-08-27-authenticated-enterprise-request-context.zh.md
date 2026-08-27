@@ -22,6 +22,10 @@ Auth plugin 卸载时会调用 `EnterpriseRequestContext.dispose()`，禁用底�
 
 企业 overlay 为 Connection 注入 `enterpriseSecurity` 和 `enterpriseRequestContext`。因此 Loader 会等待 `enterprisePostgres` 激活 auth，再等 auth 发布两个服务后才激活 Connection；基础 Web Profile 仍只注入 `webRuntime`。
 
+企业 ApiProxy handler 只通过 `requirePrincipal()` 读取身份。Employee 与 Asset handler 在显式异步授权和审计后，向 PostgreSQL catalog 调用注入 `orgId`、`ownerUserId`、`createdBy` 或 `publishedBy`。Team、Work Record、Approval 与 Schedule handler 委托 `EnterpriseOperationsService`，由它在调用 driver 前注入组织范围与 actor 身份。企业请求 schema 严格校验，不包含 principal 或组织字段。
+
+企业写入仅在 repository Promise resolve 后发出带组织标记的失效事件。Host event stream 捕获打开请求的 `current()` principal，仅在事件组织匹配时转发企业帧；没有企业请求上下文的 stream 不订阅企业事件。
+
 ## Alternatives considered
 
 **比较若干字段后信任 payload principal。** 不采用，因为 payload 仍是第二个身份权威，新增字段可能逃过比较，下游 handler 也可能意外读取未验证对象。
@@ -33,6 +37,8 @@ Auth plugin 卸载时会调用 `EnterpriseRequestContext.dispose()`，禁用底�
 ## Consequences
 
 企业 Host 代码只有一个请求作用域的身份权威，它可跨 Promise 和并发请求传播，不会在请求间泄漏。Payload 无法冒充该身份，认证工作之外的调用失败关闭。
+
+企业管理 RPC 契约仍可由浏览器客户端导入，无需导入 Node 请求上下文或 PostgreSQL 类型。普通 Profile 保持现有 API，仅在调用企业域时收到明确的 unavailable 业务应答。
 
 企业 overlay 具有从 PostgreSQL 经 auth 到 Connection 的明确启动依赖。普通 Profile 不获得企业依赖，也不增加保留 payload 键。`AsyncLocalStorage` 使该服务仅属于 Node Host；浏览器和与传输无关的业务契约不导入它。
 

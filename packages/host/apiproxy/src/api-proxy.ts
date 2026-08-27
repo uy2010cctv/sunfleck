@@ -110,6 +110,25 @@ import {
   inspectApiRemoteSession,
 } from '@deepseek-ai/dsh-api-remotes'
 import { canOpenNativePath, openNativePath, openNativeTextFile } from './native-path-opener.ts'
+import type { EnterprisePrincipal } from '@deepseek-ai/dsh-enterprise-governance'
+import { EnterpriseOperationsAuthorizationError, EnterpriseOperationsService } from '@deepseek-ai/dsh-enterprise-operations'
+
+interface EnterpriseEventPayload { orgId: string; resourceId: string }
+
+declare module '@deepseek-ai/cordis' {
+  interface Events {
+    /** @mode parallel @param payload Committed enterprise employee update. */
+    'enterprise/employee-updated'(payload: EnterpriseEventPayload): void
+    /** @mode parallel @param payload Committed enterprise asset update. */
+    'enterprise/asset-updated'(payload: EnterpriseEventPayload): void
+    /** @mode parallel @param payload Committed enterprise team update. */
+    'enterprise/team-updated'(payload: EnterpriseEventPayload): void
+    /** @mode parallel @param payload Committed enterprise operational update. */
+    'enterprise/operation-updated'(payload: EnterpriseEventPayload): void
+    /** @mode parallel @param payload Committed approval request. */
+    'enterprise/approval-requested'(payload: EnterpriseEventPayload): void
+  }
+}
 
 /** Page size when history is called without maxMessages. */
 const DEFAULT_MAX_MESSAGES = 50
@@ -1935,6 +1954,66 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
     return ok(request, namespaceView(descriptor))
   }
 
+  type EnterpriseSecurityLike = {
+    authorizeApiAsync(principal: EnterprisePrincipal, endpoint: string, input: unknown): Promise<{ allowed: boolean; reason?: string }>
+    auditApiAsync(principal: EnterprisePrincipal, endpoint: string, input: unknown, decision: { allowed: boolean; reason?: string }, correlationId: string): Promise<void>
+  }
+  type EnterpriseCatalogLike = {
+    listDrafts(input: Record<string, unknown>): Promise<unknown>; getDraft(presetId: string, orgId: string): Promise<unknown | undefined>
+    saveDraft(input: Record<string, unknown>): Promise<unknown>; publishDraft(input: Record<string, unknown>): Promise<unknown>
+    listReleases(presetId: string, orgId: string): Promise<unknown>; rollbackRelease(input: Record<string, unknown>): Promise<unknown>
+    listAssets(input: Record<string, unknown>): Promise<unknown>; getAsset(orgId: string, assetId: string): Promise<unknown | undefined>
+    saveAssetVersion(input: Record<string, unknown>): Promise<unknown>; listAssetVersions(orgId: string, assetId: string): Promise<unknown>
+    archiveAsset(orgId: string, assetId: string, expectedRevision: number, idempotencyKey: string): Promise<unknown>
+  }
+  type EnterpriseEnvironment = {
+    principal: EnterprisePrincipal; security: EnterpriseSecurityLike; catalog: EnterpriseCatalogLike
+    operations: ConstructorParameters<typeof EnterpriseOperationsService>[0]
+  }
+
+  function enterpriseEnvironment(): EnterpriseEnvironment | undefined {
+    const get = ctx.get.bind(ctx) as (name: string) => unknown
+    const postgres = get('enterprisePostgres') as { catalog?: EnterpriseCatalogLike; operations?: ConstructorParameters<typeof EnterpriseOperationsService>[0] } | undefined
+    const requestContext = get('enterpriseRequestContext') as { requirePrincipal(): EnterprisePrincipal } | undefined
+    const security = get('enterpriseSecurity') as EnterpriseSecurityLike | undefined
+    if (postgres?.catalog === undefined || postgres.operations === undefined || requestContext === undefined || security === undefined) return undefined
+    return { principal: requestContext.requirePrincipal(), security, catalog: postgres.catalog, operations: postgres.operations }
+  }
+
+  async function authorizeCatalog(environment: EnterpriseEnvironment, endpoint: string, input: unknown): Promise<void> {
+    const decision = await environment.security.authorizeApiAsync(environment.principal, endpoint, input)
+    await environment.security.auditApiAsync(environment.principal, endpoint, input, decision, randomUUID())
+    if (!decision.allowed) throw new EnterpriseOperationsAuthorizationError('insufficient-role', endpoint as never)
+  }
+
+  function enterpriseFailure<T>(request: RpcRequest<unknown>, error: unknown, resourceType: string, resourceId: string, endpoint: string): RpcResponse<T> {
+    if (error instanceof EnterpriseOperationsAuthorizationError) return err(request, { code: 'enterprise-forbidden', message: 'enterprise request is forbidden', details: { endpoint } })
+    const message = error instanceof Error ? error.message.toLowerCase() : ''
+    if (message.includes('idempotency') && (message.includes('different') || message.includes('reused'))) return err(request, { code: 'enterprise-idempotency-conflict', message: 'enterprise idempotency key conflicts with an earlier request', details: { resourceType } })
+    if (message.includes('revision conflict')) return err(request, { code: 'enterprise-conflict', message: 'enterprise resource revision changed', details: { resourceType, resourceId } })
+    if (message.includes('not found') || message.includes('does not exist')) return err(request, { code: 'enterprise-not-found', message: 'enterprise resource was not found', details: { resourceType, resourceId } })
+    if (message.includes('not pending') || message.includes('cannot be') || message.includes('already archived')) return err(request, { code: 'enterprise-invalid-state', message: 'enterprise resource cannot perform that transition', details: { resourceType, resourceId } })
+    return err(request, { code: 'internal', message: 'enterprise repository operation failed', details: {} })
+  }
+
+  function enterpriseUnavailable<T>(request: RpcRequest<unknown>): RpcResponse<T> {
+    return err(request, { code: 'internal', message: 'enterprise API is unavailable in this profile', details: {} })
+  }
+
+  function operationsService(environment: EnterpriseEnvironment): EnterpriseOperationsService {
+    return new EnterpriseOperationsService(environment.operations, {
+      authorize: (principal, endpoint, input) => environment.security.authorizeApiAsync(principal, endpoint, input),
+      audit: (event) => {
+        const field = event.resourceType === 'work-record' ? 'sessionId'
+          : event.resourceType === 'approval' ? 'approvalId'
+            : event.resourceType === 'schedule' ? 'scheduleId'
+              : event.resourceType === 'fixed-team' ? 'teamId' : 'commandId'
+        const input = event.resourceId === undefined ? {} : { [field]: event.resourceId }
+        return environment.security.auditApiAsync(event.principal, event.endpoint, input, event.decision, event.correlationId)
+      },
+    })
+  }
+
   return {
     sessions: {
       // Attached sessions summarize from memory; persisted-but-unattached (cold)
@@ -3326,6 +3405,194 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
       },
     },
 
+    enterpriseEmployees: {
+      async list(request) {
+        const environment = enterpriseEnvironment()
+        if (environment === undefined) return enterpriseUnavailable(request)
+        try {
+          await authorizeCatalog(environment, 'enterpriseEmployee.list', request.payload)
+          return ok(request, await environment.catalog.listDrafts({ ...request.payload, orgId: environment.principal.orgId }) as never)
+        } catch (error) { return enterpriseFailure(request, error, 'employee', 'catalog', 'enterpriseEmployee.list') }
+      },
+      async getDraft(request) {
+        const environment = enterpriseEnvironment()
+        if (environment === undefined) return enterpriseUnavailable(request)
+        const { presetId } = request.payload
+        try {
+          await authorizeCatalog(environment, 'enterpriseEmployee.getDraft', request.payload)
+          const value = await environment.catalog.getDraft(presetId, environment.principal.orgId)
+          return value === undefined ? enterpriseFailure(request, new Error('not found'), 'employee', presetId, 'enterpriseEmployee.getDraft') : ok(request, value as never)
+        } catch (error) { return enterpriseFailure(request, error, 'employee', presetId, 'enterpriseEmployee.getDraft') }
+      },
+      async saveDraft(request) {
+        const environment = enterpriseEnvironment()
+        if (environment === undefined) return enterpriseUnavailable(request)
+        const { presetId } = request.payload
+        try {
+          await authorizeCatalog(environment, 'enterpriseEmployee.saveDraft', request.payload)
+          const value = await environment.catalog.saveDraft({ ...request.payload, orgId: environment.principal.orgId, ownerUserId: environment.principal.userId })
+          ctx.emit('enterprise/employee-updated', { orgId: environment.principal.orgId, resourceId: presetId })
+          return ok(request, value as never)
+        } catch (error) { return enterpriseFailure(request, error, 'employee', presetId, 'enterpriseEmployee.saveDraft') }
+      },
+      async publish(request) {
+        const environment = enterpriseEnvironment()
+        if (environment === undefined) return enterpriseUnavailable(request)
+        const { presetId } = request.payload
+        try {
+          await authorizeCatalog(environment, 'enterpriseEmployee.publish', request.payload)
+          const value = await environment.catalog.publishDraft({ ...request.payload, orgId: environment.principal.orgId, publishedBy: environment.principal.userId })
+          ctx.emit('enterprise/employee-updated', { orgId: environment.principal.orgId, resourceId: presetId })
+          return ok(request, value as never)
+        } catch (error) { return enterpriseFailure(request, error, 'employee', presetId, 'enterpriseEmployee.publish') }
+      },
+      async listReleases(request) {
+        const environment = enterpriseEnvironment()
+        if (environment === undefined) return enterpriseUnavailable(request)
+        const { presetId } = request.payload
+        try {
+          await authorizeCatalog(environment, 'enterpriseEmployee.listReleases', request.payload)
+          return ok(request, await environment.catalog.listReleases(presetId, environment.principal.orgId) as never)
+        } catch (error) { return enterpriseFailure(request, error, 'employee', presetId, 'enterpriseEmployee.listReleases') }
+      },
+      async rollback(request) {
+        const environment = enterpriseEnvironment()
+        if (environment === undefined) return enterpriseUnavailable(request)
+        const { presetId } = request.payload
+        try {
+          await authorizeCatalog(environment, 'enterpriseEmployee.rollback', request.payload)
+          const value = await environment.catalog.rollbackRelease({ ...request.payload, orgId: environment.principal.orgId, publishedBy: environment.principal.userId })
+          ctx.emit('enterprise/employee-updated', { orgId: environment.principal.orgId, resourceId: presetId })
+          return ok(request, value as never)
+        } catch (error) { return enterpriseFailure(request, error, 'employee', presetId, 'enterpriseEmployee.rollback') }
+      },
+    },
+
+    enterpriseAssets: {
+      async list(request) {
+        const environment = enterpriseEnvironment(); if (environment === undefined) return enterpriseUnavailable(request)
+        try { await authorizeCatalog(environment, 'enterpriseAsset.list', request.payload); return ok(request, await environment.catalog.listAssets({ ...request.payload, orgId: environment.principal.orgId }) as never) }
+        catch (error) { return enterpriseFailure(request, error, 'asset', 'catalog', 'enterpriseAsset.list') }
+      },
+      async get(request) {
+        const environment = enterpriseEnvironment(); if (environment === undefined) return enterpriseUnavailable(request)
+        const { assetId } = request.payload
+        try { await authorizeCatalog(environment, 'enterpriseAsset.get', request.payload); const value = await environment.catalog.getAsset(environment.principal.orgId, assetId); return value === undefined ? enterpriseFailure(request, new Error('not found'), 'asset', assetId, 'enterpriseAsset.get') : ok(request, value as never) }
+        catch (error) { return enterpriseFailure(request, error, 'asset', assetId, 'enterpriseAsset.get') }
+      },
+      async saveVersion(request) {
+        const environment = enterpriseEnvironment(); if (environment === undefined) return enterpriseUnavailable(request)
+        const { assetId } = request.payload
+        try { await authorizeCatalog(environment, 'enterpriseAsset.saveVersion', request.payload); const value = await environment.catalog.saveAssetVersion({ ...request.payload, orgId: environment.principal.orgId, createdBy: environment.principal.userId }); ctx.emit('enterprise/asset-updated', { orgId: environment.principal.orgId, resourceId: assetId }); return ok(request, value as never) }
+        catch (error) { return enterpriseFailure(request, error, 'asset', assetId, 'enterpriseAsset.saveVersion') }
+      },
+      async listVersions(request) {
+        const environment = enterpriseEnvironment(); if (environment === undefined) return enterpriseUnavailable(request)
+        const { assetId } = request.payload
+        try { await authorizeCatalog(environment, 'enterpriseAsset.listVersions', request.payload); return ok(request, await environment.catalog.listAssetVersions(environment.principal.orgId, assetId) as never) }
+        catch (error) { return enterpriseFailure(request, error, 'asset', assetId, 'enterpriseAsset.listVersions') }
+      },
+      async archive(request) {
+        const environment = enterpriseEnvironment(); if (environment === undefined) return enterpriseUnavailable(request)
+        const { assetId, expectedRevision, idempotencyKey } = request.payload
+        try { await authorizeCatalog(environment, 'enterpriseAsset.archive', request.payload); const value = await environment.catalog.archiveAsset(environment.principal.orgId, assetId, expectedRevision, idempotencyKey); ctx.emit('enterprise/asset-updated', { orgId: environment.principal.orgId, resourceId: assetId }); return ok(request, value as never) }
+        catch (error) { return enterpriseFailure(request, error, 'asset', assetId, 'enterpriseAsset.archive') }
+      },
+    },
+
+    enterpriseTeams: {
+      async list(request) {
+        const environment = enterpriseEnvironment(); if (environment === undefined) return enterpriseUnavailable(request)
+        try { return ok(request, await operationsService(environment).listFixedTeams(environment.principal, request.payload) as never) }
+        catch (error) { return enterpriseFailure(request, error, 'team', 'catalog', 'enterpriseTeam.list') }
+      },
+      async get(request) {
+        const environment = enterpriseEnvironment(); if (environment === undefined) return enterpriseUnavailable(request)
+        const { teamId } = request.payload
+        try { const value = await operationsService(environment).getFixedTeam(environment.principal, request.payload); return value === undefined ? enterpriseFailure(request, new Error('not found'), 'team', teamId, 'enterpriseTeam.get') : ok(request, value as never) }
+        catch (error) { return enterpriseFailure(request, error, 'team', teamId, 'enterpriseTeam.get') }
+      },
+      async save(request) {
+        const environment = enterpriseEnvironment(); if (environment === undefined) return enterpriseUnavailable(request)
+        const { teamId } = request.payload
+        try { const value = await operationsService(environment).saveFixedTeam(environment.principal, request.payload); ctx.emit('enterprise/team-updated', { orgId: environment.principal.orgId, resourceId: teamId }); return ok(request, value as never) }
+        catch (error) { return enterpriseFailure(request, error, 'team', teamId, 'enterpriseTeam.save') }
+      },
+    },
+
+    enterpriseOperations: {
+      async listWorkRecords(request) {
+        const environment = enterpriseEnvironment(); if (environment === undefined) return enterpriseUnavailable(request)
+        try { return ok(request, await operationsService(environment).listWorkRecords(environment.principal, request.payload) as never) }
+        catch (error) { return enterpriseFailure(request, error, 'work-record', 'catalog', 'enterpriseOperation.workRecords.list') }
+      },
+      async getWorkRecord(request) {
+        const environment = enterpriseEnvironment(); if (environment === undefined) return enterpriseUnavailable(request)
+        const { sessionId } = request.payload
+        try { const value = await operationsService(environment).getWorkRecord(environment.principal, request.payload); return value === undefined ? enterpriseFailure(request, new Error('not found'), 'work-record', sessionId, 'enterpriseOperation.workRecords.get') : ok(request, value as never) }
+        catch (error) { return enterpriseFailure(request, error, 'work-record', sessionId, 'enterpriseOperation.workRecords.get') }
+      },
+      async updateWorkRecord(request) {
+        const environment = enterpriseEnvironment(); if (environment === undefined) return enterpriseUnavailable(request)
+        const { sessionId } = request.payload
+        try { const value = await operationsService(environment).upsertWorkRecord(environment.principal, request.payload); ctx.emit('enterprise/operation-updated', { orgId: environment.principal.orgId, resourceId: sessionId }); return ok(request, value as never) }
+        catch (error) { return enterpriseFailure(request, error, 'work-record', sessionId, 'enterpriseOperation.workRecords.update') }
+      },
+      async listApprovals(request) {
+        const environment = enterpriseEnvironment(); if (environment === undefined) return enterpriseUnavailable(request)
+        try { return ok(request, await operationsService(environment).listApprovals(environment.principal, request.payload) as never) }
+        catch (error) { return enterpriseFailure(request, error, 'approval', 'catalog', 'enterpriseOperation.approvals.list') }
+      },
+      async getApproval(request) {
+        const environment = enterpriseEnvironment(); if (environment === undefined) return enterpriseUnavailable(request)
+        const { approvalId } = request.payload
+        try { const value = await operationsService(environment).getApproval(environment.principal, request.payload); return value === undefined ? enterpriseFailure(request, new Error('not found'), 'approval', approvalId, 'enterpriseOperation.approvals.get') : ok(request, value as never) }
+        catch (error) { return enterpriseFailure(request, error, 'approval', approvalId, 'enterpriseOperation.approvals.get') }
+      },
+      async createApproval(request) {
+        const environment = enterpriseEnvironment(); if (environment === undefined) return enterpriseUnavailable(request)
+        const { approvalId, expectedRevision: _expectedRevision, ...input } = request.payload
+        if (request.payload.expectedRevision !== 0) return enterpriseFailure(request, new Error('revision conflict'), 'approval', approvalId, 'enterpriseOperation.approvals.create')
+        try { const value = await operationsService(environment).createApprovalRequest(environment.principal, { ...input, approvalId, requestedBy: environment.principal.userId }); ctx.emit('enterprise/approval-requested', { orgId: environment.principal.orgId, resourceId: approvalId }); return ok(request, value as never) }
+        catch (error) { return enterpriseFailure(request, error, 'approval', approvalId, 'enterpriseOperation.approvals.create') }
+      },
+      async transitionApproval(request) {
+        const environment = enterpriseEnvironment(); if (environment === undefined) return enterpriseUnavailable(request)
+        const { approvalId } = request.payload
+        try { const value = await operationsService(environment).transitionApproval(environment.principal, { ...request.payload, reviewerUserId: environment.principal.userId }); ctx.emit('enterprise/operation-updated', { orgId: environment.principal.orgId, resourceId: approvalId }); return ok(request, value as never) }
+        catch (error) { return enterpriseFailure(request, error, 'approval', approvalId, 'enterpriseOperation.approvals.transition') }
+      },
+      async cancelApproval(request) {
+        const environment = enterpriseEnvironment(); if (environment === undefined) return enterpriseUnavailable(request)
+        const { approvalId } = request.payload
+        try { const value = await operationsService(environment).transitionApproval(environment.principal, { ...request.payload, state: 'cancelled' }); ctx.emit('enterprise/operation-updated', { orgId: environment.principal.orgId, resourceId: approvalId }); return ok(request, value as never) }
+        catch (error) { return enterpriseFailure(request, error, 'approval', approvalId, 'enterpriseOperation.approvals.cancel') }
+      },
+      async listSchedules(request) {
+        const environment = enterpriseEnvironment(); if (environment === undefined) return enterpriseUnavailable(request)
+        try { return ok(request, await operationsService(environment).listSchedules(environment.principal, request.payload) as never) }
+        catch (error) { return enterpriseFailure(request, error, 'schedule', 'catalog', 'enterpriseOperation.schedules.list') }
+      },
+      async getSchedule(request) {
+        const environment = enterpriseEnvironment(); if (environment === undefined) return enterpriseUnavailable(request)
+        const { scheduleId } = request.payload
+        try { const value = await operationsService(environment).getSchedule(environment.principal, request.payload); return value === undefined ? enterpriseFailure(request, new Error('not found'), 'schedule', scheduleId, 'enterpriseOperation.schedules.get') : ok(request, value as never) }
+        catch (error) { return enterpriseFailure(request, error, 'schedule', scheduleId, 'enterpriseOperation.schedules.get') }
+      },
+      async saveSchedule(request) {
+        const environment = enterpriseEnvironment(); if (environment === undefined) return enterpriseUnavailable(request)
+        const { scheduleId } = request.payload
+        try { const value = await operationsService(environment).saveSchedule(environment.principal, request.payload); ctx.emit('enterprise/operation-updated', { orgId: environment.principal.orgId, resourceId: scheduleId }); return ok(request, value as never) }
+        catch (error) { return enterpriseFailure(request, error, 'schedule', scheduleId, 'enterpriseOperation.schedules.save') }
+      },
+      async transitionSchedule(request) {
+        const environment = enterpriseEnvironment(); if (environment === undefined) return enterpriseUnavailable(request)
+        const { scheduleId } = request.payload
+        try { const value = await operationsService(environment).transitionSchedule(environment.principal, request.payload); ctx.emit('enterprise/operation-updated', { orgId: environment.principal.orgId, resourceId: scheduleId }); return ok(request, value as never) }
+        catch (error) { return enterpriseFailure(request, error, 'schedule', scheduleId, 'enterpriseOperation.schedules.transition') }
+      },
+    },
+
     events: {
       mux(_request, signal) {
         const queue = new FrameQueue<RpcRequest<MuxFrame>>()
@@ -3433,6 +3700,8 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
 
       host(_request, signal) {
         const queue = new FrameQueue<RpcRequest<HostFrame>>()
+        const requestContext = (ctx.get.bind(ctx) as (name: string) => unknown)('enterpriseRequestContext') as { current(): EnterprisePrincipal | undefined } | undefined
+        const enterpriseOrgId = requestContext?.current()?.orgId
         const committedWorkspaces = ctx.workspaceRegistry.list()
         const committedWorkspaceIds = new Set(
           committedWorkspaces.map(workspace => String(workspace.id)),
@@ -3531,6 +3800,13 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
               }))
             }),
           )),
+          ...enterpriseOrgId === undefined ? [] : [
+            ctx.on('enterprise/employee-updated', (payload) => { if (payload.orgId === enterpriseOrgId) queue.push(frame({ type: 'enterprise/event', event: 'enterprise/employee-updated', ...payload })) }),
+            ctx.on('enterprise/asset-updated', (payload) => { if (payload.orgId === enterpriseOrgId) queue.push(frame({ type: 'enterprise/event', event: 'enterprise/asset-updated', ...payload })) }),
+            ctx.on('enterprise/team-updated', (payload) => { if (payload.orgId === enterpriseOrgId) queue.push(frame({ type: 'enterprise/event', event: 'enterprise/team-updated', ...payload })) }),
+            ctx.on('enterprise/operation-updated', (payload) => { if (payload.orgId === enterpriseOrgId) queue.push(frame({ type: 'enterprise/event', event: 'enterprise/operation-updated', ...payload })) }),
+            ctx.on('enterprise/approval-requested', (payload) => { if (payload.orgId === enterpriseOrgId) queue.push(frame({ type: 'enterprise/event', event: 'enterprise/approval-requested', ...payload })) }),
+          ],
         ]
         return queue.iterate(signal, () => { for (const dispose of disposers) dispose() })
       },

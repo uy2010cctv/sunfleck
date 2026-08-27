@@ -22,6 +22,10 @@ Auth plugin disposal calls `EnterpriseRequestContext.dispose()`, which disables 
 
 The enterprise overlay injects `enterpriseSecurity` and `enterpriseRequestContext` into Connection. Loader therefore holds Connection until `enterprisePostgres` activates auth and auth publishes both services, while the base Web profile continues to inject only `webRuntime`.
 
+Enterprise ApiProxy handlers read identity only through `requirePrincipal()`. Employee and asset handlers inject `orgId`, `ownerUserId`, `createdBy`, or `publishedBy` into PostgreSQL catalog calls after explicit asynchronous authorization and audit. Team, work-record, approval, and schedule handlers delegate to `EnterpriseOperationsService`, which injects organization scope and actor identity before its driver call. Enterprise request schemas are strict and contain neither principal nor organization fields.
+
+Successful enterprise writes emit organization-tagged invalidation events after the repository promise resolves. A host event stream captures the opening request's `current()` principal and forwards an enterprise frame only when the event organization matches it; a stream without enterprise request context subscribes to no enterprise events.
+
 ## Alternatives considered
 
 **Trust a payload principal after comparing selected fields.** Rejected because the payload remains a second identity authority, field additions can escape the comparison, and downstream handlers can accidentally read the unvalidated object.
@@ -33,6 +37,8 @@ The enterprise overlay injects `enterpriseSecurity` and `enterpriseRequestContex
 ## Consequences
 
 Enterprise Host code has one request-scoped identity authority that propagates across promises and concurrent requests without cross-request leakage. Payloads cannot impersonate it, and calls outside authenticated work fail closed.
+
+The enterprise management RPC contract remains importable by browser clients without importing Node request-context or PostgreSQL types. Ordinary profiles keep their existing APIs and receive an explicit unavailable business response only when they invoke an enterprise domain.
 
 The enterprise overlay has a deliberate startup dependency from PostgreSQL through auth to Connection. Ordinary profiles do not acquire enterprise dependencies or reserved payload keys. `AsyncLocalStorage` makes this service Node Host-only; browser and transport-independent business contracts do not import it.
 

@@ -67,6 +67,17 @@ describe('EnterpriseSecurity', () => {
     expect(classifyApiEndpoint('unknown.execute', {})).toBeUndefined()
   })
 
+  it('classifies enterprise ApiProxy resources without prefix fallthrough', () => {
+    expect(classifyApiEndpoint('enterpriseEmployee.getDraft', { presetId: 'employee-1' })).toEqual({ action: 'employee.read', resourceType: 'employee', resourceId: 'employee-1' })
+    expect(classifyApiEndpoint('enterpriseEmployee.publish', { presetId: 'employee-1' })).toEqual({ action: 'employee.update', resourceType: 'employee', resourceId: 'employee-1' })
+    expect(classifyApiEndpoint('enterpriseAsset.get', { assetId: 'asset-1' })).toEqual({ action: 'capability.read', resourceType: 'enterprise-asset', resourceId: 'asset-1' })
+    expect(classifyApiEndpoint('enterpriseAsset.archive', { assetId: 'asset-1' })).toEqual({ action: 'capability.manage', resourceType: 'enterprise-asset', resourceId: 'asset-1' })
+    expect(classifyApiEndpoint('enterpriseTeam.get', { teamId: 'team-1' })).toEqual({ action: 'team.read', resourceType: 'fixed-team', resourceId: 'team-1' })
+    expect(classifyApiEndpoint('enterpriseOperation.approvals.get', { approvalId: 'approval-1' })).toEqual({ action: 'approval.read', resourceType: 'approval', resourceId: 'approval-1' })
+    expect(classifyApiEndpoint('enterpriseOperation.schedules.transition', { scheduleId: 'schedule-1' })).toEqual({ action: 'schedule.manage', resourceType: 'schedule', resourceId: 'schedule-1' })
+    expect(classifyApiEndpoint('enterpriseEmployee.unknown', {})).toBeUndefined()
+  })
+
   it('classifies developer inventory endpoints as administrator-only system inspection', () => {
     expect(classifyApiEndpoint('dynamicCordisRunner.inventory', {})).toEqual({
       action: 'system.inspect', resourceType: 'system-inspection',

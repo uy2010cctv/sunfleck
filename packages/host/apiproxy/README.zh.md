@@ -22,6 +22,12 @@ Settings 分节中的 `reasoningEffort` 在 agent-default-model 插件配置中�
 
 分层与协议决策记录在 [GUI 分层与 RPC 协议 RFC](../../../.agents/notes/implemented/architecture/2026-07-19-gui-layering-and-rpc-protocol.zh.md) 中；浏览器侧消费架构记录在 [Web 客户端架构 RFC](../../../.agents/notes/implemented/architecture/2026-07-19-gui-web-client-architecture.zh.md) 中。
 
+### 企业管理域
+
+可选的 `enterpriseEmployees`、`enterpriseAssets`、`enterpriseTeams` 和 `enterpriseOperations` 域通过强类型一元载体暴露 PostgreSQL catalog 与 operations driver。它们的 payload 不接受 `principal` 或 `orgId`；handler 必须从 `ctx.enterpriseRequestContext` 取得服务端已认证 principal，注入其组织与 actor 字段，并在未组合企业服务时返回明确的 `internal` unavailable 应答。Catalog 调用通过 `ctx.enterpriseSecurity` 授权与审计；Team 与 Operations 调用使用 `EnterpriseOperationsService`。每个 mutation 都携带 `expectedRevision` 和 `idempotencyKey`，repository 失败会映射为稳定的企业 conflict、forbidden、not-found、invalid-state 或 idempotency-conflict 错误码，不返回数据库诊断。
+
+已提交的 mutation 会发出带组织标记的 `enterprise/*-updated` 或 `enterprise/approval-requested` 事件。Host stream 仅在打开请求具有企业 principal 时订阅，且只转发 `orgId` 匹配的帧。这些事件是失效信号；客户端收到后重新读取对应列表或实体。
+
 首个回答认领待处理请求之前，系统会对照该请求校验问题响应。多选题的回答项可以同时携带 `selected` 中的请求选项标签与非空 `custom` 文本；单选题的回答项必须二选一。标签重复、标签未知、id 不匹配、批次不完整以及自定义文本为空都会以 `bad-response` 拒绝。
 
 `session.history` 会读取已附加 Session 的内存状态，或通过持久化检查冷日志，而不会恢复或发布 agent，然后按追加来源的消息边界分页：`maxMessages` 统计以追加方式进入 surface 的 `user/message` 和 `assistant/message` 事件，因此仅供模型使用的替换副本不占用配额。每一页仍是一段连续的原始事件区间，从而让压缩（compaction）的仅日志 `compaction/summary` 记录与引用它的替换留在同一页。

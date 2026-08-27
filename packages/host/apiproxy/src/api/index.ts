@@ -16,6 +16,10 @@ import type { SettingsApi } from './settings.ts'
 import type { CredentialsApi } from './credentials.ts'
 import type { LlmApi } from './llm.ts'
 import type { DownloadsApi } from './downloads.ts'
+import type { EnterpriseEmployeesApi } from './enterprise-employees.ts'
+import type { EnterpriseAssetsApi } from './enterprise-assets.ts'
+import type { EnterpriseTeamsApi } from './enterprise-teams.ts'
+import type { EnterpriseOperationsApi } from './enterprise-operations.ts'
 import type { ClientResponse, RpcReceipt } from './rpc.ts'
 
 /** Root interface of the unified API. New client-request domain = one new file pair + one field here + one map row. */
@@ -31,6 +35,10 @@ export interface ApiProxy {
   settings: SettingsApi
   credentials: CredentialsApi
   llm: LlmApi
+  enterpriseEmployees: EnterpriseEmployeesApi
+  enterpriseAssets: EnterpriseAssetsApi
+  enterpriseTeams: EnterpriseTeamsApi
+  enterpriseOperations: EnterpriseOperationsApi
   /** Host-only download surfaces (GET, no wire envelope); absent from IApiClient. */
   downloads: DownloadsApi
   /**
@@ -56,12 +64,16 @@ export type { JobView } from './jobs.ts'
 export type { WorkspaceApi, WorkspaceId, WorkspaceView } from './workspace.ts'
 export type { SkillsApi, SkillEntry } from './skills.ts'
 export type { AgentPresetsApi, AgentPresetEmployee, AgentPresetEntry } from './agent-presets.ts'
-export type { EventsApi, MuxFrame, HostFrame, QueuedInboxItem, ToolCallView, ToolEventView, ToolResultView } from './events.ts'
+export type { EventsApi, MuxFrame, HostFrame, EnterpriseHostEventName, QueuedInboxItem, ToolCallView, ToolEventView, ToolResultView } from './events.ts'
 export type { GoalsApi, GoalId, GoalRef } from './goals.ts'
 export type { SettingsApi, SettingsNamespaceView, SettingsPathOpView, SettingsSecretView } from './settings.ts'
 export type { CredentialsApi, CredentialView } from './credentials.ts'
 export type { ConfigurableProviderView, DiscoveredModelView, LlmApi } from './llm.ts'
 export type { DownloadsApi } from './downloads.ts'
+export type * from './enterprise-employees.ts'
+export type * from './enterprise-assets.ts'
+export type * from './enterprise-teams.ts'
+export type * from './enterprise-operations.ts'
 export type { ApprovalResponsePayload } from './approvals.ts'
 
 export type { QuestionResponsePayload } from './questions.ts'

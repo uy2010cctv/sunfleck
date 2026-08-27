@@ -18,6 +18,15 @@
       "path": "../../credentials/credentials"
     },
     {
+      "path": "../../catalog/enterprise-catalog"
+    },
+    {
+      "path": "../../operations/enterprise-operations"
+    },
+    {
+      "path": "../../governance/enterprise-governance"
+    },
+    {
       "path": "../../../vendor/cordis"
     },
     {

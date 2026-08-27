@@ -3056,6 +3056,16 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
         models: fixtureModelGroups().flatMap(group => group.models.map(model => ({ id: model.id, name: model.name }))),
       }),
     },
+    enterpriseEmployees: {
+      list: request => err(request, { code: 'internal', message: 'enterprise API is unavailable in fixture mode', details: {} }), getDraft: request => err(request, { code: 'internal', message: 'enterprise API is unavailable in fixture mode', details: {} }), saveDraft: request => err(request, { code: 'internal', message: 'enterprise API is unavailable in fixture mode', details: {} }), publish: request => err(request, { code: 'internal', message: 'enterprise API is unavailable in fixture mode', details: {} }), listReleases: request => err(request, { code: 'internal', message: 'enterprise API is unavailable in fixture mode', details: {} }), rollback: request => err(request, { code: 'internal', message: 'enterprise API is unavailable in fixture mode', details: {} }),
+    },
+    enterpriseAssets: {
+      list: request => err(request, { code: 'internal', message: 'enterprise API is unavailable in fixture mode', details: {} }), get: request => err(request, { code: 'internal', message: 'enterprise API is unavailable in fixture mode', details: {} }), saveVersion: request => err(request, { code: 'internal', message: 'enterprise API is unavailable in fixture mode', details: {} }), listVersions: request => err(request, { code: 'internal', message: 'enterprise API is unavailable in fixture mode', details: {} }), archive: request => err(request, { code: 'internal', message: 'enterprise API is unavailable in fixture mode', details: {} }),
+    },
+    enterpriseTeams: { list: request => err(request, { code: 'internal', message: 'enterprise API is unavailable in fixture mode', details: {} }), get: request => err(request, { code: 'internal', message: 'enterprise API is unavailable in fixture mode', details: {} }), save: request => err(request, { code: 'internal', message: 'enterprise API is unavailable in fixture mode', details: {} }) },
+    enterpriseOperations: {
+      listWorkRecords: request => err(request, { code: 'internal', message: 'enterprise API is unavailable in fixture mode', details: {} }), getWorkRecord: request => err(request, { code: 'internal', message: 'enterprise API is unavailable in fixture mode', details: {} }), updateWorkRecord: request => err(request, { code: 'internal', message: 'enterprise API is unavailable in fixture mode', details: {} }), listApprovals: request => err(request, { code: 'internal', message: 'enterprise API is unavailable in fixture mode', details: {} }), getApproval: request => err(request, { code: 'internal', message: 'enterprise API is unavailable in fixture mode', details: {} }), createApproval: request => err(request, { code: 'internal', message: 'enterprise API is unavailable in fixture mode', details: {} }), transitionApproval: request => err(request, { code: 'internal', message: 'enterprise API is unavailable in fixture mode', details: {} }), cancelApproval: request => err(request, { code: 'internal', message: 'enterprise API is unavailable in fixture mode', details: {} }), listSchedules: request => err(request, { code: 'internal', message: 'enterprise API is unavailable in fixture mode', details: {} }), getSchedule: request => err(request, { code: 'internal', message: 'enterprise API is unavailable in fixture mode', details: {} }), saveSchedule: request => err(request, { code: 'internal', message: 'enterprise API is unavailable in fixture mode', details: {} }), transitionSchedule: request => err(request, { code: 'internal', message: 'enterprise API is unavailable in fixture mode', details: {} }),
+    },
     respond(message: ClientResponse): Promise<RpcReceipt> {
       // Same routing discipline as the host: rpcId first, then the payload's
       // audit correlation; a settled or unknown id is not-pending.
@@ -3227,6 +3237,32 @@ export class FixtureApiClient extends AbstractApiClient {
       case 'llm.providers': return this.api.llm.providers(request)
       case 'llm.models': return this.api.llm.models(request)
       case 'llm.discoverModels': return this.api.llm.discoverModels(request, signal)
+      case 'enterpriseEmployee.list': return this.api.enterpriseEmployees.list(request)
+      case 'enterpriseEmployee.getDraft': return this.api.enterpriseEmployees.getDraft(request)
+      case 'enterpriseEmployee.saveDraft': return this.api.enterpriseEmployees.saveDraft(request)
+      case 'enterpriseEmployee.publish': return this.api.enterpriseEmployees.publish(request)
+      case 'enterpriseEmployee.listReleases': return this.api.enterpriseEmployees.listReleases(request)
+      case 'enterpriseEmployee.rollback': return this.api.enterpriseEmployees.rollback(request)
+      case 'enterpriseAsset.list': return this.api.enterpriseAssets.list(request)
+      case 'enterpriseAsset.get': return this.api.enterpriseAssets.get(request)
+      case 'enterpriseAsset.saveVersion': return this.api.enterpriseAssets.saveVersion(request)
+      case 'enterpriseAsset.listVersions': return this.api.enterpriseAssets.listVersions(request)
+      case 'enterpriseAsset.archive': return this.api.enterpriseAssets.archive(request)
+      case 'enterpriseTeam.list': return this.api.enterpriseTeams.list(request)
+      case 'enterpriseTeam.get': return this.api.enterpriseTeams.get(request)
+      case 'enterpriseTeam.save': return this.api.enterpriseTeams.save(request)
+      case 'enterpriseOperation.workRecords.list': return this.api.enterpriseOperations.listWorkRecords(request)
+      case 'enterpriseOperation.workRecords.get': return this.api.enterpriseOperations.getWorkRecord(request)
+      case 'enterpriseOperation.workRecords.update': return this.api.enterpriseOperations.updateWorkRecord(request)
+      case 'enterpriseOperation.approvals.list': return this.api.enterpriseOperations.listApprovals(request)
+      case 'enterpriseOperation.approvals.get': return this.api.enterpriseOperations.getApproval(request)
+      case 'enterpriseOperation.approvals.create': return this.api.enterpriseOperations.createApproval(request)
+      case 'enterpriseOperation.approvals.transition': return this.api.enterpriseOperations.transitionApproval(request)
+      case 'enterpriseOperation.approvals.cancel': return this.api.enterpriseOperations.cancelApproval(request)
+      case 'enterpriseOperation.schedules.list': return this.api.enterpriseOperations.listSchedules(request)
+      case 'enterpriseOperation.schedules.get': return this.api.enterpriseOperations.getSchedule(request)
+      case 'enterpriseOperation.schedules.save': return this.api.enterpriseOperations.saveSchedule(request)
+      case 'enterpriseOperation.schedules.transition': return this.api.enterpriseOperations.transitionSchedule(request)
     }
   }
 

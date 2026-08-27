@@ -225,6 +225,23 @@ export class FakeApiClient implements IApiClient {
     discoverModels: payload => this.record('llm.discoverModels', payload, Promise.resolve(ok({ models: [] }))),
   }
 
+  private enterpriseError<T>(method: string, payload: unknown): Promise<RpcResponse<T>> {
+    return this.record(method, payload, Promise.resolve({
+      rpcId: RpcId(`fake-${nextRpc++}`), result: { ok: false, error: { code: 'internal', message: 'enterprise stub', details: {} } },
+    }))
+  }
+
+  readonly enterpriseEmployees: IApiClient['enterpriseEmployees'] = {
+    list: payload => this.enterpriseError('enterpriseEmployee.list', payload), getDraft: payload => this.enterpriseError('enterpriseEmployee.getDraft', payload), saveDraft: payload => this.enterpriseError('enterpriseEmployee.saveDraft', payload), publish: payload => this.enterpriseError('enterpriseEmployee.publish', payload), listReleases: payload => this.enterpriseError('enterpriseEmployee.listReleases', payload), rollback: payload => this.enterpriseError('enterpriseEmployee.rollback', payload),
+  }
+  readonly enterpriseAssets: IApiClient['enterpriseAssets'] = {
+    list: payload => this.enterpriseError('enterpriseAsset.list', payload), get: payload => this.enterpriseError('enterpriseAsset.get', payload), saveVersion: payload => this.enterpriseError('enterpriseAsset.saveVersion', payload), listVersions: payload => this.enterpriseError('enterpriseAsset.listVersions', payload), archive: payload => this.enterpriseError('enterpriseAsset.archive', payload),
+  }
+  readonly enterpriseTeams: IApiClient['enterpriseTeams'] = { list: payload => this.enterpriseError('enterpriseTeam.list', payload), get: payload => this.enterpriseError('enterpriseTeam.get', payload), save: payload => this.enterpriseError('enterpriseTeam.save', payload) }
+  readonly enterpriseOperations: IApiClient['enterpriseOperations'] = {
+    listWorkRecords: payload => this.enterpriseError('enterpriseOperation.workRecords.list', payload), getWorkRecord: payload => this.enterpriseError('enterpriseOperation.workRecords.get', payload), updateWorkRecord: payload => this.enterpriseError('enterpriseOperation.workRecords.update', payload), listApprovals: payload => this.enterpriseError('enterpriseOperation.approvals.list', payload), getApproval: payload => this.enterpriseError('enterpriseOperation.approvals.get', payload), createApproval: payload => this.enterpriseError('enterpriseOperation.approvals.create', payload), transitionApproval: payload => this.enterpriseError('enterpriseOperation.approvals.transition', payload), cancelApproval: payload => this.enterpriseError('enterpriseOperation.approvals.cancel', payload), listSchedules: payload => this.enterpriseError('enterpriseOperation.schedules.list', payload), getSchedule: payload => this.enterpriseError('enterpriseOperation.schedules.get', payload), saveSchedule: payload => this.enterpriseError('enterpriseOperation.schedules.save', payload), transitionSchedule: payload => this.enterpriseError('enterpriseOperation.schedules.transition', payload),
+  }
+
   /** When true, streams never fire onOpen (misbehaving-carrier material for the handshake timeout guard). */
   suppressStreamOpen = false
 

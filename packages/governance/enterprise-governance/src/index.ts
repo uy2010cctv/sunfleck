@@ -10,6 +10,7 @@ export type EnterpriseAction =
   | 'employee.read'
   | 'employee.update'
   | 'capability.manage'
+  | 'capability.read'
   | 'model.manage'
   | 'credential.manage'
   | 'audit.read'
@@ -19,8 +20,11 @@ export type EnterpriseAction =
   | 'operation.read'
   | 'operation.manage'
   | 'approval.manage'
+  | 'approval.read'
   | 'schedule.manage'
+  | 'schedule.read'
   | 'team.manage'
+  | 'team.read'
 
 export interface EnterprisePrincipal {
   readonly userId: string
@@ -79,6 +83,7 @@ export function authorizeEnterprise(input: EnterpriseAuthorizationInput): Enterp
 
   if (hasRole(principal, 'auditor')) {
     return action === 'audit.read' || action === 'employee.read' || action === 'session.read' || action === 'operation.read'
+      || action === 'capability.read' || action === 'approval.read' || action === 'schedule.read' || action === 'team.read'
       ? { allowed: true, reason: 'auditor' }
       : { allowed: false, reason: 'insufficient-role' }
   }
@@ -86,7 +91,7 @@ export function authorizeEnterprise(input: EnterpriseAuthorizationInput): Enterp
   if (hasRole(principal, 'operator') && (action === 'operation.manage' || action === 'approval.manage' || action === 'schedule.manage')) {
     return { allowed: true, reason: 'role' }
   }
-  if (hasRole(principal, 'creator') && (action === 'team.manage' || action === 'schedule.manage')) {
+  if (hasRole(principal, 'creator') && (action === 'team.manage' || action === 'schedule.manage' || action === 'capability.manage')) {
     return { allowed: true, reason: 'role' }
   }
 
@@ -98,7 +103,8 @@ export function authorizeEnterprise(input: EnterpriseAuthorizationInput): Enterp
     return { allowed: true, reason: 'creator-owner' }
   }
 
-  if (action === 'employee.read' || action === 'session.read' || action === 'session.create') {
+  if (action === 'employee.read' || action === 'session.read' || action === 'session.create'
+    || action === 'capability.read' || action === 'approval.read' || action === 'schedule.read' || action === 'team.read') {
     const canOperate = principal.roles.some(role => role === 'creator' || role === 'operator' || role === 'member')
     if (!canOperate) return { allowed: false, reason: 'insufficient-role' }
     if (resource === undefined || resourceVisible(principal, resource)) {

@@ -67,6 +67,19 @@ import {
   subagentListValueSchema,
   subagentPromptValueSchema,
 } from '../api/subagents.schema.ts'
+import {
+  enterpriseEmployeeDraftValueSchema, enterpriseEmployeeListReleasesValueSchema, enterpriseEmployeeListValueSchema,
+  enterpriseEmployeeReleaseValueSchema,
+} from '../api/enterprise-employees.schema.ts'
+import {
+  enterpriseAssetListValueSchema, enterpriseAssetListVersionsValueSchema, enterpriseAssetValueSchema,
+  enterpriseAssetVersionValueSchema,
+} from '../api/enterprise-assets.schema.ts'
+import { enterpriseTeamListValueSchema, enterpriseTeamValueSchema } from '../api/enterprise-teams.schema.ts'
+import {
+  enterpriseApprovalListValueSchema, enterpriseApprovalValueSchema, enterpriseOperationWorkRecordListValueSchema,
+  enterpriseScheduleListValueSchema, enterpriseScheduleValueSchema, enterpriseWorkRecordValueSchema,
+} from '../api/enterprise-operations.schema.ts'
 
 /**
  * Client consumption face of the contract (shape a): same domain tree as ApiProxy, but unary
@@ -161,6 +174,18 @@ export interface IApiClient {
     models(payload: RequestPayload<'llm.models'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'llm.models'>>>
     discoverModels(payload: RequestPayload<'llm.discoverModels'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'llm.discoverModels'>>>
   }
+  enterpriseEmployees: {
+    [K in keyof ApiProxy['enterpriseEmployees']]: (payload: Parameters<ApiProxy['enterpriseEmployees'][K]>[0]['payload'], signal?: AbortSignal) => ReturnType<ApiProxy['enterpriseEmployees'][K]>
+  }
+  enterpriseAssets: {
+    [K in keyof ApiProxy['enterpriseAssets']]: (payload: Parameters<ApiProxy['enterpriseAssets'][K]>[0]['payload'], signal?: AbortSignal) => ReturnType<ApiProxy['enterpriseAssets'][K]>
+  }
+  enterpriseTeams: {
+    [K in keyof ApiProxy['enterpriseTeams']]: (payload: Parameters<ApiProxy['enterpriseTeams'][K]>[0]['payload'], signal?: AbortSignal) => ReturnType<ApiProxy['enterpriseTeams'][K]>
+  }
+  enterpriseOperations: {
+    [K in keyof ApiProxy['enterpriseOperations']]: (payload: Parameters<ApiProxy['enterpriseOperations'][K]>[0]['payload'], signal?: AbortSignal) => ReturnType<ApiProxy['enterpriseOperations'][K]>
+  }
   /** client-response passthrough (rpcId is a backfill of the server-request's id — never minted here). */
   respond(message: ClientResponse, signal?: AbortSignal): Promise<RpcReceipt>
 }
@@ -222,6 +247,32 @@ const UNARY_VALUE_SCHEMAS: { [K in keyof RpcMethodMap]: z.ZodType<Wire<ResponseV
   'llm.providers': llmProvidersValueSchema,
   'llm.models': llmModelsValueSchema,
   'llm.discoverModels': llmDiscoverModelsValueSchema,
+  'enterpriseEmployee.list': enterpriseEmployeeListValueSchema,
+  'enterpriseEmployee.getDraft': enterpriseEmployeeDraftValueSchema,
+  'enterpriseEmployee.saveDraft': enterpriseEmployeeDraftValueSchema,
+  'enterpriseEmployee.publish': enterpriseEmployeeReleaseValueSchema,
+  'enterpriseEmployee.listReleases': enterpriseEmployeeListReleasesValueSchema,
+  'enterpriseEmployee.rollback': enterpriseEmployeeReleaseValueSchema,
+  'enterpriseAsset.list': enterpriseAssetListValueSchema,
+  'enterpriseAsset.get': enterpriseAssetValueSchema,
+  'enterpriseAsset.saveVersion': enterpriseAssetVersionValueSchema,
+  'enterpriseAsset.listVersions': enterpriseAssetListVersionsValueSchema,
+  'enterpriseAsset.archive': enterpriseAssetValueSchema,
+  'enterpriseTeam.list': enterpriseTeamListValueSchema,
+  'enterpriseTeam.get': enterpriseTeamValueSchema,
+  'enterpriseTeam.save': enterpriseTeamValueSchema,
+  'enterpriseOperation.workRecords.list': enterpriseOperationWorkRecordListValueSchema,
+  'enterpriseOperation.workRecords.get': enterpriseWorkRecordValueSchema,
+  'enterpriseOperation.workRecords.update': enterpriseWorkRecordValueSchema,
+  'enterpriseOperation.approvals.list': enterpriseApprovalListValueSchema,
+  'enterpriseOperation.approvals.get': enterpriseApprovalValueSchema,
+  'enterpriseOperation.approvals.create': enterpriseApprovalValueSchema,
+  'enterpriseOperation.approvals.transition': enterpriseApprovalValueSchema,
+  'enterpriseOperation.approvals.cancel': enterpriseApprovalValueSchema,
+  'enterpriseOperation.schedules.list': enterpriseScheduleListValueSchema,
+  'enterpriseOperation.schedules.get': enterpriseScheduleValueSchema,
+  'enterpriseOperation.schedules.save': enterpriseScheduleValueSchema,
+  'enterpriseOperation.schedules.transition': enterpriseScheduleValueSchema,
 }
 
 /** Default timeout for bounded unary calls (rpc-compare 2026-07-19: a hung host must not leave callers pending forever). */
@@ -498,6 +549,44 @@ export abstract class AbstractApiClient implements IApiClient {
     providers: (payload, signal) => this.callUnary('llm.providers', payload, signal),
     models: (payload, signal) => this.callUnary('llm.models', payload, signal),
     discoverModels: (payload, signal) => this.callUnary('llm.discoverModels', payload, signal),
+  }
+
+  readonly enterpriseEmployees: IApiClient['enterpriseEmployees'] = {
+    list: (payload, signal) => this.callUnary('enterpriseEmployee.list', payload, signal),
+    getDraft: (payload, signal) => this.callUnary('enterpriseEmployee.getDraft', payload, signal),
+    saveDraft: (payload, signal) => this.callUnary('enterpriseEmployee.saveDraft', payload, signal),
+    publish: (payload, signal) => this.callUnary('enterpriseEmployee.publish', payload, signal),
+    listReleases: (payload, signal) => this.callUnary('enterpriseEmployee.listReleases', payload, signal),
+    rollback: (payload, signal) => this.callUnary('enterpriseEmployee.rollback', payload, signal),
+  }
+
+  readonly enterpriseAssets: IApiClient['enterpriseAssets'] = {
+    list: (payload, signal) => this.callUnary('enterpriseAsset.list', payload, signal),
+    get: (payload, signal) => this.callUnary('enterpriseAsset.get', payload, signal),
+    saveVersion: (payload, signal) => this.callUnary('enterpriseAsset.saveVersion', payload, signal),
+    listVersions: (payload, signal) => this.callUnary('enterpriseAsset.listVersions', payload, signal),
+    archive: (payload, signal) => this.callUnary('enterpriseAsset.archive', payload, signal),
+  }
+
+  readonly enterpriseTeams: IApiClient['enterpriseTeams'] = {
+    list: (payload, signal) => this.callUnary('enterpriseTeam.list', payload, signal),
+    get: (payload, signal) => this.callUnary('enterpriseTeam.get', payload, signal),
+    save: (payload, signal) => this.callUnary('enterpriseTeam.save', payload, signal),
+  }
+
+  readonly enterpriseOperations: IApiClient['enterpriseOperations'] = {
+    listWorkRecords: (payload, signal) => this.callUnary('enterpriseOperation.workRecords.list', payload, signal),
+    getWorkRecord: (payload, signal) => this.callUnary('enterpriseOperation.workRecords.get', payload, signal),
+    updateWorkRecord: (payload, signal) => this.callUnary('enterpriseOperation.workRecords.update', payload, signal),
+    listApprovals: (payload, signal) => this.callUnary('enterpriseOperation.approvals.list', payload, signal),
+    getApproval: (payload, signal) => this.callUnary('enterpriseOperation.approvals.get', payload, signal),
+    createApproval: (payload, signal) => this.callUnary('enterpriseOperation.approvals.create', payload, signal),
+    transitionApproval: (payload, signal) => this.callUnary('enterpriseOperation.approvals.transition', payload, signal),
+    cancelApproval: (payload, signal) => this.callUnary('enterpriseOperation.approvals.cancel', payload, signal),
+    listSchedules: (payload, signal) => this.callUnary('enterpriseOperation.schedules.list', payload, signal),
+    getSchedule: (payload, signal) => this.callUnary('enterpriseOperation.schedules.get', payload, signal),
+    saveSchedule: (payload, signal) => this.callUnary('enterpriseOperation.schedules.save', payload, signal),
+    transitionSchedule: (payload, signal) => this.callUnary('enterpriseOperation.schedules.transition', payload, signal),
   }
 
   readonly events: IApiClient['events'] = {

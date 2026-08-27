@@ -14,6 +14,10 @@ import type { SettingsApi } from './settings.ts'
 import type { CredentialsApi } from './credentials.ts'
 import type { LlmApi } from './llm.ts'
 import type { SubagentsApi } from './subagents.ts'
+import type { EnterpriseEmployeesApi } from './enterprise-employees.ts'
+import type { EnterpriseAssetsApi } from './enterprise-assets.ts'
+import type { EnterpriseTeamsApi } from './enterprise-teams.ts'
+import type { EnterpriseOperationsApi } from './enterprise-operations.ts'
 import type { RpcResponse } from './rpc.ts'
 
 /**
@@ -74,6 +78,32 @@ export interface RpcMethodMap {
   'llm.providers': LlmApi['providers']
   'llm.models': LlmApi['models']
   'llm.discoverModels': LlmApi['discoverModels']
+  'enterpriseEmployee.list': EnterpriseEmployeesApi['list']
+  'enterpriseEmployee.getDraft': EnterpriseEmployeesApi['getDraft']
+  'enterpriseEmployee.saveDraft': EnterpriseEmployeesApi['saveDraft']
+  'enterpriseEmployee.publish': EnterpriseEmployeesApi['publish']
+  'enterpriseEmployee.listReleases': EnterpriseEmployeesApi['listReleases']
+  'enterpriseEmployee.rollback': EnterpriseEmployeesApi['rollback']
+  'enterpriseAsset.list': EnterpriseAssetsApi['list']
+  'enterpriseAsset.get': EnterpriseAssetsApi['get']
+  'enterpriseAsset.saveVersion': EnterpriseAssetsApi['saveVersion']
+  'enterpriseAsset.listVersions': EnterpriseAssetsApi['listVersions']
+  'enterpriseAsset.archive': EnterpriseAssetsApi['archive']
+  'enterpriseTeam.list': EnterpriseTeamsApi['list']
+  'enterpriseTeam.get': EnterpriseTeamsApi['get']
+  'enterpriseTeam.save': EnterpriseTeamsApi['save']
+  'enterpriseOperation.workRecords.list': EnterpriseOperationsApi['listWorkRecords']
+  'enterpriseOperation.workRecords.get': EnterpriseOperationsApi['getWorkRecord']
+  'enterpriseOperation.workRecords.update': EnterpriseOperationsApi['updateWorkRecord']
+  'enterpriseOperation.approvals.list': EnterpriseOperationsApi['listApprovals']
+  'enterpriseOperation.approvals.get': EnterpriseOperationsApi['getApproval']
+  'enterpriseOperation.approvals.create': EnterpriseOperationsApi['createApproval']
+  'enterpriseOperation.approvals.transition': EnterpriseOperationsApi['transitionApproval']
+  'enterpriseOperation.approvals.cancel': EnterpriseOperationsApi['cancelApproval']
+  'enterpriseOperation.schedules.list': EnterpriseOperationsApi['listSchedules']
+  'enterpriseOperation.schedules.get': EnterpriseOperationsApi['getSchedule']
+  'enterpriseOperation.schedules.save': EnterpriseOperationsApi['saveSchedule']
+  'enterpriseOperation.schedules.transition': EnterpriseOperationsApi['transitionSchedule']
 }
 
 /** Business request payload of method K (reaches through the RpcRequest narrow form to payload). */

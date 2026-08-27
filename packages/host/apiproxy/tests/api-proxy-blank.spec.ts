@@ -65,6 +65,66 @@ async function listBlank(api: ApiProxy, id: string): Promise<boolean | undefined
 }
 
 describe('summary blank = conversation not started', () => {
+  it('reports enterprise APIs as unavailable without enterprise composition', async () => {
+    const { api } = await harness()
+    const response = await api.enterpriseEmployees.list(request({}))
+    expect(response.result).toEqual({
+      ok: false,
+      error: { code: 'internal', message: 'enterprise API is unavailable in this profile', details: {} },
+    })
+  })
+
+  it('injects the authenticated principal scope into catalog writes and emits after commit', async () => {
+    const { ctx, api } = await harness()
+    const seen: Record<string, unknown>[] = []
+    const events: unknown[] = []
+    const catalog = {
+      async saveDraft(input: Record<string, unknown>) {
+        seen.push(input)
+        return { ...input, revision: 1, status: 'draft', updatedAt: 1 }
+      },
+    }
+    ctx.provide('enterprisePostgres' as never, { catalog, operations: {} } as never)
+    ctx.provide('enterpriseRequestContext' as never, {
+      requirePrincipal: () => ({ userId: 'user-real', orgId: 'org-real', roles: ['administrator'] }),
+      current: () => ({ userId: 'user-real', orgId: 'org-real', roles: ['administrator'] }),
+    } as never)
+    ctx.provide('enterpriseSecurity' as never, {
+      authorizeApiAsync: async () => ({ allowed: true, reason: 'administrator' }),
+      auditApiAsync: async () => undefined,
+    } as never)
+    ctx.on('enterprise/employee-updated', (payload) => { events.push(payload) })
+
+    const response = await api.enterpriseEmployees.saveDraft(request({
+      presetId: 'employee-1', expectedRevision: 0, idempotencyKey: 'idem-1',
+      visibility: 'organization' as const, profile: {}, bindings: [],
+    }))
+
+    expect(response.result.ok).toBe(true)
+    expect(seen).toEqual([expect.objectContaining({ orgId: 'org-real', ownerUserId: 'user-real' })])
+    expect(events).toEqual([{ orgId: 'org-real', resourceId: 'employee-1' }])
+  })
+
+  it('filters enterprise host events to the connected principal organization', async () => {
+    const { ctx, api } = await harness()
+    ctx.provide('enterpriseRequestContext' as never, {
+      current: () => ({ userId: 'user-real', orgId: 'org-real', roles: ['administrator'] }),
+    } as never)
+    ctx.provide('workspaceRegistry' as never, {
+      list: () => [], get: () => undefined, archivedSessionIds: [],
+    } as never)
+    const abort = new AbortController()
+    const iterator = api.events.host(request({}), abort.signal)[Symbol.asyncIterator]()
+    const next = iterator.next()
+    await Promise.resolve()
+    ctx.emit('enterprise/asset-updated', { orgId: 'org-other', resourceId: 'asset-hidden' })
+    ctx.emit('enterprise/asset-updated', { orgId: 'org-real', resourceId: 'asset-visible' })
+    await expect(next).resolves.toMatchObject({
+      value: { payload: { type: 'enterprise/event', event: 'enterprise/asset-updated', orgId: 'org-real', resourceId: 'asset-visible' } },
+    })
+    abort.abort()
+    await iterator.return?.()
+  })
   it('standalone events (command lifecycle, plan/mode, title) keep the session blank', async () => {
     const { ctx, api, attach } = await harness()
     const session = ctx.sessions.create()

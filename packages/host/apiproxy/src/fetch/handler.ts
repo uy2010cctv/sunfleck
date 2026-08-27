@@ -70,6 +70,23 @@ import {
   subagentListRequestSchema,
   subagentPromptRequestSchema,
 } from '../api/subagents.schema.ts'
+import {
+  enterpriseEmployeeGetDraftRequestSchema, enterpriseEmployeeListReleasesRequestSchema,
+  enterpriseEmployeeListRequestSchema, enterpriseEmployeePublishRequestSchema,
+  enterpriseEmployeeRollbackRequestSchema, enterpriseEmployeeSaveDraftRequestSchema,
+} from '../api/enterprise-employees.schema.ts'
+import {
+  enterpriseAssetArchiveRequestSchema, enterpriseAssetGetRequestSchema, enterpriseAssetListRequestSchema,
+  enterpriseAssetListVersionsRequestSchema, enterpriseAssetSaveVersionRequestSchema,
+} from '../api/enterprise-assets.schema.ts'
+import { enterpriseTeamGetRequestSchema, enterpriseTeamListRequestSchema, enterpriseTeamSaveRequestSchema } from '../api/enterprise-teams.schema.ts'
+import {
+  enterpriseApprovalCancelRequestSchema, enterpriseApprovalCreateRequestSchema, enterpriseApprovalGetRequestSchema,
+  enterpriseApprovalListRequestSchema, enterpriseApprovalTransitionRequestSchema,
+  enterpriseOperationWorkRecordGetRequestSchema, enterpriseOperationWorkRecordListRequestSchema,
+  enterpriseOperationWorkRecordUpdateRequestSchema, enterpriseScheduleGetRequestSchema,
+  enterpriseScheduleListRequestSchema, enterpriseScheduleSaveRequestSchema, enterpriseScheduleTransitionRequestSchema,
+} from '../api/enterprise-operations.schema.ts'
 
 /**
  * Unary dispatch table, keyed by (and compiler-locked to) RpcMethodMap: a map row without a
@@ -140,6 +157,32 @@ const UNARY_ROUTES: UnaryRoutes = {
   'llm.providers': { schema: llmProvidersRequestSchema, invoke: (api, r) => api.llm.providers(r) },
   'llm.models': { schema: llmModelsRequestSchema, invoke: (api, r) => api.llm.models(r) },
   'llm.discoverModels': { schema: llmDiscoverModelsRequestSchema, invoke: (api, r, signal) => api.llm.discoverModels(r, signal) },
+  'enterpriseEmployee.list': { schema: enterpriseEmployeeListRequestSchema, invoke: (api, r) => api.enterpriseEmployees.list(r) },
+  'enterpriseEmployee.getDraft': { schema: enterpriseEmployeeGetDraftRequestSchema, invoke: (api, r) => api.enterpriseEmployees.getDraft(r) },
+  'enterpriseEmployee.saveDraft': { schema: enterpriseEmployeeSaveDraftRequestSchema, invoke: (api, r) => api.enterpriseEmployees.saveDraft(r) },
+  'enterpriseEmployee.publish': { schema: enterpriseEmployeePublishRequestSchema, invoke: (api, r) => api.enterpriseEmployees.publish(r) },
+  'enterpriseEmployee.listReleases': { schema: enterpriseEmployeeListReleasesRequestSchema, invoke: (api, r) => api.enterpriseEmployees.listReleases(r) },
+  'enterpriseEmployee.rollback': { schema: enterpriseEmployeeRollbackRequestSchema, invoke: (api, r) => api.enterpriseEmployees.rollback(r) },
+  'enterpriseAsset.list': { schema: enterpriseAssetListRequestSchema, invoke: (api, r) => api.enterpriseAssets.list(r) },
+  'enterpriseAsset.get': { schema: enterpriseAssetGetRequestSchema, invoke: (api, r) => api.enterpriseAssets.get(r) },
+  'enterpriseAsset.saveVersion': { schema: enterpriseAssetSaveVersionRequestSchema, invoke: (api, r) => api.enterpriseAssets.saveVersion(r) },
+  'enterpriseAsset.listVersions': { schema: enterpriseAssetListVersionsRequestSchema, invoke: (api, r) => api.enterpriseAssets.listVersions(r) },
+  'enterpriseAsset.archive': { schema: enterpriseAssetArchiveRequestSchema, invoke: (api, r) => api.enterpriseAssets.archive(r) },
+  'enterpriseTeam.list': { schema: enterpriseTeamListRequestSchema, invoke: (api, r) => api.enterpriseTeams.list(r) },
+  'enterpriseTeam.get': { schema: enterpriseTeamGetRequestSchema, invoke: (api, r) => api.enterpriseTeams.get(r) },
+  'enterpriseTeam.save': { schema: enterpriseTeamSaveRequestSchema, invoke: (api, r) => api.enterpriseTeams.save(r) },
+  'enterpriseOperation.workRecords.list': { schema: enterpriseOperationWorkRecordListRequestSchema, invoke: (api, r) => api.enterpriseOperations.listWorkRecords(r) },
+  'enterpriseOperation.workRecords.get': { schema: enterpriseOperationWorkRecordGetRequestSchema, invoke: (api, r) => api.enterpriseOperations.getWorkRecord(r) },
+  'enterpriseOperation.workRecords.update': { schema: enterpriseOperationWorkRecordUpdateRequestSchema, invoke: (api, r) => api.enterpriseOperations.updateWorkRecord(r) },
+  'enterpriseOperation.approvals.list': { schema: enterpriseApprovalListRequestSchema, invoke: (api, r) => api.enterpriseOperations.listApprovals(r) },
+  'enterpriseOperation.approvals.get': { schema: enterpriseApprovalGetRequestSchema, invoke: (api, r) => api.enterpriseOperations.getApproval(r) },
+  'enterpriseOperation.approvals.create': { schema: enterpriseApprovalCreateRequestSchema, invoke: (api, r) => api.enterpriseOperations.createApproval(r) },
+  'enterpriseOperation.approvals.transition': { schema: enterpriseApprovalTransitionRequestSchema, invoke: (api, r) => api.enterpriseOperations.transitionApproval(r) },
+  'enterpriseOperation.approvals.cancel': { schema: enterpriseApprovalCancelRequestSchema, invoke: (api, r) => api.enterpriseOperations.cancelApproval(r) },
+  'enterpriseOperation.schedules.list': { schema: enterpriseScheduleListRequestSchema, invoke: (api, r) => api.enterpriseOperations.listSchedules(r) },
+  'enterpriseOperation.schedules.get': { schema: enterpriseScheduleGetRequestSchema, invoke: (api, r) => api.enterpriseOperations.getSchedule(r) },
+  'enterpriseOperation.schedules.save': { schema: enterpriseScheduleSaveRequestSchema, invoke: (api, r) => api.enterpriseOperations.saveSchedule(r) },
+  'enterpriseOperation.schedules.transition': { schema: enterpriseScheduleTransitionRequestSchema, invoke: (api, r) => api.enterpriseOperations.transitionSchedule(r) },
 }
 
 /** Route lookup that narrows an arbitrary path segment to a map key (single cast point for the string→key refinement). */
