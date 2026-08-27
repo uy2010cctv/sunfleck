@@ -88,6 +88,8 @@ export function apply(ctx: ClientContext): void {
     retryMutation: () => controller.retryMutation(),
     resolveMutationConflict: () => controller.resolveMutationConflict(),
     dismissMutationError: () => { controller.dismissMutationError() },
+    adoptServerEmployeeConflict: () => { controller.adoptServerEmployeeConflict() },
+    keepLocalEmployeeConflict: () => { controller.keepLocalEmployeeConflict() },
   })
 
   ctx.slots.inject('sidebar.footer.action', () => ctx.slots.register({

@@ -219,6 +219,26 @@ describe('EnterpriseWorkbench', () => {
     expect(screen.getByDisplayValue('本地名称')).toBeDefined()
   })
 
+  it('offers explicit adopt-server and keep-local employee conflict actions', () => {
+    const adoptServerEmployeeConflict = vi.fn(); const keepLocalEmployeeConflict = vi.fn()
+    render(<EnterpriseWorkbench {...workbenchProps({
+      state: {
+        mode: 'enterprise', mutationPhase: 'idle', mutationError: null, retryAction: null,
+        employeeEditor: {
+          phase: 'ready', dirty: true, saving: false, conflict: true, errors: [], error: null,
+          revision: 4, releases: [], conflictServerRevision: 5,
+          fields: { presetId: 'buyer', name: '本地名称', description: '', position: '', department: '', prompt: '本地职责', modelRef: 'model-a', visibility: 'private', bindings: [] },
+          conflictServerFields: { presetId: 'buyer', name: '服务器名称', description: '', position: '', department: '', prompt: '服务器职责', modelRef: 'model-b', visibility: 'organization', bindings: [] },
+        },
+      }, adoptServerEmployeeConflict, keepLocalEmployeeConflict,
+    } as never)} />)
+
+    fireEvent.click(screen.getByRole('button', { name: zh['editor.adoptServer'] }))
+    fireEvent.click(screen.getByRole('button', { name: zh['editor.keepLocal'] }))
+    expect(adoptServerEmployeeConflict).toHaveBeenCalled()
+    expect(keepLocalEmployeeConflict).toHaveBeenCalled()
+  })
+
   it('renders enterprise enum values through the Chinese locale', () => {
     render(<EnterpriseWorkbench {...workbenchProps({ state: {
       mode: 'enterprise', employees: { phase: 'ready', error: null, items: [{

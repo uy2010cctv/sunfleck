@@ -47,6 +47,8 @@ export interface EnterpriseWorkbenchInjected {
   retryMutation: () => Promise<void>
   resolveMutationConflict: () => Promise<void>
   dismissMutationError: () => void
+  adoptServerEmployeeConflict: () => void
+  keepLocalEmployeeConflict: () => void
 }
 
 export type EnterpriseWorkbenchProps = PropsRuntime<'shell.overlay'> & PropsLocale<typeof NS> & InjectFace<EnterpriseWorkbenchInjected>
@@ -157,7 +159,7 @@ function EmployeeEditor({ editor, api, back, rollback, t }: {
     <div className={css.sectionHead}><div><h2 id="employee-editor-title">{t('editor.title')}</h2><span className={css.code}>{field.presetId}</span></div><button type="button" className={css.secondaryButton} onClick={back}>{t('editor.back')}</button></div>
     {editor.errors.length > 0 && <div className={css.validation} role="alert"><strong>{t('editor.validation')}</strong><ul>{editor.errors.map(error => <li key={error}>{validationText(error)}</li>)}</ul></div>}
     {editor.conflict && <div className={css.validation} role="alert">{t('editor.conflict')}</div>}{editor.error !== null && !editor.conflict && <div className={css.inlineError} role="alert">{editor.error}</div>}
-    {editor.conflictServerFields !== undefined && <section className={css.conflictComparison} aria-label={t('editor.conflictComparison', { revision: editor.conflictServerRevision ?? 0 })}><h3>{t('editor.conflictComparison', { revision: editor.conflictServerRevision ?? 0 })}</h3><div><div><strong>{t('editor.localCopy')}</strong><span>{field.name}</span><span>{field.prompt}</span><span>{field.modelRef}</span></div><div><strong>{t('editor.serverCopy')}</strong><span>{editor.conflictServerFields.name}</span><span>{editor.conflictServerFields.prompt}</span><span>{editor.conflictServerFields.modelRef}</span></div></div></section>}
+    {editor.conflictServerFields !== undefined && <section className={css.conflictComparison} aria-label={t('editor.conflictComparison', { revision: editor.conflictServerRevision ?? 0 })}><h3>{t('editor.conflictComparison', { revision: editor.conflictServerRevision ?? 0 })}</h3><div><div><strong>{t('editor.localCopy')}</strong><span>{field.name}</span><span>{field.prompt}</span><span>{field.modelRef}</span></div><div><strong>{t('editor.serverCopy')}</strong><span>{editor.conflictServerFields.name}</span><span>{editor.conflictServerFields.prompt}</span><span>{editor.conflictServerFields.modelRef}</span></div></div><div className={css.conflictActions}><button type="button" className={css.secondaryButton} onClick={api.adoptServerEmployeeConflict}>{t('editor.adoptServer')}</button><button type="button" className={css.primaryButton} onClick={api.keepLocalEmployeeConflict}>{t('editor.keepLocal')}</button></div></section>}
     <fieldset className={css.editorFields} disabled={editor.saving}>
       <div className={css.formGrid}>
         <label>{t('editor.name')}<input value={field.name} onChange={(event) => { api.patchEmployeeDraft({ name: event.target.value }) }} /></label><label>{t('editor.position')}<input value={field.position} onChange={(event) => { api.patchEmployeeDraft({ position: event.target.value }) }} /></label><label>{t('editor.department')}<input value={field.department} onChange={(event) => { api.patchEmployeeDraft({ department: event.target.value }) }} /></label><label>{t('editor.model')}<input value={field.modelRef} onChange={(event) => { api.patchEmployeeDraft({ modelRef: event.target.value }) }} /></label>

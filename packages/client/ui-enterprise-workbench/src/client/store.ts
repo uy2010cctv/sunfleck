@@ -540,7 +540,41 @@ export class EnterpriseWorkbenchController {
     if (editor?.fields === undefined || editor.saving) return
     const fields = { ...editor.fields, ...patch }
     this.store.set({ ...state, employeeEditor: {
-      ...editor, fields, dirty: true, conflict: false, errors: validateEmployeeDraft(fields), error: null,
+      ...editor, fields, dirty: true, conflict: editor.conflict, errors: validateEmployeeDraft(fields), error: null,
+    } })
+  }
+
+  /** Replace the local conflict copy with the authoritative server draft. */
+  adoptServerEmployeeConflict(): void {
+    const state = this.store.getSnapshot()
+    const editor = state.employeeEditor
+    if (editor?.conflictServerFields === undefined || editor.conflictServerRevision === undefined) return
+    const { conflictServerFields, conflictServerRevision, ...rest } = editor
+    this.store.set({ ...state, employeeEditor: {
+      ...rest,
+      fields: conflictServerFields,
+      revision: conflictServerRevision,
+      dirty: false,
+      conflict: false,
+      errors: validateEmployeeDraft(conflictServerFields),
+      error: null,
+    } })
+  }
+
+  /** Keep local fields but advance their revision fence to the reloaded server revision. */
+  keepLocalEmployeeConflict(): void {
+    const state = this.store.getSnapshot()
+    const editor = state.employeeEditor
+    if (editor?.fields === undefined || editor.conflictServerRevision === undefined) return
+    const { conflictServerFields: _serverFields, conflictServerRevision, ...rest } = editor
+    this.store.set({ ...state, employeeEditor: {
+      ...rest,
+      fields: editor.fields,
+      revision: conflictServerRevision,
+      dirty: true,
+      conflict: false,
+      errors: validateEmployeeDraft(editor.fields),
+      error: null,
     } })
   }
 
@@ -619,7 +653,7 @@ export class EnterpriseWorkbenchController {
     })), async () => {
       await this.openEmployeeDraft(presetId)
       await this.refreshEmployees()
-    }, (error) => { this.setEditorFailure(error) }, () => this.openEmployeeDraft(presetId))
+    }, (error) => { this.setEditorFailure(error) }, () => this.reloadEmployeeConflict(presetId))
   }
 
   /** Roll back by publishing a historical release as a new release. */
@@ -635,7 +669,7 @@ export class EnterpriseWorkbenchController {
     })), async () => {
       await this.openEmployeeDraft(presetId)
       await this.refreshEmployees()
-    }, (error) => { this.setEditorFailure(error) }, () => this.openEmployeeDraft(presetId))
+    }, (error) => { this.setEditorFailure(error) }, () => this.reloadEmployeeConflict(presetId))
   }
 
   /** Close the editor after the view has handled dirty confirmation. */
@@ -663,7 +697,8 @@ export class EnterpriseWorkbenchController {
       ...(record.teamId === undefined ? {} : { teamId: record.teamId }),
       source: record.source, businessState, sourceReferences: record.sourceReferences,
       expectedRevision: record.revision, idempotencyKey,
-    })), () => this.refreshWorkRecords(), undefined, () => this.refreshWorkRecords())
+    })), () => this.refreshWorkRecords(), undefined,
+    () => this.reloadPageConflict('workRecords', () => this.refreshWorkRecords()))
   }
 
   /** Approve or reject a pending enterprise approval. */
@@ -672,7 +707,8 @@ export class EnterpriseWorkbenchController {
     await this.runMutation('approval-transition', async () => valueOf(await this.api.enterpriseOperations.transitionApproval({
       approvalId: approval.approvalId, state, ...(reason === undefined ? {} : { reason }),
       expectedRevision: approval.revision, idempotencyKey,
-    })), () => this.refreshApprovals(), undefined, () => this.refreshApprovals())
+    })), () => this.refreshApprovals(), undefined,
+    () => this.reloadPageConflict('approvals', () => this.refreshApprovals()))
   }
 
   /** Cancel an approval request. */
@@ -681,7 +717,8 @@ export class EnterpriseWorkbenchController {
     await this.runMutation('approval-cancel', async () => valueOf(await this.api.enterpriseOperations.cancelApproval({
       approvalId: approval.approvalId, ...(reason === undefined ? {} : { reason }),
       expectedRevision: approval.revision, idempotencyKey,
-    })), () => this.refreshApprovals(), undefined, () => this.refreshApprovals())
+    })), () => this.refreshApprovals(), undefined,
+    () => this.reloadPageConflict('approvals', () => this.refreshApprovals()))
   }
 
   /** Create or edit a schedule. */
@@ -697,7 +734,8 @@ export class EnterpriseWorkbenchController {
     const idempotencyKey = mutationKey('schedule-save')
     await this.runMutation('schedule-save', async () => valueOf(await this.api.enterpriseOperations.saveSchedule({
       ...input, idempotencyKey,
-    })), () => this.refreshSchedules(), undefined, () => this.refreshSchedules())
+    })), () => this.refreshSchedules(), undefined,
+    () => this.reloadPageConflict('schedules', () => this.refreshSchedules()))
   }
 
   /** Pause, resume, or archive a schedule. */
@@ -706,7 +744,8 @@ export class EnterpriseWorkbenchController {
     await this.runMutation('schedule-transition', async () => valueOf(await this.api.enterpriseOperations.transitionSchedule({
       scheduleId: schedule.scheduleId, state, expectedRevision: schedule.revision,
       idempotencyKey,
-    })), () => this.refreshSchedules(), undefined, () => this.refreshSchedules())
+    })), () => this.refreshSchedules(), undefined,
+    () => this.reloadPageConflict('schedules', () => this.refreshSchedules()))
   }
 
   /** Save a versioned capability asset. */
@@ -720,7 +759,8 @@ export class EnterpriseWorkbenchController {
     const idempotencyKey = mutationKey('asset-save')
     await this.runMutation('asset-save', async () => valueOf(await this.api.enterpriseAssets.saveVersion({
       ...input, idempotencyKey,
-    })), () => this.refreshAssets(), undefined, () => this.refreshAssets())
+    })), () => this.refreshAssets(), undefined,
+    () => this.reloadPageConflict('assets', () => this.refreshAssets()))
   }
 
   /** Archive a capability asset. */
@@ -728,7 +768,8 @@ export class EnterpriseWorkbenchController {
     const idempotencyKey = mutationKey('asset-archive')
     await this.runMutation('asset-archive', async () => valueOf(await this.api.enterpriseAssets.archive({
       assetId: asset.assetId, expectedRevision: asset.revision, idempotencyKey,
-    })), () => this.refreshAssets(), undefined, () => this.refreshAssets())
+    })), () => this.refreshAssets(), undefined,
+    () => this.reloadPageConflict('assets', () => this.refreshAssets()))
   }
 
   /** Save a fixed employee team. */
@@ -743,7 +784,25 @@ export class EnterpriseWorkbenchController {
     const idempotencyKey = mutationKey('team-save')
     await this.runMutation('team-save', async () => valueOf(await this.api.enterpriseTeams.save({
       ...input, idempotencyKey,
-    })), () => this.refreshTeams(), undefined, () => this.refreshTeams())
+    })), () => this.refreshTeams(), undefined,
+    () => this.reloadPageConflict('teams', () => this.refreshTeams()))
+  }
+
+  private async reloadPageConflict(
+    key: 'workRecords' | 'approvals' | 'schedules' | 'assets' | 'teams',
+    refresh: () => Promise<void>,
+  ): Promise<void> {
+    await refresh()
+    const page = this.store.getSnapshot()[key]
+    if (page.phase === 'error' || page.phase === 'permission') {
+      throw new Error(page.error ?? 'server reload failed')
+    }
+  }
+
+  private async reloadEmployeeConflict(presetId: string): Promise<void> {
+    await this.openEmployeeDraft(presetId)
+    const editor = this.store.getSnapshot().employeeEditor
+    if (editor?.phase === 'error') throw new Error(editor.error ?? 'server reload failed')
   }
 
   private async runMutation<T>(
@@ -800,10 +859,11 @@ export class EnterpriseWorkbenchController {
         ...this.store.getSnapshot(), mutationPhase: 'idle', mutationError: null, retryAction: null,
       })
     } catch (error) {
+      this.retryMutationAction = () => this.resolveMutationConflict()
       this.store.set({
         ...this.store.getSnapshot(), mutationPhase: 'error',
         mutationError: error instanceof Error ? error.message : String(error),
-        retryAction: null,
+        retryAction: 'conflict-reload',
       })
     }
   }

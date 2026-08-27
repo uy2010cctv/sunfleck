@@ -497,5 +497,91 @@ describe('EnterpriseWorkbenchController edits, mutations, and events', () => {
       conflictServerFields: { name: '服务器名称', prompt: '服务器职责', modelRef: 'model-b' },
       conflictServerRevision: 5,
     })
+
+    controller.patchEmployeeDraft({ department: '本地部门' })
+    expect(controller.store.getSnapshot().employeeEditor).toMatchObject({
+      conflict: true, fields: { department: '本地部门' },
+    })
+  })
+
+  it('adopts the server employee conflict as a clean editable draft', async () => {
+    const services = controllerServices()
+    const controller = new EnterpriseWorkbenchController(controllerApi() as never, services.sessions as never, services.workspaces as never)
+    controller.store.set({ ...controller.store.getSnapshot(), employeeEditor: {
+      phase: 'ready', dirty: true, saving: false, conflict: true, errors: [], error: null,
+      revision: 4, releases: [],
+      fields: { presetId: 'buyer', name: '本地', description: '', position: '', department: '', prompt: '本地职责', modelRef: 'model-a', capabilities: [], visibility: 'private', bindings: [] },
+      conflictServerRevision: 5,
+      conflictServerFields: { presetId: 'buyer', name: '服务器', description: '', position: '', department: '', prompt: '服务器职责', modelRef: 'model-b', capabilities: [], visibility: 'organization', bindings: [] },
+    } })
+
+    controller.adoptServerEmployeeConflict()
+
+    expect(controller.store.getSnapshot().employeeEditor).toMatchObject({
+      revision: 5, dirty: false, conflict: false,
+      fields: { name: '服务器', prompt: '服务器职责', modelRef: 'model-b' },
+    })
+    expect(controller.store.getSnapshot().employeeEditor).not.toHaveProperty('conflictServerFields')
+  })
+
+  it('keeps local employee fields on the server revision and allows an explicit resave', async () => {
+    const saveDraft = vi.fn((_payload: unknown) => ok({
+      presetId: 'buyer', orgId: 'server-org', ownerUserId: 'owner-1', visibility: 'private',
+      profile: { name: '本地', prompt: '本地职责', modelRef: 'model-a' }, bindings: [],
+      revision: 6, status: 'draft', updatedAt: 40,
+    }))
+    const base = controllerApi()
+    const services = controllerServices()
+    const controller = new EnterpriseWorkbenchController(
+      controllerApi({ enterpriseEmployees: { ...base.enterpriseEmployees, saveDraft } }) as never,
+      services.sessions as never, services.workspaces as never,
+    )
+    controller.store.set({ ...controller.store.getSnapshot(), employeeEditor: {
+      phase: 'ready', dirty: true, saving: false, conflict: true, errors: [], error: null,
+      revision: 4, releases: [],
+      fields: { presetId: 'buyer', name: '本地', description: '', position: '', department: '', prompt: '本地职责', modelRef: 'model-a', capabilities: [], visibility: 'private', bindings: [] },
+      conflictServerRevision: 5,
+      conflictServerFields: { presetId: 'buyer', name: '服务器', description: '', position: '', department: '', prompt: '服务器职责', modelRef: 'model-b', capabilities: [], visibility: 'organization', bindings: [] },
+    } })
+
+    controller.keepLocalEmployeeConflict()
+    await controller.saveEmployeeDraft()
+
+    expect(saveDraft).toHaveBeenCalledWith(expect.objectContaining({ expectedRevision: 5 }))
+    expect(controller.store.getSnapshot().employeeEditor).toMatchObject({
+      revision: 6, dirty: false, conflict: false, fields: { name: '本地' },
+    })
+  })
+
+  it('retries only the same conflict reload when server refresh fails', async () => {
+    const transitionSchedule = vi.fn(() => Promise.resolve({ result: {
+      ok: false as const,
+      error: { code: 'enterprise-conflict', message: 'revision changed', details: { resourceType: 'schedule' } },
+    } }))
+    const listSchedules = vi.fn()
+      .mockRejectedValueOnce(new Error('reload unavailable'))
+      .mockImplementation(() => ok({ items: [] }))
+    const base = controllerApi()
+    const services = controllerServices()
+    const controller = new EnterpriseWorkbenchController(controllerApi({ enterpriseOperations: {
+      ...base.enterpriseOperations, transitionSchedule, listSchedules,
+    } }) as never, services.sessions as never, services.workspaces as never)
+    const schedule = {
+      scheduleId: 'schedule-1', orgId: 'server-org', target: { kind: 'employee', employeeReleaseId: 'release-1' },
+      timezone: 'Asia/Shanghai', rule: '0 9 * * *', input: {}, state: 'active', nextRunAt: null,
+      lastRunAt: null, revision: 3, createdAt: 10, updatedAt: 20,
+    } as const
+
+    await controller.transitionSchedule(schedule, 'paused')
+    await controller.resolveMutationConflict()
+    expect(controller.store.getSnapshot()).toMatchObject({
+      mutationPhase: 'error', mutationError: 'reload unavailable', retryAction: 'conflict-reload',
+    })
+    await controller.retryMutation()
+    expect(listSchedules).toHaveBeenCalledTimes(2)
+    expect(transitionSchedule).toHaveBeenCalledTimes(1)
+    expect(controller.store.getSnapshot()).toMatchObject({
+      mutationPhase: 'idle', mutationError: null, retryAction: null,
+    })
   })
 })
