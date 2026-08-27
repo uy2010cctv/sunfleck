@@ -2,7 +2,8 @@
 
 import type { PostgresDatabase } from './types.ts'
 
-export const ENTERPRISE_CATALOG_SCHEMA_VERSION = 1
+/** Current PostgreSQL schema version accepted by the enterprise catalog. */
+export const ENTERPRISE_CATALOG_SCHEMA_VERSION = 2
 
 const statements = [
   `CREATE TABLE IF NOT EXISTS dsh_enterprise_catalog_meta (
@@ -35,11 +36,17 @@ const statements = [
     PRIMARY KEY(release_id, kind, asset_id)
   )`,
   `CREATE TABLE IF NOT EXISTS dsh_enterprise_catalog_idempotency (
-    org_id TEXT NOT NULL, key TEXT NOT NULL, result_json JSONB NOT NULL,
+    org_id TEXT NOT NULL, key TEXT NOT NULL, request_digest TEXT, result_json JSONB NOT NULL,
     PRIMARY KEY(org_id, key)
   )`,
+  'ALTER TABLE dsh_enterprise_catalog_idempotency ADD COLUMN IF NOT EXISTS request_digest TEXT',
 ] as const
 
+/**
+ * Creates or advances the enterprise catalog schema under a transaction advisory lock.
+ * @param database - PostgreSQL connection whose transaction owns migration statements.
+ * @returns When the schema is ready for repository operations.
+ */
 export async function migrateEnterpriseCatalog(database: PostgresDatabase): Promise<void> {
   await database.transaction(async (transaction) => {
     await transaction.query('SELECT pg_advisory_xact_lock($1)', [0x44534843])
@@ -50,6 +57,11 @@ export async function migrateEnterpriseCatalog(database: PostgresDatabase): Prom
     if (current.rows[0] === undefined) {
       await transaction.query(
         "INSERT INTO dsh_enterprise_catalog_meta(key, value) VALUES ('schema-version', $1) ON CONFLICT (key) DO NOTHING",
+        [String(ENTERPRISE_CATALOG_SCHEMA_VERSION)],
+      )
+    } else if (Number(current.rows[0].value) === 1) {
+      await transaction.query(
+        "UPDATE dsh_enterprise_catalog_meta SET value = $1 WHERE key = 'schema-version' AND value = '1'",
         [String(ENTERPRISE_CATALOG_SCHEMA_VERSION)],
       )
     } else if (Number(current.rows[0].value) !== ENTERPRISE_CATALOG_SCHEMA_VERSION) {

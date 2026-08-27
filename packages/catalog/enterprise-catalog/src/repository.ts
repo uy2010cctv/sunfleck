@@ -3,9 +3,9 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { isCredentialRefName } from '@deepseek-ai/dsh-credentials'
 import type {
-  CatalogAssetKind, EmployeeDraftInput, EmployeeDraftView, EmployeeReleaseView,
-  EnterpriseAssetRef, EnterpriseAssetVersionView, PostgresDatabase,
-  SaveAssetVersionInput,
+  CatalogAssetKind, CatalogCursorPage, CatalogListInput, EmployeeDraftInput, EmployeeDraftView,
+  EmployeeReleaseView, EnterpriseAssetRef, EnterpriseAssetVersionView, EnterpriseAssetView,
+  ListEmployeeDraftsInput, ListEnterpriseAssetsInput, PostgresDatabase, SaveAssetVersionInput,
 } from './types.ts'
 import { migrateEnterpriseCatalog } from './schema.ts'
 
@@ -34,6 +34,11 @@ function canonical(value: unknown): string {
   return JSON.stringify(value)
 }
 
+/**
+ * Computes the catalog's canonical SHA-256 digest.
+ * @param value - JSON-compatible value to digest.
+ * @returns Lowercase hexadecimal SHA-256 digest.
+ */
 export function catalogDigest(value: unknown): string {
   return createHash('sha256').update(canonical(value)).digest('hex')
 }
@@ -63,6 +68,7 @@ function assertNoSecrets(value: unknown, path = 'config'): void {
   }
 }
 
+/** Revision compare-and-swap failure for a draft or catalog asset. */
 export class EmployeeDraftRevisionConflictError extends Error {
   constructor(
     readonly presetId: string,
@@ -120,6 +126,59 @@ function required<T>(value: T | undefined, message: string): T {
   return value
 }
 
+interface CatalogCursor {
+  readonly version: 1
+  readonly scope: string
+  readonly updatedAt: number
+  readonly id: string
+}
+
+const DEFAULT_LIST_LIMIT = 50
+
+function listLimit(input: CatalogListInput): number {
+  const limit = input.limit ?? DEFAULT_LIST_LIMIT
+  if (!Number.isInteger(limit) || limit < 1 || limit > 100) throw new Error('catalog list limit must be an integer from 1 to 100')
+  return limit
+}
+
+function cursorScope(kind: 'draft' | 'asset', input: ListEmployeeDraftsInput | ListEnterpriseAssetsInput): string {
+  if (kind === 'draft') {
+    const draft = input as ListEmployeeDraftsInput
+    return catalogDigest({
+      kind, orgId: draft.orgId, search: draft.search,
+      status: draft.status, ownerUserId: draft.ownerUserId, visibility: draft.visibility,
+    })
+  }
+  const asset = input as ListEnterpriseAssetsInput
+  return catalogDigest({
+    kind, orgId: asset.orgId, search: asset.search, assetKind: asset.kind, archived: asset.archived,
+  })
+}
+
+function decodeCursor(value: string | undefined, scope: string): CatalogCursor | undefined {
+  if (value === undefined) return undefined
+  try {
+    const parsed: unknown = JSON.parse(Buffer.from(value, 'base64url').toString('utf8'))
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) throw new Error('invalid')
+    const cursor = parsed as Record<string, unknown>
+    if (cursor['version'] !== 1 || cursor['scope'] !== scope
+      || typeof cursor['updatedAt'] !== 'number' || !Number.isSafeInteger(cursor['updatedAt'])
+      || typeof cursor['id'] !== 'string' || cursor['id'].length === 0) throw new Error('invalid')
+    return cursor as unknown as CatalogCursor
+  } catch {
+    throw new Error('catalog list cursor is invalid or belongs to another query')
+  }
+}
+
+function encodeCursor(scope: string, updatedAt: number, id: string): string {
+  return Buffer.from(JSON.stringify({ version: 1, scope, updatedAt, id } satisfies CatalogCursor)).toString('base64url')
+}
+
+function escapedSearch(value: string): string {
+  return `%${value.replaceAll('\\', '\\\\').replaceAll('%', '\\%').replaceAll('_', '\\_')}%`
+}
+
+/** Transactional PostgreSQL repository for enterprise employees and capability assets. */
 export class EnterpriseCatalogRepository {
   private initialized: Promise<void> | undefined
   constructor(private readonly database: PostgresDatabase, private readonly options: { now?: () => number } = {}) {}
@@ -131,6 +190,11 @@ export class EnterpriseCatalogRepository {
     return this.initialized
   }
 
+  /**
+   * Saves an employee draft after revision and secret checks.
+   * @param input - Organization-scoped draft and write controls.
+   * @returns Persisted draft at its new revision, or the recorded idempotent result.
+   */
   async saveDraft(input: EmployeeDraftInput): Promise<EmployeeDraftView> {
     await this.initialize()
     assertNoSecrets(input.profile)
@@ -173,6 +237,12 @@ export class EnterpriseCatalogRepository {
     })
   }
 
+  /**
+   * Reads an employee draft without widening organization scope.
+   * @param presetId - Native Agent Preset identifier.
+   * @param orgId - Organization allowed to own the draft.
+   * @returns The draft, or `undefined` when no draft exists in that organization.
+   */
   async getDraft(presetId: string, orgId: string): Promise<EmployeeDraftView | undefined> {
     await this.initialize()
     const result = await this.database.query<DraftRow>(
@@ -181,6 +251,54 @@ export class EnterpriseCatalogRepository {
     return result.rows[0] === undefined ? undefined : this.draft(result.rows[0])
   }
 
+  /**
+   * Lists drafts inside one organization using a stable, query-bound cursor.
+   * @param input - Organization scope, optional filters, limit, and prior cursor.
+   * @returns One page and a cursor only when another matching row exists.
+   */
+  async listDrafts(input: ListEmployeeDraftsInput): Promise<CatalogCursorPage<EmployeeDraftView>> {
+    await this.initialize()
+    const limit = listLimit(input)
+    const scope = cursorScope('draft', input)
+    const cursor = decodeCursor(input.cursor, scope)
+    const values: unknown[] = [input.orgId]
+    const filters = ['org_id = $1']
+    const add = (sql: string, value: unknown): void => {
+      values.push(value)
+      filters.push(`${sql} $${String(values.length)}`)
+    }
+    if (input.status !== undefined) add('status =', input.status)
+    if (input.ownerUserId !== undefined) add('owner_user_id =', input.ownerUserId)
+    if (input.visibility !== undefined) add('visibility =', input.visibility)
+    if (input.search !== undefined) {
+      values.push(escapedSearch(input.search))
+      filters.push(`(preset_id ILIKE $${String(values.length)} ESCAPE '\\' OR profile_json::text ILIKE $${String(values.length)} ESCAPE '\\')`)
+    }
+    if (cursor !== undefined) {
+      values.push(cursor.updatedAt, cursor.id)
+      filters.push(`(updated_at, preset_id) < ($${String(values.length - 1)}, $${String(values.length)})`)
+    }
+    values.push(limit + 1)
+    const result = await this.database.query<DraftRow>(
+      `SELECT * FROM dsh_enterprise_employee_drafts WHERE ${filters.join(' AND ')}
+       ORDER BY updated_at DESC, preset_id DESC LIMIT $${String(values.length)}`,
+      values,
+    )
+    const rows = result.rows.slice(0, limit)
+    const last = rows.at(-1)
+    return {
+      items: rows.map(row => this.draft(row)),
+      ...(result.rows.length > limit && last !== undefined
+        ? { nextCursor: encodeCursor(scope, Number(last.updated_at), last.preset_id) }
+        : {}),
+    }
+  }
+
+  /**
+   * Saves a new immutable asset version after revision and secret checks.
+   * @param input - Organization-scoped asset content and write controls.
+   * @returns Persisted version, or the recorded idempotent result.
+   */
   async saveAssetVersion(input: SaveAssetVersionInput): Promise<EnterpriseAssetVersionView> {
     await this.initialize()
     assertNoSecrets(input.content)
@@ -229,6 +347,131 @@ export class EnterpriseCatalogRepository {
     })
   }
 
+  /**
+   * Returns an asset only when it belongs to the requested organization.
+   * @param orgId - Organization allowed to own the asset.
+   * @param assetId - Catalog asset identifier.
+   * @returns The asset, or `undefined` when it is absent from that organization.
+   */
+  async getAsset(orgId: string, assetId: string): Promise<EnterpriseAssetView | undefined> {
+    await this.initialize()
+    const result = await this.database.query<AssetRow>(
+      'SELECT * FROM dsh_enterprise_asset_catalog WHERE asset_id = $1 AND org_id = $2', [assetId, orgId],
+    )
+    return result.rows[0] === undefined ? undefined : this.asset(result.rows[0])
+  }
+
+  /**
+   * Lists assets inside one organization using a stable, query-bound cursor.
+   * @param input - Organization scope, optional filters, limit, and prior cursor.
+   * @returns One page and a cursor only when another matching row exists.
+   */
+  async listAssets(input: ListEnterpriseAssetsInput): Promise<CatalogCursorPage<EnterpriseAssetView>> {
+    await this.initialize()
+    const limit = listLimit(input)
+    const scope = cursorScope('asset', input)
+    const cursor = decodeCursor(input.cursor, scope)
+    const values: unknown[] = [input.orgId]
+    const filters = ['org_id = $1']
+    const add = (sql: string, value: unknown): void => {
+      values.push(value)
+      filters.push(`${sql} $${String(values.length)}`)
+    }
+    if (input.kind !== undefined) add('kind =', input.kind)
+    if (input.archived !== undefined) add('archived =', input.archived)
+    if (input.search !== undefined) {
+      values.push(escapedSearch(input.search))
+      filters.push(`(asset_id ILIKE $${String(values.length)} ESCAPE '\\' OR name ILIKE $${String(values.length)} ESCAPE '\\')`)
+    }
+    if (cursor !== undefined) {
+      values.push(cursor.updatedAt, cursor.id)
+      filters.push(`(updated_at, asset_id) < ($${String(values.length - 1)}, $${String(values.length)})`)
+    }
+    values.push(limit + 1)
+    const result = await this.database.query<AssetRow>(
+      `SELECT * FROM dsh_enterprise_asset_catalog WHERE ${filters.join(' AND ')}
+       ORDER BY updated_at DESC, asset_id DESC LIMIT $${String(values.length)}`,
+      values,
+    )
+    const rows = result.rows.slice(0, limit)
+    const last = rows.at(-1)
+    return {
+      items: rows.map(row => this.asset(row)),
+      ...(result.rows.length > limit && last !== undefined
+        ? { nextCursor: encodeCursor(scope, Number(last.updated_at), last.asset_id) }
+        : {}),
+    }
+  }
+
+  /**
+   * Lists immutable versions after proving organization ownership.
+   * @param orgId - Organization allowed to own the asset.
+   * @param assetId - Catalog asset identifier.
+   * @returns Versions in ascending version order.
+   */
+  async listAssetVersions(orgId: string, assetId: string): Promise<EnterpriseAssetVersionView[]> {
+    await this.initialize()
+    const asset = await this.getAsset(orgId, assetId)
+    if (asset === undefined) throw new Error(`asset ${assetId} does not exist in organization ${orgId}`)
+    const result = await this.database.query<VersionRow>(
+      'SELECT * FROM dsh_enterprise_asset_versions WHERE asset_id = $1 ORDER BY version', [assetId],
+    )
+    return result.rows.map(row => this.version(row))
+  }
+
+  /**
+   * Logically archives an asset with revision CAS and request-bound idempotency.
+   * @param orgId - Organization allowed to own the asset.
+   * @param assetId - Catalog asset identifier.
+   * @param expectedRevision - Revision that must still be current.
+   * @param idempotencyKey - Caller key bound to this exact archive request.
+   * @returns Archived asset at its advanced revision, or the exact retry's recorded result.
+   */
+  async archiveAsset(
+    orgId: string, assetId: string, expectedRevision: number, idempotencyKey: string,
+  ): Promise<EnterpriseAssetView> {
+    await this.initialize()
+    return this.database.transaction(async (database) => {
+      await this.lock(database, `${orgId}:asset:${assetId}`)
+      const digest = catalogDigest({ orgId, assetId, expectedRevision })
+      const prior = await database.query<{ request_digest: string | null; result_json: unknown }>(
+        'SELECT request_digest, result_json FROM dsh_enterprise_catalog_idempotency WHERE org_id = $1 AND key = $2',
+        [orgId, `archive:${idempotencyKey}`],
+      )
+      if (prior.rows[0] !== undefined) {
+        if (prior.rows[0].request_digest !== digest) throw new Error('catalog idempotency key was reused with a different request')
+        return parse(prior.rows[0].result_json) as EnterpriseAssetView
+      }
+      const current = await database.query<AssetRow>(
+        'SELECT * FROM dsh_enterprise_asset_catalog WHERE asset_id = $1 AND org_id = $2 FOR UPDATE', [assetId, orgId],
+      )
+      const asset = current.rows[0]
+      if (asset === undefined) throw new Error(`asset ${assetId} does not exist in organization ${orgId}`)
+      const actual = Number(asset.revision)
+      if (actual !== expectedRevision) throw new EmployeeDraftRevisionConflictError(assetId, expectedRevision, actual)
+      if (asset.archived) throw new Error(`asset ${assetId} is already archived`)
+      const updated = await database.query<AssetRow>(
+        `UPDATE dsh_enterprise_asset_catalog SET archived = TRUE, updated_at = $1, revision = revision + 1
+         WHERE asset_id = $2 AND org_id = $3 AND revision = $4 RETURNING *`,
+        [this.now(), assetId, orgId, expectedRevision],
+      )
+      const row = updated.rows[0]
+      if (row === undefined) throw new EmployeeDraftRevisionConflictError(assetId, expectedRevision, actual)
+      const view = this.asset(row)
+      await database.query(
+        `INSERT INTO dsh_enterprise_catalog_idempotency(org_id, key, request_digest, result_json)
+         VALUES ($1, $2, $3, $4::jsonb)`,
+        [orgId, `archive:${idempotencyKey}`, digest, JSON.stringify(view)],
+      )
+      return view
+    })
+  }
+
+  /**
+   * Publishes an immutable employee release from the current draft.
+   * @param input - Organization scope, revision, actor, and idempotency controls.
+   * @returns Published release, or the recorded idempotent result.
+   */
   async publishDraft(input: {
     orgId: string
     presetId: string
@@ -307,6 +550,12 @@ export class EnterpriseCatalogRepository {
     })
   }
 
+  /**
+   * Lists immutable releases for one organization-owned Preset.
+   * @param presetId - Native Agent Preset identifier.
+   * @param orgId - Organization allowed to own the releases.
+   * @returns Releases in ascending version order.
+   */
   async listReleases(presetId: string, orgId: string): Promise<EmployeeReleaseView[]> {
     await this.initialize()
     const result = await this.database.query<ReleaseRow>(
@@ -315,6 +564,11 @@ export class EnterpriseCatalogRepository {
     return result.rows.map(row => this.release(row))
   }
 
+  /**
+   * Publishes a new release from an earlier immutable snapshot.
+   * @param input - Source release, organization, revision, actor, and idempotency controls.
+   * @returns Newly published release whose source identifies the prior release.
+   */
   async rollbackRelease(input: {
     orgId: string
     presetId: string
@@ -430,6 +684,12 @@ export class EnterpriseCatalogRepository {
     return {
       assetId: row.asset_id, version: Number(row.version), content: object(row.content_json),
       createdBy: row.created_by, createdAt: Number(row.created_at),
+    }
+  }
+  private asset(row: AssetRow): EnterpriseAssetView {
+    return {
+      assetId: row.asset_id, orgId: row.org_id, kind: row.kind, name: row.name,
+      revision: Number(row.revision), archived: row.archived, updatedAt: Number(row.updated_at),
     }
   }
 }

@@ -1,14 +1,45 @@
 /** Driver-neutral contracts for the DSH enterprise employee and asset catalog. */
 
+/** Capability categories stored by the enterprise catalog. */
 export type CatalogAssetKind = 'sop' | 'knowledge' | 'skill' | 'tool' | 'model'
+/** Organization visibility assigned to an employee draft. */
 export type CatalogVisibility = 'organization' | 'private' | 'restricted'
 
+/** Common cursor pagination fields for organization-scoped catalog lists. */
+export interface CatalogListInput {
+  readonly orgId: string
+  readonly limit?: number
+  readonly cursor?: string
+  readonly search?: string
+}
+
+/** One cursor page whose cursor is meaningful only for the originating query. */
+export interface CatalogCursorPage<Item> {
+  readonly items: readonly Item[]
+  readonly nextCursor?: string
+}
+
+/** Filters accepted by the employee draft management list. */
+export interface ListEmployeeDraftsInput extends CatalogListInput {
+  readonly status?: EmployeeDraftView['status']
+  readonly ownerUserId?: string
+  readonly visibility?: CatalogVisibility
+}
+
+/** Filters accepted by the capability asset management list. */
+export interface ListEnterpriseAssetsInput extends CatalogListInput {
+  readonly kind?: CatalogAssetKind
+  readonly archived?: boolean
+}
+
+/** Immutable capability version pinned by an employee release. */
 export interface EnterpriseAssetRef {
   readonly kind: CatalogAssetKind
   readonly assetId: string
   readonly version: number
 }
 
+/** Revision-checked employee draft save request. */
 export interface EmployeeDraftInput {
   readonly presetId: string
   readonly orgId: string
@@ -20,12 +51,14 @@ export interface EmployeeDraftInput {
   readonly bindings: readonly EnterpriseAssetRef[]
 }
 
+/** Persisted employee draft returned to management consumers. */
 export interface EmployeeDraftView extends Omit<EmployeeDraftInput, 'expectedRevision' | 'idempotencyKey'> {
   readonly revision: number
   readonly status: 'draft' | 'published'
   readonly updatedAt: number
 }
 
+/** Immutable published employee snapshot. */
 export interface EmployeeReleaseView {
   readonly releaseId: string
   readonly presetId: string
@@ -41,6 +74,7 @@ export interface EmployeeReleaseView {
   readonly sourceReleaseId?: string
 }
 
+/** Revision-checked asset version save request. */
 export interface SaveAssetVersionInput {
   readonly assetId: string
   readonly orgId: string
@@ -52,6 +86,7 @@ export interface SaveAssetVersionInput {
   readonly createdBy: string
 }
 
+/** Current metadata for one versioned catalog asset. */
 export interface EnterpriseAssetView {
   readonly assetId: string
   readonly orgId: string
@@ -62,6 +97,7 @@ export interface EnterpriseAssetView {
   readonly updatedAt: number
 }
 
+/** Immutable content and authorship for one asset version. */
 export interface EnterpriseAssetVersionView {
   readonly assetId: string
   readonly version: number
@@ -70,11 +106,13 @@ export interface EnterpriseAssetVersionView {
   readonly createdAt: number
 }
 
+/** Driver-neutral subset of a PostgreSQL query result. */
 export interface PostgresQueryResult<Row extends Record<string, unknown> = Record<string, unknown>> {
   readonly rows: readonly Row[]
   readonly rowCount: number | null
 }
 
+/** Query and caller-owned transaction operations required by the catalog. */
 export interface PostgresDatabase {
   query<Row extends Record<string, unknown> = Record<string, unknown>>(
     text: string,

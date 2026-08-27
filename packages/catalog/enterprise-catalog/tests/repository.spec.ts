@@ -57,7 +57,7 @@ class MemoryPostgresDatabase implements PostgresDatabase {
   private readonly assets = new Map<string, AssetRow>()
   private readonly versions = new Map<string, AssetVersionRow>()
   private readonly bindings = new Map<string, { release_id: string; kind: string; asset_id: string; asset_version: number }>()
-  private readonly idempotency = new Map<string, unknown>()
+  private readonly idempotency = new Map<string, { request_digest?: string; result_json: unknown }>()
   failNextReleaseBinding = false
 
   async transaction<T>(action: (transaction: MemoryPostgresDatabase) => Promise<T>): Promise<T> {
@@ -83,7 +83,7 @@ class MemoryPostgresDatabase implements PostgresDatabase {
   }
 
   private rows(text: string, values: readonly unknown[]): Record<string, unknown>[] {
-    if (text.startsWith('CREATE ') || text.startsWith('SELECT pg_advisory_xact_lock')) return []
+    if (text.startsWith('CREATE ') || text.startsWith('ALTER ') || text.startsWith('SELECT pg_advisory_xact_lock')) return []
     if (text.startsWith('SELECT value FROM dsh_enterprise_catalog_meta')) {
       const value = this.meta.get('schema-version')
       return value === undefined ? [] : [{ value }]
@@ -92,13 +92,39 @@ class MemoryPostgresDatabase implements PostgresDatabase {
       this.meta.set('schema-version', String(values[0]))
       return []
     }
-    if (text.startsWith('SELECT result_json FROM dsh_enterprise_catalog_idempotency')) {
+    if (text.startsWith('SELECT ') && text.includes('FROM dsh_enterprise_catalog_idempotency')) {
       const result = this.idempotency.get(`${String(values[0])}:${String(values[1])}`)
-      return result === undefined ? [] : [{ result_json: structuredClone(result) }]
+      return result === undefined ? [] : [structuredClone(result)]
     }
     if (text.startsWith('INSERT INTO dsh_enterprise_catalog_idempotency')) {
-      this.idempotency.set(`${String(values[0])}:${String(values[1])}`, parse(values[2]))
+      const hasDigest = text.includes('request_digest')
+      this.idempotency.set(`${String(values[0])}:${String(values[1])}`, {
+        ...(hasDigest ? { request_digest: String(values[2]), result_json: parse(values[3]) } : { result_json: parse(values[2]) }),
+      })
       return []
+    }
+    if (text.includes('FROM dsh_enterprise_employee_drafts') && text.includes('ORDER BY updated_at DESC')) {
+      let rows = [...this.drafts.values()].filter(row => row.org_id === String(values[0]))
+      const statusIndex = parameter(text, 'status =')
+      const ownerIndex = parameter(text, 'owner_user_id =')
+      const visibilityIndex = parameter(text, 'visibility =')
+      const searchIndex = parameter(text, 'preset_id ILIKE')
+      const cursorUpdatedIndex = parameter(text, '\\(updated_at, preset_id\\) < \\(')
+      if (statusIndex !== undefined) rows = rows.filter(row => row.status === values[statusIndex])
+      if (ownerIndex !== undefined) rows = rows.filter(row => row.owner_user_id === values[ownerIndex])
+      if (visibilityIndex !== undefined) rows = rows.filter(row => row.visibility === values[visibilityIndex])
+      if (searchIndex !== undefined) {
+        const search = String(values[searchIndex]).slice(1, -1).toLowerCase()
+        rows = rows.filter(row => row.preset_id.toLowerCase().includes(search)
+          || JSON.stringify(row.profile_json).toLowerCase().includes(search))
+      }
+      if (cursorUpdatedIndex !== undefined) {
+        const updatedAt = Number(values[cursorUpdatedIndex])
+        const presetId = String(values[cursorUpdatedIndex + 1])
+        rows = rows.filter(row => row.updated_at < updatedAt || (row.updated_at === updatedAt && row.preset_id < presetId))
+      }
+      rows.sort((left, right) => right.updated_at - left.updated_at || right.preset_id.localeCompare(left.preset_id))
+      return rows.slice(0, Number(values.at(-1))).map(clone)
     }
     if (text.startsWith('SELECT ') && text.includes('FROM dsh_enterprise_employee_drafts')) {
       const row = this.drafts.get(String(values[0]))
@@ -125,9 +151,29 @@ class MemoryPostgresDatabase implements PostgresDatabase {
       row.revision += 1
       return [clone(row)]
     }
+    if (text.includes('FROM dsh_enterprise_asset_catalog') && text.includes('ORDER BY updated_at DESC')) {
+      let rows = [...this.assets.values()].filter(row => row.org_id === String(values[0]))
+      const kindIndex = parameter(text, 'kind =')
+      const archivedIndex = parameter(text, 'archived =')
+      const searchIndex = parameter(text, 'asset_id ILIKE')
+      const cursorUpdatedIndex = parameter(text, '\\(updated_at, asset_id\\) < \\(')
+      if (kindIndex !== undefined) rows = rows.filter(row => row.kind === values[kindIndex])
+      if (archivedIndex !== undefined) rows = rows.filter(row => row.archived === values[archivedIndex])
+      if (searchIndex !== undefined) {
+        const search = String(values[searchIndex]).slice(1, -1).toLowerCase()
+        rows = rows.filter(row => row.asset_id.toLowerCase().includes(search) || row.name.toLowerCase().includes(search))
+      }
+      if (cursorUpdatedIndex !== undefined) {
+        const updatedAt = Number(values[cursorUpdatedIndex])
+        const assetId = String(values[cursorUpdatedIndex + 1])
+        rows = rows.filter(row => row.updated_at < updatedAt || (row.updated_at === updatedAt && row.asset_id < assetId))
+      }
+      rows.sort((left, right) => right.updated_at - left.updated_at || right.asset_id.localeCompare(left.asset_id))
+      return rows.slice(0, Number(values.at(-1))).map(clone)
+    }
     if (text.startsWith('SELECT ') && text.includes('FROM dsh_enterprise_asset_catalog')) {
       const row = this.assets.get(String(values[0]))
-      return row === undefined ? [] : [clone(row)]
+      return row === undefined || (text.includes('org_id = $2') && row.org_id !== values[1]) ? [] : [clone(row)]
     }
     if (text.startsWith('INSERT INTO dsh_enterprise_asset_catalog')) {
       const row: AssetRow = {
@@ -138,9 +184,12 @@ class MemoryPostgresDatabase implements PostgresDatabase {
       return [clone(row)]
     }
     if (text.startsWith('UPDATE dsh_enterprise_asset_catalog')) {
-      const row = this.assets.get(String(values.at(-1)))
+      const row = this.assets.get(String(text.includes('archived = TRUE') ? values[1] : values.at(-1)))
       if (row === undefined) return []
-      if (text.includes('archived = TRUE')) row.archived = true
+      if (text.includes('archived = TRUE')) {
+        if (row.org_id !== values[2] || row.revision !== values[3]) return []
+        row.archived = true; row.updated_at = Number(values[0]); row.revision += 1
+      }
       else { row.name = String(values[0]); row.updated_at = Number(values[1]); row.revision += 1 }
       return [clone(row)]
     }
@@ -156,6 +205,10 @@ class MemoryPostgresDatabase implements PostgresDatabase {
       const assetId = String(values[0])
       const result = [...this.versions.values()].filter(row => row.asset_id === assetId)
       return [{ version: result.length === 0 ? 0 : Math.max(...result.map(row => row.version)) }]
+    }
+    if (text.startsWith('SELECT ') && text.includes('FROM dsh_enterprise_asset_versions') && text.includes('ORDER BY version')) {
+      return [...this.versions.values()].filter(row => row.asset_id === String(values[0]))
+        .sort((left, right) => left.version - right.version).map(clone)
     }
     if (text.startsWith('SELECT ') && text.includes('FROM dsh_enterprise_asset_versions')) {
       const row = this.versions.get(`${String(values[0])}:${Number(values[1])}`)
@@ -204,7 +257,7 @@ class MemoryPostgresDatabase implements PostgresDatabase {
     assets: Map<string, AssetRow>
     versions: Map<string, AssetVersionRow>
     bindings: Map<string, { release_id: string; kind: string; asset_id: string; asset_version: number }>
-    idempotency: Map<string, unknown>
+    idempotency: Map<string, { request_digest?: string; result_json: unknown }>
   }): void {
     this.meta.clear()
     this.drafts.clear()
@@ -225,6 +278,10 @@ class MemoryPostgresDatabase implements PostgresDatabase {
 
 function parse(value: unknown): unknown { return typeof value === 'string' ? JSON.parse(value) : value }
 function clone<T>(value: T): T { return structuredClone(value) }
+function parameter(text: string, prefix: string): number | undefined {
+  const match = new RegExp(`${prefix}[^$]*\\$(\\d+)`, 'u').exec(text)
+  return match?.[1] === undefined ? undefined : Number(match[1]) - 1
+}
 
 const firstDraft = {
   presetId: 'preset-sales', orgId: 'org-a', ownerUserId: 'user-a', expectedRevision: 0,
@@ -367,5 +424,112 @@ describe('EnterpriseCatalogRepository', () => {
       .rejects.toThrow('injected release binding failure')
     await expect(repository.listReleases('preset-sales', 'org-a')).resolves.toEqual([])
     await expect(repository.getDraft('preset-sales', 'org-a')).resolves.toMatchObject({ revision: 1, status: 'draft' })
+  })
+
+  it('lists organization-scoped drafts with filters, stable cursors, and parameterized search', async () => {
+    let now = 100
+    const database = new MemoryPostgresDatabase()
+    const repository = new EnterpriseCatalogRepository(database, { now: () => now })
+    await repository.saveDraft(firstDraft)
+    now = 200
+    await repository.saveDraft({
+      ...firstDraft, presetId: 'preset-support', ownerUserId: 'user-b', visibility: 'private',
+      idempotencyKey: 'draft-support', profile: { name: 'Support employee' },
+    })
+    await repository.saveDraft({
+      ...firstDraft, presetId: 'preset-other-org', orgId: 'org-b', idempotencyKey: 'draft-other',
+    })
+
+    const first = await repository.listDrafts({ orgId: 'org-a', limit: 1 })
+    const second = await repository.listDrafts({ orgId: 'org-a', limit: 1, cursor: first.nextCursor })
+    expect(first.items.map(item => item.presetId)).toEqual(['preset-support'])
+    expect(second.items.map(item => item.presetId)).toEqual(['preset-sales'])
+    expect(second.nextCursor).toBeUndefined()
+    await expect(repository.listDrafts({
+      orgId: 'org-a', ownerUserId: 'user-b', visibility: 'private', status: 'draft', search: "Support%' OR TRUE--",
+    })).resolves.toMatchObject({ items: [] })
+    expect(database.queries.some(query => query.includes("Support%' OR TRUE--"))).toBe(false)
+  })
+
+  it('rejects invalid draft list limits and opaque cursors', async () => {
+    const repository = new EnterpriseCatalogRepository(new MemoryPostgresDatabase())
+    await expect(repository.listDrafts({ orgId: 'org-a', limit: 0 })).rejects.toThrow('limit')
+    await expect(repository.listDrafts({ orgId: 'org-a', limit: 101 })).rejects.toThrow('limit')
+    await expect(repository.listDrafts({ orgId: 'org-a', cursor: 'not-a-cursor' })).rejects.toThrow('cursor')
+    await repository.saveDraft(firstDraft)
+    await repository.saveDraft({ ...firstDraft, presetId: 'preset-two', idempotencyKey: 'draft-two-for-cursor' })
+    const page = await repository.listDrafts({ orgId: 'org-a', ownerUserId: 'user-a', limit: 1 })
+    await expect(repository.listDrafts({ orgId: 'org-a', ownerUserId: 'user-b', cursor: page.nextCursor }))
+      .rejects.toThrow('cursor')
+  })
+
+  it('gets and lists assets without exposing another organization', async () => {
+    let now = 100
+    const repository = new EnterpriseCatalogRepository(new MemoryPostgresDatabase(), { now: () => now })
+    await repository.saveAssetVersion({
+      assetId: 'sop-a', orgId: 'org-a', kind: 'sop', name: 'Sales SOP', expectedRevision: 0,
+      idempotencyKey: 'asset-a', content: { steps: [] }, createdBy: 'user-a',
+    })
+    now = 200
+    await repository.saveAssetVersion({
+      assetId: 'tool-a', orgId: 'org-a', kind: 'tool', name: 'Sales Tool', expectedRevision: 0,
+      idempotencyKey: 'tool-a', content: { command: 'safe' }, createdBy: 'user-a',
+    })
+    await repository.saveAssetVersion({
+      assetId: 'sop-b', orgId: 'org-b', kind: 'sop', name: 'Other SOP', expectedRevision: 0,
+      idempotencyKey: 'asset-b', content: { steps: [] }, createdBy: 'user-b',
+    })
+
+    await expect(repository.getAsset('org-a', 'sop-b')).resolves.toBeUndefined()
+    const first = await repository.listAssets({ orgId: 'org-a', limit: 1, search: 'Sales' })
+    const second = await repository.listAssets({ orgId: 'org-a', limit: 1, search: 'Sales', cursor: first.nextCursor })
+    expect(first.items.map(item => item.assetId)).toEqual(['tool-a'])
+    expect(second.items.map(item => item.assetId)).toEqual(['sop-a'])
+    await expect(repository.listAssets({ orgId: 'org-a', kind: 'sop', archived: false }))
+      .resolves.toMatchObject({ items: [{ assetId: 'sop-a' }] })
+  })
+
+  it('validates asset ownership before listing its versions', async () => {
+    const repository = new EnterpriseCatalogRepository(new MemoryPostgresDatabase())
+    await repository.saveAssetVersion({
+      assetId: 'sop-owned', orgId: 'org-a', kind: 'sop', name: 'Owned', expectedRevision: 0,
+      idempotencyKey: 'owned-v1', content: { version: 1 }, createdBy: 'user-a',
+    })
+    await repository.saveAssetVersion({
+      assetId: 'sop-owned', orgId: 'org-a', kind: 'sop', name: 'Owned', expectedRevision: 1,
+      idempotencyKey: 'owned-v2', content: { version: 2 }, createdBy: 'user-a',
+    })
+
+    await expect(repository.listAssetVersions('org-a', 'sop-owned'))
+      .resolves.toMatchObject([{ version: 1 }, { version: 2 }])
+    await expect(repository.listAssetVersions('org-b', 'sop-owned')).rejects.toThrow('does not exist')
+  })
+
+  it('archives assets with CAS and request-digest protected idempotency', async () => {
+    const repository = new EnterpriseCatalogRepository(new MemoryPostgresDatabase(), { now: () => 300 })
+    await repository.saveAssetVersion({
+      assetId: 'sop-archive', orgId: 'org-a', kind: 'sop', name: 'Archive me', expectedRevision: 0,
+      idempotencyKey: 'archive-source', content: { steps: [] }, createdBy: 'user-a',
+    })
+
+    const archived = await repository.archiveAsset('org-a', 'sop-archive', 1, 'archive-key')
+    await expect(repository.archiveAsset('org-a', 'sop-archive', 1, 'archive-key')).resolves.toEqual(archived)
+    expect(archived).toMatchObject({ archived: true, revision: 2, updatedAt: 300 })
+    await expect(repository.archiveAsset('org-a', 'sop-archive', 2, 'archive-key'))
+      .rejects.toThrow('idempotency key')
+    await expect(repository.archiveAsset('org-b', 'sop-archive', 2, 'other-key'))
+      .rejects.toThrow('does not exist')
+  })
+
+  it('rejects stale archive revisions without changing the asset', async () => {
+    const repository = new EnterpriseCatalogRepository(new MemoryPostgresDatabase())
+    await repository.saveAssetVersion({
+      assetId: 'sop-cas', orgId: 'org-a', kind: 'sop', name: 'CAS', expectedRevision: 0,
+      idempotencyKey: 'cas-source', content: { steps: [] }, createdBy: 'user-a',
+    })
+
+    await expect(repository.archiveAsset('org-a', 'sop-cas', 0, 'cas-archive'))
+      .rejects.toBeInstanceOf(EmployeeDraftRevisionConflictError)
+    await expect(repository.getAsset('org-a', 'sop-cas')).resolves.toMatchObject({ archived: false, revision: 1 })
   })
 })
