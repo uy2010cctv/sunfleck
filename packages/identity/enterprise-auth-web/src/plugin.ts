@@ -31,6 +31,8 @@ export interface OidcPluginConfig extends Omit<EnterpriseOidcConfig, 'clientSecr
 export interface EnterpriseAuthWebConfig extends EnterpriseSecurityConfig {
   /** Existing SQLite fallback. Omit when `identityStore` is supplied. */
   readonly databasePath?: string
+  /** Production selects the deployment-provided PostgreSQL composition. */
+  readonly databaseMode?: 'sqlite' | 'postgres'
   /** Deployment-owned identity store. This is the seam for enterprise persistence adapters. */
   readonly identityStore?: EnterpriseIdentityStore
   readonly organizationName: string
@@ -76,27 +78,30 @@ async function writeResponse(res: ServerResponse, response: Response): Promise<v
 /** Mount the persistent identity service and authentication endpoints. */
 export async function apply(ctx: Context, config: EnterpriseAuthWebConfig): Promise<void> {
   const databasePath = config.databasePath
-  const repository: EnterpriseIdentityStore = config.identityStore ?? (() => {
-    if (databasePath === undefined) throw new Error('enterprise identity store or databasePath is required')
-    return new EnterpriseIdentityRepository(databasePath)
-  })()
+  const postgres = ctx.get('enterprisePostgres') as { identity: EnterpriseIdentityStore } | undefined
+  const repository: EnterpriseIdentityStore = config.identityStore
+    ?? (config.databaseMode === 'postgres' ? postgres?.identity : undefined)
+    ?? (() => {
+      if (databasePath === undefined) throw new Error('enterprise identity store or databasePath is required')
+      return new EnterpriseIdentityRepository(databasePath)
+    })()
   try {
-    if (!repository.listOrganizations().some(org => org.id === config.organizationId)) {
-      repository.createOrganization({ id: config.organizationId, name: config.organizationName })
+    if (!(await repository.listOrganizations()).some(org => org.id === config.organizationId)) {
+      await repository.createOrganization({ id: config.organizationId, name: config.organizationName })
     }
     if (config.bootstrapAdmin !== undefined
-      && repository.findUser(config.organizationId, config.bootstrapAdmin.username) === undefined) {
+      && await repository.findUser(config.organizationId, config.bootstrapAdmin.username) === undefined) {
       const resolved = await ctx.credentials.resolve(credentialRef(config.bootstrapAdmin.passwordRef))
       if (resolved === undefined) throw new Error('enterprise bootstrap administrator password is not configured')
-      repository.createUser({
+      await repository.createUser({
         id: config.bootstrapAdmin.userId,
         orgId: config.organizationId,
         username: config.bootstrapAdmin.username,
         displayName: config.bootstrapAdmin.displayName,
         disabled: false,
       })
-      repository.setRoles(config.bootstrapAdmin.userId, ['administrator'])
-      repository.setPasswordVerifier(config.bootstrapAdmin.userId, createPasswordVerifier(resolved.value))
+      await repository.setRoles(config.bootstrapAdmin.userId, ['administrator'])
+      await repository.setPasswordVerifier(config.bootstrapAdmin.userId, createPasswordVerifier(resolved.value))
     }
 
     const security = new EnterpriseSecurity(repository, config)
@@ -126,7 +131,7 @@ export async function apply(ctx: Context, config: EnterpriseAuthWebConfig): Prom
       const disposeRoute = ctx.webServer.register(route)
       return () => {
         disposeRoute()
-        repository.close()
+        void repository.close()
       }
     }, 'enterprise-auth-web: identity database and /auth routes')
   } catch (error) {

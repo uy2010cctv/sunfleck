@@ -184,7 +184,7 @@ export function apply(ctx: Context, config?: ConnectionConfig): void {
     ): void => {
       apiCtx.effect(() => apiCtx.webServer.registerUpgrade({
         path,
-        handler: (req, socket, head) => {
+        handler: async (req, socket, head) => {
           if (!isTrustedApiRequest(req, trustedHosts)) {
             rejectWebSocketUpgrade(socket)
             return
@@ -192,14 +192,14 @@ export function apply(ctx: Context, config?: ConnectionConfig): void {
           const security = apiCtx.get('enterpriseSecurity')
           if (security !== undefined) {
             const cookie = typeof req.headers.cookie === 'string' ? req.headers.cookie : ''
-            const principal = security.authenticateCookie(cookie)
+            const principal = await security.authenticateCookieAsync(cookie)
             if (principal === undefined) {
               rejectUnauthorizedWebSocketUpgrade(socket)
               return
             }
             const endpoint = path === MUX_EVENTS_PATH ? 'events.mux' : 'events.host'
-            const decision = security.authorizeApi(principal, endpoint, {})
-            security.auditApi(principal, endpoint, {}, decision, randomUUID())
+            const decision = await security.authorizeApiAsync(principal, endpoint, {})
+            await security.auditApiAsync(principal, endpoint, {}, decision, randomUUID())
             if (!decision.allowed) {
               rejectWebSocketUpgrade(socket)
               return

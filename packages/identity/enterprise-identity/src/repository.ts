@@ -84,33 +84,34 @@ export interface RepositoryOptions {
  * services. Implementations may be backed by SQLite, an in-process cache, or an
  * adapter owned by the deployment; callers must not depend on SQLite internals.
  */
+export type IdentityAwaitable<T> = T | Promise<T>
 export interface EnterpriseIdentityStore {
-  close(): void
-  createOrganization(organization: EnterpriseOrganization): void
-  listOrganizations(): EnterpriseOrganization[]
-  createUser(user: EnterpriseUserInput): void
-  listUsers(orgId: string): EnterpriseUserView[]
-  findUser(orgId: string, username: string): EnterpriseUserView | undefined
-  setRoles(userId: string, roles: readonly EnterpriseRole[]): void
-  setUserDisabled(userId: string, disabled: boolean): void
-  setPasswordVerifier(userId: string, verifier: string): void
-  passwordLoginRecord(orgId: string, username: string): {
+  close(): IdentityAwaitable<void>
+  createOrganization(organization: EnterpriseOrganization): IdentityAwaitable<void>
+  listOrganizations(): IdentityAwaitable<EnterpriseOrganization[]>
+  createUser(user: EnterpriseUserInput): IdentityAwaitable<void>
+  listUsers(orgId: string): IdentityAwaitable<EnterpriseUserView[]>
+  findUser(orgId: string, username: string): IdentityAwaitable<EnterpriseUserView | undefined>
+  setRoles(userId: string, roles: readonly EnterpriseRole[]): IdentityAwaitable<void>
+  setUserDisabled(userId: string, disabled: boolean): IdentityAwaitable<void>
+  setPasswordVerifier(userId: string, verifier: string): IdentityAwaitable<void>
+  passwordLoginRecord(orgId: string, username: string): IdentityAwaitable<{
     userId: string
     disabled: boolean
     verifier: string
-  } | undefined
-  bindExternalIdentity(binding: ExternalIdentityBinding): void
-  resolveExternalIdentity(providerId: string, subject: string): EnterpriseUserView | undefined
-  createSession(input: { token: string; userId: string; expiresAt: number }): void
-  authenticateSession(token: string): EnterprisePrincipalView | undefined
-  revokeSession(token: string): void
-  putResourcePolicy(policy: EnterpriseResourcePolicy): void
-  resourcePolicy(resourceType: string, resourceId: string): EnterpriseResourcePolicy | undefined
-  listResourcePolicies(orgId: string): EnterpriseResourcePolicy[]
-  putManagedAsset(asset: EnterpriseManagedAsset): void
-  listManagedAssets(orgId: string): EnterpriseManagedAsset[]
-  appendAudit(event: EnterpriseAuditRecord): void
-  listAudit(query: AuditQuery): EnterpriseAuditRecord[]
+  } | undefined>
+  bindExternalIdentity(binding: ExternalIdentityBinding): IdentityAwaitable<void>
+  resolveExternalIdentity(providerId: string, subject: string): IdentityAwaitable<EnterpriseUserView | undefined>
+  createSession(input: { token: string; userId: string; expiresAt: number }): IdentityAwaitable<void>
+  authenticateSession(token: string): IdentityAwaitable<EnterprisePrincipalView | undefined>
+  revokeSession(token: string): IdentityAwaitable<void>
+  putResourcePolicy(policy: EnterpriseResourcePolicy): IdentityAwaitable<void>
+  resourcePolicy(resourceType: string, resourceId: string): IdentityAwaitable<EnterpriseResourcePolicy | undefined>
+  listResourcePolicies(orgId: string): IdentityAwaitable<EnterpriseResourcePolicy[]>
+  putManagedAsset(asset: EnterpriseManagedAsset): IdentityAwaitable<void>
+  listManagedAssets(orgId: string): IdentityAwaitable<EnterpriseManagedAsset[]>
+  appendAudit(event: EnterpriseAuditRecord): IdentityAwaitable<void>
+  listAudit(query: AuditQuery): IdentityAwaitable<EnterpriseAuditRecord[]>
 }
 
 /** One-way bearer-token representation stored in the database. */

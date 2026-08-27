@@ -92,7 +92,7 @@ export class HostConnectionService extends Service implements HostConnectionHand
   private async authorizeFetch(channel: string, request: Request, target: FetchHandler): Promise<Response> {
     const security = this.ctx.get('enterpriseSecurity')
     if (security === undefined) return target.fetch(request)
-    const principal = security.authenticateCookie(request.headers.get('cookie') ?? '')
+    const principal = await security.authenticateCookieAsync(request.headers.get('cookie') ?? '')
     if (principal === undefined) return new Response('unauthorized', { status: 401 })
     const rawEndpoint = endpointFromPath(channel, new URL(request.url).pathname)
     if (rawEndpoint === undefined) return new Response('forbidden', { status: 403 })
@@ -111,8 +111,8 @@ export class HostConnectionService extends Service implements HostConnectionHand
         // The target handler owns malformed-body diagnostics after authentication.
       }
     }
-    const decision = security.authorizeApi(principal, endpoint, payload)
-    security.auditApi(principal, endpoint, payload, decision, correlationId)
+    const decision = await security.authorizeApiAsync(principal, endpoint, payload)
+    await security.auditApiAsync(principal, endpoint, payload, decision, correlationId)
     if (!decision.allowed) return new Response('forbidden', { status: 403 })
     return target.fetch(request)
   }

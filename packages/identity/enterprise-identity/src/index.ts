@@ -3,6 +3,7 @@
 export { ENTERPRISE_IDENTITY_SCHEMA_VERSION, migrateEnterpriseIdentity } from './schema.ts'
 export {
   EnterpriseIdentityRepository,
+  type IdentityAwaitable,
   type EnterpriseIdentityStore,
   sessionTokenHash,
   type AuditQuery,

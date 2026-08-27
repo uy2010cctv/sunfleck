@@ -69,7 +69,7 @@ export class EnterpriseAuthHttpHandler {
     if (path[0] !== 'auth') return new Response('not found', { status: 404 })
 
     if (request.method === 'GET' && path.length === 2 && path[1] === 'status') {
-      const principal = this.security.authenticateCookie(request.headers.get('cookie') ?? '')
+      const principal = await this.security.authenticateCookieAsync(request.headers.get('cookie') ?? '')
       return json({
         authenticated: principal !== undefined,
         organizationId: this.security.config.organizationId,
@@ -85,7 +85,7 @@ export class EnterpriseAuthHttpHandler {
 
     if (request.method === 'POST' && path.length === 2 && path[1] === 'logout') {
       if (!sameOrigin(request)) return new Response('forbidden', { status: 403 })
-      this.security.logout(request.headers.get('cookie') ?? '')
+      await this.security.logoutAsync(request.headers.get('cookie') ?? '')
       return new Response(null, {
         status: 204,
         headers: {
@@ -107,7 +107,7 @@ export class EnterpriseAuthHttpHandler {
         if (typeof organizationId !== 'string' || typeof username !== 'string' || typeof password !== 'string') {
           return json({ error: 'invalid-credentials' }, 401)
         }
-        const login = this.security.loginLocal(organizationId, username, password)
+        const login = await this.security.loginLocalAsync(organizationId, username, password)
         return login === undefined
           ? json({ error: 'invalid-credentials' }, 401)
           : json({ principal: login.principal }, 200, { 'set-cookie': login.cookie })
@@ -139,7 +139,7 @@ export class EnterpriseAuthHttpHandler {
           const username = body['username']
           const password = body['password']
           if (typeof username !== 'string' || typeof password !== 'string') return json({ error: 'invalid-credentials' }, 401)
-          return this.commitIdentity(await ldap.authenticate(username, password), '/')
+          return await this.commitIdentity(await ldap.authenticate(username, password), '/')
         } catch {
           return json({ error: 'invalid-credentials' }, 401)
         }
@@ -148,7 +148,7 @@ export class EnterpriseAuthHttpHandler {
 
     if (request.method === 'GET' && path.length === 3 && path[1] === 'callback') {
       const provider = this.oidc.get(path[2] as string)
-      if (provider !== undefined) return this.commitLogin(await provider.complete(url))
+      if (provider !== undefined) return await this.commitLogin(await provider.complete(url))
     }
 
     if (request.method === 'POST' && path.length === 3 && path[1] === 'callback') {
@@ -157,7 +157,7 @@ export class EnterpriseAuthHttpHandler {
         const form = await request.formData()
         const container: Record<string, string> = {}
         for (const [key, value] of form) if (typeof value === 'string') container[key] = value
-        return this.commitLogin(await provider.complete(container))
+        return await this.commitLogin(await provider.complete(container))
       }
     }
 
@@ -167,27 +167,27 @@ export class EnterpriseAuthHttpHandler {
   }
 
   private async admin(request: Request, url: URL, path: string[]): Promise<Response> {
-    const principal = this.security.authenticateCookie(request.headers.get('cookie') ?? '')
+    const principal = await this.security.authenticateCookieAsync(request.headers.get('cookie') ?? '')
     if (principal === undefined) return new Response('unauthorized', { status: 401 })
     const endpoint = path[2] === 'audit' ? 'enterpriseAudit.list' : `enterpriseAdmin.${path[2] ?? 'unknown'}`
-    const decision = this.security.authorizeApi(principal, endpoint, {})
-    this.security.auditApi(
+    const decision = await this.security.authorizeApiAsync(principal, endpoint, {})
+    await this.security.auditApiAsync(
       principal, endpoint, {}, decision, request.headers.get('x-request-id') ?? randomUUID(),
     )
     if (!decision.allowed) return new Response('forbidden', { status: 403 })
 
     if (request.method === 'GET' && path.length === 3 && path[2] === 'organizations') {
-      return json(this.security.repository.listOrganizations())
+      return json(await this.security.repository.listOrganizations())
     }
     if (request.method === 'POST' && path.length === 3 && path[2] === 'organizations') {
       if (!sameOrigin(request)) return new Response('forbidden', { status: 403 })
       const body = await jsonBody(request)
       if (typeof body['id'] !== 'string' || typeof body['name'] !== 'string') return json({ error: 'bad-request' }, 400)
-      this.security.repository.createOrganization({ id: body['id'], name: body['name'] })
+      await this.security.repository.createOrganization({ id: body['id'], name: body['name'] })
       return json({ id: body['id'], name: body['name'] }, 201)
     }
     if (request.method === 'GET' && path.length === 3 && path[2] === 'users') {
-      return json(this.security.repository.listUsers(principal.orgId))
+      return json(await this.security.repository.listUsers(principal.orgId))
     }
     if (request.method === 'POST' && path.length === 3 && path[2] === 'users') {
       if (!sameOrigin(request)) return new Response('forbidden', { status: 403 })
@@ -199,11 +199,11 @@ export class EnterpriseAuthHttpHandler {
       if (typeof id !== 'string' || typeof username !== 'string' || typeof displayName !== 'string' || roles === undefined) {
         return json({ error: 'bad-request' }, 400)
       }
-      this.security.repository.createUser({
+      await this.security.repository.createUser({
         id, orgId: principal.orgId, username, displayName, disabled: false,
       })
-      this.security.repository.setRoles(id, roles)
-      return json(this.security.repository.findUser(principal.orgId, username), 201)
+      await this.security.repository.setRoles(id, roles)
+      return json(await this.security.repository.findUser(principal.orgId, username), 201)
     }
     if (request.method === 'PATCH' && path.length === 4 && path[2] === 'users') {
       if (!sameOrigin(request)) return new Response('forbidden', { status: 403 })
@@ -212,18 +212,18 @@ export class EnterpriseAuthHttpHandler {
       if (body['roles'] !== undefined) {
         const roles = this.roles(body['roles'])
         if (roles === undefined) return json({ error: 'bad-request' }, 400)
-        this.security.repository.setRoles(userId, roles)
+        await this.security.repository.setRoles(userId, roles)
       }
       if (typeof body['disabled'] === 'boolean') {
-        this.security.repository.setUserDisabled(userId, body['disabled'])
+        await this.security.repository.setUserDisabled(userId, body['disabled'])
       }
       return new Response(null, { status: 204 })
     }
     if (request.method === 'GET' && path.length === 3 && path[2] === 'resource-policies') {
-      return json(this.security.repository.listResourcePolicies(principal.orgId))
+      return json(await this.security.repository.listResourcePolicies(principal.orgId))
     }
     if (request.method === 'GET' && path.length === 3 && path[2] === 'assets') {
-      return json(this.security.repository.listManagedAssets(principal.orgId))
+      return json(await this.security.repository.listManagedAssets(principal.orgId))
     }
     if (request.method === 'POST' && path.length === 3 && path[2] === 'assets') {
       if (!sameOrigin(request)) return new Response('forbidden', { status: 403 })
@@ -238,7 +238,7 @@ export class EnterpriseAuthHttpHandler {
         return json({ error: 'bad-request' }, 400)
       }
       try {
-        this.security.repository.putManagedAsset({
+        await this.security.repository.putManagedAsset({
           orgId: principal.orgId, type, id, name, config: config as Record<string, unknown>,
         })
       } catch {
@@ -260,7 +260,7 @@ export class EnterpriseAuthHttpHandler {
         || !Array.isArray(allowedUserIds) || allowedUserIds.some(id => typeof id !== 'string')) {
         return json({ error: 'bad-request' }, 400)
       }
-      this.security.repository.putResourcePolicy({
+      await this.security.repository.putResourcePolicy({
         resourceType, resourceId, orgId: principal.orgId,
         ...creatorUserId === undefined ? {} : { creatorUserId },
         visibility, allowedUserIds,
@@ -271,7 +271,7 @@ export class EnterpriseAuthHttpHandler {
       const limit = Math.min(Math.max(Number(url.searchParams.get('limit') ?? 100), 1), 500)
       const actorUserId = url.searchParams.get('actorUserId') ?? undefined
       const action = url.searchParams.get('action') as import('@deepseek-ai/dsh-enterprise-governance').EnterpriseAction | null
-      return json(this.security.repository.listAudit({
+      return json(await this.security.repository.listAudit({
         orgId: principal.orgId,
         limit,
         ...actorUserId === undefined ? {} : { actorUserId },
@@ -288,12 +288,12 @@ export class EnterpriseAuthHttpHandler {
     return [...new Set(value as EnterpriseRole[])]
   }
 
-  private commitLogin(identity: SsoLoginResult): Response {
+  private async commitLogin(identity: SsoLoginResult): Promise<Response> {
     return this.commitIdentity(identity, identity.returnTo)
   }
 
-  private commitIdentity(identity: SsoMappedIdentity, returnTo: string): Response {
-    const login = this.security.loginExternal(identity)
+  private async commitIdentity(identity: SsoMappedIdentity, returnTo: string): Promise<Response> {
+    const login = await this.security.loginExternalAsync(identity)
     return new Response(null, {
       status: 303,
       headers: { location: returnTo, 'set-cookie': login.cookie, 'cache-control': 'no-store' },

@@ -130,6 +130,7 @@
     { "path": "./packages/identity/enterprise-auth-web" },
     { "path": "./packages/catalog/enterprise-catalog" },
     { "path": "./packages/operations/enterprise-operations" },
+    { "path": "./packages/enterprise/enterprise-postgres" },
     { "path": "./packages/knowledge/knowledge-pgvector" },
     { "path": "./packages/session/session-persistence-postgres" },
     { "path": "./packages/identity/enterprise-sso" },

@@ -13,9 +13,20 @@
       Buffer.from(process.env.DSH_ENTERPRISE_MASTER_KEY ?? '', 'base64') })
 
 - insert:
+    - id: enterprise-postgres
+      name: '@deepseek-ai/dsh-enterprise-postgres'
+      disabled: !!js process.env.DSH_ENTERPRISE_DATABASE_MODE !== 'postgres'
+      config:
+        connectionString: !!js process.env.DSH_ENTERPRISE_DATABASE_URL ?? ''
+        poolMax: !!js Number(process.env.DSH_ENTERPRISE_PG_POOL_MAX ?? '20')
+        idleTimeoutMs: !!js Number(process.env.DSH_ENTERPRISE_PG_IDLE_TIMEOUT_MS ?? '30000')
+        connectionTimeoutMs: !!js Number(process.env.DSH_ENTERPRISE_PG_CONNECT_TIMEOUT_MS ?? '10000')
+        ssl: !!js process.env.DSH_ENTERPRISE_PG_SSL === 'true'
+
     - id: enterprise-auth-web
       name: '@deepseek-ai/dsh-enterprise-auth-web'
       config:
+        databaseMode: !!js process.env.DSH_ENTERPRISE_DATABASE_MODE === 'postgres' ? 'postgres' : 'sqlite'
         databasePath: !!js dshHomePath('enterprise/identity.sqlite')
         organizationId: !!js process.env.DSH_ENTERPRISE_ORG_ID ?? 'default-enterprise'
         organizationName: !!js process.env.DSH_ENTERPRISE_ORG_NAME ?? 'DeepSeek Harness Enterprise'

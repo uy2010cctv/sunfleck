@@ -1,0 +1,14 @@
+{
+  "extends": "../../../tsconfig.base.json",
+  "compilerOptions": { "rootDir": "src", "outDir": "lib/types" },
+  "include": ["src"],
+  "references": [
+    { "path": "../../identity/enterprise-identity-postgres" },
+    { "path": "../../session/session-persistence-postgres" },
+    { "path": "../../catalog/enterprise-catalog" },
+    { "path": "../../operations/enterprise-operations" },
+    { "path": "../../knowledge/knowledge-pgvector" },
+    { "path": "../../runtime-diagnostics/invariants" },
+    { "path": "../../../vendor/cordis" }
+  ]
+}

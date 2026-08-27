@@ -72,6 +72,7 @@
     "@deepseek-ai/dsh-enterprise-identity-postgres": "workspace:^",
     "@deepseek-ai/dsh-enterprise-catalog": "workspace:^",
     "@deepseek-ai/dsh-enterprise-operations": "workspace:^",
+    "@deepseek-ai/dsh-enterprise-postgres": "workspace:^",
     "@deepseek-ai/dsh-session-persistence-postgres": "workspace:^",
     "@deepseek-ai/dsh-channel-kernel": "workspace:^",
     "@deepseek-ai/dsh-channel-wecom": "workspace:^",

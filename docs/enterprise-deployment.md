@@ -7,12 +7,14 @@ The ordinary `dsh web` profile remains the loopback developer profile. Enable au
 ```sh
 export DSH_ENTERPRISE_MASTER_KEY='<base64 32-byte key>'
 export DSH_ENTERPRISE_ADMIN_PASSWORD='<initial 12+ character password>'
+export DSH_ENTERPRISE_DATABASE_MODE='postgres'
+export DSH_ENTERPRISE_DATABASE_URL='postgresql://user:password@db.internal:5432/dsh_enterprise'
 pnpm dsh web --patch apps/cli/config/enterprise.cordis.patch.yml --host 127.0.0.1 --port 3081
 ```
 
 Generate and custody `DSH_ENTERPRISE_MASTER_KEY` in the deployment secret manager. Do not store it beside the encrypted credential document. The initial administrator password is read through the Credential seam and is used only when the bootstrap administrator does not exist.
 
-Persistent enterprise state lives under `$DSH_HOME/enterprise/`: `identity.sqlite` stores organizations, users, role memberships, hashed sessions, resource policies, and audit; `credentials.enc.json` stores AES-256-GCM envelopes only.
+Production composition uses `DSH_ENTERPRISE_DATABASE_MODE=postgres` and `DSH_ENTERPRISE_DATABASE_URL`; PostgreSQL stores identity, Session, employee catalog, operations, and knowledge index data, and pgvector must be installed. Without that mode the explicit Desktop SQLite fallback is used. `credentials.enc.json` stores AES-256-GCM envelopes only.
 
 ## SSO configuration
 

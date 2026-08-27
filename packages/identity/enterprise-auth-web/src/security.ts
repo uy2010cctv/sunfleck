@@ -47,6 +47,13 @@ function stringField(payload: Record<string, unknown>, ...fields: string[]): str
   return undefined
 }
 
+function syncValue<T>(value: T | Promise<T>, operation: string): T {
+  if (typeof value === 'object' && value !== null && typeof (value as PromiseLike<T>).then === 'function') {
+    throw new Error(`${operation} requires the async security method`)
+  }
+  return value as T
+}
+
 const SESSION_READ = new Set([
   'host.describe', 'host.listDirectory', 'events.mux', 'events.host',
   'session.list', 'session.search', 'session.history', 'session.models', 'session.attachment',
@@ -140,17 +147,17 @@ export class EnterpriseSecurity {
   }
 
   loginLocal(orgId: string, username: string, password: string): LoginResult | undefined {
-    const record = this.repository.passwordLoginRecord(orgId, username)
+    const record = syncValue(this.repository.passwordLoginRecord(orgId, username), 'loginLocal')
     if (record === undefined || record.disabled || !verifyPassword(password, record.verifier)) return undefined
     return this.issueSession(record.userId)
   }
 
   issueSession(userId: string): LoginResult {
-    const user = this.repository.listUsers(this.config.organizationId).find(candidate => candidate.id === userId)
+    const user = syncValue(this.repository.listUsers(this.config.organizationId), 'issueSession').find(candidate => candidate.id === userId)
     if (user === undefined || user.disabled) throw new Error('enterprise session user is unavailable')
     const token = this.randomToken()
-    this.repository.createSession({ token, userId, expiresAt: this.now() + this.config.sessionTtlMs })
-    const principal = this.repository.authenticateSession(token)
+    syncValue(this.repository.createSession({ token, userId, expiresAt: this.now() + this.config.sessionTtlMs }), 'issueSession')
+    const principal = syncValue(this.repository.authenticateSession(token), 'issueSession')
     if (principal === undefined) throw new Error('enterprise session failed to become readable after commit')
     return {
       principal,
@@ -168,25 +175,25 @@ export class EnterpriseSecurity {
     if (identity.organizationId !== this.config.organizationId) {
       throw new Error('SSO identity belongs to a different enterprise organization')
     }
-    let user = this.repository.resolveExternalIdentity(identity.providerId, identity.subject)
+    let user = syncValue(this.repository.resolveExternalIdentity(identity.providerId, identity.subject), 'loginExternal')
     if (user === undefined) {
       if (!this.config.autoProvisionSsoUsers) throw new Error('SSO identity is not bound to an enterprise user')
-      if (this.repository.findUser(identity.organizationId, identity.username) !== undefined) {
+      if (syncValue(this.repository.findUser(identity.organizationId, identity.username), 'loginExternal') !== undefined) {
         throw new Error('SSO username already belongs to an unbound enterprise user')
       }
       const userId = this.randomId()
-      this.repository.createUser({
+      syncValue(this.repository.createUser({
         id: userId,
         orgId: identity.organizationId,
         username: identity.username,
         displayName: identity.displayName,
         disabled: false,
-      })
-      this.repository.setRoles(userId, identity.roles)
-      this.repository.bindExternalIdentity({ providerId: identity.providerId, subject: identity.subject, userId })
-      user = this.repository.resolveExternalIdentity(identity.providerId, identity.subject)
+      }), 'loginExternal')
+      syncValue(this.repository.setRoles(userId, identity.roles), 'loginExternal')
+      syncValue(this.repository.bindExternalIdentity({ providerId: identity.providerId, subject: identity.subject, userId }), 'loginExternal')
+      user = syncValue(this.repository.resolveExternalIdentity(identity.providerId, identity.subject), 'loginExternal')
     } else {
-      this.repository.setRoles(user.id, identity.roles)
+      syncValue(this.repository.setRoles(user.id, identity.roles), 'loginExternal')
     }
     if (user === undefined || user.disabled) throw new Error('SSO enterprise user is unavailable')
     return this.issueSession(user.id)
@@ -194,12 +201,104 @@ export class EnterpriseSecurity {
 
   authenticateCookie(cookieHeader: string): EnterprisePrincipalView | undefined {
     const token = parseSessionCookie(cookieHeader, this.config.sessionCookieName)
-    return token === undefined ? undefined : this.repository.authenticateSession(token)
+    return token === undefined ? undefined : syncValue(this.repository.authenticateSession(token), 'authenticateCookie')
   }
 
   logout(cookieHeader: string): void {
     const token = parseSessionCookie(cookieHeader, this.config.sessionCookieName)
-    if (token !== undefined) this.repository.revokeSession(token)
+    if (token !== undefined) syncValue(this.repository.revokeSession(token), 'logout')
+  }
+
+  /** Async counterparts used by PostgreSQL-backed production composition. */
+  async loginLocalAsync(orgId: string, username: string, password: string): Promise<LoginResult | undefined> {
+    const record = await this.repository.passwordLoginRecord(orgId, username)
+    if (record === undefined || record.disabled || !verifyPassword(password, record.verifier)) return undefined
+    return this.issueSessionAsync(record.userId)
+  }
+
+  async issueSessionAsync(userId: string): Promise<LoginResult> {
+    const user = (await this.repository.listUsers(this.config.organizationId)).find(candidate => candidate.id === userId)
+    if (user === undefined || user.disabled) throw new Error('enterprise session user is unavailable')
+    const token = this.randomToken()
+    await this.repository.createSession({ token, userId, expiresAt: this.now() + this.config.sessionTtlMs })
+    const principal = await this.repository.authenticateSession(token)
+    if (principal === undefined) throw new Error('enterprise session failed to become readable after commit')
+    return {
+      principal,
+      token,
+      cookie: serializeSessionCookie({
+        name: this.config.sessionCookieName,
+        token,
+        maxAgeSeconds: Math.floor(this.config.sessionTtlMs / 1000),
+        secure: this.config.secureCookies,
+      }),
+    }
+  }
+
+  async loginExternalAsync(identity: SsoMappedIdentity): Promise<LoginResult> {
+    if (identity.organizationId !== this.config.organizationId) {
+      throw new Error('SSO identity belongs to a different enterprise organization')
+    }
+    let user = await this.repository.resolveExternalIdentity(identity.providerId, identity.subject)
+    if (user === undefined) {
+      if (!this.config.autoProvisionSsoUsers) throw new Error('SSO identity is not bound to an enterprise user')
+      if (await this.repository.findUser(identity.organizationId, identity.username) !== undefined) {
+        throw new Error('SSO username already belongs to an unbound enterprise user')
+      }
+      const userId = this.randomId()
+      await this.repository.createUser({
+        id: userId, orgId: identity.organizationId, username: identity.username,
+        displayName: identity.displayName, disabled: false,
+      })
+      await this.repository.setRoles(userId, identity.roles)
+      await this.repository.bindExternalIdentity({ providerId: identity.providerId, subject: identity.subject, userId })
+      user = await this.repository.resolveExternalIdentity(identity.providerId, identity.subject)
+    } else {
+      await this.repository.setRoles(user.id, identity.roles)
+    }
+    if (user === undefined || user.disabled) throw new Error('SSO enterprise user is unavailable')
+    return this.issueSessionAsync(user.id)
+  }
+
+  async authenticateCookieAsync(cookieHeader: string): Promise<EnterprisePrincipalView | undefined> {
+    const token = parseSessionCookie(cookieHeader, this.config.sessionCookieName)
+    return token === undefined ? undefined : this.repository.authenticateSession(token)
+  }
+
+  async logoutAsync(cookieHeader: string): Promise<void> {
+    const token = parseSessionCookie(cookieHeader, this.config.sessionCookieName)
+    if (token !== undefined) await this.repository.revokeSession(token)
+  }
+
+  async authorizeApiAsync(principal: EnterprisePrincipal, endpoint: string, input: unknown): Promise<EnterpriseAuthorizationDecision> {
+    const classification = classifyApiEndpoint(endpoint, input)
+    if (classification === undefined) return { allowed: false, reason: 'insufficient-role' }
+    let resource: EnterpriseResource | undefined
+    if (classification.resourceId !== undefined) {
+      resource = await this.repository.resourcePolicy(classification.resourceType, classification.resourceId) ?? {
+        orgId: principal.orgId, visibility: 'organization',
+      }
+    }
+    return authorizeEnterprise({ principal, action: classification.action, ...resource === undefined ? {} : { resource } })
+  }
+
+  async auditApiAsync(
+    principal: EnterprisePrincipal,
+    endpoint: string,
+    input: unknown,
+    decision: EnterpriseAuthorizationDecision,
+    correlationId: string,
+  ): Promise<void> {
+    const classification = classifyApiEndpoint(endpoint, input) ?? {
+      action: 'api.unknown' as const, resourceType: 'api-endpoint', resourceId: endpoint,
+    }
+    await this.repository.appendAudit({
+      id: this.randomId(), orgId: principal.orgId, actorUserId: principal.userId,
+      action: classification.action, resourceType: classification.resourceType,
+      resourceId: classification.resourceId ?? endpoint,
+      decision: decision.allowed ? 'allowed' : 'denied', reason: decision.reason,
+      correlationId, at: this.now(), details: { endpoint },
+    })
   }
 
   authorizeApi(principal: EnterprisePrincipal, endpoint: string, input: unknown): EnterpriseAuthorizationDecision {
@@ -207,7 +306,7 @@ export class EnterpriseSecurity {
     if (classification === undefined) return { allowed: false, reason: 'insufficient-role' }
     let resource: EnterpriseResource | undefined
     if (classification.resourceId !== undefined) {
-      resource = this.repository.resourcePolicy(classification.resourceType, classification.resourceId) ?? {
+      resource = syncValue(this.repository.resourcePolicy(classification.resourceType, classification.resourceId), 'authorizeApi') ?? {
         orgId: principal.orgId,
         visibility: 'organization',
       }
@@ -225,7 +324,7 @@ export class EnterpriseSecurity {
     const classification = classifyApiEndpoint(endpoint, input) ?? {
       action: 'api.unknown' as const, resourceType: 'api-endpoint', resourceId: endpoint,
     }
-    this.repository.appendAudit({
+    syncValue(this.repository.appendAudit({
       id: this.randomId(),
       orgId: principal.orgId,
       actorUserId: principal.userId,
@@ -237,6 +336,6 @@ export class EnterpriseSecurity {
       correlationId,
       at: this.now(),
       details: { endpoint },
-    })
+    }), 'auditApi')
   }
 }
