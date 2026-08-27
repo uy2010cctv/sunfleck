@@ -24,6 +24,7 @@ describe('enterprise auth Web plugin', () => {
     ctx.provide('credentials', {
       resolve: () => Promise.resolve({ value: 'enterprise-password', source: 'test' }),
     } as unknown as CredentialProvider)
+    ctx.provide('enterprisePostgres', {} as never)
     const fiber = ctx.plugin({ inject: [...inject], apply }, {
       databasePath: join(root, 'identity.sqlite'),
       organizationId: 'org-a', organizationName: 'Example',
@@ -60,6 +61,7 @@ describe('enterprise auth Web plugin', () => {
     const injected = new (await import('@deepseek-ai/dsh-enterprise-identity')).EnterpriseIdentityRepository(
       join(root, 'injected.sqlite'),
     )
+    ctx.provide('enterprisePostgres', { identity: injected } as never)
     const fiber = ctx.plugin({ inject: [...inject], apply }, {
       identityStore: injected,
       organizationId: 'org-a', organizationName: 'Example',
