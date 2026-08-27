@@ -22,7 +22,7 @@ Auth plugin 卸载时会调用 `EnterpriseRequestContext.dispose()`，禁用底�
 
 企业 overlay 为 Connection 注入 `enterpriseSecurity` 和 `enterpriseRequestContext`。因此 Loader 会等待 `enterprisePostgres` 激活 auth，再等 auth 发布两个服务后才激活 Connection；基础 Web Profile 仍只注入 `webRuntime`。
 
-企业 ApiProxy handler 只通过 `requirePrincipal()` 读取身份。Employee 与 Asset handler 在显式异步授权和审计后，向 PostgreSQL catalog 调用注入 `orgId`、`ownerUserId`、`createdBy` 或 `publishedBy`。Team、Work Record、Approval 与 Schedule handler 委托 `EnterpriseOperationsService`，由它在调用 driver 前注入组织范围与 actor 身份。企业请求 schema 严格校验，不包含 principal 或组织字段。
+企业 ApiProxy handler 只通过 `requirePrincipal()` 读取身份。Employee 与 Asset handler 在显式异步授权和审计后，向 PostgreSQL catalog 调用注入 `orgId`、`ownerUserId`、`createdBy` 或 `publishedBy`。PostgreSQL 模式下，identity policy miss 会把员工资源解析委托给 catalog draft；其 owner 与 visibility 成为授权资源，draft 不存在或 restricted draft 没有 identity-policy allowlist 时失败关闭。Team、Work Record、Approval 与 Schedule handler 委托 `EnterpriseOperationsService`，由它在调用 driver 前注入组织范围与 actor 身份。企业请求 schema 严格校验，不包含 principal 或组织字段。
 
 企业写入仅在 repository Promise resolve 后发出带组织标记的失效事件。Host event stream 捕获打开请求的 `current()` principal，仅在事件组织匹配时转发企业帧；没有企业请求上下文的 stream 不订阅企业事件。
 

@@ -17,6 +17,7 @@ import {
 import { EnterpriseAuthHttpHandler } from './http.ts'
 import { EnterpriseRequestContext } from './request-context.ts'
 import { EnterpriseSecurity, type EnterpriseSecurityConfig } from './security.ts'
+import type { EnterprisePrincipal, EnterpriseResource } from '@deepseek-ai/dsh-enterprise-governance'
 
 export interface BootstrapAdminConfig {
   readonly userId: string
@@ -79,7 +80,10 @@ async function writeResponse(res: ServerResponse, response: Response): Promise<v
 /** Mount the persistent identity service and authentication endpoints. */
 export async function apply(ctx: Context, config: EnterpriseAuthWebConfig): Promise<void> {
   const databasePath = config.databasePath
-  const postgres = ctx.get('enterprisePostgres') as { identity: EnterpriseIdentityStore } | undefined
+  const postgres = ctx.get('enterprisePostgres') as {
+    identity: EnterpriseIdentityStore
+    catalog?: { getDraft(presetId: string, orgId: string): Promise<{ ownerUserId: string; visibility: EnterpriseResource['visibility'] } | undefined> }
+  } | undefined
   let ownsRepository = false
   const repository: EnterpriseIdentityStore = config.identityStore
     ?? (config.databaseMode === 'postgres' ? postgres?.identity : undefined)
@@ -111,7 +115,19 @@ export async function apply(ctx: Context, config: EnterpriseAuthWebConfig): Prom
       await repository.setPasswordVerifier(config.bootstrapAdmin.userId, createPasswordVerifier(resolved.value))
     }
 
-    const security = new EnterpriseSecurity(repository, config)
+    const security = new EnterpriseSecurity(repository, config, {
+      ...config.databaseMode !== 'postgres' || postgres?.catalog === undefined ? {} : {
+        resourcePolicyResolver: async (resourceType: string, resourceId: string, principal: EnterprisePrincipal) => {
+          if (resourceType !== 'employee') return undefined
+          const draft = await postgres.catalog?.getDraft(resourceId, principal.orgId)
+          return draft === undefined ? null : {
+            orgId: principal.orgId,
+            creatorUserId: draft.ownerUserId,
+            visibility: draft.visibility,
+          }
+        },
+      },
+    })
     requestContext = new EnterpriseRequestContext()
     const activeRequestContext = requestContext
     const oidc = await Promise.all(config.oidc.map(async (provider) => {

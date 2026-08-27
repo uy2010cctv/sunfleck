@@ -87,9 +87,17 @@ describe('enterprise auth Web plugin', () => {
     const injected = new (await import('@deepseek-ai/dsh-enterprise-identity')).EnterpriseIdentityRepository(
       join(root, 'injected.sqlite'),
     )
-    ctx.provide('enterprisePostgres', { identity: injected } as never)
+    ctx.provide('enterprisePostgres', {
+      identity: injected,
+      catalog: {
+        getDraft: async (presetId: string, orgId: string) => presetId === 'owned' && orgId === 'org-a'
+          ? { ownerUserId: 'creator-1', visibility: 'private' as const }
+          : undefined,
+      },
+    } as never)
     const fiber = ctx.plugin({ inject: [...inject], apply }, {
       identityStore: injected,
+      databaseMode: 'postgres',
       organizationId: 'org-a', organizationName: 'Example',
       sessionCookieName: 'dsh_session', sessionTtlMs: 60_000, secureCookies: false,
       autoProvisionSsoUsers: true, localEnabled: true,
@@ -99,6 +107,11 @@ describe('enterprise auth Web plugin', () => {
 
     expect(ctx.enterpriseSecurity.repository).toBe(injected)
     expect(injected.listOrganizations()).toEqual([{ id: 'org-a', name: 'Example' }])
+    await expect(ctx.enterpriseSecurity.authorizeApiAsync(
+      { userId: 'creator-1', orgId: 'org-a', roles: ['creator'] },
+      'enterpriseEmployee.publish',
+      { presetId: 'owned' },
+    )).resolves.toMatchObject({ allowed: true })
     await fiber.dispose()
     expect(routes).toHaveLength(0)
     expect(injected.listOrganizations()).toEqual([{ id: 'org-a', name: 'Example' }])

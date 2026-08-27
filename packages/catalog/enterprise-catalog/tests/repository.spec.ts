@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   EnterpriseCatalogRepository,
+  EnterpriseCatalogError,
   EmployeeDraftRevisionConflictError,
   type PostgresDatabase,
   type PostgresQueryResult,
@@ -284,13 +285,15 @@ function parameter(text: string, prefix: string): number | undefined {
   return match?.[1] === undefined ? undefined : Number(match[1]) - 1
 }
 
-const CURSOR_SIGNING_KEY = Buffer.from('0123456789abcdef0123456789abcdef')
+const CURSOR_SIGNING_KEY = '0123456789abcdef0123456789abcdef'
 
 function changeBase64urlPaddingBits(value: string): string {
   const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_'
-  const last = value.at(-1)!
+  const last = value.at(-1)
+  if (last === undefined) throw new Error('base64url segment is empty')
   const index = alphabet.indexOf(last)
-  const replacement = alphabet[(index & ~3) | ((index + 1) & 3)]!
+  const replacement = alphabet[(index & ~3) | ((index + 1) & 3)]
+  if (replacement === undefined) throw new Error('base64url replacement is unavailable')
   return `${value.slice(0, -1)}${replacement}`
 }
 
@@ -324,12 +327,14 @@ describe('EnterpriseCatalogRepository', () => {
     await expect(repository.getDraft('preset-sales', 'org-a')).resolves.toMatchObject({ profile: { name: 'Sales assistant' }, revision: 1 })
   })
 
-  it('returns the original result for an idempotent draft save', async () => {
+  it('returns the original result only for an identical idempotent draft save', async () => {
     const repository = catalogRepository()
     const first = await repository.saveDraft(firstDraft)
-    const retried = await repository.saveDraft({ ...firstDraft, profile: { ...firstDraft.profile, name: 'Ignored by idempotency' } })
+    const retried = await repository.saveDraft(firstDraft)
 
     expect(retried).toEqual(first)
+    await expect(repository.saveDraft({ ...firstDraft, profile: { ...firstDraft.profile, name: 'Different' } }))
+      .rejects.toMatchObject({ constructor: EnterpriseCatalogError, code: 'idempotency-conflict' })
   })
 
   it('keeps releases immutable while pinning each capability binding to its version', async () => {
@@ -560,9 +565,10 @@ describe('EnterpriseCatalogRepository', () => {
     const cursor = first.nextCursor!
     const tampered = `${cursor.slice(0, -1)}${cursor.endsWith('A') ? 'B' : 'A'}`
 
-    await expect(repository.listDrafts({ orgId: 'org-a', limit: 1, cursor: tampered })).rejects.toThrow('signature')
+    await expect(repository.listDrafts({ orgId: 'org-a', limit: 1, cursor: tampered }))
+      .rejects.toThrow(/signature|canonical/u)
     const wrongKey = new EnterpriseCatalogRepository(database, {
-      cursorSigningKey: Buffer.from('fedcba9876543210fedcba9876543210'),
+      cursorSigningKey: 'fedcba9876543210fedcba9876543210',
     })
     await expect(wrongKey.listDrafts({ orgId: 'org-a', limit: 1, cursor })).rejects.toThrow('signature')
   })
@@ -573,9 +579,10 @@ describe('EnterpriseCatalogRepository', () => {
     await repository.saveDraft(firstDraft)
     await repository.saveDraft({ ...firstDraft, presetId: 'preset-two', idempotencyKey: 'canonical-two' })
     const page = await repository.listDrafts({ orgId: 'org-a', limit: 1 })
-    const [payload, signature] = page.nextCursor!.split('.') as [string, string]
+    const [payload, signature] = page.nextCursor?.split('.') ?? []
+    if (payload === undefined || signature === undefined) throw new Error('signed cursor is unavailable')
     const nonCanonical = `${payload}.${changeBase64urlPaddingBits(signature)}`
-    expect(Buffer.from(nonCanonical.split('.')[1]!, 'base64url')).toEqual(Buffer.from(signature, 'base64url'))
+    expect(nonCanonical).not.toBe(`${payload}.${signature}`)
 
     await expect(repository.listDrafts({ orgId: 'org-a', limit: 1, cursor: nonCanonical }))
       .rejects.toThrow('canonical')

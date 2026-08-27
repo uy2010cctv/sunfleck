@@ -80,6 +80,18 @@ export class EmployeeDraftRevisionConflictError extends Error {
   }
 }
 
+/** Stable catalog failure used by Host adapters without exposing database diagnostics. */
+export class EnterpriseCatalogError extends Error {
+  constructor(
+    readonly code: 'idempotency-conflict' | 'cursor-invalid' | 'not-found' | 'invalid-state' | 'invalid-binding',
+    readonly resourceType: 'employee' | 'asset',
+    readonly resourceId?: string,
+  ) {
+    super(`enterprise catalog ${code}`)
+    this.name = 'EnterpriseCatalogError'
+  }
+}
+
 interface DraftRow extends Record<string, unknown> {
   readonly preset_id: string
   readonly org_id: string
@@ -239,7 +251,8 @@ export class EnterpriseCatalogRepository {
     assertNoSecrets(input.bindings)
     return this.database.transaction(async (database) => {
       await this.lock(database, `${input.orgId}:draft:${input.presetId}`)
-      const prior = await this.idempotent<EmployeeDraftView>(database, input.orgId, 'draft', input.idempotencyKey)
+      await this.lock(database, `idempotency:${input.orgId}:draft:${input.idempotencyKey}`)
+      const prior = await this.idempotent<EmployeeDraftView>(database, input.orgId, 'draft', input.idempotencyKey, input)
       if (prior !== undefined) return prior
       const current = await database.query<DraftRow>(
         'SELECT * FROM dsh_enterprise_employee_drafts WHERE preset_id = $1 FOR UPDATE', [input.presetId],
@@ -270,7 +283,7 @@ export class EnterpriseCatalogRepository {
             JSON.stringify(input.bindings), updatedAt, input.presetId],
         )
       const view = this.draft(required(result.rows[0], 'catalog draft insert returned no row'))
-      await this.remember(database, input.orgId, 'draft', input.idempotencyKey, view)
+      await this.remember(database, input.orgId, 'draft', input.idempotencyKey, input, view)
       return view
     })
   }
@@ -342,7 +355,8 @@ export class EnterpriseCatalogRepository {
     assertNoSecrets(input.content)
     return this.database.transaction(async (database) => {
       await this.lock(database, `${input.orgId}:asset:${input.assetId}`)
-      const prior = await this.idempotent<EnterpriseAssetVersionView>(database, input.orgId, 'asset', input.idempotencyKey)
+      await this.lock(database, `idempotency:${input.orgId}:asset:${input.idempotencyKey}`)
+      const prior = await this.idempotent<EnterpriseAssetVersionView>(database, input.orgId, 'asset', input.idempotencyKey, input)
       if (prior !== undefined) return prior
       const existing = await database.query<AssetRow>(
         'SELECT * FROM dsh_enterprise_asset_catalog WHERE asset_id = $1 FOR UPDATE', [input.assetId],
@@ -380,7 +394,7 @@ export class EnterpriseCatalogRepository {
         [input.assetId, version, JSON.stringify(input.content), input.createdBy, this.now()],
       )
       const view = this.version(required(result.rows[0], 'catalog asset version insert returned no row'))
-      await this.remember(database, input.orgId, 'asset', input.idempotencyKey, view)
+      await this.remember(database, input.orgId, 'asset', input.idempotencyKey, input, view)
       return view
     })
   }
@@ -520,7 +534,8 @@ export class EnterpriseCatalogRepository {
     await this.initialize()
     return this.database.transaction(async (database) => {
       await this.lock(database, `${input.orgId}:draft:${input.presetId}`)
-      const prior = await this.idempotent<EmployeeReleaseView>(database, input.orgId, 'publish', input.idempotencyKey)
+      await this.lock(database, `idempotency:${input.orgId}:publish:${input.idempotencyKey}`)
+      const prior = await this.idempotent<EmployeeReleaseView>(database, input.orgId, 'publish', input.idempotencyKey, input)
       if (prior !== undefined) return prior
       const draftResult = await database.query<DraftRow>(
         'SELECT * FROM dsh_enterprise_employee_drafts WHERE preset_id = $1 AND org_id = $2 FOR UPDATE',
@@ -583,7 +598,7 @@ export class EnterpriseCatalogRepository {
         throw new EmployeeDraftRevisionConflictError(input.presetId, input.expectedRevision, Number(draft.revision))
       }
       const view = this.release(required(release.rows[0], 'catalog release insert returned no row'))
-      await this.remember(database, draft.org_id, 'publish', input.idempotencyKey, view)
+      await this.remember(database, draft.org_id, 'publish', input.idempotencyKey, input, view)
       return view
     })
   }
@@ -618,7 +633,8 @@ export class EnterpriseCatalogRepository {
     await this.initialize()
     return this.database.transaction(async (database) => {
       await this.lock(database, `${input.orgId}:draft:${input.presetId}`)
-      const prior = await this.idempotent<EmployeeReleaseView>(database, input.orgId, 'rollback', input.idempotencyKey)
+      await this.lock(database, `idempotency:${input.orgId}:rollback:${input.idempotencyKey}`)
+      const prior = await this.idempotent<EmployeeReleaseView>(database, input.orgId, 'rollback', input.idempotencyKey, input)
       if (prior !== undefined) return prior
       const sourceResult = await database.query<ReleaseRow>(
         'SELECT * FROM dsh_enterprise_employee_releases WHERE release_id = $1 FOR UPDATE', [input.releaseId],
@@ -675,26 +691,38 @@ export class EnterpriseCatalogRepository {
         throw new EmployeeDraftRevisionConflictError(input.presetId, input.expectedRevision, draft.revision)
       }
       const view = this.release(required(release.rows[0], 'catalog rollback insert returned no row'))
-      await this.remember(database, input.orgId, 'rollback', input.idempotencyKey, view)
+      await this.remember(database, input.orgId, 'rollback', input.idempotencyKey, input, view)
       return view
     })
   }
 
-  private async idempotent<T>(database: PostgresDatabase, orgId: string, operation: string, key: string): Promise<T | undefined> {
+  private async idempotent<T>(
+    database: PostgresDatabase, orgId: string, operation: string, key: string, request: unknown,
+  ): Promise<T | undefined> {
     const result = await database.query<{ result_json: unknown }>(
       'SELECT result_json FROM dsh_enterprise_catalog_idempotency WHERE org_id = $1 AND key = $2',
       [orgId, `${operation}:${key}`],
     )
-    return result.rows[0] === undefined ? undefined : parse(result.rows[0].result_json) as T
+    if (result.rows[0] === undefined) return undefined
+    const stored = parse(result.rows[0].result_json)
+    if (typeof stored !== 'object' || stored === null || Array.isArray(stored)) return stored as T
+    const envelope = stored as Record<string, unknown>
+    if (typeof envelope.requestDigest !== 'string') return stored as T
+    if (envelope.requestDigest !== catalogDigest(request)) {
+      throw new EnterpriseCatalogError('idempotency-conflict', operation === 'asset' ? 'asset' : 'employee')
+    }
+    return envelope.result as T
   }
 
   private async lock(database: PostgresDatabase, resource: string): Promise<void> {
     await database.query('SELECT pg_advisory_xact_lock(hashtext($1))', [resource])
   }
-  private async remember(database: PostgresDatabase, orgId: string, operation: string, key: string, value: unknown): Promise<void> {
+  private async remember(
+    database: PostgresDatabase, orgId: string, operation: string, key: string, request: unknown, value: unknown,
+  ): Promise<void> {
     await database.query(
       'INSERT INTO dsh_enterprise_catalog_idempotency(org_id, key, result_json) VALUES ($1, $2, $3::jsonb)',
-      [orgId, `${operation}:${key}`, JSON.stringify(value)],
+      [orgId, `${operation}:${key}`, JSON.stringify({ requestDigest: catalogDigest(request), result: value })],
     )
   }
   private draft(row: DraftRow): EmployeeDraftView {

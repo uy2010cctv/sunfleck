@@ -5,7 +5,7 @@ English | [中文](README.zh.md)
 Versioned enterprise catalog over native DSH identities:
 
 - Agent Preset ids remain the canonical employee identity.
-- Drafts use optimistic revisions and idempotent saves.
+- Draft, release, rollback, and asset-version writes acquire the entity lock before the idempotency lock. Their idempotency rows bind a canonical request digest to the stored result; exact retries return that result and key reuse with another request fails explicitly. Result-only rows created by the earlier schema remain readable during migration.
 - Management lists are always organization-scoped, use parameterized filters, and paginate by HMAC-SHA256-signed opaque cursors in `updatedAt` and id order.
 - Releases are immutable snapshots with deterministic SHA-256 digests.
 - SOP, knowledge, skill, tool, and model assets are versioned and bound to a release.

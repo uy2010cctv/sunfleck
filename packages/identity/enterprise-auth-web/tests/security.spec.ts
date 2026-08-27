@@ -106,6 +106,28 @@ describe('EnterpriseSecurity', () => {
       .toEqual({ allowed: false, reason: 'resource-hidden' })
   })
 
+  it('resolves catalog-owned employee policy after identity policy misses', async () => {
+    repository.createUser({ id: 'creator-1', orgId: 'org-a', username: 'creator', displayName: 'Creator', disabled: false })
+    repository.setRoles('creator-1', ['creator'])
+    const creator = { userId: 'creator-1', orgId: 'org-a', roles: ['creator'] as const }
+    const member = { userId: 'member-1', orgId: 'org-a', roles: ['member'] as const }
+    const resolved = new EnterpriseSecurity(repository, config, {
+      resourcePolicyResolver: async (_type, id) => id === 'owned'
+        ? { orgId: 'org-a', creatorUserId: 'creator-1', visibility: 'private' }
+        : id === 'other-org'
+          ? { orgId: 'org-b', creatorUserId: 'creator-1', visibility: 'organization' }
+          : id === 'restricted' ? { orgId: 'org-a', creatorUserId: 'creator-1', visibility: 'restricted' } : null,
+    })
+    await expect(resolved.authorizeApiAsync(creator, 'enterpriseEmployee.publish', { presetId: 'owned' }))
+      .resolves.toMatchObject({ allowed: true })
+    await expect(resolved.authorizeApiAsync(member, 'enterpriseEmployee.getDraft', { presetId: 'owned' }))
+      .resolves.toEqual({ allowed: false, reason: 'resource-hidden' })
+    await expect(resolved.authorizeApiAsync(creator, 'enterpriseEmployee.getDraft', { presetId: 'other-org' }))
+      .resolves.toEqual({ allowed: false, reason: 'organization-mismatch' })
+    await expect(resolved.authorizeApiAsync(member, 'enterpriseEmployee.getDraft', { presetId: 'restricted' }))
+      .resolves.toEqual({ allowed: false, reason: 'resource-hidden' })
+  })
+
   it('records every allowed and denied API decision with correlation evidence', () => {
     const member = security.loginLocal('org-a', 'member', 'enterprise-password')?.principal
     security.auditApi(member!, 'credentials.set', {}, { allowed: false, reason: 'insufficient-role' }, 'rpc-1')

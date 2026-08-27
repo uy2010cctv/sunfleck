@@ -79,6 +79,8 @@ export const rpcErrorSchema: z.ZodType<RpcError> = z.discriminatedUnion('code', 
   z.object({ code: z.literal('enterprise-not-found'), message: z.string(), details: z.object({ resourceType: z.string(), resourceId: z.string() }) }),
   z.object({ code: z.literal('enterprise-invalid-state'), message: z.string(), details: z.object({ resourceType: z.string(), resourceId: z.string() }) }),
   z.object({ code: z.literal('enterprise-idempotency-conflict'), message: z.string(), details: z.object({ resourceType: z.string() }) }),
+  z.object({ code: z.literal('enterprise-invalid-cursor'), message: z.string(), details: z.object({ resourceType: z.string() }) }),
+  z.object({ code: z.literal('enterprise-invalid-binding'), message: z.string(), details: z.object({ resourceType: z.string(), resourceId: z.string() }) }),
   z.object({ code: z.literal('internal'), message: z.string(), details: z.object({}) }),
 ]) as unknown as z.ZodType<RpcError>
 

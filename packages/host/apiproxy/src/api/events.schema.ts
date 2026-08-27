@@ -87,6 +87,7 @@ export const hostFrameSchema = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('enterprise/event'),
     event: z.enum(['enterprise/employee-updated', 'enterprise/asset-updated', 'enterprise/team-updated', 'enterprise/operation-updated', 'enterprise/approval-requested']),
+    eventId: z.string().length(64),
     orgId: z.string().min(1),
     resourceId: z.string().min(1),
   }),

@@ -97,6 +97,8 @@ export interface RpcErrorDetailsMap {
   'enterprise-not-found': { resourceType: string; resourceId: string }
   'enterprise-invalid-state': { resourceType: string; resourceId: string }
   'enterprise-idempotency-conflict': { resourceType: string }
+  'enterprise-invalid-cursor': { resourceType: string }
+  'enterprise-invalid-binding': { resourceType: string; resourceId: string }
   'internal': {}
 }
 

@@ -99,10 +99,18 @@ describe('summary blank = conversation not started', () => {
       presetId: 'employee-1', expectedRevision: 0, idempotencyKey: 'idem-1',
       visibility: 'organization' as const, profile: {}, bindings: [],
     }))
+    await api.enterpriseEmployees.saveDraft(request({
+      presetId: 'employee-1', expectedRevision: 0, idempotencyKey: 'idem-1',
+      visibility: 'organization' as const, profile: {}, bindings: [],
+    }))
 
     expect(response.result.ok).toBe(true)
-    expect(seen).toEqual([expect.objectContaining({ orgId: 'org-real', ownerUserId: 'user-real' })])
-    expect(events).toEqual([{ orgId: 'org-real', resourceId: 'employee-1' }])
+    expect(seen).toHaveLength(2)
+    expect(seen[0]).toEqual(expect.objectContaining({ orgId: 'org-real', ownerUserId: 'user-real' }))
+    expect(events).toHaveLength(1)
+    const event = events[0] as { eventId?: unknown; orgId?: unknown; resourceId?: unknown }
+    expect(event).toMatchObject({ orgId: 'org-real', resourceId: 'employee-1' })
+    expect(typeof event.eventId).toBe('string')
   })
 
   it('filters enterprise host events to the connected principal organization', async () => {
@@ -117,13 +125,27 @@ describe('summary blank = conversation not started', () => {
     const iterator = api.events.host(request({}), abort.signal)[Symbol.asyncIterator]()
     const next = iterator.next()
     await Promise.resolve()
-    ctx.emit('enterprise/asset-updated', { orgId: 'org-other', resourceId: 'asset-hidden' })
-    ctx.emit('enterprise/asset-updated', { orgId: 'org-real', resourceId: 'asset-visible' })
+    ctx.emit('enterprise/asset-updated', { eventId: 'a'.repeat(64), orgId: 'org-other', resourceId: 'asset-hidden' })
+    ctx.emit('enterprise/asset-updated', { eventId: 'b'.repeat(64), orgId: 'org-real', resourceId: 'asset-visible' })
     await expect(next).resolves.toMatchObject({
-      value: { payload: { type: 'enterprise/event', event: 'enterprise/asset-updated', orgId: 'org-real', resourceId: 'asset-visible' } },
+      value: { payload: { type: 'enterprise/event', event: 'enterprise/asset-updated', eventId: 'b'.repeat(64), orgId: 'org-real', resourceId: 'asset-visible' } },
     })
     abort.abort()
     await iterator.return?.()
+  })
+
+  it('returns a paged schedule value for the default list request', async () => {
+    const { ctx, api } = await harness()
+    ctx.provide('enterprisePostgres' as never, { catalog: {}, operations: { listSchedules: async () => [] } } as never)
+    ctx.provide('enterpriseRequestContext' as never, {
+      requirePrincipal: () => ({ userId: 'admin', orgId: 'org-real', roles: ['administrator'] }),
+    } as never)
+    ctx.provide('enterpriseSecurity' as never, {
+      authorizeApiAsync: async () => ({ allowed: true, reason: 'administrator' }),
+      auditApiAsync: async () => undefined,
+    } as never)
+    const response = await api.enterpriseOperations.listSchedules(request({}))
+    expect(response.result).toEqual({ ok: true, value: { items: [] } })
   })
   it('standalone events (command lifecycle, plan/mode, title) keep the session blank', async () => {
     const { ctx, api, attach } = await harness()

@@ -25,6 +25,12 @@ export interface EnterpriseSecurityOptions {
   readonly now?: () => number
   readonly randomToken?: () => string
   readonly randomId?: () => string
+  /** Resolves resources owned outside the identity repository; null means the owning store confirms absence. */
+  readonly resourcePolicyResolver?: (
+    resourceType: string,
+    resourceId: string,
+    principal: EnterprisePrincipal,
+  ) => Promise<EnterpriseResource | null | undefined>
 }
 
 export interface ApiClassification {
@@ -157,6 +163,7 @@ export class EnterpriseSecurity {
   private readonly now: () => number
   private readonly randomToken: () => string
   private readonly randomId: () => string
+  private readonly resourcePolicyResolver: EnterpriseSecurityOptions['resourcePolicyResolver']
 
   constructor(
     readonly repository: EnterpriseIdentityStore,
@@ -166,6 +173,7 @@ export class EnterpriseSecurity {
     this.now = options.now ?? Date.now
     this.randomToken = options.randomToken ?? (() => randomBytes(32).toString('base64url'))
     this.randomId = options.randomId ?? randomUUID
+    this.resourcePolicyResolver = options.resourcePolicyResolver
   }
 
   loginLocal(orgId: string, username: string, password: string): LoginResult | undefined {
@@ -297,9 +305,13 @@ export class EnterpriseSecurity {
     if (classification === undefined) return { allowed: false, reason: 'insufficient-role' }
     let resource: EnterpriseResource | undefined
     if (classification.resourceId !== undefined) {
-      resource = await this.repository.resourcePolicy(classification.resourceType, classification.resourceId) ?? {
-        orgId: principal.orgId, visibility: 'organization',
+      resource = await this.repository.resourcePolicy(classification.resourceType, classification.resourceId)
+      if (resource === undefined && this.resourcePolicyResolver !== undefined) {
+        const resolved = await this.resourcePolicyResolver(classification.resourceType, classification.resourceId, principal)
+        if (resolved === null) return { allowed: false, reason: 'resource-hidden' }
+        resource = resolved
       }
+      resource ??= { orgId: principal.orgId, visibility: 'organization' }
     }
     return authorizeEnterprise({ principal, action: classification.action, ...resource === undefined ? {} : { resource } })
   }
