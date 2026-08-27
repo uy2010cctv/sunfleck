@@ -80,12 +80,17 @@ async function writeResponse(res: ServerResponse, response: Response): Promise<v
 export async function apply(ctx: Context, config: EnterpriseAuthWebConfig): Promise<void> {
   const databasePath = config.databasePath
   const postgres = ctx.get('enterprisePostgres') as { identity: EnterpriseIdentityStore } | undefined
+  let ownsRepository = false
   const repository: EnterpriseIdentityStore = config.identityStore
     ?? (config.databaseMode === 'postgres' ? postgres?.identity : undefined)
     ?? (() => {
       if (databasePath === undefined) throw new Error('enterprise identity store or databasePath is required')
+      ownsRepository = true
       return new EnterpriseIdentityRepository(databasePath)
     })()
+  const closeOwnedRepository = (): void => {
+    if (ownsRepository) void repository.close()
+  }
   let requestContext: EnterpriseRequestContext | undefined
   try {
     if (!(await repository.listOrganizations()).some(org => org.id === config.organizationId)) {
@@ -137,12 +142,12 @@ export async function apply(ctx: Context, config: EnterpriseAuthWebConfig): Prom
       return () => {
         disposeRoute()
         activeRequestContext.dispose()
-        void repository.close()
+        closeOwnedRepository()
       }
     }, 'enterprise-auth-web: identity database and /auth routes')
   } catch (error) {
     requestContext?.dispose()
-    repository.close()
+    closeOwnedRepository()
     throw error
   }
 }

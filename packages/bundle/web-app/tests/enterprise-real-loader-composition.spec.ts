@@ -89,7 +89,7 @@ describe('real enterprise Loader composition', () => {
       expect(ctx.get('connection')).toBeUndefined()
 
       const organizationId = 'loader-enterprise-composition'
-      await ctx.loader.create({
+      const authEntryId = await ctx.loader.create({
         name: '@deepseek-ai/dsh-enterprise-auth-web',
         config: {
           databaseMode: 'postgres',
@@ -117,6 +117,11 @@ describe('real enterprise Loader composition', () => {
       expect(ctx.get('connection')).toBeDefined()
       await expect(get(ctx, '/auth/status')).resolves.toMatchObject({ status: 200 })
       await expect(get(ctx, '/api/profile.read')).resolves.toMatchObject({ status: 401 })
+
+      await ctx.loader.remove(authEntryId)
+      await ctx.loader.await()
+      expect(ctx.get('enterpriseSecurity')).toBeUndefined()
+      await expect(ctx.enterprisePostgres.database.health()).resolves.toMatchObject({ ok: true })
     },
   )
 })

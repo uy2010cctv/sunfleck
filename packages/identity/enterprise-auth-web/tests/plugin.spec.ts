@@ -45,6 +45,7 @@ describe('enterprise auth Web plugin', () => {
     ])
     expect(ctx.enterpriseRequestContext.current()).toBeUndefined()
     expect(ctx.enterpriseSecurity.loginLocal('org-a', 'admin', 'enterprise-password')).toBeDefined()
+    const closeOwnedRepository = vi.spyOn(ctx.enterpriseSecurity.repository, 'close')
 
     const firstRequestContext = ctx.enterpriseRequestContext
     let release!: () => void
@@ -54,6 +55,8 @@ describe('enterprise auth Web plugin', () => {
       return firstRequestContext.current()
     })
     await fiber.dispose()
+    expect(closeOwnedRepository).toHaveBeenCalledTimes(1)
+    closeOwnedRepository.mockRestore()
     release()
     await expect(pending).resolves.toBeUndefined()
     expect(routes).toHaveLength(0)
@@ -98,6 +101,8 @@ describe('enterprise auth Web plugin', () => {
     expect(injected.listOrganizations()).toEqual([{ id: 'org-a', name: 'Example' }])
     await fiber.dispose()
     expect(routes).toHaveLength(0)
+    expect(injected.listOrganizations()).toEqual([{ id: 'org-a', name: 'Example' }])
+    injected.close()
   })
 
   it('disposes the request context when OIDC initialization fails', async () => {
@@ -108,11 +113,14 @@ describe('enterprise auth Web plugin', () => {
     ctx.provide('credentials', {
       resolve: () => Promise.resolve(undefined),
     } as unknown as CredentialProvider)
-    ctx.provide('enterprisePostgres', {} as never)
+    const injected = new (await import('@deepseek-ai/dsh-enterprise-identity')).EnterpriseIdentityRepository(
+      join(root, 'failed-init.sqlite'),
+    )
+    ctx.provide('enterprisePostgres', { identity: injected } as never)
 
     try {
       const fiber = ctx.plugin({ inject: [...inject], apply }, {
-        databasePath: join(root, 'identity.sqlite'),
+        databaseMode: 'postgres',
         organizationId: 'org-a', organizationName: 'Example',
         sessionCookieName: 'dsh_session', sessionTtlMs: 60_000, secureCookies: false,
         autoProvisionSsoUsers: true, localEnabled: false,
@@ -129,8 +137,10 @@ describe('enterprise auth Web plugin', () => {
 
       await expect(fiber).rejects.toThrow('OIDC provider company client secret is not configured')
       expect(dispose).toHaveBeenCalledTimes(1)
+      expect(injected.listOrganizations()).toEqual([{ id: 'org-a', name: 'Example' }])
     } finally {
       dispose.mockRestore()
+      try { injected.close() } catch {}
     }
   })
 })

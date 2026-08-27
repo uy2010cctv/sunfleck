@@ -16,6 +16,7 @@
 Web 插件接受部署方提供的 `EnterpriseIdentityStore` 实现。`databasePath`
 仍可作为本地部署的可选 SQLite 后备；PostgreSQL 组合应通过该注入边界提供
 仓库，Web 包本身不会再强制打开 SQLite。
+该插件只关闭自己创建的 SQLite 仓库。外部提供的 `identityStore` 或 `enterprisePostgres.identity` 在 auth 卸载或初始化失败后仍归部署方所有。
 
 ## Model Experience
 

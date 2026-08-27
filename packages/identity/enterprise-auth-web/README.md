@@ -17,6 +17,7 @@ The Web plugin accepts a deployment-owned `identityStore` implementing the
 `EnterpriseIdentityStore` contract. `databasePath` remains an optional SQLite
 fallback for local deployments; PostgreSQL composition must provide the
 repository through this seam rather than making the Web package open SQLite.
+The plugin closes only the SQLite repository it constructs itself. A supplied `identityStore` or `enterprisePostgres.identity` remains deployment-owned across auth unload and failed initialization.
 
 ## Model Experience
 

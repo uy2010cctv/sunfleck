@@ -18,7 +18,7 @@ Connection 传输只在 Cookie 认证、端点授权和审计完成后进入该�
 
 启用企业安全时，HTTP RPC payload 的顶层 `principal` 键为保留键。会话认证后，Connection 在授权、审计或 dispatch 之前返回 HTTP 400，不转发、删除或解释该值。因此无效 payload 不会产生 allowed 审计记录。普通 Profile 保留不受限制的 payload 契约。
 
-Auth plugin 卸载时会调用 `EnterpriseRequestContext.dispose()`，禁用底层异步存储。上下文构建后发生的初始化失败会先 dispose 它，再关闭身份仓库。未完成的 continuation 会失去继承的 principal，之后的 plugin 加载会发布新的上下文实例。
+Auth plugin 卸载时会调用 `EnterpriseRequestContext.dispose()`，禁用底层异步存储。上下文构建后发生的初始化失败也会 dispose 它。Auth 只在自己创建 SQLite 后备仓库时关闭身份仓库；注入的 `identityStore` 或 `enterprisePostgres.identity` 仍由部署方所有并可继续使用。未完成的 continuation 会失去继承的 principal，之后的 plugin 加载会发布新的上下文实例。
 
 企业 overlay 为 Connection 注入 `enterpriseSecurity` 和 `enterpriseRequestContext`。因此 Loader 会等待 `enterprisePostgres` 激活 auth，再等 auth 发布两个服务后才激活 Connection；基础 Web Profile 仍只注入 `webRuntime`。
 
