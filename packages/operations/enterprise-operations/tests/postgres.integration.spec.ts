@@ -1,7 +1,8 @@
 import { Pool, type PoolClient, type QueryResultRow } from 'pg'
 import { afterAll, beforeEach, describe, expect, it } from 'vitest'
 import {
-  EnterpriseOperationsRepository, migrateEnterpriseOperations, type PostgresDatabase, type PostgresQueryResult,
+  EnterpriseOperationsError, EnterpriseOperationsRepository, migrateEnterpriseOperations,
+  type PostgresDatabase, type PostgresQueryResult,
 } from '../src/index.ts'
 
 const databaseUrl = process.env.DSH_TEST_POSTGRES_URL
@@ -111,7 +112,10 @@ describe.skipIf(database === undefined)('enterprise operations PostgreSQL', () =
     })))
     expect(results.filter(result => result.status === 'fulfilled')).toHaveLength(1)
     expect(results.filter(result => result.status === 'rejected')).toHaveLength(1)
-    expect(String((results.find(result => result.status === 'rejected') as PromiseRejectedResult).reason)).toContain('different request')
+    const rejected = results.find(result => result.status === 'rejected')
+    const reason: unknown = rejected?.status === 'rejected' ? rejected.reason : undefined
+    expect(reason).toBeInstanceOf(EnterpriseOperationsError)
+    expect(reason).toMatchObject({ code: 'idempotency-conflict' })
   })
 
   it('pages management queries, applies CAS updates, and uses pagination indexes', async () => {

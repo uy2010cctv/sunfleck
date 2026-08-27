@@ -102,8 +102,24 @@ describe.skipIf(databaseUrl === undefined)('enterprise ApiProxy with PostgreSQL'
       .toMatchObject({ ok: true, value: { items: [] } })
     await composition.identity.putResourcePolicy({
       resourceType: 'employee', resourceId: presetId, orgId,
+      creatorUserId: adminId, visibility: 'private', allowedUserIds: [memberId],
+    })
+    await expect(security.authorizeApiAsync(principal, 'enterpriseEmployee.getDraft', { presetId }))
+      .resolves.toMatchObject({ allowed: false, reason: 'resource-hidden' })
+    expect((await client.enterpriseEmployees.list({})).result)
+      .toMatchObject({ ok: true, value: { items: [] } })
+    principal = { userId: adminId, orgId, roles: ['administrator'] }
+    expect((await client.enterpriseEmployees.saveDraft({
+      presetId, expectedRevision: 2, idempotencyKey: `restricted-${suffix}`,
+      visibility: 'restricted', profile: {}, bindings: [],
+    })).result.ok).toBe(true)
+    await composition.identity.putResourcePolicy({
+      resourceType: 'employee', resourceId: presetId, orgId,
       creatorUserId: adminId, visibility: 'restricted', allowedUserIds: [memberId],
     })
+    principal = { userId: memberId, orgId, roles: ['member'] }
+    await expect(security.authorizeApiAsync(principal, 'enterpriseEmployee.getDraft', { presetId }))
+      .resolves.toMatchObject({ allowed: true })
     expect((await client.enterpriseEmployees.list({})).result)
       .toMatchObject({ ok: true, value: { items: [{ presetId }] } })
     expect((await client.enterpriseAssets.archive({

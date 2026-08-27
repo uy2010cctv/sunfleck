@@ -325,13 +325,14 @@ export class EnterpriseCatalogRepository {
       values.push(input.viewerUserId)
       const viewer = `$${String(values.length)}`
       filters.push(`(dsh_enterprise_employee_drafts.visibility = 'organization'
-        OR dsh_enterprise_employee_drafts.owner_user_id = ${viewer} OR EXISTS (
+        OR dsh_enterprise_employee_drafts.owner_user_id = ${viewer}
+        OR (dsh_enterprise_employee_drafts.visibility = 'restricted' AND EXISTS (
         SELECT 1 FROM resource_policies AS policy
         WHERE policy.resource_type = 'employee'
           AND policy.resource_id = dsh_enterprise_employee_drafts.preset_id
           AND policy.org_id = dsh_enterprise_employee_drafts.org_id
           AND policy.allowed_user_ids ? ${viewer}
-      ))`)
+      )))`)
     }
     if (input.status !== undefined) add('status =', input.status)
     if (input.ownerUserId !== undefined) add('owner_user_id =', input.ownerUserId)
