@@ -9,6 +9,10 @@ Durable operation projections over native DSH execution:
 - Employee and fixed-team schedules create one idempotent start-session Outbox command per occurrence; retries with another request idempotency key return the original command.
 - Fixed teams bind a leader, members, Workflow template, and approval policy.
 - PostgreSQL transactions and organization-scoped queries preserve boundaries.
+- Work records, approvals, schedules, and fixed teams expose stable keyset pagination. Cursors are canonical base64url payloads authenticated with a scope-bound HMAC-SHA256 signature; changing the organization or filters invalidates a cursor. Limits must be integers from 1 through 100.
+- Work-record queries filter by business state, source, and fixed team. Approval queries filter by kind, state, and requester. Schedule queries filter by state.
+- Fixed teams and schedules support compare-and-swap updates. Team updates replace the complete member set after validating every release in the organization. Archived schedules are terminal and cannot be edited or restored.
+- Pending approvals may be cancelled. The repository records the actor and reason; `EnterpriseOperationsService` permits cancellation only for the requester or an administrator.
 - Native references fail closed when their resolver is missing. Tests and local development may explicitly set `allowUnverifiedReferences`; production composition must omit it.
 - Idempotency keys bind a SHA-256 request digest, and reuse with different input is rejected. Only active schedules can fire; the Outbox command creates the new scheduled Session.
 - `EnterpriseOperationsWorker` claims one Outbox command, invokes an injected native Session creator, then completes or fails the claim. Retry timing is supplied by the caller through `nextAttemptAt`.
@@ -22,6 +26,9 @@ Each method uses a typed `enterpriseOperation.*` endpoint and injects the princi
 organization ID into the driver, so request payloads cannot switch organizations.
 Production composition should connect `authorize` to the central
 `EnterpriseSecurity.authorizeApi` policy and `audit` to the durable audit repository.
+The production PostgreSQL composition derives separate Catalog and Operations cursor
+keys from deployment secret material and resolves employee releases and native Session
+headers directly from their source tables.
 
 ```ts
 const service = new EnterpriseOperationsService(repository, {

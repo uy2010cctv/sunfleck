@@ -1,4 +1,5 @@
 /** Production PostgreSQL composition for DSH Enterprise. */
+import { createHmac } from 'node:crypto'
 import { Pool, type PoolClient, type PoolConfig, type QueryResultRow } from 'pg'
 import { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
@@ -114,9 +115,10 @@ function poolConfig(config: EnterprisePostgresConfig): PoolConfig {
 
 /** Create, health-check, migrate, and expose every enterprise PostgreSQL adapter. */
 export async function createEnterprisePostgresComposition(config: EnterprisePostgresConfig): Promise<EnterprisePostgresComposition> {
-  const stableCursorSigningKey = Buffer.isBuffer(config.cursorSigningKey)
+  const rootCursorSigningKey = Buffer.isBuffer(config.cursorSigningKey)
     ? Buffer.from(config.cursorSigningKey)
-    : config.cursorSigningKey
+    : Buffer.from(config.cursorSigningKey, 'utf8')
+  const deriveCursorKey = (domain: string): Buffer => createHmac('sha256', rootCursorSigningKey).update(domain).digest()
   const pool = new Pool(poolConfig(config))
   const database = new EnterprisePostgresDatabase(pool)
   try {
@@ -128,8 +130,22 @@ export async function createEnterprisePostgresComposition(config: EnterprisePost
     await migrateEnterpriseOperations(database)
     await migrateKnowledge(database)
     const identity = new PgEnterpriseIdentityRepository(database)
-    const catalog = new EnterpriseCatalogRepository(database, { cursorSigningKey: stableCursorSigningKey })
-    const operations = new EnterpriseOperationsRepository(database)
+    const catalog = new EnterpriseCatalogRepository(database, {
+      cursorSigningKey: deriveCursorKey('dsh-enterprise-catalog-cursor-v1'),
+    })
+    const operations = new EnterpriseOperationsRepository(database, {
+      cursorSigningKey: deriveCursorKey('dsh-enterprise-operations-cursor-v1'),
+      resolveRelease: async (orgId, releaseId) => {
+        const result = await database.query(
+          'SELECT 1 FROM dsh_enterprise_employee_releases WHERE release_id = $1 AND org_id = $2', [releaseId, orgId],
+        )
+        return result.rows[0] !== undefined
+      },
+      resolveSession: async (_orgId, sessionId) => {
+        const result = await database.query('SELECT 1 FROM dsh_session_headers WHERE id = $1', [sessionId])
+        return result.rows[0] !== undefined
+      },
+    })
     const knowledge = new EnterpriseKnowledgeRepository(database)
     return { database, identity, session, catalog, operations, knowledge, close: () => database.end() }
   } catch (error) {

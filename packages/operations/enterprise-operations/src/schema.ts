@@ -1,6 +1,6 @@
 /** PostgreSQL schema for work records, approvals, schedules, teams, and outbox. */
 import type { PostgresDatabase } from './types.ts'
-export const ENTERPRISE_OPERATIONS_SCHEMA_VERSION = 4
+export const ENTERPRISE_OPERATIONS_SCHEMA_VERSION = 5
 const statements = [
   'CREATE TABLE IF NOT EXISTS dsh_enterprise_operations_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)',
   `CREATE TABLE IF NOT EXISTS dsh_enterprise_work_records (
@@ -45,6 +45,28 @@ const statements = [
     org_id TEXT NOT NULL, operation TEXT NOT NULL, key TEXT NOT NULL,
     result_json JSONB NOT NULL, PRIMARY KEY(org_id, operation, key)
   )`,
+  `CREATE INDEX IF NOT EXISTS dsh_enterprise_work_records_page_idx
+    ON dsh_enterprise_work_records(org_id, updated_at DESC, session_id DESC, employee_release_id DESC)`,
+  `CREATE INDEX IF NOT EXISTS dsh_enterprise_work_records_filter_idx
+    ON dsh_enterprise_work_records(org_id, business_state, source, team_id, updated_at DESC, session_id DESC, employee_release_id DESC)`,
+  `CREATE INDEX IF NOT EXISTS dsh_enterprise_work_records_source_idx
+    ON dsh_enterprise_work_records(org_id, source, updated_at DESC, session_id DESC, employee_release_id DESC)`,
+  `CREATE INDEX IF NOT EXISTS dsh_enterprise_work_records_team_idx
+    ON dsh_enterprise_work_records(org_id, team_id, updated_at DESC, session_id DESC, employee_release_id DESC) WHERE team_id IS NOT NULL`,
+  `CREATE INDEX IF NOT EXISTS dsh_enterprise_approvals_page_idx
+    ON dsh_enterprise_approval_requests(org_id, updated_at DESC, approval_id DESC)`,
+  `CREATE INDEX IF NOT EXISTS dsh_enterprise_approvals_filter_idx
+    ON dsh_enterprise_approval_requests(org_id, kind, state, requested_by, updated_at DESC, approval_id DESC)`,
+  `CREATE INDEX IF NOT EXISTS dsh_enterprise_approvals_state_idx
+    ON dsh_enterprise_approval_requests(org_id, state, updated_at DESC, approval_id DESC)`,
+  `CREATE INDEX IF NOT EXISTS dsh_enterprise_approvals_requester_idx
+    ON dsh_enterprise_approval_requests(org_id, requested_by, updated_at DESC, approval_id DESC)`,
+  `CREATE INDEX IF NOT EXISTS dsh_enterprise_schedules_page_idx
+    ON dsh_enterprise_schedules(org_id, updated_at DESC, schedule_id DESC)`,
+  `CREATE INDEX IF NOT EXISTS dsh_enterprise_schedules_state_idx
+    ON dsh_enterprise_schedules(org_id, state, updated_at DESC, schedule_id DESC)`,
+  `CREATE INDEX IF NOT EXISTS dsh_enterprise_fixed_teams_page_idx
+    ON dsh_enterprise_fixed_teams(org_id, updated_at DESC, team_id DESC)`,
 ] as const
 export async function migrateEnterpriseOperations(database: PostgresDatabase): Promise<void> {
   await database.transaction(async (transaction) => {
@@ -91,9 +113,9 @@ export async function migrateEnterpriseOperations(database: PostgresDatabase): P
         await transaction.query(
           "UPDATE dsh_enterprise_operations_idempotency SET result_json = jsonb_build_object('requestDigest', '', 'result', result_json) WHERE jsonb_typeof(result_json) <> 'object' OR NOT (result_json ? 'result')",
         )
-        await transaction.query("UPDATE dsh_enterprise_operations_meta SET value = $1 WHERE key = 'schema-version'", [
-          String(ENTERPRISE_OPERATIONS_SCHEMA_VERSION),
-        ])
+      }
+      if (version < ENTERPRISE_OPERATIONS_SCHEMA_VERSION) {
+        await transaction.query("UPDATE dsh_enterprise_operations_meta SET value = $1 WHERE key = 'schema-version'", [String(ENTERPRISE_OPERATIONS_SCHEMA_VERSION)])
       } else if (version !== ENTERPRISE_OPERATIONS_SCHEMA_VERSION) {
         throw new Error('unsupported enterprise operations schema version')
       }

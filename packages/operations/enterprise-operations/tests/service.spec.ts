@@ -14,8 +14,11 @@ function driver(overrides: Partial<EnterpriseOperationsDriver> = {}): Enterprise
     getWorkRecord: vi.fn(),
     listWorkRecords: vi.fn().mockResolvedValue({ items: [] }),
     createApprovalRequest: vi.fn(),
+    getApproval: vi.fn(),
+    listApprovals: vi.fn().mockResolvedValue({ items: [] }),
     transitionApproval: vi.fn(),
     createSchedule: vi.fn(),
+    saveSchedule: vi.fn(),
     getSchedule: vi.fn(),
     listSchedules: vi.fn().mockResolvedValue([]),
     transitionSchedule: vi.fn(),
@@ -24,6 +27,9 @@ function driver(overrides: Partial<EnterpriseOperationsDriver> = {}): Enterprise
     completeOutbox: vi.fn(),
     failOutbox: vi.fn(),
     createFixedTeam: vi.fn(),
+    saveFixedTeam: vi.fn(),
+    getFixedTeam: vi.fn(),
+    listFixedTeams: vi.fn().mockResolvedValue({ items: [] }),
     ...overrides,
   }
 }
@@ -72,5 +78,16 @@ describe('EnterpriseOperationsService', () => {
       scheduleId: 'schedule-a', expectedRevision: 1, state: 'paused', idempotencyKey: 'request-a',
     })).rejects.toMatchObject<EnterpriseOperationsAuthorizationError>({ code: 'insufficient-role' })
     expect(operations.transitionSchedule).not.toHaveBeenCalled()
+  })
+
+  it('allows approval cancellation only to its requester or an administrator', async () => {
+    const operations = driver({
+      getApproval: vi.fn().mockResolvedValue({ approvalId: 'approval-a', orgId: 'org-a', requestedBy: 'owner-a', state: 'pending' }),
+    })
+    const service = new EnterpriseOperationsService(operations, { authorize: vi.fn().mockResolvedValue(true), audit: vi.fn() })
+    await expect(service.transitionApproval(principal, {
+      approvalId: 'approval-a', expectedRevision: 1, idempotencyKey: 'cancel-a', state: 'cancelled', actorUserId: 'user-a',
+    })).rejects.toMatchObject<EnterpriseOperationsAuthorizationError>({ code: 'insufficient-role' })
+    expect(operations.transitionApproval).not.toHaveBeenCalled()
   })
 })

@@ -28,8 +28,11 @@ export interface EnterpriseOperationsDriver {
   readonly getWorkRecord: EnterpriseOperationsRepository['getWorkRecord']
   readonly listWorkRecords: EnterpriseOperationsRepository['listWorkRecords']
   readonly createApprovalRequest: EnterpriseOperationsRepository['createApprovalRequest']
+  readonly getApproval: EnterpriseOperationsRepository['getApproval']
+  readonly listApprovals: EnterpriseOperationsRepository['listApprovals']
   readonly transitionApproval: EnterpriseOperationsRepository['transitionApproval']
   readonly createSchedule: EnterpriseOperationsRepository['createSchedule']
+  readonly saveSchedule: EnterpriseOperationsRepository['saveSchedule']
   readonly getSchedule: EnterpriseOperationsRepository['getSchedule']
   readonly listSchedules: EnterpriseOperationsRepository['listSchedules']
   readonly transitionSchedule: EnterpriseOperationsRepository['transitionSchedule']
@@ -38,6 +41,9 @@ export interface EnterpriseOperationsDriver {
   readonly completeOutbox: EnterpriseOperationsRepository['completeOutbox']
   readonly failOutbox: EnterpriseOperationsRepository['failOutbox']
   readonly createFixedTeam: EnterpriseOperationsRepository['createFixedTeam']
+  readonly saveFixedTeam: EnterpriseOperationsRepository['saveFixedTeam']
+  readonly getFixedTeam: EnterpriseOperationsRepository['getFixedTeam']
+  readonly listFixedTeams: EnterpriseOperationsRepository['listFixedTeams']
 }
 
 type DriverInput<Name extends keyof EnterpriseOperationsDriver> = Parameters<EnterpriseOperationsDriver[Name]>[0]
@@ -51,8 +57,11 @@ export interface EnterpriseWorkRecordLookup {
 }
 export type EnterpriseWorkRecordListInput = WithoutOrganization<DriverInput<'listWorkRecords'>>
 export type EnterpriseApprovalCreateInput = WithoutOrganization<DriverInput<'createApprovalRequest'>>
+export interface EnterpriseApprovalLookup { readonly orgId?: string; readonly approvalId: string }
+export type EnterpriseApprovalListInput = WithoutOrganization<DriverInput<'listApprovals'>>
 export type EnterpriseApprovalTransitionInput = WithoutOrganization<DriverInput<'transitionApproval'>>
 export type EnterpriseScheduleCreateInput = WithoutOrganization<DriverInput<'createSchedule'>>
+export type EnterpriseScheduleSaveInput = WithoutOrganization<DriverInput<'saveSchedule'>>
 export interface EnterpriseScheduleLookup {
   readonly orgId?: string
   readonly scheduleId: string
@@ -63,14 +72,20 @@ export type EnterpriseOutboxClaimInput = WithoutOrganization<DriverInput<'claimO
 export type EnterpriseOutboxCompleteInput = WithoutOrganization<DriverInput<'completeOutbox'>>
 export type EnterpriseOutboxFailureInput = WithoutOrganization<DriverInput<'failOutbox'>>
 export type EnterpriseFixedTeamCreateInput = WithoutOrganization<DriverInput<'createFixedTeam'>>
+export type EnterpriseFixedTeamSaveInput = WithoutOrganization<DriverInput<'saveFixedTeam'>>
+export interface EnterpriseFixedTeamLookup { readonly orgId?: string; readonly teamId: string }
+export type EnterpriseFixedTeamListInput = WithoutOrganization<DriverInput<'listFixedTeams'>>
 
 export type EnterpriseOperationsEndpoint =
   | 'enterpriseOperation.workRecords.upsert'
   | 'enterpriseOperation.workRecords.get'
   | 'enterpriseOperation.workRecords.list'
   | 'enterpriseOperation.approvals.create'
+  | 'enterpriseOperation.approvals.get'
+  | 'enterpriseOperation.approvals.list'
   | 'enterpriseOperation.approvals.transition'
   | 'enterpriseOperation.schedules.create'
+  | 'enterpriseOperation.schedules.save'
   | 'enterpriseOperation.schedules.get'
   | 'enterpriseOperation.schedules.list'
   | 'enterpriseOperation.schedules.transition'
@@ -79,6 +94,9 @@ export type EnterpriseOperationsEndpoint =
   | 'enterpriseOperation.outbox.complete'
   | 'enterpriseOperation.outbox.fail'
   | 'enterpriseOperation.teams.create'
+  | 'enterpriseOperation.teams.save'
+  | 'enterpriseOperation.teams.get'
+  | 'enterpriseOperation.teams.list'
 
 export interface EnterpriseOperationsAuthorizationDecision {
   readonly allowed: boolean
@@ -205,13 +223,30 @@ export class EnterpriseOperationsService {
   async createApprovalRequest(principal: EnterprisePrincipal, input: EnterpriseApprovalCreateInput): Promise<ApprovalView> {
     return this.driver.createApprovalRequest(await this.authorize(principal, 'enterpriseOperation.approvals.create', input))
   }
+  async getApproval(principal: EnterprisePrincipal, input: EnterpriseApprovalLookup): Promise<ApprovalView | undefined> {
+    const scoped = await this.authorize(principal, 'enterpriseOperation.approvals.get', input)
+    return this.driver.getApproval(scoped.orgId, scoped.approvalId)
+  }
+  async listApprovals(principal: EnterprisePrincipal, input: EnterpriseApprovalListInput = {}): ReturnType<EnterpriseOperationsDriver['listApprovals']> {
+    return this.driver.listApprovals(await this.authorize(principal, 'enterpriseOperation.approvals.list', input))
+  }
 
   async transitionApproval(principal: EnterprisePrincipal, input: EnterpriseApprovalTransitionInput): Promise<ApprovalView> {
-    return this.driver.transitionApproval(await this.authorize(principal, 'enterpriseOperation.approvals.transition', input))
+    const scoped = await this.authorize(principal, 'enterpriseOperation.approvals.transition', input)
+    if (scoped.state === 'cancelled') {
+      const approval = await this.driver.getApproval(scoped.orgId, scoped.approvalId)
+      if (approval === undefined || (approval.requestedBy !== principal.userId && !principal.roles.includes('administrator')))
+        throw new EnterpriseOperationsAuthorizationError('insufficient-role', 'enterpriseOperation.approvals.transition')
+      return this.driver.transitionApproval({ ...scoped, actorUserId: principal.userId })
+    }
+    return this.driver.transitionApproval(scoped)
   }
 
   async createSchedule(principal: EnterprisePrincipal, input: EnterpriseScheduleCreateInput): Promise<ScheduleView> {
     return this.driver.createSchedule(await this.authorize(principal, 'enterpriseOperation.schedules.create', input))
+  }
+  async saveSchedule(principal: EnterprisePrincipal, input: EnterpriseScheduleSaveInput): Promise<ScheduleView> {
+    return this.driver.saveSchedule(await this.authorize(principal, 'enterpriseOperation.schedules.save', input))
   }
 
   async getSchedule(principal: EnterprisePrincipal, input: EnterpriseScheduleLookup): Promise<ScheduleView | undefined> {
@@ -246,6 +281,16 @@ export class EnterpriseOperationsService {
 
   async createFixedTeam(principal: EnterprisePrincipal, input: EnterpriseFixedTeamCreateInput): Promise<FixedTeamView> {
     return this.driver.createFixedTeam(await this.authorize(principal, 'enterpriseOperation.teams.create', input))
+  }
+  async saveFixedTeam(principal: EnterprisePrincipal, input: EnterpriseFixedTeamSaveInput): Promise<FixedTeamView> {
+    return this.driver.saveFixedTeam(await this.authorize(principal, 'enterpriseOperation.teams.save', input))
+  }
+  async getFixedTeam(principal: EnterprisePrincipal, input: EnterpriseFixedTeamLookup): Promise<FixedTeamView | undefined> {
+    const scoped = await this.authorize(principal, 'enterpriseOperation.teams.get', input)
+    return this.driver.getFixedTeam(scoped.orgId, scoped.teamId)
+  }
+  async listFixedTeams(principal: EnterprisePrincipal, input: EnterpriseFixedTeamListInput = {}): ReturnType<EnterpriseOperationsDriver['listFixedTeams']> {
+    return this.driver.listFixedTeams(await this.authorize(principal, 'enterpriseOperation.teams.list', input))
   }
 
 }

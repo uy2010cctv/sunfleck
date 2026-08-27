@@ -1,4 +1,3 @@
-/* eslint-disable typescript/no-base-to-string -- the SQL double stringifies repository parameter primitives. */
 import { describe, expect, it } from 'vitest'
 import {
   ApprovalRevisionConflictError,
@@ -215,8 +214,26 @@ class MemoryPostgresDatabase implements PostgresDatabase {
       return [clone(row)]
     }
     if (text.startsWith('SELECT ') && text.includes('FROM dsh_enterprise_approval_requests')) {
+      if (text.includes('ORDER BY updated_at')) {
+        let index = 1
+        const kind = text.includes('kind = $') ? String(values[index++]) : undefined
+        const state = text.includes('state = $') ? String(values[index++]) : undefined
+        const requestedBy = text.includes('requested_by = $') ? String(values[index++]) : undefined
+        const cursorUpdatedAt = text.includes('(updated_at, approval_id) <') ? Number(values[index++]) : undefined
+        const cursorId = cursorUpdatedAt === undefined ? undefined : String(values[index++])
+        const limit = Number(values.at(-1))
+        return [...this.approvals.values()]
+          .filter(row => row.org_id === String(values[0]))
+          .filter(row => kind === undefined || row.kind === kind)
+          .filter(row => state === undefined || row.state === state)
+          .filter(row => requestedBy === undefined || row.requested_by === requestedBy)
+          .filter(row => cursorUpdatedAt === undefined || row.updated_at < cursorUpdatedAt
+            || (row.updated_at === cursorUpdatedAt && row.approval_id < (cursorId as string)))
+          .sort((left, right) => right.updated_at - left.updated_at || right.approval_id.localeCompare(left.approval_id))
+          .slice(0, limit).map(clone)
+      }
       const row = this.approvals.get(String(values[0]))
-      return row === undefined ? [] : [clone(row)]
+      return row === undefined || row.org_id !== String(values[1]) ? [] : [clone(row)]
     }
     if (text.startsWith('INSERT INTO dsh_enterprise_approval_requests')) {
       const row: ApprovalRow = {
@@ -247,8 +264,14 @@ class MemoryPostgresDatabase implements PostgresDatabase {
       return [clone(row)]
     }
     if (text.startsWith('SELECT ') && text.includes('FROM dsh_enterprise_schedules')) {
+      if (text.includes('ORDER BY updated_at')) {
+        return [...this.schedules.values()].filter(row => row.org_id === String(values[0]))
+          .filter(row => !text.includes('state = $') || row.state === String(values[1]))
+          .sort((left, right) => right.updated_at - left.updated_at || right.schedule_id.localeCompare(left.schedule_id))
+          .slice(0, Number(values.at(-1))).map(clone)
+      }
       const row = this.schedules.get(String(values[0]))
-      return row === undefined ? [] : [clone(row)]
+      return row === undefined || row.org_id !== String(values[1]) ? [] : [clone(row)]
     }
     if (text.startsWith('INSERT INTO dsh_enterprise_schedules')) {
       const row: ScheduleRow = {
@@ -275,6 +298,20 @@ class MemoryPostgresDatabase implements PostgresDatabase {
       row.next_run_at = values[1] as number | null
       row.updated_at = Number(values[0])
       row.revision += 1
+      return [clone(row)]
+    }
+    if (text.startsWith('UPDATE dsh_enterprise_schedules SET target_json')) {
+      const row = this.schedules.get(String(values[6]))
+      if (row === undefined || row.org_id !== String(values[7]) || row.revision !== Number(values[8])) return []
+      row.target_json = parse(values[0]); row.timezone = String(values[1]); row.rule = String(values[2])
+      row.input_json = parse(values[3]); row.next_run_at = values[4] as number | null
+      row.updated_at = Number(values[5]); row.revision += 1
+      return [clone(row)]
+    }
+    if (text.startsWith('UPDATE dsh_enterprise_schedules SET state =')) {
+      const row = this.schedules.get(String(values[2]))
+      if (row === undefined || row.org_id !== String(values[3]) || row.revision !== Number(values[4])) return []
+      row.state = String(values[0]); row.updated_at = Number(values[1]); row.revision += 1
       return [clone(row)]
     }
     if (text.startsWith('SELECT ') && text.includes('FROM dsh_enterprise_operation_outbox')) {
@@ -307,8 +344,13 @@ class MemoryPostgresDatabase implements PostgresDatabase {
       return [clone(row)]
     }
     if (text.startsWith('SELECT ') && text.includes('FROM dsh_enterprise_fixed_teams')) {
+      if (text.includes('ORDER BY updated_at')) {
+        return [...this.teams.values()].filter(row => row.org_id === String(values[0]))
+          .sort((left, right) => right.updated_at - left.updated_at || right.team_id.localeCompare(left.team_id))
+          .slice(0, Number(values.at(-1))).map(clone)
+      }
       const row = this.teams.get(String(values[0]))
-      return row === undefined ? [] : [clone(row)]
+      return row === undefined || (values[1] !== undefined && row.org_id !== String(values[1])) ? [] : [clone(row)]
     }
     if (text.startsWith('INSERT INTO dsh_enterprise_fixed_teams')) {
       const row: TeamRow = {
@@ -323,6 +365,17 @@ class MemoryPostgresDatabase implements PostgresDatabase {
       }
       this.teams.set(row.team_id, row)
       return [clone(row)]
+    }
+    if (text.startsWith('UPDATE dsh_enterprise_fixed_teams SET leader_release_id')) {
+      const row = this.teams.get(String(values[4]))
+      if (row === undefined || row.org_id !== String(values[5]) || row.revision !== Number(values[6])) return []
+      row.leader_release_id = String(values[0]); row.workflow_template_json = parse(values[1])
+      row.approval_policy_json = parse(values[2]); row.updated_at = Number(values[3]); row.revision += 1
+      return [clone(row)]
+    }
+    if (text.startsWith('DELETE FROM dsh_enterprise_fixed_team_members')) {
+      for (const [key, row] of this.members) if (row.team_id === String(values[0])) this.members.delete(key)
+      return []
     }
     if (text.startsWith('INSERT INTO dsh_enterprise_fixed_team_members')) {
       const row: TeamMemberRow = { team_id: String(values[0]), employee_release_id: String(values[1]), role: String(values[2]) }
@@ -387,10 +440,20 @@ const references = {
 }
 
 function repository(database = new MemoryPostgresDatabase(), now?: () => number): EnterpriseOperationsRepository {
-  return new EnterpriseOperationsRepository(database, { ...references, ...(now === undefined ? {} : { now }) })
+  return new EnterpriseOperationsRepository(database, {
+    ...references,
+    cursorSigningKey: Buffer.from('operations-cursor-signing-key-32b!'),
+    ...(now === undefined ? {} : { now }),
+  })
 }
 
 describe('EnterpriseOperationsRepository', () => {
+  it('rejects cursor signing keys shorter than 32 bytes', () => {
+    expect(() => new EnterpriseOperationsRepository(new MemoryPostgresDatabase(), {
+      ...references, cursorSigningKey: 'short',
+    })).toThrow('at least 32 bytes')
+  })
+
   it('migrates an existing schema version one database to version two', async () => {
     const database = new MemoryPostgresDatabase(1)
     const operations = new EnterpriseOperationsRepository(database)
@@ -405,7 +468,7 @@ describe('EnterpriseOperationsRepository', () => {
       idempotencyKey: 'approval-migration-create',
     })
 
-    expect(database.schemaVersion).toBe('4')
+    expect(database.schemaVersion).toBe('5')
   })
 
   it('permits unverified local writes only through explicit configuration', async () => {
@@ -662,5 +725,83 @@ describe('EnterpriseOperationsRepository', () => {
         idempotencyKey: 'missing-team-work',
       }),
     ).rejects.toThrow('fixed team missing-team was not found in organization org-a')
+  })
+
+  it('gets, filters, cancels, and cursor-pages approvals', async () => {
+    const operations = repository()
+    for (const [approvalId, kind, requestedBy] of [
+      ['approval-1', 'publish', 'owner-a'],
+      ['approval-2', 'tool', 'owner-b'],
+      ['approval-3', 'publish', 'owner-a'],
+    ] as const) await operations.createApprovalRequest({
+      approvalId, orgId: 'org-a', kind, subjectType: 'release', subjectId: approvalId,
+      requestedBy, idempotencyKey: `create-${approvalId}`,
+    })
+
+    const first = await operations.listApprovals({ orgId: 'org-a', kind: 'publish', requestedBy: 'owner-a', limit: 1 })
+    expect(first.items).toHaveLength(1)
+    expect(first.nextCursor).toBeTypeOf('string')
+    const second = await operations.listApprovals({
+      orgId: 'org-a', kind: 'publish', requestedBy: 'owner-a', limit: 1, cursor: first.nextCursor,
+    })
+    expect(second.items).toHaveLength(1)
+    expect(second.items[0]?.approvalId).not.toBe(first.items[0]?.approvalId)
+    await expect(operations.getApproval('org-b', 'approval-1')).resolves.toBeUndefined()
+    await expect(operations.transitionApproval({
+      approvalId: 'approval-1', orgId: 'org-a', expectedRevision: 1, idempotencyKey: 'cancel-1',
+      state: 'cancelled', actorUserId: 'owner-a', reason: 'withdrawn',
+    })).resolves.toMatchObject({ state: 'cancelled', reviewerUserId: 'owner-a', reason: 'withdrawn' })
+  })
+
+  it('cursor-pages work records with source, state, and team scope', async () => {
+    const operations = repository()
+    for (const [sessionId, source, businessState] of [
+      ['work-1', 'console', 'active'], ['work-2', 'console', 'active'], ['work-3', 'wecom', 'failed'],
+    ] as const) await operations.upsertWorkRecord({
+      ...work, sessionId, source, businessState, idempotencyKey: `create-${sessionId}`,
+      sourceReferences: { nativeSessionId: sessionId },
+    })
+    const first = await operations.listWorkRecords({ orgId: 'org-a', source: 'console', businessState: 'active', limit: 1 })
+    expect(first.items).toHaveLength(1)
+    const second = await operations.listWorkRecords({
+      orgId: 'org-a', source: 'console', businessState: 'active', limit: 1, cursor: first.nextCursor,
+    })
+    expect(second.items).toHaveLength(1)
+    await expect(operations.listWorkRecords({ orgId: 'org-a', source: 'wecom', cursor: first.nextCursor }))
+      .rejects.toThrow('another query')
+  })
+
+  it('updates fixed teams and schedules with CAS and keeps archived schedules terminal', async () => {
+    const operations = repository()
+    await operations.createFixedTeam({
+      teamId: 'team-update', orgId: 'org-a', leaderEmployeeReleaseId: 'release-lead',
+      members: [{ employeeReleaseId: 'release-old', role: 'old' }], workflowTemplate: {}, approvalPolicy: {},
+      expectedRevision: 0, idempotencyKey: 'team-update-create',
+    })
+    const updatedTeam = await operations.saveFixedTeam({
+      teamId: 'team-update', orgId: 'org-a', leaderEmployeeReleaseId: 'release-new-lead',
+      members: [{ employeeReleaseId: 'release-new', role: 'new' }], workflowTemplate: { v: 2 }, approvalPolicy: {},
+      expectedRevision: 1, idempotencyKey: 'team-update-save',
+    })
+    expect(updatedTeam).toMatchObject({ revision: 2, members: [{ employeeReleaseId: 'release-new', role: 'new' }] })
+    await expect(operations.getFixedTeam('org-a', 'team-update')).resolves.toEqual(updatedTeam)
+
+    await operations.createSchedule({
+      scheduleId: 'schedule-update', orgId: 'org-a', target: { kind: 'employee', employeeReleaseId: 'release-a' },
+      timezone: 'UTC', rule: '0 * * * *', input: {}, nextRunAt: 1, expectedRevision: 0, idempotencyKey: 'schedule-update-create',
+    })
+    const updatedSchedule = await operations.saveSchedule({
+      scheduleId: 'schedule-update', orgId: 'org-a', target: { kind: 'employee', employeeReleaseId: 'release-b' },
+      timezone: 'Asia/Shanghai', rule: '0 9 * * *', input: { v: 2 }, nextRunAt: 2,
+      expectedRevision: 1, idempotencyKey: 'schedule-update-save',
+    })
+    expect(updatedSchedule).toMatchObject({ revision: 2, timezone: 'Asia/Shanghai', nextRunAt: 2 })
+    await operations.transitionSchedule({
+      scheduleId: 'schedule-update', orgId: 'org-a', state: 'archived', expectedRevision: 2, idempotencyKey: 'archive-update',
+    })
+    await expect(operations.saveSchedule({
+      scheduleId: 'schedule-update', orgId: 'org-a', target: { kind: 'employee', employeeReleaseId: 'release-c' },
+      timezone: 'UTC', rule: '* * * * *', input: {}, nextRunAt: 3, expectedRevision: 3, idempotencyKey: 'edit-archived',
+    })).rejects.toThrow('archived schedule cannot be edited')
   })
 })

@@ -18,8 +18,11 @@ export type {
   EnterpriseWorkRecordListInput,
   EnterpriseWorkRecordLookup,
   EnterpriseApprovalCreateInput,
+  EnterpriseApprovalLookup,
+  EnterpriseApprovalListInput,
   EnterpriseApprovalTransitionInput,
   EnterpriseScheduleCreateInput,
+  EnterpriseScheduleSaveInput,
   EnterpriseScheduleLookup,
   EnterpriseScheduleTransitionInput,
   EnterpriseScheduleFireInput,
@@ -27,6 +30,9 @@ export type {
   EnterpriseOutboxCompleteInput,
   EnterpriseOutboxFailureInput,
   EnterpriseFixedTeamCreateInput,
+  EnterpriseFixedTeamSaveInput,
+  EnterpriseFixedTeamLookup,
+  EnterpriseFixedTeamListInput,
 } from './service.ts'
 export { migrateEnterpriseOperations, ENTERPRISE_OPERATIONS_SCHEMA_VERSION } from './schema.ts'
 export type * from './types.ts'

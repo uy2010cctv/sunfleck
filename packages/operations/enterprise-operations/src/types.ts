@@ -23,6 +23,9 @@ export interface WorkRecordPage {
   readonly items: readonly WorkRecordView[]
   readonly nextCursor?: string
 }
+export interface ApprovalPage { readonly items: readonly ApprovalView[]; readonly nextCursor?: string }
+export interface FixedTeamPage { readonly items: readonly FixedTeamView[]; readonly nextCursor?: string }
+export interface SchedulePage { readonly items: readonly ScheduleView[]; readonly nextCursor?: string }
 
 export interface ApprovalView {
   readonly approvalId: string
@@ -104,6 +107,8 @@ export interface PostgresDatabase {
 
 export interface EnterpriseOperationsRepositoryOptions {
   readonly now?: () => number
+  /** HMAC-SHA256 key used for scope-bound opaque list cursors. Must be at least 32 bytes. */
+  readonly cursorSigningKey?: Buffer | string
   readonly resolveSession?: (orgId: string, sessionId: string) => boolean | Promise<boolean>
   readonly resolveRelease?: (orgId: string, employeeReleaseId: string) => boolean | Promise<boolean>
   /** Explicit test/development escape hatch; production composition must omit it. */

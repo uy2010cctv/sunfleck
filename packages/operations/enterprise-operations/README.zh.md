@@ -9,6 +9,10 @@
 - 员工和固定团队调度每次 occurrence 只创建一条幂等的启动 Session Outbox 命令；即使重试使用另一个请求幂等键，也会返回原命令。
 - 固定团队绑定负责人、成员、Workflow 模板和审批策略。
 - PostgreSQL 事务和组织范围查询保持边界。
+- 工作记录、审批、调度和固定团队提供稳定的 keyset 分页。Cursor 是 canonical base64url 载荷加 scope-bound HMAC-SHA256 签名；更换组织或过滤条件会使 cursor 失效。Limit 只允许 1 至 100 的整数。
+- 工作记录可按业务状态、来源和固定团队过滤；审批可按类型、状态和申请人过滤；调度可按状态过滤。
+- 固定团队和调度支持 compare-and-swap 更新。团队更新会在校验所有发布版的组织归属后整体替换成员集合。已归档调度为终态，不可编辑或恢复。
+- Pending 审批可取消。Repository 记录 actor 和 reason；`EnterpriseOperationsService` 仅允许申请人本人或管理员取消。
 - 原生引用在缺失解析器时会快速失败。测试和本地开发可显式设置 `allowUnverifiedReferences`；生产组合必须省略该开关。
 - 幂等键会绑定 SHA-256 请求摘要，使用不同输入重复该键会被拒绝。只有 active 调度可执行；Outbox 命令负责创建新的调度 Session。
 - `EnterpriseOperationsWorker` 每次领取一条 Outbox 命令，调用注入的原生 Session 创建器，然后完成或标记该任务失败。重试时间由调用方通过 `nextAttemptAt` 提供。
@@ -21,6 +25,8 @@
 `enterpriseOperation.*` 类型化端点，且将组织 ID 从 principal 注入 driver，调用方不能
 借由请求体切换组织。生产组合应将 `authorize` 连接到统一的
 `EnterpriseSecurity.authorizeApi`，将 `audit` 连接到统一审计仓储。
+生产 PostgreSQL 组合会从部署密钥派生相互隔离的 Catalog 和 Operations
+cursor key，并直接在源表中解析员工发布版和原生 Session header。
 
 ```ts
 const service = new EnterpriseOperationsService(repository, {

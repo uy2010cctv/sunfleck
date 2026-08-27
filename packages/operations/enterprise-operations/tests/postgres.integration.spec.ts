@@ -113,4 +113,53 @@ describe.skipIf(database === undefined)('enterprise operations PostgreSQL', () =
     expect(results.filter(result => result.status === 'rejected')).toHaveLength(1)
     expect(String((results.find(result => result.status === 'rejected') as PromiseRejectedResult).reason)).toContain('different request')
   })
+
+  it('pages management queries, applies CAS updates, and uses pagination indexes', async () => {
+    const operations = new EnterpriseOperationsRepository(postgres, {
+      allowUnverifiedReferences: true,
+      cursorSigningKey: Buffer.from('operations-real-postgres-cursor-key'),
+    })
+    for (const suffix of ['a', 'b', 'c']) {
+      await operations.upsertWorkRecord({
+        orgId: 'managed-org', sessionId: `managed-session-${suffix}`, employeeReleaseId: `managed-release-${suffix}`,
+        source: suffix === 'c' ? 'wecom' : 'console', businessState: suffix === 'c' ? 'failed' : 'active',
+        sourceReferences: { suffix }, expectedRevision: 0, idempotencyKey: `managed-work-${suffix}`,
+      })
+      await operations.createApprovalRequest({
+        approvalId: `managed-approval-${suffix}`, orgId: 'managed-org', kind: suffix === 'c' ? 'tool' : 'publish',
+        subjectType: 'release', subjectId: suffix, requestedBy: suffix === 'c' ? 'other' : 'owner',
+        idempotencyKey: `managed-approval-create-${suffix}`,
+      })
+    }
+    const workPage = await operations.listWorkRecords({
+      orgId: 'managed-org', businessState: 'active', source: 'console', limit: 1,
+    })
+    expect(workPage).toMatchObject({ items: [{ source: 'console', businessState: 'active' }] })
+    expect((await operations.listWorkRecords({
+      orgId: 'managed-org', businessState: 'active', source: 'console', limit: 1, cursor: workPage.nextCursor,
+    })).items).toHaveLength(1)
+    const approvals = await operations.listApprovals({ orgId: 'managed-org', kind: 'publish', requestedBy: 'owner', limit: 1 })
+    expect(approvals.nextCursor).toBeTypeOf('string')
+    await expect(operations.transitionApproval({
+      approvalId: 'managed-approval-a', orgId: 'managed-org', state: 'cancelled', actorUserId: 'owner',
+      reason: 'withdrawn', expectedRevision: 1, idempotencyKey: 'managed-cancel-a',
+    })).resolves.toMatchObject({ state: 'cancelled', reviewerUserId: 'owner' })
+
+    await operations.createFixedTeam({
+      teamId: 'managed-team', orgId: 'managed-org', leaderEmployeeReleaseId: 'managed-release-a', members: [],
+      workflowTemplate: {}, approvalPolicy: {}, expectedRevision: 0, idempotencyKey: 'managed-team-create',
+    })
+    await expect(operations.saveFixedTeam({
+      teamId: 'managed-team', orgId: 'managed-org', leaderEmployeeReleaseId: 'managed-release-b',
+      members: [{ employeeReleaseId: 'managed-release-c', role: 'reviewer' }], workflowTemplate: { v: 2 }, approvalPolicy: {},
+      expectedRevision: 1, idempotencyKey: 'managed-team-save',
+    })).resolves.toMatchObject({ revision: 2, members: [{ employeeReleaseId: 'managed-release-c', role: 'reviewer' }] })
+
+    await postgres.query('SET enable_seqscan = off')
+    const explain = await postgres.query<{ 'QUERY PLAN': string }>(
+      `EXPLAIN (COSTS OFF) SELECT * FROM dsh_enterprise_work_records
+       WHERE org_id = $1 ORDER BY updated_at DESC, session_id DESC, employee_release_id DESC LIMIT 10`, ['managed-org'],
+    )
+    expect(explain.rows.map(row => row['QUERY PLAN']).join('\n')).toContain('dsh_enterprise_work_records_page_idx')
+  })
 })
