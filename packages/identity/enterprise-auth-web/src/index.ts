@@ -5,8 +5,11 @@ import type {} from '@deepseek-ai/cordis'
 declare module '@deepseek-ai/cordis' {
   interface Context {
     enterpriseSecurity: import('./security.ts').EnterpriseSecurity
+    enterpriseRequestContext: import('./request-context.ts').EnterpriseRequestContext
   }
 }
+
+export { EnterpriseRequestContext } from './request-context.ts'
 
 export {
   clearSessionCookie,

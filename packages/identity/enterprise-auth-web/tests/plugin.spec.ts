@@ -42,6 +42,7 @@ describe('enterprise auth Web plugin', () => {
     expect(ctx.enterpriseSecurity.repository.listUsers('org-a')).toEqual([
       expect.objectContaining({ id: 'admin-1', roles: ['administrator'] }),
     ])
+    expect(ctx.enterpriseRequestContext.current()).toBeUndefined()
     expect(ctx.enterpriseSecurity.loginLocal('org-a', 'admin', 'enterprise-password')).toBeDefined()
 
     await fiber.dispose()

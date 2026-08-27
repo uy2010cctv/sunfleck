@@ -119,7 +119,11 @@ export class HostConnectionService extends Service implements HostConnectionHand
     if (security.auditApiAsync === undefined) security.auditApi(principal, endpoint, payload, decision, correlationId)
     else await security.auditApiAsync(principal, endpoint, payload, decision, correlationId)
     if (!decision.allowed) return new Response('forbidden', { status: 403 })
-    return target.fetch(request)
+    const requestContext = this.ctx.get('enterpriseRequestContext')
+    if (requestContext === undefined) {
+      return new Response('enterprise request context unavailable', { status: 500 })
+    }
+    return requestContext.run(principal, () => target.fetch(request))
   }
 
   private register(

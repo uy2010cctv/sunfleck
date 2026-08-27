@@ -10,7 +10,11 @@ import type { ApiProxy } from '@deepseek-ai/dsh-host-apiproxy/api'
 import type { AttachmentStore } from '@deepseek-ai/dsh-attachment'
 import { RpcId, type ClientRequest } from '@deepseek-ai/dsh-host-apiproxy/api'
 import type { WebServer, WebRoute, WebUpgradeRoute } from '@deepseek-ai/dsh-host-webserver'
-import type { EnterpriseSecurity } from '@deepseek-ai/dsh-enterprise-auth-web'
+import {
+  EnterpriseRequestContext,
+  type EnterpriseSecurity,
+} from '@deepseek-ai/dsh-enterprise-auth-web'
+import WebSocket from 'ws'
 import { API_PATH, apply, HOST_EVENTS_PATH, inject, MUX_EVENTS_PATH, type HostConnectionHandle } from '../src/index.ts'
 import { DEFAULT_MAX_REQUEST_BODY_BYTES } from '../src/http-bridge.ts'
 
@@ -167,6 +171,7 @@ describe('connection node half', () => {
     }
     ctx.provide('webServer', fakeHttpServer(routes, upgrades) as WebServer)
     ctx.provide('apiProxy', {} as ApiProxy)
+    ctx.provide('enterpriseRequestContext', new EnterpriseRequestContext())
     ctx.provide('enterpriseSecurity', {
       authenticateCookie: (cookie: string) => cookie.includes('dsh_session=valid') ? principal : undefined,
       authorizeApi: (_principal: unknown, endpoint: string) => endpoint === 'sessions.list' || endpoint === 'events.mux'
@@ -202,6 +207,97 @@ describe('connection node half', () => {
     await ended
     expect(Buffer.concat(chunks).toString()).toContain('HTTP/1.1 401 Unauthorized')
     await fiber.dispose()
+  })
+
+  it('carries the authenticated principal to HTTP handlers and ignores a forged payload principal', async () => {
+    const ctx = new Context()
+    const routes: WebRoute[] = []
+    const upgrades: WebUpgradeRoute[] = []
+    const requestContext = new EnterpriseRequestContext()
+    const authenticated = {
+      userId: 'member-1', orgId: 'org-a', username: 'member', displayName: 'Member', roles: ['member'] as const,
+    }
+    ctx.provide('webServer', fakeHttpServer(routes, upgrades) as WebServer)
+    ctx.provide('enterpriseRequestContext', requestContext)
+    ctx.provide('enterpriseSecurity', {
+      authenticateCookie: () => authenticated,
+      authorizeApi: () => ({ allowed: true, reason: 'resource-visible' }),
+      auditApi: () => {},
+    } as unknown as EnterpriseSecurity)
+    const fiber = ctx.plugin({ inject: [...inject], apply })
+    await fiber.await()
+    const seen: unknown[] = []
+    ctx.connection.rpc.intercept('/api', () => true, async (_endpoint, payload) => {
+      seen.push({ principal: requestContext.requirePrincipal(), payload })
+      return { ok: true }
+    }, { authority: 'trusted-host' })
+    const request: ClientRequest = {
+      type: 'client-request',
+      rpcId: RpcId('principal-context'),
+      method: 'operations.read',
+      payload: { principal: { userId: 'attacker', orgId: 'org-z', roles: ['administrator'] } },
+    }
+    const response = fakeResponse()
+
+    await routes[0]!.handler(fakePost({
+      host: '127.0.0.1:3080', cookie: 'dsh_session=valid',
+    }, '/api/operations.read', request), response.response)
+
+    expect(response.state.status).toBe(200)
+    expect(seen).toEqual([{
+      principal: authenticated,
+      payload: { principal: { userId: 'attacker', orgId: 'org-z', roles: ['administrator'] } },
+    }])
+    expect(requestContext.current()).toBeUndefined()
+    await fiber.dispose()
+  })
+
+  it('carries the authenticated principal into a WebSocket downlink source', async () => {
+    const ctx = new Context()
+    const routes: WebRoute[] = []
+    const upgrades: WebUpgradeRoute[] = []
+    const requestContext = new EnterpriseRequestContext()
+    const authenticated = {
+      userId: 'member-1', orgId: 'org-a', username: 'member', displayName: 'Member', roles: ['member'] as const,
+    }
+    let seenPrincipal: unknown
+    ctx.provide('webServer', fakeHttpServer(routes, upgrades) as WebServer)
+    ctx.provide('enterpriseRequestContext', requestContext)
+    ctx.provide('enterpriseSecurity', {
+      authenticateCookie: () => authenticated,
+      authorizeApi: () => ({ allowed: true, reason: 'resource-visible' }),
+      auditApi: () => {},
+    } as unknown as EnterpriseSecurity)
+    ctx.provide('apiProxy', {
+      events: {
+        mux: () => (async function * () {
+          seenPrincipal = requestContext.requirePrincipal()
+          yield {
+            rpcId: RpcId('principal-websocket'),
+            payload: { type: 'session/subscribed', sessionId: 'session-1' as never, lastSeq: 0 },
+          }
+        })(),
+        host: () => (async function * () {})(),
+      },
+    } as unknown as ApiProxy)
+    const fiber = ctx.plugin({ inject: [...inject], apply })
+    await fiber.await()
+    const server = createServer()
+    server.on('upgrade', (request, socket, head) => {
+      const path = new URL(request.url ?? '/', 'http://dsh.internal').pathname
+      void upgrades.find(route => route.path === path)?.handler(request, socket, head)
+    })
+    await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
+    const port = (server.address() as AddressInfo).port
+    const websocket = new WebSocket(`ws://127.0.0.1:${String(port)}${MUX_EVENTS_PATH}`, {
+      headers: { cookie: 'dsh_session=valid' },
+    })
+    await once(websocket, 'message')
+
+    expect(seenPrincipal).toBe(authenticated)
+    expect(requestContext.current()).toBeUndefined()
+    await fiber.dispose()
+    await new Promise<void>(resolve => server.close(() => { resolve() }))
   })
 
   it('refuses an untrusted Host on any /api path before the bridge runs', async () => {

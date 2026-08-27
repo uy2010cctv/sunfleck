@@ -15,6 +15,7 @@ import {
   type EnterpriseSamlConfig,
 } from '@deepseek-ai/dsh-enterprise-sso'
 import { EnterpriseAuthHttpHandler } from './http.ts'
+import { EnterpriseRequestContext } from './request-context.ts'
 import { EnterpriseSecurity, type EnterpriseSecurityConfig } from './security.ts'
 
 export interface BootstrapAdminConfig {
@@ -105,6 +106,7 @@ export async function apply(ctx: Context, config: EnterpriseAuthWebConfig): Prom
     }
 
     const security = new EnterpriseSecurity(repository, config)
+    const requestContext = new EnterpriseRequestContext()
     const oidc = await Promise.all(config.oidc.map(async (provider) => {
       const clientSecret = provider.clientSecretRef === undefined
         ? undefined
@@ -122,6 +124,7 @@ export async function apply(ctx: Context, config: EnterpriseAuthWebConfig): Prom
       localEnabled: config.localEnabled, oidc, saml, ldap,
     })
     ctx.provide('enterpriseSecurity', security)
+    ctx.provide('enterpriseRequestContext', requestContext)
     const route: WebRoute = {
       kind: 'prefix',
       path: '/auth',

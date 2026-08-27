@@ -209,6 +209,12 @@ export function apply(ctx: Context, config?: ConnectionConfig): void {
               rejectWebSocketUpgrade(socket)
               return
             }
+            const requestContext = apiCtx.get('enterpriseRequestContext')
+            if (requestContext === undefined) {
+              rejectUnauthorizedWebSocketUpgrade(socket)
+              return
+            }
+            return requestContext.run(principal, () => handle(req, socket, head))
           }
           return handle(req, socket, head)
         },
