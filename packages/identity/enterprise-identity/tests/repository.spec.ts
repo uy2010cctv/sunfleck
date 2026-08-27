@@ -39,7 +39,7 @@ describe('EnterpriseIdentityRepository', () => {
     expect(repository.listOrganizations()).toEqual([{ id: 'org-a', name: '深度求索' }])
     expect(repository.listUsers('org-a')).toEqual([{
       id: 'user-1', orgId: 'org-a', username: 'alice', displayName: 'Alice', disabled: false,
-      roles: ['administrator', 'auditor'],
+      roles: ['administrator', 'auditor'], departmentIds: [], departmentRevision: 0,
     }])
   })
 
@@ -130,5 +130,52 @@ describe('EnterpriseIdentityRepository', () => {
     repository.setUserDisabled('user-1', true)
     expect(repository.authenticateSession('token-a')).toBeUndefined()
     expect(repository.listUsers('org-a')[0]?.disabled).toBe(true)
+  })
+
+  it('persists a cycle-free department tree and primary user membership', () => {
+    expect(repository.saveDepartment({
+      id: 'dept-product', orgId: 'org-a', name: '产品部', parentId: null,
+      sortOrder: 10, expectedRevision: 0,
+    })).toMatchObject({ id: 'dept-product', revision: 1 })
+    expect(repository.saveDepartment({
+      id: 'dept-design', orgId: 'org-a', name: '设计组', parentId: 'dept-product',
+      sortOrder: 20, expectedRevision: 0,
+    })).toMatchObject({ id: 'dept-design', parentId: 'dept-product', revision: 1 })
+    expect(repository.setUserDepartments({
+      orgId: 'org-a', userId: 'user-1', departmentIds: ['dept-product', 'dept-design'],
+      primaryDepartmentId: 'dept-design', expectedRevision: 0,
+    })).toMatchObject({ departmentIds: ['dept-design', 'dept-product'], primaryDepartmentId: 'dept-design', departmentRevision: 1 })
+
+    expect(repository.listUsers('org-a')[0]).toMatchObject({
+      departmentIds: ['dept-design', 'dept-product'], primaryDepartmentId: 'dept-design', departmentRevision: 1,
+    })
+    expect(() => repository.saveDepartment({
+      id: 'dept-product', orgId: 'org-a', name: '产品部', parentId: 'dept-design',
+      sortOrder: 10, expectedRevision: 1,
+    })).toThrow(/cycle/i)
+  })
+
+  it('resolves personal and department workspace grants for one user only', () => {
+    repository.createUser({ id: 'user-2', orgId: 'org-a', username: 'bob', displayName: 'Bob', disabled: false })
+    repository.saveDepartment({ id: 'dept-ops', orgId: 'org-a', name: '运营部', parentId: null, sortOrder: 0, expectedRevision: 0 })
+    repository.setUserDepartments({
+      orgId: 'org-a', userId: 'user-1', departmentIds: ['dept-ops'], primaryDepartmentId: 'dept-ops', expectedRevision: 0,
+    })
+    repository.saveWorkspaceGrant({
+      workspaceId: 'workspace-alice', orgId: 'org-a', name: 'Alice 的工作区', kind: 'personal',
+      ownerUserId: 'user-1', rootPath: '/managed/users/alice', sandboxMode: 'workspace-write', expectedRevision: 0,
+    })
+    repository.saveWorkspaceGrant({
+      workspaceId: 'workspace-ops', orgId: 'org-a', name: '运营部共享空间', kind: 'department',
+      departmentId: 'dept-ops', rootPath: '/managed/departments/ops', sandboxMode: 'read-only', expectedRevision: 0,
+    })
+
+    expect(repository.listWorkspaceGrants({ orgId: 'org-a', userId: 'user-1' }).map(item => item.workspaceId))
+      .toEqual(['workspace-alice', 'workspace-ops'])
+    expect(repository.listWorkspaceGrants({ orgId: 'org-a', userId: 'user-2' })).toEqual([])
+    expect(() => repository.saveWorkspaceGrant({
+      workspaceId: 'bad', orgId: 'org-a', name: 'Bad', kind: 'personal', departmentId: 'dept-ops',
+      rootPath: '/managed/bad', sandboxMode: 'workspace-write', expectedRevision: 0,
+    })).toThrow(/owner/i)
   })
 })

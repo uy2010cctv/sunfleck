@@ -2,7 +2,7 @@
 
 import type { PostgresDatabase } from './types.ts'
 
-export const ENTERPRISE_IDENTITY_POSTGRES_SCHEMA_VERSION = 1
+export const ENTERPRISE_IDENTITY_POSTGRES_SCHEMA_VERSION = 2
 
 const STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS enterprise_meta (
@@ -20,6 +20,7 @@ const STATEMENTS = [
     display_name TEXT NOT NULL,
     disabled BOOLEAN NOT NULL,
     password_verifier TEXT,
+    department_revision BIGINT NOT NULL DEFAULT 0,
     UNIQUE(org_id, username)
   )`,
   `CREATE TABLE IF NOT EXISTS user_roles (
@@ -75,6 +76,43 @@ const STATEMENTS = [
     details_json JSONB NOT NULL
   )`,
   'CREATE INDEX IF NOT EXISTS audit_events_org_time ON audit_events(org_id, created_at DESC)',
+  `CREATE TABLE IF NOT EXISTS departments (
+    id TEXT PRIMARY KEY,
+    org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+    parent_id TEXT REFERENCES departments(id) ON DELETE RESTRICT,
+    name TEXT NOT NULL,
+    sort_order BIGINT NOT NULL,
+    revision BIGINT NOT NULL,
+    created_at BIGINT NOT NULL,
+    updated_at BIGINT NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS departments_org_parent_order
+    ON departments(org_id, parent_id, sort_order, name, id)`,
+  `CREATE TABLE IF NOT EXISTS user_departments (
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    department_id TEXT NOT NULL REFERENCES departments(id) ON DELETE CASCADE,
+    is_primary BOOLEAN NOT NULL,
+    PRIMARY KEY(user_id, department_id)
+  )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS user_departments_one_primary
+    ON user_departments(user_id) WHERE is_primary`,
+  `CREATE TABLE IF NOT EXISTS enterprise_workspace_grants (
+    workspace_id TEXT PRIMARY KEY,
+    org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    kind TEXT NOT NULL CHECK (kind IN ('personal', 'department')),
+    owner_user_id TEXT REFERENCES users(id) ON DELETE CASCADE,
+    department_id TEXT REFERENCES departments(id) ON DELETE CASCADE,
+    root_path TEXT NOT NULL UNIQUE,
+    sandbox_mode TEXT NOT NULL CHECK (sandbox_mode IN ('read-only', 'workspace-write')),
+    revision BIGINT NOT NULL,
+    created_at BIGINT NOT NULL,
+    updated_at BIGINT NOT NULL,
+    CHECK ((kind = 'personal' AND owner_user_id IS NOT NULL AND department_id IS NULL)
+      OR (kind = 'department' AND owner_user_id IS NULL AND department_id IS NOT NULL))
+  )`,
+  `CREATE INDEX IF NOT EXISTS enterprise_workspace_grants_org_kind
+    ON enterprise_workspace_grants(org_id, kind, name, workspace_id)`,
 ] as const
 
 /** Creates the schema in the current transaction; callers own commit or rollback. */
@@ -89,6 +127,11 @@ export async function migrateEnterpriseIdentityPostgres(database: PostgresDataba
       "INSERT INTO enterprise_meta(key, value) VALUES ('schema-version', $1)",
       [String(ENTERPRISE_IDENTITY_POSTGRES_SCHEMA_VERSION)],
     )
+    return
+  }
+  if (Number(version) === 1) {
+    await database.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS department_revision BIGINT NOT NULL DEFAULT 0')
+    await database.query("UPDATE enterprise_meta SET value = $1 WHERE key = 'schema-version'", [String(ENTERPRISE_IDENTITY_POSTGRES_SCHEMA_VERSION)])
     return
   }
   if (Number(version) !== ENTERPRISE_IDENTITY_POSTGRES_SCHEMA_VERSION) {

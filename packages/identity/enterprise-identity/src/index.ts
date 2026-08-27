@@ -14,6 +14,11 @@ export {
   type EnterpriseResourcePolicy,
   type EnterpriseUserInput,
   type EnterpriseUserView,
+  type EnterpriseDepartment,
+  type SaveEnterpriseDepartmentInput,
+  type SetUserDepartmentsInput,
+  type EnterpriseWorkspaceGrant,
+  type SaveEnterpriseWorkspaceGrantInput,
   type ExternalIdentityBinding,
   type RepositoryOptions,
 } from './repository.ts'

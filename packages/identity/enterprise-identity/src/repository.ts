@@ -24,6 +24,55 @@ export interface EnterpriseUserInput {
 
 export interface EnterpriseUserView extends EnterpriseUserInput {
   readonly roles: readonly EnterpriseRole[]
+  readonly departmentIds: readonly string[]
+  readonly primaryDepartmentId?: string
+  readonly departmentRevision: number
+}
+
+export interface EnterpriseDepartment {
+  readonly id: string
+  readonly orgId: string
+  readonly parentId: string | null
+  readonly name: string
+  readonly sortOrder: number
+  readonly revision: number
+  readonly createdAt: number
+  readonly updatedAt: number
+}
+
+export interface SaveEnterpriseDepartmentInput {
+  readonly id: string
+  readonly orgId: string
+  readonly parentId: string | null
+  readonly name: string
+  readonly sortOrder: number
+  readonly expectedRevision: number
+}
+
+export interface SetUserDepartmentsInput {
+  readonly orgId: string
+  readonly userId: string
+  readonly departmentIds: readonly string[]
+  readonly primaryDepartmentId?: string
+  readonly expectedRevision: number
+}
+
+export interface EnterpriseWorkspaceGrant {
+  readonly workspaceId: string
+  readonly orgId: string
+  readonly name: string
+  readonly kind: 'personal' | 'department'
+  readonly ownerUserId?: string
+  readonly departmentId?: string
+  readonly rootPath: string
+  readonly sandboxMode: 'read-only' | 'workspace-write'
+  readonly revision: number
+  readonly createdAt: number
+  readonly updatedAt: number
+}
+
+export interface SaveEnterpriseWorkspaceGrantInput extends Omit<EnterpriseWorkspaceGrant, 'revision' | 'createdAt' | 'updatedAt'> {
+  readonly expectedRevision: number
 }
 
 export interface EnterprisePrincipalView {
@@ -79,6 +128,31 @@ export interface RepositoryOptions {
   readonly now?: () => number
 }
 
+interface SqliteDepartmentRow {
+  id: string
+  org_id: string
+  parent_id: string | null
+  name: string
+  sort_order: number
+  revision: number
+  created_at: number
+  updated_at: number
+}
+
+interface SqliteWorkspaceGrantRow {
+  workspace_id: string
+  org_id: string
+  name: string
+  kind: 'personal' | 'department'
+  owner_user_id: string | null
+  department_id: string | null
+  root_path: string
+  sandbox_mode: 'read-only' | 'workspace-write'
+  revision: number
+  created_at: number
+  updated_at: number
+}
+
 /**
  * Persistence surface consumed by the synchronous authentication and governance
  * services. Implementations may be backed by SQLite, an in-process cache, or an
@@ -94,6 +168,13 @@ export interface EnterpriseIdentityStore {
   findUser(orgId: string, username: string): IdentityAwaitable<EnterpriseUserView | undefined>
   setRoles(userId: string, roles: readonly EnterpriseRole[]): IdentityAwaitable<void>
   setUserDisabled(userId: string, disabled: boolean): IdentityAwaitable<void>
+  saveDepartment(input: SaveEnterpriseDepartmentInput): IdentityAwaitable<EnterpriseDepartment>
+  listDepartments(orgId: string): IdentityAwaitable<EnterpriseDepartment[]>
+  setUserDepartments(input: SetUserDepartmentsInput): IdentityAwaitable<EnterpriseUserView>
+  saveWorkspaceGrant(input: SaveEnterpriseWorkspaceGrantInput): IdentityAwaitable<EnterpriseWorkspaceGrant>
+  workspaceGrant(workspaceId: string): IdentityAwaitable<EnterpriseWorkspaceGrant | undefined>
+  listWorkspaceGrants(input: { orgId: string; userId: string }): IdentityAwaitable<EnterpriseWorkspaceGrant[]>
+  listOrganizationWorkspaceGrants(orgId: string): IdentityAwaitable<EnterpriseWorkspaceGrant[]>
   setPasswordVerifier(userId: string, verifier: string): IdentityAwaitable<void>
   passwordLoginRecord(orgId: string, username: string): IdentityAwaitable<{
     userId: string
@@ -188,13 +269,14 @@ export class EnterpriseIdentityRepository implements EnterpriseIdentityStore {
 
   listUsers(orgId: string): EnterpriseUserView[] {
     const users = this.database.prepare(
-      'SELECT id, org_id, username, display_name, disabled FROM users WHERE org_id = ? ORDER BY username, id',
+      'SELECT id, org_id, username, display_name, disabled, department_revision FROM users WHERE org_id = ? ORDER BY username, id',
     ).all(orgId) as Array<{
       id: string
       org_id: string
       username: string
       display_name: string
       disabled: number
+      department_revision: number
     }>
     return users.map(user => ({
       id: user.id,
@@ -203,6 +285,8 @@ export class EnterpriseIdentityRepository implements EnterpriseIdentityStore {
       displayName: user.display_name,
       disabled: user.disabled === 1,
       roles: this.roles(user.id),
+      ...this.departmentsForUser(user.id),
+      departmentRevision: user.department_revision,
     }))
   }
 
@@ -212,17 +296,30 @@ export class EnterpriseIdentityRepository implements EnterpriseIdentityStore {
 
   private user(userId: string): EnterpriseUserView | undefined {
     const row = this.database.prepare(
-      'SELECT id, org_id, username, display_name, disabled FROM users WHERE id = ?',
+      'SELECT id, org_id, username, display_name, disabled, department_revision FROM users WHERE id = ?',
     ).get(userId) as {
       id: string
       org_id: string
       username: string
       display_name: string
       disabled: number
+      department_revision: number
     } | undefined
     return row === undefined ? undefined : {
       id: row.id, orgId: row.org_id, username: row.username, displayName: row.display_name,
       disabled: row.disabled === 1, roles: this.roles(row.id),
+      ...this.departmentsForUser(row.id), departmentRevision: row.department_revision,
+    }
+  }
+
+  private departmentsForUser(userId: string): { departmentIds: string[]; primaryDepartmentId?: string } {
+    const rows = this.database.prepare(
+      'SELECT department_id, is_primary FROM user_departments WHERE user_id = ? ORDER BY department_id',
+    ).all(userId) as Array<{ department_id: string; is_primary: number }>
+    const primary = rows.find(row => row.is_primary === 1)?.department_id
+    return {
+      departmentIds: rows.map(row => row.department_id),
+      ...(primary === undefined ? {} : { primaryDepartmentId: primary }),
     }
   }
 
@@ -257,6 +354,182 @@ export class EnterpriseIdentityRepository implements EnterpriseIdentityStore {
     } catch (error) {
       this.database.exec('ROLLBACK')
       throw error
+    }
+  }
+
+  saveDepartment(input: SaveEnterpriseDepartmentInput): EnterpriseDepartment {
+    if (!input.id.trim() || !input.name.trim() || !Number.isSafeInteger(input.sortOrder)) {
+      throw new Error('enterprise department id, name, and integer sort order are required')
+    }
+    this.database.exec('BEGIN IMMEDIATE')
+    try {
+      const current = this.database.prepare('SELECT org_id, revision FROM departments WHERE id = ?')
+        .get(input.id) as { org_id: string; revision: number } | undefined
+      const actual = current?.revision ?? 0
+      if (current !== undefined && current.org_id !== input.orgId) throw new Error('enterprise department is outside organization')
+      if (actual !== input.expectedRevision) throw new Error(`enterprise department revision conflict: expected ${input.expectedRevision}, actual ${actual}`)
+      this.assertDepartmentParent(input.orgId, input.id, input.parentId)
+      const at = this.now()
+      if (current === undefined) {
+        this.database.prepare(`INSERT INTO departments(id, org_id, parent_id, name, sort_order, revision, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, 1, ?, ?)`).run(input.id, input.orgId, input.parentId, input.name.trim(), input.sortOrder, at, at)
+      } else {
+        this.database.prepare(`UPDATE departments SET parent_id = ?, name = ?, sort_order = ?, revision = revision + 1,
+          updated_at = ? WHERE id = ?`).run(input.parentId, input.name.trim(), input.sortOrder, at, input.id)
+      }
+      const value = this.department(input.id)
+      this.database.exec('COMMIT')
+      if (value === undefined) throw new Error('enterprise department write returned no row')
+      return value
+    } catch (error) {
+      this.database.exec('ROLLBACK')
+      throw error
+    }
+  }
+
+  private assertDepartmentParent(orgId: string, departmentId: string, parentId: string | null): void {
+    let cursor = parentId
+    const seen = new Set<string>()
+    while (cursor !== null) {
+      if (cursor === departmentId || seen.has(cursor)) throw new Error('enterprise department tree cycle detected')
+      seen.add(cursor)
+      const row = this.database.prepare('SELECT org_id, parent_id FROM departments WHERE id = ?')
+        .get(cursor) as { org_id: string; parent_id: string | null } | undefined
+      if (row === undefined || row.org_id !== orgId) throw new Error('enterprise department parent is outside organization or missing')
+      cursor = row.parent_id
+    }
+  }
+
+  private department(id: string): EnterpriseDepartment | undefined {
+    const row = this.database.prepare('SELECT * FROM departments WHERE id = ?').get(id) as
+      | SqliteDepartmentRow
+      | undefined
+    return row === undefined ? undefined : {
+      id: row.id, orgId: row.org_id, parentId: row.parent_id, name: row.name, sortOrder: row.sort_order,
+      revision: row.revision, createdAt: row.created_at, updatedAt: row.updated_at,
+    }
+  }
+
+  listDepartments(orgId: string): EnterpriseDepartment[] {
+    return (this.database.prepare(`SELECT * FROM departments WHERE org_id = ?
+      ORDER BY parent_id IS NOT NULL, parent_id, sort_order, name, id`).all(orgId) as SqliteDepartmentRow[]).map(row => ({
+      id: row.id, orgId: row.org_id, parentId: row.parent_id, name: row.name, sortOrder: row.sort_order,
+      revision: row.revision, createdAt: row.created_at, updatedAt: row.updated_at,
+    }))
+  }
+
+  setUserDepartments(input: SetUserDepartmentsInput): EnterpriseUserView {
+    const departmentIds = [...new Set(input.departmentIds)].sort()
+    if (input.primaryDepartmentId !== undefined && !departmentIds.includes(input.primaryDepartmentId)) {
+      throw new Error('primary enterprise department must be included in departmentIds')
+    }
+    this.database.exec('BEGIN IMMEDIATE')
+    try {
+      const user = this.database.prepare('SELECT org_id, department_revision FROM users WHERE id = ?').get(input.userId) as
+        | { org_id: string; department_revision: number }
+        | undefined
+      if (user === undefined || user.org_id !== input.orgId) throw new Error('enterprise user is outside organization or missing')
+      if (user.department_revision !== input.expectedRevision) throw new Error(`enterprise user department revision conflict: expected ${input.expectedRevision}, actual ${user.department_revision}`)
+      for (const departmentId of departmentIds) {
+        const department = this.database.prepare('SELECT org_id FROM departments WHERE id = ?').get(departmentId) as { org_id: string } | undefined
+        if (department === undefined || department.org_id !== input.orgId) throw new Error('enterprise user department is outside organization or missing')
+      }
+      this.database.prepare('DELETE FROM user_departments WHERE user_id = ?').run(input.userId)
+      const insert = this.database.prepare('INSERT INTO user_departments(user_id, department_id, is_primary) VALUES (?, ?, ?)')
+      for (const departmentId of departmentIds) insert.run(input.userId, departmentId, departmentId === input.primaryDepartmentId ? 1 : 0)
+      this.database.prepare('UPDATE users SET department_revision = department_revision + 1 WHERE id = ?').run(input.userId)
+      const value = this.user(input.userId)
+      this.database.exec('COMMIT')
+      if (value === undefined) throw new Error('enterprise user department update returned no user')
+      return value
+    } catch (error) {
+      this.database.exec('ROLLBACK')
+      throw error
+    }
+  }
+
+  saveWorkspaceGrant(input: SaveEnterpriseWorkspaceGrantInput): EnterpriseWorkspaceGrant {
+    this.assertWorkspaceGrantShape(input)
+    this.database.exec('BEGIN IMMEDIATE')
+    try {
+      this.assertWorkspaceGrantReferences(input)
+      const current = this.database.prepare('SELECT org_id, revision FROM enterprise_workspace_grants WHERE workspace_id = ?')
+        .get(input.workspaceId) as { org_id: string; revision: number } | undefined
+      const actual = current?.revision ?? 0
+      if (current !== undefined && current.org_id !== input.orgId) throw new Error('enterprise workspace is outside organization')
+      if (actual !== input.expectedRevision) throw new Error(`enterprise workspace revision conflict: expected ${input.expectedRevision}, actual ${actual}`)
+      const at = this.now()
+      if (current === undefined) {
+        this.database.prepare(`INSERT INTO enterprise_workspace_grants(workspace_id, org_id, name, kind, owner_user_id,
+          department_id, root_path, sandbox_mode, revision, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`)
+          .run(input.workspaceId, input.orgId, input.name.trim(), input.kind, input.ownerUserId ?? null,
+            input.departmentId ?? null, input.rootPath, input.sandboxMode, at, at)
+      } else {
+        this.database.prepare(`UPDATE enterprise_workspace_grants SET name = ?, kind = ?, owner_user_id = ?,
+          department_id = ?, root_path = ?, sandbox_mode = ?, revision = revision + 1, updated_at = ? WHERE workspace_id = ?`)
+          .run(input.name.trim(), input.kind, input.ownerUserId ?? null, input.departmentId ?? null,
+            input.rootPath, input.sandboxMode, at, input.workspaceId)
+      }
+      const value = this.workspaceGrant(input.workspaceId)
+      this.database.exec('COMMIT')
+      if (value === undefined) throw new Error('enterprise workspace write returned no row')
+      return value
+    } catch (error) {
+      this.database.exec('ROLLBACK')
+      throw error
+    }
+  }
+
+  private assertWorkspaceGrantShape(input: SaveEnterpriseWorkspaceGrantInput): void {
+    if (!input.workspaceId.trim() || !input.name.trim() || !input.rootPath.trim()) throw new Error('enterprise workspace identity, name, and root path are required')
+    if (input.kind === 'personal' && (input.ownerUserId === undefined || input.departmentId !== undefined)) {
+      throw new Error('personal enterprise workspace requires one owner and no department')
+    }
+    if (input.kind === 'department' && (input.departmentId === undefined || input.ownerUserId !== undefined)) {
+      throw new Error('department enterprise workspace requires one department and no owner')
+    }
+  }
+
+  private assertWorkspaceGrantReferences(input: SaveEnterpriseWorkspaceGrantInput): void {
+    if (input.ownerUserId !== undefined) {
+      const user = this.database.prepare('SELECT org_id FROM users WHERE id = ?').get(input.ownerUserId) as { org_id: string } | undefined
+      if (user === undefined || user.org_id !== input.orgId) throw new Error('enterprise workspace owner is outside organization or missing')
+    }
+    if (input.departmentId !== undefined) {
+      const department = this.database.prepare('SELECT org_id FROM departments WHERE id = ?').get(input.departmentId) as { org_id: string } | undefined
+      if (department === undefined || department.org_id !== input.orgId) throw new Error('enterprise workspace department is outside organization or missing')
+    }
+  }
+
+  workspaceGrant(workspaceId: string): EnterpriseWorkspaceGrant | undefined {
+    const row = this.database.prepare('SELECT * FROM enterprise_workspace_grants WHERE workspace_id = ?').get(workspaceId) as
+      | SqliteWorkspaceGrantRow
+      | undefined
+    return row === undefined ? undefined : this.workspaceGrantFromRow(row)
+  }
+
+  listWorkspaceGrants(input: { orgId: string; userId: string }): EnterpriseWorkspaceGrant[] {
+    const rows = this.database.prepare(`SELECT workspace.* FROM enterprise_workspace_grants workspace
+      LEFT JOIN user_departments membership ON membership.department_id = workspace.department_id AND membership.user_id = ?
+      WHERE workspace.org_id = ? AND (workspace.owner_user_id = ? OR membership.user_id IS NOT NULL)
+      ORDER BY CASE workspace.kind WHEN 'personal' THEN 0 ELSE 1 END, workspace.name, workspace.workspace_id`)
+      .all(input.userId, input.orgId, input.userId) as SqliteWorkspaceGrantRow[]
+    return rows.map(row => this.workspaceGrantFromRow(row))
+  }
+
+  listOrganizationWorkspaceGrants(orgId: string): EnterpriseWorkspaceGrant[] {
+    return (this.database.prepare(`SELECT * FROM enterprise_workspace_grants WHERE org_id = ?
+      ORDER BY kind, name, workspace_id`).all(orgId) as SqliteWorkspaceGrantRow[])
+      .map(row => this.workspaceGrantFromRow(row))
+  }
+
+  private workspaceGrantFromRow(row: SqliteWorkspaceGrantRow): EnterpriseWorkspaceGrant {
+    return {
+      workspaceId: row.workspace_id, orgId: row.org_id, name: row.name, kind: row.kind,
+      ...(row.owner_user_id === null ? {} : { ownerUserId: row.owner_user_id }),
+      ...(row.department_id === null ? {} : { departmentId: row.department_id }),
+      rootPath: row.root_path, sandboxMode: row.sandbox_mode, revision: row.revision,
+      createdAt: row.created_at, updatedAt: row.updated_at,
     }
   }
 

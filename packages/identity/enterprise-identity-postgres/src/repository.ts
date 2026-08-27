@@ -3,14 +3,19 @@
 import type {
   AuditQuery,
   EnterpriseAuditRecord,
+  EnterpriseDepartment,
   EnterpriseManagedAsset,
   EnterpriseOrganization,
   EnterprisePrincipalView,
   EnterpriseResourcePolicy,
   EnterpriseUserInput,
   EnterpriseUserView,
+  EnterpriseWorkspaceGrant,
   ExternalIdentityBinding,
   RepositoryOptions,
+  SaveEnterpriseDepartmentInput,
+  SaveEnterpriseWorkspaceGrantInput,
+  SetUserDepartmentsInput,
 } from '@deepseek-ai/dsh-enterprise-identity'
 import { sessionTokenHash } from '@deepseek-ai/dsh-enterprise-identity'
 import type { EnterpriseRole } from '@deepseek-ai/dsh-enterprise-governance'
@@ -52,6 +57,32 @@ interface UserRow extends Record<string, unknown> {
   readonly username: string
   readonly display_name: string
   readonly disabled: boolean
+  readonly department_revision: number | string
+}
+
+interface DepartmentRow extends Record<string, unknown> {
+  readonly id: string
+  readonly org_id: string
+  readonly parent_id: string | null
+  readonly name: string
+  readonly sort_order: number | string
+  readonly revision: number | string
+  readonly created_at: number | string
+  readonly updated_at: number | string
+}
+
+interface WorkspaceGrantRow extends Record<string, unknown> {
+  readonly workspace_id: string
+  readonly org_id: string
+  readonly name: string
+  readonly kind: 'personal' | 'department'
+  readonly owner_user_id: string | null
+  readonly department_id: string | null
+  readonly root_path: string
+  readonly sandbox_mode: 'read-only' | 'workspace-write'
+  readonly revision: number | string
+  readonly created_at: number | string
+  readonly updated_at: number | string
 }
 
 interface PolicyRow extends Record<string, unknown> {
@@ -117,18 +148,19 @@ export class PgEnterpriseIdentityRepository {
 
   async listUsers(orgId: string): Promise<EnterpriseUserView[]> {
     const users = await this.database.query<UserRow>(
-      'SELECT id, org_id, username, display_name, disabled FROM users WHERE org_id = $1 ORDER BY username, id',
+      'SELECT id, org_id, username, display_name, disabled, department_revision FROM users WHERE org_id = $1 ORDER BY username, id',
       [orgId],
     )
     return await Promise.all(users.rows.map(async row => ({
       id: row.id, orgId: row.org_id, username: row.username, displayName: row.display_name,
       disabled: row.disabled, roles: await this.roles(row.id),
+      ...await this.departmentsForUser(row.id), departmentRevision: Number(row.department_revision),
     })))
   }
 
   async findUser(orgId: string, username: string): Promise<EnterpriseUserView | undefined> {
     const result = await this.database.query<UserRow>(
-      'SELECT id, org_id, username, display_name, disabled FROM users WHERE org_id = $1 AND username = $2',
+      'SELECT id, org_id, username, display_name, disabled, department_revision FROM users WHERE org_id = $1 AND username = $2',
       [orgId, username],
     )
     return result.rows[0] === undefined ? undefined : this.userFromRow(result.rows[0])
@@ -138,12 +170,13 @@ export class PgEnterpriseIdentityRepository {
     return {
       id: row.id, orgId: row.org_id, username: row.username, displayName: row.display_name,
       disabled: row.disabled, roles: await this.roles(row.id),
+      ...await this.departmentsForUser(row.id), departmentRevision: Number(row.department_revision),
     }
   }
 
   private async user(userId: string): Promise<EnterpriseUserView | undefined> {
     const result = await this.database.query<UserRow>(
-      'SELECT id, org_id, username, display_name, disabled FROM users WHERE id = $1', [userId],
+      'SELECT id, org_id, username, display_name, disabled, department_revision FROM users WHERE id = $1', [userId],
     )
     return result.rows[0] === undefined ? undefined : this.userFromRow(result.rows[0])
   }
@@ -153,6 +186,20 @@ export class PgEnterpriseIdentityRepository {
       'SELECT role FROM user_roles WHERE user_id = $1 ORDER BY role', [userId],
     )
     return result.rows.map(row => row.role)
+  }
+
+  private async departmentsForUser(userId: string, database: PostgresDatabase = this.database): Promise<{
+    departmentIds: string[]
+    primaryDepartmentId?: string
+  }> {
+    const result = await database.query<{ department_id: string; is_primary: boolean }>(
+      'SELECT department_id, is_primary FROM user_departments WHERE user_id = $1 ORDER BY department_id', [userId],
+    )
+    const primary = result.rows.find(row => row.is_primary)?.department_id
+    return {
+      departmentIds: result.rows.map(row => row.department_id),
+      ...(primary === undefined ? {} : { primaryDepartmentId: primary }),
+    }
   }
 
   async setRoles(userId: string, roles: readonly EnterpriseRole[]): Promise<void> {
@@ -174,6 +221,182 @@ export class PgEnterpriseIdentityRepository {
         )
       }
     })
+  }
+
+  async saveDepartment(input: SaveEnterpriseDepartmentInput): Promise<EnterpriseDepartment> {
+    if (!input.id.trim() || !input.name.trim() || !Number.isSafeInteger(input.sortOrder)) {
+      throw new Error('enterprise department id, name, and integer sort order are required')
+    }
+    return this.transaction(async (database) => {
+      await database.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`department:${input.orgId}:${input.id}`])
+      const result = await database.query<{ org_id: string; revision: number | string }>(
+        'SELECT org_id, revision FROM departments WHERE id = $1 FOR UPDATE', [input.id],
+      )
+      const current = result.rows[0]
+      const actual = current === undefined ? 0 : Number(current.revision)
+      if (current !== undefined && current.org_id !== input.orgId) throw new Error('enterprise department is outside organization')
+      if (actual !== input.expectedRevision) throw new Error(`enterprise department revision conflict: expected ${input.expectedRevision}, actual ${actual}`)
+      await this.assertDepartmentParent(database, input.orgId, input.id, input.parentId)
+      const at = this.now()
+      const written = current === undefined
+        ? await database.query<DepartmentRow>(`INSERT INTO departments(id, org_id, parent_id, name, sort_order, revision, created_at, updated_at)
+          VALUES ($1, $2, $3, $4, $5, 1, $6, $6) RETURNING *`,
+        [input.id, input.orgId, input.parentId, input.name.trim(), input.sortOrder, at])
+        : await database.query<DepartmentRow>(`UPDATE departments SET parent_id = $1, name = $2, sort_order = $3,
+          revision = revision + 1, updated_at = $4 WHERE id = $5 RETURNING *`,
+        [input.parentId, input.name.trim(), input.sortOrder, at, input.id])
+      const row = written.rows[0]
+      if (row === undefined) throw new Error('enterprise department write returned no row')
+      return this.departmentFromRow(row)
+    })
+  }
+
+  private async assertDepartmentParent(
+    database: PostgresDatabase,
+    orgId: string,
+    departmentId: string,
+    parentId: string | null,
+  ): Promise<void> {
+    let cursor = parentId
+    const seen = new Set<string>()
+    while (cursor !== null) {
+      if (cursor === departmentId || seen.has(cursor)) throw new Error('enterprise department tree cycle detected')
+      seen.add(cursor)
+      const result = await database.query<{ org_id: string; parent_id: string | null }>(
+        'SELECT org_id, parent_id FROM departments WHERE id = $1', [cursor],
+      )
+      const row = result.rows[0]
+      if (row === undefined || row.org_id !== orgId) throw new Error('enterprise department parent is outside organization or missing')
+      cursor = row.parent_id
+    }
+  }
+
+  async listDepartments(orgId: string): Promise<EnterpriseDepartment[]> {
+    const result = await this.database.query<DepartmentRow>(`SELECT * FROM departments WHERE org_id = $1
+      ORDER BY parent_id NULLS FIRST, sort_order, name, id`, [orgId])
+    return result.rows.map(row => this.departmentFromRow(row))
+  }
+
+  private departmentFromRow(row: DepartmentRow): EnterpriseDepartment {
+    return {
+      id: row.id, orgId: row.org_id, parentId: row.parent_id, name: row.name, sortOrder: Number(row.sort_order),
+      revision: Number(row.revision), createdAt: Number(row.created_at), updatedAt: Number(row.updated_at),
+    }
+  }
+
+  async setUserDepartments(input: SetUserDepartmentsInput): Promise<EnterpriseUserView> {
+    const departmentIds = [...new Set(input.departmentIds)].sort()
+    if (input.primaryDepartmentId !== undefined && !departmentIds.includes(input.primaryDepartmentId)) {
+      throw new Error('primary enterprise department must be included in departmentIds')
+    }
+    return this.transaction(async (database) => {
+      const users = await database.query<UserRow>('SELECT id, org_id, username, display_name, disabled, department_revision FROM users WHERE id = $1 FOR UPDATE', [input.userId])
+      const user = users.rows[0]
+      if (user === undefined || user.org_id !== input.orgId) throw new Error('enterprise user is outside organization or missing')
+      const actual = Number(user.department_revision)
+      if (actual !== input.expectedRevision) throw new Error(`enterprise user department revision conflict: expected ${input.expectedRevision}, actual ${actual}`)
+      if (departmentIds.length > 0) {
+        const departments = await database.query<{ id: string }>(
+          'SELECT id FROM departments WHERE org_id = $1 AND id = ANY($2::text[])', [input.orgId, departmentIds],
+        )
+        if (departments.rows.length !== departmentIds.length) throw new Error('enterprise user department is outside organization or missing')
+      }
+      await database.query('DELETE FROM user_departments WHERE user_id = $1', [input.userId])
+      for (const departmentId of departmentIds) {
+        await database.query('INSERT INTO user_departments(user_id, department_id, is_primary) VALUES ($1, $2, $3)',
+          [input.userId, departmentId, departmentId === input.primaryDepartmentId])
+      }
+      const updated = await database.query<UserRow>(`UPDATE users SET department_revision = department_revision + 1
+        WHERE id = $1 RETURNING id, org_id, username, display_name, disabled, department_revision`, [input.userId])
+      const row = updated.rows[0]
+      if (row === undefined) throw new Error('enterprise user department update returned no user')
+      return {
+        id: row.id, orgId: row.org_id, username: row.username, displayName: row.display_name,
+        disabled: row.disabled, roles: await this.rolesFrom(database, row.id),
+        ...await this.departmentsForUser(row.id, database), departmentRevision: Number(row.department_revision),
+      }
+    })
+  }
+
+  private async rolesFrom(database: PostgresDatabase, userId: string): Promise<EnterpriseRole[]> {
+    const result = await database.query<{ role: EnterpriseRole }>('SELECT role FROM user_roles WHERE user_id = $1 ORDER BY role', [userId])
+    return result.rows.map(row => row.role)
+  }
+
+  async saveWorkspaceGrant(input: SaveEnterpriseWorkspaceGrantInput): Promise<EnterpriseWorkspaceGrant> {
+    this.assertWorkspaceGrantShape(input)
+    return this.transaction(async (database) => {
+      await this.assertWorkspaceGrantReferences(database, input)
+      const currentResult = await database.query<{ org_id: string; revision: number | string }>(
+        'SELECT org_id, revision FROM enterprise_workspace_grants WHERE workspace_id = $1 FOR UPDATE', [input.workspaceId],
+      )
+      const current = currentResult.rows[0]
+      const actual = current === undefined ? 0 : Number(current.revision)
+      if (current !== undefined && current.org_id !== input.orgId) throw new Error('enterprise workspace is outside organization')
+      if (actual !== input.expectedRevision) throw new Error(`enterprise workspace revision conflict: expected ${input.expectedRevision}, actual ${actual}`)
+      const at = this.now()
+      const written = current === undefined
+        ? await database.query<WorkspaceGrantRow>(`INSERT INTO enterprise_workspace_grants(workspace_id, org_id, name, kind,
+          owner_user_id, department_id, root_path, sandbox_mode, revision, created_at, updated_at)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 1, $9, $9) RETURNING *`,
+        [input.workspaceId, input.orgId, input.name.trim(), input.kind, input.ownerUserId ?? null,
+          input.departmentId ?? null, input.rootPath, input.sandboxMode, at])
+        : await database.query<WorkspaceGrantRow>(`UPDATE enterprise_workspace_grants SET name = $1, kind = $2,
+          owner_user_id = $3, department_id = $4, root_path = $5, sandbox_mode = $6,
+          revision = revision + 1, updated_at = $7 WHERE workspace_id = $8 RETURNING *`,
+        [input.name.trim(), input.kind, input.ownerUserId ?? null, input.departmentId ?? null,
+          input.rootPath, input.sandboxMode, at, input.workspaceId])
+      const row = written.rows[0]
+      if (row === undefined) throw new Error('enterprise workspace write returned no row')
+      return this.workspaceGrantFromRow(row)
+    })
+  }
+
+  private assertWorkspaceGrantShape(input: SaveEnterpriseWorkspaceGrantInput): void {
+    if (!input.workspaceId.trim() || !input.name.trim() || !input.rootPath.trim()) throw new Error('enterprise workspace identity, name, and root path are required')
+    if (input.kind === 'personal' && (input.ownerUserId === undefined || input.departmentId !== undefined)) throw new Error('personal enterprise workspace requires one owner and no department')
+    if (input.kind === 'department' && (input.departmentId === undefined || input.ownerUserId !== undefined)) throw new Error('department enterprise workspace requires one department and no owner')
+  }
+
+  private async assertWorkspaceGrantReferences(database: PostgresDatabase, input: SaveEnterpriseWorkspaceGrantInput): Promise<void> {
+    if (input.ownerUserId !== undefined) {
+      const result = await database.query<{ org_id: string }>('SELECT org_id FROM users WHERE id = $1', [input.ownerUserId])
+      if (result.rows[0]?.org_id !== input.orgId) throw new Error('enterprise workspace owner is outside organization or missing')
+    }
+    if (input.departmentId !== undefined) {
+      const result = await database.query<{ org_id: string }>('SELECT org_id FROM departments WHERE id = $1', [input.departmentId])
+      if (result.rows[0]?.org_id !== input.orgId) throw new Error('enterprise workspace department is outside organization or missing')
+    }
+  }
+
+  async workspaceGrant(workspaceId: string): Promise<EnterpriseWorkspaceGrant | undefined> {
+    const result = await this.database.query<WorkspaceGrantRow>('SELECT * FROM enterprise_workspace_grants WHERE workspace_id = $1', [workspaceId])
+    return result.rows[0] === undefined ? undefined : this.workspaceGrantFromRow(result.rows[0])
+  }
+
+  async listWorkspaceGrants(input: { orgId: string; userId: string }): Promise<EnterpriseWorkspaceGrant[]> {
+    const result = await this.database.query<WorkspaceGrantRow>(`SELECT workspace.* FROM enterprise_workspace_grants workspace
+      LEFT JOIN user_departments membership ON membership.department_id = workspace.department_id AND membership.user_id = $1
+      WHERE workspace.org_id = $2 AND (workspace.owner_user_id = $1 OR membership.user_id IS NOT NULL)
+      ORDER BY CASE workspace.kind WHEN 'personal' THEN 0 ELSE 1 END, workspace.name, workspace.workspace_id`,
+    [input.userId, input.orgId])
+    return result.rows.map(row => this.workspaceGrantFromRow(row))
+  }
+
+  async listOrganizationWorkspaceGrants(orgId: string): Promise<EnterpriseWorkspaceGrant[]> {
+    const result = await this.database.query<WorkspaceGrantRow>(`SELECT * FROM enterprise_workspace_grants WHERE org_id = $1
+      ORDER BY kind, name, workspace_id`, [orgId])
+    return result.rows.map(row => this.workspaceGrantFromRow(row))
+  }
+
+  private workspaceGrantFromRow(row: WorkspaceGrantRow): EnterpriseWorkspaceGrant {
+    return {
+      workspaceId: row.workspace_id, orgId: row.org_id, name: row.name, kind: row.kind,
+      ...(row.owner_user_id === null ? {} : { ownerUserId: row.owner_user_id }),
+      ...(row.department_id === null ? {} : { departmentId: row.department_id }),
+      rootPath: row.root_path, sandboxMode: row.sandbox_mode, revision: Number(row.revision),
+      createdAt: Number(row.created_at), updatedAt: Number(row.updated_at),
+    }
   }
 
   async setPasswordVerifier(userId: string, verifier: string): Promise<void> {

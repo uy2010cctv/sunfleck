@@ -2,7 +2,7 @@
 
 import type { DatabaseSync } from 'node:sqlite'
 
-export const ENTERPRISE_IDENTITY_SCHEMA_VERSION = 1
+export const ENTERPRISE_IDENTITY_SCHEMA_VERSION = 2
 
 /** Create or validate the enterprise identity schema. */
 export function migrateEnterpriseIdentity(database: DatabaseSync): void {
@@ -24,6 +24,7 @@ export function migrateEnterpriseIdentity(database: DatabaseSync): void {
       display_name TEXT NOT NULL,
       disabled INTEGER NOT NULL CHECK (disabled IN (0, 1)),
       password_verifier TEXT,
+      department_revision INTEGER NOT NULL DEFAULT 0,
       UNIQUE(org_id, username)
     ) STRICT;
     CREATE TABLE IF NOT EXISTS user_roles (
@@ -77,11 +78,52 @@ export function migrateEnterpriseIdentity(database: DatabaseSync): void {
       details_json TEXT NOT NULL
     ) STRICT;
     CREATE INDEX IF NOT EXISTS audit_events_org_time ON audit_events(org_id, created_at DESC);
+    CREATE TABLE IF NOT EXISTS departments (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      parent_id TEXT REFERENCES departments(id) ON DELETE RESTRICT,
+      name TEXT NOT NULL,
+      sort_order INTEGER NOT NULL,
+      revision INTEGER NOT NULL,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    ) STRICT;
+    CREATE INDEX IF NOT EXISTS departments_org_parent_order
+      ON departments(org_id, parent_id, sort_order, name, id);
+    CREATE TABLE IF NOT EXISTS user_departments (
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      department_id TEXT NOT NULL REFERENCES departments(id) ON DELETE CASCADE,
+      is_primary INTEGER NOT NULL CHECK (is_primary IN (0, 1)),
+      PRIMARY KEY(user_id, department_id)
+    ) STRICT;
+    CREATE UNIQUE INDEX IF NOT EXISTS user_departments_one_primary
+      ON user_departments(user_id) WHERE is_primary = 1;
+    CREATE TABLE IF NOT EXISTS enterprise_workspace_grants (
+      workspace_id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      kind TEXT NOT NULL CHECK (kind IN ('personal', 'department')),
+      owner_user_id TEXT REFERENCES users(id) ON DELETE CASCADE,
+      department_id TEXT REFERENCES departments(id) ON DELETE CASCADE,
+      root_path TEXT NOT NULL UNIQUE,
+      sandbox_mode TEXT NOT NULL CHECK (sandbox_mode IN ('read-only', 'workspace-write')),
+      revision INTEGER NOT NULL,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      CHECK ((kind = 'personal' AND owner_user_id IS NOT NULL AND department_id IS NULL)
+        OR (kind = 'department' AND owner_user_id IS NULL AND department_id IS NOT NULL))
+    ) STRICT;
+    CREATE INDEX IF NOT EXISTS enterprise_workspace_grants_org_kind
+      ON enterprise_workspace_grants(org_id, kind, name, workspace_id);
   `)
   const version = database.prepare("SELECT value FROM enterprise_meta WHERE key = 'schema-version'")
     .get() as { value: string } | undefined
   if (version === undefined) {
     database.prepare("INSERT INTO enterprise_meta(key, value) VALUES ('schema-version', ?)")
+      .run(String(ENTERPRISE_IDENTITY_SCHEMA_VERSION))
+  } else if (Number(version.value) === 1) {
+    database.exec('ALTER TABLE users ADD COLUMN department_revision INTEGER NOT NULL DEFAULT 0')
+    database.prepare("UPDATE enterprise_meta SET value = ? WHERE key = 'schema-version'")
       .run(String(ENTERPRISE_IDENTITY_SCHEMA_VERSION))
   } else if (Number(version.value) !== ENTERPRISE_IDENTITY_SCHEMA_VERSION) {
     throw new Error(
