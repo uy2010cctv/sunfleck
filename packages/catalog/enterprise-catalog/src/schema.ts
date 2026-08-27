@@ -3,9 +3,10 @@
 import type { PostgresDatabase } from './types.ts'
 
 /** Current PostgreSQL schema version accepted by the enterprise catalog. */
-export const ENTERPRISE_CATALOG_SCHEMA_VERSION = 3
+export const ENTERPRISE_CATALOG_SCHEMA_VERSION = 4
 
 const statements = [
+  'CREATE EXTENSION IF NOT EXISTS pg_trgm WITH SCHEMA public',
   `CREATE TABLE IF NOT EXISTS dsh_enterprise_catalog_meta (
     key TEXT PRIMARY KEY, value TEXT NOT NULL
   )`,
@@ -42,14 +43,19 @@ const statements = [
   'ALTER TABLE dsh_enterprise_catalog_idempotency ADD COLUMN IF NOT EXISTS request_digest TEXT',
   `CREATE INDEX IF NOT EXISTS dsh_enterprise_employee_drafts_query_idx
     ON dsh_enterprise_employee_drafts(org_id, updated_at DESC, preset_id DESC)`,
-  `CREATE INDEX IF NOT EXISTS dsh_enterprise_employee_preset_search_query_idx
-    ON dsh_enterprise_employee_drafts(org_id, lower(preset_id))`,
   `CREATE INDEX IF NOT EXISTS dsh_enterprise_asset_catalog_query_idx
     ON dsh_enterprise_asset_catalog(org_id, updated_at DESC, asset_id DESC)`,
-  `CREATE INDEX IF NOT EXISTS dsh_enterprise_asset_id_search_query_idx
-    ON dsh_enterprise_asset_catalog(org_id, lower(asset_id))`,
-  `CREATE INDEX IF NOT EXISTS dsh_enterprise_asset_name_search_query_idx
-    ON dsh_enterprise_asset_catalog(org_id, lower(name))`,
+  'DROP INDEX IF EXISTS dsh_enterprise_employee_preset_search_query_idx',
+  'DROP INDEX IF EXISTS dsh_enterprise_asset_id_search_query_idx',
+  'DROP INDEX IF EXISTS dsh_enterprise_asset_name_search_query_idx',
+  `CREATE INDEX IF NOT EXISTS dsh_enterprise_employee_preset_search_trgm_idx
+    ON dsh_enterprise_employee_drafts USING gin (lower(preset_id) public.gin_trgm_ops)`,
+  `CREATE INDEX IF NOT EXISTS dsh_enterprise_employee_profile_search_trgm_idx
+    ON dsh_enterprise_employee_drafts USING gin (lower(profile_json::text) public.gin_trgm_ops)`,
+  `CREATE INDEX IF NOT EXISTS dsh_enterprise_asset_id_search_trgm_idx
+    ON dsh_enterprise_asset_catalog USING gin (lower(asset_id) public.gin_trgm_ops)`,
+  `CREATE INDEX IF NOT EXISTS dsh_enterprise_asset_name_search_trgm_idx
+    ON dsh_enterprise_asset_catalog USING gin (lower(name) public.gin_trgm_ops)`,
 ] as const
 
 /**
@@ -69,7 +75,7 @@ export async function migrateEnterpriseCatalog(database: PostgresDatabase): Prom
         "INSERT INTO dsh_enterprise_catalog_meta(key, value) VALUES ('schema-version', $1) ON CONFLICT (key) DO NOTHING",
         [String(ENTERPRISE_CATALOG_SCHEMA_VERSION)],
       )
-    } else if (Number(current.rows[0].value) === 1 || Number(current.rows[0].value) === 2) {
+    } else if ([1, 2, 3].includes(Number(current.rows[0].value))) {
       await transaction.query(
         "UPDATE dsh_enterprise_catalog_meta SET value = $1 WHERE key = 'schema-version' AND value = $2",
         [String(ENTERPRISE_CATALOG_SCHEMA_VERSION), current.rows[0].value],

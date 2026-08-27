@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-27-enterprise-catalog-management-queries.md
-2026-08-27-enterprise-catalog-management-queries.md: b2a32b8882adf95331de56b0a3996177ca56018b
-2026-08-27-enterprise-catalog-management-queries.zh.md: b3b9a6f95f020565c4b1a80b0c79ce08c0aef5bc
+2026-08-27-enterprise-catalog-management-queries.md: f9ccb835a70976c88af8ef84f32818afabe0b211
+2026-08-27-enterprise-catalog-management-queries.zh.md: 1328bfe1ed2b4b8e5b06b8d34b41893a3f768925

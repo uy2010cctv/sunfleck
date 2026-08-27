@@ -166,6 +166,14 @@ function cursorSignature(payload: string, key: Buffer): Buffer {
   return createHmac('sha256', key).update(payload).digest()
 }
 
+function canonicalBase64url(segment: string): Buffer {
+  const decoded = Buffer.from(segment, 'base64url')
+  if (segment.length === 0 || decoded.toString('base64url') !== segment) {
+    throw new Error('catalog list cursor segment is not canonical base64url')
+  }
+  return decoded
+}
+
 function decodeCursor(value: string | undefined, scope: string, key: Buffer | undefined): CatalogCursor | undefined {
   if (value === undefined) return undefined
   if (key === undefined) throw new Error('catalog cursor signing key is required to consume a cursor')
@@ -174,12 +182,12 @@ function decodeCursor(value: string | undefined, scope: string, key: Buffer | un
     if (segments.length !== 2 || segments[0] === undefined || segments[1] === undefined) {
       throw new Error('catalog list cursor signature is invalid')
     }
-    const supplied = Buffer.from(segments[1], 'base64url')
+    const supplied = canonicalBase64url(segments[1])
     const expected = cursorSignature(segments[0], key)
     if (supplied.length !== expected.length || !timingSafeEqual(supplied, expected)) {
       throw new Error('catalog list cursor signature is invalid')
     }
-    const parsed: unknown = JSON.parse(Buffer.from(segments[0], 'base64url').toString('utf8'))
+    const parsed: unknown = JSON.parse(canonicalBase64url(segments[0]).toString('utf8'))
     if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) throw new Error('invalid')
     const cursor = parsed as Record<string, unknown>
     if (cursor['version'] !== 1 || cursor['scope'] !== scope
@@ -187,7 +195,7 @@ function decodeCursor(value: string | undefined, scope: string, key: Buffer | un
       || typeof cursor['id'] !== 'string' || cursor['id'].length === 0) throw new Error('invalid')
     return cursor as unknown as CatalogCursor
   } catch (error) {
-    if (error instanceof Error && error.message.includes('signature')) throw error
+    if (error instanceof Error && (error.message.includes('signature') || error.message.includes('canonical'))) throw error
     throw new Error('catalog list cursor is invalid or belongs to another query')
   }
 }

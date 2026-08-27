@@ -12,9 +12,9 @@ Versioned enterprise catalog over native DSH identities:
 - Asset archive is a logical, revision-checked write; an idempotency key is bound to the request digest and returns its original result on an exact retry.
 - Raw secrets are rejected; runtime credentials are referenced by `credentialRef`.
 - PostgreSQL writes use caller-owned transactions, and every query is parameterized.
-- Pagination indexes cover organization, update time, and resource id; expression indexes cover lowercase resource ids and asset names without requiring `pg_trgm`.
+- Pagination indexes cover organization, update time, and resource id. `pg_trgm` GIN expression indexes cover lowercase Preset ids, draft profile JSON, asset ids, and asset names for the package's `%term%` search expressions.
 
-Production repositories provide a stable `cursorSigningKey` as a `Buffer` or string. A repository without a key can read a first page only when it does not need to return a cursor; generating or consuming a cursor fails explicitly. Rotating the key invalidates outstanding cursors.
+Production repositories provide a stable `cursorSigningKey` as a `Buffer` or string. The production composition requires at least 32 bytes with eight distinct byte values. A repository without a key can read a first page only when it does not need to return a cursor; generating or consuming a cursor fails explicitly. Cursor payload and signature segments must be canonical Base64URL, including unused padding bits. Rotating the key invalidates outstanding cursors.
 
 ## Model Experience
 
@@ -36,3 +36,4 @@ None; catalog writes do not assemble provider requests.
 
 - This package supplies the catalog repository and contracts; Host API composition and browser pages are separate layers.
 - PostgreSQL integration tests run when `DSH_TEST_POSTGRES_URL` is set and are mandatory in CI.
+- The database role must be able to install `pg_trgm` during schema migration, or deployment must preinstall the extension.

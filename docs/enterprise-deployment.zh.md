@@ -13,7 +13,7 @@ pnpm dsh web --patch apps/cli/config/enterprise.cordis.patch.yml --host 127.0.0.
 
 在部署 Secret Manager 中生成和托管 `DSH_ENTERPRISE_MASTER_KEY`。不要把它与加密 Credential Document 存在一起。Overlay 使用 HMAC-SHA256 和域标签 `dsh-enterprise-catalog/cursor-signing/v1` 派生稳定的目录游标密钥；该密钥不会被持久化，也不会作为凭据加密密钥重用。轮换主密钥会使未完成的管理列表游标失效。初始管理员密码通过 Credential Seam 读取，仅在 Bootstrap Administrator 尚不存在时使用。
 
-当前企业 Overlay 固定使用 `DSH_ENTERPRISE_DATABASE_URL` 的 PostgreSQL 生产组合，承载身份、Session、员工目录、运营和知识索引；必须安装 pgvector。`credentials.enc.json` 只存储 AES-256-GCM Envelope。
+当前企业 Overlay 固定使用 `DSH_ENTERPRISE_DATABASE_URL` 的 PostgreSQL 生产组合，承载身份、Session、员工目录、运营和知识索引。数据库角色必须能安装 `pgvector` 和 `pg_trgm`，否则部署方必须预先安装两个 Extension。`credentials.enc.json` 只存储 AES-256-GCM Envelope。
 
 ## SSO 配置
 

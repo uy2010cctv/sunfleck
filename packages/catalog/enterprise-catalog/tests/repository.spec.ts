@@ -83,7 +83,8 @@ class MemoryPostgresDatabase implements PostgresDatabase {
   }
 
   private rows(text: string, values: readonly unknown[]): Record<string, unknown>[] {
-    if (text.startsWith('CREATE ') || text.startsWith('ALTER ') || text.startsWith('SELECT pg_advisory_xact_lock')) return []
+    if (text.startsWith('CREATE ') || text.startsWith('ALTER ') || text.startsWith('DROP ')
+      || text.startsWith('SELECT pg_advisory_xact_lock')) return []
     if (text.startsWith('SELECT value FROM dsh_enterprise_catalog_meta')) {
       const value = this.meta.get('schema-version')
       return value === undefined ? [] : [{ value }]
@@ -283,7 +284,15 @@ function parameter(text: string, prefix: string): number | undefined {
   return match?.[1] === undefined ? undefined : Number(match[1]) - 1
 }
 
-const CURSOR_SIGNING_KEY = 'catalog-test-cursor-signing-key'
+const CURSOR_SIGNING_KEY = Buffer.from('0123456789abcdef0123456789abcdef')
+
+function changeBase64urlPaddingBits(value: string): string {
+  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_'
+  const last = value.at(-1)!
+  const index = alphabet.indexOf(last)
+  const replacement = alphabet[(index & ~3) | ((index + 1) & 3)]!
+  return `${value.slice(0, -1)}${replacement}`
+}
 
 function catalogRepository(
   database: PostgresDatabase = new MemoryPostgresDatabase(),
@@ -552,8 +561,24 @@ describe('EnterpriseCatalogRepository', () => {
     const tampered = `${cursor.slice(0, -1)}${cursor.endsWith('A') ? 'B' : 'A'}`
 
     await expect(repository.listDrafts({ orgId: 'org-a', limit: 1, cursor: tampered })).rejects.toThrow('signature')
-    const wrongKey = new EnterpriseCatalogRepository(database, { cursorSigningKey: 'another-signing-key' })
+    const wrongKey = new EnterpriseCatalogRepository(database, {
+      cursorSigningKey: Buffer.from('fedcba9876543210fedcba9876543210'),
+    })
     await expect(wrongKey.listDrafts({ orgId: 'org-a', limit: 1, cursor })).rejects.toThrow('signature')
+  })
+
+  it('rejects non-canonical base64url segments even when padding bits decode identically', async () => {
+    const database = new MemoryPostgresDatabase()
+    const repository = catalogRepository(database)
+    await repository.saveDraft(firstDraft)
+    await repository.saveDraft({ ...firstDraft, presetId: 'preset-two', idempotencyKey: 'canonical-two' })
+    const page = await repository.listDrafts({ orgId: 'org-a', limit: 1 })
+    const [payload, signature] = page.nextCursor!.split('.') as [string, string]
+    const nonCanonical = `${payload}.${changeBase64urlPaddingBits(signature)}`
+    expect(Buffer.from(nonCanonical.split('.')[1]!, 'base64url')).toEqual(Buffer.from(signature, 'base64url'))
+
+    await expect(repository.listDrafts({ orgId: 'org-a', limit: 1, cursor: nonCanonical }))
+      .rejects.toThrow('canonical')
   })
 
   it('continues a cursor after repository restart with the same stable key', async () => {

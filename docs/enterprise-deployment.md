@@ -13,7 +13,7 @@ pnpm dsh web --patch apps/cli/config/enterprise.cordis.patch.yml --host 127.0.0.
 
 Generate and custody `DSH_ENTERPRISE_MASTER_KEY` in the deployment secret manager. Do not store it beside the encrypted credential document. The overlay derives a stable catalog cursor key with HMAC-SHA256 and the domain label `dsh-enterprise-catalog/cursor-signing/v1`; this key is neither persisted nor reused as the credential-encryption key. Rotating the master key invalidates outstanding management-list cursors. The initial administrator password is read through the Credential seam and is used only when the bootstrap administrator does not exist.
 
-The current enterprise overlay uses the PostgreSQL production composition from `DSH_ENTERPRISE_DATABASE_URL`; PostgreSQL stores identity, Session, employee catalog, operations, and knowledge index data, and pgvector must be installed. `credentials.enc.json` stores AES-256-GCM envelopes only.
+The current enterprise overlay uses the PostgreSQL production composition from `DSH_ENTERPRISE_DATABASE_URL`; PostgreSQL stores identity, Session, employee catalog, operations, and knowledge index data. The database role must install `pgvector` and `pg_trgm`, or the deployment must preinstall both extensions. `credentials.enc.json` stores AES-256-GCM envelopes only.
 
 ## SSO configuration
 

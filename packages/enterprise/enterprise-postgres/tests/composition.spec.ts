@@ -22,9 +22,18 @@ describe('enterprise PostgreSQL composition', () => {
     })).rejects.toThrow(/cursor signing key/i)
   })
 
+  it('rejects short and low-entropy catalog cursor signing keys before opening a pool', async () => {
+    await expect(createEnterprisePostgresComposition({
+      connectionString: 'postgresql:///unused', cursorSigningKey: Buffer.from([1]),
+    })).rejects.toThrow(/at least 32 bytes/i)
+    await expect(createEnterprisePostgresComposition({
+      connectionString: 'postgresql:///unused', cursorSigningKey: Buffer.alloc(32, 1),
+    })).rejects.toThrow(/entropy/i)
+  })
+
   it('rejects an empty production connection string before opening a pool', async () => {
     await expect(createEnterprisePostgresComposition({
-      connectionString: '   ', cursorSigningKey: 'composition-test-key',
+      connectionString: '   ', cursorSigningKey: Buffer.from('0123456789abcdef0123456789abcdef'),
     })).rejects.toThrow(/DATABASE_URL/i)
   })
 

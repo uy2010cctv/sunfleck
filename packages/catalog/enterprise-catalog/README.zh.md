@@ -12,9 +12,9 @@
 - 资产归档是带 revision 检查的逻辑写入；幂等键与请求摘要绑定，完全相同的重试返回原始结果。
 - 拒绝明文密钥；运行时凭据只使用 `credentialRef` 引用。
 - PostgreSQL 写入使用调用方事务，所有查询均参数化。
-- 分页索引覆盖组织、更新时间和资源 ID；表达式索引覆盖小写资源 ID 和资产名称，不要求 `pg_trgm`。
+- 分页索引覆盖组织、更新时间和资源 ID。`pg_trgm` GIN 表达式索引覆盖小写 Preset ID、草稿 profile JSON、资产 ID 和资产名称，匹配本包的 `%term%` 搜索表达式。
 
-生产仓库以 `Buffer` 或字符串提供稳定的 `cursorSigningKey`。未配置密钥的仓库仅能读取不需返回游标的首页；生成或消费游标会明确失败。轮换密钥会使未完成的游标失效。
+生产仓库以 `Buffer` 或字符串提供稳定的 `cursorSigningKey`。生产组合要求至少 32 字节且包含至少 8 个不同字节值。未配置密钥的仓库仅能读取不需返回游标的首页；生成或消费游标会明确失败。游标 Payload 和签名 Segment 必须是规范 Base64URL，包括未使用的 Padding Bit。轮换密钥会使未完成的游标失效。
 
 ## 模型体验
 
@@ -36,3 +36,4 @@
 
 - 本包提供目录仓库和合同；Host API 组合与浏览器页面属于独立层。
 - 设置 `DSH_TEST_POSTGRES_URL` 时运行 PostgreSQL 集成测试，CI 中必须设置。
+- 数据库角色必须能在 Schema 迁移时安装 `pg_trgm`，否则部署方必须预先安装该 Extension。

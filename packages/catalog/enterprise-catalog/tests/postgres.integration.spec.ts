@@ -5,7 +5,7 @@ import { EnterpriseCatalogRepository, migrateEnterpriseCatalog } from '../src/in
 import type { PostgresDatabase, PostgresQueryResult } from '../src/types.ts'
 
 const url = process.env.DSH_TEST_POSTGRES_URL
-const CURSOR_SIGNING_KEY = 'catalog-postgres-test-cursor-signing-key'
+const CURSOR_SIGNING_KEY = Buffer.from('0123456789abcdef0123456789abcdef')
 if (url === undefined && process.env.CI === 'true') {
   throw new Error('DSH_TEST_POSTGRES_URL is required for enterprise catalog PostgreSQL integration tests in CI')
 }
@@ -162,7 +162,7 @@ describe.skipIf(url === undefined)('enterprise catalog PostgreSQL integration', 
          WHERE table_schema = $1 AND table_name = 'dsh_enterprise_catalog_idempotency' AND column_name = 'request_digest'`,
         [legacySchema],
       )
-      expect(version.rows[0]?.value).toBe('3')
+      expect(version.rows[0]?.value).toBe('4')
       expect(column.rows[0]?.column_name).toBe('request_digest')
     } finally {
       await legacyClient.query(`DROP SCHEMA IF EXISTS "${legacySchema}" CASCADE`)
@@ -170,18 +170,36 @@ describe.skipIf(url === undefined)('enterprise catalog PostgreSQL integration', 
     }
   })
 
-  it('creates organization pagination and literal-search indexes', async () => {
-    const indexes = await database.query<{ indexname: string }>(
-      `SELECT indexname FROM pg_indexes WHERE schemaname = $1
-       AND indexname LIKE 'dsh_enterprise_%_query_idx' ORDER BY indexname`,
+  it('creates pagination and pg_trgm indexes that match literal-search expressions', async () => {
+    await repository.listDrafts({ orgId: 'index-initialize' })
+    const indexes = await database.query<{ indexname: string; indexdef: string }>(
+      `SELECT indexname, indexdef FROM pg_indexes WHERE schemaname = $1
+       AND (indexname LIKE 'dsh_enterprise_%_query_idx' OR indexname LIKE 'dsh_enterprise_%_trgm_idx')
+       ORDER BY indexname`,
       [schema],
     )
     expect(indexes.rows.map(row => row.indexname)).toEqual([
       'dsh_enterprise_asset_catalog_query_idx',
-      'dsh_enterprise_asset_id_search_query_idx',
-      'dsh_enterprise_asset_name_search_query_idx',
+      'dsh_enterprise_asset_id_search_trgm_idx',
+      'dsh_enterprise_asset_name_search_trgm_idx',
       'dsh_enterprise_employee_drafts_query_idx',
-      'dsh_enterprise_employee_preset_search_query_idx',
+      'dsh_enterprise_employee_preset_search_trgm_idx',
+      'dsh_enterprise_employee_profile_search_trgm_idx',
     ])
+    expect(indexes.rows.filter(row => row.indexname.includes('trgm')).every(row => row.indexdef.includes('gin_trgm_ops'))).toBe(true)
+
+    await database.query('SET enable_seqscan = off')
+    const plans: Array<PostgresQueryResult<{ 'QUERY PLAN': string }>> = []
+    for (const text of [
+      `EXPLAIN SELECT * FROM dsh_enterprise_employee_drafts
+       WHERE lower(preset_id) LIKE lower($1) ESCAPE '\\'`,
+      `EXPLAIN SELECT * FROM dsh_enterprise_employee_drafts
+       WHERE lower(profile_json::text) LIKE lower($1) ESCAPE '\\'`,
+      `EXPLAIN SELECT * FROM dsh_enterprise_asset_catalog
+       WHERE lower(asset_id) LIKE lower($1) ESCAPE '\\'`,
+      `EXPLAIN SELECT * FROM dsh_enterprise_asset_catalog
+       WHERE lower(name) LIKE lower($1) ESCAPE '\\'`,
+    ]) plans.push(await database.query<{ 'QUERY PLAN': string }>(text, ['%Sales%']))
+    expect(plans.every(plan => plan.rows.some(row => row['QUERY PLAN'].includes('trgm_idx')))).toBe(true)
   })
 })

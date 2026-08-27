@@ -101,7 +101,8 @@ function poolConfig(config: EnterprisePostgresConfig): PoolConfig {
   const cursorKey = Buffer.isBuffer(config.cursorSigningKey)
     ? config.cursorSigningKey
     : Buffer.from(config.cursorSigningKey, 'utf8')
-  if (cursorKey.length === 0) throw new Error('enterprise catalog cursor signing key is required')
+  if (cursorKey.length < 32) throw new Error('enterprise catalog cursor signing key must be at least 32 bytes')
+  if (new Set(cursorKey).size < 8) throw new Error('enterprise catalog cursor signing key has insufficient entropy')
   return {
     connectionString: config.connectionString,
     max: config.poolMax ?? 20,
