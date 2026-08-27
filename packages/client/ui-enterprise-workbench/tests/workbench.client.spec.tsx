@@ -195,6 +195,30 @@ describe('EnterpriseWorkbench', () => {
     expect(dismissMutationError).toHaveBeenCalled()
   })
 
+  it('offers server reload instead of retry for conflicts and shows the preserved draft comparison', () => {
+    const resolveMutationConflict = vi.fn(() => Promise.resolve())
+    const retryMutation = vi.fn(() => Promise.resolve())
+    render(<EnterpriseWorkbench {...workbenchProps({
+      state: {
+        mode: 'enterprise', mutationPhase: 'conflict', mutationError: 'revision changed', retryAction: null,
+        employeeEditor: {
+          phase: 'ready', dirty: true, saving: false, conflict: true, errors: [], error: null,
+          revision: 4, releases: [], conflictServerRevision: 5,
+          fields: { presetId: 'buyer', name: '本地名称', description: '', position: '', department: '', prompt: '本地职责', modelRef: 'model-a', visibility: 'private', bindings: [] },
+          conflictServerFields: { presetId: 'buyer', name: '服务器名称', description: '', position: '', department: '', prompt: '服务器职责', modelRef: 'model-b', visibility: 'organization', bindings: [] },
+        },
+      }, resolveMutationConflict, retryMutation,
+    } as never)} />)
+
+    const error = screen.getByRole('alert', { name: zh['mutation.errorAria'] })
+    expect(within(error).queryByRole('button', { name: zh['mutation.retry'] })).toBeNull()
+    fireEvent.click(within(error).getByRole('button', { name: zh['mutation.reload'] }))
+    expect(resolveMutationConflict).toHaveBeenCalled()
+    expect(retryMutation).not.toHaveBeenCalled()
+    expect(screen.getByText('服务器名称')).toBeDefined()
+    expect(screen.getByDisplayValue('本地名称')).toBeDefined()
+  })
+
   it('renders enterprise enum values through the Chinese locale', () => {
     render(<EnterpriseWorkbench {...workbenchProps({ state: {
       mode: 'enterprise', employees: { phase: 'ready', error: null, items: [{

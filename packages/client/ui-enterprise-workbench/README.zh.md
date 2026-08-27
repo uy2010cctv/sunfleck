@@ -13,7 +13,7 @@ DSH Web 的企业数字员工运营界面。企业 Profile 通过强类型 Host 
 
 Controller 调用 `enterpriseEmployees`、`enterpriseAssets`、`enterpriseTeams` 和 `enterpriseOperations`，不接受也不发送组织或 principal，身份由 Host 注入。员工搜索、发布状态、可见性和负责人筛选均在服务端执行，并使用 cursor 分页。员工编辑为显式保存草稿，由 `expectedRevision` 保护；冲突时保留未保存输入。发布、版本历史、回滚、工作状态、审批决策、调度生命周期、资产版本和固定团队都使用真实强类型 mutation。
 
-企业 Host frame 由 runtime 的唯一流消费者转发。每个企业 frame 都携带 `resourceType`；工作台按 `eventId` 去重，即使归属页在后台也会刷新对应 read model。所有 mutation 共用可控的错误/重试状态，revision conflict 与传输失败保持区分。各页失败保持独立：loading、empty、error、forbidden 和部分成功不会清除已成功读取的模型。
+企业 Host frame 由 runtime 的唯一流消费者转发。每个企业 frame 都携带 `resourceType`；工作台按 `eventId` 去重，即使归属页在后台也会刷新对应 read model。所有 mutation 共用可控的错误/重试状态，重试复用首次生成的 idempotency key。Revision conflict 绝不使用旧 revision 重试：恢复操作只重新加载服务器版本，员工编辑保留本地未保存副本并显示差异。各页失败保持独立：loading、empty、error、forbidden 和部分成功不会清除已成功读取的模型。
 
 `preset.yml` 可选声明展示字段：
 

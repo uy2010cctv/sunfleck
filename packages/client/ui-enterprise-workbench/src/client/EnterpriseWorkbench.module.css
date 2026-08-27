@@ -297,6 +297,11 @@
 .validation ul { margin: var(--dse-space-2xs) 0 0; padding-inline-start: var(--dse-space-md); }
 .code { color: var(--dse-color-muted); font-family: var(--dse-font-code); font-size: 0.75rem; }
 .editorFields { min-inline-size: 0; margin: 0; padding: 0; border: 0; }
+.conflictComparison { margin-block-end: var(--dse-space-sm); padding-block: var(--dse-space-xs); border-block: 1px solid var(--dse-color-border); }
+.conflictComparison h3 { margin: 0 0 var(--dse-space-xs); font-size: 0.8125rem; }
+.conflictComparison > div { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--dse-space-sm); }
+.conflictComparison > div > div { min-inline-size: 0; display: flex; flex-direction: column; gap: var(--dse-space-3xs); }
+.conflictComparison span { overflow-wrap: anywhere; color: var(--dse-color-muted); font-size: 0.75rem; }
 
 .filters,
 .createBar,

@@ -107,6 +107,8 @@ export interface EnterpriseEmployeeEditorState {
   readonly conflict: boolean
   readonly errors: readonly string[]
   readonly error: string | null
+  readonly conflictServerFields?: EnterpriseEmployeeDraftFields
+  readonly conflictServerRevision?: number
 }
 
 /** Browser lifecycle for the enterprise workbench. */
@@ -318,6 +320,7 @@ export class EnterpriseWorkbenchController {
   private roster: readonly AgentPresetEntry[] = []
   private readonly seenEventIds = new Set<string>()
   private retryMutationAction: (() => Promise<void>) | undefined
+  private conflictMutationAction: (() => Promise<void>) | undefined
   private saveGeneration = 0
 
   /**
@@ -553,10 +556,11 @@ export class EnterpriseWorkbenchController {
     }
     const generation = ++this.saveGeneration
     const expectedRevision = editor.revision
+    const idempotencyKey = mutationKey('employee-save')
     this.store.set({ ...before, employeeEditor: { ...editor, saving: true, conflict: false, error: null } })
     const { presetId, visibility, bindings, name, description, position, department, prompt, modelRef, capabilities } = editor.fields
     await this.runMutation('employee-save', async () => valueOf(await this.api.enterpriseEmployees.saveDraft({
-      presetId, expectedRevision, idempotencyKey: mutationKey('employee-save'), visibility,
+      presetId, expectedRevision, idempotencyKey, visibility,
       profile: { name, description, position, department, prompt, modelRef, capabilities }, bindings,
     })), async (saved) => {
       const current = this.store.getSnapshot()
@@ -577,6 +581,28 @@ export class EnterpriseWorkbenchController {
         ...currentEditor, saving: false, dirty: true, conflict,
         error: error instanceof Error ? error.message : String(error),
       } })
+    }, async () => {
+      const current = this.store.getSnapshot()
+      const currentEditor = current.employeeEditor
+      if (currentEditor?.fields === undefined) return
+      const [serverDraft, releases] = await Promise.all([
+        this.api.enterpriseEmployees.getDraft({ presetId }).then(valueOf),
+        this.api.enterpriseEmployees.listReleases({ presetId }).then(valueOf),
+      ])
+      const latest = this.store.getSnapshot()
+      const latestEditor = latest.employeeEditor
+      if (latestEditor?.fields === undefined) return
+      this.store.set({ ...latest, employeeEditor: {
+        ...latestEditor,
+        fields: latestEditor.fields,
+        releases,
+        saving: false,
+        dirty: true,
+        conflict: true,
+        conflictServerFields: draftFields(serverDraft),
+        conflictServerRevision: serverDraft.revision,
+        error: null,
+      } })
     })
   }
 
@@ -586,13 +612,14 @@ export class EnterpriseWorkbenchController {
     if (editor?.fields === undefined || editor.revision === undefined || editor.dirty) return
     const presetId = editor.fields.presetId
     const expectedRevision = editor.revision
+    const idempotencyKey = mutationKey('employee-publish')
     await this.runMutation('employee-publish', async () => valueOf(await this.api.enterpriseEmployees.publish({
       presetId, expectedRevision,
-      idempotencyKey: mutationKey('employee-publish'),
+      idempotencyKey,
     })), async () => {
       await this.openEmployeeDraft(presetId)
       await this.refreshEmployees()
-    }, (error) => { this.setEditorFailure(error) })
+    }, (error) => { this.setEditorFailure(error) }, () => this.openEmployeeDraft(presetId))
   }
 
   /** Roll back by publishing a historical release as a new release. */
@@ -601,13 +628,14 @@ export class EnterpriseWorkbenchController {
     if (editor?.fields === undefined || editor.revision === undefined) return
     const presetId = editor.fields.presetId
     const expectedRevision = editor.revision
+    const idempotencyKey = mutationKey('employee-rollback')
     await this.runMutation('employee-rollback', async () => valueOf(await this.api.enterpriseEmployees.rollback({
       presetId, releaseId, expectedRevision,
-      idempotencyKey: mutationKey('employee-rollback'),
+      idempotencyKey,
     })), async () => {
       await this.openEmployeeDraft(presetId)
       await this.refreshEmployees()
-    }, (error) => { this.setEditorFailure(error) })
+    }, (error) => { this.setEditorFailure(error) }, () => this.openEmployeeDraft(presetId))
   }
 
   /** Close the editor after the view has handled dirty confirmation. */
@@ -629,28 +657,31 @@ export class EnterpriseWorkbenchController {
 
   /** Update the real business state of one work record. */
   async updateWorkRecord(record: EnterpriseOperationWorkRecord, businessState: EnterpriseBusinessState): Promise<void> {
+    const idempotencyKey = mutationKey('work-record')
     await this.runMutation('work-record-update', async () => valueOf(await this.api.enterpriseOperations.updateWorkRecord({
       sessionId: record.sessionId, employeeReleaseId: record.employeeReleaseId,
       ...(record.teamId === undefined ? {} : { teamId: record.teamId }),
       source: record.source, businessState, sourceReferences: record.sourceReferences,
-      expectedRevision: record.revision, idempotencyKey: mutationKey('work-record'),
-    })), () => this.refreshWorkRecords())
+      expectedRevision: record.revision, idempotencyKey,
+    })), () => this.refreshWorkRecords(), undefined, () => this.refreshWorkRecords())
   }
 
   /** Approve or reject a pending enterprise approval. */
   async transitionApproval(approval: EnterpriseApproval, state: 'approved' | 'rejected', reason?: string): Promise<void> {
+    const idempotencyKey = mutationKey('approval-transition')
     await this.runMutation('approval-transition', async () => valueOf(await this.api.enterpriseOperations.transitionApproval({
       approvalId: approval.approvalId, state, ...(reason === undefined ? {} : { reason }),
-      expectedRevision: approval.revision, idempotencyKey: mutationKey('approval-transition'),
-    })), () => this.refreshApprovals())
+      expectedRevision: approval.revision, idempotencyKey,
+    })), () => this.refreshApprovals(), undefined, () => this.refreshApprovals())
   }
 
   /** Cancel an approval request. */
   async cancelApproval(approval: EnterpriseApproval, reason?: string): Promise<void> {
+    const idempotencyKey = mutationKey('approval-cancel')
     await this.runMutation('approval-cancel', async () => valueOf(await this.api.enterpriseOperations.cancelApproval({
       approvalId: approval.approvalId, ...(reason === undefined ? {} : { reason }),
-      expectedRevision: approval.revision, idempotencyKey: mutationKey('approval-cancel'),
-    })), () => this.refreshApprovals())
+      expectedRevision: approval.revision, idempotencyKey,
+    })), () => this.refreshApprovals(), undefined, () => this.refreshApprovals())
   }
 
   /** Create or edit a schedule. */
@@ -663,17 +694,19 @@ export class EnterpriseWorkbenchController {
     nextRunAt: number | null
     expectedRevision: number
   }): Promise<void> {
+    const idempotencyKey = mutationKey('schedule-save')
     await this.runMutation('schedule-save', async () => valueOf(await this.api.enterpriseOperations.saveSchedule({
-      ...input, idempotencyKey: mutationKey('schedule-save'),
-    })), () => this.refreshSchedules())
+      ...input, idempotencyKey,
+    })), () => this.refreshSchedules(), undefined, () => this.refreshSchedules())
   }
 
   /** Pause, resume, or archive a schedule. */
   async transitionSchedule(schedule: EnterpriseSchedule, state: EnterpriseSchedule['state']): Promise<void> {
+    const idempotencyKey = mutationKey('schedule-transition')
     await this.runMutation('schedule-transition', async () => valueOf(await this.api.enterpriseOperations.transitionSchedule({
       scheduleId: schedule.scheduleId, state, expectedRevision: schedule.revision,
-      idempotencyKey: mutationKey('schedule-transition'),
-    })), () => this.refreshSchedules())
+      idempotencyKey,
+    })), () => this.refreshSchedules(), undefined, () => this.refreshSchedules())
   }
 
   /** Save a versioned capability asset. */
@@ -684,16 +717,18 @@ export class EnterpriseWorkbenchController {
     content: Readonly<Record<string, unknown>>
     expectedRevision: number
   }): Promise<void> {
+    const idempotencyKey = mutationKey('asset-save')
     await this.runMutation('asset-save', async () => valueOf(await this.api.enterpriseAssets.saveVersion({
-      ...input, idempotencyKey: mutationKey('asset-save'),
-    })), () => this.refreshAssets())
+      ...input, idempotencyKey,
+    })), () => this.refreshAssets(), undefined, () => this.refreshAssets())
   }
 
   /** Archive a capability asset. */
   async archiveAsset(asset: EnterpriseAsset): Promise<void> {
+    const idempotencyKey = mutationKey('asset-archive')
     await this.runMutation('asset-archive', async () => valueOf(await this.api.enterpriseAssets.archive({
-      assetId: asset.assetId, expectedRevision: asset.revision, idempotencyKey: mutationKey('asset-archive'),
-    })), () => this.refreshAssets())
+      assetId: asset.assetId, expectedRevision: asset.revision, idempotencyKey,
+    })), () => this.refreshAssets(), undefined, () => this.refreshAssets())
   }
 
   /** Save a fixed employee team. */
@@ -705,9 +740,10 @@ export class EnterpriseWorkbenchController {
     approvalPolicy: Readonly<Record<string, unknown>>
     expectedRevision: number
   }): Promise<void> {
+    const idempotencyKey = mutationKey('team-save')
     await this.runMutation('team-save', async () => valueOf(await this.api.enterpriseTeams.save({
-      ...input, idempotencyKey: mutationKey('team-save'),
-    })), () => this.refreshTeams())
+      ...input, idempotencyKey,
+    })), () => this.refreshTeams(), undefined, () => this.refreshTeams())
   }
 
   private async runMutation<T>(
@@ -715,6 +751,7 @@ export class EnterpriseWorkbenchController {
     operation: () => Promise<T>,
     onSuccess: (value: T) => Promise<void> | void = () => {},
     onFailure: (error: unknown) => void = () => {},
+    onConflict: () => Promise<void> | void = () => {},
   ): Promise<void> {
     const execute = async (): Promise<void> => {
       const before = this.store.getSnapshot()
@@ -723,16 +760,22 @@ export class EnterpriseWorkbenchController {
         const value = await operation()
         await onSuccess(value)
         this.retryMutationAction = undefined
+        this.conflictMutationAction = undefined
         this.store.set({
           ...this.store.getSnapshot(), mutationPhase: 'idle', mutationError: null, retryAction: null,
         })
       } catch (error) {
         onFailure(error)
+        const conflict = isMutationConflict(error)
+        if (conflict) {
+          this.retryMutationAction = undefined
+          this.conflictMutationAction = async () => { await onConflict() }
+        }
         this.store.set({
           ...this.store.getSnapshot(),
-          mutationPhase: isMutationConflict(error) ? 'conflict' : 'error',
+          mutationPhase: conflict ? 'conflict' : 'error',
           mutationError: error instanceof Error ? error.message : String(error),
-          retryAction: action,
+          retryAction: conflict ? null : action,
         })
       }
     }
@@ -742,12 +785,33 @@ export class EnterpriseWorkbenchController {
 
   /** Retry the most recent contained mutation failure. */
   async retryMutation(): Promise<void> {
+    if (this.store.getSnapshot().mutationPhase === 'conflict') return
     await this.retryMutationAction?.()
+  }
+
+  /** Reload authoritative state after a conflict without resubmitting the stale mutation. */
+  async resolveMutationConflict(): Promise<void> {
+    const resolve = this.conflictMutationAction
+    if (resolve === undefined) return
+    try {
+      await resolve()
+      this.conflictMutationAction = undefined
+      this.store.set({
+        ...this.store.getSnapshot(), mutationPhase: 'idle', mutationError: null, retryAction: null,
+      })
+    } catch (error) {
+      this.store.set({
+        ...this.store.getSnapshot(), mutationPhase: 'error',
+        mutationError: error instanceof Error ? error.message : String(error),
+        retryAction: null,
+      })
+    }
   }
 
   /** Dismiss the persistent mutation error and discard its retry closure. */
   dismissMutationError(): void {
     this.retryMutationAction = undefined
+    this.conflictMutationAction = undefined
     this.store.set({
       ...this.store.getSnapshot(), mutationPhase: 'idle', mutationError: null, retryAction: null,
     })

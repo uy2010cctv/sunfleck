@@ -384,4 +384,118 @@ describe('EnterpriseWorkbenchController edits, mutations, and events', () => {
       saving: false, dirty: false, fields: { name: '保存后的名称' },
     })
   })
+
+  it('reuses one idempotency key after a committed mutation response is lost', async () => {
+    const saveSchedule = vi.fn()
+      .mockRejectedValueOnce(new Error('response lost after commit'))
+      .mockImplementation(() => ok({}))
+    const saveVersion = vi.fn()
+      .mockRejectedValueOnce(new Error('response lost after commit'))
+      .mockImplementation(() => ok({}))
+    const saveTeam = vi.fn()
+      .mockRejectedValueOnce(new Error('response lost after commit'))
+      .mockImplementation(() => ok({}))
+    const publish = vi.fn()
+      .mockRejectedValueOnce(new Error('response lost after commit'))
+      .mockImplementation(() => ok({}))
+    const base = controllerApi()
+    const api = controllerApi({
+      enterpriseEmployees: { ...base.enterpriseEmployees, publish },
+      enterpriseAssets: { ...base.enterpriseAssets, saveVersion },
+      enterpriseTeams: { ...base.enterpriseTeams, save: saveTeam },
+      enterpriseOperations: { ...base.enterpriseOperations, saveSchedule },
+    })
+    const services = controllerServices()
+    const controller = new EnterpriseWorkbenchController(api as never, services.sessions as never, services.workspaces as never)
+
+    await controller.saveSchedule({
+      scheduleId: 'schedule-1', target: { kind: 'employee', employeeReleaseId: 'release-1' },
+      timezone: 'Asia/Shanghai', rule: '0 9 * * *', input: {}, nextRunAt: null, expectedRevision: 0,
+    })
+    await controller.retryMutation()
+    expect((saveSchedule.mock.calls[0]?.[0] as unknown as { idempotencyKey: string }).idempotencyKey)
+      .toBe((saveSchedule.mock.calls[1]?.[0] as unknown as { idempotencyKey: string }).idempotencyKey)
+
+    await controller.saveAssetVersion({ assetId: 'asset-1', kind: 'sop', name: 'SOP', content: {}, expectedRevision: 0 })
+    await controller.retryMutation()
+    expect((saveVersion.mock.calls[0]?.[0] as unknown as { idempotencyKey: string }).idempotencyKey)
+      .toBe((saveVersion.mock.calls[1]?.[0] as unknown as { idempotencyKey: string }).idempotencyKey)
+
+    await controller.saveTeam({
+      teamId: 'team-1', leaderEmployeeReleaseId: 'release-1', members: [],
+      workflowTemplate: {}, approvalPolicy: {}, expectedRevision: 0,
+    })
+    await controller.retryMutation()
+    expect((saveTeam.mock.calls[0]?.[0] as unknown as { idempotencyKey: string }).idempotencyKey)
+      .toBe((saveTeam.mock.calls[1]?.[0] as unknown as { idempotencyKey: string }).idempotencyKey)
+
+    await controller.openEmployeeDraft('buyer')
+    await controller.publishEmployee()
+    await controller.retryMutation()
+    expect((publish.mock.calls[0]?.[0] as unknown as { idempotencyKey: string }).idempotencyKey)
+      .toBe((publish.mock.calls[1]?.[0] as unknown as { idempotencyKey: string }).idempotencyKey)
+  })
+
+  it('does not retry a revision conflict with the stale expectedRevision', async () => {
+    const transitionSchedule = vi.fn(() => Promise.resolve({ result: {
+      ok: false as const,
+      error: { code: 'enterprise-conflict', message: 'revision changed', details: { resourceType: 'schedule' } },
+    } }))
+    const listSchedules = vi.fn(() => ok({ items: [] }))
+    const base = controllerApi()
+    const api = controllerApi({ enterpriseOperations: {
+      ...base.enterpriseOperations, transitionSchedule, listSchedules,
+    } })
+    const services = controllerServices()
+    const controller = new EnterpriseWorkbenchController(api as never, services.sessions as never, services.workspaces as never)
+    const schedule = {
+      scheduleId: 'schedule-1', orgId: 'server-org', target: { kind: 'employee', employeeReleaseId: 'release-1' },
+      timezone: 'Asia/Shanghai', rule: '0 9 * * *', input: {}, state: 'active', nextRunAt: null,
+      lastRunAt: null, revision: 3, createdAt: 10, updatedAt: 20,
+    } as const
+
+    await controller.transitionSchedule(schedule, 'paused')
+    expect(controller.store.getSnapshot()).toMatchObject({
+      mutationPhase: 'conflict', retryAction: null,
+    })
+    await controller.retryMutation()
+    expect(transitionSchedule).toHaveBeenCalledTimes(1)
+    await controller.resolveMutationConflict()
+    expect(listSchedules).toHaveBeenCalledTimes(1)
+  })
+
+  it('reloads an employee conflict as a server comparison while preserving local fields', async () => {
+    const getDraft = vi.fn()
+      .mockImplementationOnce(() => ok({
+        presetId: 'buyer', orgId: 'server-org', ownerUserId: 'owner-1', visibility: 'restricted',
+        profile: { name: '原名称', prompt: '原职责', modelRef: 'model-a' }, bindings: [],
+        revision: 4, status: 'published', updatedAt: 20,
+      }))
+      .mockImplementation(() => ok({
+        presetId: 'buyer', orgId: 'server-org', ownerUserId: 'owner-1', visibility: 'organization',
+        profile: { name: '服务器名称', prompt: '服务器职责', modelRef: 'model-b' }, bindings: [],
+        revision: 5, status: 'published', updatedAt: 30,
+      }))
+    const saveDraft = vi.fn(() => Promise.resolve({ result: {
+      ok: false as const,
+      error: { code: 'enterprise-conflict', message: 'revision changed', details: { resourceType: 'employee' } },
+    } }))
+    const base = controllerApi()
+    const api = controllerApi({ enterpriseEmployees: { ...base.enterpriseEmployees, getDraft, saveDraft } })
+    const services = controllerServices()
+    const controller = new EnterpriseWorkbenchController(api as never, services.sessions as never, services.workspaces as never)
+    await controller.openEmployeeDraft('buyer')
+    controller.patchEmployeeDraft({ name: '本地未保存名称', prompt: '本地未保存职责' })
+
+    await controller.saveEmployeeDraft()
+    await controller.resolveMutationConflict()
+
+    expect(saveDraft).toHaveBeenCalledTimes(1)
+    expect(controller.store.getSnapshot().employeeEditor).toMatchObject({
+      dirty: true,
+      fields: { name: '本地未保存名称', prompt: '本地未保存职责' },
+      conflictServerFields: { name: '服务器名称', prompt: '服务器职责', modelRef: 'model-b' },
+      conflictServerRevision: 5,
+    })
+  })
 })

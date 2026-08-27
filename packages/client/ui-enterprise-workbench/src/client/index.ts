@@ -86,6 +86,7 @@ export function apply(ctx: ClientContext): void {
     archiveAsset: asset => controller.archiveAsset(asset),
     saveTeam: input => controller.saveTeam(input),
     retryMutation: () => controller.retryMutation(),
+    resolveMutationConflict: () => controller.resolveMutationConflict(),
     dismissMutationError: () => { controller.dismissMutationError() },
   })
 
