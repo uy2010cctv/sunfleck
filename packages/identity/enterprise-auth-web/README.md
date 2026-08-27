@@ -11,7 +11,7 @@ Persistent Web authentication and authorization:
 - Organization, user, role, disable, resource-policy, and audit administration APIs.
 - Unknown Host endpoints fail closed.
 
-Enterprise HTTP RPC payloads reserve the top-level `principal` key. The transport rejects it with HTTP 400 after authorization and audit, so downstream code reads identity only from `ctx.enterpriseRequestContext.requirePrincipal()`. Profiles without enterprise security keep the ordinary transport contract and may use that payload key as application data.
+Enterprise HTTP RPC payloads reserve the top-level `principal` key. After session authentication, the transport rejects it with HTTP 400 before authorization, audit, or dispatch, so no invalid request is recorded as allowed and downstream code reads identity only from `ctx.enterpriseRequestContext.requirePrincipal()`. Profiles without enterprise security keep the ordinary transport contract and may use that payload key as application data. Plugin disposal disables the request context so outstanding asynchronous work cannot retain a principal across unload or reload.
 
 The Web plugin accepts a deployment-owned `identityStore` implementing the
 `EnterpriseIdentityStore` contract. `databasePath` remains an optional SQLite

@@ -134,6 +134,7 @@ export async function apply(ctx: Context, config: EnterpriseAuthWebConfig): Prom
       const disposeRoute = ctx.webServer.register(route)
       return () => {
         disposeRoute()
+        requestContext.dispose()
         void repository.close()
       }
     }, 'enterprise-auth-web: identity database and /auth routes')

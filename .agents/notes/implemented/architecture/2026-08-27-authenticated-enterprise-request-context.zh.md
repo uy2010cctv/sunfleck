@@ -16,7 +16,9 @@ WebSocket 下行会在 HTTP upgrade 后创建异步流工作。其数据源必�
 
 Connection 传输只在 Cookie 认证、端点授权和审计完成后进入该上下文。HTTP 包裹选中的 Fetch handler。已授权的 WebSocket upgrade 包裹创建下行数据源及其异步资源的 handler。未组合 `enterpriseSecurity` 的部署继续走普通传输路径，不创建 principal 上下文。
 
-启用企业安全时，HTTP RPC payload 的顶层 `principal` 键为保留键。Connection 在授权和审计后、dispatch 前返回 HTTP 400，不转发、删除或解释该值。普通 Profile 保留不受限制的 payload 契约。
+启用企业安全时，HTTP RPC payload 的顶层 `principal` 键为保留键。会话认证后，Connection 在授权、审计或 dispatch 之前返回 HTTP 400，不转发、删除或解释该值。因此无效 payload 不会产生 allowed 审计记录。普通 Profile 保留不受限制的 payload 契约。
+
+Auth plugin 卸载时会调用 `EnterpriseRequestContext.dispose()`，禁用底层异步存储。未完成的 continuation 会失去继承的 principal，之后的 plugin 加载会发布新的上下文实例。
 
 企业 overlay 为 Connection 注入 `enterpriseSecurity` 和 `enterpriseRequestContext`。因此 Loader 会等待 `enterprisePostgres` 激活 auth，再等 auth 发布两个服务后才激活 Connection；基础 Web Profile 仍只注入 `webRuntime`。
 

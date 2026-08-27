@@ -11,7 +11,7 @@
 - 组织、用户、角色、停用、资源策略和审计管理 API。
 - 未知 Host 端点失败关闭。
 
-企业 HTTP RPC payload 保留顶层 `principal` 键。传输层在授权和审计后以 HTTP 400 拒绝该键，因此下游代码只从 `ctx.enterpriseRequestContext.requirePrincipal()` 读取身份。未启用企业安全的 Profile 保持普通传输契约，仍可把该键作为应用数据使用。
+企业 HTTP RPC payload 保留顶层 `principal` 键。会话认证后，传输层会在授权、审计或 dispatch 之前以 HTTP 400 拒绝该键，因此无效请求不会被记录为已允许，下游代码也只从 `ctx.enterpriseRequestContext.requirePrincipal()` 读取身份。未启用企业安全的 Profile 保持普通传输契约，仍可把该键作为应用数据使用。Plugin 卸载会禁用请求上下文，因此未完成的异步工作无法在卸载或重载之间保留 principal。
 
 Web 插件接受部署方提供的 `EnterpriseIdentityStore` 实现。`databasePath`
 仍可作为本地部署的可选 SQLite 后备；PostgreSQL 组合应通过该注入边界提供

@@ -16,7 +16,9 @@ WebSocket downlinks create asynchronous stream work after the HTTP upgrade. Thei
 
 The Connection transport enters this context only after cookie authentication, endpoint authorization, and audit complete. HTTP wraps the selected Fetch handler. An authorized WebSocket upgrade wraps the handler that creates the downlink source and its asynchronous resources. A composition without `enterpriseSecurity` follows the ordinary transport path and creates no principal context.
 
-The top-level HTTP RPC payload key `principal` is reserved while enterprise security is active. Connection returns HTTP 400 after authorization and audit, before dispatch, rather than forwarding, deleting, or interpreting the value. Ordinary profiles retain the unrestricted payload contract.
+The top-level HTTP RPC payload key `principal` is reserved while enterprise security is active. After session authentication, Connection returns HTTP 400 before authorization, audit, or dispatch, rather than forwarding, deleting, or interpreting the value. An invalid payload therefore cannot produce an allowed audit record. Ordinary profiles retain the unrestricted payload contract.
+
+Auth plugin disposal calls `EnterpriseRequestContext.dispose()`, which disables the underlying asynchronous storage. Pending continuations lose the inherited principal, and a later plugin load publishes a fresh context instance.
 
 The enterprise overlay injects `enterpriseSecurity` and `enterpriseRequestContext` into Connection. Loader therefore holds Connection until `enterprisePostgres` activates auth and auth publishes both services, while the base Web profile continues to inject only `webRuntime`.
 

@@ -50,4 +50,22 @@ describe('EnterpriseRequestContext', () => {
     await expect(Promise.all([first, second])).resolves.toEqual(['member-1', 'member-2'])
     expect(context.current()).toBeUndefined()
   })
+
+  it('disable and dispose clear inherited asynchronous stores', async () => {
+    for (const stop of ['disable', 'dispose'] as const) {
+      const context = new EnterpriseRequestContext()
+      let release!: () => void
+      const gate = new Promise<void>((resolve) => { release = resolve })
+      const pending = context.run(principal('member-1'), async () => {
+        await gate
+        return context.current()
+      })
+
+      context[stop]()
+      release()
+
+      await expect(pending).resolves.toBeUndefined()
+      expect(context.current()).toBeUndefined()
+    }
+  })
 })

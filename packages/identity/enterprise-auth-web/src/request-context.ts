@@ -27,4 +27,14 @@ export class EnterpriseRequestContext {
     if (principal === undefined) throw new Error('authenticated enterprise principal is required')
     return principal
   }
+
+  /** Clear every context store inherited by outstanding asynchronous work. */
+  disable(): void {
+    this.storage.disable()
+  }
+
+  /** Release this request-context instance during plugin disposal. */
+  dispose(): void {
+    this.disable()
+  }
 }

@@ -214,6 +214,8 @@ describe('connection node half', () => {
     const routes: WebRoute[] = []
     const upgrades: WebUpgradeRoute[] = []
     const requestContext = new EnterpriseRequestContext()
+    const authorizations: unknown[] = []
+    const audits: unknown[] = []
     const authenticated = {
       userId: 'member-1', orgId: 'org-a', username: 'member', displayName: 'Member', roles: ['member'] as const,
     }
@@ -221,8 +223,11 @@ describe('connection node half', () => {
     ctx.provide('enterpriseRequestContext', requestContext)
     ctx.provide('enterpriseSecurity', {
       authenticateCookie: () => authenticated,
-      authorizeApi: () => ({ allowed: true, reason: 'resource-visible' }),
-      auditApi: () => {},
+      authorizeApi: (...args: unknown[]) => {
+        authorizations.push(args)
+        return { allowed: true, reason: 'resource-visible' }
+      },
+      auditApi: (...args: unknown[]) => { audits.push(args) },
     } as unknown as EnterpriseSecurity)
     const fiber = ctx.plugin({ inject: [...inject], apply })
     await fiber.await()
@@ -244,6 +249,8 @@ describe('connection node half', () => {
     }, '/api/operations.read', request), response.response)
 
     expect(response.state).toMatchObject({ status: 400, body: 'reserved payload key: principal' })
+    expect(authorizations).toEqual([])
+    expect(audits).toEqual([])
     expect(seen).toEqual([])
     expect(requestContext.current()).toBeUndefined()
     await fiber.dispose()

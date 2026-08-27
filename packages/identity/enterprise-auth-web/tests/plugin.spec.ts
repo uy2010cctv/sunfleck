@@ -45,7 +45,28 @@ describe('enterprise auth Web plugin', () => {
     expect(ctx.enterpriseRequestContext.current()).toBeUndefined()
     expect(ctx.enterpriseSecurity.loginLocal('org-a', 'admin', 'enterprise-password')).toBeDefined()
 
+    const firstRequestContext = ctx.enterpriseRequestContext
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => { release = resolve })
+    const pending = firstRequestContext.run({ userId: 'admin-1', orgId: 'org-a', roles: ['administrator'] }, async () => {
+      await gate
+      return firstRequestContext.current()
+    })
     await fiber.dispose()
+    release()
+    await expect(pending).resolves.toBeUndefined()
+    expect(routes).toHaveLength(0)
+
+    const replacement = ctx.plugin({ inject: [...inject], apply }, {
+      databasePath: join(root, 'identity.sqlite'),
+      organizationId: 'org-a', organizationName: 'Example',
+      sessionCookieName: 'dsh_session', sessionTtlMs: 60_000, secureCookies: false,
+      autoProvisionSsoUsers: true, localEnabled: true,
+      oidc: [], saml: [], ldap: [],
+    })
+    await replacement.await()
+    expect(ctx.enterpriseRequestContext).not.toBe(firstRequestContext)
+    await replacement.dispose()
     expect(routes).toHaveLength(0)
   })
 
