@@ -304,7 +304,7 @@ export class EnterpriseSecurity {
     const classification = classifyApiEndpoint(endpoint, input)
     if (classification === undefined) return { allowed: false, reason: 'insufficient-role' }
     let resource: EnterpriseResource | undefined
-    if (classification.resourceId !== undefined) {
+    if (classification.resourceId !== undefined && classification.action !== 'employee.create') {
       resource = await this.repository.resourcePolicy(classification.resourceType, classification.resourceId)
       if (resource === undefined && this.resourcePolicyResolver !== undefined) {
         const resolved = await this.resourcePolicyResolver(classification.resourceType, classification.resourceId, principal)

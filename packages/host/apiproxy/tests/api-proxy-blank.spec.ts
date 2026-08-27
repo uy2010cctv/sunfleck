@@ -113,6 +113,70 @@ describe('summary blank = conversation not started', () => {
     expect(typeof event.eventId).toBe('string')
   })
 
+  it('filters employee pages through resource authorization for the current principal', async () => {
+    const { ctx, api } = await harness()
+    let role: 'member' | 'operator' | 'administrator' = 'member'
+    const items = [
+      { presetId: 'owned-private', ownerUserId: 'member-1', visibility: 'private' },
+      { presetId: 'other-private', ownerUserId: 'other-1', visibility: 'private' },
+      { presetId: 'organization', ownerUserId: 'other-1', visibility: 'organization' },
+    ]
+    ctx.provide('enterprisePostgres' as never, {
+      catalog: { listDrafts: async () => ({ items }) }, operations: {},
+    } as never)
+    ctx.provide('enterpriseRequestContext' as never, {
+      requirePrincipal: () => ({ userId: 'member-1', orgId: 'org-real', roles: [role] }),
+    } as never)
+    ctx.provide('enterpriseSecurity' as never, {
+      authorizeApiAsync: async (_principal: unknown, endpoint: string, input: unknown) => {
+        if (endpoint === 'enterpriseEmployee.list') return { allowed: true, reason: 'resource-visible' }
+        const presetId = (input as { presetId?: string }).presetId
+        return { allowed: role === 'administrator' || presetId !== 'other-private', reason: 'resource-visible' }
+      },
+      auditApiAsync: async () => undefined,
+    } as never)
+
+    for (const current of ['member', 'operator'] as const) {
+      role = current
+      const response = await api.enterpriseEmployees.list(request({}))
+      expect(response.result).toMatchObject({
+        ok: true, value: { items: [{ presetId: 'owned-private' }, { presetId: 'organization' }] },
+      })
+    }
+    role = 'administrator'
+    await expect(api.enterpriseEmployees.list(request({}))).resolves.toMatchObject({
+      result: { ok: true, value: { items } },
+    })
+  })
+
+  it('preserves the persisted draft owner when another administrator edits it', async () => {
+    const { ctx, api } = await harness()
+    let actor = 'admin-1'
+    const writes: Record<string, unknown>[] = []
+    const catalog = {
+      getDraft: async () => ({ ownerUserId: 'creator-1' }),
+      saveDraft: async (input: Record<string, unknown>) => { writes.push(input); return input },
+    }
+    ctx.provide('enterprisePostgres' as never, { catalog, operations: {} } as never)
+    ctx.provide('enterpriseRequestContext' as never, {
+      requirePrincipal: () => ({ userId: actor, orgId: 'org-real', roles: actor === 'admin-1' ? ['administrator'] : ['creator'] }),
+    } as never)
+    ctx.provide('enterpriseSecurity' as never, {
+      authorizeApiAsync: async () => ({ allowed: true, reason: 'role' }), auditApiAsync: async () => undefined,
+    } as never)
+    const payload = {
+      presetId: 'employee-1', expectedRevision: 1, idempotencyKey: 'admin-edit',
+      visibility: 'private' as const, profile: {}, bindings: [],
+    }
+    await api.enterpriseEmployees.saveDraft(request(payload))
+    actor = 'creator-1'
+    await api.enterpriseEmployees.saveDraft(request({ ...payload, expectedRevision: 2, idempotencyKey: 'creator-edit' }))
+    expect(writes).toEqual([
+      expect.objectContaining({ ownerUserId: 'creator-1' }),
+      expect.objectContaining({ ownerUserId: 'creator-1' }),
+    ])
+  })
+
   it('filters enterprise host events to the connected principal organization', async () => {
     const { ctx, api } = await harness()
     ctx.provide('enterpriseRequestContext' as never, {

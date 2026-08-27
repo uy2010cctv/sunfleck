@@ -525,7 +525,8 @@ describe('EnterpriseCatalogRepository', () => {
 
     await expect(repository.listAssetVersions('org-a', 'sop-owned'))
       .resolves.toMatchObject([{ version: 1 }, { version: 2 }])
-    await expect(repository.listAssetVersions('org-b', 'sop-owned')).rejects.toThrow('does not exist')
+    await expect(repository.listAssetVersions('org-b', 'sop-owned'))
+      .rejects.toMatchObject({ code: 'not-found', resourceType: 'asset', resourceId: 'sop-owned' })
   })
 
   it('archives assets with CAS and request-digest protected idempotency', async () => {
@@ -539,9 +540,9 @@ describe('EnterpriseCatalogRepository', () => {
     await expect(repository.archiveAsset('org-a', 'sop-archive', 1, 'archive-key')).resolves.toEqual(archived)
     expect(archived).toMatchObject({ archived: true, revision: 2, updatedAt: 300 })
     await expect(repository.archiveAsset('org-a', 'sop-archive', 2, 'archive-key'))
-      .rejects.toThrow('idempotency key')
+      .rejects.toMatchObject({ code: 'idempotency-conflict', resourceType: 'asset' })
     await expect(repository.archiveAsset('org-b', 'sop-archive', 2, 'other-key'))
-      .rejects.toThrow('does not exist')
+      .rejects.toMatchObject({ code: 'not-found', resourceType: 'asset', resourceId: 'sop-archive' })
   })
 
   it('rejects stale archive revisions without changing the asset', async () => {
@@ -566,11 +567,12 @@ describe('EnterpriseCatalogRepository', () => {
     const tampered = `${cursor.slice(0, -1)}${cursor.endsWith('A') ? 'B' : 'A'}`
 
     await expect(repository.listDrafts({ orgId: 'org-a', limit: 1, cursor: tampered }))
-      .rejects.toThrow(/signature|canonical/u)
+      .rejects.toMatchObject({ code: 'cursor-invalid', resourceType: 'employee' })
     const wrongKey = new EnterpriseCatalogRepository(database, {
       cursorSigningKey: 'fedcba9876543210fedcba9876543210',
     })
-    await expect(wrongKey.listDrafts({ orgId: 'org-a', limit: 1, cursor })).rejects.toThrow('signature')
+    await expect(wrongKey.listDrafts({ orgId: 'org-a', limit: 1, cursor }))
+      .rejects.toMatchObject({ code: 'cursor-invalid', resourceType: 'employee' })
   })
 
   it('rejects non-canonical base64url segments even when padding bits decode identically', async () => {
@@ -585,7 +587,7 @@ describe('EnterpriseCatalogRepository', () => {
     expect(nonCanonical).not.toBe(`${payload}.${signature}`)
 
     await expect(repository.listDrafts({ orgId: 'org-a', limit: 1, cursor: nonCanonical }))
-      .rejects.toThrow('canonical')
+      .rejects.toMatchObject({ code: 'cursor-invalid', resourceType: 'employee' })
   })
 
   it('continues a cursor after repository restart with the same stable key', async () => {
@@ -611,6 +613,6 @@ describe('EnterpriseCatalogRepository', () => {
     const signed = catalogRepository(database)
     const page = await signed.listDrafts({ orgId: 'org-a', limit: 1 })
     await expect(unsigned.listDrafts({ orgId: 'org-a', limit: 1, cursor: page.nextCursor }))
-      .rejects.toThrow('cursor signing key')
+      .rejects.toMatchObject({ code: 'cursor-invalid', resourceType: 'employee' })
   })
 })

@@ -24,6 +24,8 @@ The enterprise overlay injects `enterpriseSecurity` and `enterpriseRequestContex
 
 Enterprise ApiProxy handlers read identity only through `requirePrincipal()`. Employee and asset handlers inject `orgId`, `ownerUserId`, `createdBy`, or `publishedBy` into PostgreSQL catalog calls after explicit asynchronous authorization and audit. In PostgreSQL mode, an identity-policy miss delegates employee resource resolution to the catalog draft; its owner and visibility become the authorization resource, while an absent draft or a restricted draft without an identity-policy allowlist fails closed. Team, work-record, approval, and schedule handlers delegate to `EnterpriseOperationsService`, which injects organization scope and actor identity before its driver call. Enterprise request schemas are strict and contain neither principal nor organization fields.
 
+Collection authorization does not substitute for resource authorization. Employee lists authorize and audit each draft before returning it. Draft creation uses the current actor as owner, while updates read and retain the persisted owner; the repository update also preserves its stored owner column.
+
 Successful enterprise writes emit organization-tagged invalidation events after the repository promise resolves. A host event stream captures the opening request's `current()` principal and forwards an enterprise frame only when the event organization matches it; a stream without enterprise request context subscribes to no enterprise events.
 
 ## Alternatives considered

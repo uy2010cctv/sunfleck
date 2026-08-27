@@ -2018,6 +2018,14 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
     if (!decision.allowed) throw new EnterpriseOperationsAuthorizationError('insufficient-role', endpoint as never)
   }
 
+  async function canReadCatalogResource(
+    environment: EnterpriseEnvironment, endpoint: string, input: unknown,
+  ): Promise<boolean> {
+    const decision = await environment.security.authorizeApiAsync(environment.principal, endpoint, input)
+    await environment.security.auditApiAsync(environment.principal, endpoint, input, decision, randomUUID())
+    return decision.allowed
+  }
+
   function enterpriseFailure<T>(
     request: RpcRequest<unknown>, error: unknown, resourceType: string, resourceId: string, endpoint: string,
   ): RpcResponse<T> {
@@ -3457,7 +3465,19 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         if (environment === undefined) return enterpriseUnavailable(request)
         try {
           await authorizeCatalog(environment, 'enterpriseEmployee.list', request.payload)
-          return ok(request, await environment.catalog.listDrafts({ ...request.payload, orgId: environment.principal.orgId }) as never)
+          const page = await environment.catalog.listDrafts({
+            ...request.payload, orgId: environment.principal.orgId,
+          }) as { items: { presetId: string }[]; nextCursor?: string }
+          const visibility = await Promise.all(page.items.map(async item => ({
+            item,
+            allowed: await canReadCatalogResource(
+              environment, 'enterpriseEmployee.getDraft', { presetId: item.presetId },
+            ),
+          })))
+          return ok(request, {
+            ...page,
+            items: visibility.filter(result => result.allowed).map(result => result.item),
+          } as never)
         } catch (error) { return enterpriseFailure(request, error, 'employee', 'catalog', 'enterpriseEmployee.list') }
       },
       async getDraft(request) {
@@ -3476,8 +3496,15 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         const { presetId } = request.payload
         try {
           await authorizeCatalog(environment, 'enterpriseEmployee.saveDraft', request.payload)
+          const ownerUserId = request.payload.expectedRevision === 0
+            ? environment.principal.userId
+            : (await environment.catalog.getDraft(presetId, environment.principal.orgId))?.ownerUserId
+          if (typeof ownerUserId !== 'string') {
+            return enterpriseFailure(request, new EnterpriseCatalogError('not-found', 'employee', presetId),
+              'employee', presetId, 'enterpriseEmployee.saveDraft')
+          }
           const value = await environment.catalog.saveDraft({
-            ...request.payload, orgId: environment.principal.orgId, ownerUserId: environment.principal.userId,
+            ...request.payload, orgId: environment.principal.orgId, ownerUserId,
           })
           emitEnterpriseEvent('enterprise/employee-updated', environment.principal.orgId, presetId, 'employee-save', request.payload.idempotencyKey)
           return ok(request, value as never)

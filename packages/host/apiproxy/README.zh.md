@@ -26,6 +26,8 @@ Settings 分节中的 `reasoningEffort` 在 agent-default-model 插件配置中�
 
 可选的 `enterpriseEmployees`、`enterpriseAssets`、`enterpriseTeams` 和 `enterpriseOperations` 域通过强类型一元载体暴露 PostgreSQL catalog 与 operations driver。它们的 payload 不接受 `principal` 或 `orgId`；handler 必须从 `ctx.enterpriseRequestContext` 取得服务端已认证 principal，注入其组织与 actor 字段，并在未组合企业服务时返回明确的 `internal` unavailable 应答。Catalog 调用通过 `ctx.enterpriseSecurity` 授权与审计；Team 与 Operations 调用使用 `EnterpriseOperationsService`。每个 mutation 都携带 `expectedRevision` 和 `idempotencyKey`，repository 失败会映射为稳定的企业 conflict、forbidden、not-found、invalid-state 或 idempotency-conflict 错误码，不返回数据库诊断。
 
+Employee 列表页会在暴露每个 draft 前逐项执行 `employee.read` 授权与审计，因此集合访问不会泄露 private 或 restricted 行。Draft 创建时把当前 actor 记为 owner；后续写入保留持久 owner，即使管理员编辑该 draft 也不改变所有权。
+
 已提交的 mutation 会发出带组织标记的 `enterprise/*-updated` 或 `enterprise/approval-requested` 事件。每个事件携带由组织、操作、资源和幂等 key 派生的稳定 SHA-256 `eventId`；一个 ApiProxy 实例保留最近 1,024 个 id，并对并发或重放的成功写入仅发出一次。Host stream 仅在打开请求具有企业 principal 时订阅，且只转发 `orgId` 匹配的帧。这些事件是失效信号；客户端收到后重新读取对应列表或实体。Schedule 列表始终返回分页 `{items,nextCursor?}` 值，包括空的默认查询。
 
 首个回答认领待处理请求之前，系统会对照该请求校验问题响应。多选题的回答项可以同时携带 `selected` 中的请求选项标签与非空 `custom` 文本；单选题的回答项必须二选一。标签重复、标签未知、id 不匹配、批次不完整以及自定义文本为空都会以 `bad-response` 拒绝。

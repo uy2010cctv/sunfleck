@@ -186,18 +186,20 @@ function canonicalBase64url(segment: string): Buffer {
   return decoded
 }
 
-function decodeCursor(value: string | undefined, scope: string, key: Buffer | undefined): CatalogCursor | undefined {
+function decodeCursor(
+  value: string | undefined, scope: string, key: Buffer | undefined, resourceType: 'employee' | 'asset',
+): CatalogCursor | undefined {
   if (value === undefined) return undefined
-  if (key === undefined) throw new Error('catalog cursor signing key is required to consume a cursor')
+  if (key === undefined) throw new EnterpriseCatalogError('cursor-invalid', resourceType)
   try {
     const segments = value.split('.')
     if (segments.length !== 2 || segments[0] === undefined || segments[1] === undefined) {
-      throw new Error('catalog list cursor signature is invalid')
+      throw new EnterpriseCatalogError('cursor-invalid', resourceType)
     }
     const supplied = canonicalBase64url(segments[1])
     const expected = cursorSignature(segments[0], key)
     if (supplied.length !== expected.length || !timingSafeEqual(supplied, expected)) {
-      throw new Error('catalog list cursor signature is invalid')
+      throw new EnterpriseCatalogError('cursor-invalid', resourceType)
     }
     const parsed: unknown = JSON.parse(canonicalBase64url(segments[0]).toString('utf8'))
     if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) throw new Error('invalid')
@@ -207,8 +209,8 @@ function decodeCursor(value: string | undefined, scope: string, key: Buffer | un
       || typeof cursor['id'] !== 'string' || cursor['id'].length === 0) throw new Error('invalid')
     return cursor as unknown as CatalogCursor
   } catch (error) {
-    if (error instanceof Error && (error.message.includes('signature') || error.message.includes('canonical'))) throw error
-    throw new Error('catalog list cursor is invalid or belongs to another query')
+    if (error instanceof EnterpriseCatalogError) throw error
+    throw new EnterpriseCatalogError('cursor-invalid', resourceType)
   }
 }
 
@@ -259,7 +261,7 @@ export class EnterpriseCatalogRepository {
       )
       const row = current.rows[0]
       if (row !== undefined && row.org_id !== input.orgId) {
-        throw new Error(`employee draft ${input.presetId} is outside organization ${input.orgId}`)
+        throw new EnterpriseCatalogError('not-found', 'employee', input.presetId)
       }
       const actual = row === undefined ? 0 : Number(row.revision)
       if (actual !== input.expectedRevision) {
@@ -279,7 +281,7 @@ export class EnterpriseCatalogRepository {
              org_id = $1, owner_user_id = $2, visibility = $3, profile_json = $4::jsonb,
              bindings_json = $5::jsonb, updated_at = $6, revision = revision + 1, status = 'draft'
            WHERE preset_id = $7 RETURNING *`,
-          [input.orgId, input.ownerUserId, input.visibility, JSON.stringify(input.profile),
+          [input.orgId, row.owner_user_id, input.visibility, JSON.stringify(input.profile),
             JSON.stringify(input.bindings), updatedAt, input.presetId],
         )
       const view = this.draft(required(result.rows[0], 'catalog draft insert returned no row'))
@@ -311,7 +313,7 @@ export class EnterpriseCatalogRepository {
     await this.initialize()
     const limit = listLimit(input)
     const scope = cursorScope('draft', input)
-    const cursor = decodeCursor(input.cursor, scope, this.cursorKey)
+    const cursor = decodeCursor(input.cursor, scope, this.cursorKey, 'employee')
     const values: unknown[] = [input.orgId]
     const filters = ['org_id = $1']
     const add = (sql: string, value: unknown): void => {
@@ -363,7 +365,7 @@ export class EnterpriseCatalogRepository {
       )
       const asset = existing.rows[0]
       if (asset !== undefined && (asset.org_id !== input.orgId || asset.kind !== input.kind)) {
-        throw new Error(`asset ${input.assetId} is outside organization ${input.orgId} or has a different kind`)
+        throw new EnterpriseCatalogError('invalid-state', 'asset', input.assetId)
       }
       const actual = asset === undefined ? 0 : Number(asset.revision)
       if (actual !== input.expectedRevision) {
@@ -422,7 +424,7 @@ export class EnterpriseCatalogRepository {
     await this.initialize()
     const limit = listLimit(input)
     const scope = cursorScope('asset', input)
-    const cursor = decodeCursor(input.cursor, scope, this.cursorKey)
+    const cursor = decodeCursor(input.cursor, scope, this.cursorKey, 'asset')
     const values: unknown[] = [input.orgId]
     const filters = ['org_id = $1']
     const add = (sql: string, value: unknown): void => {
@@ -464,7 +466,7 @@ export class EnterpriseCatalogRepository {
   async listAssetVersions(orgId: string, assetId: string): Promise<EnterpriseAssetVersionView[]> {
     await this.initialize()
     const asset = await this.getAsset(orgId, assetId)
-    if (asset === undefined) throw new Error(`asset ${assetId} does not exist in organization ${orgId}`)
+    if (asset === undefined) throw new EnterpriseCatalogError('not-found', 'asset', assetId)
     const result = await this.database.query<VersionRow>(
       'SELECT * FROM dsh_enterprise_asset_versions WHERE asset_id = $1 ORDER BY version', [assetId],
     )
@@ -491,17 +493,19 @@ export class EnterpriseCatalogRepository {
         [orgId, `archive:${idempotencyKey}`],
       )
       if (prior.rows[0] !== undefined) {
-        if (prior.rows[0].request_digest !== digest) throw new Error('catalog idempotency key was reused with a different request')
+        if (prior.rows[0].request_digest !== digest) {
+          throw new EnterpriseCatalogError('idempotency-conflict', 'asset', assetId)
+        }
         return parse(prior.rows[0].result_json) as EnterpriseAssetView
       }
       const current = await database.query<AssetRow>(
         'SELECT * FROM dsh_enterprise_asset_catalog WHERE asset_id = $1 AND org_id = $2 FOR UPDATE', [assetId, orgId],
       )
       const asset = current.rows[0]
-      if (asset === undefined) throw new Error(`asset ${assetId} does not exist in organization ${orgId}`)
+      if (asset === undefined) throw new EnterpriseCatalogError('not-found', 'asset', assetId)
       const actual = Number(asset.revision)
       if (actual !== expectedRevision) throw new EmployeeDraftRevisionConflictError(assetId, expectedRevision, actual)
-      if (asset.archived) throw new Error(`asset ${assetId} is already archived`)
+      if (asset.archived) throw new EnterpriseCatalogError('invalid-state', 'asset', assetId)
       const updated = await database.query<AssetRow>(
         `UPDATE dsh_enterprise_asset_catalog SET archived = TRUE, updated_at = $1, revision = revision + 1
          WHERE asset_id = $2 AND org_id = $3 AND revision = $4 RETURNING *`,
@@ -542,7 +546,7 @@ export class EnterpriseCatalogRepository {
         [input.presetId, input.orgId],
       )
       const draft = draftResult.rows[0]
-      if (draft === undefined) throw new Error(`employee draft ${input.presetId} does not exist`)
+      if (draft === undefined) throw new EnterpriseCatalogError('not-found', 'employee', input.presetId)
       if (Number(draft.revision) !== input.expectedRevision) {
         throw new EmployeeDraftRevisionConflictError(input.presetId, input.expectedRevision, Number(draft.revision))
       }
@@ -551,12 +555,12 @@ export class EnterpriseCatalogRepository {
       const modelRef = snapshot.profile['modelRef']
       if (modelRef !== undefined) {
         if (typeof modelRef !== 'object' || modelRef === null || Array.isArray(modelRef)) {
-          throw new Error('employee release modelRef is invalid')
+          throw new EnterpriseCatalogError('invalid-binding', 'employee', input.presetId)
         }
         const ref = modelRef as Record<string, unknown>
         const bound = snapshot.bindings.some(binding => binding.kind === 'model'
           && binding.assetId === ref['assetId'] && binding.version === ref['version'])
-        if (!bound) throw new Error('employee release modelRef is not pinned in bindings')
+        if (!bound) throw new EnterpriseCatalogError('invalid-binding', 'employee', input.presetId)
       }
       const max = await database.query<{ version: number | string }>(
         'SELECT MAX(version) AS version FROM dsh_enterprise_employee_releases WHERE preset_id = $1 AND org_id = $2',
@@ -578,13 +582,15 @@ export class EnterpriseCatalogRepository {
         )
         const assetRow = asset.rows[0]
         if (assetRow === undefined || assetRow.org_id !== draft.org_id || assetRow.kind !== binding.kind || assetRow.archived) {
-          throw new Error(`employee release binding ${binding.assetId} is unavailable in organization ${draft.org_id}`)
+          throw new EnterpriseCatalogError('invalid-binding', 'employee', input.presetId)
         }
         const assetVersion = await database.query<VersionRow>(
           'SELECT * FROM dsh_enterprise_asset_versions WHERE asset_id = $1 AND version = $2',
           [binding.assetId, binding.version],
         )
-        if (assetVersion.rows[0] === undefined) throw new Error(`employee release binding ${binding.assetId}@${String(binding.version)} does not exist`)
+        if (assetVersion.rows[0] === undefined) {
+          throw new EnterpriseCatalogError('invalid-binding', 'employee', input.presetId)
+        }
         await database.query(
           'INSERT INTO dsh_enterprise_employee_release_assets(release_id, kind, asset_id, asset_version) VALUES ($1, $2, $3, $4)',
           [releaseId, binding.kind, binding.assetId, binding.version],
@@ -641,15 +647,15 @@ export class EnterpriseCatalogRepository {
       )
       const source = sourceResult.rows[0]
       if (source === undefined || source.preset_id !== input.presetId) {
-        throw new Error(`employee release ${input.releaseId} does not exist`)
+        throw new EnterpriseCatalogError('not-found', 'employee', input.presetId)
       }
-      if (source.org_id !== input.orgId) throw new Error(`employee release ${input.releaseId} is outside organization ${input.orgId}`)
+      if (source.org_id !== input.orgId) throw new EnterpriseCatalogError('not-found', 'employee', input.presetId)
       const draftResult = await database.query<DraftRow>(
         'SELECT * FROM dsh_enterprise_employee_drafts WHERE preset_id = $1 AND org_id = $2 FOR UPDATE',
         [input.presetId, input.orgId],
       )
       const draftRow = draftResult.rows[0]
-      if (draftRow === undefined) throw new Error(`employee draft ${input.presetId} does not exist`)
+      if (draftRow === undefined) throw new EnterpriseCatalogError('not-found', 'employee', input.presetId)
       const draft = this.draft(draftRow)
       if (draft.revision !== input.expectedRevision) {
         throw new EmployeeDraftRevisionConflictError(input.presetId, input.expectedRevision, draft.revision)
