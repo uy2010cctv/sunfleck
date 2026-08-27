@@ -7,8 +7,11 @@
 - `/auth` 状态、本地/SSO 登录、Callback、退出和管理端点。
 - 使用哈希持久会话的 HttpOnly SameSite Session Cookie。
 - 组合后，在每个 HTTP RPC、Typert 端点、独立 Channel 和 WebSocket 下行之前进行中央认证/RBAC/审计。
+- `EnterpriseRequestContext` 是基于 `AsyncLocalStorage` 的服务，仅在已授权的 Host HTTP 与 WebSocket 工作期间暴露认证后的 `EnterprisePrincipal`。
 - 组织、用户、角色、停用、资源策略和审计管理 API。
 - 未知 Host 端点失败关闭。
+
+企业 HTTP RPC payload 保留顶层 `principal` 键。传输层在授权和审计后以 HTTP 400 拒绝该键，因此下游代码只从 `ctx.enterpriseRequestContext.requirePrincipal()` 读取身份。未启用企业安全的 Profile 保持普通传输契约，仍可把该键作为应用数据使用。
 
 Web 插件接受部署方提供的 `EnterpriseIdentityStore` 实现。`databasePath`
 仍可作为本地部署的可选 SQLite 后备；PostgreSQL 组合应通过该注入边界提供

@@ -209,7 +209,7 @@ describe('connection node half', () => {
     await fiber.dispose()
   })
 
-  it('carries the authenticated principal to HTTP handlers and ignores a forged payload principal', async () => {
+  it('rejects a reserved principal key before an enterprise HTTP handler can observe it', async () => {
     const ctx = new Context()
     const routes: WebRoute[] = []
     const upgrades: WebUpgradeRoute[] = []
@@ -243,12 +243,33 @@ describe('connection node half', () => {
       host: '127.0.0.1:3080', cookie: 'dsh_session=valid',
     }, '/api/operations.read', request), response.response)
 
-    expect(response.state.status).toBe(200)
-    expect(seen).toEqual([{
-      principal: authenticated,
-      payload: { principal: { userId: 'attacker', orgId: 'org-z', roles: ['administrator'] } },
-    }])
+    expect(response.state).toMatchObject({ status: 400, body: 'reserved payload key: principal' })
+    expect(seen).toEqual([])
     expect(requestContext.current()).toBeUndefined()
+    await fiber.dispose()
+  })
+
+  it('preserves a principal payload key for a profile without enterprise security', async () => {
+    const ctx = new Context()
+    const routes: WebRoute[] = []
+    const upgrades: WebUpgradeRoute[] = []
+    ctx.provide('webServer', fakeHttpServer(routes, upgrades) as WebServer)
+    const fiber = ctx.plugin({ inject: [...inject], apply })
+    await fiber.await()
+    const seen: unknown[] = []
+    ctx.connection.rpc.intercept('/api', () => true, async (_endpoint, payload) => {
+      seen.push(payload)
+      return { ok: true }
+    }, { authority: 'trusted-host' })
+    const payload = { principal: { externalId: 'ordinary-profile-data' } }
+    const response = fakeResponse()
+
+    await routes[0]!.handler(fakePost({ host: '127.0.0.1:3080' }, '/api/profile.read', {
+      type: 'client-request', rpcId: RpcId('ordinary-principal-key'), method: 'profile.read', payload,
+    }), response.response)
+
+    expect(response.state.status).toBe(200)
+    expect(seen).toEqual([payload])
     await fiber.dispose()
   })
 

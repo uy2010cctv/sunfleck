@@ -15,6 +15,12 @@
 - id: session-persistence-jsonl
   disabled: true
 
+# The base Web composition declares Connection before this overlay's inserted
+# providers. Loader keeps it pending until enterprise auth has published both
+# security services; the ordinary Web profile retains its base-only injection.
+- id: connection
+  inject: [webRuntime, enterpriseSecurity, enterpriseRequestContext]
+
 - insert:
     - id: enterprise-postgres
       name: '@deepseek-ai/dsh-enterprise-postgres'

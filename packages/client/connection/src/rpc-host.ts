@@ -119,6 +119,9 @@ export class HostConnectionService extends Service implements HostConnectionHand
     if (security.auditApiAsync === undefined) security.auditApi(principal, endpoint, payload, decision, correlationId)
     else await security.auditApiAsync(principal, endpoint, payload, decision, correlationId)
     if (!decision.allowed) return new Response('forbidden', { status: 403 })
+    if (hasReservedPrincipal(payload)) {
+      return new Response('reserved payload key: principal', { status: 400 })
+    }
     const requestContext = this.ctx.get('enterpriseRequestContext')
     if (requestContext === undefined) {
       return new Response('enterprise request context unavailable', { status: 500 })
@@ -178,6 +181,10 @@ export class HostConnectionService extends Service implements HostConnectionHand
       }
     }, `client-connection: ${channel} rpc interceptor`)
   }
+}
+
+function hasReservedPrincipal(payload: unknown): boolean {
+  return typeof payload === 'object' && payload !== null && Object.hasOwn(payload, 'principal')
 }
 
 function rpcFetchHandler(
