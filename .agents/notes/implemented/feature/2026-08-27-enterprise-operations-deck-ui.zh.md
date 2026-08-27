@@ -16,6 +16,8 @@ Status: implemented
 
 Runtime 的唯一 Host 流消费者在原生 Session 和 Workspace fold 之后发射已解码的 `connection/host-frame` 事件。每个企业 frame 都携带资源类型（`employee`、`asset`、`team`、`work-record`、`approval`、`schedule` 或 `outbox`）。工作台对 `eventId` 进行有界去重，按资源类型刷新对应 read model，不从当前可见页面猜测。所有 mutation 经过同一套可控错误、conflict 和重试状态；每个操作在构建重试 closure 前生成 idempotency key，因此重试会复用同一 key。Conflict 会移除旧 mutation 重试 closure，改为重新加载权威状态。员工冲突保留本地字段与服务器副本，直到运营人员明确采用服务器草稿，或在新 revision 上保留本地字段。如果重载失败，只有同一重载可重试。失败不会以未处理 rejection 逃逸。各页状态相互独立，因此 forbidden 或失败读取可以与已成功可用的页面共存。
 
+员工名册与 cursor 读取、各域页面读取、编辑器加载和 mutation attempt 都携带客户端 generation，只有最新且条件匹配的 generation 可以提交状态。企业事件只在目标刷新成功后记为 seen，因此失败事件可重放。同一员工的并发启动共用一个在途 Session 创建。调度、资产和团队表单的 dirty 状态与员工草稿共用 overlay 离开守卫，当前 mutation attempt 执行时所有 mutation 控件均禁用。
+
 普通 Profile 只在 `enterpriseEmployee.list` 明确报告企业 API 不可用时，才 fallback 到 Agent Preset、Session 和 Workspace 投影。授权、cursor、传输和其他内部失败保持可见，绝不触发 fallback。
 
 ## Alternatives considered

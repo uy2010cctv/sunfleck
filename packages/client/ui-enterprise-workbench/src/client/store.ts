@@ -322,6 +322,11 @@ export class EnterpriseWorkbenchController {
   private retryMutationAction: (() => Promise<void>) | undefined
   private conflictMutationAction: (() => Promise<void>) | undefined
   private saveGeneration = 0
+  private employeeRequestGeneration = 0
+  private readonly pageRequestGeneration = new Map<string, number>()
+  private mutationAttemptId = 0
+  private editorGeneration = 0
+  private readonly employeeStarts = new Map<string, Promise<void>>()
 
   /**
    * @param api - existing Host API; only the Agent Preset roster is read.
@@ -345,17 +350,20 @@ export class EnterpriseWorkbenchController {
 
   /** Close the workbench without discarding its loaded read model. */
   close(): void {
+    this.editorGeneration++
     const state = this.store.getSnapshot()
     this.store.set({ ...state, open: false, busyEmployee: null })
   }
 
   /** Change the overlay-local page. Dirty-editor confirmation stays in the view layer. */
   setPage(page: EnterpriseWorkbenchPage): void {
+    if (page !== this.store.getSnapshot().page) this.editorGeneration++
     this.store.set({ ...this.store.getSnapshot(), page })
   }
 
   /** Replace server-side roster filters; the next refresh starts from the first cursor. */
   setEmployeeFilters(filters: EnterpriseEmployeeFilters): void {
+    this.employeeRequestGeneration++
     this.store.set({ ...this.store.getSnapshot(), employeeFilters: filters })
   }
 
@@ -411,56 +419,71 @@ export class EnterpriseWorkbenchController {
   }
 
   /** Load the first filtered employee page. */
-  async refreshEmployees(): Promise<void> {
+  async refreshEmployees(): Promise<boolean> {
+    const generation = ++this.employeeRequestGeneration
     const state = this.store.getSnapshot()
+    const filters = state.employeeFilters
     this.store.set({ ...state, employees: { ...state.employees, phase: 'loading', error: null } })
     try {
-      const filters = this.store.getSnapshot().employeeFilters
       const page = valueOf(await this.api.enterpriseEmployees.list({ limit: 24, ...filters }))
+      if (generation !== this.employeeRequestGeneration) return false
       this.store.set({ ...this.store.getSnapshot(), employees: {
         phase: 'ready', items: page.items, error: null,
         ...(page.nextCursor === undefined ? {} : { nextCursor: page.nextCursor }),
       } })
+      return true
     } catch (error) {
       if (isUnavailable(error)) throw error
+      if (generation !== this.employeeRequestGeneration) return false
       const current = this.store.getSnapshot()
       this.store.set({ ...current, employees: pageFailure(current.employees, error) })
+      return false
     }
   }
 
   /** Append the next roster page using the current filters. */
-  async loadMoreEmployees(): Promise<void> {
+  async loadMoreEmployees(): Promise<boolean> {
     const before = this.store.getSnapshot()
-    if (before.employees.nextCursor === undefined || before.employees.phase === 'loading') return
+    if (before.employees.nextCursor === undefined || before.employees.phase === 'loading') return false
+    const generation = ++this.employeeRequestGeneration
     this.store.set({ ...before, employees: { ...before.employees, phase: 'loading', error: null } })
     try {
       const page = valueOf(await this.api.enterpriseEmployees.list({
         limit: 24, cursor: before.employees.nextCursor, ...before.employeeFilters,
       }))
+      if (generation !== this.employeeRequestGeneration) return false
       this.store.set({ ...this.store.getSnapshot(), employees: {
         phase: 'ready', items: [...before.employees.items, ...page.items], error: null,
         ...(page.nextCursor === undefined ? {} : { nextCursor: page.nextCursor }),
       } })
+      return true
     } catch (error) {
+      if (generation !== this.employeeRequestGeneration) return false
       const current = this.store.getSnapshot()
       this.store.set({ ...current, employees: pageFailure(before.employees, error) })
+      return false
     }
   }
 
   private async loadPage<K extends 'workRecords' | 'approvals' | 'schedules' | 'assets' | 'teams'>(
     key: K,
     load: () => Promise<{ items: EnterpriseWorkbenchState[K]['items']; nextCursor?: string }>,
-  ): Promise<void> {
+  ): Promise<boolean> {
+    const generation = (this.pageRequestGeneration.get(key) ?? 0) + 1
+    this.pageRequestGeneration.set(key, generation)
     const before = this.store.getSnapshot()
     const previous = before[key]
     this.store.set({ ...before, [key]: { ...previous, phase: 'loading', error: null } })
     try {
       const page = await load()
+      if (this.pageRequestGeneration.get(key) !== generation) return false
       this.store.set({ ...this.store.getSnapshot(), [key]: {
         phase: 'ready', items: page.items, error: null,
         ...(page.nextCursor === undefined ? {} : { nextCursor: page.nextCursor }),
       } })
+      return true
     } catch (error) {
+      if (this.pageRequestGeneration.get(key) !== generation) return false
       const current = this.store.getSnapshot()
       const permission = error instanceof EnterpriseApiError && error.code === 'enterprise-forbidden'
       this.store.set({ ...current, [key]: {
@@ -468,31 +491,32 @@ export class EnterpriseWorkbenchController {
         phase: permission ? 'permission' : 'error',
         error: error instanceof Error ? error.message : String(error),
       } })
+      return false
     }
   }
 
   /** Refresh one PostgreSQL operations page. */
-  refreshWorkRecords(): Promise<void> {
+  refreshWorkRecords(): Promise<boolean> {
     return this.loadPage('workRecords', async () => valueOf(await this.api.enterpriseOperations.listWorkRecords({ limit: 50 })))
   }
 
   /** Refresh approvals. */
-  refreshApprovals(): Promise<void> {
+  refreshApprovals(): Promise<boolean> {
     return this.loadPage('approvals', async () => valueOf(await this.api.enterpriseOperations.listApprovals({ limit: 50 })))
   }
 
   /** Refresh schedules. */
-  refreshSchedules(): Promise<void> {
+  refreshSchedules(): Promise<boolean> {
     return this.loadPage('schedules', async () => valueOf(await this.api.enterpriseOperations.listSchedules({ limit: 50 })))
   }
 
   /** Refresh capability assets. */
-  refreshAssets(): Promise<void> {
+  refreshAssets(): Promise<boolean> {
     return this.loadPage('assets', async () => valueOf(await this.api.enterpriseAssets.list({ limit: 50 })))
   }
 
   /** Refresh fixed teams. */
-  refreshTeams(): Promise<void> {
+  refreshTeams(): Promise<boolean> {
     return this.loadPage('teams', async () => valueOf(await this.api.enterpriseTeams.list({ limit: 50 })))
   }
 
@@ -512,6 +536,7 @@ export class EnterpriseWorkbenchController {
 
   /** Load an employee draft and its immutable release history into the single-page editor. */
   async openEmployeeDraft(presetId: string): Promise<void> {
+    const generation = ++this.editorGeneration
     this.store.set({ ...this.store.getSnapshot(), employeeEditor: {
       phase: 'loading', releases: [], dirty: false, saving: false, conflict: false, errors: [], error: null,
     } })
@@ -521,11 +546,13 @@ export class EnterpriseWorkbenchController {
         this.api.enterpriseEmployees.listReleases({ presetId }).then(valueOf),
       ])
       const fields = draftFields(draft)
+      if (generation !== this.editorGeneration) return
       this.store.set({ ...this.store.getSnapshot(), employeeEditor: {
         phase: 'ready', fields, revision: draft.revision, releases,
         dirty: false, saving: false, conflict: false, errors: [], error: null,
       } })
     } catch (error) {
+      if (generation !== this.editorGeneration) return
       this.store.set({ ...this.store.getSnapshot(), employeeEditor: {
         phase: 'error', releases: [], dirty: false, saving: false, conflict: false, errors: [],
         error: error instanceof Error ? error.message : String(error),
@@ -647,11 +674,13 @@ export class EnterpriseWorkbenchController {
     const presetId = editor.fields.presetId
     const expectedRevision = editor.revision
     const idempotencyKey = mutationKey('employee-publish')
+    const editorGeneration = this.editorGeneration
     await this.runMutation('employee-publish', async () => valueOf(await this.api.enterpriseEmployees.publish({
       presetId, expectedRevision,
       idempotencyKey,
     })), async () => {
-      await this.openEmployeeDraft(presetId)
+      if (this.editorGeneration === editorGeneration && this.store.getSnapshot().open
+        && this.store.getSnapshot().page === 'employees') await this.openEmployeeDraft(presetId)
       await this.refreshEmployees()
     }, (error) => { this.setEditorFailure(error) }, () => this.reloadEmployeeConflict(presetId))
   }
@@ -663,17 +692,20 @@ export class EnterpriseWorkbenchController {
     const presetId = editor.fields.presetId
     const expectedRevision = editor.revision
     const idempotencyKey = mutationKey('employee-rollback')
+    const editorGeneration = this.editorGeneration
     await this.runMutation('employee-rollback', async () => valueOf(await this.api.enterpriseEmployees.rollback({
       presetId, releaseId, expectedRevision,
       idempotencyKey,
     })), async () => {
-      await this.openEmployeeDraft(presetId)
+      if (this.editorGeneration === editorGeneration && this.store.getSnapshot().open
+        && this.store.getSnapshot().page === 'employees') await this.openEmployeeDraft(presetId)
       await this.refreshEmployees()
     }, (error) => { this.setEditorFailure(error) }, () => this.reloadEmployeeConflict(presetId))
   }
 
   /** Close the editor after the view has handled dirty confirmation. */
   closeEmployeeEditor(): void {
+    this.editorGeneration++
     const state = this.store.getSnapshot()
     const { employeeEditor: _employeeEditor, ...next } = state
     this.store.set(next)
@@ -790,7 +822,7 @@ export class EnterpriseWorkbenchController {
 
   private async reloadPageConflict(
     key: 'workRecords' | 'approvals' | 'schedules' | 'assets' | 'teams',
-    refresh: () => Promise<void>,
+    refresh: () => Promise<boolean>,
   ): Promise<void> {
     await refresh()
     const page = this.store.getSnapshot()[key]
@@ -808,22 +840,27 @@ export class EnterpriseWorkbenchController {
   private async runMutation<T>(
     action: string,
     operation: () => Promise<T>,
-    onSuccess: (value: T) => Promise<void> | void = () => {},
+    onSuccess: (value: T) => Promise<unknown> | void = () => {},
     onFailure: (error: unknown) => void = () => {},
-    onConflict: () => Promise<void> | void = () => {},
+    onConflict: () => Promise<unknown> | void = () => {},
   ): Promise<void> {
     const execute = async (): Promise<void> => {
+      const attemptId = ++this.mutationAttemptId
       const before = this.store.getSnapshot()
+      this.retryMutationAction = execute
       this.store.set({ ...before, mutationPhase: 'running', mutationError: null, retryAction: action })
       try {
         const value = await operation()
+        if (attemptId !== this.mutationAttemptId) return
         await onSuccess(value)
+        if (attemptId !== this.mutationAttemptId) return
         this.retryMutationAction = undefined
         this.conflictMutationAction = undefined
         this.store.set({
           ...this.store.getSnapshot(), mutationPhase: 'idle', mutationError: null, retryAction: null,
         })
       } catch (error) {
+        if (attemptId !== this.mutationAttemptId) return
         onFailure(error)
         const conflict = isMutationConflict(error)
         if (conflict) {
@@ -838,7 +875,6 @@ export class EnterpriseWorkbenchController {
         })
       }
     }
-    this.retryMutationAction = execute
     await execute()
   }
 
@@ -852,13 +888,19 @@ export class EnterpriseWorkbenchController {
   async resolveMutationConflict(): Promise<void> {
     const resolve = this.conflictMutationAction
     if (resolve === undefined) return
+    const attemptId = ++this.mutationAttemptId
+    this.store.set({
+      ...this.store.getSnapshot(), mutationPhase: 'running', mutationError: null, retryAction: 'conflict-reload',
+    })
     try {
       await resolve()
+      if (attemptId !== this.mutationAttemptId) return
       this.conflictMutationAction = undefined
       this.store.set({
         ...this.store.getSnapshot(), mutationPhase: 'idle', mutationError: null, retryAction: null,
       })
     } catch (error) {
+      if (attemptId !== this.mutationAttemptId) return
       this.retryMutationAction = () => this.resolveMutationConflict()
       this.store.set({
         ...this.store.getSnapshot(), mutationPhase: 'error',
@@ -880,25 +922,37 @@ export class EnterpriseWorkbenchController {
   /** Fold one HostFrame once and refresh only the owning enterprise read model. */
   async handleHostFrame(frame: HostFrame): Promise<void> {
     if (frame.type !== 'enterprise/event' || this.seenEventIds.has(frame.eventId)) return
-    this.seenEventIds.add(frame.eventId)
-    if (this.seenEventIds.size > 256) this.seenEventIds.delete(this.seenEventIds.values().next().value as string)
-    const refreshByEvent: Record<Exclude<EnterpriseHostEventName, 'enterprise/operation-updated'>, () => Promise<void>> = {
+    const refreshByEvent: Record<Exclude<EnterpriseHostEventName, 'enterprise/operation-updated'>, () => Promise<boolean>> = {
       'enterprise/employee-updated': () => this.refreshEmployees(),
       'enterprise/asset-updated': () => this.refreshAssets(),
       'enterprise/team-updated': () => this.refreshTeams(),
       'enterprise/approval-requested': () => this.refreshApprovals(),
     }
+    let refreshed: boolean
     if (frame.event !== 'enterprise/operation-updated') {
-      await refreshByEvent[frame.event]()
-      return
-    }
-    if (frame.resourceType === 'approval') await this.refreshApprovals()
-    else if (frame.resourceType === 'schedule') await this.refreshSchedules()
-    else await this.refreshWorkRecords()
+      refreshed = await refreshByEvent[frame.event]()
+    } else if (frame.resourceType === 'approval') refreshed = await this.refreshApprovals()
+    else if (frame.resourceType === 'schedule') refreshed = await this.refreshSchedules()
+    else refreshed = await this.refreshWorkRecords()
+    if (!refreshed) return
+    this.seenEventIds.add(frame.eventId)
+    if (this.seenEventIds.size > 256) this.seenEventIds.delete(this.seenEventIds.values().next().value as string)
   }
 
   /** Create and open work under one Agent Preset. */
   async startEmployee(employeeId: string): Promise<void> {
+    const existing = this.employeeStarts.get(employeeId)
+    if (existing !== undefined) return existing
+    const start = this.startEmployeeOnce(employeeId)
+    this.employeeStarts.set(employeeId, start)
+    try {
+      await start
+    } finally {
+      if (this.employeeStarts.get(employeeId) === start) this.employeeStarts.delete(employeeId)
+    }
+  }
+
+  private async startEmployeeOnce(employeeId: string): Promise<void> {
     const state = this.store.getSnapshot()
     this.store.set({ ...state, busyEmployee: employeeId, error: null })
     try {

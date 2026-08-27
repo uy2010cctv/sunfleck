@@ -244,6 +244,66 @@ describe('EnterpriseWorkbenchController enterprise read models', () => {
 })
 
 describe('EnterpriseWorkbenchController edits, mutations, and events', () => {
+  it('ignores an old employee response after filters change', async () => {
+    let resolveOld!: (value: ReturnType<typeof responsePage>) => void
+    const responsePage = (name: string) => ({ result: { ok: true as const, value: { items: [{
+      presetId: name, orgId: 'server-org', ownerUserId: 'owner-1', visibility: 'organization' as const,
+      profile: { name }, bindings: [], revision: 1, status: 'draft' as const, updatedAt: 20,
+    }] } } })
+    const list = vi.fn()
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveOld = resolve }))
+      .mockImplementationOnce(() => Promise.resolve(responsePage('new-result')))
+    const base = controllerApi()
+    const services = controllerServices()
+    const controller = new EnterpriseWorkbenchController(controllerApi({
+      enterpriseEmployees: { ...base.enterpriseEmployees, list },
+    }) as never, services.sessions as never, services.workspaces as never)
+
+    controller.setEmployeeFilters({ search: 'old' })
+    const oldRequest = controller.refreshEmployees()
+    controller.setEmployeeFilters({ search: 'new' })
+    await controller.refreshEmployees()
+    resolveOld(responsePage('old-result'))
+    await oldRequest
+
+    expect(controller.store.getSnapshot().employees.items.map(item => item.presetId)).toEqual(['new-result'])
+  })
+
+  it('lets only the latest mutation attempt update global mutation state', async () => {
+    let resolveFirst!: (value: Awaited<ReturnType<typeof ok>>) => void
+    const transitionApproval = vi.fn(() => new Promise<Awaited<ReturnType<typeof ok>>>((resolve) => { resolveFirst = resolve }))
+    const saveSchedule = vi.fn(() => Promise.reject(new Error('latest failed')))
+    const base = controllerApi(); const services = controllerServices()
+    const controller = new EnterpriseWorkbenchController(controllerApi({ enterpriseOperations: {
+      ...base.enterpriseOperations, transitionApproval, saveSchedule,
+    } }) as never, services.sessions as never, services.workspaces as never)
+    const approval = { approvalId: 'a', orgId: 'o', kind: 'business', subjectType: 'order', subjectId: '1', requestedBy: 'u', state: 'pending', revision: 1, createdAt: 1, updatedAt: 1 } as const
+
+    const first = controller.transitionApproval(approval, 'approved')
+    await controller.saveSchedule({ scheduleId: 's', target: { kind: 'employee', employeeReleaseId: 'r' }, timezone: 'UTC', rule: '* * * * *', input: {}, nextRunAt: null, expectedRevision: 0 })
+    resolveFirst(await ok({}))
+    await first
+
+    expect(controller.store.getSnapshot()).toMatchObject({
+      mutationPhase: 'error', mutationError: 'latest failed', retryAction: 'schedule-save',
+    })
+  })
+
+  it('deduplicates concurrent starts for the same employee', async () => {
+    let resolveCreate!: (id: SessionId) => void
+    const create = vi.fn(() => new Promise<SessionId>((resolve) => { resolveCreate = resolve }))
+    const services = controllerServices()
+    services.sessions.create = create
+    const controller = new EnterpriseWorkbenchController(controllerApi() as never, services.sessions as never, services.workspaces as never)
+
+    const first = controller.startEmployee('buyer')
+    const second = controller.startEmployee('buyer')
+    expect(create).toHaveBeenCalledTimes(1)
+    resolveCreate('session-new' as SessionId)
+    await Promise.all([first, second])
+    expect(create).toHaveBeenCalledTimes(1)
+  })
+
   it('saves the explicit employee draft without sending principal or organization fields', async () => {
     const saveDraft = vi.fn((_payload: unknown) => ok({
       presetId: 'buyer', orgId: 'server-org', ownerUserId: 'owner-1', visibility: 'private',
@@ -332,6 +392,23 @@ describe('EnterpriseWorkbenchController edits, mutations, and events', () => {
     expect(listApprovals).toHaveBeenCalledTimes(2)
     expect(listSchedules).toHaveBeenCalledTimes(2)
     expect(listWorkRecords).toHaveBeenCalledTimes(2)
+  })
+
+  it('replays an enterprise event after its first target refresh fails', async () => {
+    const listAssets = vi.fn()
+      .mockRejectedValueOnce(new Error('asset refresh failed'))
+      .mockImplementation(() => ok({ items: [] }))
+    const base = controllerApi(); const services = controllerServices()
+    const controller = new EnterpriseWorkbenchController(controllerApi({
+      enterpriseAssets: { ...base.enterpriseAssets, list: listAssets },
+    }) as never, services.sessions as never, services.workspaces as never)
+    const frame = { type: 'enterprise/event', event: 'enterprise/asset-updated', eventId: 'replay-event', orgId: 'o', resourceId: 'asset-1', resourceType: 'asset' } as const
+
+    await controller.handleHostFrame(frame)
+    expect(controller.store.getSnapshot().assets).toMatchObject({ phase: 'error', error: 'asset refresh failed' })
+    await controller.handleHostFrame(frame)
+    expect(listAssets).toHaveBeenCalledTimes(2)
+    expect(controller.store.getSnapshot().assets.phase).toBe('ready')
   })
 
   it('contains mutation failures and exposes a retry action without rejecting', async () => {

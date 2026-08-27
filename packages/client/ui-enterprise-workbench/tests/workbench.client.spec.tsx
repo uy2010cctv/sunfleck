@@ -239,6 +239,33 @@ describe('EnterpriseWorkbench', () => {
     expect(keepLocalEmployeeConflict).toHaveBeenCalled()
   })
 
+  it('guards navigation and close when a schedule form is dirty', () => {
+    const setPage = vi.fn(); const close = vi.fn()
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    render(<EnterpriseWorkbench {...workbenchProps({ state: {
+      mode: 'enterprise', page: 'schedules', schedules: { phase: 'ready', items: [], error: null },
+    }, setPage, close } as never)} />)
+
+    fireEvent.change(screen.getByLabelText(zh['schedule.id']), { target: { value: 'schedule-1' } })
+    fireEvent.click(screen.getByRole('button', { name: zh['nav.employees'] }))
+    fireEvent.click(screen.getByRole('button', { name: zh.close }))
+
+    expect(confirmSpy).toHaveBeenCalledTimes(2)
+    expect(setPage).not.toHaveBeenCalled()
+    expect(close).not.toHaveBeenCalled()
+  })
+
+  it('disables operation mutations while another mutation is running', () => {
+    render(<EnterpriseWorkbench {...workbenchProps({ state: {
+      mode: 'enterprise', page: 'approvals', mutationPhase: 'running', retryAction: 'team-save',
+      approvals: { phase: 'ready', error: null, items: [{
+        approvalId: 'a', orgId: 'o', kind: 'business', subjectType: 'order', subjectId: '1',
+        requestedBy: 'u', state: 'pending', revision: 1, createdAt: 1, updatedAt: 1,
+      }] },
+    } })} />)
+    expect(screen.getByRole('button', { name: zh['approval.approve'] }).matches(':disabled')).toBe(true)
+  })
+
   it('renders enterprise enum values through the Chinese locale', () => {
     render(<EnterpriseWorkbench {...workbenchProps({ state: {
       mode: 'enterprise', employees: { phase: 'ready', error: null, items: [{
