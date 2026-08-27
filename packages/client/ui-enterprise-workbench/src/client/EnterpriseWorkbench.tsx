@@ -39,11 +39,11 @@ export interface EnterpriseWorkbenchInjected {
   updateWorkRecord: (record: OperationWorkRecord, state: EnterpriseBusinessState) => Promise<void>
   transitionApproval: (approval: EnterpriseApproval, state: 'approved' | 'rejected', reason?: string) => Promise<void>
   cancelApproval: (approval: EnterpriseApproval, reason?: string) => Promise<void>
-  saveSchedule: (input: { scheduleId: string; target: EnterpriseScheduleTarget; timezone: string; rule: string; input: Readonly<Record<string, unknown>>; nextRunAt: number | null; expectedRevision: number }) => Promise<void>
+  saveSchedule: (input: { scheduleId: string; target: EnterpriseScheduleTarget; timezone: string; rule: string; input: Readonly<Record<string, unknown>>; nextRunAt: number | null; expectedRevision: number }) => Promise<boolean>
   transitionSchedule: (schedule: EnterpriseSchedule, state: EnterpriseSchedule['state']) => Promise<void>
-  saveAssetVersion: (input: { assetId: string; kind: EnterpriseAssetKind; name: string; content: Readonly<Record<string, unknown>>; expectedRevision: number }) => Promise<void>
+  saveAssetVersion: (input: { assetId: string; kind: EnterpriseAssetKind; name: string; content: Readonly<Record<string, unknown>>; expectedRevision: number }) => Promise<boolean>
   archiveAsset: (asset: EnterpriseAsset) => Promise<void>
-  saveTeam: (input: { teamId: string; leaderEmployeeReleaseId: string; members: readonly EnterpriseTeamMember[]; workflowTemplate: Readonly<Record<string, unknown>>; approvalPolicy: Readonly<Record<string, unknown>>; expectedRevision: number }) => Promise<void>
+  saveTeam: (input: { teamId: string; leaderEmployeeReleaseId: string; members: readonly EnterpriseTeamMember[]; workflowTemplate: Readonly<Record<string, unknown>>; approvalPolicy: Readonly<Record<string, unknown>>; expectedRevision: number }) => Promise<boolean>
   retryMutation: () => Promise<void>
   resolveMutationConflict: () => Promise<void>
   dismissMutationError: () => void
@@ -236,7 +236,26 @@ export function EnterpriseWorkbench(props: EnterpriseWorkbenchProps) {
   if (!state.open) return null
   const onKeyDown = (event: React.KeyboardEvent<HTMLElement>): void => { if (event.key === 'Escape') { requestClose(); return } if (event.key !== 'Tab') return; const controls = [...dialogRef.current?.querySelectorAll<HTMLElement>('button:not(:disabled), [href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])') ?? []]; const first = controls[0]; const last = controls.at(-1); if (first === undefined || last === undefined) return; if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus() } else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus() } }
   const pages = [state.employees, state.workRecords, state.approvals, state.schedules, state.assets, state.teams]
-  const partial = state.mode === 'enterprise' && pages.some(value => value.phase === 'error' || value.phase === 'permission') && pages.some(value => value.phase === 'ready'); const api = props as unknown as EnterpriseWorkbenchInjected
+  const partial = state.mode === 'enterprise' && pages.some(value => value.phase === 'error' || value.phase === 'permission') && pages.some(value => value.phase === 'ready')
+  const injected = props as unknown as EnterpriseWorkbenchInjected
+  const api: EnterpriseWorkbenchInjected = {
+    ...injected,
+    saveSchedule: async (input) => {
+      const success = await injected.saveSchedule(input)
+      if (success) setLocalFormDirty(false)
+      return success
+    },
+    saveAssetVersion: async (input) => {
+      const success = await injected.saveAssetVersion(input)
+      if (success) setLocalFormDirty(false)
+      return success
+    },
+    saveTeam: async (input) => {
+      const success = await injected.saveTeam(input)
+      if (success) setLocalFormDirty(false)
+      return success
+    },
+  }
   return <section ref={dialogRef} className={css.workbench} role="dialog" aria-modal="true" aria-label={props.t('title')} onKeyDown={onKeyDown}><header className={css.header}><div><h1>{props.t('title')}</h1><p>{props.t('subtitle')}</p></div><div className={css.headerActions}><button type="button" className={css.iconButton} aria-label={props.t('refresh')} onClick={() => { void props.refresh() }}><IconRefreshOutline16 size={16} /></button><button ref={closeRef} type="button" className={css.iconButton} aria-label={props.t('close')} onClick={requestClose}><IconCloseOutline16 size={16} /></button></div></header>
     {state.mutationError !== null && <div className={css.mutationError} role="alert" aria-label={props.t('mutation.errorAria')}><IconWarningOutline16 size={18} /><span>{state.mutationPhase === 'conflict' ? props.t('mutation.conflict') : state.mutationError}</span>{state.mutationPhase === 'conflict' ? <button type="button" onClick={() => { void props.resolveMutationConflict() }}>{props.t('mutation.reload')}</button> : <button type="button" onClick={() => { void props.retryMutation() }}>{props.t('mutation.retry')}</button>}<button type="button" onClick={props.dismissMutationError}>{props.t('mutation.dismiss')}</button></div>}
     {state.phase === 'loading' && state.mode === null && <div className={css.loading} role="status"><span className={css.skeleton} />{props.t('loading')}</div>}{state.phase === 'error' && <div className={css.error} role="alert"><IconWarningOutline16 size={18} /><span>{state.error}</span><button type="button" onClick={() => { void props.refresh() }}>{props.t('retry')}</button></div>}{state.phase !== 'error' && state.mode === 'fallback' && <main className={css.body}><FallbackPage state={state} start={props.startEmployee} open={props.openRecord} t={props.t} /></main>}{state.phase !== 'error' && state.mode === 'enterprise' && <div className={css.shell}><nav className={css.nav} aria-label={props.t('nav.aria')}>{NAV.map(([id, key]) => <button type="button" key={id} aria-current={page === id ? 'page' : undefined} onClick={() => { requestPage(id) }}>{props.t(key)}</button>)}</nav><main className={css.main}>{partial && <div className={css.notice} role="status">{props.t('partial')}</div>}{page === 'employees' && <EmployeesPage state={state} api={api} guardDirty={guardDirty} t={props.t} />}{page === 'work-records' && <WorkRecordsPage page={state.workRecords} update={props.updateWorkRecord} busy={mutationBusy} t={props.t} />}{page === 'approvals' && <ApprovalsPage page={state.approvals} api={api} busy={mutationBusy} t={props.t} />}{page === 'schedules' && <SchedulesPage page={state.schedules} api={api} busy={mutationBusy} onDirty={() => { setLocalFormDirty(true) }} t={props.t} />}{page === 'assets' && <AssetsPage page={state.assets} api={api} busy={mutationBusy} onDirty={() => { setLocalFormDirty(true) }} t={props.t} />}{page === 'teams' && <TeamsPage page={state.teams} api={api} busy={mutationBusy} onDirty={() => { setLocalFormDirty(true) }} t={props.t} />}</main></div>}</section>

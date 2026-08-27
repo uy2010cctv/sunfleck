@@ -289,6 +289,27 @@ describe('EnterpriseWorkbenchController edits, mutations, and events', () => {
     })
   })
 
+  it('returns an explicit current-attempt receipt for schedule, asset, and team saves', async () => {
+    const base = controllerApi(); const services = controllerServices()
+    const controller = new EnterpriseWorkbenchController(controllerApi({
+      enterpriseOperations: { ...base.enterpriseOperations, saveSchedule: () => ok({}) },
+      enterpriseAssets: { ...base.enterpriseAssets, saveVersion: () => Promise.reject(new Error('asset failed')) },
+      enterpriseTeams: { ...base.enterpriseTeams, save: () => ok({}) },
+    }) as never, services.sessions as never, services.workspaces as never)
+
+    await expect(controller.saveSchedule({
+      scheduleId: 's', target: { kind: 'employee', employeeReleaseId: 'r' }, timezone: 'UTC',
+      rule: '* * * * *', input: {}, nextRunAt: null, expectedRevision: 0,
+    })).resolves.toBe(true)
+    await expect(controller.saveAssetVersion({
+      assetId: 'a', kind: 'sop', name: 'SOP', content: {}, expectedRevision: 0,
+    })).resolves.toBe(false)
+    await expect(controller.saveTeam({
+      teamId: 't', leaderEmployeeReleaseId: 'r', members: [], workflowTemplate: {},
+      approvalPolicy: {}, expectedRevision: 0,
+    })).resolves.toBe(true)
+  })
+
   it('deduplicates concurrent starts for the same employee', async () => {
     let resolveCreate!: (id: SessionId) => void
     const create = vi.fn(() => new Promise<SessionId>((resolve) => { resolveCreate = resolve }))

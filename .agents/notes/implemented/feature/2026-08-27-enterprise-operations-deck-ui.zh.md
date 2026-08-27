@@ -18,6 +18,8 @@ Runtime 的唯一 Host 流消费者在原生 Session 和 Workspace fold 之后�
 
 员工名册与 cursor 读取、各域页面读取、编辑器加载和 mutation attempt 都携带客户端 generation，只有最新且条件匹配的 generation 可以提交状态。企业事件只在目标刷新成功后记为 seen，因此失败事件可重放。同一员工的并发启动共用一个在途 Session 创建。调度、资产和团队表单的 dirty 状态与员工草稿共用 overlay 离开守卫，当前 mutation attempt 执行时所有 mutation 控件均禁用。
 
+调度、资产版本和团队保存 mutation 返回当前 attempt 的成功 receipt。本地表单只在 receipt 为 `true` 时清除 dirty；失败、conflict 或被更新 attempt 取代都保留本地草稿与离开守卫。
+
 普通 Profile 只在 `enterpriseEmployee.list` 明确报告企业 API 不可用时，才 fallback 到 Agent Preset、Session 和 Workspace 投影。授权、cursor、传输和其他内部失败保持可见，绝不触发 fallback。
 
 ## Alternatives considered

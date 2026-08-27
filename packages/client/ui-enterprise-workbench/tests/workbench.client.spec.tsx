@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import { EnterpriseTrigger } from '../src/client/EnterpriseTrigger.tsx'
 import {
@@ -253,6 +253,41 @@ describe('EnterpriseWorkbench', () => {
     expect(confirmSpy).toHaveBeenCalledTimes(2)
     expect(setPage).not.toHaveBeenCalled()
     expect(close).not.toHaveBeenCalled()
+  })
+
+  it('clears local form dirtiness only after successful schedule, asset, and team saves', async () => {
+    const cases = [
+      { page: 'schedules', field: zh['schedule.id'], save: zh['schedule.save'], callback: 'saveSchedule', extras: [zh['schedule.target'], zh['schedule.rule']] },
+      { page: 'assets', field: zh['asset.id'], save: zh['asset.save'], callback: 'saveAssetVersion' },
+      { page: 'teams', field: zh['team.id'], save: zh['team.save'], callback: 'saveTeam' },
+    ] as const
+    for (const testCase of cases) {
+      for (const success of [true, false]) {
+        cleanup()
+        const setPage = vi.fn(); const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false)
+        const save = vi.fn(() => Promise.resolve(success))
+        render(<EnterpriseWorkbench {...workbenchProps({
+          state: { mode: 'enterprise', page: testCase.page }, setPage,
+          [testCase.callback]: save,
+        } as never)} />)
+        fireEvent.change(screen.getByLabelText(testCase.field), { target: { value: 'resource-1' } })
+        for (const label of 'extras' in testCase ? testCase.extras : []) {
+          fireEvent.change(screen.getByLabelText(label), { target: { value: 'value' } })
+        }
+        const button = screen.getByRole('button', { name: testCase.save })
+        fireEvent.submit(button.closest('form') as HTMLFormElement)
+        await waitFor(() => { expect(save).toHaveBeenCalled() })
+        fireEvent.click(screen.getByRole('button', { name: zh['nav.employees'] }))
+        if (success) {
+          expect(confirmSpy).not.toHaveBeenCalled()
+          expect(setPage).toHaveBeenCalledWith('employees')
+        } else {
+          expect(confirmSpy).toHaveBeenCalled()
+          expect(setPage).not.toHaveBeenCalled()
+        }
+        confirmSpy.mockRestore()
+      }
+    }
   })
 
   it('disables operation mutations while another mutation is running', () => {

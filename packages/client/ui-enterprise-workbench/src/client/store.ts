@@ -319,7 +319,7 @@ export class EnterpriseWorkbenchController {
   readonly store: SnapshotStore<EnterpriseWorkbenchState> = createSnapshotStore(INITIAL_STATE)
   private roster: readonly AgentPresetEntry[] = []
   private readonly seenEventIds = new Set<string>()
-  private retryMutationAction: (() => Promise<void>) | undefined
+  private retryMutationAction: (() => Promise<boolean>) | undefined
   private conflictMutationAction: (() => Promise<void>) | undefined
   private saveGeneration = 0
   private employeeRequestGeneration = 0
@@ -762,9 +762,9 @@ export class EnterpriseWorkbenchController {
     input: Readonly<Record<string, unknown>>
     nextRunAt: number | null
     expectedRevision: number
-  }): Promise<void> {
+  }): Promise<boolean> {
     const idempotencyKey = mutationKey('schedule-save')
-    await this.runMutation('schedule-save', async () => valueOf(await this.api.enterpriseOperations.saveSchedule({
+    return this.runMutation('schedule-save', async () => valueOf(await this.api.enterpriseOperations.saveSchedule({
       ...input, idempotencyKey,
     })), () => this.refreshSchedules(), undefined,
     () => this.reloadPageConflict('schedules', () => this.refreshSchedules()))
@@ -787,9 +787,9 @@ export class EnterpriseWorkbenchController {
     name: string
     content: Readonly<Record<string, unknown>>
     expectedRevision: number
-  }): Promise<void> {
+  }): Promise<boolean> {
     const idempotencyKey = mutationKey('asset-save')
-    await this.runMutation('asset-save', async () => valueOf(await this.api.enterpriseAssets.saveVersion({
+    return this.runMutation('asset-save', async () => valueOf(await this.api.enterpriseAssets.saveVersion({
       ...input, idempotencyKey,
     })), () => this.refreshAssets(), undefined,
     () => this.reloadPageConflict('assets', () => this.refreshAssets()))
@@ -812,9 +812,9 @@ export class EnterpriseWorkbenchController {
     workflowTemplate: Readonly<Record<string, unknown>>
     approvalPolicy: Readonly<Record<string, unknown>>
     expectedRevision: number
-  }): Promise<void> {
+  }): Promise<boolean> {
     const idempotencyKey = mutationKey('team-save')
-    await this.runMutation('team-save', async () => valueOf(await this.api.enterpriseTeams.save({
+    return this.runMutation('team-save', async () => valueOf(await this.api.enterpriseTeams.save({
       ...input, idempotencyKey,
     })), () => this.refreshTeams(), undefined,
     () => this.reloadPageConflict('teams', () => this.refreshTeams()))
@@ -843,24 +843,25 @@ export class EnterpriseWorkbenchController {
     onSuccess: (value: T) => Promise<unknown> | void = () => {},
     onFailure: (error: unknown) => void = () => {},
     onConflict: () => Promise<unknown> | void = () => {},
-  ): Promise<void> {
-    const execute = async (): Promise<void> => {
+  ): Promise<boolean> {
+    const execute = async (): Promise<boolean> => {
       const attemptId = ++this.mutationAttemptId
       const before = this.store.getSnapshot()
       this.retryMutationAction = execute
       this.store.set({ ...before, mutationPhase: 'running', mutationError: null, retryAction: action })
       try {
         const value = await operation()
-        if (attemptId !== this.mutationAttemptId) return
+        if (attemptId !== this.mutationAttemptId) return false
         await onSuccess(value)
-        if (attemptId !== this.mutationAttemptId) return
+        if (attemptId !== this.mutationAttemptId) return false
         this.retryMutationAction = undefined
         this.conflictMutationAction = undefined
         this.store.set({
           ...this.store.getSnapshot(), mutationPhase: 'idle', mutationError: null, retryAction: null,
         })
+        return true
       } catch (error) {
-        if (attemptId !== this.mutationAttemptId) return
+        if (attemptId !== this.mutationAttemptId) return false
         onFailure(error)
         const conflict = isMutationConflict(error)
         if (conflict) {
@@ -873,9 +874,10 @@ export class EnterpriseWorkbenchController {
           mutationError: error instanceof Error ? error.message : String(error),
           retryAction: conflict ? null : action,
         })
+        return false
       }
     }
-    await execute()
+    return execute()
   }
 
   /** Retry the most recent contained mutation failure. */
@@ -901,7 +903,10 @@ export class EnterpriseWorkbenchController {
       })
     } catch (error) {
       if (attemptId !== this.mutationAttemptId) return
-      this.retryMutationAction = () => this.resolveMutationConflict()
+      this.retryMutationAction = async () => {
+        await this.resolveMutationConflict()
+        return this.store.getSnapshot().mutationPhase === 'idle'
+      }
       this.store.set({
         ...this.store.getSnapshot(), mutationPhase: 'error',
         mutationError: error instanceof Error ? error.message : String(error),

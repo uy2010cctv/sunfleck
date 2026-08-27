@@ -18,6 +18,8 @@ The runtime's single Host-stream consumer emits decoded `connection/host-frame` 
 
 Employee list and cursor reads, domain page reads, editor loads, and mutation attempts carry client generations. Only the latest matching generation may commit state. Enterprise event IDs become seen only after their targeted refresh succeeds, so a failed event can be replayed. Concurrent starts for one employee share one in-flight Session creation. Schedule, asset, and team form dirtiness joins employee draft dirtiness in the overlay leave guard, and mutation controls are disabled while the current mutation attempt is running.
 
+Schedule, asset-version, and team-save mutations return a current-attempt success receipt. Their local forms clear dirtiness only for `true`; failure, conflict, or an attempt superseded by newer work retains the local draft and its leave guard.
+
 An ordinary profile falls back to the Agent Preset, Session, and Workspace projection only when `enterpriseEmployee.list` explicitly reports that the enterprise API is unavailable. Authorization, cursor, transport, and other internal failures stay visible and never trigger fallback.
 
 ## Alternatives considered
