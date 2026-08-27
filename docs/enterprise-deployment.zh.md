@@ -7,14 +7,13 @@
 ```sh
 export DSH_ENTERPRISE_MASTER_KEY='<base64 32-byte key>'
 export DSH_ENTERPRISE_ADMIN_PASSWORD='<initial 12+ character password>'
-export DSH_ENTERPRISE_DATABASE_MODE='postgres'
 export DSH_ENTERPRISE_DATABASE_URL='postgresql://user:password@db.internal:5432/dsh_enterprise'
 pnpm dsh web --patch apps/cli/config/enterprise.cordis.patch.yml --host 127.0.0.1 --port 3081
 ```
 
 在部署 Secret Manager 中生成和托管 `DSH_ENTERPRISE_MASTER_KEY`。不要把它与加密 Credential Document 存在一起。初始管理员密码通过 Credential Seam 读取，仅在 Bootstrap Administrator 尚不存在时使用。
 
-生产组合使用 `DSH_ENTERPRISE_DATABASE_MODE=postgres` 和 `DSH_ENTERPRISE_DATABASE_URL`，PostgreSQL 承载身份、Session、员工目录、运营和知识索引；必须安装 pgvector。未设置该模式时才使用本地 Desktop SQLite 后备。`credentials.enc.json` 只存储 AES-256-GCM Envelope。
+当前企业 Overlay 固定使用 `DSH_ENTERPRISE_DATABASE_URL` 的 PostgreSQL 生产组合，承载身份、Session、员工目录、运营和知识索引；必须安装 pgvector。`credentials.enc.json` 只存储 AES-256-GCM Envelope。
 
 ## SSO 配置
 

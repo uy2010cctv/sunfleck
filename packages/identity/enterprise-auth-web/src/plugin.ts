@@ -43,7 +43,7 @@ export interface EnterpriseAuthWebConfig extends EnterpriseSecurityConfig {
   readonly ldap: readonly EnterpriseLdapConfig[]
 }
 
-export const inject = ['webServer', 'credentials']
+export const inject = ['webServer', 'credentials', 'enterprisePostgres']
 
 async function authRequest(req: IncomingMessage, handler: EnterpriseAuthHttpHandler): Promise<Response> {
   const chunks: Buffer[] = []
