@@ -3,7 +3,12 @@ name: Enterprise PostgreSQL integration
 on:
   pull_request:
     paths:
+      - 'apps/cli/config/enterprise.cordis.patch.yml'
+      - 'packages/bundle/web-app/**'
       - 'packages/catalog/enterprise-catalog/**'
+      - 'packages/client/connection/**'
+      - 'packages/enterprise/enterprise-postgres/**'
+      - 'packages/identity/enterprise-auth-web/**'
       - 'packages/identity/enterprise-identity-postgres/**'
       - 'packages/operations/enterprise-operations/**'
       - 'packages/session/session-persistence-postgres/**'
@@ -12,7 +17,12 @@ on:
   push:
     branches: [master]
     paths:
+      - 'apps/cli/config/enterprise.cordis.patch.yml'
+      - 'packages/bundle/web-app/**'
       - 'packages/catalog/enterprise-catalog/**'
+      - 'packages/client/connection/**'
+      - 'packages/enterprise/enterprise-postgres/**'
+      - 'packages/identity/enterprise-auth-web/**'
       - 'packages/identity/enterprise-identity-postgres/**'
       - 'packages/operations/enterprise-operations/**'
       - 'packages/session/session-persistence-postgres/**'
@@ -53,3 +63,4 @@ jobs:
           pnpm exec vitest run
           packages/catalog/enterprise-catalog/tests/postgres.integration.spec.ts
           packages/operations/enterprise-operations/tests/postgres.integration.spec.ts
+          packages/bundle/web-app/tests/enterprise-real-loader-composition.spec.ts

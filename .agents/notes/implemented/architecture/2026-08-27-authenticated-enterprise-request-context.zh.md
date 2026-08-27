@@ -38,4 +38,4 @@ Auth plugin 卸载时会调用 `EnterpriseRequestContext.dispose()`，禁用底�
 
 定向测试固定匿名拒绝、回调生命期、并发隔离、HTTP 保留键拒绝、WebSocket 传播、普通 Profile 兼容性和 Loader 激活顺序。
 
-真实 Loader 集成测试会挂载已交付的 WebServer、Enterprise Postgres、企业 auth 和 Connection 包。提供 `DSH_TEST_POSTGRES_URL` 时，它会在企业依赖链稳定后观测到 `/auth/status` 返回 200，匿名 `/api` 返回 401；始终运行的普通 Profile case 则观测到没有企业服务时 `/api` 保留原有 404。Enterprise Postgres pool close 是幂等的，因为 Loader 在卸载依赖方时可能再次访问同一个异步关闭边界。
+真实 Loader 集成测试会挂载已交付的 WebServer、Enterprise Postgres、企业 auth 和 Connection 包。提供 `DSH_TEST_POSTGRES_URL` 时，它会在企业依赖链稳定后观测到 `/auth/status` 返回 200，匿名 `/api` 返回 401；始终运行的普通 Profile case 则观测到没有企业服务时 `/api` 保留原有 404。企业 PostgreSQL workflow 会运行该测试，并监视拥有这条链路的每个包与 overlay 路径。Enterprise Postgres pool close 是幂等的，因为 Loader 在卸载依赖方时可能再次访问同一个异步关闭边界。
