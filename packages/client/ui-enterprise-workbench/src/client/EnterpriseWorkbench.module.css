@@ -18,7 +18,13 @@
   color: var(--dse-color-ink);
   font-family: var(--dse-font-body);
   pointer-events: auto;
+  caret-color: var(--dse-color-accent);
+  scrollbar-color: var(--dse-color-border) var(--dse-color-canvas);
 }
+
+.workbench ::selection { background: var(--dse-color-accent-soft); color: var(--dse-color-ink); }
+.workbench ::-webkit-scrollbar { inline-size: 10px; block-size: 10px; }
+.workbench ::-webkit-scrollbar-thumb { background: var(--dse-color-border); border: 2px solid var(--dse-color-canvas); border-radius: var(--dse-radius-control); }
 
 .header {
   flex: none;
@@ -94,6 +100,7 @@
 .formGrid input:focus-visible,
 .formGrid select:focus-visible,
 .formGrid textarea:focus-visible,
+.inlineField select:focus-visible,
 .record:focus-visible {
   outline: 2px solid var(--dse-color-focus);
   outline-offset: 2px;
@@ -199,6 +206,8 @@
 
 .employeeCard[data-status='attention'] { border-color: var(--dse-color-warning); }
 .employeeCard[data-status='unavailable'] { opacity: 0.72; }
+.employeeCard[data-selected='true'] { border-color: var(--dse-color-accent); }
+.employeeCard:focus-visible { outline: 2px solid var(--dse-color-focus); outline-offset: 2px; }
 
 .employeeHead { display: flex; align-items: flex-start; gap: var(--dse-space-xs); }
 .avatar {
@@ -354,6 +363,11 @@
 .inlineField { inline-size: min(100%, 14rem); }
 .loadMore { margin-block-start: var(--dse-space-sm); }
 .fieldError { color: var(--dse-color-error); font-size: 0.75rem; }
+.bindingPicker { display: flex; align-items: end; gap: var(--dse-space-xs); margin-block-end: var(--dse-space-sm); }
+.bindingPicker label { flex: 1; display: flex; flex-direction: column; gap: var(--dse-space-3xs); color: var(--dse-color-muted); font-size: 0.75rem; }
+.bindingPicker select { min-block-size: 38px; border: 1px solid var(--dse-color-border); border-radius: var(--dse-radius-control); background: var(--dse-color-surface); color: var(--dse-color-ink); padding-inline: var(--dse-space-xs); }
+.mobilePrimary { position: sticky; inset-block-end: 0; display: flex; justify-content: stretch; padding: var(--dse-space-xs); border-block-start: 1px solid var(--dse-color-border); background: var(--dse-color-surface); }
+.mobilePrimary button { inline-size: 100%; }
 .mutationError {
   flex: none;
   display: flex;
@@ -429,6 +443,7 @@
 }
 
 @media (min-width: 48rem) {
+  .mobilePrimary { display: none; }
   .shell { flex-direction: row; }
   .nav { inline-size: 13rem; grid-template-columns: minmax(0, 1fr); overflow-y: auto; border-inline-end: 1px solid var(--dse-color-border); border-block-end: 0; padding: var(--dse-space-sm); }
   .nav button { inline-size: 100%; }

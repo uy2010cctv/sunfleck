@@ -56,5 +56,5 @@ None. Opening the workbench does not assemble or mutate a provider request.
 
 - The enterprise UI displays only fields present in catalog and operations read models; it does not infer productivity, SLA, completion percentage, or business outcomes.
 - Draft profile fields are a typed UI projection over an open JSON profile. Unknown profile keys are retained by the server contract only when a caller includes them; this editor writes its supported profile fields.
-- Capability binding and team policy composition remain ID/JSON-oriented operator workflows until dedicated pickers are added.
+- Capability bindings and team membership use loaded asset and release selectors; raw IDs and JSON remain available only under advanced editing for unsupported policy detail.
 - Authentication, role assignment, credentials, model administration, and organization governance remain Settings concerns.

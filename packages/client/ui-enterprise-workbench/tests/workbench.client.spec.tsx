@@ -60,6 +60,7 @@ const BASE_STATE: EnterpriseWorkbenchState = {
   error: null, busyEmployee: null, employeeFilters: {}, employees: EMPTY_PAGE,
   workRecords: EMPTY_PAGE, approvals: EMPTY_PAGE, schedules: EMPTY_PAGE,
   assets: EMPTY_PAGE, teams: EMPTY_PAGE,
+  releases: [],
   mutationPhase: 'idle', mutationError: null, retryAction: null,
 }
 
@@ -118,6 +119,59 @@ describe('EnterpriseWorkbench', () => {
     }
     fireEvent.click(screen.getByRole('button', { name: '编辑采购专员' }))
     expect(openEmployeeDraft).toHaveBeenCalledWith('buyer')
+  })
+
+  it('selects an enterprise employee as a keyboard-addressable whole cell and isolates start work', () => {
+    const startEmployee = vi.fn(() => Promise.resolve()); const openEmployeeDraft = vi.fn(() => Promise.resolve())
+    render(<EnterpriseWorkbench {...workbenchProps({
+      state: { mode: 'enterprise', employees: { phase: 'ready', error: null, items: [{
+        presetId: 'buyer', orgId: 'o', ownerUserId: 'u', visibility: 'organization',
+        profile: { name: '采购专员' }, bindings: [], revision: 1, status: 'published', updatedAt: 1,
+      }] } }, startEmployee, openEmployeeDraft,
+    } as never)} />)
+    const cell = screen.getByLabelText('选择采购专员')
+    expect(cell.getAttribute('tabindex')).toBe('0')
+    fireEvent.keyDown(cell, { key: 'Enter' })
+    const startButtons = screen.getAllByRole('button', { name: '与采购专员开始工作' })
+    expect(startButtons.length).toBeGreaterThan(1)
+    fireEvent.click(startButtons[0]!)
+    expect(startEmployee).toHaveBeenCalledWith('buyer')
+    expect(openEmployeeDraft).not.toHaveBeenCalled()
+  })
+
+  it('uses structured asset bindings and release selectors as the primary path', () => {
+    const patchEmployeeDraft = vi.fn(); const saveTeam = vi.fn(() => Promise.resolve(true))
+    const { rerender } = render(<EnterpriseWorkbench {...workbenchProps({
+      state: {
+        mode: 'enterprise', employeeEditor: {
+          phase: 'ready', dirty: false, saving: false, conflict: false, errors: [], error: null, revision: 1,
+          fields: { presetId: 'buyer', name: '采购', description: '', position: '', department: '', prompt: '职责', modelRef: 'm', capabilities: [], visibility: 'organization', bindings: [] }, releases: [],
+        },
+        assets: { phase: 'ready', error: null, items: [{ assetId: 'rfq', orgId: 'o', kind: 'sop', name: '询价 SOP', revision: 2, archived: false, updatedAt: 1 }] },
+      }, patchEmployeeDraft,
+    } as never)} />)
+    fireEvent.change(screen.getByLabelText('能力资产'), { target: { value: 'rfq' } })
+    fireEvent.click(screen.getByRole('button', { name: '添加能力绑定' }))
+    expect(patchEmployeeDraft).toHaveBeenCalledWith(expect.objectContaining({
+      bindings: [{ kind: 'sop', assetId: 'rfq', version: 2 }],
+    }))
+    expect(screen.getByText('高级 JSON 编辑')).toBeDefined()
+
+    rerender(<EnterpriseWorkbench {...workbenchProps({ state: {
+      mode: 'enterprise', page: 'teams', releases: [{
+        releaseId: 'release-buyer', presetId: 'buyer', orgId: 'o', version: 2, digest: 'd',
+        snapshot: { profile: { name: '采购' }, bindings: [] }, publishedBy: 'u', publishedAt: 1,
+      }],
+    }, saveTeam } as never)} />)
+    expect(screen.getByLabelText('领队数字员工').tagName).toBe('SELECT')
+    expect(screen.getByLabelText('团队成员').tagName).toBe('SELECT')
+  })
+
+  it('makes fallback employee cells an explicit start-work destination', () => {
+    const startEmployee = vi.fn(() => Promise.resolve())
+    render(<EnterpriseWorkbench {...workbenchProps({ startEmployee })} />)
+    fireEvent.click(screen.getByLabelText('开始工作目标：标准模式'))
+    expect(startEmployee).toHaveBeenCalledWith('standard')
   })
 
   it('renders one-page employee fields, validation summary, explicit save, and dirty leave guard', () => {
@@ -328,6 +382,7 @@ describe('EnterpriseWorkbench', () => {
     expect(screen.getByText('标准模式 · 采购部')).toBeDefined()
     expect(screen.getAllByText('开始工作')).toHaveLength(1)
     const metrics = screen.getByLabelText(zh['metrics.aria'])
+    expect(metrics.getAttribute('aria-live')).toBe('polite')
     expect(within(metrics).getByText('2')).toBeDefined()
     expect(within(metrics).getAllByText('1')).toHaveLength(2)
   })
@@ -377,7 +432,7 @@ describe('EnterpriseWorkbench', () => {
     const dialog = screen.getByRole('dialog')
     const close = screen.getByRole('button', { name: zh['close'] })
     const first = screen.getByRole('button', { name: zh['refresh'] })
-    const last = screen.getByRole('button', { name: '打开工作记录：供应商核验' })
+    const last = screen.getByLabelText('开始工作目标：标准模式')
 
     expect(document.activeElement).toBe(close)
     first.focus()

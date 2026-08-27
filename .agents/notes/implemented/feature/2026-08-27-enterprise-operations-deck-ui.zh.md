@@ -22,6 +22,30 @@ Runtime 的唯一 Host 流消费者在原生 Session 和 Workspace fold 之后�
 
 普通 Profile 只在 `enterpriseEmployee.list` 明确报告企业 API 不可用时，才 fallback 到 Agent Preset、Session 和 Workspace 投影。授权、cursor、传输和其他内部失败保持可见，绝不触发 fallback。
 
+## Direction Contract
+
+seed: enterprise-operations-deck-v1
+
+### FORM
+
+使用附加式 DSH overlay：桌面运营导航栏、容器内窄屏导航、有限员工名册 cell、安静的记录行与移动端 sticky 主操作。治理继续属于 Settings。
+
+### TYPE
+
+沿用 DSH 界面与代码字体，使用紧凑句式标题、克制的中等/半粗层级、等宽运营数值和中英成对产品词汇。
+
+### MATERIAL
+
+沿用 DSH surface、border、radius、focus 和 cobalt 语义 token。卡片是扁平运营 cell；排除嵌套卡片、inline color、虚构指标、插画和 emoji。
+
+### GROUND
+
+亮色使用冷色 canvas 与 raised neutral surface，暗色继承 graphite 层；cobalt 只用于选中、操作和焦点，状态含义始终配合文字。
+
+### FIRST VIEWPORT
+
+关闭 header 保持可见；运营人员首先看到局部管理导航与员工名册或所选任务页。320 px 下导航为容器内 grid，选中员工后显示一个 sticky 开始工作主操作，页面不横向滚动。
+
 ## Alternatives considered
 
 - **继续把 Agent Preset 和 Session 投影当作企业事实源** — 它不包含持久发布、审批、调度、资产或团队记录，无法表达按跨用户权限过滤的企业状态。

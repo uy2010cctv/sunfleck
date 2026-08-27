@@ -22,6 +22,30 @@ Schedule, asset-version, and team-save mutations return a current-attempt succes
 
 An ordinary profile falls back to the Agent Preset, Session, and Workspace projection only when `enterpriseEmployee.list` explicitly reports that the enterprise API is unavailable. Authorization, cursor, transport, and other internal failures stay visible and never trigger fallback.
 
+## Direction Contract
+
+seed: enterprise-operations-deck-v1
+
+### FORM
+
+An additive DSH overlay with a desktop operations rail, contained narrow-screen navigation, finite employee roster cells, quiet record rows, and sticky mobile primary action. Governance stays in Settings.
+
+### TYPE
+
+Existing DSH interface and code fonts, compact sentence-case headings, restrained medium/semibold hierarchy, tabular operational values, and paired Chinese/English product vocabulary.
+
+### MATERIAL
+
+Existing DSH surface, border, radius, focus, and cobalt semantic tokens. Cards remain flat operational cells; nested cards, inline colors, fabricated metrics, illustrations, and emoji are excluded.
+
+### GROUND
+
+Cool canvas and raised neutral surfaces in light mode, inherited graphite layers in dark mode, cobalt only for selection/action/focus, and status meaning always paired with text.
+
+### FIRST VIEWPORT
+
+The close header remains visible; operators first see local management navigation and the employee roster or selected task page. At 320 px navigation is a contained grid and a selected employee exposes one sticky start-work action without page horizontal scroll.
+
 ## Alternatives considered
 
 - **Keep the Agent Preset and Session projection as the enterprise source of truth** — it has no persistent release, approval, schedule, asset, or team records and cannot represent cross-user permission-filtered enterprise state.

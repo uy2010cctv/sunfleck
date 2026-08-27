@@ -128,6 +128,7 @@ export interface EnterpriseWorkbenchState {
   readonly assets: EnterprisePageState<EnterpriseAsset>
   readonly teams: EnterprisePageState<EnterpriseTeam>
   readonly employeeEditor?: EnterpriseEmployeeEditorState
+  readonly releases: readonly EnterpriseEmployeeRelease[]
   readonly mutationPhase: 'idle' | 'running' | 'error' | 'conflict'
   readonly mutationError: string | null
   readonly retryAction: string | null
@@ -242,6 +243,7 @@ const INITIAL_STATE: EnterpriseWorkbenchState = {
   schedules: emptyPage(),
   assets: emptyPage(),
   teams: emptyPage(),
+  releases: [],
   mutationPhase: 'idle',
   mutationError: null,
   retryAction: null,
@@ -426,8 +428,12 @@ export class EnterpriseWorkbenchController {
     this.store.set({ ...state, employees: { ...state.employees, phase: 'loading', error: null } })
     try {
       const page = valueOf(await this.api.enterpriseEmployees.list({ limit: 24, ...filters }))
+      const releases = (await Promise.all(page.items.map(async (item) => {
+        try { return valueOf(await this.api.enterpriseEmployees.listReleases({ presetId: item.presetId })) }
+        catch { return [] }
+      }))).flat()
       if (generation !== this.employeeRequestGeneration) return false
-      this.store.set({ ...this.store.getSnapshot(), employees: {
+      this.store.set({ ...this.store.getSnapshot(), releases, employees: {
         phase: 'ready', items: page.items, error: null,
         ...(page.nextCursor === undefined ? {} : { nextCursor: page.nextCursor }),
       } })
@@ -451,8 +457,12 @@ export class EnterpriseWorkbenchController {
       const page = valueOf(await this.api.enterpriseEmployees.list({
         limit: 24, cursor: before.employees.nextCursor, ...before.employeeFilters,
       }))
+      const releases = (await Promise.all(page.items.map(async (item) => {
+        try { return valueOf(await this.api.enterpriseEmployees.listReleases({ presetId: item.presetId })) }
+        catch { return [] }
+      }))).flat()
       if (generation !== this.employeeRequestGeneration) return false
-      this.store.set({ ...this.store.getSnapshot(), employees: {
+      this.store.set({ ...this.store.getSnapshot(), releases: [...before.releases, ...releases], employees: {
         phase: 'ready', items: [...before.employees.items, ...page.items], error: null,
         ...(page.nextCursor === undefined ? {} : { nextCursor: page.nextCursor }),
       } })
