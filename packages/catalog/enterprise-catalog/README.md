@@ -6,12 +6,15 @@ Versioned enterprise catalog over native DSH identities:
 
 - Agent Preset ids remain the canonical employee identity.
 - Drafts use optimistic revisions and idempotent saves.
-- Management lists are always organization-scoped, use parameterized filters, and paginate by opaque query-bound cursors in `updatedAt` and id order.
+- Management lists are always organization-scoped, use parameterized filters, and paginate by HMAC-SHA256-signed opaque cursors in `updatedAt` and id order.
 - Releases are immutable snapshots with deterministic SHA-256 digests.
 - SOP, knowledge, skill, tool, and model assets are versioned and bound to a release.
 - Asset archive is a logical, revision-checked write; an idempotency key is bound to the request digest and returns its original result on an exact retry.
 - Raw secrets are rejected; runtime credentials are referenced by `credentialRef`.
 - PostgreSQL writes use caller-owned transactions, and every query is parameterized.
+- Pagination indexes cover organization, update time, and resource id; expression indexes cover lowercase resource ids and asset names without requiring `pg_trgm`.
+
+Production repositories provide a stable `cursorSigningKey` as a `Buffer` or string. A repository without a key can read a first page only when it does not need to return a cursor; generating or consuming a cursor fails explicitly. Rotating the key invalidates outstanding cursors.
 
 ## Model Experience
 

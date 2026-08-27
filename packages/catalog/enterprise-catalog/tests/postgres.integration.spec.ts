@@ -5,6 +5,7 @@ import { EnterpriseCatalogRepository, migrateEnterpriseCatalog } from '../src/in
 import type { PostgresDatabase, PostgresQueryResult } from '../src/types.ts'
 
 const url = process.env.DSH_TEST_POSTGRES_URL
+const CURSOR_SIGNING_KEY = 'catalog-postgres-test-cursor-signing-key'
 if (url === undefined && process.env.CI === 'true') {
   throw new Error('DSH_TEST_POSTGRES_URL is required for enterprise catalog PostgreSQL integration tests in CI')
 }
@@ -50,7 +51,9 @@ describe.skipIf(url === undefined)('enterprise catalog PostgreSQL integration', 
     schema = `dsh_catalog_test_${randomUUID().replaceAll('-', '')}`
     database = new PgSchemaDatabase(client, schema)
     await database.setSchema()
-    repository = new EnterpriseCatalogRepository(database, { now: () => 1_700_000_000_000 })
+    repository = new EnterpriseCatalogRepository(database, {
+      now: () => 1_700_000_000_000, cursorSigningKey: CURSOR_SIGNING_KEY,
+    })
   })
 
   afterAll(async () => {
@@ -79,7 +82,7 @@ describe.skipIf(url === undefined)('enterprise catalog PostgreSQL integration', 
     const databases = clients.map(candidate => new PgSchemaDatabase(candidate, schema))
     await Promise.all(databases.map(candidate => candidate.query(`SET search_path TO "${schema}"`)))
     const writes = await Promise.allSettled(databases.map((candidate, index) =>
-      new EnterpriseCatalogRepository(candidate).saveDraft({
+      new EnterpriseCatalogRepository(candidate, { cursorSigningKey: CURSOR_SIGNING_KEY }).saveDraft({
         presetId: 'preset-race', orgId: 'org-pg', ownerUserId: 'user-pg', expectedRevision: 0,
         idempotencyKey: `race-${String(index)}`, visibility: 'organization', profile: { index }, bindings: [],
       })))
@@ -159,11 +162,26 @@ describe.skipIf(url === undefined)('enterprise catalog PostgreSQL integration', 
          WHERE table_schema = $1 AND table_name = 'dsh_enterprise_catalog_idempotency' AND column_name = 'request_digest'`,
         [legacySchema],
       )
-      expect(version.rows[0]?.value).toBe('2')
+      expect(version.rows[0]?.value).toBe('3')
       expect(column.rows[0]?.column_name).toBe('request_digest')
     } finally {
       await legacyClient.query(`DROP SCHEMA IF EXISTS "${legacySchema}" CASCADE`)
       legacyClient.release()
     }
+  })
+
+  it('creates organization pagination and literal-search indexes', async () => {
+    const indexes = await database.query<{ indexname: string }>(
+      `SELECT indexname FROM pg_indexes WHERE schemaname = $1
+       AND indexname LIKE 'dsh_enterprise_%_query_idx' ORDER BY indexname`,
+      [schema],
+    )
+    expect(indexes.rows.map(row => row.indexname)).toEqual([
+      'dsh_enterprise_asset_catalog_query_idx',
+      'dsh_enterprise_asset_id_search_query_idx',
+      'dsh_enterprise_asset_name_search_query_idx',
+      'dsh_enterprise_employee_drafts_query_idx',
+      'dsh_enterprise_employee_preset_search_query_idx',
+    ])
   })
 })

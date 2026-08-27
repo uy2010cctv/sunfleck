@@ -1,11 +1,12 @@
 /** Transactional employee draft/release and versioned asset repository. */
 
-import { createHash, randomUUID } from 'node:crypto'
+import { createHash, createHmac, randomUUID, timingSafeEqual } from 'node:crypto'
 import { isCredentialRefName } from '@deepseek-ai/dsh-credentials'
 import type {
   CatalogAssetKind, CatalogCursorPage, CatalogListInput, EmployeeDraftInput, EmployeeDraftView,
   EmployeeReleaseView, EnterpriseAssetRef, EnterpriseAssetVersionView, EnterpriseAssetView,
-  ListEmployeeDraftsInput, ListEnterpriseAssetsInput, PostgresDatabase, SaveAssetVersionInput,
+  EnterpriseCatalogRepositoryOptions, ListEmployeeDraftsInput, ListEnterpriseAssetsInput,
+  PostgresDatabase, SaveAssetVersionInput,
 } from './types.ts'
 import { migrateEnterpriseCatalog } from './schema.ts'
 
@@ -155,23 +156,46 @@ function cursorScope(kind: 'draft' | 'asset', input: ListEmployeeDraftsInput | L
   })
 }
 
-function decodeCursor(value: string | undefined, scope: string): CatalogCursor | undefined {
+function cursorSigningKey(value: Buffer | string | undefined): Buffer | undefined {
   if (value === undefined) return undefined
+  const key = Buffer.isBuffer(value) ? Buffer.from(value) : Buffer.from(value, 'utf8')
+  return key.length === 0 ? undefined : key
+}
+
+function cursorSignature(payload: string, key: Buffer): Buffer {
+  return createHmac('sha256', key).update(payload).digest()
+}
+
+function decodeCursor(value: string | undefined, scope: string, key: Buffer | undefined): CatalogCursor | undefined {
+  if (value === undefined) return undefined
+  if (key === undefined) throw new Error('catalog cursor signing key is required to consume a cursor')
   try {
-    const parsed: unknown = JSON.parse(Buffer.from(value, 'base64url').toString('utf8'))
+    const segments = value.split('.')
+    if (segments.length !== 2 || segments[0] === undefined || segments[1] === undefined) {
+      throw new Error('catalog list cursor signature is invalid')
+    }
+    const supplied = Buffer.from(segments[1], 'base64url')
+    const expected = cursorSignature(segments[0], key)
+    if (supplied.length !== expected.length || !timingSafeEqual(supplied, expected)) {
+      throw new Error('catalog list cursor signature is invalid')
+    }
+    const parsed: unknown = JSON.parse(Buffer.from(segments[0], 'base64url').toString('utf8'))
     if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) throw new Error('invalid')
     const cursor = parsed as Record<string, unknown>
     if (cursor['version'] !== 1 || cursor['scope'] !== scope
       || typeof cursor['updatedAt'] !== 'number' || !Number.isSafeInteger(cursor['updatedAt'])
       || typeof cursor['id'] !== 'string' || cursor['id'].length === 0) throw new Error('invalid')
     return cursor as unknown as CatalogCursor
-  } catch {
+  } catch (error) {
+    if (error instanceof Error && error.message.includes('signature')) throw error
     throw new Error('catalog list cursor is invalid or belongs to another query')
   }
 }
 
-function encodeCursor(scope: string, updatedAt: number, id: string): string {
-  return Buffer.from(JSON.stringify({ version: 1, scope, updatedAt, id } satisfies CatalogCursor)).toString('base64url')
+function encodeCursor(scope: string, updatedAt: number, id: string, key: Buffer | undefined): string {
+  if (key === undefined) throw new Error('catalog cursor signing key is required to generate a cursor')
+  const payload = Buffer.from(JSON.stringify({ version: 1, scope, updatedAt, id } satisfies CatalogCursor)).toString('base64url')
+  return `${payload}.${cursorSignature(payload, key).toString('base64url')}`
 }
 
 function escapedSearch(value: string): string {
@@ -181,7 +205,13 @@ function escapedSearch(value: string): string {
 /** Transactional PostgreSQL repository for enterprise employees and capability assets. */
 export class EnterpriseCatalogRepository {
   private initialized: Promise<void> | undefined
-  constructor(private readonly database: PostgresDatabase, private readonly options: { now?: () => number } = {}) {}
+  private readonly cursorKey: Buffer | undefined
+  constructor(
+    private readonly database: PostgresDatabase,
+    private readonly options: EnterpriseCatalogRepositoryOptions = {},
+  ) {
+    this.cursorKey = cursorSigningKey(options.cursorSigningKey)
+  }
 
   private now(): number { return this.options.now?.() ?? Date.now() }
 
@@ -260,7 +290,7 @@ export class EnterpriseCatalogRepository {
     await this.initialize()
     const limit = listLimit(input)
     const scope = cursorScope('draft', input)
-    const cursor = decodeCursor(input.cursor, scope)
+    const cursor = decodeCursor(input.cursor, scope, this.cursorKey)
     const values: unknown[] = [input.orgId]
     const filters = ['org_id = $1']
     const add = (sql: string, value: unknown): void => {
@@ -272,7 +302,7 @@ export class EnterpriseCatalogRepository {
     if (input.visibility !== undefined) add('visibility =', input.visibility)
     if (input.search !== undefined) {
       values.push(escapedSearch(input.search))
-      filters.push(`(preset_id ILIKE $${String(values.length)} ESCAPE '\\' OR profile_json::text ILIKE $${String(values.length)} ESCAPE '\\')`)
+      filters.push(`(lower(preset_id) LIKE lower($${String(values.length)}) ESCAPE '\\' OR lower(profile_json::text) LIKE lower($${String(values.length)}) ESCAPE '\\')`)
     }
     if (cursor !== undefined) {
       values.push(cursor.updatedAt, cursor.id)
@@ -289,7 +319,7 @@ export class EnterpriseCatalogRepository {
     return {
       items: rows.map(row => this.draft(row)),
       ...(result.rows.length > limit && last !== undefined
-        ? { nextCursor: encodeCursor(scope, Number(last.updated_at), last.preset_id) }
+        ? { nextCursor: encodeCursor(scope, Number(last.updated_at), last.preset_id, this.cursorKey) }
         : {}),
     }
   }
@@ -370,7 +400,7 @@ export class EnterpriseCatalogRepository {
     await this.initialize()
     const limit = listLimit(input)
     const scope = cursorScope('asset', input)
-    const cursor = decodeCursor(input.cursor, scope)
+    const cursor = decodeCursor(input.cursor, scope, this.cursorKey)
     const values: unknown[] = [input.orgId]
     const filters = ['org_id = $1']
     const add = (sql: string, value: unknown): void => {
@@ -381,7 +411,7 @@ export class EnterpriseCatalogRepository {
     if (input.archived !== undefined) add('archived =', input.archived)
     if (input.search !== undefined) {
       values.push(escapedSearch(input.search))
-      filters.push(`(asset_id ILIKE $${String(values.length)} ESCAPE '\\' OR name ILIKE $${String(values.length)} ESCAPE '\\')`)
+      filters.push(`(lower(asset_id) LIKE lower($${String(values.length)}) ESCAPE '\\' OR lower(name) LIKE lower($${String(values.length)}) ESCAPE '\\')`)
     }
     if (cursor !== undefined) {
       values.push(cursor.updatedAt, cursor.id)
@@ -398,7 +428,7 @@ export class EnterpriseCatalogRepository {
     return {
       items: rows.map(row => this.asset(row)),
       ...(result.rows.length > limit && last !== undefined
-        ? { nextCursor: encodeCursor(scope, Number(last.updated_at), last.asset_id) }
+        ? { nextCursor: encodeCursor(scope, Number(last.updated_at), last.asset_id, this.cursorKey) }
         : {}),
     }
   }

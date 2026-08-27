@@ -26,6 +26,10 @@
       name: '@deepseek-ai/dsh-enterprise-postgres'
       config:
         connectionString: !!js process.env.DSH_ENTERPRISE_DATABASE_URL ?? ''
+        cursorSigningKey: !!js >-
+          process.getBuiltinModule('node:crypto')
+          .createHmac('sha256', Buffer.from(process.env.DSH_ENTERPRISE_MASTER_KEY ?? '', 'base64'))
+          .update('dsh-enterprise-catalog/cursor-signing/v1').digest()
         poolMax: !!js Number(process.env.DSH_ENTERPRISE_PG_POOL_MAX ?? '20')
         idleTimeoutMs: !!js Number(process.env.DSH_ENTERPRISE_PG_IDLE_TIMEOUT_MS ?? '30000')
         connectionTimeoutMs: !!js Number(process.env.DSH_ENTERPRISE_PG_CONNECT_TIMEOUT_MS ?? '10000')

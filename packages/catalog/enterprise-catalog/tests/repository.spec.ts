@@ -108,7 +108,7 @@ class MemoryPostgresDatabase implements PostgresDatabase {
       const statusIndex = parameter(text, 'status =')
       const ownerIndex = parameter(text, 'owner_user_id =')
       const visibilityIndex = parameter(text, 'visibility =')
-      const searchIndex = parameter(text, 'preset_id ILIKE')
+      const searchIndex = parameter(text, 'lower\\(preset_id\\) LIKE')
       const cursorUpdatedIndex = parameter(text, '\\(updated_at, preset_id\\) < \\(')
       if (statusIndex !== undefined) rows = rows.filter(row => row.status === values[statusIndex])
       if (ownerIndex !== undefined) rows = rows.filter(row => row.owner_user_id === values[ownerIndex])
@@ -155,7 +155,7 @@ class MemoryPostgresDatabase implements PostgresDatabase {
       let rows = [...this.assets.values()].filter(row => row.org_id === String(values[0]))
       const kindIndex = parameter(text, 'kind =')
       const archivedIndex = parameter(text, 'archived =')
-      const searchIndex = parameter(text, 'asset_id ILIKE')
+      const searchIndex = parameter(text, 'lower\\(asset_id\\) LIKE')
       const cursorUpdatedIndex = parameter(text, '\\(updated_at, asset_id\\) < \\(')
       if (kindIndex !== undefined) rows = rows.filter(row => row.kind === values[kindIndex])
       if (archivedIndex !== undefined) rows = rows.filter(row => row.archived === values[archivedIndex])
@@ -283,6 +283,15 @@ function parameter(text: string, prefix: string): number | undefined {
   return match?.[1] === undefined ? undefined : Number(match[1]) - 1
 }
 
+const CURSOR_SIGNING_KEY = 'catalog-test-cursor-signing-key'
+
+function catalogRepository(
+  database: PostgresDatabase = new MemoryPostgresDatabase(),
+  options: { now?: () => number } = {},
+): EnterpriseCatalogRepository {
+  return new EnterpriseCatalogRepository(database, { ...options, cursorSigningKey: CURSOR_SIGNING_KEY })
+}
+
 const firstDraft = {
   presetId: 'preset-sales', orgId: 'org-a', ownerUserId: 'user-a', expectedRevision: 0,
   idempotencyKey: 'draft-1', visibility: 'organization' as const,
@@ -292,13 +301,13 @@ const firstDraft = {
 
 describe('EnterpriseCatalogRepository', () => {
   it('creates a versioned employee draft', async () => {
-    const repository = new EnterpriseCatalogRepository(new MemoryPostgresDatabase(), { now: () => 100 })
+    const repository = catalogRepository(new MemoryPostgresDatabase(), { now: () => 100 })
 
     await expect(repository.saveDraft(firstDraft)).resolves.toMatchObject({ presetId: 'preset-sales', revision: 1, status: 'draft' })
   })
 
   it('rejects stale employee draft saves without overwriting the durable revision', async () => {
-    const repository = new EnterpriseCatalogRepository(new MemoryPostgresDatabase())
+    const repository = catalogRepository()
     await repository.saveDraft(firstDraft)
 
     await expect(repository.saveDraft({ ...firstDraft, idempotencyKey: 'draft-stale', profile: { ...firstDraft.profile, name: 'Stale' } }))
@@ -307,7 +316,7 @@ describe('EnterpriseCatalogRepository', () => {
   })
 
   it('returns the original result for an idempotent draft save', async () => {
-    const repository = new EnterpriseCatalogRepository(new MemoryPostgresDatabase())
+    const repository = catalogRepository()
     const first = await repository.saveDraft(firstDraft)
     const retried = await repository.saveDraft({ ...firstDraft, profile: { ...firstDraft.profile, name: 'Ignored by idempotency' } })
 
@@ -315,7 +324,7 @@ describe('EnterpriseCatalogRepository', () => {
   })
 
   it('keeps releases immutable while pinning each capability binding to its version', async () => {
-    const repository = new EnterpriseCatalogRepository(new MemoryPostgresDatabase(), { now: () => 200 })
+    const repository = catalogRepository(new MemoryPostgresDatabase(), { now: () => 200 })
     await repository.saveAssetVersion({
       assetId: 'model-standard', orgId: 'org-a', kind: 'model', name: 'Standard model', expectedRevision: 0,
       idempotencyKey: 'model-v1',
@@ -354,7 +363,7 @@ describe('EnterpriseCatalogRepository', () => {
   })
 
   it('rolls back by creating a new release from an immutable prior snapshot', async () => {
-    const repository = new EnterpriseCatalogRepository(new MemoryPostgresDatabase())
+    const repository = catalogRepository()
     await repository.saveDraft(firstDraft)
     const first = await repository.publishDraft({
       orgId: 'org-a', presetId: 'preset-sales', expectedRevision: 1,
@@ -384,7 +393,7 @@ describe('EnterpriseCatalogRepository', () => {
   })
 
   it('rejects raw secret fields from assets and employee snapshots', async () => {
-    const repository = new EnterpriseCatalogRepository(new MemoryPostgresDatabase())
+    const repository = catalogRepository()
 
     await expect(repository.saveAssetVersion({
       assetId: 'tool-dangerous', orgId: 'org-a', kind: 'tool', name: 'Dangerous', expectedRevision: 0,
@@ -409,7 +418,7 @@ describe('EnterpriseCatalogRepository', () => {
 
   it('rolls back all release writes when binding insertion fails', async () => {
     const database = new MemoryPostgresDatabase()
-    const repository = new EnterpriseCatalogRepository(database)
+    const repository = catalogRepository(database)
     await repository.saveAssetVersion({
       assetId: 'sop-quote', orgId: 'org-a', kind: 'sop', name: 'Quote', expectedRevision: 0,
       idempotencyKey: 'sop-v1', content: { steps: [] }, createdBy: 'user-a',
@@ -429,7 +438,7 @@ describe('EnterpriseCatalogRepository', () => {
   it('lists organization-scoped drafts with filters, stable cursors, and parameterized search', async () => {
     let now = 100
     const database = new MemoryPostgresDatabase()
-    const repository = new EnterpriseCatalogRepository(database, { now: () => now })
+    const repository = catalogRepository(database, { now: () => now })
     await repository.saveDraft(firstDraft)
     now = 200
     await repository.saveDraft({
@@ -452,7 +461,7 @@ describe('EnterpriseCatalogRepository', () => {
   })
 
   it('rejects invalid draft list limits and opaque cursors', async () => {
-    const repository = new EnterpriseCatalogRepository(new MemoryPostgresDatabase())
+    const repository = catalogRepository()
     await expect(repository.listDrafts({ orgId: 'org-a', limit: 0 })).rejects.toThrow('limit')
     await expect(repository.listDrafts({ orgId: 'org-a', limit: 101 })).rejects.toThrow('limit')
     await expect(repository.listDrafts({ orgId: 'org-a', cursor: 'not-a-cursor' })).rejects.toThrow('cursor')
@@ -465,7 +474,7 @@ describe('EnterpriseCatalogRepository', () => {
 
   it('gets and lists assets without exposing another organization', async () => {
     let now = 100
-    const repository = new EnterpriseCatalogRepository(new MemoryPostgresDatabase(), { now: () => now })
+    const repository = catalogRepository(new MemoryPostgresDatabase(), { now: () => now })
     await repository.saveAssetVersion({
       assetId: 'sop-a', orgId: 'org-a', kind: 'sop', name: 'Sales SOP', expectedRevision: 0,
       idempotencyKey: 'asset-a', content: { steps: [] }, createdBy: 'user-a',
@@ -490,7 +499,7 @@ describe('EnterpriseCatalogRepository', () => {
   })
 
   it('validates asset ownership before listing its versions', async () => {
-    const repository = new EnterpriseCatalogRepository(new MemoryPostgresDatabase())
+    const repository = catalogRepository()
     await repository.saveAssetVersion({
       assetId: 'sop-owned', orgId: 'org-a', kind: 'sop', name: 'Owned', expectedRevision: 0,
       idempotencyKey: 'owned-v1', content: { version: 1 }, createdBy: 'user-a',
@@ -506,7 +515,7 @@ describe('EnterpriseCatalogRepository', () => {
   })
 
   it('archives assets with CAS and request-digest protected idempotency', async () => {
-    const repository = new EnterpriseCatalogRepository(new MemoryPostgresDatabase(), { now: () => 300 })
+    const repository = catalogRepository(new MemoryPostgresDatabase(), { now: () => 300 })
     await repository.saveAssetVersion({
       assetId: 'sop-archive', orgId: 'org-a', kind: 'sop', name: 'Archive me', expectedRevision: 0,
       idempotencyKey: 'archive-source', content: { steps: [] }, createdBy: 'user-a',
@@ -522,7 +531,7 @@ describe('EnterpriseCatalogRepository', () => {
   })
 
   it('rejects stale archive revisions without changing the asset', async () => {
-    const repository = new EnterpriseCatalogRepository(new MemoryPostgresDatabase())
+    const repository = catalogRepository()
     await repository.saveAssetVersion({
       assetId: 'sop-cas', orgId: 'org-a', kind: 'sop', name: 'CAS', expectedRevision: 0,
       idempotencyKey: 'cas-source', content: { steps: [] }, createdBy: 'user-a',
@@ -531,5 +540,45 @@ describe('EnterpriseCatalogRepository', () => {
     await expect(repository.archiveAsset('org-a', 'sop-cas', 0, 'cas-archive'))
       .rejects.toBeInstanceOf(EmployeeDraftRevisionConflictError)
     await expect(repository.getAsset('org-a', 'sop-cas')).resolves.toMatchObject({ archived: false, revision: 1 })
+  })
+
+  it('rejects tampered cursors and cursors signed by another key', async () => {
+    const database = new MemoryPostgresDatabase()
+    const repository = catalogRepository(database)
+    await repository.saveDraft(firstDraft)
+    await repository.saveDraft({ ...firstDraft, presetId: 'preset-two', idempotencyKey: 'signed-two' })
+    const first = await repository.listDrafts({ orgId: 'org-a', limit: 1 })
+    const cursor = first.nextCursor!
+    const tampered = `${cursor.slice(0, -1)}${cursor.endsWith('A') ? 'B' : 'A'}`
+
+    await expect(repository.listDrafts({ orgId: 'org-a', limit: 1, cursor: tampered })).rejects.toThrow('signature')
+    const wrongKey = new EnterpriseCatalogRepository(database, { cursorSigningKey: 'another-signing-key' })
+    await expect(wrongKey.listDrafts({ orgId: 'org-a', limit: 1, cursor })).rejects.toThrow('signature')
+  })
+
+  it('continues a cursor after repository restart with the same stable key', async () => {
+    const database = new MemoryPostgresDatabase()
+    const firstRepository = catalogRepository(database)
+    await firstRepository.saveDraft(firstDraft)
+    await firstRepository.saveDraft({ ...firstDraft, presetId: 'preset-two', idempotencyKey: 'restart-two' })
+    const first = await firstRepository.listDrafts({ orgId: 'org-a', limit: 1 })
+    const restarted = catalogRepository(database)
+
+    await expect(restarted.listDrafts({ orgId: 'org-a', limit: 1, cursor: first.nextCursor }))
+      .resolves.toMatchObject({ items: [{ presetId: 'preset-sales' }] })
+  })
+
+  it('allows an unsigned first page but refuses cursor generation and consumption without a key', async () => {
+    const database = new MemoryPostgresDatabase()
+    const unsigned = new EnterpriseCatalogRepository(database)
+    await unsigned.saveDraft(firstDraft)
+    await expect(unsigned.listDrafts({ orgId: 'org-a' })).resolves.toMatchObject({ items: [{ presetId: 'preset-sales' }] })
+    await unsigned.saveDraft({ ...firstDraft, presetId: 'preset-two', idempotencyKey: 'unsigned-two' })
+    await expect(unsigned.listDrafts({ orgId: 'org-a', limit: 1 })).rejects.toThrow('cursor signing key')
+
+    const signed = catalogRepository(database)
+    const page = await signed.listDrafts({ orgId: 'org-a', limit: 1 })
+    await expect(unsigned.listDrafts({ orgId: 'org-a', limit: 1, cursor: page.nextCursor }))
+      .rejects.toThrow('cursor signing key')
   })
 })

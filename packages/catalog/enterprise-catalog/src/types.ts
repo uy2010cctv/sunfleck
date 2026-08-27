@@ -120,3 +120,9 @@ export interface PostgresDatabase {
   ): Promise<PostgresQueryResult<Row>>
   transaction<T>(operation: (database: PostgresDatabase) => Promise<T>): Promise<T>
 }
+
+/** Clock and stable HMAC key used by one catalog repository instance. */
+export interface EnterpriseCatalogRepositoryOptions {
+  readonly now?: () => number
+  readonly cursorSigningKey?: Buffer | string
+}

@@ -63,6 +63,8 @@ export class EnterprisePostgresDatabase implements
 
 export interface EnterprisePostgresConfig {
   readonly connectionString: string
+  /** Stable catalog cursor key; production derives it from deployment-owned secret material. */
+  readonly cursorSigningKey: Buffer | string
   readonly poolMax?: number
   readonly idleTimeoutMs?: number
   readonly connectionTimeoutMs?: number
@@ -77,6 +79,7 @@ declare module '@deepseek-ai/cordis' {
 
 export const Config: z<EnterprisePostgresConfig> = z.object({
   connectionString: z.string().required(),
+  cursorSigningKey: z.any().required(),
   poolMax: z.natural().min(1).max(200).default(20),
   idleTimeoutMs: z.natural().max(86_400_000).default(30_000),
   connectionTimeoutMs: z.natural().max(120_000).default(10_000),
@@ -95,6 +98,10 @@ export interface EnterprisePostgresComposition {
 
 function poolConfig(config: EnterprisePostgresConfig): PoolConfig {
   if (config.connectionString.trim() === '') throw new Error('DSH_ENTERPRISE_DATABASE_URL is required')
+  const cursorKey = Buffer.isBuffer(config.cursorSigningKey)
+    ? config.cursorSigningKey
+    : Buffer.from(config.cursorSigningKey, 'utf8')
+  if (cursorKey.length === 0) throw new Error('enterprise catalog cursor signing key is required')
   return {
     connectionString: config.connectionString,
     max: config.poolMax ?? 20,
@@ -106,6 +113,9 @@ function poolConfig(config: EnterprisePostgresConfig): PoolConfig {
 
 /** Create, health-check, migrate, and expose every enterprise PostgreSQL adapter. */
 export async function createEnterprisePostgresComposition(config: EnterprisePostgresConfig): Promise<EnterprisePostgresComposition> {
+  const stableCursorSigningKey = Buffer.isBuffer(config.cursorSigningKey)
+    ? Buffer.from(config.cursorSigningKey)
+    : config.cursorSigningKey
   const pool = new Pool(poolConfig(config))
   const database = new EnterprisePostgresDatabase(pool)
   try {
@@ -117,7 +127,7 @@ export async function createEnterprisePostgresComposition(config: EnterprisePost
     await migrateEnterpriseOperations(database)
     await migrateKnowledge(database)
     const identity = new PgEnterpriseIdentityRepository(database)
-    const catalog = new EnterpriseCatalogRepository(database)
+    const catalog = new EnterpriseCatalogRepository(database, { cursorSigningKey: stableCursorSigningKey })
     const operations = new EnterpriseOperationsRepository(database)
     const knowledge = new EnterpriseKnowledgeRepository(database)
     return { database, identity, session, catalog, operations, knowledge, close: () => database.end() }

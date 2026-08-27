@@ -16,8 +16,16 @@ function fakePool() {
 }
 
 describe('enterprise PostgreSQL composition', () => {
+  it('requires a stable catalog cursor signing key', async () => {
+    await expect(createEnterprisePostgresComposition({
+      connectionString: 'postgresql:///unused', cursorSigningKey: '',
+    })).rejects.toThrow(/cursor signing key/i)
+  })
+
   it('rejects an empty production connection string before opening a pool', async () => {
-    await expect(createEnterprisePostgresComposition({ connectionString: '   ' })).rejects.toThrow(/DATABASE_URL/i)
+    await expect(createEnterprisePostgresComposition({
+      connectionString: '   ', cursorSigningKey: 'composition-test-key',
+    })).rejects.toThrow(/DATABASE_URL/i)
   })
 
   it('commits successful transactions and rolls back failures', async () => {
