@@ -2,10 +2,11 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { Context } from '@deepseek-ai/cordis'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { CredentialProvider } from '@deepseek-ai/dsh-credentials'
 import type { WebRoute, WebServer } from '@deepseek-ai/dsh-host-webserver'
 import { apply, inject } from '../src/plugin.ts'
+import { EnterpriseRequestContext } from '../src/request-context.ts'
 
 describe('enterprise auth Web plugin', () => {
   let root = ''
@@ -97,5 +98,39 @@ describe('enterprise auth Web plugin', () => {
     expect(injected.listOrganizations()).toEqual([{ id: 'org-a', name: 'Example' }])
     await fiber.dispose()
     expect(routes).toHaveLength(0)
+  })
+
+  it('disposes the request context when OIDC initialization fails', async () => {
+    root = await mkdtemp(join(tmpdir(), 'dsh-enterprise-auth-failed-init-'))
+    const dispose = vi.spyOn(EnterpriseRequestContext.prototype, 'dispose')
+    const ctx = new Context()
+    ctx.provide('webServer', { register: () => () => {} } as unknown as WebServer)
+    ctx.provide('credentials', {
+      resolve: () => Promise.resolve(undefined),
+    } as unknown as CredentialProvider)
+    ctx.provide('enterprisePostgres', {} as never)
+
+    try {
+      const fiber = ctx.plugin({ inject: [...inject], apply }, {
+        databasePath: join(root, 'identity.sqlite'),
+        organizationId: 'org-a', organizationName: 'Example',
+        sessionCookieName: 'dsh_session', sessionTtlMs: 60_000, secureCookies: false,
+        autoProvisionSsoUsers: true, localEnabled: false,
+        oidc: [{
+          id: 'company', label: 'Company', issuer: 'https://id.example.com',
+          clientId: 'client', clientSecretRef: 'OIDC_SECRET', callbackUrl: 'https://app.example.com/auth/callback',
+          mapping: {
+            organizationId: 'org-a', usernameClaim: 'email', displayNameClaim: 'name',
+            groupsClaim: 'groups', roleByGroup: {},
+          },
+        }],
+        saml: [], ldap: [],
+      })
+
+      await expect(fiber).rejects.toThrow('OIDC provider company client secret is not configured')
+      expect(dispose).toHaveBeenCalledTimes(1)
+    } finally {
+      dispose.mockRestore()
+    }
   })
 })

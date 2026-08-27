@@ -18,7 +18,7 @@ The Connection transport enters this context only after cookie authentication, e
 
 The top-level HTTP RPC payload key `principal` is reserved while enterprise security is active. After session authentication, Connection returns HTTP 400 before authorization, audit, or dispatch, rather than forwarding, deleting, or interpreting the value. An invalid payload therefore cannot produce an allowed audit record. Ordinary profiles retain the unrestricted payload contract.
 
-Auth plugin disposal calls `EnterpriseRequestContext.dispose()`, which disables the underlying asynchronous storage. Pending continuations lose the inherited principal, and a later plugin load publishes a fresh context instance.
+Auth plugin disposal calls `EnterpriseRequestContext.dispose()`, which disables the underlying asynchronous storage. Initialization failures after context construction dispose it before closing the identity repository. Pending continuations lose the inherited principal, and a later plugin load publishes a fresh context instance.
 
 The enterprise overlay injects `enterpriseSecurity` and `enterpriseRequestContext` into Connection. Loader therefore holds Connection until `enterprisePostgres` activates auth and auth publishes both services, while the base Web profile continues to inject only `webRuntime`.
 

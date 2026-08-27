@@ -86,6 +86,7 @@ export async function apply(ctx: Context, config: EnterpriseAuthWebConfig): Prom
       if (databasePath === undefined) throw new Error('enterprise identity store or databasePath is required')
       return new EnterpriseIdentityRepository(databasePath)
     })()
+  let requestContext: EnterpriseRequestContext | undefined
   try {
     if (!(await repository.listOrganizations()).some(org => org.id === config.organizationId)) {
       await repository.createOrganization({ id: config.organizationId, name: config.organizationName })
@@ -106,7 +107,8 @@ export async function apply(ctx: Context, config: EnterpriseAuthWebConfig): Prom
     }
 
     const security = new EnterpriseSecurity(repository, config)
-    const requestContext = new EnterpriseRequestContext()
+    requestContext = new EnterpriseRequestContext()
+    const activeRequestContext = requestContext
     const oidc = await Promise.all(config.oidc.map(async (provider) => {
       const clientSecret = provider.clientSecretRef === undefined
         ? undefined
@@ -124,7 +126,7 @@ export async function apply(ctx: Context, config: EnterpriseAuthWebConfig): Prom
       localEnabled: config.localEnabled, oidc, saml, ldap,
     })
     ctx.provide('enterpriseSecurity', security)
-    ctx.provide('enterpriseRequestContext', requestContext)
+    ctx.provide('enterpriseRequestContext', activeRequestContext)
     const route: WebRoute = {
       kind: 'prefix',
       path: '/auth',
@@ -134,11 +136,12 @@ export async function apply(ctx: Context, config: EnterpriseAuthWebConfig): Prom
       const disposeRoute = ctx.webServer.register(route)
       return () => {
         disposeRoute()
-        requestContext.dispose()
+        activeRequestContext.dispose()
         void repository.close()
       }
     }, 'enterprise-auth-web: identity database and /auth routes')
   } catch (error) {
+    requestContext?.dispose()
     repository.close()
     throw error
   }
