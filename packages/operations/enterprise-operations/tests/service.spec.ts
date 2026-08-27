@@ -91,7 +91,7 @@ describe('EnterpriseOperationsService', () => {
       approvalId: 'approval-a', expectedRevision: 1, idempotencyKey: 'cancel-a', state: 'cancelled', actorUserId: 'user-a',
     })).rejects.toMatchObject<EnterpriseOperationsAuthorizationError>({ code: 'insufficient-role' })
     expect(operations.transitionApproval).not.toHaveBeenCalled()
-    expect(authorize).not.toHaveBeenCalled()
+    expect(authorize).toHaveBeenCalledTimes(1)
     expect(audit).toHaveBeenCalledTimes(1)
     expect(audit).toHaveBeenCalledWith(expect.objectContaining({
       endpoint: 'enterpriseOperation.approvals.transition',
@@ -109,5 +109,25 @@ describe('EnterpriseOperationsService', () => {
     expect(operations.listSchedules).toHaveBeenCalledWith({
       orgId: 'org-a', state: 'paused', limit: 10, cursor: 'cursor',
     })
+  })
+
+  it('does not read approval data when central authorization denies cancellation', async () => {
+    const operations = driver()
+    const audit = vi.fn()
+    const service = new EnterpriseOperationsService(operations, {
+      authorize: vi.fn().mockResolvedValue({ allowed: false, reason: 'insufficient-role' }), audit,
+    })
+
+    await expect(service.transitionApproval(principal, {
+      approvalId: 'approval-a', expectedRevision: 1, idempotencyKey: 'cancel-denied',
+      state: 'cancelled', actorUserId: 'user-a',
+    })).rejects.toMatchObject<EnterpriseOperationsAuthorizationError>({ code: 'insufficient-role' })
+    expect(operations.getApproval).not.toHaveBeenCalled()
+    expect(operations.transitionApproval).not.toHaveBeenCalled()
+    expect(audit).toHaveBeenCalledTimes(1)
+    expect(audit).toHaveBeenCalledWith(expect.objectContaining({
+      endpoint: 'enterpriseOperation.approvals.transition',
+      decision: { allowed: false, reason: 'insufficient-role' },
+    }))
   })
 })

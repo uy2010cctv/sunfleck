@@ -199,11 +199,34 @@ export class EnterpriseOperationsService {
     endpoint: EnterpriseOperationsEndpoint,
     input: T,
   ): Promise<Omit<T, 'orgId'> & { orgId: string }> {
+    const { scoped, decision } = await this.authorizeDecision(principal, endpoint, input)
+    await this.auditDecision(principal, endpoint, input, decision)
+    this.assertAllowed(decision, endpoint)
+    return scoped
+  }
+
+  private async authorizeDecision<T extends { readonly orgId?: string }>(
+    principal: EnterprisePrincipal,
+    endpoint: EnterpriseOperationsEndpoint,
+    input: T,
+  ): Promise<{
+    scoped: Omit<T, 'orgId'> & { orgId: string }
+    decision: EnterpriseOperationsAuthorizationDecision
+  }> {
     const scoped = this.scope(principal, input)
     const identityMismatch = input.orgId !== undefined && input.orgId !== principal.orgId
     const decision = identityMismatch
       ? { allowed: false, reason: 'organization-mismatch' }
       : normalizeDecision(await this.options.authorize(principal, endpoint, input))
+    return { scoped, decision }
+  }
+
+  private async auditDecision(
+    principal: EnterprisePrincipal,
+    endpoint: EnterpriseOperationsEndpoint,
+    input: unknown,
+    decision: EnterpriseOperationsAuthorizationDecision,
+  ): Promise<void> {
     const descriptor = resource(endpoint, input)
     await this.options.audit({
       principal,
@@ -212,12 +235,17 @@ export class EnterpriseOperationsService {
       ...descriptor,
       correlationId: this.correlationId(),
     })
+  }
+
+  private assertAllowed(
+    decision: EnterpriseOperationsAuthorizationDecision,
+    endpoint: EnterpriseOperationsEndpoint,
+  ): void {
     if (!decision.allowed) {
       throw new EnterpriseOperationsAuthorizationError(
         decision.reason === 'organization-mismatch' ? 'organization-mismatch' : 'insufficient-role', endpoint,
       )
     }
-    return scoped
   }
 
   async upsertWorkRecord(principal: EnterprisePrincipal, input: EnterpriseWorkRecordInput): Promise<WorkRecordView> {
@@ -246,21 +274,19 @@ export class EnterpriseOperationsService {
 
   async transitionApproval(principal: EnterprisePrincipal, input: EnterpriseApprovalTransitionInput): Promise<ApprovalView> {
     if (input.state === 'cancelled') {
-      if (input.orgId !== undefined && input.orgId !== principal.orgId)
-        await this.authorize(principal, 'enterpriseOperation.approvals.transition', input)
-      const approval = await this.driver.getApproval(principal.orgId, input.approvalId)
-      if (approval === undefined || (approval.requestedBy !== principal.userId && !principal.roles.includes('administrator'))) {
-        const decision = { allowed: false, reason: 'insufficient-role' } as const
-        await this.options.audit({
-          principal,
-          endpoint: 'enterpriseOperation.approvals.transition',
-          decision,
-          ...resource('enterpriseOperation.approvals.transition', input),
-          correlationId: this.correlationId(),
-        })
-        throw new EnterpriseOperationsAuthorizationError('insufficient-role', 'enterpriseOperation.approvals.transition')
+      const endpoint = 'enterpriseOperation.approvals.transition' as const
+      const { scoped, decision } = await this.authorizeDecision(principal, endpoint, input)
+      if (!decision.allowed) {
+        await this.auditDecision(principal, endpoint, input, decision)
+        this.assertAllowed(decision, endpoint)
       }
-      const scoped = await this.authorize(principal, 'enterpriseOperation.approvals.transition', input)
+      const approval = await this.driver.getApproval(scoped.orgId, scoped.approvalId)
+      if (approval === undefined || (approval.requestedBy !== principal.userId && !principal.roles.includes('administrator'))) {
+        const ownershipDecision = { allowed: false, reason: 'insufficient-role' } as const
+        await this.auditDecision(principal, endpoint, input, ownershipDecision)
+        this.assertAllowed(ownershipDecision, endpoint)
+      }
+      await this.auditDecision(principal, endpoint, input, decision)
       return this.driver.transitionApproval({ ...scoped, actorUserId: principal.userId })
     }
     return this.driver.transitionApproval(await this.authorize(principal, 'enterpriseOperation.approvals.transition', input))

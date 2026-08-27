@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-27-enterprise-operations-management.md
-2026-08-27-enterprise-operations-management.md: 1a3e6080289da1318565a33e7d6638acbab33b82
-2026-08-27-enterprise-operations-management.zh.md: e87ff7638490591f5ef8875135c99781fa2b8937
+2026-08-27-enterprise-operations-management.md: a9066791492aee7e11901e0d84d10acb6d333392
+2026-08-27-enterprise-operations-management.zh.md: 3b9bcc0583b8356137dc74468761861c861e986d

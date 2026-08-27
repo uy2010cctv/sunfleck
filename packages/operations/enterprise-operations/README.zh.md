@@ -28,8 +28,8 @@
 生产 PostgreSQL 组合会从部署密钥派生相互隔离的 Catalog 和 Operations
 cursor key，并直接在源表中解析员工发布版和原生 Session header。
 Session 解析还必须找到 `resource_type = 'session'` 且组织匹配的
-`resource_policies` 记录；缺失 policy 或跨组织 policy 都失败关闭。取消审批会在写入
-授权审计前先解析申请人关系，所有权拒绝只产生 denied 审计。带过滤条件的调度列表
+`resource_policies` 记录；缺失 policy 或跨组织 policy 都失败关闭。取消审批先执行中央授权
+决策，中央允许后才读取 driver 并检查申请人关系，最终只写一条 allowed 或 denied 审计。带过滤条件的调度列表
 返回 cursor page；无过滤的 Service 重载保留旧的数组结果。
 
 ```ts
