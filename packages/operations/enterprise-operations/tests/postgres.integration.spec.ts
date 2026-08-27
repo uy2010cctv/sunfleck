@@ -155,14 +155,58 @@ describe.skipIf(database === undefined)('enterprise operations PostgreSQL', () =
       expectedRevision: 1, idempotencyKey: 'managed-team-save',
     })).resolves.toMatchObject({ revision: 2, members: [{ employeeReleaseId: 'managed-release-c', role: 'reviewer' }] })
 
-    const plan = await postgres.transaction(async (transaction) => {
+    await postgres.query(`INSERT INTO dsh_enterprise_work_records(
+      org_id,session_id,employee_release_id,source,business_state,source_references_json,revision,created_at,updated_at)
+      SELECT 'managed-org','bulk-session-'||value,'bulk-release-'||value,'console',
+        CASE WHEN value % 20 = 0 THEN 'active' ELSE 'failed' END,'{}'::jsonb,1,1000+value,1000+value
+      FROM generate_series(1,1000) AS generated(value)`)
+    await postgres.query(`INSERT INTO dsh_enterprise_approval_requests(
+      approval_id,org_id,kind,subject_type,subject_id,requested_by,state,revision,created_at,updated_at)
+      SELECT 'bulk-approval-'||value,'managed-org',CASE WHEN value % 20 = 0 THEN 'publish' ELSE 'tool' END,
+        'release','bulk-'||value,'bulk-owner',CASE WHEN value % 40 = 0 THEN 'pending' ELSE 'rejected' END,1,1000+value,1000+value
+      FROM generate_series(1,1000) AS generated(value)`)
+    await postgres.query(`INSERT INTO dsh_enterprise_schedules(
+      schedule_id,org_id,target_json,timezone,rule,input_json,state,next_run_at,last_run_at,revision,created_at,updated_at)
+      SELECT 'bulk-schedule-'||value,'managed-org','{"kind":"employee","employeeReleaseId":"bulk"}'::jsonb,
+        'UTC','* * * * *','{}'::jsonb,CASE WHEN value % 20 = 0 THEN 'active' ELSE 'paused' END,NULL,NULL,1,1000+value,1000+value
+      FROM generate_series(1,1000) AS generated(value)`)
+    await postgres.query('ANALYZE dsh_enterprise_work_records')
+    await postgres.query('ANALYZE dsh_enterprise_approval_requests')
+    await postgres.query('ANALYZE dsh_enterprise_schedules')
+
+    const plans = await postgres.transaction(async (transaction) => {
       await transaction.query('SET LOCAL enable_seqscan = off')
-      const explain = await transaction.query<{ 'QUERY PLAN': string }>(
-        `EXPLAIN (COSTS OFF) SELECT * FROM dsh_enterprise_work_records
-         WHERE org_id = $1 ORDER BY updated_at DESC, session_id DESC, employee_release_id DESC LIMIT 10`, ['managed-org'],
-      )
-      return explain.rows.map(row => row['QUERY PLAN']).join('\n')
+      const explain = async (sql: string, values: readonly unknown[]): Promise<string> => {
+        const result = await transaction.query<{ 'QUERY PLAN': string }>(`EXPLAIN (COSTS OFF) ${sql}`, values)
+        return result.rows.map(row => row['QUERY PLAN']).join('\n')
+      }
+      return {
+        state: await explain(
+          'SELECT * FROM dsh_enterprise_work_records WHERE org_id=$1 AND business_state=$2 ORDER BY created_at DESC,session_id DESC,employee_release_id DESC LIMIT 10',
+          ['managed-org', 'active'],
+        ),
+        stateSource: await explain(
+          'SELECT * FROM dsh_enterprise_work_records WHERE org_id=$1 AND business_state=$2 AND source=$3 ORDER BY created_at DESC,session_id DESC,employee_release_id DESC LIMIT 10',
+          ['managed-org', 'active', 'console'],
+        ),
+        approvalKind: await explain(
+          'SELECT * FROM dsh_enterprise_approval_requests WHERE org_id=$1 AND kind=$2 ORDER BY created_at DESC,approval_id DESC LIMIT 10',
+          ['managed-org', 'publish'],
+        ),
+        approvalKindState: await explain(
+          'SELECT * FROM dsh_enterprise_approval_requests WHERE org_id=$1 AND kind=$2 AND state=$3 ORDER BY created_at DESC,approval_id DESC LIMIT 10',
+          ['managed-org', 'publish', 'pending'],
+        ),
+        scheduleState: await explain(
+          'SELECT * FROM dsh_enterprise_schedules WHERE org_id=$1 AND state=$2 ORDER BY created_at DESC,schedule_id DESC LIMIT 10',
+          ['managed-org', 'active'],
+        ),
+      }
     })
-    expect(plan).toContain('dsh_enterprise_work_records_page_idx')
+    expect(plans.state).toContain('dsh_enterprise_work_records_state_created_idx')
+    expect(plans.stateSource).toContain('dsh_enterprise_work_records_state_source_created_idx')
+    expect(plans.approvalKind).toContain('dsh_enterprise_approvals_kind_created_idx')
+    expect(plans.approvalKindState).toContain('dsh_enterprise_approvals_kind_state_created_idx')
+    expect(plans.scheduleState).toContain('dsh_enterprise_schedules_state_created_idx')
   })
 })

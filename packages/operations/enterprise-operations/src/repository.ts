@@ -54,9 +54,9 @@ function requestDigest(value: unknown): string {
     .digest('hex')
 }
 interface OperationsCursor {
-  readonly version: 1
+  readonly version: 2
   readonly scope: string
-  readonly updatedAt: number
+  readonly createdAt: number
   readonly ids: readonly string[]
 }
 const DEFAULT_LIST_LIMIT = 50
@@ -92,7 +92,7 @@ function decodeCursor(value: string | undefined, scope: string, key: Buffer | un
     const parsed: unknown = JSON.parse(canonicalBase64url(segments[0]).toString('utf8'))
     if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) throw new Error('invalid')
     const cursor = parsed as Record<string, unknown>
-    if (cursor.version !== 1 || cursor.scope !== scope || !Number.isSafeInteger(cursor.updatedAt)
+    if (cursor.version !== 2 || cursor.scope !== scope || !Number.isSafeInteger(cursor.createdAt)
       || !Array.isArray(cursor.ids) || cursor.ids.length === 0 || cursor.ids.some(id => typeof id !== 'string' || id.length === 0))
       throw new Error('invalid')
     return cursor as unknown as OperationsCursor
@@ -101,9 +101,9 @@ function decodeCursor(value: string | undefined, scope: string, key: Buffer | un
     throw new Error('operations list cursor is invalid or belongs to another query')
   }
 }
-function encodeCursor(scope: string, updatedAt: number, ids: readonly string[], key: Buffer | undefined): string {
+function encodeCursor(scope: string, createdAt: number, ids: readonly string[], key: Buffer | undefined): string {
   if (key === undefined) throw new Error('operations cursor signing key is required to generate a cursor')
-  const payload = Buffer.from(JSON.stringify({ version: 1, scope, updatedAt, ids } satisfies OperationsCursor)).toString('base64url')
+  const payload = Buffer.from(JSON.stringify({ version: 2, scope, createdAt, ids } satisfies OperationsCursor)).toString('base64url')
   return `${payload}.${createHmac('sha256', key).update(payload).digest('base64url')}`
 }
 function assertSourceImmutable(before: WorkRecordView, after: WorkRecordInput): void {
@@ -219,16 +219,16 @@ export class EnterpriseOperationsRepository {
   private async lock(database: PostgresDatabase, key: string): Promise<void> {
     await database.query('SELECT pg_advisory_xact_lock(hashtext($1))', [key])
   }
-  private async requireSession(orgId: string, sessionId: string): Promise<void> {
+  private async requireSession(database: PostgresDatabase, orgId: string, sessionId: string): Promise<void> {
     if (this.options.resolveSession === undefined && this.options.allowUnverifiedReferences !== true)
       throw new Error('native session resolver is required')
-    if (this.options.resolveSession !== undefined && !(await this.options.resolveSession(orgId, sessionId)))
+    if (this.options.resolveSession !== undefined && !(await this.options.resolveSession(database, orgId, sessionId)))
       throw new Error(`native session ${sessionId} was not found in organization ${orgId}`)
   }
-  private async requireRelease(orgId: string, releaseId: string): Promise<void> {
+  private async requireRelease(database: PostgresDatabase, orgId: string, releaseId: string): Promise<void> {
     if (this.options.resolveRelease === undefined && this.options.allowUnverifiedReferences !== true)
       throw new Error('native employee release resolver is required')
-    if (this.options.resolveRelease !== undefined && !(await this.options.resolveRelease(orgId, releaseId)))
+    if (this.options.resolveRelease !== undefined && !(await this.options.resolveRelease(database, orgId, releaseId)))
       throw new Error(`native employee release ${releaseId} was not found in organization ${orgId}`)
   }
   private async teamTarget(database: PostgresDatabase, orgId: string, teamId: string): Promise<TeamRow> {
@@ -288,7 +288,10 @@ export class EnterpriseOperationsRepository {
       )
       if (owner.rows[0] !== undefined && owner.rows[0].org_id !== input.orgId)
         throw new Error(`work record ${input.sessionId} is outside organization ${input.orgId}`)
-      await Promise.all([this.requireSession(input.orgId, input.sessionId), this.requireRelease(input.orgId, input.employeeReleaseId)])
+      await Promise.all([
+        this.requireSession(database, input.orgId, input.sessionId),
+        this.requireRelease(database, input.orgId, input.employeeReleaseId),
+      ])
       if (input.teamId !== undefined) await this.teamTarget(database, input.orgId, input.teamId)
       const result = await database.query<WorkRow>(
         'SELECT * FROM dsh_enterprise_work_records WHERE org_id = $1 AND session_id = $2 AND employee_release_id = $3 FOR UPDATE',
@@ -361,12 +364,12 @@ export class EnterpriseOperationsRepository {
     }
     if (cursor !== undefined) {
       if (cursor.ids.length !== 2) throw new Error('operations list cursor is invalid or belongs to another query')
-      values.push(cursor.updatedAt, cursor.ids[0], cursor.ids[1])
-      clauses.push(`(updated_at, session_id, employee_release_id) < ($${String(values.length - 2)}, $${String(values.length - 1)}, $${String(values.length)})`)
+      values.push(cursor.createdAt, cursor.ids[0], cursor.ids[1])
+      clauses.push(`(created_at, session_id, employee_release_id) < ($${String(values.length - 2)}, $${String(values.length - 1)}, $${String(values.length)})`)
     }
     values.push(limit + 1)
     const result = await this.database.query<WorkRow>(
-      `SELECT * FROM dsh_enterprise_work_records WHERE ${clauses.join(' AND ')} ORDER BY updated_at DESC, session_id DESC, employee_release_id DESC LIMIT $${String(values.length)}`,
+      `SELECT * FROM dsh_enterprise_work_records WHERE ${clauses.join(' AND ')} ORDER BY created_at DESC, session_id DESC, employee_release_id DESC LIMIT $${String(values.length)}`,
       values,
     )
     const page = result.rows.slice(0, limit)
@@ -374,7 +377,7 @@ export class EnterpriseOperationsRepository {
     return {
       items: page.map(row => this.work(row)),
       ...(result.rows.length <= limit || last === undefined ? {} : {
-        nextCursor: encodeCursor(scope, Number(last.updated_at), [last.session_id, last.employee_release_id], this.cursorSigningKey),
+        nextCursor: encodeCursor(scope, Number(last.created_at), [last.session_id, last.employee_release_id], this.cursorSigningKey),
       }),
     }
   }
@@ -431,18 +434,18 @@ export class EnterpriseOperationsRepository {
     }
     if (cursor !== undefined) {
       if (cursor.ids.length !== 1) throw new Error('operations list cursor is invalid or belongs to another query')
-      values.push(cursor.updatedAt, cursor.ids[0])
-      clauses.push(`(updated_at, approval_id) < ($${String(values.length - 1)}, $${String(values.length)})`)
+      values.push(cursor.createdAt, cursor.ids[0])
+      clauses.push(`(created_at, approval_id) < ($${String(values.length - 1)}, $${String(values.length)})`)
     }
     values.push(limit + 1)
     const result = await this.database.query<ApprovalRow>(
-      `SELECT * FROM dsh_enterprise_approval_requests WHERE ${clauses.join(' AND ')} ORDER BY updated_at DESC, approval_id DESC LIMIT $${String(values.length)}`,
+      `SELECT * FROM dsh_enterprise_approval_requests WHERE ${clauses.join(' AND ')} ORDER BY created_at DESC, approval_id DESC LIMIT $${String(values.length)}`,
       values,
     )
     const page = result.rows.slice(0, limit)
     const last = page.at(-1)
     return { items: page.map(row => this.approval(row)), ...(result.rows.length <= limit || last === undefined ? {} : {
-      nextCursor: encodeCursor(scope, Number(last.updated_at), [last.approval_id], this.cursorSigningKey),
+      nextCursor: encodeCursor(scope, Number(last.created_at), [last.approval_id], this.cursorSigningKey),
     }) }
   }
   async transitionApproval(input: {
@@ -502,7 +505,7 @@ export class EnterpriseOperationsRepository {
       const prior = await this.idempotent<ScheduleView>(database, input.orgId, 'schedule-create', input.idempotencyKey, input)
       if (prior !== undefined) return prior
       if (input.expectedRevision !== 0) throw new Error(`schedule ${input.scheduleId} revision conflict`)
-      if (input.target.kind === 'employee') await this.requireRelease(input.orgId, input.target.employeeReleaseId)
+      if (input.target.kind === 'employee') await this.requireRelease(database, input.orgId, input.target.employeeReleaseId)
       else await this.teamTarget(database, input.orgId, input.target.teamId)
       const now = this.now()
       const result = await database.query<ScheduleRow>(
@@ -549,7 +552,7 @@ export class EnterpriseOperationsRepository {
       if (row === undefined || row.org_id !== input.orgId) throw new Error('schedule not found')
       if (row.state === 'archived') throw new Error('archived schedule cannot be edited')
       if (Number(row.revision) !== input.expectedRevision) throw new Error(`schedule ${input.scheduleId} revision conflict`)
-      if (input.target.kind === 'employee') await this.requireRelease(input.orgId, input.target.employeeReleaseId)
+      if (input.target.kind === 'employee') await this.requireRelease(database, input.orgId, input.target.employeeReleaseId)
       else await this.teamTarget(database, input.orgId, input.target.teamId)
       const updated = await database.query<ScheduleRow>(
         'UPDATE dsh_enterprise_schedules SET target_json=$1::jsonb,timezone=$2,rule=$3,input_json=$4::jsonb,next_run_at=$5,' +
@@ -581,7 +584,7 @@ export class EnterpriseOperationsRepository {
     await this.initialize()
     if (typeof input === 'string') {
       const result = await this.database.query<ScheduleRow>(
-        'SELECT * FROM dsh_enterprise_schedules WHERE org_id = $1 ORDER BY updated_at DESC, schedule_id DESC', [input],
+        'SELECT * FROM dsh_enterprise_schedules WHERE org_id = $1 ORDER BY created_at DESC, schedule_id DESC', [input],
       )
       return result.rows.map(row => this.schedule(row))
     }
@@ -594,18 +597,18 @@ export class EnterpriseOperationsRepository {
     if (query.state !== undefined) { values.push(query.state); clauses.push(`state = $${String(values.length)}`) }
     if (cursor !== undefined) {
       if (cursor.ids.length !== 1) throw new Error('operations list cursor is invalid or belongs to another query')
-      values.push(cursor.updatedAt, cursor.ids[0])
-      clauses.push(`(updated_at, schedule_id) < ($${String(values.length - 1)}, $${String(values.length)})`)
+      values.push(cursor.createdAt, cursor.ids[0])
+      clauses.push(`(created_at, schedule_id) < ($${String(values.length - 1)}, $${String(values.length)})`)
     }
     values.push(limit + 1)
     const result = await this.database.query<ScheduleRow>(
-      `SELECT * FROM dsh_enterprise_schedules WHERE ${clauses.join(' AND ')} ORDER BY updated_at DESC, schedule_id DESC LIMIT $${String(values.length)}`,
+      `SELECT * FROM dsh_enterprise_schedules WHERE ${clauses.join(' AND ')} ORDER BY created_at DESC, schedule_id DESC LIMIT $${String(values.length)}`,
       values,
     )
     const page = result.rows.slice(0, limit)
     const last = page.at(-1)
     return { items: page.map(row => this.schedule(row)), ...(result.rows.length <= limit || last === undefined ? {} : {
-      nextCursor: encodeCursor(scope, Number(last.updated_at), [last.schedule_id], this.cursorSigningKey),
+      nextCursor: encodeCursor(scope, Number(last.created_at), [last.schedule_id], this.cursorSigningKey),
     }) }
   }
   async transitionSchedule(input: {
@@ -688,7 +691,7 @@ export class EnterpriseOperationsRepository {
       const team = target.kind === 'team' ? await this.teamTarget(database, input.orgId, target.teamId) : undefined
       const employeeReleaseId = target.kind === 'employee' ? target.employeeReleaseId : required(team, 'fixed team').leader_release_id
       const teamId = target.kind === 'team' ? target.teamId : undefined
-      await this.requireRelease(input.orgId, employeeReleaseId)
+      await this.requireRelease(database, input.orgId, employeeReleaseId)
       const work = await database.query<WorkRow>(
         'INSERT INTO dsh_enterprise_work_records(org_id, session_id, employee_release_id, team_id, source, ' +
           'business_state, source_references_json, revision, created_at, updated_at) ' +
@@ -800,8 +803,8 @@ export class EnterpriseOperationsRepository {
       if (prior !== undefined) return prior
       if (input.expectedRevision !== 0) throw new Error(`fixed team ${input.teamId} revision conflict`)
       await Promise.all([
-        this.requireRelease(input.orgId, input.leaderEmployeeReleaseId),
-        ...input.members.map(member => this.requireRelease(input.orgId, member.employeeReleaseId)),
+        this.requireRelease(database, input.orgId, input.leaderEmployeeReleaseId),
+        ...input.members.map(member => this.requireRelease(database, input.orgId, member.employeeReleaseId)),
       ])
       const now = this.now()
       const result = await database.query<TeamRow>(
@@ -851,8 +854,8 @@ export class EnterpriseOperationsRepository {
       if (row === undefined || row.org_id !== input.orgId) throw new Error('fixed team not found')
       if (Number(row.revision) !== input.expectedRevision) throw new Error(`fixed team ${input.teamId} revision conflict`)
       await Promise.all([
-        this.requireRelease(input.orgId, input.leaderEmployeeReleaseId),
-        ...input.members.map(member => this.requireRelease(input.orgId, member.employeeReleaseId)),
+        this.requireRelease(database, input.orgId, input.leaderEmployeeReleaseId),
+        ...input.members.map(member => this.requireRelease(database, input.orgId, member.employeeReleaseId)),
       ])
       const updated = await database.query<TeamRow>(
         'UPDATE dsh_enterprise_fixed_teams SET leader_release_id=$1,workflow_template_json=$2::jsonb,' +
@@ -895,12 +898,12 @@ export class EnterpriseOperationsRepository {
     const clauses = ['org_id = $1']
     if (cursor !== undefined) {
       if (cursor.ids.length !== 1) throw new Error('operations list cursor is invalid or belongs to another query')
-      values.push(cursor.updatedAt, cursor.ids[0])
-      clauses.push(`(updated_at, team_id) < ($${String(values.length - 1)}, $${String(values.length)})`)
+      values.push(cursor.createdAt, cursor.ids[0])
+      clauses.push(`(created_at, team_id) < ($${String(values.length - 1)}, $${String(values.length)})`)
     }
     values.push(limit + 1)
     const result = await this.database.query<TeamRow>(
-      `SELECT * FROM dsh_enterprise_fixed_teams WHERE ${clauses.join(' AND ')} ORDER BY updated_at DESC, team_id DESC LIMIT $${String(values.length)}`,
+      `SELECT * FROM dsh_enterprise_fixed_teams WHERE ${clauses.join(' AND ')} ORDER BY created_at DESC, team_id DESC LIMIT $${String(values.length)}`,
       values,
     )
     const page = result.rows.slice(0, limit)
@@ -912,7 +915,7 @@ export class EnterpriseOperationsRepository {
     }))
     const last = page.at(-1)
     return { items, ...(result.rows.length <= limit || last === undefined ? {} : {
-      nextCursor: encodeCursor(scope, Number(last.updated_at), [last.team_id], this.cursorSigningKey),
+      nextCursor: encodeCursor(scope, Number(last.created_at), [last.team_id], this.cursorSigningKey),
     }) }
   }
   private work(row: WorkRow): WorkRecordView {

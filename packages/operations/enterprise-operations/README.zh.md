@@ -10,6 +10,7 @@
 - 固定团队绑定负责人、成员、Workflow 模板和审批策略。
 - PostgreSQL 事务和组织范围查询保持边界。
 - 工作记录、审批、调度和固定团队提供稳定的 keyset 分页。Cursor 是 canonical base64url 载荷加 scope-bound HMAC-SHA256 签名；更换组织或过滤条件会使 cursor 失效。Limit 只允许 1 至 100 的整数。
+- Cursor v2 使用不可变的 `created_at` 和稳定 ID 进行 seek；`updatedAt` 仅作展示元数据。因此，分页之间更新记录不会把它移到 cursor 前方并导致遗漏。
 - 工作记录可按业务状态、来源和固定团队过滤；审批可按类型、状态和申请人过滤；调度可按状态过滤。
 - 固定团队和调度支持 compare-and-swap 更新。团队更新会在校验所有发布版的组织归属后整体替换成员集合。已归档调度为终态，不可编辑或恢复。
 - Pending 审批可取消。Repository 记录 actor 和 reason；`EnterpriseOperationsService` 仅允许申请人本人或管理员取消。
@@ -31,6 +32,8 @@ Session 解析还必须找到 `resource_type = 'session'` 且组织匹配的
 `resource_policies` 记录；缺失 policy 或跨组织 policy 都失败关闭。取消审批先执行中央授权
 决策，中央允许后才读取 driver 并检查申请人关系，最终只写一条 allowed 或 denied 审计。带过滤条件的调度列表
 返回 cursor page；无过滤的 Service 重载保留旧的数组结果。
+原生引用 resolver 接收 Repository 当前的事务连接并必须通过它查询；这避免了
+`poolMax = 1` 时重新进入连接池导致的死锁。
 
 ```ts
 const service = new EnterpriseOperationsService(repository, {

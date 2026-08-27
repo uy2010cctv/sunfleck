@@ -134,15 +134,15 @@ export async function createEnterprisePostgresComposition(config: EnterprisePost
       cursorSigningKey: deriveCursorKey('dsh-enterprise-catalog-cursor-v1'),
     })
     const operations = new EnterpriseOperationsRepository(database, {
-      cursorSigningKey: deriveCursorKey('dsh-enterprise-operations-cursor-v1'),
-      resolveRelease: async (orgId, releaseId) => {
-        const result = await database.query(
+      cursorSigningKey: deriveCursorKey('dsh-enterprise-operations-cursor-v2'),
+      resolveRelease: async (transaction, orgId, releaseId) => {
+        const result = await transaction.query(
           'SELECT 1 FROM dsh_enterprise_employee_releases WHERE release_id = $1 AND org_id = $2', [releaseId, orgId],
         )
         return result.rows[0] !== undefined
       },
-      resolveSession: async (orgId, sessionId) => {
-        const result = await database.query(
+      resolveSession: async (transaction, orgId, sessionId) => {
+        const result = await transaction.query(
           `SELECT 1 FROM dsh_session_headers AS session
            JOIN resource_policies AS policy
              ON policy.resource_type = 'session' AND policy.resource_id = session.id

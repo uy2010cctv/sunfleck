@@ -1,6 +1,6 @@
 /** PostgreSQL schema for work records, approvals, schedules, teams, and outbox. */
 import type { PostgresDatabase } from './types.ts'
-export const ENTERPRISE_OPERATIONS_SCHEMA_VERSION = 5
+export const ENTERPRISE_OPERATIONS_SCHEMA_VERSION = 6
 const statements = [
   'CREATE TABLE IF NOT EXISTS dsh_enterprise_operations_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)',
   `CREATE TABLE IF NOT EXISTS dsh_enterprise_work_records (
@@ -67,6 +67,32 @@ const statements = [
     ON dsh_enterprise_schedules(org_id, state, updated_at DESC, schedule_id DESC)`,
   `CREATE INDEX IF NOT EXISTS dsh_enterprise_fixed_teams_page_idx
     ON dsh_enterprise_fixed_teams(org_id, updated_at DESC, team_id DESC)`,
+  `CREATE INDEX IF NOT EXISTS dsh_enterprise_work_records_created_page_idx
+    ON dsh_enterprise_work_records(org_id, created_at DESC, session_id DESC, employee_release_id DESC)`,
+  `CREATE INDEX IF NOT EXISTS dsh_enterprise_work_records_state_created_idx
+    ON dsh_enterprise_work_records(org_id, business_state, created_at DESC, session_id DESC, employee_release_id DESC)`,
+  `CREATE INDEX IF NOT EXISTS dsh_enterprise_work_records_state_source_created_idx
+    ON dsh_enterprise_work_records(org_id, business_state, source, created_at DESC, session_id DESC, employee_release_id DESC)`,
+  `CREATE INDEX IF NOT EXISTS dsh_enterprise_work_records_source_created_idx
+    ON dsh_enterprise_work_records(org_id, source, created_at DESC, session_id DESC, employee_release_id DESC)`,
+  `CREATE INDEX IF NOT EXISTS dsh_enterprise_work_records_team_created_idx
+    ON dsh_enterprise_work_records(org_id, team_id, created_at DESC, session_id DESC, employee_release_id DESC) WHERE team_id IS NOT NULL`,
+  `CREATE INDEX IF NOT EXISTS dsh_enterprise_approvals_created_page_idx
+    ON dsh_enterprise_approval_requests(org_id, created_at DESC, approval_id DESC)`,
+  `CREATE INDEX IF NOT EXISTS dsh_enterprise_approvals_kind_created_idx
+    ON dsh_enterprise_approval_requests(org_id, kind, created_at DESC, approval_id DESC)`,
+  `CREATE INDEX IF NOT EXISTS dsh_enterprise_approvals_kind_state_created_idx
+    ON dsh_enterprise_approval_requests(org_id, kind, state, created_at DESC, approval_id DESC)`,
+  `CREATE INDEX IF NOT EXISTS dsh_enterprise_approvals_state_created_idx
+    ON dsh_enterprise_approval_requests(org_id, state, created_at DESC, approval_id DESC)`,
+  `CREATE INDEX IF NOT EXISTS dsh_enterprise_approvals_requester_created_idx
+    ON dsh_enterprise_approval_requests(org_id, requested_by, created_at DESC, approval_id DESC)`,
+  `CREATE INDEX IF NOT EXISTS dsh_enterprise_schedules_created_page_idx
+    ON dsh_enterprise_schedules(org_id, created_at DESC, schedule_id DESC)`,
+  `CREATE INDEX IF NOT EXISTS dsh_enterprise_schedules_state_created_idx
+    ON dsh_enterprise_schedules(org_id, state, created_at DESC, schedule_id DESC)`,
+  `CREATE INDEX IF NOT EXISTS dsh_enterprise_fixed_teams_created_page_idx
+    ON dsh_enterprise_fixed_teams(org_id, created_at DESC, team_id DESC)`,
 ] as const
 export async function migrateEnterpriseOperations(database: PostgresDatabase): Promise<void> {
   await database.transaction(async (transaction) => {

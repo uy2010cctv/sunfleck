@@ -183,11 +183,26 @@ class MemoryPostgresDatabase implements PostgresDatabase {
         )
         return row === undefined ? [] : [clone(row)]
       }
+      let index = 1
+      const businessState = text.includes('business_state = $') ? String(values[index++]) : undefined
+      const source = text.includes('source = $') ? String(values[index++]) : undefined
+      const teamId = text.includes('team_id = $') ? String(values[index++]) : undefined
+      const cursorCreatedAt = text.includes('(created_at, session_id, employee_release_id) <') ? Number(values[index++]) : undefined
+      const cursorSessionId = cursorCreatedAt === undefined ? undefined : String(values[index++])
+      const cursorReleaseId = cursorCreatedAt === undefined ? undefined : String(values[index++])
       return [...this.workRecords.values()]
         .filter(row => row.org_id === String(values[0]))
-        .filter(row => !text.includes('business_state = $2') || row.business_state === String(values[1]))
-        .sort((left, right) => right.updated_at - left.updated_at || left.session_id.localeCompare(right.session_id))
-        .map(clone)
+        .filter(row => businessState === undefined || row.business_state === businessState)
+        .filter(row => source === undefined || row.source === source)
+        .filter(row => teamId === undefined || row.team_id === teamId)
+        .filter(row => cursorCreatedAt === undefined || row.created_at < cursorCreatedAt
+          || (row.created_at === cursorCreatedAt && row.session_id < (cursorSessionId as string))
+          || (row.created_at === cursorCreatedAt && row.session_id === cursorSessionId
+            && row.employee_release_id < (cursorReleaseId as string)))
+        .sort((left, right) => right.created_at - left.created_at
+          || right.session_id.localeCompare(left.session_id)
+          || right.employee_release_id.localeCompare(left.employee_release_id))
+        .slice(0, Number(values.at(-1))).map(clone)
     }
     if (text.startsWith('INSERT INTO dsh_enterprise_work_records')) {
       const row: WorkRecordRow = {
@@ -215,22 +230,22 @@ class MemoryPostgresDatabase implements PostgresDatabase {
       return [clone(row)]
     }
     if (text.startsWith('SELECT ') && text.includes('FROM dsh_enterprise_approval_requests')) {
-      if (text.includes('ORDER BY updated_at')) {
+      if (text.includes('ORDER BY created_at')) {
         let index = 1
         const kind = text.includes('kind = $') ? String(values[index++]) : undefined
         const state = text.includes('state = $') ? String(values[index++]) : undefined
         const requestedBy = text.includes('requested_by = $') ? String(values[index++]) : undefined
-        const cursorUpdatedAt = text.includes('(updated_at, approval_id) <') ? Number(values[index++]) : undefined
-        const cursorId = cursorUpdatedAt === undefined ? undefined : String(values[index++])
+        const cursorCreatedAt = text.includes('(created_at, approval_id) <') ? Number(values[index++]) : undefined
+        const cursorId = cursorCreatedAt === undefined ? undefined : String(values[index++])
         const limit = Number(values.at(-1))
         return [...this.approvals.values()]
           .filter(row => row.org_id === String(values[0]))
           .filter(row => kind === undefined || row.kind === kind)
           .filter(row => state === undefined || row.state === state)
           .filter(row => requestedBy === undefined || row.requested_by === requestedBy)
-          .filter(row => cursorUpdatedAt === undefined || row.updated_at < cursorUpdatedAt
-            || (row.updated_at === cursorUpdatedAt && row.approval_id < (cursorId as string)))
-          .sort((left, right) => right.updated_at - left.updated_at || right.approval_id.localeCompare(left.approval_id))
+          .filter(row => cursorCreatedAt === undefined || row.created_at < cursorCreatedAt
+            || (row.created_at === cursorCreatedAt && row.approval_id < (cursorId as string)))
+          .sort((left, right) => right.created_at - left.created_at || right.approval_id.localeCompare(left.approval_id))
           .slice(0, limit).map(clone)
       }
       const row = this.approvals.get(String(values[0]))
@@ -265,10 +280,10 @@ class MemoryPostgresDatabase implements PostgresDatabase {
       return [clone(row)]
     }
     if (text.startsWith('SELECT ') && text.includes('FROM dsh_enterprise_schedules')) {
-      if (text.includes('ORDER BY updated_at')) {
+      if (text.includes('ORDER BY created_at')) {
         return [...this.schedules.values()].filter(row => row.org_id === String(values[0]))
           .filter(row => !text.includes('state = $') || row.state === String(values[1]))
-          .sort((left, right) => right.updated_at - left.updated_at || right.schedule_id.localeCompare(left.schedule_id))
+          .sort((left, right) => right.created_at - left.created_at || right.schedule_id.localeCompare(left.schedule_id))
           .slice(0, Number(values.at(-1))).map(clone)
       }
       const row = this.schedules.get(String(values[0]))
@@ -345,9 +360,9 @@ class MemoryPostgresDatabase implements PostgresDatabase {
       return [clone(row)]
     }
     if (text.startsWith('SELECT ') && text.includes('FROM dsh_enterprise_fixed_teams')) {
-      if (text.includes('ORDER BY updated_at')) {
+      if (text.includes('ORDER BY created_at')) {
         return [...this.teams.values()].filter(row => row.org_id === String(values[0]))
-          .sort((left, right) => right.updated_at - left.updated_at || right.team_id.localeCompare(left.team_id))
+          .sort((left, right) => right.created_at - left.created_at || right.team_id.localeCompare(left.team_id))
           .slice(0, Number(values.at(-1))).map(clone)
       }
       const row = this.teams.get(String(values[0]))
@@ -436,8 +451,10 @@ const work = {
 }
 
 const references = {
-  resolveSession: async (orgId: string, sessionId: string) => orgId === 'org-a' && !sessionId.startsWith('missing'),
-  resolveRelease: async (orgId: string, releaseId: string) => orgId === 'org-a' && !releaseId.startsWith('missing'),
+  resolveSession: async (_database: PostgresDatabase, orgId: string, sessionId: string) =>
+    orgId === 'org-a' && !sessionId.startsWith('missing'),
+  resolveRelease: async (_database: PostgresDatabase, orgId: string, releaseId: string) =>
+    orgId === 'org-a' && !releaseId.startsWith('missing'),
 }
 
 function repository(database = new MemoryPostgresDatabase(), now?: () => number): EnterpriseOperationsRepository {
@@ -469,7 +486,7 @@ describe('EnterpriseOperationsRepository', () => {
       idempotencyKey: 'approval-migration-create',
     })
 
-    expect(database.schemaVersion).toBe('5')
+    expect(database.schemaVersion).toBe('6')
   })
 
   it('permits unverified local writes only through explicit configuration', async () => {
@@ -770,6 +787,48 @@ describe('EnterpriseOperationsRepository', () => {
     expect(second.items).toHaveLength(1)
     await expect(operations.listWorkRecords({ orgId: 'org-a', source: 'wecom', cursor: first.nextCursor }))
       .rejects.toThrow('another query')
+  })
+
+  it('uses immutable creation order so updates between pages are not omitted', async () => {
+    let now = 1
+    const operations = repository(new MemoryPostgresDatabase(), () => now)
+    for (const sessionId of ['immutable-1', 'immutable-2', 'immutable-3']) {
+      await operations.upsertWorkRecord({
+        ...work, sessionId, sourceReferences: { nativeSessionId: sessionId }, idempotencyKey: `create-${sessionId}`,
+      })
+      now += 1
+    }
+    const first = await operations.listWorkRecords({ orgId: 'org-a', limit: 1 })
+    const cursorPayload = JSON.parse(Buffer.from(first.nextCursor?.split('.')[0] ?? '', 'base64url').toString('utf8')) as Record<string, unknown>
+    expect(cursorPayload).toMatchObject({ version: 2, createdAt: 3, ids: ['immutable-3', 'release-a'] })
+    expect(cursorPayload).not.toHaveProperty('updatedAt')
+    now = 10
+    await operations.upsertWorkRecord({
+      ...work, sessionId: 'immutable-1', sourceReferences: { nativeSessionId: 'immutable-1' },
+      businessState: 'completed', expectedRevision: 1, idempotencyKey: 'update-immutable-1',
+    })
+    const second = await operations.listWorkRecords({ orgId: 'org-a', limit: 1, cursor: first.nextCursor })
+    const third = await operations.listWorkRecords({ orgId: 'org-a', limit: 1, cursor: second.nextCursor })
+    expect([first.items[0]?.sessionId, second.items[0]?.sessionId, third.items[0]?.sessionId])
+      .toEqual(['immutable-3', 'immutable-2', 'immutable-1'])
+  })
+
+  it('passes the active transaction database to native reference resolvers', async () => {
+    const database = new MemoryPostgresDatabase()
+    const seen: unknown[] = []
+    const operations = new EnterpriseOperationsRepository(database, {
+      cursorSigningKey: Buffer.from('operations-cursor-signing-key-32b!'),
+      resolveSession: async (transaction, orgId, sessionId) => {
+        seen.push(transaction)
+        return orgId === 'org-a' && sessionId === 'session-a'
+      },
+      resolveRelease: async (transaction, orgId, releaseId) => {
+        seen.push(transaction)
+        return orgId === 'org-a' && releaseId === 'release-a'
+      },
+    })
+    await operations.upsertWorkRecord(work)
+    expect(seen).toEqual([database, database])
   })
 
   it('updates fixed teams and schedules with CAS and keeps archived schedules terminal', async () => {

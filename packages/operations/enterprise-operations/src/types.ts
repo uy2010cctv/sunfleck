@@ -109,8 +109,8 @@ export interface EnterpriseOperationsRepositoryOptions {
   readonly now?: () => number
   /** HMAC-SHA256 key used for scope-bound opaque list cursors. Must be at least 32 bytes. */
   readonly cursorSigningKey?: Buffer | string
-  readonly resolveSession?: (orgId: string, sessionId: string) => boolean | Promise<boolean>
-  readonly resolveRelease?: (orgId: string, employeeReleaseId: string) => boolean | Promise<boolean>
+  readonly resolveSession?: (database: PostgresDatabase, orgId: string, sessionId: string) => boolean | Promise<boolean>
+  readonly resolveRelease?: (database: PostgresDatabase, orgId: string, employeeReleaseId: string) => boolean | Promise<boolean>
   /** Explicit test/development escape hatch; production composition must omit it. */
   readonly allowUnverifiedReferences?: boolean
 }

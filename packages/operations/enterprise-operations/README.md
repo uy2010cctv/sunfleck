@@ -10,6 +10,7 @@ Durable operation projections over native DSH execution:
 - Fixed teams bind a leader, members, Workflow template, and approval policy.
 - PostgreSQL transactions and organization-scoped queries preserve boundaries.
 - Work records, approvals, schedules, and fixed teams expose stable keyset pagination. Cursors are canonical base64url payloads authenticated with a scope-bound HMAC-SHA256 signature; changing the organization or filters invalidates a cursor. Limits must be integers from 1 through 100.
+- Cursor version 2 seeks on immutable `created_at` plus stable IDs; `updatedAt` remains display metadata. Updating an item between pages therefore cannot move it ahead of the cursor and omit it.
 - Work-record queries filter by business state, source, and fixed team. Approval queries filter by kind, state, and requester. Schedule queries filter by state.
 - Fixed teams and schedules support compare-and-swap updates. Team updates replace the complete member set after validating every release in the organization. Archived schedules are terminal and cannot be edited or restored.
 - Pending approvals may be cancelled. The repository records the actor and reason; `EnterpriseOperationsService` permits cancellation only for the requester or an administrator.
@@ -35,6 +36,8 @@ policies fail closed. Cancellation runs the central authorization decision befor
 driver read, then resolves ownership only when central policy allows; one final allowed
 or denied audit is emitted. Filtered schedule listing
 returns a cursor page; the no-filter service overload retains the legacy array result.
+Native reference resolvers receive the repository's active transaction connection and
+must query through it; this avoids pool re-entry deadlocks when `poolMax` is one.
 
 ```ts
 const service = new EnterpriseOperationsService(repository, {
