@@ -12,6 +12,9 @@
       ({ [process.env.DSH_ENTERPRISE_KEY_ID ?? 'primary']:
       Buffer.from(process.env.DSH_ENTERPRISE_MASTER_KEY ?? '', 'base64') })
 
+- id: session-persistence-jsonl
+  disabled: true
+
 - insert:
     - id: enterprise-postgres
       name: '@deepseek-ai/dsh-enterprise-postgres'
@@ -21,6 +24,12 @@
         idleTimeoutMs: !!js Number(process.env.DSH_ENTERPRISE_PG_IDLE_TIMEOUT_MS ?? '30000')
         connectionTimeoutMs: !!js Number(process.env.DSH_ENTERPRISE_PG_CONNECT_TIMEOUT_MS ?? '10000')
         ssl: !!js process.env.DSH_ENTERPRISE_PG_SSL === 'true'
+
+    - id: session-persistence-postgres
+      name: '@deepseek-ai/dsh-session-persistence-postgres'
+      config:
+        databaseMode: postgres
+        connectionString: ''
 
     - id: enterprise-auth-web
       name: '@deepseek-ai/dsh-enterprise-auth-web'

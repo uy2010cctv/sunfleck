@@ -31,6 +31,8 @@ export interface Config {
   writeBatchMaxDelayMs?: number
   /** Programmatic driver-neutral database injection; not accepted from declarative config. */
   database?: PostgresDatabase
+  /** When set, resolve the database from the enterprise PostgreSQL composition. */
+  databaseMode?: 'postgres' | 'standalone'
 }
 
 /** PostgreSQL `Pool` adapter with one checked-out client for each transaction. */
@@ -86,14 +88,15 @@ export class PostgresSessionPersistence extends SessionPersistence {
   override readonly supportsRawArtifacts = false
   override readonly name = 'session-persistence-postgres'
 
-  static inject = ['sessions']
+  static inject = ['sessions', 'enterprisePostgres']
 
   static Config: z<Config> = z.object({
-    connectionString: z.string(),
+    connectionString: z.string().default(''),
     preparedSessionCacheSize: z.number().step(1).min(1).default(DEFAULT_PREPARED_SESSION_CACHE_SIZE),
     writeBatchMaxDelayMs: z.number().step(1).min(1).max(MAX_WRITE_BATCH_DELAY_MS)
       .default(DEFAULT_WRITE_BATCH_MAX_DELAY_MS),
     database: z.any(),
+    databaseMode: z.union([z.const('postgres'), z.const('standalone')]).default('standalone'),
   })
 
   private readonly store: PostgresSessionStore
@@ -101,7 +104,8 @@ export class PostgresSessionPersistence extends SessionPersistence {
 
   constructor(ctx: Context, public config: Config) {
     super(ctx)
-    const database = config.database ?? databaseFor(config)
+    const enterprisePostgres = ctx.get('enterprisePostgres') as { database: PostgresDatabase } | undefined
+    const database = config.database ?? (config.databaseMode === 'postgres' ? enterprisePostgres?.database : undefined) ?? databaseFor(config)
     this.store = new PostgresSessionStore(database)
     this.coordinator = new PersistenceCoordinator(ctx, this.store, {
       preparedSessionCacheSize: config.preparedSessionCacheSize ?? DEFAULT_PREPARED_SESSION_CACHE_SIZE,
