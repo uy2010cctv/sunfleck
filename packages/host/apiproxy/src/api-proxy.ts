@@ -37,7 +37,7 @@ import {
 import type { PresetBearingSession } from '@deepseek-ai/dsh-agent-presets'
 import type {} from '@deepseek-ai/dsh-tools'
 import type {
-  ApiProxy, ConfigurableProviderView, CredentialView, GoalRef, HistoryEntry, HostFrame,
+  ApiProxy, ConfigurableProviderView, CredentialView, EnterpriseHostEventName, GoalRef, HistoryEntry, HostFrame,
   ModelCatalogFailure, ModelProviderGroup,
   ModelReasoning, MuxFrame, PromptContentPart, QuestionResponsePayload, SessionListMetadata, SessionProjectionsBlock, SessionSearchItem,
   QueuedInboxItem, SessionSummary, SettingsNamespaceView, SubagentAddress, JobView, ToolEventView,
@@ -111,11 +111,16 @@ import {
 } from '@deepseek-ai/dsh-api-remotes'
 import { canOpenNativePath, openNativePath, openNativeTextFile } from './native-path-opener.ts'
 import type { EnterprisePrincipal } from '@deepseek-ai/dsh-enterprise-governance'
-import { EnterpriseOperationsAuthorizationError, EnterpriseOperationsService } from '@deepseek-ai/dsh-enterprise-operations'
+import { EnterpriseOperationsAuthorizationError, EnterpriseOperationsError, EnterpriseOperationsService } from '@deepseek-ai/dsh-enterprise-operations'
 import { ApprovalRevisionConflictError } from '@deepseek-ai/dsh-enterprise-operations'
 import { EnterpriseCatalogError, EmployeeDraftRevisionConflictError } from '@deepseek-ai/dsh-enterprise-catalog'
 
-interface EnterpriseEventPayload { eventId: string; orgId: string; resourceId: string }
+interface EnterpriseEventPayload {
+  eventId: string
+  orgId: string
+  resourceId: string
+  resourceType: 'employee' | 'asset' | 'team' | 'work-record' | 'approval' | 'schedule'
+}
 
 declare module '@deepseek-ai/cordis' {
   interface Events {
@@ -1100,6 +1105,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
       | 'enterprise/operation-updated' | 'enterprise/approval-requested',
     orgId: string,
     resourceId: string,
+    resourceType: EnterpriseEventPayload['resourceType'],
     operation: string,
     idempotencyKey: string,
   ): void {
@@ -1110,7 +1116,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
       const oldest = emittedEnterpriseEvents.keys().next().value
       if (oldest !== undefined) emittedEnterpriseEvents.delete(oldest)
     }
-    ctx.emit(event, { eventId, orgId, resourceId })
+    ctx.emit(event, { eventId, orgId, resourceId, resourceType })
   }
 
   /** Serialize image admission with model selection for one agent. */
@@ -2018,14 +2024,6 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
     if (!decision.allowed) throw new EnterpriseOperationsAuthorizationError('insufficient-role', endpoint as never)
   }
 
-  async function canReadCatalogResource(
-    environment: EnterpriseEnvironment, endpoint: string, input: unknown,
-  ): Promise<boolean> {
-    const decision = await environment.security.authorizeApiAsync(environment.principal, endpoint, input)
-    await environment.security.auditApiAsync(environment.principal, endpoint, input, decision, randomUUID())
-    return decision.allowed
-  }
-
   function enterpriseFailure<T>(
     request: RpcRequest<unknown>, error: unknown, resourceType: string, resourceId: string, endpoint: string,
   ): RpcResponse<T> {
@@ -2038,6 +2036,13 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
       if (error.code === 'cursor-invalid') return err(request, { code: 'enterprise-invalid-cursor', message: 'enterprise cursor is invalid', details: { resourceType } })
       if (error.code === 'invalid-binding') return err(request, { code: 'enterprise-invalid-binding', message: 'enterprise resource binding is invalid', details: { resourceType, resourceId } })
       if (error.code === 'not-found') return err(request, { code: 'enterprise-not-found', message: 'enterprise resource was not found', details: { resourceType, resourceId } })
+      return err(request, { code: 'enterprise-invalid-state', message: 'enterprise resource cannot perform that transition', details: { resourceType, resourceId } })
+    }
+    if (error instanceof EnterpriseOperationsError) {
+      if (error.code === 'idempotency-conflict') return err(request, { code: 'enterprise-idempotency-conflict', message: 'enterprise idempotency key conflicts with an earlier request', details: { resourceType } })
+      if (error.code === 'cursor-invalid') return err(request, { code: 'enterprise-invalid-cursor', message: 'enterprise cursor is invalid', details: { resourceType } })
+      if (error.code === 'not-found') return err(request, { code: 'enterprise-not-found', message: 'enterprise resource was not found', details: { resourceType, resourceId } })
+      if (error.code === 'conflict') return err(request, { code: 'enterprise-conflict', message: 'enterprise resource revision changed', details: { resourceType, resourceId } })
       return err(request, { code: 'enterprise-invalid-state', message: 'enterprise resource cannot perform that transition', details: { resourceType, resourceId } })
     }
     const message = error instanceof Error ? error.message.toLowerCase() : ''
@@ -3466,18 +3471,17 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         try {
           await authorizeCatalog(environment, 'enterpriseEmployee.list', request.payload)
           const page = await environment.catalog.listDrafts({
-            ...request.payload, orgId: environment.principal.orgId,
+            ...request.payload,
+            orgId: environment.principal.orgId,
+            ...(environment.principal.roles.includes('administrator')
+              ? { includeAllVisible: true }
+              : { viewerUserId: environment.principal.userId }),
           }) as { items: { presetId: string }[]; nextCursor?: string }
-          const visibility = await Promise.all(page.items.map(async item => ({
-            item,
-            allowed: await canReadCatalogResource(
-              environment, 'enterpriseEmployee.getDraft', { presetId: item.presetId },
-            ),
-          })))
-          return ok(request, {
-            ...page,
-            items: visibility.filter(result => result.allowed).map(result => result.item),
-          } as never)
+          await Promise.all(page.items.map(item => environment.security.auditApiAsync(
+            environment.principal, 'enterpriseEmployee.getDraft', { presetId: item.presetId },
+            { allowed: true, reason: 'resource-visible' }, randomUUID(),
+          )))
+          return ok(request, page as never)
         } catch (error) { return enterpriseFailure(request, error, 'employee', 'catalog', 'enterpriseEmployee.list') }
       },
       async getDraft(request) {
@@ -3506,7 +3510,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           const value = await environment.catalog.saveDraft({
             ...request.payload, orgId: environment.principal.orgId, ownerUserId,
           })
-          emitEnterpriseEvent('enterprise/employee-updated', environment.principal.orgId, presetId, 'employee-save', request.payload.idempotencyKey)
+          emitEnterpriseEvent('enterprise/employee-updated', environment.principal.orgId, presetId, 'employee', 'employee-save', request.payload.idempotencyKey)
           return ok(request, value as never)
         } catch (error) { return enterpriseFailure(request, error, 'employee', presetId, 'enterpriseEmployee.saveDraft') }
       },
@@ -3519,7 +3523,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           const value = await environment.catalog.publishDraft({
             ...request.payload, orgId: environment.principal.orgId, publishedBy: environment.principal.userId,
           })
-          emitEnterpriseEvent('enterprise/employee-updated', environment.principal.orgId, presetId, 'employee-publish', request.payload.idempotencyKey)
+          emitEnterpriseEvent('enterprise/employee-updated', environment.principal.orgId, presetId, 'employee', 'employee-publish', request.payload.idempotencyKey)
           return ok(request, value as never)
         } catch (error) { return enterpriseFailure(request, error, 'employee', presetId, 'enterpriseEmployee.publish') }
       },
@@ -3541,7 +3545,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           const value = await environment.catalog.rollbackRelease({
             ...request.payload, orgId: environment.principal.orgId, publishedBy: environment.principal.userId,
           })
-          emitEnterpriseEvent('enterprise/employee-updated', environment.principal.orgId, presetId, 'employee-rollback', request.payload.idempotencyKey)
+          emitEnterpriseEvent('enterprise/employee-updated', environment.principal.orgId, presetId, 'employee', 'employee-rollback', request.payload.idempotencyKey)
           return ok(request, value as never)
         } catch (error) { return enterpriseFailure(request, error, 'employee', presetId, 'enterpriseEmployee.rollback') }
       },
@@ -3562,7 +3566,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
       async saveVersion(request) {
         const environment = enterpriseEnvironment(); if (environment === undefined) return enterpriseUnavailable(request)
         const { assetId } = request.payload
-        try { await authorizeCatalog(environment, 'enterpriseAsset.saveVersion', request.payload); const value = await environment.catalog.saveAssetVersion({ ...request.payload, orgId: environment.principal.orgId, createdBy: environment.principal.userId }); emitEnterpriseEvent('enterprise/asset-updated', environment.principal.orgId, assetId, 'asset-save', request.payload.idempotencyKey); return ok(request, value as never) }
+        try { await authorizeCatalog(environment, 'enterpriseAsset.saveVersion', request.payload); const value = await environment.catalog.saveAssetVersion({ ...request.payload, orgId: environment.principal.orgId, createdBy: environment.principal.userId }); emitEnterpriseEvent('enterprise/asset-updated', environment.principal.orgId, assetId, 'asset', 'asset-save', request.payload.idempotencyKey); return ok(request, value as never) }
         catch (error) { return enterpriseFailure(request, error, 'asset', assetId, 'enterpriseAsset.saveVersion') }
       },
       async listVersions(request) {
@@ -3574,7 +3578,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
       async archive(request) {
         const environment = enterpriseEnvironment(); if (environment === undefined) return enterpriseUnavailable(request)
         const { assetId, expectedRevision, idempotencyKey } = request.payload
-        try { await authorizeCatalog(environment, 'enterpriseAsset.archive', request.payload); const value = await environment.catalog.archiveAsset(environment.principal.orgId, assetId, expectedRevision, idempotencyKey); emitEnterpriseEvent('enterprise/asset-updated', environment.principal.orgId, assetId, 'asset-archive', idempotencyKey); return ok(request, value as never) }
+        try { await authorizeCatalog(environment, 'enterpriseAsset.archive', request.payload); const value = await environment.catalog.archiveAsset(environment.principal.orgId, assetId, expectedRevision, idempotencyKey); emitEnterpriseEvent('enterprise/asset-updated', environment.principal.orgId, assetId, 'asset', 'asset-archive', idempotencyKey); return ok(request, value as never) }
         catch (error) { return enterpriseFailure(request, error, 'asset', assetId, 'enterpriseAsset.archive') }
       },
     },
@@ -3594,7 +3598,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
       async save(request) {
         const environment = enterpriseEnvironment(); if (environment === undefined) return enterpriseUnavailable(request)
         const { teamId } = request.payload
-        try { const value = await operationsService(environment).saveFixedTeam(environment.principal, request.payload); emitEnterpriseEvent('enterprise/team-updated', environment.principal.orgId, teamId, 'team-save', request.payload.idempotencyKey); return ok(request, value as never) }
+        try { const value = await operationsService(environment).saveFixedTeam(environment.principal, request.payload); emitEnterpriseEvent('enterprise/team-updated', environment.principal.orgId, teamId, 'team', 'team-save', request.payload.idempotencyKey); return ok(request, value as never) }
         catch (error) { return enterpriseFailure(request, error, 'team', teamId, 'enterpriseTeam.save') }
       },
     },
@@ -3614,7 +3618,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
       async updateWorkRecord(request) {
         const environment = enterpriseEnvironment(); if (environment === undefined) return enterpriseUnavailable(request)
         const { sessionId } = request.payload
-        try { const value = await operationsService(environment).upsertWorkRecord(environment.principal, request.payload); emitEnterpriseEvent('enterprise/operation-updated', environment.principal.orgId, sessionId, 'work-record-update', request.payload.idempotencyKey); return ok(request, value as never) }
+        try { const value = await operationsService(environment).upsertWorkRecord(environment.principal, request.payload); emitEnterpriseEvent('enterprise/operation-updated', environment.principal.orgId, sessionId, 'work-record', 'work-record-update', request.payload.idempotencyKey); return ok(request, value as never) }
         catch (error) { return enterpriseFailure(request, error, 'work-record', sessionId, 'enterpriseOperation.workRecords.update') }
       },
       async listApprovals(request) {
@@ -3632,19 +3636,19 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         const environment = enterpriseEnvironment(); if (environment === undefined) return enterpriseUnavailable(request)
         const { approvalId, expectedRevision: _expectedRevision, ...input } = request.payload
         if (request.payload.expectedRevision !== 0) return enterpriseFailure(request, new Error('revision conflict'), 'approval', approvalId, 'enterpriseOperation.approvals.create')
-        try { const value = await operationsService(environment).createApprovalRequest(environment.principal, { ...input, approvalId, requestedBy: environment.principal.userId }); emitEnterpriseEvent('enterprise/approval-requested', environment.principal.orgId, approvalId, 'approval-create', request.payload.idempotencyKey); return ok(request, value as never) }
+        try { const value = await operationsService(environment).createApprovalRequest(environment.principal, { ...input, approvalId, requestedBy: environment.principal.userId }); emitEnterpriseEvent('enterprise/approval-requested', environment.principal.orgId, approvalId, 'approval', 'approval-create', request.payload.idempotencyKey); return ok(request, value as never) }
         catch (error) { return enterpriseFailure(request, error, 'approval', approvalId, 'enterpriseOperation.approvals.create') }
       },
       async transitionApproval(request) {
         const environment = enterpriseEnvironment(); if (environment === undefined) return enterpriseUnavailable(request)
         const { approvalId } = request.payload
-        try { const value = await operationsService(environment).transitionApproval(environment.principal, { ...request.payload, reviewerUserId: environment.principal.userId }); emitEnterpriseEvent('enterprise/operation-updated', environment.principal.orgId, approvalId, 'approval-transition', request.payload.idempotencyKey); return ok(request, value as never) }
+        try { const value = await operationsService(environment).transitionApproval(environment.principal, { ...request.payload, reviewerUserId: environment.principal.userId }); emitEnterpriseEvent('enterprise/operation-updated', environment.principal.orgId, approvalId, 'approval', 'approval-transition', request.payload.idempotencyKey); return ok(request, value as never) }
         catch (error) { return enterpriseFailure(request, error, 'approval', approvalId, 'enterpriseOperation.approvals.transition') }
       },
       async cancelApproval(request) {
         const environment = enterpriseEnvironment(); if (environment === undefined) return enterpriseUnavailable(request)
         const { approvalId } = request.payload
-        try { const value = await operationsService(environment).transitionApproval(environment.principal, { ...request.payload, state: 'cancelled' }); emitEnterpriseEvent('enterprise/operation-updated', environment.principal.orgId, approvalId, 'approval-cancel', request.payload.idempotencyKey); return ok(request, value as never) }
+        try { const value = await operationsService(environment).transitionApproval(environment.principal, { ...request.payload, state: 'cancelled' }); emitEnterpriseEvent('enterprise/operation-updated', environment.principal.orgId, approvalId, 'approval', 'approval-cancel', request.payload.idempotencyKey); return ok(request, value as never) }
         catch (error) { return enterpriseFailure(request, error, 'approval', approvalId, 'enterpriseOperation.approvals.cancel') }
       },
       async listSchedules(request) {
@@ -3665,13 +3669,13 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
       async saveSchedule(request) {
         const environment = enterpriseEnvironment(); if (environment === undefined) return enterpriseUnavailable(request)
         const { scheduleId } = request.payload
-        try { const value = await operationsService(environment).saveSchedule(environment.principal, request.payload); emitEnterpriseEvent('enterprise/operation-updated', environment.principal.orgId, scheduleId, 'schedule-save', request.payload.idempotencyKey); return ok(request, value as never) }
+        try { const value = await operationsService(environment).saveSchedule(environment.principal, request.payload); emitEnterpriseEvent('enterprise/operation-updated', environment.principal.orgId, scheduleId, 'schedule', 'schedule-save', request.payload.idempotencyKey); return ok(request, value as never) }
         catch (error) { return enterpriseFailure(request, error, 'schedule', scheduleId, 'enterpriseOperation.schedules.save') }
       },
       async transitionSchedule(request) {
         const environment = enterpriseEnvironment(); if (environment === undefined) return enterpriseUnavailable(request)
         const { scheduleId } = request.payload
-        try { const value = await operationsService(environment).transitionSchedule(environment.principal, request.payload); emitEnterpriseEvent('enterprise/operation-updated', environment.principal.orgId, scheduleId, 'schedule-transition', request.payload.idempotencyKey); return ok(request, value as never) }
+        try { const value = await operationsService(environment).transitionSchedule(environment.principal, request.payload); emitEnterpriseEvent('enterprise/operation-updated', environment.principal.orgId, scheduleId, 'schedule', 'schedule-transition', request.payload.idempotencyKey); return ok(request, value as never) }
         catch (error) { return enterpriseFailure(request, error, 'schedule', scheduleId, 'enterpriseOperation.schedules.transition') }
       },
     },
@@ -3784,7 +3788,31 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
       host(_request, signal) {
         const queue = new FrameQueue<RpcRequest<HostFrame>>()
         const requestContext = (ctx.get.bind(ctx) as (name: string) => unknown)('enterpriseRequestContext') as { current(): EnterprisePrincipal | undefined } | undefined
-        const enterpriseOrgId = requestContext?.current()?.orgId
+        const enterprisePrincipal = requestContext?.current()
+        const enterpriseSecurity = (ctx.get.bind(ctx) as (name: string) => unknown)('enterpriseSecurity') as EnterpriseSecurityLike | undefined
+        let enterpriseDelivery = Promise.resolve()
+        const deliverEnterprise = (event: EnterpriseHostEventName, payload: EnterpriseEventPayload): void => {
+          if (enterprisePrincipal === undefined || enterpriseSecurity === undefined || payload.orgId !== enterprisePrincipal.orgId) return
+          const address = payload.resourceType === 'employee'
+            ? { endpoint: 'enterpriseEmployee.getDraft', input: { presetId: payload.resourceId } }
+            : payload.resourceType === 'asset'
+              ? { endpoint: 'enterpriseAsset.get', input: { assetId: payload.resourceId } }
+              : payload.resourceType === 'team'
+                ? { endpoint: 'enterpriseTeam.get', input: { teamId: payload.resourceId } }
+                : payload.resourceType === 'approval'
+                  ? { endpoint: 'enterpriseOperation.approvals.get', input: { approvalId: payload.resourceId } }
+                  : payload.resourceType === 'schedule'
+                    ? { endpoint: 'enterpriseOperation.schedules.get', input: { scheduleId: payload.resourceId } }
+                    : { endpoint: 'enterpriseOperation.workRecords.get', input: { sessionId: payload.resourceId } }
+          enterpriseDelivery = enterpriseDelivery.then(async () => {
+            const decision = await enterpriseSecurity.authorizeApiAsync(enterprisePrincipal, address.endpoint, address.input)
+            if (!decision.allowed) return
+            queue.push(frame({
+              type: 'enterprise/event', event, eventId: payload.eventId,
+              orgId: payload.orgId, resourceId: payload.resourceId,
+            }))
+          }).catch(() => undefined)
+        }
         const committedWorkspaces = ctx.workspaceRegistry.list()
         const committedWorkspaceIds = new Set(
           committedWorkspaces.map(workspace => String(workspace.id)),
@@ -3883,12 +3911,12 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
               }))
             }),
           )),
-          ...enterpriseOrgId === undefined ? [] : [
-            ctx.on('enterprise/employee-updated', (payload) => { if (payload.orgId === enterpriseOrgId) queue.push(frame({ type: 'enterprise/event', event: 'enterprise/employee-updated', ...payload })) }),
-            ctx.on('enterprise/asset-updated', (payload) => { if (payload.orgId === enterpriseOrgId) queue.push(frame({ type: 'enterprise/event', event: 'enterprise/asset-updated', ...payload })) }),
-            ctx.on('enterprise/team-updated', (payload) => { if (payload.orgId === enterpriseOrgId) queue.push(frame({ type: 'enterprise/event', event: 'enterprise/team-updated', ...payload })) }),
-            ctx.on('enterprise/operation-updated', (payload) => { if (payload.orgId === enterpriseOrgId) queue.push(frame({ type: 'enterprise/event', event: 'enterprise/operation-updated', ...payload })) }),
-            ctx.on('enterprise/approval-requested', (payload) => { if (payload.orgId === enterpriseOrgId) queue.push(frame({ type: 'enterprise/event', event: 'enterprise/approval-requested', ...payload })) }),
+          ...enterprisePrincipal === undefined || enterpriseSecurity === undefined ? [] : [
+            ctx.on('enterprise/employee-updated', (payload) => { deliverEnterprise('enterprise/employee-updated', payload) }),
+            ctx.on('enterprise/asset-updated', (payload) => { deliverEnterprise('enterprise/asset-updated', payload) }),
+            ctx.on('enterprise/team-updated', (payload) => { deliverEnterprise('enterprise/team-updated', payload) }),
+            ctx.on('enterprise/operation-updated', (payload) => { deliverEnterprise('enterprise/operation-updated', payload) }),
+            ctx.on('enterprise/approval-requested', (payload) => { deliverEnterprise('enterprise/approval-requested', payload) }),
           ],
         ]
         return queue.iterate(signal, () => { for (const dispose of disposers) dispose() })

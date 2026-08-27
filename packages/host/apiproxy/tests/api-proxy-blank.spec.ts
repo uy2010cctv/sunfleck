@@ -122,16 +122,19 @@ describe('summary blank = conversation not started', () => {
       { presetId: 'organization', ownerUserId: 'other-1', visibility: 'organization' },
     ]
     ctx.provide('enterprisePostgres' as never, {
-      catalog: { listDrafts: async () => ({ items }) }, operations: {},
+      catalog: { listDrafts: async (input: { includeAllVisible?: boolean; viewerUserId?: string }) => ({
+        items: input.includeAllVisible === true
+          ? items
+          : items.filter(item => item.visibility === 'organization' || item.ownerUserId === input.viewerUserId),
+      }) }, operations: {},
     } as never)
     ctx.provide('enterpriseRequestContext' as never, {
       requirePrincipal: () => ({ userId: 'member-1', orgId: 'org-real', roles: [role] }),
     } as never)
     ctx.provide('enterpriseSecurity' as never, {
-      authorizeApiAsync: async (_principal: unknown, endpoint: string, input: unknown) => {
+      authorizeApiAsync: async (_principal: unknown, endpoint: string, _input: unknown) => {
         if (endpoint === 'enterpriseEmployee.list') return { allowed: true, reason: 'resource-visible' }
-        const presetId = (input as { presetId?: string }).presetId
-        return { allowed: role === 'administrator' || presetId !== 'other-private', reason: 'resource-visible' }
+        return { allowed: true, reason: 'resource-visible' }
       },
       auditApiAsync: async () => undefined,
     } as never)
@@ -185,12 +188,21 @@ describe('summary blank = conversation not started', () => {
     ctx.provide('workspaceRegistry' as never, {
       list: () => [], get: () => undefined, archivedSessionIds: [],
     } as never)
+    ctx.provide('enterpriseSecurity' as never, {
+      authorizeApiAsync: async (_principal: unknown, _endpoint: string, input: unknown) => ({
+        allowed: (input as { assetId?: string }).assetId !== 'asset-hidden', reason: 'resource-visible',
+      }),
+    } as never)
     const abort = new AbortController()
     const iterator = api.events.host(request({}), abort.signal)[Symbol.asyncIterator]()
     const next = iterator.next()
     await Promise.resolve()
-    ctx.emit('enterprise/asset-updated', { eventId: 'a'.repeat(64), orgId: 'org-other', resourceId: 'asset-hidden' })
-    ctx.emit('enterprise/asset-updated', { eventId: 'b'.repeat(64), orgId: 'org-real', resourceId: 'asset-visible' })
+    ctx.emit('enterprise/asset-updated', {
+      eventId: 'a'.repeat(64), orgId: 'org-real', resourceId: 'asset-hidden', resourceType: 'asset',
+    })
+    ctx.emit('enterprise/asset-updated', {
+      eventId: 'b'.repeat(64), orgId: 'org-real', resourceId: 'asset-visible', resourceType: 'asset',
+    })
     await expect(next).resolves.toMatchObject({
       value: { payload: { type: 'enterprise/event', event: 'enterprise/asset-updated', eventId: 'b'.repeat(64), orgId: 'org-real', resourceId: 'asset-visible' } },
     })

@@ -503,9 +503,8 @@ describe('EnterpriseOperationsRepository', () => {
     const retried = await operations.upsertWorkRecord(work)
 
     expect(retried).toEqual(created)
-    await expect(operations.upsertWorkRecord({ ...work, businessState: 'completed' })).rejects.toThrow(
-      'idempotency key work-a was reused with a different request',
-    )
+    await expect(operations.upsertWorkRecord({ ...work, businessState: 'completed' }))
+      .rejects.toMatchObject({ code: 'idempotency-conflict', resourceType: 'work-record' })
     await expect(
       operations.upsertWorkRecord({
         ...work,
@@ -513,7 +512,7 @@ describe('EnterpriseOperationsRepository', () => {
         idempotencyKey: 'work-mutate-source',
         sourceReferences: { nativeSessionId: 'other' },
       }),
-    ).rejects.toThrow('source references are immutable')
+    ).rejects.toMatchObject({ code: 'immutable-source', resourceType: 'work-record' })
   })
 
   it('allows one pending approval transition and rejects a concurrent stale reviewer', async () => {
@@ -596,9 +595,8 @@ describe('EnterpriseOperationsRepository', () => {
     await operations.upsertWorkRecord(work)
 
     await expect(operations.getWorkRecord('org-b', 'session-a', 'release-a')).resolves.toBeUndefined()
-    await expect(operations.upsertWorkRecord({ ...work, orgId: 'org-b', expectedRevision: 0, idempotencyKey: 'org-b' })).rejects.toThrow(
-      'outside organization org-b',
-    )
+    await expect(operations.upsertWorkRecord({ ...work, orgId: 'org-b', expectedRevision: 0, idempotencyKey: 'org-b' }))
+      .rejects.toMatchObject({ code: 'not-found', resourceType: 'work-record' })
   })
 
   it('rolls back schedule state and work record when outbox creation fails', async () => {
@@ -786,7 +784,7 @@ describe('EnterpriseOperationsRepository', () => {
     })
     expect(second.items).toHaveLength(1)
     await expect(operations.listWorkRecords({ orgId: 'org-a', source: 'wecom', cursor: first.nextCursor }))
-      .rejects.toThrow('another query')
+      .rejects.toMatchObject({ code: 'cursor-invalid', resourceType: 'work-record' })
   })
 
   it('uses immutable creation order so updates between pages are not omitted', async () => {
@@ -862,6 +860,6 @@ describe('EnterpriseOperationsRepository', () => {
     await expect(operations.saveSchedule({
       scheduleId: 'schedule-update', orgId: 'org-a', target: { kind: 'employee', employeeReleaseId: 'release-c' },
       timezone: 'UTC', rule: '* * * * *', input: {}, nextRunAt: 3, expectedRevision: 3, idempotencyKey: 'edit-archived',
-    })).rejects.toThrow('archived schedule cannot be edited')
+    })).rejects.toMatchObject({ code: 'invalid-state', resourceType: 'schedule' })
   })
 })

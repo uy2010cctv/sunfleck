@@ -1,5 +1,5 @@
 /** DSH enterprise work records, approvals, schedules, outbox, and fixed teams. */
-export { EnterpriseOperationsRepository, ApprovalRevisionConflictError } from './repository.ts'
+export { EnterpriseOperationsError, EnterpriseOperationsRepository, ApprovalRevisionConflictError } from './repository.ts'
 export { EnterpriseOperationsWorker } from './worker.ts'
 export type { ClaimedOperationCommand, EnterpriseOperationsWorkerOptions, OperationCommandFailure } from './worker.ts'
 export {

@@ -160,6 +160,7 @@ function cursorScope(kind: 'draft' | 'asset', input: ListEmployeeDraftsInput | L
     return catalogDigest({
       kind, orgId: draft.orgId, search: draft.search,
       status: draft.status, ownerUserId: draft.ownerUserId, visibility: draft.visibility,
+      viewerUserId: draft.viewerUserId, includeAllVisible: draft.includeAllVisible,
     })
   }
   const asset = input as ListEnterpriseAssetsInput
@@ -319,6 +320,18 @@ export class EnterpriseCatalogRepository {
     const add = (sql: string, value: unknown): void => {
       values.push(value)
       filters.push(`${sql} $${String(values.length)}`)
+    }
+    if (input.includeAllVisible !== true && input.viewerUserId !== undefined) {
+      values.push(input.viewerUserId)
+      const viewer = `$${String(values.length)}`
+      filters.push(`(dsh_enterprise_employee_drafts.visibility = 'organization'
+        OR dsh_enterprise_employee_drafts.owner_user_id = ${viewer} OR EXISTS (
+        SELECT 1 FROM resource_policies AS policy
+        WHERE policy.resource_type = 'employee'
+          AND policy.resource_id = dsh_enterprise_employee_drafts.preset_id
+          AND policy.org_id = dsh_enterprise_employee_drafts.org_id
+          AND policy.allowed_user_ids ? ${viewer}
+      ))`)
     }
     if (input.status !== undefined) add('status =', input.status)
     if (input.ownerUserId !== undefined) add('owner_user_id =', input.ownerUserId)

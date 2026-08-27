@@ -128,7 +128,8 @@ describe.skipIf(url === undefined)('enterprise catalog PostgreSQL integration', 
     })
 
     await expect(repository.getAsset('org-list', 'sop-list-other')).resolves.toBeUndefined()
-    await expect(repository.listAssetVersions('org-other', 'sop-list-a')).rejects.toThrow('does not exist')
+    await expect(repository.listAssetVersions('org-other', 'sop-list-a'))
+      .rejects.toMatchObject({ code: 'not-found', resourceType: 'asset', resourceId: 'sop-list-a' })
     await expect(repository.listAssetVersions('org-list', 'sop-list-a'))
       .resolves.toMatchObject([{ version: 1 }, { version: 2 }])
     await expect(repository.listAssets({ orgId: 'org-list', kind: 'sop', archived: false, search: 'Sales' }))
@@ -137,7 +138,7 @@ describe.skipIf(url === undefined)('enterprise catalog PostgreSQL integration', 
     const archived = await repository.archiveAsset('org-list', 'sop-list-a', 2, 'archive-list-a')
     await expect(repository.archiveAsset('org-list', 'sop-list-a', 2, 'archive-list-a')).resolves.toEqual(archived)
     await expect(repository.archiveAsset('org-list', 'sop-list-a', 3, 'archive-list-a'))
-      .rejects.toThrow('idempotency key')
+      .rejects.toMatchObject({ code: 'idempotency-conflict', resourceType: 'asset' })
     await expect(repository.listAssets({ orgId: 'org-list', archived: true }))
       .resolves.toMatchObject({ items: [{ assetId: 'sop-list-a', revision: 3, archived: true }] })
   })
@@ -162,7 +163,7 @@ describe.skipIf(url === undefined)('enterprise catalog PostgreSQL integration', 
          WHERE table_schema = $1 AND table_name = 'dsh_enterprise_catalog_idempotency' AND column_name = 'request_digest'`,
         [legacySchema],
       )
-      expect(version.rows[0]?.value).toBe('4')
+      expect(version.rows[0]?.value).toBe('5')
       expect(column.rows[0]?.column_name).toBe('request_digest')
     } finally {
       await legacyClient.query(`DROP SCHEMA IF EXISTS "${legacySchema}" CASCADE`)

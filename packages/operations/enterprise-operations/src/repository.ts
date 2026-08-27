@@ -20,6 +20,19 @@ import type {
   WorkRecordView,
 } from './types.ts'
 import { migrateEnterpriseOperations } from './schema.ts'
+
+/** Stable operations failure for Host adapters. */
+export class EnterpriseOperationsError extends Error {
+  constructor(
+    readonly code: 'conflict' | 'immutable-source' | 'invalid-transition' | 'not-found'
+      | 'cursor-invalid' | 'idempotency-conflict' | 'invalid-state',
+    readonly resourceType: 'work-record' | 'approval' | 'schedule' | 'team',
+    readonly resourceId?: string,
+  ) {
+    super(`enterprise operations ${code}`)
+    this.name = 'EnterpriseOperationsError'
+  }
+}
 function canonical(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(canonical)
   if (typeof value !== 'object' || value === null) return value
@@ -82,7 +95,7 @@ function cursorScope(kind: string, input: Record<string, unknown>): string {
 }
 function decodeCursor(value: string | undefined, scope: string, key: Buffer | undefined): OperationsCursor | undefined {
   if (value === undefined) return undefined
-  if (key === undefined) throw new Error('operations cursor signing key is required to consume a cursor')
+  if (key === undefined) throw new EnterpriseOperationsError('cursor-invalid', 'work-record')
   try {
     const segments = value.split('.')
     if (segments.length !== 2 || segments[0] === undefined || segments[1] === undefined) throw new Error('signature')
@@ -97,8 +110,8 @@ function decodeCursor(value: string | undefined, scope: string, key: Buffer | un
       throw new Error('invalid')
     return cursor as unknown as OperationsCursor
   } catch (error) {
-    if (error instanceof Error && error.message.includes('canonical')) throw error
-    throw new Error('operations list cursor is invalid or belongs to another query')
+    if (error instanceof EnterpriseOperationsError) throw error
+    throw new EnterpriseOperationsError('cursor-invalid', 'work-record')
   }
 }
 function encodeCursor(scope: string, createdAt: number, ids: readonly string[], key: Buffer | undefined): string {
@@ -113,7 +126,7 @@ function assertSourceImmutable(before: WorkRecordView, after: WorkRecordInput): 
     before.employeeReleaseId !== after.employeeReleaseId ||
     before.source !== after.source
   )
-    throw new Error('source references are immutable')
+    throw new EnterpriseOperationsError('immutable-source', 'work-record')
 }
 function assertBusinessTransition(before: BusinessState, after: BusinessState): void {
   if (before === after) return
@@ -123,7 +136,7 @@ function assertBusinessTransition(before: BusinessState, after: BusinessState): 
     completed: [],
     failed: ['active'],
   }
-  if (!allowed[before].includes(after)) throw new Error(`invalid work record state transition: ${before} -> ${after}`)
+  if (!allowed[before].includes(after)) throw new EnterpriseOperationsError('invalid-transition', 'work-record')
 }
 export class ApprovalRevisionConflictError extends Error {
   constructor(
@@ -254,9 +267,9 @@ export class EnterpriseOperationsRepository {
     if (result.rows[0] === undefined) return undefined
     const envelope = record(result.rows[0].result_json)
     if (typeof envelope.requestDigest !== 'string' || envelope.requestDigest.length === 0)
-      throw new Error(`idempotency key ${key} has no bound request digest`)
+      throw new EnterpriseOperationsError('idempotency-conflict', 'work-record')
     if (envelope.requestDigest !== requestDigest(request))
-      throw new Error(`idempotency key ${key} was reused with a different request`)
+      throw new EnterpriseOperationsError('idempotency-conflict', 'work-record')
     return envelope.result as T
   }
   private async lockIdempotency(database: PostgresDatabase, orgId: string, operation: string, key: string): Promise<void> {
@@ -287,7 +300,7 @@ export class EnterpriseOperationsRepository {
         [input.sessionId, input.employeeReleaseId],
       )
       if (owner.rows[0] !== undefined && owner.rows[0].org_id !== input.orgId)
-        throw new Error(`work record ${input.sessionId} is outside organization ${input.orgId}`)
+        throw new EnterpriseOperationsError('not-found', 'work-record', input.sessionId)
       await Promise.all([
         this.requireSession(database, input.orgId, input.sessionId),
         this.requireRelease(database, input.orgId, input.employeeReleaseId),
@@ -363,7 +376,7 @@ export class EnterpriseOperationsRepository {
       if (value !== undefined) { values.push(value); clauses.push(`${column} = $${String(values.length)}`) }
     }
     if (cursor !== undefined) {
-      if (cursor.ids.length !== 2) throw new Error('operations list cursor is invalid or belongs to another query')
+      if (cursor.ids.length !== 2) throw new EnterpriseOperationsError('cursor-invalid', 'work-record')
       values.push(cursor.createdAt, cursor.ids[0], cursor.ids[1])
       clauses.push(`(created_at, session_id, employee_release_id) < ($${String(values.length - 2)}, $${String(values.length - 1)}, $${String(values.length)})`)
     }
@@ -433,7 +446,7 @@ export class EnterpriseOperationsRepository {
       if (value !== undefined) { values.push(value); clauses.push(`${column} = $${String(values.length)}`) }
     }
     if (cursor !== undefined) {
-      if (cursor.ids.length !== 1) throw new Error('operations list cursor is invalid or belongs to another query')
+      if (cursor.ids.length !== 1) throw new EnterpriseOperationsError('cursor-invalid', 'approval')
       values.push(cursor.createdAt, cursor.ids[0])
       clauses.push(`(created_at, approval_id) < ($${String(values.length - 1)}, $${String(values.length)})`)
     }
@@ -469,10 +482,12 @@ export class EnterpriseOperationsRepository {
         [input.approvalId, input.orgId],
       )
       const current = result.rows[0]
-      if (current === undefined || current.org_id !== input.orgId) throw new Error('approval request not found')
+      if (current === undefined || current.org_id !== input.orgId) {
+        throw new EnterpriseOperationsError('not-found', 'approval', input.approvalId)
+      }
       if (Number(current.revision) !== input.expectedRevision)
         throw new ApprovalRevisionConflictError(input.approvalId, input.expectedRevision, Number(current.revision))
-      if (current.state !== 'pending') throw new Error(`approval ${input.approvalId} is not pending`)
+      if (current.state !== 'pending') throw new EnterpriseOperationsError('invalid-state', 'approval', input.approvalId)
       const actor = input.state === 'cancelled' ? input.actorUserId : input.reviewerUserId
       if (actor === undefined || actor.length === 0) throw new Error('approval transition actor is required')
       const updated = await database.query<ApprovalRow>(
@@ -549,8 +564,8 @@ export class EnterpriseOperationsRepository {
         'SELECT * FROM dsh_enterprise_schedules WHERE schedule_id = $1 AND org_id = $2 FOR UPDATE', [input.scheduleId, input.orgId],
       )
       const row = current.rows[0]
-      if (row === undefined || row.org_id !== input.orgId) throw new Error('schedule not found')
-      if (row.state === 'archived') throw new Error('archived schedule cannot be edited')
+      if (row === undefined || row.org_id !== input.orgId) throw new EnterpriseOperationsError('not-found', 'schedule', input.scheduleId)
+      if (row.state === 'archived') throw new EnterpriseOperationsError('invalid-state', 'schedule', input.scheduleId)
       if (Number(row.revision) !== input.expectedRevision) throw new Error(`schedule ${input.scheduleId} revision conflict`)
       if (input.target.kind === 'employee') await this.requireRelease(database, input.orgId, input.target.employeeReleaseId)
       else await this.teamTarget(database, input.orgId, input.target.teamId)
@@ -596,7 +611,7 @@ export class EnterpriseOperationsRepository {
     const clauses = ['org_id = $1']
     if (query.state !== undefined) { values.push(query.state); clauses.push(`state = $${String(values.length)}`) }
     if (cursor !== undefined) {
-      if (cursor.ids.length !== 1) throw new Error('operations list cursor is invalid or belongs to another query')
+      if (cursor.ids.length !== 1) throw new EnterpriseOperationsError('cursor-invalid', 'schedule')
       values.push(cursor.createdAt, cursor.ids[0])
       clauses.push(`(created_at, schedule_id) < ($${String(values.length - 1)}, $${String(values.length)})`)
     }
@@ -629,9 +644,11 @@ export class EnterpriseOperationsRepository {
         [input.scheduleId, input.orgId],
       )
       const row = current.rows[0]
-      if (row === undefined) throw new Error('schedule not found')
+      if (row === undefined) throw new EnterpriseOperationsError('not-found', 'schedule', input.scheduleId)
       if (Number(row.revision) !== input.expectedRevision) throw new Error(`schedule ${input.scheduleId} revision conflict`)
-      if (row.state === 'archived' && input.state !== 'archived') throw new Error('archived schedule cannot be resumed')
+      if (row.state === 'archived' && input.state !== 'archived') {
+        throw new EnterpriseOperationsError('invalid-state', 'schedule', input.scheduleId)
+      }
       const updated = await database.query<ScheduleRow>(
         'UPDATE dsh_enterprise_schedules SET state = $1, updated_at = $2, revision = revision + 1 WHERE schedule_id = $3 AND org_id = $4 AND revision = $5 RETURNING *',
         [input.state, this.now(), input.scheduleId, input.orgId, input.expectedRevision],
@@ -851,7 +868,7 @@ export class EnterpriseOperationsRepository {
         'SELECT * FROM dsh_enterprise_fixed_teams WHERE team_id = $1 AND org_id = $2 FOR UPDATE', [input.teamId, input.orgId],
       )
       const row = current.rows[0]
-      if (row === undefined || row.org_id !== input.orgId) throw new Error('fixed team not found')
+      if (row === undefined || row.org_id !== input.orgId) throw new EnterpriseOperationsError('not-found', 'team', input.teamId)
       if (Number(row.revision) !== input.expectedRevision) throw new Error(`fixed team ${input.teamId} revision conflict`)
       await Promise.all([
         this.requireRelease(database, input.orgId, input.leaderEmployeeReleaseId),
@@ -897,7 +914,7 @@ export class EnterpriseOperationsRepository {
     const values: unknown[] = [input.orgId]
     const clauses = ['org_id = $1']
     if (cursor !== undefined) {
-      if (cursor.ids.length !== 1) throw new Error('operations list cursor is invalid or belongs to another query')
+      if (cursor.ids.length !== 1) throw new EnterpriseOperationsError('cursor-invalid', 'team')
       values.push(cursor.createdAt, cursor.ids[0])
       clauses.push(`(created_at, team_id) < ($${String(values.length - 1)}, $${String(values.length)})`)
     }

@@ -3,7 +3,7 @@
 import type { PostgresDatabase } from './types.ts'
 
 /** Current PostgreSQL schema version accepted by the enterprise catalog. */
-export const ENTERPRISE_CATALOG_SCHEMA_VERSION = 4
+export const ENTERPRISE_CATALOG_SCHEMA_VERSION = 5
 
 const statements = [
   'CREATE EXTENSION IF NOT EXISTS pg_trgm WITH SCHEMA public',
@@ -43,6 +43,8 @@ const statements = [
   'ALTER TABLE dsh_enterprise_catalog_idempotency ADD COLUMN IF NOT EXISTS request_digest TEXT',
   `CREATE INDEX IF NOT EXISTS dsh_enterprise_employee_drafts_query_idx
     ON dsh_enterprise_employee_drafts(org_id, updated_at DESC, preset_id DESC)`,
+  `CREATE INDEX IF NOT EXISTS dsh_enterprise_employee_visibility_page_idx
+    ON dsh_enterprise_employee_drafts(org_id, visibility, owner_user_id, updated_at DESC, preset_id DESC)`,
   `CREATE INDEX IF NOT EXISTS dsh_enterprise_asset_catalog_query_idx
     ON dsh_enterprise_asset_catalog(org_id, updated_at DESC, asset_id DESC)`,
   'DROP INDEX IF EXISTS dsh_enterprise_employee_preset_search_query_idx',
@@ -75,7 +77,7 @@ export async function migrateEnterpriseCatalog(database: PostgresDatabase): Prom
         "INSERT INTO dsh_enterprise_catalog_meta(key, value) VALUES ('schema-version', $1) ON CONFLICT (key) DO NOTHING",
         [String(ENTERPRISE_CATALOG_SCHEMA_VERSION)],
       )
-    } else if ([1, 2, 3].includes(Number(current.rows[0].value))) {
+    } else if ([1, 2, 3, 4].includes(Number(current.rows[0].value))) {
       await transaction.query(
         "UPDATE dsh_enterprise_catalog_meta SET value = $1 WHERE key = 'schema-version' AND value = $2",
         [String(ENTERPRISE_CATALOG_SCHEMA_VERSION), current.rows[0].value],

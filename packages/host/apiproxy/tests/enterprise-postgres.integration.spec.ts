@@ -98,6 +98,14 @@ describe.skipIf(databaseUrl === undefined)('enterprise ApiProxy with PostgreSQL'
       .toMatchObject({ ok: true, value: { items: [{ approvalId }] } })
 
     principal = { userId: memberId, orgId, roles: ['member'] }
+    expect((await client.enterpriseEmployees.list({})).result)
+      .toMatchObject({ ok: true, value: { items: [] } })
+    await composition.identity.putResourcePolicy({
+      resourceType: 'employee', resourceId: presetId, orgId,
+      creatorUserId: adminId, visibility: 'restricted', allowedUserIds: [memberId],
+    })
+    expect((await client.enterpriseEmployees.list({})).result)
+      .toMatchObject({ ok: true, value: { items: [{ presetId }] } })
     expect((await client.enterpriseAssets.archive({
       assetId, expectedRevision: 1, idempotencyKey: `forbidden-${suffix}`,
     })).result).toMatchObject({ ok: false, error: { code: 'enterprise-forbidden' } })

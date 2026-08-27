@@ -51,6 +51,8 @@ const STATEMENTS = [
     allowed_user_ids JSONB NOT NULL,
     PRIMARY KEY(resource_type, resource_id)
   )`,
+  `CREATE INDEX IF NOT EXISTS enterprise_resource_policy_allowed_users_idx
+    ON resource_policies USING gin (allowed_user_ids)`,
   `CREATE TABLE IF NOT EXISTS managed_assets (
     org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
     type TEXT NOT NULL,

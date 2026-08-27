@@ -9,16 +9,19 @@ import type { EnterprisePrincipal } from '@deepseek-ai/dsh-enterprise-governance
  * authenticated transport boundary invokes {@link run}.
  */
 export class EnterpriseRequestContext {
-  private readonly storage = new AsyncLocalStorage<EnterprisePrincipal>()
+  private readonly storage = new AsyncLocalStorage<{ principal: EnterprisePrincipal; generation: number }>()
+  private generation = 0
+  private disposed = false
 
   /** Run one request callback with its authenticated principal. */
   run<T>(principal: EnterprisePrincipal, callback: () => T): T {
-    return this.storage.run(principal, callback)
+    return this.storage.run({ principal, generation: this.generation }, callback)
   }
 
   /** Return the principal for the active request, if any. */
   current(): EnterprisePrincipal | undefined {
-    return this.storage.getStore()
+    const store = this.storage.getStore()
+    return this.disposed || store?.generation !== this.generation ? undefined : store.principal
   }
 
   /** Return the active principal or fail closed outside an authenticated request. */
@@ -30,11 +33,13 @@ export class EnterpriseRequestContext {
 
   /** Clear every context store inherited by outstanding asynchronous work. */
   disable(): void {
+    this.generation++
     this.storage.disable()
   }
 
   /** Release this request-context instance during plugin disposal. */
   dispose(): void {
+    this.disposed = true
     this.disable()
   }
 }

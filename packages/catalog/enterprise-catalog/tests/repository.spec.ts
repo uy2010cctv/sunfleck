@@ -107,14 +107,19 @@ class MemoryPostgresDatabase implements PostgresDatabase {
     }
     if (text.includes('FROM dsh_enterprise_employee_drafts') && text.includes('ORDER BY updated_at DESC')) {
       let rows = [...this.drafts.values()].filter(row => row.org_id === String(values[0]))
-      const statusIndex = parameter(text, 'status =')
-      const ownerIndex = parameter(text, 'owner_user_id =')
-      const visibilityIndex = parameter(text, 'visibility =')
+      const statusIndex = columnParameter(text, 'status')
+      const ownerIndex = columnParameter(text, 'owner_user_id')
+      const visibilityIndex = columnParameter(text, 'visibility')
       const searchIndex = parameter(text, 'lower\\(preset_id\\) LIKE')
       const cursorUpdatedIndex = parameter(text, '\\(updated_at, preset_id\\) < \\(')
       if (statusIndex !== undefined) rows = rows.filter(row => row.status === values[statusIndex])
       if (ownerIndex !== undefined) rows = rows.filter(row => row.owner_user_id === values[ownerIndex])
       if (visibilityIndex !== undefined) rows = rows.filter(row => row.visibility === values[visibilityIndex])
+      if (text.includes('dsh_enterprise_employee_drafts.visibility')) {
+        const viewerIndex = parameter(text, 'dsh_enterprise_employee_drafts.owner_user_id =')
+        const viewer = viewerIndex === undefined ? undefined : String(values[viewerIndex])
+        rows = rows.filter(row => row.visibility === 'organization' || row.owner_user_id === viewer)
+      }
       if (searchIndex !== undefined) {
         const search = String(values[searchIndex]).slice(1, -1).toLowerCase()
         rows = rows.filter(row => row.preset_id.toLowerCase().includes(search)
@@ -282,6 +287,10 @@ function parse(value: unknown): unknown { return typeof value === 'string' ? JSO
 function clone<T>(value: T): T { return structuredClone(value) }
 function parameter(text: string, prefix: string): number | undefined {
   const match = new RegExp(`${prefix}[^$]*\\$(\\d+)`, 'u').exec(text)
+  return match?.[1] === undefined ? undefined : Number(match[1]) - 1
+}
+function columnParameter(text: string, column: string): number | undefined {
+  const match = new RegExp(`(?:^|\\s)${column} = \\$(\\d+)`, 'u').exec(text)
   return match?.[1] === undefined ? undefined : Number(match[1]) - 1
 }
 
@@ -484,6 +493,23 @@ describe('EnterpriseCatalogRepository', () => {
     const page = await repository.listDrafts({ orgId: 'org-a', ownerUserId: 'user-a', limit: 1 })
     await expect(repository.listDrafts({ orgId: 'org-a', ownerUserId: 'user-b', cursor: page.nextCursor }))
       .rejects.toThrow('cursor')
+  })
+
+  it('paginates only drafts visible to the viewer without hidden empty pages', async () => {
+    let now = 10
+    const repository = catalogRepository(new MemoryPostgresDatabase(), { now: () => now++ })
+    await repository.saveDraft({ ...firstDraft, presetId: 'owned', ownerUserId: 'viewer', visibility: 'private', idempotencyKey: 'owned' })
+    await repository.saveDraft({ ...firstDraft, presetId: 'organization', ownerUserId: 'other', visibility: 'organization', idempotencyKey: 'organization' })
+    await repository.saveDraft({ ...firstDraft, presetId: 'hidden', ownerUserId: 'other', visibility: 'private', idempotencyKey: 'hidden' })
+
+    const first = await repository.listDrafts({ orgId: 'org-a', viewerUserId: 'viewer', limit: 1 })
+    expect(first.items.map(item => item.presetId)).toEqual(['organization'])
+    expect(first.nextCursor).toBeDefined()
+    const second = await repository.listDrafts({
+      orgId: 'org-a', viewerUserId: 'viewer', limit: 1, cursor: first.nextCursor,
+    })
+    expect(second.items.map(item => item.presetId)).toEqual(['owned'])
+    expect(second.nextCursor).toBeUndefined()
   })
 
   it('gets and lists assets without exposing another organization', async () => {

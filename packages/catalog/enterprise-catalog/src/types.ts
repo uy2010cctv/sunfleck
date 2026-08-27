@@ -24,6 +24,8 @@ export interface ListEmployeeDraftsInput extends CatalogListInput {
   readonly status?: EmployeeDraftView['status']
   readonly ownerUserId?: string
   readonly visibility?: CatalogVisibility
+  readonly viewerUserId?: string
+  readonly includeAllVisible?: boolean
 }
 
 /** Filters accepted by the capability asset management list. */
