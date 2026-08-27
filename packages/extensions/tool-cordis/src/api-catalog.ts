@@ -715,6 +715,145 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'enterprisePostgres',
+    summary: 'Shared production PostgreSQL adapters and their owned pool lifecycle.',
+    description: 'Shared production PostgreSQL adapters and their owned pool lifecycle.',
+    methods: [],
+  },
+  {
+    key: 'enterpriseRequestContext',
+    summary: 'Carries the server-authenticated principal through asynchronous Host work.',
+    description: 'Carries the server-authenticated principal through asynchronous Host work. Callers cannot establish a principal through an RPC payload; only the authenticated transport boundary invokes run.',
+    methods: [
+      {
+        signature: 'run<T>(principal: EnterprisePrincipal, callback: () => T): T',
+        description: 'Run one request callback with its authenticated principal.',
+        parameters: [{ name: 'principal', description: 'Principal established by the authenticated transport.' }, { name: 'callback', description: 'Host work that may read the principal.' }],
+        returns: 'the callback result.',
+      },
+      {
+        signature: 'current(): EnterprisePrincipal | undefined',
+        description: 'Return the principal for the active request, if any.',
+        parameters: [],
+        returns: 'the active principal, or `undefined` outside a live request.',
+      },
+      {
+        signature: 'requirePrincipal(): EnterprisePrincipal',
+        description: 'Return the active principal or fail closed outside an authenticated request.',
+        parameters: [],
+        returns: 'the active authenticated principal.',
+      },
+      {
+        signature: 'disable(): void',
+        description: 'Clear every context store inherited by outstanding asynchronous work.',
+        parameters: [],
+      },
+      {
+        signature: 'dispose(): void',
+        description: 'Release this request-context instance during plugin disposal.',
+        parameters: [],
+      },
+    ],
+  },
+  {
+    key: 'enterpriseSecurity',
+    summary: 'Central single-enterprise security service shared by HTTP, WebSocket, and admin APIs.',
+    description: 'Central single-enterprise security service shared by HTTP, WebSocket, and admin APIs.',
+    methods: [
+      {
+        signature: 'loginLocal(orgId: string, username: string, password: string): LoginResult | undefined',
+        description: 'Authenticate one local account through a synchronous identity adapter.',
+        parameters: [{ name: 'orgId', description: 'Organization boundary named by the login form.' }, { name: 'username', description: 'Organization-local username.' }, { name: 'password', description: 'Plaintext presented only to the password verifier.' }],
+        returns: 'the issued login result, or `undefined` for invalid credentials.',
+      },
+      {
+        signature: 'issueSession(userId: string): LoginResult',
+        description: 'Issue one synchronous persistent login Session for an enabled user.',
+        parameters: [{ name: 'userId', description: 'Canonical enterprise user id.' }],
+        returns: 'the issued token, cookie, and principal.',
+      },
+      {
+        signature: 'loginExternal(identity: SsoMappedIdentity): LoginResult',
+        description: 'Resolve or provision one synchronous external identity and issue its login Session.',
+        parameters: [{ name: 'identity', description: 'Validated and mapped external identity.' }],
+        returns: 'the issued token, cookie, and principal.',
+      },
+      {
+        signature: 'authenticateCookie(cookieHeader: string): EnterprisePrincipalView | undefined',
+        description: 'Authenticate one cookie through a synchronous identity adapter.',
+        parameters: [{ name: 'cookieHeader', description: 'Incoming Cookie header.' }],
+        returns: 'the active principal, or `undefined` when unavailable.',
+      },
+      {
+        signature: 'logout(cookieHeader: string): void',
+        description: 'Revoke the synchronous login Session named by a cookie header.',
+        parameters: [{ name: 'cookieHeader', description: 'Incoming Cookie header.' }],
+      },
+      {
+        signature: 'async loginLocalAsync(orgId: string, username: string, password: string): Promise<LoginResult | undefined>',
+        description: 'Authenticate one local account through the production asynchronous adapter.',
+        parameters: [{ name: 'orgId', description: 'Organization boundary named by the login form.' }, { name: 'username', description: 'Organization-local username.' }, { name: 'password', description: 'Plaintext presented only to the password verifier.' }],
+        returns: 'the issued login result, or `undefined` for invalid credentials.',
+      },
+      {
+        signature: 'async issueSessionAsync(userId: string): Promise<LoginResult>',
+        description: 'Issue one persistent login Session through the asynchronous identity adapter.',
+        parameters: [{ name: 'userId', description: 'Canonical enterprise user id.' }],
+        returns: 'the issued token, cookie, and principal.',
+      },
+      {
+        signature: 'async loginExternalAsync(identity: SsoMappedIdentity): Promise<LoginResult>',
+        description: 'Resolve or provision an external identity through the asynchronous adapter.',
+        parameters: [{ name: 'identity', description: 'Validated and mapped external identity.' }],
+        returns: 'the issued token, cookie, and principal.',
+      },
+      {
+        signature: 'async authenticateCookieAsync(cookieHeader: string): Promise<EnterprisePrincipalView | undefined>',
+        description: 'Authenticate one cookie through the asynchronous identity adapter.',
+        parameters: [{ name: 'cookieHeader', description: 'Incoming Cookie header.' }],
+        returns: 'the active principal, or `undefined` when unavailable.',
+      },
+      {
+        signature: 'async logoutAsync(cookieHeader: string): Promise<void>',
+        description: 'Revoke the asynchronous login Session named by a cookie header.',
+        parameters: [{ name: 'cookieHeader', description: 'Incoming Cookie header.' }],
+      },
+      {
+        signature: 'async authorizeApiAsync(principal: EnterprisePrincipal, endpoint: string, input: unknown): Promise<EnterpriseAuthorizationDecision>',
+        description: 'Resolve resource scope and authorize one asynchronous Host API operation.',
+        parameters: [{ name: 'principal', description: 'Authenticated caller.' }, { name: 'endpoint', description: 'Closed Host API endpoint name.' }, { name: 'input', description: 'Parsed request payload used only for resource addressing.' }],
+        returns: 'the authorization decision and stable reason.',
+      },
+      {
+        signature: 'async bindSessionWorkspaceAsync( principal: EnterprisePrincipal, sessionId: string, workspaceId: string, ): Promise<void>',
+        description: 'Bind a Session to a workspace only after the principal can create work in that compartment.',
+        parameters: [{ name: 'principal', description: 'Authenticated Session creator.' }, { name: 'sessionId', description: 'Newly created DSH Session id.' }, { name: 'workspaceId', description: 'Authorized DSH Workspace id.' }],
+      },
+      {
+        signature: 'async workspaceSandboxModeAsync( principal: EnterprisePrincipal, workspaceId: string, ): Promise<\'read-only\' | \'workspace-write\'>',
+        description: 'Resolve the durable sandbox mode a newly bound Session must snapshot.',
+        parameters: [{ name: 'principal', description: 'Authenticated Session creator.' }, { name: 'workspaceId', description: 'Authorized DSH Workspace id.' }],
+        returns: 'the grant\'s bounded sandbox mode.',
+      },
+      {
+        signature: 'async auditApiAsync( principal: EnterprisePrincipal, endpoint: string, input: unknown, decision: EnterpriseAuthorizationDecision, correlationId: string, ): Promise<void>',
+        description: 'Append one asynchronous Host API authorization decision to the audit sink.',
+        parameters: [{ name: 'principal', description: 'Authenticated caller.' }, { name: 'endpoint', description: 'Closed Host API endpoint name.' }, { name: 'input', description: 'Parsed request payload used only for resource addressing.' }, { name: 'decision', description: 'Previously computed authorization decision.' }, { name: 'correlationId', description: 'Request-scoped correlation identity.' }],
+      },
+      {
+        signature: 'authorizeApi(principal: EnterprisePrincipal, endpoint: string, input: unknown): EnterpriseAuthorizationDecision',
+        description: 'Resolve resource scope and authorize one synchronous Host API operation.',
+        parameters: [{ name: 'principal', description: 'Authenticated caller.' }, { name: 'endpoint', description: 'Closed Host API endpoint name.' }, { name: 'input', description: 'Parsed request payload used only for resource addressing.' }],
+        returns: 'the authorization decision and stable reason.',
+      },
+      {
+        signature: 'auditApi( principal: EnterprisePrincipal, endpoint: string, input: unknown, decision: EnterpriseAuthorizationDecision, correlationId: string, ): void',
+        description: 'Append one synchronous Host API authorization decision to the audit sink.',
+        parameters: [{ name: 'principal', description: 'Authenticated caller.' }, { name: 'endpoint', description: 'Closed Host API endpoint name.' }, { name: 'input', description: 'Parsed request payload used only for resource addressing.' }, { name: 'decision', description: 'Previously computed authorization decision.' }, { name: 'correlationId', description: 'Request-scoped correlation identity.' }],
+      },
+    ],
+  },
+  {
     key: 'fileReferences',
     summary: 'Host capability for cancellable file-reference discovery.',
     description: 'Host capability for cancellable file-reference discovery.',
@@ -2574,6 +2713,46 @@ export const EVENT_API: readonly EventApiEntry[] = [
     parameters: [{ name: 'change', description: 'domain, table (`\'\'` for global), key (`\'\'` for global), operation discriminant, and on `put` the new snapshot.' }],
   },
   {
+    name: 'enterprise/approval-requested',
+    mode: 'parallel',
+    signature: '\'enterprise/approval-requested\'(payload: EnterpriseEventPayload): void',
+    summary: 'An enterprise approval request committed; listeners may surface the pending review.',
+    description: 'An enterprise approval request committed; listeners may surface the pending review.',
+    parameters: [{ name: 'payload', description: 'Stable organization, resource, and event identity.' }],
+  },
+  {
+    name: 'enterprise/asset-updated',
+    mode: 'parallel',
+    signature: '\'enterprise/asset-updated\'(payload: EnterpriseEventPayload): void',
+    summary: 'An enterprise asset mutation committed; listeners may refresh the addressed asset.',
+    description: 'An enterprise asset mutation committed; listeners may refresh the addressed asset.',
+    parameters: [{ name: 'payload', description: 'Stable organization, resource, and event identity.' }],
+  },
+  {
+    name: 'enterprise/employee-updated',
+    mode: 'parallel',
+    signature: '\'enterprise/employee-updated\'(payload: EnterpriseEventPayload): void',
+    summary: 'An enterprise employee mutation committed; listeners may refresh the addressed employee.',
+    description: 'An enterprise employee mutation committed; listeners may refresh the addressed employee.',
+    parameters: [{ name: 'payload', description: 'Stable organization, resource, and event identity.' }],
+  },
+  {
+    name: 'enterprise/operation-updated',
+    mode: 'parallel',
+    signature: '\'enterprise/operation-updated\'(payload: EnterpriseEventPayload): void',
+    summary: 'An enterprise operational record committed; listeners may refresh the addressed record.',
+    description: 'An enterprise operational record committed; listeners may refresh the addressed record.',
+    parameters: [{ name: 'payload', description: 'Stable organization, resource, and event identity.' }],
+  },
+  {
+    name: 'enterprise/team-updated',
+    mode: 'parallel',
+    signature: '\'enterprise/team-updated\'(payload: EnterpriseEventPayload): void',
+    summary: 'An enterprise team mutation committed; listeners may refresh the addressed team.',
+    description: 'An enterprise team mutation committed; listeners may refresh the addressed team.',
+    parameters: [{ name: 'payload', description: 'Stable organization, resource, and event identity.' }],
+  },
+  {
     name: 'fs/edit-intent',
     mode: 'waterfall',
     signature: '\'fs/edit-intent\'(target: FsTarget, actor: object | undefined, next: () => { version: FsVersion } | undefined | Promise<{ version: FsVersion } | undefined>): Promise<{ version: FsVersion } | undefined>',
@@ -2867,7 +3046,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'AgentPreset',
-    declaration: 'export interface AgentPreset {\n    readonly id: string;\n    readonly trust: PresetTrust;\n    readonly path: string;\n    readonly name?: string;\n    readonly description?: string;\n    readonly order?: number;\n    readonly broken?: string;\n}',
+    declaration: 'export interface AgentPreset {\n    readonly id: string;\n    readonly trust: PresetTrust;\n    readonly path: string;\n    readonly name?: string;\n    readonly description?: string;\n    readonly order?: number;\n    readonly employee?: EmployeeMetadata;\n    readonly broken?: string;\n}',
   },
   {
     name: 'AgentSetup',
@@ -3330,8 +3509,32 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface EditGoalRequest {\n    readonly objective?: string;\n    readonly maxGoalRounds?: number;\n}',
   },
   {
+    name: 'EmployeeMetadata',
+    declaration: 'export interface EmployeeMetadata {\n    readonly position?: string;\n    readonly department?: string;\n    readonly capabilities?: readonly string[];\n}',
+  },
+  {
     name: 'EncodedImageAttachment',
     declaration: 'export interface EncodedImageAttachment {\n    mediaType: ImageMediaType;\n    data: string;\n    name?: string;\n}',
+  },
+  {
+    name: 'EnterpriseAuthorizationDecision',
+    declaration: 'export interface EnterpriseAuthorizationDecision {\n    readonly allowed: boolean;\n    readonly reason: EnterpriseAuthorizationReason;\n}',
+  },
+  {
+    name: 'EnterpriseAuthorizationReason',
+    declaration: 'export type EnterpriseAuthorizationReason = \'administrator\' | \'auditor\' | \'role\' | \'creator-owner\' | \'resource-visible\' | \'organization-mismatch\' | \'resource-hidden\' | \'insufficient-role\';',
+  },
+  {
+    name: 'EnterprisePrincipal',
+    declaration: 'export interface EnterprisePrincipal {\n    readonly userId: string;\n    readonly orgId: string;\n    readonly roles: readonly EnterpriseRole[];\n}',
+  },
+  {
+    name: 'EnterprisePrincipalView',
+    declaration: 'export interface EnterprisePrincipalView {\n    readonly userId: string;\n    readonly orgId: string;\n    readonly username: string;\n    readonly displayName: string;\n    readonly roles: readonly EnterpriseRole[];\n}',
+  },
+  {
+    name: 'EnterpriseRole',
+    declaration: 'export type EnterpriseRole = \'administrator\' | \'creator\' | \'operator\' | \'auditor\' | \'member\';',
   },
   {
     name: 'EpochHeader',
@@ -3648,6 +3851,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'LlmRuntime',
     declaration: 'export class LlmRuntime extends Service {\n    constructor(ctx: Context);\n    registerAdapter(providers: string[], adapter: LlmAdapter): AdapterRegistrationHandle;\n    listProviders(): LlmProviderInfo[];\n    registerConfigurableProviders(entries: readonly LlmConfigurableProvider[]): DirectoryRegistrationHandle;\n    listConfigurableProviders(): LlmConfigurableProvider[];\n    registerModelDiscovery(settingsNs: string, discover: (request: LlmModelDiscoveryRequest) => Promise<readonly LlmDiscoveredModel[]>): () => void;\n    async discoverModels(settingsNs: string, request: LlmModelDiscoveryRequest): Promise<LlmDiscoveredModel[]>;\n    providerRetryPolicy(provider: string): ResolvedRetryPolicy;\n    async listModels(provider: string): Promise<LlmModelInfo[]>;\n    async resolveModelInfo(provider: string, model: string, signal?: AbortSignal): Promise<LlmResolvedModelInfo>;\n    async resolveCallConfig(config: LlmCallConfig, signal?: AbortSignal): Promise<LlmCallConfig>;\n    async prepareCall(config: LlmCallConfig, signal?: AbortSignal): Promise<PreparedLlmCall>;\n    stream(options: GenerateOptions): AsyncIterable<StreamChunk>;\n}',
+  },
+  {
+    name: 'LoginResult',
+    declaration: 'export interface LoginResult {\n    readonly principal: EnterprisePrincipalView;\n    readonly token: string;\n    readonly cookie: string;\n}',
   },
   {
     name: 'LspHover',
@@ -4444,6 +4651,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'SpillSource',
     declaration: 'export interface SpillSource {\n    toolName: string;\n    callId: CallId;\n    label: string;\n}',
+  },
+  {
+    name: 'SsoMappedIdentity',
+    declaration: 'export interface SsoMappedIdentity {\n    readonly providerId: string;\n    readonly subject: string;\n    readonly organizationId: string;\n    readonly username: string;\n    readonly displayName: string;\n    readonly roles: readonly EnterpriseRole[];\n}',
   },
   {
     name: 'StorageBackend',

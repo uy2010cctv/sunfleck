@@ -13,18 +13,29 @@ export class EnterpriseRequestContext {
   private generation = 0
   private disposed = false
 
-  /** Run one request callback with its authenticated principal. */
+  /**
+   * Run one request callback with its authenticated principal.
+   * @param principal - Principal established by the authenticated transport.
+   * @param callback - Host work that may read the principal.
+   * @returns the callback result.
+   */
   run<T>(principal: EnterprisePrincipal, callback: () => T): T {
     return this.storage.run({ principal, generation: this.generation }, callback)
   }
 
-  /** Return the principal for the active request, if any. */
+  /**
+   * Return the principal for the active request, if any.
+   * @returns the active principal, or `undefined` outside a live request.
+   */
   current(): EnterprisePrincipal | undefined {
     const store = this.storage.getStore()
     return this.disposed || store?.generation !== this.generation ? undefined : store.principal
   }
 
-  /** Return the active principal or fail closed outside an authenticated request. */
+  /**
+   * Return the active principal or fail closed outside an authenticated request.
+   * @returns the active authenticated principal.
+   */
   requirePrincipal(): EnterprisePrincipal {
     const principal = this.current()
     if (principal === undefined) throw new Error('authenticated enterprise principal is required')

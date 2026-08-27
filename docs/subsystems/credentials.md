@@ -212,6 +212,178 @@ abstract deleteRecord(key: CredentialKey): Promise<void>
 
 Source: [`packages/credentials/credentials/src/index.ts`](../../packages/credentials/credentials/src/index.ts)
 
+<a id="ctxenterpriserequestcontext--enterpriserequestcontext"></a>
+
+### `ctx.enterpriseRequestContext` — `EnterpriseRequestContext`
+
+Carries the server-authenticated principal through asynchronous Host work. Callers cannot establish a principal through an RPC payload; only the authenticated transport boundary invokes run.
+
+```ts cordis-catalog
+/**
+ * Run one request callback with its authenticated principal.
+ * @param principal - Principal established by the authenticated transport.
+ * @param callback - Host work that may read the principal.
+ * @returns the callback result.
+ */
+run<T>(principal: EnterprisePrincipal, callback: () => T): T
+
+/**
+ * Return the principal for the active request, if any.
+ * @returns the active principal, or `undefined` outside a live request.
+ */
+current(): EnterprisePrincipal | undefined
+
+/**
+ * Return the active principal or fail closed outside an authenticated request.
+ * @returns the active authenticated principal.
+ */
+requirePrincipal(): EnterprisePrincipal
+
+/** Clear every context store inherited by outstanding asynchronous work. */
+disable(): void
+
+/** Release this request-context instance during plugin disposal. */
+dispose(): void
+```
+
+Source: [`packages/identity/enterprise-auth-web/src/request-context.ts`](../../packages/identity/enterprise-auth-web/src/request-context.ts)
+
+<a id="ctxenterprisesecurity--enterprisesecurity"></a>
+
+### `ctx.enterpriseSecurity` — `EnterpriseSecurity`
+
+Central single-enterprise security service shared by HTTP, WebSocket, and admin APIs.
+
+```ts cordis-catalog
+/**
+ * Authenticate one local account through a synchronous identity adapter.
+ * @param orgId - Organization boundary named by the login form.
+ * @param username - Organization-local username.
+ * @param password - Plaintext presented only to the password verifier.
+ * @returns the issued login result, or `undefined` for invalid credentials.
+ */
+loginLocal(orgId: string, username: string, password: string): LoginResult | undefined
+
+/**
+ * Issue one synchronous persistent login Session for an enabled user.
+ * @param userId - Canonical enterprise user id.
+ * @returns the issued token, cookie, and principal.
+ */
+issueSession(userId: string): LoginResult
+
+/**
+ * Resolve or provision one synchronous external identity and issue its login Session.
+ * @param identity - Validated and mapped external identity.
+ * @returns the issued token, cookie, and principal.
+ */
+loginExternal(identity: SsoMappedIdentity): LoginResult
+
+/**
+ * Authenticate one cookie through a synchronous identity adapter.
+ * @param cookieHeader - Incoming Cookie header.
+ * @returns the active principal, or `undefined` when unavailable.
+ */
+authenticateCookie(cookieHeader: string): EnterprisePrincipalView | undefined
+
+/**
+ * Revoke the synchronous login Session named by a cookie header.
+ * @param cookieHeader - Incoming Cookie header.
+ */
+logout(cookieHeader: string): void
+
+/**
+ * Authenticate one local account through the production asynchronous adapter.
+ * @param orgId - Organization boundary named by the login form.
+ * @param username - Organization-local username.
+ * @param password - Plaintext presented only to the password verifier.
+ * @returns the issued login result, or `undefined` for invalid credentials.
+ */
+async loginLocalAsync(orgId: string, username: string, password: string): Promise<LoginResult | undefined>
+
+/**
+ * Issue one persistent login Session through the asynchronous identity adapter.
+ * @param userId - Canonical enterprise user id.
+ * @returns the issued token, cookie, and principal.
+ */
+async issueSessionAsync(userId: string): Promise<LoginResult>
+
+/**
+ * Resolve or provision an external identity through the asynchronous adapter.
+ * @param identity - Validated and mapped external identity.
+ * @returns the issued token, cookie, and principal.
+ */
+async loginExternalAsync(identity: SsoMappedIdentity): Promise<LoginResult>
+
+/**
+ * Authenticate one cookie through the asynchronous identity adapter.
+ * @param cookieHeader - Incoming Cookie header.
+ * @returns the active principal, or `undefined` when unavailable.
+ */
+async authenticateCookieAsync(cookieHeader: string): Promise<EnterprisePrincipalView | undefined>
+
+/**
+ * Revoke the asynchronous login Session named by a cookie header.
+ * @param cookieHeader - Incoming Cookie header.
+ */
+async logoutAsync(cookieHeader: string): Promise<void>
+
+/**
+ * Resolve resource scope and authorize one asynchronous Host API operation.
+ * @param principal - Authenticated caller.
+ * @param endpoint - Closed Host API endpoint name.
+ * @param input - Parsed request payload used only for resource addressing.
+ * @returns the authorization decision and stable reason.
+ */
+async authorizeApiAsync(principal: EnterprisePrincipal, endpoint: string, input: unknown): Promise<EnterpriseAuthorizationDecision>
+
+/**
+ * Bind a Session to a workspace only after the principal can create work in that compartment.
+ * @param principal - Authenticated Session creator.
+ * @param sessionId - Newly created DSH Session id.
+ * @param workspaceId - Authorized DSH Workspace id.
+ */
+async bindSessionWorkspaceAsync( principal: EnterprisePrincipal, sessionId: string, workspaceId: string, ): Promise<void>
+
+/**
+ * Resolve the durable sandbox mode a newly bound Session must snapshot.
+ * @param principal - Authenticated Session creator.
+ * @param workspaceId - Authorized DSH Workspace id.
+ * @returns the grant's bounded sandbox mode.
+ */
+async workspaceSandboxModeAsync( principal: EnterprisePrincipal, workspaceId: string, ): Promise<'read-only' | 'workspace-write'>
+
+/**
+ * Append one asynchronous Host API authorization decision to the audit sink.
+ * @param principal - Authenticated caller.
+ * @param endpoint - Closed Host API endpoint name.
+ * @param input - Parsed request payload used only for resource addressing.
+ * @param decision - Previously computed authorization decision.
+ * @param correlationId - Request-scoped correlation identity.
+ */
+async auditApiAsync( principal: EnterprisePrincipal, endpoint: string, input: unknown, decision: EnterpriseAuthorizationDecision, correlationId: string, ): Promise<void>
+
+/**
+ * Resolve resource scope and authorize one synchronous Host API operation.
+ * @param principal - Authenticated caller.
+ * @param endpoint - Closed Host API endpoint name.
+ * @param input - Parsed request payload used only for resource addressing.
+ * @returns the authorization decision and stable reason.
+ */
+authorizeApi(principal: EnterprisePrincipal, endpoint: string, input: unknown): EnterpriseAuthorizationDecision
+
+/**
+ * Append one synchronous Host API authorization decision to the audit sink.
+ * @param principal - Authenticated caller.
+ * @param endpoint - Closed Host API endpoint name.
+ * @param input - Parsed request payload used only for resource addressing.
+ * @param decision - Previously computed authorization decision.
+ * @param correlationId - Request-scoped correlation identity.
+ */
+auditApi( principal: EnterprisePrincipal, endpoint: string, input: unknown, decision: EnterpriseAuthorizationDecision, correlationId: string, ): void
+```
+
+Source: [`packages/identity/enterprise-auth-web/src/security.ts`](../../packages/identity/enterprise-auth-web/src/security.ts)
+
 <a id="authorization-events"></a>
 
 ### `authorization/*` events

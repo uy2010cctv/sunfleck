@@ -87,6 +87,7 @@ export const Config: z<EnterprisePostgresConfig> = z.object({
   ssl: z.any().default(false),
 })
 
+/** Shared production PostgreSQL adapters and their owned pool lifecycle. */
 export interface EnterprisePostgresComposition {
   readonly database: EnterprisePostgresDatabase
   readonly identity: PgEnterpriseIdentityRepository

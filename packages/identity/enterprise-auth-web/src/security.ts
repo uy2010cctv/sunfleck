@@ -193,12 +193,24 @@ export class EnterpriseSecurity {
     this.resourcePolicyResolver = options.resourcePolicyResolver
   }
 
+  /**
+   * Authenticate one local account through a synchronous identity adapter.
+   * @param orgId - Organization boundary named by the login form.
+   * @param username - Organization-local username.
+   * @param password - Plaintext presented only to the password verifier.
+   * @returns the issued login result, or `undefined` for invalid credentials.
+   */
   loginLocal(orgId: string, username: string, password: string): LoginResult | undefined {
     const record = syncValue(this.repository.passwordLoginRecord(orgId, username), 'loginLocal')
     if (record === undefined || record.disabled || !verifyPassword(password, record.verifier)) return undefined
     return this.issueSession(record.userId)
   }
 
+  /**
+   * Issue one synchronous persistent login Session for an enabled user.
+   * @param userId - Canonical enterprise user id.
+   * @returns the issued token, cookie, and principal.
+   */
   issueSession(userId: string): LoginResult {
     const user = syncValue(this.repository.listUsers(this.config.organizationId), 'issueSession').find(candidate => candidate.id === userId)
     if (user === undefined || user.disabled) throw new Error('enterprise session user is unavailable')
@@ -218,6 +230,11 @@ export class EnterpriseSecurity {
     }
   }
 
+  /**
+   * Resolve or provision one synchronous external identity and issue its login Session.
+   * @param identity - Validated and mapped external identity.
+   * @returns the issued token, cookie, and principal.
+   */
   loginExternal(identity: SsoMappedIdentity): LoginResult {
     if (identity.organizationId !== this.config.organizationId) {
       throw new Error('SSO identity belongs to a different enterprise organization')
@@ -246,23 +263,43 @@ export class EnterpriseSecurity {
     return this.issueSession(user.id)
   }
 
+  /**
+   * Authenticate one cookie through a synchronous identity adapter.
+   * @param cookieHeader - Incoming Cookie header.
+   * @returns the active principal, or `undefined` when unavailable.
+   */
   authenticateCookie(cookieHeader: string): EnterprisePrincipalView | undefined {
     const token = parseSessionCookie(cookieHeader, this.config.sessionCookieName)
     return token === undefined ? undefined : syncValue(this.repository.authenticateSession(token), 'authenticateCookie')
   }
 
+  /**
+   * Revoke the synchronous login Session named by a cookie header.
+   * @param cookieHeader - Incoming Cookie header.
+   */
   logout(cookieHeader: string): void {
     const token = parseSessionCookie(cookieHeader, this.config.sessionCookieName)
     if (token !== undefined) syncValue(this.repository.revokeSession(token), 'logout')
   }
 
-  /** Async counterparts used by PostgreSQL-backed production composition. */
+  /**
+   * Authenticate one local account through the production asynchronous adapter.
+   * @param orgId - Organization boundary named by the login form.
+   * @param username - Organization-local username.
+   * @param password - Plaintext presented only to the password verifier.
+   * @returns the issued login result, or `undefined` for invalid credentials.
+   */
   async loginLocalAsync(orgId: string, username: string, password: string): Promise<LoginResult | undefined> {
     const record = await this.repository.passwordLoginRecord(orgId, username)
     if (record === undefined || record.disabled || !verifyPassword(password, record.verifier)) return undefined
     return this.issueSessionAsync(record.userId)
   }
 
+  /**
+   * Issue one persistent login Session through the asynchronous identity adapter.
+   * @param userId - Canonical enterprise user id.
+   * @returns the issued token, cookie, and principal.
+   */
   async issueSessionAsync(userId: string): Promise<LoginResult> {
     const user = (await this.repository.listUsers(this.config.organizationId)).find(candidate => candidate.id === userId)
     if (user === undefined || user.disabled) throw new Error('enterprise session user is unavailable')
@@ -282,6 +319,11 @@ export class EnterpriseSecurity {
     }
   }
 
+  /**
+   * Resolve or provision an external identity through the asynchronous adapter.
+   * @param identity - Validated and mapped external identity.
+   * @returns the issued token, cookie, and principal.
+   */
   async loginExternalAsync(identity: SsoMappedIdentity): Promise<LoginResult> {
     if (identity.organizationId !== this.config.organizationId) {
       throw new Error('SSO identity belongs to a different enterprise organization')
@@ -307,16 +349,32 @@ export class EnterpriseSecurity {
     return this.issueSessionAsync(user.id)
   }
 
+  /**
+   * Authenticate one cookie through the asynchronous identity adapter.
+   * @param cookieHeader - Incoming Cookie header.
+   * @returns the active principal, or `undefined` when unavailable.
+   */
   async authenticateCookieAsync(cookieHeader: string): Promise<EnterprisePrincipalView | undefined> {
     const token = parseSessionCookie(cookieHeader, this.config.sessionCookieName)
     return token === undefined ? undefined : this.repository.authenticateSession(token)
   }
 
+  /**
+   * Revoke the asynchronous login Session named by a cookie header.
+   * @param cookieHeader - Incoming Cookie header.
+   */
   async logoutAsync(cookieHeader: string): Promise<void> {
     const token = parseSessionCookie(cookieHeader, this.config.sessionCookieName)
     if (token !== undefined) await this.repository.revokeSession(token)
   }
 
+  /**
+   * Resolve resource scope and authorize one asynchronous Host API operation.
+   * @param principal - Authenticated caller.
+   * @param endpoint - Closed Host API endpoint name.
+   * @param input - Parsed request payload used only for resource addressing.
+   * @returns the authorization decision and stable reason.
+   */
   async authorizeApiAsync(principal: EnterprisePrincipal, endpoint: string, input: unknown): Promise<EnterpriseAuthorizationDecision> {
     if ((endpoint === 'session.create' || endpoint === 'sessions.create')
       && stringField(payloadOf(input), 'workspaceId') === undefined) {
@@ -337,7 +395,12 @@ export class EnterpriseSecurity {
     return authorizeEnterprise({ principal, action: classification.action, ...resource === undefined ? {} : { resource } })
   }
 
-  /** Bind a Session to a workspace only after the principal can create work in that compartment. */
+  /**
+   * Bind a Session to a workspace only after the principal can create work in that compartment.
+   * @param principal - Authenticated Session creator.
+   * @param sessionId - Newly created DSH Session id.
+   * @param workspaceId - Authorized DSH Workspace id.
+   */
   async bindSessionWorkspaceAsync(
     principal: EnterprisePrincipal,
     sessionId: string,
@@ -348,7 +411,12 @@ export class EnterpriseSecurity {
     await this.repository.bindSessionWorkspace({ sessionId, workspaceId, orgId: principal.orgId })
   }
 
-  /** Resolve the durable sandbox mode a newly bound Session must snapshot. */
+  /**
+   * Resolve the durable sandbox mode a newly bound Session must snapshot.
+   * @param principal - Authenticated Session creator.
+   * @param workspaceId - Authorized DSH Workspace id.
+   * @returns the grant's bounded sandbox mode.
+   */
   async workspaceSandboxModeAsync(
     principal: EnterprisePrincipal,
     workspaceId: string,
@@ -360,6 +428,14 @@ export class EnterpriseSecurity {
     return grant.sandboxMode
   }
 
+  /**
+   * Append one asynchronous Host API authorization decision to the audit sink.
+   * @param principal - Authenticated caller.
+   * @param endpoint - Closed Host API endpoint name.
+   * @param input - Parsed request payload used only for resource addressing.
+   * @param decision - Previously computed authorization decision.
+   * @param correlationId - Request-scoped correlation identity.
+   */
   async auditApiAsync(
     principal: EnterprisePrincipal,
     endpoint: string,
@@ -379,6 +455,13 @@ export class EnterpriseSecurity {
     })
   }
 
+  /**
+   * Resolve resource scope and authorize one synchronous Host API operation.
+   * @param principal - Authenticated caller.
+   * @param endpoint - Closed Host API endpoint name.
+   * @param input - Parsed request payload used only for resource addressing.
+   * @returns the authorization decision and stable reason.
+   */
   authorizeApi(principal: EnterprisePrincipal, endpoint: string, input: unknown): EnterpriseAuthorizationDecision {
     if ((endpoint === 'session.create' || endpoint === 'sessions.create')
       && stringField(payloadOf(input), 'workspaceId') === undefined) {
@@ -396,6 +479,14 @@ export class EnterpriseSecurity {
     return authorizeEnterprise({ principal, action: classification.action, ...resource === undefined ? {} : { resource } })
   }
 
+  /**
+   * Append one synchronous Host API authorization decision to the audit sink.
+   * @param principal - Authenticated caller.
+   * @param endpoint - Closed Host API endpoint name.
+   * @param input - Parsed request payload used only for resource addressing.
+   * @param decision - Previously computed authorization decision.
+   * @param correlationId - Request-scoped correlation identity.
+   */
   auditApi(
     principal: EnterprisePrincipal,
     endpoint: string,

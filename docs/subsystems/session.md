@@ -752,6 +752,95 @@ Types: [CreateSessionOptions](persistence.md) · [PrepareSessionOptions](persist
 
 Source: [`packages/core/session/src/index.ts`](../../packages/core/session/src/index.ts)
 
+<a id="enterprise-events"></a>
+
+### `enterprise/*` events
+
+<a id="enterpriseapproval-requested--parallel"></a>
+
+#### `enterprise/approval-requested` — parallel
+
+An enterprise approval request committed; listeners may surface the pending review.
+
+```ts cordis-catalog
+/**
+ * An enterprise approval request committed; listeners may surface the pending review.
+ * @param payload - Stable organization, resource, and event identity.
+ * @mode parallel
+ */
+'enterprise/approval-requested'(payload: EnterpriseEventPayload): void
+```
+
+Source: [`packages/host/apiproxy/src/api-proxy.ts`](../../packages/host/apiproxy/src/api-proxy.ts)
+
+<a id="enterpriseasset-updated--parallel"></a>
+
+#### `enterprise/asset-updated` — parallel
+
+An enterprise asset mutation committed; listeners may refresh the addressed asset.
+
+```ts cordis-catalog
+/**
+ * An enterprise asset mutation committed; listeners may refresh the addressed asset.
+ * @param payload - Stable organization, resource, and event identity.
+ * @mode parallel
+ */
+'enterprise/asset-updated'(payload: EnterpriseEventPayload): void
+```
+
+Source: [`packages/host/apiproxy/src/api-proxy.ts`](../../packages/host/apiproxy/src/api-proxy.ts)
+
+<a id="enterpriseemployee-updated--parallel"></a>
+
+#### `enterprise/employee-updated` — parallel
+
+An enterprise employee mutation committed; listeners may refresh the addressed employee.
+
+```ts cordis-catalog
+/**
+ * An enterprise employee mutation committed; listeners may refresh the addressed employee.
+ * @param payload - Stable organization, resource, and event identity.
+ * @mode parallel
+ */
+'enterprise/employee-updated'(payload: EnterpriseEventPayload): void
+```
+
+Source: [`packages/host/apiproxy/src/api-proxy.ts`](../../packages/host/apiproxy/src/api-proxy.ts)
+
+<a id="enterpriseoperation-updated--parallel"></a>
+
+#### `enterprise/operation-updated` — parallel
+
+An enterprise operational record committed; listeners may refresh the addressed record.
+
+```ts cordis-catalog
+/**
+ * An enterprise operational record committed; listeners may refresh the addressed record.
+ * @param payload - Stable organization, resource, and event identity.
+ * @mode parallel
+ */
+'enterprise/operation-updated'(payload: EnterpriseEventPayload): void
+```
+
+Source: [`packages/host/apiproxy/src/api-proxy.ts`](../../packages/host/apiproxy/src/api-proxy.ts)
+
+<a id="enterpriseteam-updated--parallel"></a>
+
+#### `enterprise/team-updated` — parallel
+
+An enterprise team mutation committed; listeners may refresh the addressed team.
+
+```ts cordis-catalog
+/**
+ * An enterprise team mutation committed; listeners may refresh the addressed team.
+ * @param payload - Stable organization, resource, and event identity.
+ * @mode parallel
+ */
+'enterprise/team-updated'(payload: EnterpriseEventPayload): void
+```
+
+Source: [`packages/host/apiproxy/src/api-proxy.ts`](../../packages/host/apiproxy/src/api-proxy.ts)
+
 <a id="session-events"></a>
 
 ### `session/*` events

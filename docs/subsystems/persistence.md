@@ -243,6 +243,14 @@ All implement the same abstract `SessionPersistence` (locate/create/append/prepa
 
 Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnpm run verify-cordis-catalog` in doc-sync; regenerate with `pnpm run gen-cordis-catalog`) — the language sides differ only in locale-specific paired document paths. Signature blocks use a `ts cordis-catalog` fence and keep the original source JSDoc; dispatch modes are defined in the [primer](../cordis-primer.md#dispatch-modes), and the framework-inherited `ctx` API lives in [cordis-api/inherited.md](../cordis-api/inherited.md).
 
+<a id="ctxenterprisepostgres--enterprisepostgrescomposition"></a>
+
+### `ctx.enterprisePostgres` — `EnterprisePostgresComposition`
+
+Shared production PostgreSQL adapters and their owned pool lifecycle.
+
+Source: [`packages/enterprise/enterprise-postgres/src/index.ts`](../../packages/enterprise/enterprise-postgres/src/index.ts)
+
 <a id="ctxsessionpersistence--sessionpersistence-abstract-seam"></a>
 
 ### `ctx.sessionPersistence` — `SessionPersistence` (abstract seam)
