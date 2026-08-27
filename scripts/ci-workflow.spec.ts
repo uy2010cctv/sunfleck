@@ -37,6 +37,8 @@ describe('CI workflow', () => {
     )
     expect(typeof integration.run === 'string' ? integration.run : '')
       .toContain('packages/bundle/web-app/tests/enterprise-real-loader-composition.spec.ts')
+    expect(typeof integration.run === 'string' ? integration.run : '')
+      .toContain('packages/host/apiproxy/tests/enterprise-postgres.integration.spec.ts')
   })
 
   it('isolates every pnpm action setup destination per runner', () => {

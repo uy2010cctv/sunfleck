@@ -63,4 +63,5 @@ jobs:
           pnpm exec vitest run
           packages/catalog/enterprise-catalog/tests/postgres.integration.spec.ts
           packages/operations/enterprise-operations/tests/postgres.integration.spec.ts
+          packages/host/apiproxy/tests/enterprise-postgres.integration.spec.ts
           packages/bundle/web-app/tests/enterprise-real-loader-composition.spec.ts
