@@ -134,7 +134,7 @@ describe('enterprise governance UI', () => {
     })
   })
 
-  it('shows governance ledger sections on the administrator Settings page', () => {
+  it('paginates enterprise management into accessible top tabs', () => {
     render(<EnterpriseGovernanceSettingsSection
       state={state({
         auth: {
@@ -162,9 +162,22 @@ describe('enterprise governance UI', () => {
       filterAudit={vi.fn()}
     />)
     expect(screen.getByRole('main', { name: '企业治理' })).toBeDefined()
+    expect(screen.getByRole('tablist', { name: '企业管理分区' })).toBeDefined()
+    expect(screen.getAllByRole('tab')).toHaveLength(6)
+    const organizations = screen.getByRole('tab', { name: '组织架构' })
+    expect(organizations.getAttribute('aria-selected')).toBe('true')
+    expect(screen.getByRole('heading', { name: '组织与部门' })).toBeDefined()
+    expect(screen.queryByRole('heading', { name: '用户与角色' })).toBeNull()
+
+    const users = screen.getByRole('tab', { name: '用户管理' })
+    fireEvent.click(users)
+    expect(users.getAttribute('aria-selected')).toBe('true')
     expect(screen.getByRole('heading', { name: '用户与角色' })).toBeDefined()
-    expect(screen.getByRole('heading', { name: '资产权限' })).toBeDefined()
-    expect(screen.getByRole('heading', { name: '审计日志' })).toBeDefined()
+    expect(screen.queryByRole('heading', { name: '组织与部门' })).toBeNull()
+
+    fireEvent.keyDown(users, { key: 'ArrowRight' })
+    expect(screen.getByRole('tab', { name: '工作区' }).getAttribute('aria-selected')).toBe('true')
+    expect(screen.getByRole('heading', { name: '工作区与沙盒' })).toBeDefined()
   })
 
   it('edits the department tree and reviews the enterprise awareness stream', () => {
@@ -215,8 +228,10 @@ describe('enterprise governance UI', () => {
     expect(screen.getByRole('tree', { name: '部门组织架构' })).toBeDefined()
     fireEvent.click(screen.getByRole('button', { name: '运营部' }))
     expect(screen.getAllByText('运营部 · 共享工作区')).toHaveLength(2)
+    fireEvent.click(screen.getByRole('tab', { name: '工作区' }))
     fireEvent.change(screen.getByLabelText('运营部 · 共享工作区 沙盒策略'), { target: { value: 'workspace-write' } })
     expect(updateWorkspace).toHaveBeenCalledWith('workspace-ops', { sandboxMode: 'workspace-write', expectedRevision: 1 })
+    fireEvent.click(screen.getByRole('tab', { name: '企业记忆' }))
     fireEvent.change(screen.getByLabelText('记忆审核原因'), { target: { value: '制度已核验' } })
     fireEvent.click(screen.getByRole('button', { name: '批准记忆' }))
     expect(reviewMemory).toHaveBeenCalledWith('memory-1', {

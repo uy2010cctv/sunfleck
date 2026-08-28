@@ -1,6 +1,6 @@
 /** Login gate and administrator governance ledger. */
 
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from 'react'
 import { randomUUID } from '@deepseek-ai/dsh-util-crypto'
 import type {
   EnterpriseGovernanceState, GovernanceDepartment, GovernanceMemory, GovernancePolicy,
@@ -431,19 +431,68 @@ function AuditSection({ state, filterAudit }: Pick<EnterpriseGovernanceSurfacePr
   </section>
 }
 
+type GovernancePage = 'organizations' | 'users' | 'workspaces' | 'memory' | 'policies' | 'audit'
+
+const GOVERNANCE_TABS: readonly { id: GovernancePage; label: string }[] = [
+  { id: 'organizations', label: '组织架构' },
+  { id: 'users', label: '用户管理' },
+  { id: 'workspaces', label: '工作区' },
+  { id: 'memory', label: '企业记忆' },
+  { id: 'policies', label: '资产权限' },
+  { id: 'audit', label: '审计日志' },
+]
+
 function GovernanceSections(props: EnterpriseGovernanceSurfaceProps) {
+  const [active, setActive] = useState<GovernancePage>('organizations')
+  const tabRefs = useRef<Array<HTMLButtonElement | null>>([])
+  const selectByKeyboard = (event: KeyboardEvent<HTMLButtonElement>, index: number): void => {
+    let next: number | undefined
+    if (event.key === 'ArrowRight') next = (index + 1) % GOVERNANCE_TABS.length
+    else if (event.key === 'ArrowLeft') next = (index - 1 + GOVERNANCE_TABS.length) % GOVERNANCE_TABS.length
+    else if (event.key === 'Home') next = 0
+    else if (event.key === 'End') next = GOVERNANCE_TABS.length - 1
+    if (next === undefined) return
+    event.preventDefault()
+    const tab = GOVERNANCE_TABS[next]
+    if (tab === undefined) return
+    setActive(tab.id)
+    tabRefs.current[next]?.focus()
+  }
+  const panel = (page: GovernancePage, content: ReactNode) => <div
+    id={`governance-panel-${page}`}
+    className={css.pagePanel}
+    role="tabpanel"
+    aria-labelledby={`governance-tab-${page}`}
+    hidden={active !== page}
+  >{content}</div>
+
   return <>
+    <div className={css.tabBar} role="tablist" aria-label="企业管理分区">
+      {GOVERNANCE_TABS.map((tab, index) => <button
+        key={tab.id}
+        ref={(element) => { tabRefs.current[index] = element }}
+        id={`governance-tab-${tab.id}`}
+        className={css.tab}
+        type="button"
+        role="tab"
+        aria-selected={active === tab.id}
+        aria-controls={`governance-panel-${tab.id}`}
+        tabIndex={active === tab.id ? 0 : -1}
+        onClick={() => { setActive(tab.id) }}
+        onKeyDown={(event) => { selectByKeyboard(event, index) }}
+      >{tab.label}</button>)}
+    </div>
     {props.state.error !== null && <div className={css.error} role="alert">{props.state.error}</div>}
-    <div id="governance-organizations"><OrganizationsSection state={props.state}
-      createOrganization={input => props.createOrganization(input)} saveDepartment={input => props.saveDepartment(input)} /></div>
-    <div id="governance-users"><UsersSection {...props} /></div>
-    <div id="governance-workspaces"><WorkspacesSection state={props.state}
+    {panel('organizations', <OrganizationsSection state={props.state}
+      createOrganization={input => props.createOrganization(input)} saveDepartment={input => props.saveDepartment(input)} />)}
+    {panel('users', <UsersSection {...props} />)}
+    {panel('workspaces', <WorkspacesSection state={props.state}
       createWorkspace={input => props.createWorkspace(input)}
-      updateWorkspace={(id, input) => props.updateWorkspace(id, input)} /></div>
-    <div id="governance-memory"><MemorySection state={props.state} proposeMemory={input => props.proposeMemory(input)}
-      reviewMemory={(id, input) => props.reviewMemory(id, input)} /></div>
-    <div id="governance-policies"><PoliciesSection {...props} /></div>
-    <div id="governance-audit"><AuditSection state={props.state} filterAudit={input => props.filterAudit(input)} /></div>
+      updateWorkspace={(id, input) => props.updateWorkspace(id, input)} />)}
+    {panel('memory', <MemorySection state={props.state} proposeMemory={input => props.proposeMemory(input)}
+      reviewMemory={(id, input) => props.reviewMemory(id, input)} />)}
+    {panel('policies', <PoliciesSection {...props} />)}
+    {panel('audit', <AuditSection state={props.state} filterAudit={input => props.filterAudit(input)} />)}
   </>
 }
 
