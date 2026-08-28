@@ -260,6 +260,62 @@ describe('enterprise governance UI', () => {
     expect(screen.queryByRole('dialog', { name: '编辑用户' })).toBeNull()
   })
 
+  it('explains resource access and saves permissions without manual IDs', async () => {
+    const savePolicy = vi.fn(() => Promise.resolve())
+    render(<EnterpriseGovernanceSettingsSection
+      state={state({
+        auth: {
+          authenticated: true,
+          principal: { userId: 'admin-1', orgId: 'org-a', displayName: 'Admin', username: 'admin', roles: ['administrator'] },
+          providers: [],
+        },
+        users: [{ id: 'admin-1', username: 'admin', displayName: 'Admin', disabled: false, roles: ['administrator'] }, {
+          id: 'buyer-1', username: 'buyer', displayName: '采购员', disabled: false, roles: ['member'],
+        }],
+        assets: [{ type: 'model', id: 'deepseek-v4', name: 'DeepSeek V4', config: {} }],
+        policies: [{
+          resourceType: 'model', resourceId: 'deepseek-v4', visibility: 'organization', allowedUserIds: [],
+        }],
+      })}
+      loadAdmin={vi.fn()} loginLocal={vi.fn()} logout={vi.fn()} createOrganization={vi.fn()}
+      createAsset={vi.fn()} createUser={vi.fn()} updateUser={vi.fn()} saveDepartment={vi.fn()}
+      createWorkspace={vi.fn()} updateWorkspace={vi.fn()} proposeMemory={vi.fn()} reviewMemory={vi.fn()}
+      savePolicy={savePolicy} filterAudit={vi.fn()}
+    />)
+    fireEvent.click(screen.getByRole('tab', { name: '资源权限' }))
+
+    expect(screen.getByRole('heading', { name: '资源访问权限' })).toBeDefined()
+    expect(screen.getByText('决定企业成员能否看到和使用数字员工、模型、能力与渠道。')).toBeDefined()
+    expect(screen.queryByLabelText('资产 ID')).toBeNull()
+    expect(screen.getByLabelText('选择资源')).toHaveProperty('value', 'model:deepseek-v4')
+    fireEvent.click(screen.getByLabelText('指定成员'))
+    fireEvent.click(screen.getByLabelText('采购员 @buyer'))
+    fireEvent.click(screen.getByRole('button', { name: '保存访问权限' }))
+
+    await waitFor(() => { expect(savePolicy).toHaveBeenCalledOnce() })
+    expect(savePolicy).toHaveBeenCalledWith({
+      resourceType: 'model', resourceId: 'deepseek-v4', visibility: 'restricted', allowedUserIds: ['buyer-1'],
+    })
+  })
+
+  it('shows an honest next step when no governable resources exist', () => {
+    render(<EnterpriseGovernanceSettingsSection
+      state={state({ auth: {
+        authenticated: true,
+        principal: { userId: 'admin-1', orgId: 'org-a', displayName: 'Admin', username: 'admin', roles: ['administrator'] },
+        providers: [],
+      } })}
+      loadAdmin={vi.fn()} loginLocal={vi.fn()} logout={vi.fn()} createOrganization={vi.fn()}
+      createAsset={vi.fn()} createUser={vi.fn()} updateUser={vi.fn()} saveDepartment={vi.fn()}
+      createWorkspace={vi.fn()} updateWorkspace={vi.fn()} proposeMemory={vi.fn()} reviewMemory={vi.fn()}
+      savePolicy={vi.fn()} filterAudit={vi.fn()}
+    />)
+    fireEvent.click(screen.getByRole('tab', { name: '资源权限' }))
+    expect(screen.getByText('暂无可授权资源')).toBeDefined()
+    expect(screen.getByText('请先在数字员工、模型或渠道管理中完成配置，资源会自动出现在这里。')).toBeDefined()
+    expect(screen.queryByRole('button', { name: '保存访问权限' })).toBeNull()
+  })
+
   it('renders the current enterprise as an expandable department and member tree', () => {
     render(<EnterpriseGovernanceSettingsSection
       state={state({

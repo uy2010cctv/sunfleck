@@ -57,6 +57,45 @@ td span { margin-block-start: 4px; color: var(--dsw-alias-label-secondary); font
 .policyList > div { min-inline-size: 0; padding: 12px; border: 1px solid var(--dsw-alias-border-l1); border-radius: 12px; background: var(--dsw-alias-bg-layer-1); }
 .policyList strong, .policyList span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .policyList span { margin-block-start: 4px; color: var(--dsw-alias-label-secondary); font-size: 11px; }
+.permissionHeader > div { min-inline-size: 0; }
+.permissionHeader p { max-inline-size: 70ch; margin: 5px 0 0; color: var(--dsw-alias-label-secondary); font-size: 12px; }
+.permissionGuide { display: grid; gap: 4px; margin-block: 16px 20px; padding: 12px 14px; border-radius: 10px; background: var(--dsw-alias-bg-layer-2); }
+.permissionGuide strong { font-size: 12px; font-weight: 500; }
+.permissionGuide span { color: var(--dsw-alias-label-secondary); font-size: 11px; line-height: 1.55; }
+.permissionEmpty { min-block-size: 260px; display: grid; place-content: center; justify-items: center; gap: 8px; padding: 24px; text-align: center; }
+.permissionEmpty svg { color: var(--dsw-alias-label-secondary); }
+.permissionEmpty strong { font-size: 14px; }
+.permissionEmpty span { max-inline-size: 48ch; color: var(--dsw-alias-label-secondary); font-size: 12px; line-height: 1.6; }
+.permissionLayout { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(260px, .75fr); gap: 24px; align-items: start; }
+.permissionEditor { display: grid; gap: 16px; min-inline-size: 0; }
+.resourceSelect { display: grid; gap: 7px; color: var(--dsw-alias-label-secondary); font-size: 12px; }
+.resourceSelect select { min-block-size: 44px; min-inline-size: 0; padding-inline: 12px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 10px; background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-label-primary); font: inherit; }
+.resourceSelect small { overflow: hidden; color: var(--dsw-alias-label-tertiary); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.visibilityChoices, .allowedUsers { min-inline-size: 0; margin: 0; padding: 12px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 12px; }
+.visibilityChoices legend, .allowedUsers legend { padding-inline: 4px; color: var(--dsw-alias-label-secondary); font-size: 11px; }
+.visibilityChoices { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.visibilityChoices > label { display: flex; align-items: flex-start; gap: 9px; min-inline-size: 0; padding: 10px; border-radius: 9px; cursor: pointer; }
+.visibilityChoices > label:hover { background: var(--dsw-alias-interactive-bg-hover); }
+.visibilityChoices input { flex: none; margin-block-start: 3px; accent-color: var(--dsw-alias-state-business-primary); }
+.visibilityChoices span, .visibilityChoices strong, .visibilityChoices small { display: block; min-inline-size: 0; }
+.visibilityChoices strong { font-size: 12px; font-weight: 500; }
+.visibilityChoices small { margin-block-start: 3px; color: var(--dsw-alias-label-secondary); font-size: 10px; line-height: 1.45; }
+.allowedUsers { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px 12px; max-block-size: 220px; overflow: auto; }
+.allowedUsers > label { display: flex; align-items: center; gap: 9px; min-inline-size: 0; min-block-size: 42px; padding-inline: 8px; border-radius: 8px; }
+.allowedUsers > label:hover { background: var(--dsw-alias-interactive-bg-hover); }
+.allowedUsers input { flex: none; accent-color: var(--dsw-alias-state-business-primary); }
+.allowedUsers label > span, .allowedUsers label > span small { display: block; min-inline-size: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.allowedUsers label > span { font-size: 12px; }
+.allowedUsers label > span small { margin-block-start: 2px; color: var(--dsw-alias-label-secondary); font-size: 10px; }
+.permissionHint { margin: -8px 0 0; color: var(--dsw-alias-label-secondary); font-size: 11px; }
+.permissionActions { display: flex; justify-content: flex-end; }
+.permissionRules { min-inline-size: 0; padding-inline-start: 20px; border-inline-start: 1px solid var(--dsw-alias-border-l2); }
+.permissionRules > button { inline-size: 100%; display: flex; align-items: center; justify-content: space-between; gap: 12px; min-block-size: 54px; margin-block: 4px; padding: 8px 10px; text-align: start; }
+.permissionRules > button > span { min-inline-size: 0; }
+.permissionRules > button strong, .permissionRules > button small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.permissionRules > button strong { font-size: 12px; font-weight: 500; }
+.permissionRules > button small { margin-block-start: 3px; color: var(--dsw-alias-label-secondary); font-size: 10px; }
+.permissionRules > button em { flex: none; color: var(--dsw-alias-label-secondary); font-size: 10px; font-style: normal; }
 .directoryHeader > div:first-child { min-inline-size: 0; }
 .directoryHeader p { margin: 6px 0 0; color: var(--dsw-alias-label-secondary); font-size: 12px; }
 .directoryActions { display: flex; align-items: center; justify-content: flex-end; gap: 12px; }
@@ -181,6 +220,9 @@ td span { margin-block-start: 4px; color: var(--dsw-alias-label-secondary); font
   .userToolbar { grid-template-columns: minmax(0, 1fr); }
   .userForm { grid-template-columns: minmax(0, 1fr); }
   .userForm > label, .departmentChoices, .userForm .formError { grid-column: 1; }
+  .permissionLayout { grid-template-columns: minmax(0, 1fr); }
+  .visibilityChoices { grid-template-columns: minmax(0, 1fr); }
+  .permissionRules { padding-inline-start: 0; padding-block-start: 16px; border-inline-start: 0; border-block-start: 1px solid var(--dsw-alias-border-l2); }
 }
 
 @media (prefers-reduced-motion: reduce) {

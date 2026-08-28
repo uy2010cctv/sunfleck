@@ -602,45 +602,145 @@ function MemorySection({ state, proposeMemory, reviewMemory }: Pick<
   </section>
 }
 
-function PoliciesSection({ state, savePolicy, createAsset }: Pick<
-  EnterpriseGovernanceSurfaceProps, 'state' | 'savePolicy' | 'createAsset'
+function PoliciesSection({ state, savePolicy }: Pick<
+  EnterpriseGovernanceSurfaceProps, 'state' | 'savePolicy'
 >) {
-  const [resourceType, setResourceType] = useState('employee')
-  const [resourceId, setResourceId] = useState('')
-  const [name, setName] = useState('')
-  const [visibility, setVisibility] = useState<GovernancePolicy['visibility']>('organization')
-  return (
-    <section className={css.ledgerSection}>
-      <header><h2>资产权限</h2><span>{state.policies.length}</span></header>
-      <p>统一管理数字员工、模型、能力资产与渠道的可见范围。</p>
-      <form className={css.inlineForm} onSubmit={(event) => {
-        event.preventDefault()
-        if (resourceType === 'channel' || resourceType === 'model' || resourceType === 'capability') {
-          void createAsset({ type: resourceType, id: resourceId, name, config: {} })
-        }
-        void savePolicy({ resourceType, resourceId, visibility, allowedUserIds: [] })
-      }}>
-        <select aria-label="资产类型" value={resourceType} onChange={(event) => { setResourceType(event.target.value) }}>
-          <option value="employee">数字员工</option><option value="model">模型</option>
-          <option value="capability">能力资产</option><option value="channel">渠道</option>
-        </select>
-        <input aria-label="资产 ID" placeholder="resource-id" value={resourceId} onChange={(event) => { setResourceId(event.target.value) }} />
-        <input aria-label="资产名称" placeholder="asset name" value={name} onChange={(event) => { setName(event.target.value) }} />
-        <select aria-label="可见范围" value={visibility} onChange={(event) => { setVisibility(event.target.value as GovernancePolicy['visibility']) }}>
-          <option value="organization">全组织</option><option value="private">仅创建者</option><option value="restricted">指定用户</option>
-        </select>
-        <button type="submit">保存策略</button>
-      </form>
-      <div className={css.policyList}>{state.assets.map(asset => (
-        <div key={`${asset.type}:${asset.id}`}><strong>{asset.name}</strong><span>{asset.type} · {asset.id}</span></div>
-      ))}</div>
-      <div className={css.policyList}>{state.policies.map(policy => (
-        <div key={`${policy.resourceType}:${policy.resourceId}`}>
-          <strong>{policy.resourceId}</strong><span>{policy.resourceType} · {policy.visibility}</span>
+  const typeLabel = (type: string): string => ({
+    employee: '数字员工', model: '模型', capability: '能力', channel: '渠道',
+  })[type] ?? type
+  const resources = useMemo(() => {
+    const values = new Map<string, { key: string; type: string; id: string; name: string }>()
+    for (const asset of state.assets) {
+      const key = `${asset.type}:${asset.id}`
+      values.set(key, { key, type: asset.type, id: asset.id, name: asset.name })
+    }
+    for (const policy of state.policies) {
+      const key = `${policy.resourceType}:${policy.resourceId}`
+      if (!values.has(key)) values.set(key, {
+        key, type: policy.resourceType, id: policy.resourceId,
+        name: `${typeLabel(policy.resourceType)} · ${policy.resourceId}`,
+      })
+    }
+    return [...values.values()].toSorted((left, right) => left.name.localeCompare(right.name))
+  }, [state.assets, state.policies])
+  const [selectedKey, setSelectedKey] = useState(resources[0]?.key ?? '')
+  const selectedResource = resources.find(resource => resource.key === selectedKey) ?? resources[0]
+  const selectedPolicy = selectedResource === undefined ? undefined : state.policies.find(policy =>
+    policy.resourceType === selectedResource.type && policy.resourceId === selectedResource.id)
+  const [visibility, setVisibility] = useState<GovernancePolicy['visibility']>(selectedPolicy?.visibility ?? 'organization')
+  const [allowedUserIds, setAllowedUserIds] = useState<string[]>([...(selectedPolicy?.allowedUserIds ?? [])])
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  useEffect(() => {
+    if (selectedResource === undefined) {
+      setSelectedKey('')
+      setVisibility('organization')
+      setAllowedUserIds([])
+      return
+    }
+    if (selectedKey !== selectedResource.key) setSelectedKey(selectedResource.key)
+    setVisibility(selectedPolicy?.visibility ?? 'organization')
+    setAllowedUserIds([...(selectedPolicy?.allowedUserIds ?? [])])
+  }, [selectedKey, selectedPolicy, selectedResource])
+  const selectResource = (key: string): void => {
+    const resource = resources.find(item => item.key === key)
+    const policy = resource === undefined ? undefined : state.policies.find(item =>
+      item.resourceType === resource.type && item.resourceId === resource.id)
+    setSelectedKey(key)
+    setVisibility(policy?.visibility ?? 'organization')
+    setAllowedUserIds([...(policy?.allowedUserIds ?? [])])
+    setError(null)
+  }
+  const visibilitySummary = (policy: GovernancePolicy): string => {
+    if (policy.visibility === 'organization') return '全企业可用'
+    if (policy.visibility === 'private') return '仅负责人可用'
+    return `指定 ${policy.allowedUserIds.length} 位成员`
+  }
+  return <section className={css.ledgerSection}>
+    <header className={css.permissionHeader}>
+      <div><h2>资源访问权限</h2><p>决定企业成员能否看到和使用数字员工、模型、能力与渠道。</p></div>
+      <span>{state.policies.length} 条规则</span>
+    </header>
+    <div className={css.permissionGuide}>
+      <strong>这里控制“谁可以使用资源”</strong>
+      <span>不会修改模型参数、员工职责或渠道配置；管理员始终保留治理权限。</span>
+    </div>
+    {resources.length === 0
+      ? <div className={css.permissionEmpty}>
+        <IconFolderOpen16 size={20} />
+        <strong>暂无可授权资源</strong>
+        <span>请先在数字员工、模型或渠道管理中完成配置，资源会自动出现在这里。</span>
+      </div>
+      : <div className={css.permissionLayout}>
+        <form className={css.permissionEditor} onSubmit={(event) => {
+          event.preventDefault()
+          if (selectedResource === undefined || (visibility === 'restricted' && allowedUserIds.length === 0)) return
+          const submit = async (): Promise<void> => {
+            setSaving(true); setError(null)
+            try {
+              const creatorUserId = selectedPolicy?.creatorUserId ?? state.auth?.principal?.userId
+              await savePolicy({
+                resourceType: selectedResource.type, resourceId: selectedResource.id,
+                ...(visibility === 'private' && creatorUserId !== undefined ? { creatorUserId } : {}),
+                visibility, allowedUserIds: visibility === 'restricted' ? [...allowedUserIds].sort() : [],
+              })
+            } catch { setError('保存访问权限失败，请重试') }
+            finally { setSaving(false) }
+          }
+          void submit()
+        }}>
+          <label className={css.resourceSelect}>选择要授权的资源<select aria-label="选择资源" value={selectedResource?.key ?? ''}
+            onChange={(event) => { selectResource(event.target.value) }}>
+            {resources.map(resource => <option key={resource.key} value={resource.key}>
+              {resource.name} · {typeLabel(resource.type)}
+            </option>)}
+          </select><small>资源编号：{selectedResource?.id}</small></label>
+          <fieldset className={css.visibilityChoices}><legend>谁可以使用</legend>
+            <label><input type="radio" name="visibility" value="organization" checked={visibility === 'organization'}
+              onChange={() => { setVisibility('organization') }} /><span><strong>全企业</strong><small>所有已登录企业成员都可以看到和使用</small></span></label>
+            <label><input type="radio" name="visibility" value="private" checked={visibility === 'private'}
+              onChange={() => { setVisibility('private') }} /><span><strong>仅负责人</strong><small>资源负责人和管理员可以使用</small></span></label>
+            <label><input aria-label="指定成员" type="radio" name="visibility" value="restricted"
+              checked={visibility === 'restricted'} onChange={() => { setVisibility('restricted') }} />
+            <span><strong>指定成员</strong><small>只允许勾选的成员使用</small></span></label>
+          </fieldset>
+          {visibility === 'restricted' && <fieldset className={css.allowedUsers}><legend>选择成员</legend>
+            {state.users.length === 0
+              ? <span>暂无可选择成员</span>
+              : state.users.map(user => <label key={user.id}>
+                <input type="checkbox" aria-label={`${user.displayName} @${user.username}`} disabled={user.disabled}
+                  checked={allowedUserIds.includes(user.id)} onChange={(event) => {
+                    setAllowedUserIds(current => event.target.checked
+                      ? [...current, user.id]
+                      : current.filter(id => id !== user.id))
+                  }} />
+                <span>{user.displayName}<small>@{user.username}{user.disabled ? ' · 已停用' : ''}</small></span>
+              </label>)}
+          </fieldset>}
+          {visibility === 'restricted' && allowedUserIds.length === 0
+            && <p className={css.permissionHint}>至少选择一位成员后才能保存。</p>}
+          {error !== null && <div className={css.formError} role="alert">{error}</div>}
+          <div className={css.permissionActions}><button type="submit"
+            disabled={saving || (visibility === 'restricted' && allowedUserIds.length === 0)}>
+            {saving ? '正在保存…' : '保存访问权限'}
+          </button></div>
+        </form>
+        <div className={css.permissionRules}>
+          <div className={css.subsectionHeader}><strong>当前规则</strong><span>{state.policies.length}</span></div>
+          {state.policies.length === 0
+            ? <p className={css.emptyState}>尚未设置规则，资源默认按平台策略处理。</p>
+            : state.policies.map((policy) => {
+              const resource = resources.find(item => item.type === policy.resourceType && item.id === policy.resourceId)
+              return <button key={`${policy.resourceType}:${policy.resourceId}`} type="button"
+                aria-label={`编辑权限：${resource?.name ?? policy.resourceId}`}
+                onClick={() => { selectResource(`${policy.resourceType}:${policy.resourceId}`) }}>
+                <span><strong>{resource?.name ?? policy.resourceId}</strong><small>{typeLabel(policy.resourceType)}</small></span>
+                <em>{visibilitySummary(policy)}</em>
+              </button>
+            })}
         </div>
-      ))}</div>
-    </section>
-  )
+      </div>}
+  </section>
 }
 
 function AuditSection({ state, filterAudit }: Pick<EnterpriseGovernanceSurfaceProps, 'state' | 'filterAudit'>) {
@@ -669,7 +769,7 @@ const GOVERNANCE_TABS: readonly { id: GovernancePage; label: string }[] = [
   { id: 'users', label: '用户管理' },
   { id: 'workspaces', label: '工作区' },
   { id: 'memory', label: '企业记忆' },
-  { id: 'policies', label: '资产权限' },
+  { id: 'policies', label: '资源权限' },
   { id: 'audit', label: '审计日志' },
 ]
 
@@ -722,7 +822,7 @@ function GovernanceSections(props: EnterpriseGovernanceSurfaceProps) {
       updateWorkspace={(id, input) => props.updateWorkspace(id, input)} />)}
     {panel('memory', <MemorySection state={props.state} proposeMemory={input => props.proposeMemory(input)}
       reviewMemory={(id, input) => props.reviewMemory(id, input)} />)}
-    {panel('policies', <PoliciesSection {...props} />)}
+    {panel('policies', <PoliciesSection state={props.state} savePolicy={input => props.savePolicy(input)} />)}
     {panel('audit', <AuditSection state={props.state} filterAudit={input => props.filterAudit(input)} />)}
   </>
 }
