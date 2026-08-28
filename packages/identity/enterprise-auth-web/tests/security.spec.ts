@@ -88,6 +88,18 @@ describe('EnterpriseSecurity', () => {
     expect(classifyApiEndpoint('enterpriseOperation.approvals.get', { approvalId: 'approval-1' })).toEqual({ action: 'approval.read', resourceType: 'approval', resourceId: 'approval-1' })
     expect(classifyApiEndpoint('enterpriseOperation.schedules.transition', { scheduleId: 'schedule-1' })).toEqual({ action: 'schedule.manage', resourceType: 'schedule', resourceId: 'schedule-1' })
     expect(classifyApiEndpoint('enterpriseEmployee.unknown', {})).toBeUndefined()
+    expect(classifyApiEndpoint('cordisWorkspace.save', { pluginId: 'plugin-1' })).toEqual({
+      action: 'plugin.create', resourceType: 'cordis-plugin', resourceId: 'plugin-1',
+    })
+    expect(classifyApiEndpoint('cordisReview.publishOrganization', { pluginId: 'plugin-1' })).toEqual({
+      action: 'plugin.publish', resourceType: 'cordis-plugin', resourceId: 'plugin-1',
+    })
+    expect(classifyApiEndpoint('cordisGovernance.disable', { pluginId: 'plugin-1' })).toEqual({
+      action: 'plugin.manage', resourceType: 'cordis-plugin', resourceId: 'plugin-1',
+    })
+    expect(classifyApiEndpoint('cordisGovernance.departmentManagers', { departmentId: 'dept-a' })).toEqual({
+      action: 'plugin.read', resourceType: 'department', resourceId: 'dept-a',
+    })
   })
 
   it('classifies developer inventory endpoints as administrator-only system inspection', () => {

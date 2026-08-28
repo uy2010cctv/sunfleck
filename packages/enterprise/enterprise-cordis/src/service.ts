@@ -7,6 +7,7 @@ import type {
   CordisPluginScope,
   CordisReviewRequest,
   CordisScopeBinding,
+  CordisWorkspaceProjection,
   DerivedCordisPackage,
   DepartmentManagerSet,
   EnterpriseCordisAuditEvent,
@@ -372,6 +373,44 @@ export class EnterpriseCordisService {
 
   async departmentManagers(orgId: string, departmentId: string): Promise<DepartmentManagerSet | undefined> {
     return this.repository.departmentManagers(orgId, departmentId)
+  }
+
+  async listWorkspace(input: {
+    principal: EnterpriseCordisPrincipal
+    workspaceId: string
+  }): Promise<CordisWorkspaceProjection> {
+    const workspace = await this.workspace(input.principal, input.workspaceId)
+    if (workspace.kind === 'personal' && workspace.ownerUserId !== input.principal.userId && !isAdmin(input.principal.roles)) {
+      throw new EnterpriseCordisError('personal-owner-required', 'Personal Workspace owner permission is required')
+    }
+    if (workspace.kind === 'department' && workspace.departmentId !== undefined && !isAdmin(input.principal.roles)) {
+      const memberships = await this.options.directory.userDepartments(input.principal.orgId, input.principal.userId)
+      if (!memberships.includes(workspace.departmentId)) {
+        throw new EnterpriseCordisError('department-member-required', 'Department membership is required')
+      }
+    }
+    const visible = (scope: CordisPluginScope): boolean => scope.type === 'organization'
+      || (workspace.kind === 'personal' && scope.type === 'personal-workspace'
+        && scope.workspaceId === workspace.workspaceId && scope.ownerUserId === workspace.ownerUserId)
+      || (workspace.kind === 'department' && scope.type === 'department'
+        && scope.departmentId === workspace.departmentId)
+    return {
+      packages: (await this.repository.listPackages(input.principal.orgId)).filter(row => visible(row.scope)),
+      bindings: (await this.repository.listBindings(input.principal.orgId)).filter(row => visible(row.scope)),
+    }
+  }
+
+  async listReviews(input: { principal: EnterpriseCordisPrincipal }): Promise<readonly CordisReviewRequest[]> {
+    const reviews = await this.repository.listReviews(input.principal.orgId)
+    if (isAdmin(input.principal.roles)) return reviews
+    const visible: CordisReviewRequest[] = []
+    for (const review of reviews) {
+      if (review.submittedBy === input.principal.userId
+        || await this.options.directory.isDepartmentManager(
+          input.principal.orgId, review.departmentId, input.principal.userId,
+        )) visible.push(review)
+    }
+    return visible
   }
 
   async audit(event: EnterpriseCordisAuditEvent): Promise<void> { await this.repository.appendAudit(event) }

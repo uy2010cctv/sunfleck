@@ -140,6 +140,46 @@ export function classifyApiEndpoint(endpoint: string, input: unknown): ApiClassi
     const resourceId = stringField(payload, 'teamId')
     return { action: endpoint === 'enterpriseTeam.list' || endpoint === 'enterpriseTeam.get' ? 'team.read' : 'team.manage', resourceType: 'fixed-team', ...(resourceId === undefined ? {} : { resourceId }) }
   }
+  const cordisPluginId = stringField(payload, 'pluginId')
+  if (endpoint === 'cordisGovernance.departmentManagers') {
+    const departmentId = stringField(payload, 'departmentId')
+    return {
+      action: 'plugin.read', resourceType: 'department',
+      ...(departmentId === undefined ? {} : { resourceId: departmentId }),
+    }
+  }
+  if (['cordisWorkspace.list', 'cordisReview.list'].includes(endpoint)) {
+    return {
+      action: 'plugin.read', resourceType: 'cordis-plugin',
+      ...(cordisPluginId === undefined ? {} : { resourceId: cordisPluginId }),
+    }
+  }
+  if (['cordisWorkspace.save', 'cordisWorkspace.activate', 'cordisWorkspace.stop', 'cordisWorkspace.rollback',
+    'cordisReview.submit'].includes(endpoint)) {
+    return {
+      action: 'plugin.create', resourceType: 'cordis-plugin',
+      ...(cordisPluginId === undefined ? {} : { resourceId: cordisPluginId }),
+    }
+  }
+  if (['cordisReview.derive', 'cordisReview.approveDepartment', 'cordisReview.return'].includes(endpoint)) {
+    return {
+      action: 'plugin.review', resourceType: 'cordis-plugin',
+      ...(cordisPluginId === undefined ? {} : { resourceId: cordisPluginId }),
+    }
+  }
+  if (endpoint === 'cordisReview.publishOrganization') {
+    return {
+      action: 'plugin.publish', resourceType: 'cordis-plugin',
+      ...(cordisPluginId === undefined ? {} : { resourceId: cordisPluginId }),
+    }
+  }
+  if (['cordisGovernance.disable', 'cordisGovernance.rollback', 'cordisGovernance.setTrust',
+    'cordisGovernance.setDepartmentManagers'].includes(endpoint)) {
+    return {
+      action: 'plugin.manage', resourceType: 'cordis-plugin',
+      ...(cordisPluginId === undefined ? {} : { resourceId: cordisPluginId }),
+    }
+  }
   if (['enterpriseOperation.workRecords.list', 'enterpriseOperation.workRecords.get', 'enterpriseOperation.workRecords.update', 'enterpriseOperation.workRecords.upsert',
     'enterpriseOperation.approvals.list', 'enterpriseOperation.approvals.get', 'enterpriseOperation.approvals.create', 'enterpriseOperation.approvals.transition', 'enterpriseOperation.approvals.cancel',
     'enterpriseOperation.schedules.list', 'enterpriseOperation.schedules.get', 'enterpriseOperation.schedules.create', 'enterpriseOperation.schedules.save', 'enterpriseOperation.schedules.transition', 'enterpriseOperation.schedules.fire',

@@ -185,4 +185,30 @@ describe('EnterpriseCordisService', () => {
       expectedRevision: 1, idempotencyKey: 'managers-member',
     })).rejects.toMatchObject({ code: 'administrator-required' })
   })
+
+  it('projects only the caller-visible Workspace extensions and reviews', async () => {
+    const cordis = service()
+    const personal = await cordis.savePersonal({
+      principal: member, workspaceId: 'personal-1', draft, idempotencyKey: 'personal-list',
+    })
+    await cordis.activatePersonal({
+      principal: member, workspaceId: 'personal-1', pluginId: personal.pluginId,
+      packageId: personal.packageId, expectedRevision: 0, idempotencyKey: 'personal-active-list',
+    })
+    const review = await cordis.submitDepartment({
+      principal: member, workspaceId: 'department-1', draft: { ...draft, pluginId: 'dept-plugin' },
+      sourceSessionId: 'session-2', idempotencyKey: 'review-list',
+    })
+
+    const personalView = await cordis.listWorkspace({ principal: member, workspaceId: 'personal-1' })
+    const memberReviews = await cordis.listReviews({ principal: member })
+    const managerReviews = await cordis.listReviews({ principal: manager })
+    const outsiderReviews = await cordis.listReviews({ principal: { ...member, userId: 'outsider' } })
+
+    expect(personalView.packages.map(row => row.packageId)).toContain(personal.packageId)
+    expect(personalView.bindings).toEqual([expect.objectContaining({ activePackageId: personal.packageId })])
+    expect(memberReviews.map(row => row.reviewId)).toContain(review.reviewId)
+    expect(managerReviews.map(row => row.reviewId)).toContain(review.reviewId)
+    expect(outsiderReviews).toEqual([])
+  })
 })

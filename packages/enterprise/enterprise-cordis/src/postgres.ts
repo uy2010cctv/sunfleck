@@ -258,6 +258,13 @@ export class PostgresEnterpriseCordisRepository implements EnterpriseCordisRepos
     ])
   }
 
+  async listPackages(orgId: string): Promise<readonly CordisPackageVersion[]> {
+    const result = await this.database.query<PackageRow>(
+      'SELECT * FROM dsh_enterprise_cordis_packages WHERE org_id=$1 ORDER BY created_at,package_id', [orgId],
+    )
+    return result.rows.map(packageFromRow)
+  }
+
   async review(reviewId: string): Promise<CordisReviewRequest | undefined> {
     const result = await this.database.query<ReviewRow>(
       'SELECT * FROM dsh_enterprise_cordis_reviews WHERE review_id = $1', [reviewId],
@@ -281,6 +288,13 @@ export class PostgresEnterpriseCordisRepository implements EnterpriseCordisRepos
         row.revision, row.updatedAt, row.reviewId, expectedRevision,
       ])
     if (result.rowCount !== 1) throw new Error('Cordis review revision conflict')
+  }
+
+  async listReviews(orgId: string): Promise<readonly CordisReviewRequest[]> {
+    const result = await this.database.query<ReviewRow>(
+      'SELECT * FROM dsh_enterprise_cordis_reviews WHERE org_id=$1 ORDER BY updated_at DESC,review_id', [orgId],
+    )
+    return result.rows.map(reviewFromRow)
   }
 
   async binding(bindingId: string): Promise<CordisScopeBinding | undefined> {
@@ -315,6 +329,13 @@ export class PostgresEnterpriseCordisRepository implements EnterpriseCordisRepos
         row.disabled, row.disabledReason ?? null, row.updatedAt, row.bindingId, expectedRevision,
       ])
     if (result.rowCount !== 1) throw new Error('Cordis binding revision conflict')
+  }
+
+  async listBindings(orgId: string): Promise<readonly CordisScopeBinding[]> {
+    const result = await this.database.query<BindingRow>(
+      'SELECT * FROM dsh_enterprise_cordis_bindings WHERE org_id=$1 ORDER BY binding_id', [orgId],
+    )
+    return result.rows.map(bindingFromRow)
   }
 
   async command<T>(scope: string, idempotencyKey: string): Promise<T | undefined> {

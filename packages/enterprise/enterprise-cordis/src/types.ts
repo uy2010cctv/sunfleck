@@ -124,3 +124,8 @@ export interface PublishedCordisReview extends CordisReviewRequest {
   readonly publishedBy: string
   readonly organizationBinding: CordisScopeBinding
 }
+
+export interface CordisWorkspaceProjection {
+  readonly packages: readonly CordisPackageVersion[]
+  readonly bindings: readonly CordisScopeBinding[]
+}

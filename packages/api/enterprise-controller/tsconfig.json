@@ -9,6 +9,7 @@
     { "path": "../../catalog/enterprise-catalog" },
     { "path": "../../governance/enterprise-governance" },
     { "path": "../../operations/enterprise-operations" },
+    { "path": "../../enterprise/enterprise-cordis" },
     { "path": "../../enterprise/enterprise-postgres" },
     { "path": "../../core/session" },
     { "path": "../../runtime-diagnostics/invariants" }

@@ -9,12 +9,15 @@ import type {
 export interface EnterpriseCordisRepository {
   package(packageId: string): Promise<CordisPackageVersion | undefined>
   packages(pluginId: string, orgId: string): Promise<readonly CordisPackageVersion[]>
+  listPackages(orgId: string): Promise<readonly CordisPackageVersion[]>
   putPackage(value: CordisPackageVersion): Promise<void>
   review(reviewId: string): Promise<CordisReviewRequest | undefined>
   putReview(value: CordisReviewRequest, expectedRevision: number): Promise<void>
+  listReviews(orgId: string): Promise<readonly CordisReviewRequest[]>
   binding(bindingId: string): Promise<CordisScopeBinding | undefined>
   bindingForScope(orgId: string, scopeKey: string, pluginId: string): Promise<CordisScopeBinding | undefined>
   putBinding(value: CordisScopeBinding, expectedRevision: number): Promise<void>
+  listBindings(orgId: string): Promise<readonly CordisScopeBinding[]>
   command<T>(scope: string, idempotencyKey: string): Promise<T | undefined>
   putCommand<T>(scope: string, idempotencyKey: string, value: T): Promise<void>
   appendAudit(value: EnterpriseCordisAuditEvent): Promise<void>
@@ -49,6 +52,11 @@ export class InMemoryEnterpriseCordisRepository implements EnterpriseCordisRepos
     this.packageRows.set(value.packageId, copy(value))
   }
 
+  async listPackages(orgId: string): Promise<readonly CordisPackageVersion[]> {
+    return [...this.packageRows.values()].filter(row => row.orgId === orgId)
+      .sort((left, right) => left.createdAt - right.createdAt || left.packageId.localeCompare(right.packageId)).map(copy)
+  }
+
   async review(reviewId: string): Promise<CordisReviewRequest | undefined> {
     const value = this.reviewRows.get(reviewId)
     return value === undefined ? undefined : copy(value)
@@ -58,6 +66,11 @@ export class InMemoryEnterpriseCordisRepository implements EnterpriseCordisRepos
     const current = this.reviewRows.get(value.reviewId)
     if ((current?.revision ?? 0) !== expectedRevision) throw new Error('Cordis review revision conflict')
     this.reviewRows.set(value.reviewId, copy(value))
+  }
+
+  async listReviews(orgId: string): Promise<readonly CordisReviewRequest[]> {
+    return [...this.reviewRows.values()].filter(row => row.orgId === orgId)
+      .sort((left, right) => right.updatedAt - left.updatedAt || left.reviewId.localeCompare(right.reviewId)).map(copy)
   }
 
   async binding(bindingId: string): Promise<CordisScopeBinding | undefined> {
@@ -75,6 +88,11 @@ export class InMemoryEnterpriseCordisRepository implements EnterpriseCordisRepos
     const current = this.bindingRows.get(value.bindingId)
     if ((current?.revision ?? 0) !== expectedRevision) throw new Error('Cordis binding revision conflict')
     this.bindingRows.set(value.bindingId, copy(value))
+  }
+
+  async listBindings(orgId: string): Promise<readonly CordisScopeBinding[]> {
+    return [...this.bindingRows.values()].filter(row => row.orgId === orgId)
+      .sort((left, right) => left.bindingId.localeCompare(right.bindingId)).map(copy)
   }
 
   async command<T>(scope: string, idempotencyKey: string): Promise<T | undefined> {

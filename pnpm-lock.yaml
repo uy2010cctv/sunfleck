@@ -637,6 +637,9 @@ importers:
       '@deepseek-ai/dsh-enterprise-catalog':
         specifier: workspace:^
         version: link:../../catalog/enterprise-catalog
+      '@deepseek-ai/dsh-enterprise-cordis':
+        specifier: workspace:^
+        version: link:../../enterprise/enterprise-cordis
       '@deepseek-ai/dsh-enterprise-governance':
         specifier: workspace:^
         version: link:../../governance/enterprise-governance

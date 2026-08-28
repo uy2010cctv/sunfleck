@@ -79,6 +79,16 @@ describe('enterprise authorization', () => {
       resource,
     })).toEqual({ allowed: false, reason: 'insufficient-role' })
   })
+
+  it('admits Cordis creation and review to authenticated members while reserving emergency governance for admins', () => {
+    const member = { userId: 'member-1', orgId: 'org-a', roles: ['member'] as const }
+    for (const action of ['plugin.read', 'plugin.create', 'plugin.review', 'plugin.publish'] as const) {
+      expect(authorizeEnterprise({ principal: member, action, resource }))
+        .toEqual({ allowed: true, reason: 'role' })
+    }
+    expect(authorizeEnterprise({ principal: member, action: 'plugin.manage', resource }))
+      .toEqual({ allowed: false, reason: 'insufficient-role' })
+  })
 })
 
 describe('enterprise deployment and audit', () => {
