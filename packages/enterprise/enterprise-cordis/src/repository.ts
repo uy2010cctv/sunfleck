@@ -2,6 +2,7 @@ import type {
   CordisPackageVersion,
   CordisReviewRequest,
   CordisScopeBinding,
+  CordisSessionGeneration,
   DepartmentManagerSet,
   EnterpriseCordisAuditEvent,
 } from './types.ts'
@@ -18,6 +19,8 @@ export interface EnterpriseCordisRepository {
   bindingForScope(orgId: string, scopeKey: string, pluginId: string): Promise<CordisScopeBinding | undefined>
   putBinding(value: CordisScopeBinding, expectedRevision: number): Promise<void>
   listBindings(orgId: string): Promise<readonly CordisScopeBinding[]>
+  sessionGeneration(sessionId: string): Promise<CordisSessionGeneration | undefined>
+  putSessionGeneration(value: CordisSessionGeneration): Promise<void>
   command<T>(scope: string, idempotencyKey: string): Promise<T | undefined>
   putCommand<T>(scope: string, idempotencyKey: string, value: T): Promise<void>
   appendAudit(value: EnterpriseCordisAuditEvent): Promise<void>
@@ -34,6 +37,7 @@ export class InMemoryEnterpriseCordisRepository implements EnterpriseCordisRepos
   private readonly reviewRows = new Map<string, CordisReviewRequest>()
   private readonly bindingRows = new Map<string, CordisScopeBinding>()
   private readonly commands = new Map<string, unknown>()
+  private readonly sessionGenerations = new Map<string, CordisSessionGeneration>()
   private readonly auditRows: EnterpriseCordisAuditEvent[] = []
   private readonly managerRows = new Map<string, DepartmentManagerSet>()
 
@@ -93,6 +97,19 @@ export class InMemoryEnterpriseCordisRepository implements EnterpriseCordisRepos
   async listBindings(orgId: string): Promise<readonly CordisScopeBinding[]> {
     return [...this.bindingRows.values()].filter(row => row.orgId === orgId)
       .sort((left, right) => left.bindingId.localeCompare(right.bindingId)).map(copy)
+  }
+
+  async sessionGeneration(sessionId: string): Promise<CordisSessionGeneration | undefined> {
+    const value = this.sessionGenerations.get(sessionId)
+    return value === undefined ? undefined : copy(value)
+  }
+
+  async putSessionGeneration(value: CordisSessionGeneration): Promise<void> {
+    const current = this.sessionGenerations.get(value.sessionId)
+    if (current !== undefined && JSON.stringify(current) !== JSON.stringify(value)) {
+      throw new Error('Cordis Session generation already exists')
+    }
+    this.sessionGenerations.set(value.sessionId, copy(value))
   }
 
   async command<T>(scope: string, idempotencyKey: string): Promise<T | undefined> {

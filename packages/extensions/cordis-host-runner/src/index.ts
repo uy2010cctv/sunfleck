@@ -20,6 +20,7 @@ import type {
   DynamicCordisPackageInspection, DynamicCordisPendingRequest, DynamicCordisPlugin,
   DynamicCordisPluginInspection,
   DynamicCordisReference, DynamicCordisRun,
+  DynamicCordisRestoreRequest,
 } from './registry.ts'
 import { createSandbox, evaluateHostCode, precheckCode } from './sandbox.ts'
 import type {
@@ -36,6 +37,7 @@ export type {
   DynamicCordisDefineReceipt, DynamicCordisDefineRequest, DynamicCordisDefinition, DynamicCordisHandler,
   DynamicCordisPackageInspection, DynamicCordisPlugin, DynamicCordisPluginInspection,
   DynamicCordisReference, DynamicCordisRun,
+  DynamicCordisRestoreRequest,
 } from './registry.ts'
 export { CordisInspectRegistryService } from './inspect-registry.ts'
 export type { HostCordisInspectProviderRegistration } from './inspect-registry.ts'
@@ -199,6 +201,25 @@ export class DynamicCordisRunnerService extends TypertRemoteService {
       hasHostHalf: definition.hostCode !== undefined,
       hasClientHalf: definition.clientCode !== undefined,
     }
+  }
+
+  /**
+   * Restore one Package whose enterprise scope binding already records user or
+   * governance approval. This only suppresses a duplicate Client approval; the
+   * ordinary run path, sandbox, lifecycle, and browser loader remain in force.
+   */
+  restoreApproved(request: DynamicCordisRestoreRequest): DynamicCordisDefineReceipt {
+    const receipt = this.define({
+      sessionId: request.sessionId,
+      plugin: { kind: 'new', idPrefix: request.idPrefix },
+      name: request.name,
+      purpose: request.purpose,
+      code: request.code,
+    })
+    const plugin = this.registry.get(receipt.pluginId)
+    if (plugin === undefined) throw new Error(`restored dynamic plugin "${receipt.pluginId}" disappeared`)
+    plugin.approvedClientPackages.add(receipt.packageId)
+    return receipt
   }
 
   /**

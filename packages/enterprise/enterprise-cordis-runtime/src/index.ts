@@ -76,6 +76,31 @@ function inspectedDraft(ctx: Context, agent: Agent, pluginId: string, packageId:
   }
 }
 
+async function restoreWorkspaceGeneration(
+  ctx: Context,
+  service: EnterpriseCordisService,
+  agent: Agent,
+): Promise<void> {
+  const grant = await grantForAgent(ctx, agent)
+  const principal = await principalFor(ctx, agent, grant)
+  const generation = await service.pinSessionGeneration({
+    principal, workspaceId: grant.workspaceId, sessionId: String(agent.id),
+  })
+  for (const entry of generation.entries) {
+    const pkg = await ctx.enterprisePostgres.cordis.package(entry.packageId)
+    if (pkg === undefined) throw new Error(`enterprise Cordis Package ${entry.packageId} is missing`)
+    const defined = ctx.dynamicCordisRunner.restoreApproved({
+      sessionId: agent.id, idPrefix: 'ent', name: pkg.name, purpose: pkg.purpose,
+      code: {
+        ...(pkg.hostCode === undefined ? {} : { host: pkg.hostCode }),
+        ...(pkg.clientCode === undefined ? {} : { client: pkg.clientCode }),
+      },
+    })
+    const started = await ctx.dynamicCordisRunner.run(agent, defined.pluginId, defined.packageId, 'run')
+    if (!started.ok) throw new Error(`restoring ${entry.pluginId} failed: ${started.message}`)
+  }
+}
+
 /** Provide the shared service and register persistence/review tools. */
 export function apply(ctx: Context): void {
   const composition = ctx.enterprisePostgres
@@ -97,6 +122,23 @@ export function apply(ctx: Context): void {
   })
   ctx.provide('enterpriseCordis', service)
   ctx.systemPrompt.section({ name: 'enterprise:cordis-persistence', order: 2550, text: POLICY })
+  const restores = new Map<string, Promise<void>>()
+  ctx.on('system-prompt/assemble', async (_assembly, context, next) => {
+    const agent = context.agent
+    if (agent !== undefined) {
+      const sessionId = String(agent.id)
+      let pending = restores.get(sessionId)
+      if (pending === undefined) {
+        pending = restoreWorkspaceGeneration(ctx, service, agent).catch((error: unknown) => {
+          restores.delete(sessionId)
+          throw error
+        })
+        restores.set(sessionId, pending)
+      }
+      await pending
+    }
+    return next()
+  })
 
   ctx.tools.register(defineTool({
     name: 'cordis_save_personal',

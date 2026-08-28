@@ -67,18 +67,23 @@ import type {
   CordisDepartmentManagersRequest,
   CordisDepartmentManagersSaveRequest,
   CordisGovernanceDisableRequest,
+  CordisGovernanceSetTrustRequest,
   CordisReviewDeriveRequest,
   CordisReviewListRequest,
   CordisReviewPublishRequest,
   CordisReviewSubmitRequest,
   CordisReviewTransitionRequest,
   CordisWorkspaceActivateRequest,
+  CordisWorkspacePinGenerationRequest,
+  CordisWorkspaceRollbackRequest,
+  CordisWorkspaceStopRequest,
   CordisWorkspaceListRequest,
   CordisWorkspaceSaveRequest,
   CordisWorkspaceProjection,
   CordisPackageVersion,
   CordisReviewRequest,
   CordisScopeBinding,
+  CordisSessionGeneration,
   DepartmentManagerSet,
   DerivedCordisPackage,
   PublishedCordisReview,
@@ -532,6 +537,23 @@ export class CordisWorkspaceController extends TypertRemoteService {
     return catalogCall(this.ctx, 'cordisWorkspace.activate', request, 'cordis-plugin', request.pluginId, actor =>
       cordis(this.ctx).activatePersonal({ principal: actor, ...request }))
   }
+
+  @Remote('stop') async stop(request: CordisWorkspaceStopRequest): Promise<CordisScopeBinding> {
+    return catalogCall(this.ctx, 'cordisWorkspace.stop', request, 'cordis-plugin', request.pluginId, actor =>
+      cordis(this.ctx).stopBinding({ principal: actor, ...request }))
+  }
+
+  @Remote('rollback') async rollback(request: CordisWorkspaceRollbackRequest): Promise<CordisScopeBinding> {
+    return catalogCall(this.ctx, 'cordisWorkspace.rollback', request, 'cordis-plugin', request.pluginId, actor =>
+      cordis(this.ctx).rollbackBinding({ principal: actor, ...request }))
+  }
+
+  @Remote('pinGeneration') async pinGeneration(
+    request: CordisWorkspacePinGenerationRequest,
+  ): Promise<CordisSessionGeneration> {
+    return catalogCall(this.ctx, 'cordisWorkspace.pinGeneration', request, 'cordis-plugin', request.sessionId, actor =>
+      cordis(this.ctx).pinSessionGeneration({ principal: actor, ...request }))
+  }
 }
 
 /** Department review, derived modification, and organization publication Remote service. */
@@ -598,6 +620,16 @@ export class CordisGovernanceController extends TypertRemoteService {
   @Remote('disable') async disable(request: CordisGovernanceDisableRequest): Promise<CordisScopeBinding> {
     return catalogCall(this.ctx, 'cordisGovernance.disable', request, 'cordis-plugin', request.pluginId, actor =>
       cordis(this.ctx).emergencyDisable({ principal: actor, ...request }))
+  }
+
+  @Remote('rollback') async rollback(request: CordisWorkspaceRollbackRequest): Promise<CordisScopeBinding> {
+    return catalogCall(this.ctx, 'cordisGovernance.rollback', request, 'cordis-plugin', request.pluginId, actor =>
+      cordis(this.ctx).rollbackBinding({ principal: actor, ...request }))
+  }
+
+  @Remote('setTrust') async setTrust(request: CordisGovernanceSetTrustRequest): Promise<CordisScopeBinding> {
+    return catalogCall(this.ctx, 'cordisGovernance.setTrust', request, 'cordis-plugin', request.pluginId, actor =>
+      cordis(this.ctx).setTrust({ principal: actor, ...request }))
   }
 }
 

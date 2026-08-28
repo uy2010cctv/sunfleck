@@ -102,4 +102,30 @@ describe('enterprise Cordis Remote controllers', () => {
     expect(published.status).toBe('published-organization')
     expect(published.organizationBinding.scope).toEqual({ type: 'organization', organizationId: 'org-a' })
   })
+
+  it('exposes Session generation, stop, rollback, and administrator trust controls', async () => {
+    const app = await setup()
+    const saved = await app.requestContext.run(member, () => app.workspace.save({
+      workspaceId: 'personal-1', draft, idempotencyKey: 'lifecycle-save',
+    }))
+    const active = await app.requestContext.run(member, () => app.workspace.activate({
+      workspaceId: 'personal-1', pluginId: saved.pluginId, packageId: saved.packageId,
+      expectedRevision: 0, idempotencyKey: 'lifecycle-active',
+    }))
+    const generation = await app.requestContext.run(member, () => app.workspace.pinGeneration({
+      workspaceId: 'personal-1', sessionId: 'session-1',
+    }))
+    const stopped = await app.requestContext.run(member, () => app.workspace.stop({
+      bindingId: active.bindingId, pluginId: active.pluginId, expectedRevision: active.revision,
+      reason: 'Pause.', idempotencyKey: 'lifecycle-stop',
+    }))
+    const restored = await app.requestContext.run(member, () => app.workspace.rollback({
+      bindingId: stopped.bindingId, pluginId: stopped.pluginId, packageId: saved.packageId,
+      expectedRevision: stopped.revision, reason: 'Restore.', idempotencyKey: 'lifecycle-rollback',
+    }))
+
+    expect(generation.entries).toEqual([expect.objectContaining({ packageId: saved.packageId })])
+    expect(stopped.disabled).toBe(true)
+    expect(restored).toMatchObject({ disabled: false, activePackageId: saved.packageId })
+  })
 })

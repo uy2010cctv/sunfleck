@@ -7,6 +7,7 @@ import type {
   CordisPluginScope,
   CordisReviewRequest,
   CordisScopeBinding,
+  CordisSessionGeneration,
   CordisWorkspaceProjection,
   DerivedCordisPackage,
   DepartmentManagerSet,
@@ -194,7 +195,8 @@ export class EnterpriseCordisService {
         bindingId: current?.bindingId ?? this.randomId('cordis-binding'),
         orgId: input.principal.orgId, scope, pluginId: input.pluginId, activePackageId: input.packageId,
         generation: (current?.generation ?? 0) + 1, revision: (current?.revision ?? 0) + 1,
-        activatedBy: input.principal.userId, disabled: false, updatedAt: this.now(),
+        activatedBy: input.principal.userId, disabled: false,
+        trustLevel: current?.trustLevel ?? 'isolated', updatedAt: this.now(),
       }
       await this.repository.putBinding(value, current?.revision ?? 0)
       return value
@@ -313,7 +315,8 @@ export class EnterpriseCordisService {
         bindingId: current?.bindingId ?? this.randomId('cordis-binding'), orgId: input.principal.orgId,
         scope, pluginId: review.pluginId, activePackageId: input.packageId,
         generation: (current?.generation ?? 0) + 1, revision: (current?.revision ?? 0) + 1,
-        activatedBy: input.principal.userId, disabled: false, updatedAt: this.now(),
+        activatedBy: input.principal.userId, disabled: false,
+        trustLevel: current?.trustLevel ?? 'isolated', updatedAt: this.now(),
       }
       await this.repository.putBinding(binding, current?.revision ?? 0)
       const next: PublishedCordisReview = {
@@ -345,6 +348,137 @@ export class EnterpriseCordisService {
       await this.repository.putBinding(next, current.revision)
       return next
     })
+  }
+
+  private async authorizeBindingMutation(
+    principal: EnterpriseCordisPrincipal,
+    binding: CordisScopeBinding,
+  ): Promise<void> {
+    if (isAdmin(principal.roles)) return
+    if (binding.scope.type === 'personal-workspace' && binding.scope.ownerUserId === principal.userId) return
+    if (binding.scope.type === 'department') return this.manager(principal, binding.scope.departmentId)
+    throw new EnterpriseCordisError('administrator-required', 'Administrator permission is required')
+  }
+
+  async stopBinding(input: {
+    principal: EnterpriseCordisPrincipal
+    bindingId: string
+    expectedRevision: number
+    reason: string
+    idempotencyKey: string
+  }): Promise<CordisScopeBinding> {
+    return this.idempotent(input.principal, 'stop-binding', input.idempotencyKey, async () => {
+      const current = await this.repository.binding(input.bindingId)
+      if (current === undefined || current.orgId !== input.principal.orgId) {
+        throw new EnterpriseCordisError('package-not-found', 'Cordis binding was not found')
+      }
+      await this.authorizeBindingMutation(input.principal, current)
+      if (current.revision !== input.expectedRevision) {
+        throw new EnterpriseCordisError('revision-conflict', 'Cordis binding revision conflict')
+      }
+      const next: CordisScopeBinding = {
+        ...current, disabled: true, disabledReason: input.reason.trim(),
+        revision: current.revision + 1, updatedAt: this.now(),
+      }
+      await this.repository.putBinding(next, current.revision)
+      return next
+    })
+  }
+
+  async rollbackBinding(input: {
+    principal: EnterpriseCordisPrincipal
+    bindingId: string
+    packageId: string
+    expectedRevision: number
+    reason: string
+    idempotencyKey: string
+  }): Promise<CordisScopeBinding> {
+    return this.idempotent(input.principal, 'rollback-binding', input.idempotencyKey, async () => {
+      const current = await this.repository.binding(input.bindingId)
+      if (current === undefined || current.orgId !== input.principal.orgId) {
+        throw new EnterpriseCordisError('package-not-found', 'Cordis binding was not found')
+      }
+      await this.authorizeBindingMutation(input.principal, current)
+      if (current.revision !== input.expectedRevision) {
+        throw new EnterpriseCordisError('revision-conflict', 'Cordis binding revision conflict')
+      }
+      const pkg = await this.repository.package(input.packageId)
+      if (pkg === undefined || pkg.orgId !== current.orgId || pkg.pluginId !== current.pluginId) {
+        throw new EnterpriseCordisError('package-not-found', 'Rollback package was not found')
+      }
+      const { disabledReason: _disabledReason, ...enabled } = current
+      const next: CordisScopeBinding = {
+        ...enabled, activePackageId: pkg.packageId, disabled: false, activatedBy: input.principal.userId,
+        generation: current.generation + 1, revision: current.revision + 1, updatedAt: this.now(),
+      }
+      await this.repository.putBinding(next, current.revision)
+      await this.repository.appendAudit({
+        id: this.randomId('cordis-audit'), orgId: current.orgId, actorUserId: input.principal.userId,
+        action: 'cordis.binding.rollback', pluginId: current.pluginId, packageId: pkg.packageId,
+        at: next.updatedAt, details: { bindingId: current.bindingId, reason: input.reason.trim() },
+      })
+      return next
+    })
+  }
+
+  async setTrust(input: {
+    principal: EnterpriseCordisPrincipal
+    bindingId: string
+    trustLevel: CordisScopeBinding['trustLevel']
+    expectedRevision: number
+    reason: string
+    idempotencyKey: string
+  }): Promise<CordisScopeBinding> {
+    return this.idempotent(input.principal, 'set-trust', input.idempotencyKey, async () => {
+      if (!isAdmin(input.principal.roles)) {
+        throw new EnterpriseCordisError('administrator-required', 'Administrator permission is required')
+      }
+      const current = await this.repository.binding(input.bindingId)
+      if (current === undefined || current.orgId !== input.principal.orgId) {
+        throw new EnterpriseCordisError('package-not-found', 'Cordis binding was not found')
+      }
+      if (current.scope.type !== 'organization') {
+        throw new EnterpriseCordisError('protected-contract', 'Only organization plugins can be promoted to trusted execution')
+      }
+      if (current.revision !== input.expectedRevision) {
+        throw new EnterpriseCordisError('revision-conflict', 'Cordis binding revision conflict')
+      }
+      const next: CordisScopeBinding = {
+        ...current, trustLevel: input.trustLevel, revision: current.revision + 1, updatedAt: this.now(),
+      }
+      await this.repository.putBinding(next, current.revision)
+      await this.repository.appendAudit({
+        id: this.randomId('cordis-audit'), orgId: current.orgId, actorUserId: input.principal.userId,
+        action: 'cordis.binding.trust', pluginId: current.pluginId, packageId: current.activePackageId,
+        at: next.updatedAt, details: { bindingId: current.bindingId, trustLevel: input.trustLevel, reason: input.reason.trim() },
+      })
+      return next
+    })
+  }
+
+  async pinSessionGeneration(input: {
+    principal: EnterpriseCordisPrincipal
+    workspaceId: string
+    sessionId: string
+  }): Promise<CordisSessionGeneration> {
+    const existing = await this.repository.sessionGeneration(input.sessionId)
+    if (existing !== undefined) {
+      if (existing.orgId !== input.principal.orgId || existing.workspaceId !== input.workspaceId) {
+        throw new EnterpriseCordisError('organization-mismatch', 'Session generation belongs to another Workspace')
+      }
+      return existing
+    }
+    const projection = await this.listWorkspace({ principal: input.principal, workspaceId: input.workspaceId })
+    const value: CordisSessionGeneration = {
+      sessionId: input.sessionId, orgId: input.principal.orgId, workspaceId: input.workspaceId,
+      entries: projection.bindings.filter(binding => !binding.disabled).map(binding => ({
+        pluginId: binding.pluginId, packageId: binding.activePackageId,
+        bindingId: binding.bindingId, generation: binding.generation, scope: binding.scope,
+      })).sort((left, right) => left.pluginId.localeCompare(right.pluginId)),
+      createdAt: this.now(),
+    }
+    await this.repository.putSessionGeneration(value)
+    return value
   }
 
   async setDepartmentManagers(input: {

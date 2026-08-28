@@ -72,6 +72,9 @@
         actorUserId: bootstrap-admin
         allowOrganizationScope: true
 
+    - id: enterprise-cordis-runtime
+      name: '@deepseek-ai/dsh-enterprise-cordis-runtime'
+
     - id: enterprise-controller
       name: '@deepseek-ai/dsh-api-enterprise-controller'
 

@@ -95,4 +95,33 @@ describe('enterprise Cordis runtime tools', () => {
       expect.objectContaining({ pluginId: String(defined.pluginId), submittedBy: 'member-1', status: 'pending' }),
     ])
   })
+
+  it('pins and restores an active Workspace Generation for a new Session', async () => {
+    const app = await setup()
+    const author = agent('session-author')
+    const defined = app.ctx.dynamicCordisRunner.define({
+      sessionId: author.id, plugin: { kind: 'new', idPrefix: 'sav' },
+      name: 'Saved helper', purpose: 'Remain available after restart.',
+      code: { host: 'return { apply(ctx) { void ctx } }' },
+    })
+    await app.ctx.dynamicCordisRunner.run(author, defined.pluginId, defined.packageId, 'run')
+    await app.requestContext.run(principal, () => call(app.ctx, 'cordis_save_personal', {
+      pluginId: defined.pluginId, packageId: defined.packageId,
+    }, author))
+
+    const restored = agent('session-restored')
+    await app.requestContext.run(principal, () => app.ctx.systemPrompt.assemble({ agent: restored }))
+    const first = app.ctx.dynamicCordisRunner.inventory().filter(row => row.agentId === restored.id)
+    await app.requestContext.run(principal, () => app.ctx.systemPrompt.assemble({ agent: restored }))
+    const repeated = app.ctx.dynamicCordisRunner.inventory().filter(row => row.agentId === restored.id)
+
+    expect(first).toEqual([expect.objectContaining({
+      activeRun: expect.objectContaining({ packageId: expect.any(String) }),
+      packages: [expect.objectContaining({ name: 'Saved helper' })],
+    })])
+    expect(repeated).toHaveLength(1)
+    expect(await app.cordis.sessionGeneration(String(restored.id))).toEqual(expect.objectContaining({
+      entries: [expect.objectContaining({ packageId: expect.stringContaining('cordis-package-') })],
+    }))
+  })
 })

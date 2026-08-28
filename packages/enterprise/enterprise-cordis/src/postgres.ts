@@ -3,6 +3,7 @@ import type {
   CordisPackageVersion,
   CordisReviewRequest,
   CordisScopeBinding,
+  CordisSessionGeneration,
   DepartmentManagerSet,
   EnterpriseCordisAuditEvent,
 } from './types.ts'
@@ -69,15 +70,24 @@ const SCHEMA = [
     activated_by TEXT NOT NULL,
     disabled BOOLEAN NOT NULL,
     disabled_reason TEXT,
+    trust_level TEXT NOT NULL DEFAULT 'isolated',
     updated_at BIGINT NOT NULL,
     UNIQUE(org_id, scope_key, plugin_id)
   )`,
+  "ALTER TABLE dsh_enterprise_cordis_bindings ADD COLUMN IF NOT EXISTS trust_level TEXT NOT NULL DEFAULT 'isolated'",
   `CREATE TABLE IF NOT EXISTS dsh_enterprise_cordis_commands (
     command_scope TEXT NOT NULL,
     idempotency_key TEXT NOT NULL,
     result_json JSONB NOT NULL,
     created_at BIGINT NOT NULL DEFAULT (extract(epoch from clock_timestamp()) * 1000)::BIGINT,
     PRIMARY KEY(command_scope, idempotency_key)
+  )`,
+  `CREATE TABLE IF NOT EXISTS dsh_enterprise_cordis_session_generations (
+    session_id TEXT PRIMARY KEY,
+    org_id TEXT NOT NULL,
+    workspace_id TEXT NOT NULL,
+    entries_json JSONB NOT NULL,
+    created_at BIGINT NOT NULL
   )`,
   `CREATE TABLE IF NOT EXISTS dsh_enterprise_cordis_audit (
     id TEXT PRIMARY KEY,
@@ -184,6 +194,7 @@ interface BindingRow extends Record<string, unknown> {
   activated_by: string
   disabled: boolean
   disabled_reason: string | null
+  trust_level: CordisScopeBinding['trustLevel']
   updated_at: string | number
 }
 
@@ -222,6 +233,7 @@ function bindingFromRow(row: BindingRow): CordisScopeBinding {
     generation: Number(row.generation), revision: Number(row.revision),
     activatedBy: row.activated_by, disabled: row.disabled,
     ...(row.disabled_reason === null ? {} : { disabledReason: row.disabled_reason }),
+    trustLevel: row.trust_level,
     updatedAt: Number(row.updated_at),
   }
 }
@@ -316,17 +328,17 @@ export class PostgresEnterpriseCordisRepository implements EnterpriseCordisRepos
     const result = expectedRevision === 0
       ? await this.database.query(`INSERT INTO dsh_enterprise_cordis_bindings(
         binding_id, org_id, scope_key, scope_json, plugin_id, active_package_id, generation,
-        revision, activated_by, disabled, disabled_reason, updated_at
-      ) VALUES ($1,$2,$3,$4::jsonb,$5,$6,$7,$8,$9,$10,$11,$12) ON CONFLICT DO NOTHING`, [
+        revision, activated_by, disabled, disabled_reason, updated_at, trust_level
+      ) VALUES ($1,$2,$3,$4::jsonb,$5,$6,$7,$8,$9,$10,$11,$12,$13) ON CONFLICT DO NOTHING`, [
         row.bindingId, row.orgId, JSON.stringify(row.scope), JSON.stringify(row.scope),
         row.pluginId, row.activePackageId, row.generation, row.revision, row.activatedBy,
-        row.disabled, row.disabledReason ?? null, row.updatedAt,
+        row.disabled, row.disabledReason ?? null, row.updatedAt, row.trustLevel,
       ])
       : await this.database.query(`UPDATE dsh_enterprise_cordis_bindings SET active_package_id=$1,
-        generation=$2, revision=$3, activated_by=$4, disabled=$5, disabled_reason=$6, updated_at=$7
-        WHERE binding_id=$8 AND revision=$9`, [
+        generation=$2, revision=$3, activated_by=$4, disabled=$5, disabled_reason=$6, updated_at=$7,
+        trust_level=$8 WHERE binding_id=$9 AND revision=$10`, [
         row.activePackageId, row.generation, row.revision, row.activatedBy,
-        row.disabled, row.disabledReason ?? null, row.updatedAt, row.bindingId, expectedRevision,
+        row.disabled, row.disabledReason ?? null, row.updatedAt, row.trustLevel, row.bindingId, expectedRevision,
       ])
     if (result.rowCount !== 1) throw new Error('Cordis binding revision conflict')
   }
@@ -336,6 +348,26 @@ export class PostgresEnterpriseCordisRepository implements EnterpriseCordisRepos
       'SELECT * FROM dsh_enterprise_cordis_bindings WHERE org_id=$1 ORDER BY binding_id', [orgId],
     )
     return result.rows.map(bindingFromRow)
+  }
+
+  async sessionGeneration(sessionId: string): Promise<CordisSessionGeneration | undefined> {
+    const result = await this.database.query<Record<string, unknown>>(
+      'SELECT * FROM dsh_enterprise_cordis_session_generations WHERE session_id=$1', [sessionId],
+    )
+    const row = result.rows[0]
+    return row === undefined ? undefined : {
+      sessionId: String(row['session_id']), orgId: String(row['org_id']), workspaceId: String(row['workspace_id']),
+      entries: value(row['entries_json']), createdAt: Number(row['created_at']),
+    }
+  }
+
+  async putSessionGeneration(row: CordisSessionGeneration): Promise<void> {
+    const result = await this.database.query(`INSERT INTO dsh_enterprise_cordis_session_generations(
+      session_id,org_id,workspace_id,entries_json,created_at
+    ) VALUES ($1,$2,$3,$4::jsonb,$5) ON CONFLICT DO NOTHING`, [
+      row.sessionId, row.orgId, row.workspaceId, JSON.stringify(row.entries), row.createdAt,
+    ])
+    if (result.rowCount !== 1) throw new Error('Cordis Session generation already exists')
   }
 
   async command<T>(scope: string, idempotencyKey: string): Promise<T | undefined> {

@@ -3,6 +3,7 @@ import type {
   CordisPackageVersion,
   CordisReviewRequest,
   CordisScopeBinding,
+  CordisSessionGeneration,
   CordisWorkspaceProjection,
   DepartmentManagerSet,
   DerivedCordisPackage,
@@ -21,6 +22,20 @@ export interface CordisWorkspaceActivateRequest {
   readonly packageId: string
   readonly expectedRevision: number
   readonly idempotencyKey: string
+}
+export interface CordisWorkspaceStopRequest {
+  readonly bindingId: string
+  readonly pluginId: string
+  readonly expectedRevision: number
+  readonly reason: string
+  readonly idempotencyKey: string
+}
+export interface CordisWorkspaceRollbackRequest extends CordisWorkspaceStopRequest {
+  readonly packageId: string
+}
+export interface CordisWorkspacePinGenerationRequest {
+  readonly workspaceId: string
+  readonly sessionId: string
 }
 export interface CordisReviewSubmitRequest {
   readonly workspaceId: string
@@ -64,12 +79,16 @@ export interface CordisGovernanceDisableRequest {
   readonly reason: string
   readonly idempotencyKey: string
 }
+export interface CordisGovernanceSetTrustRequest extends CordisGovernanceDisableRequest {
+  readonly trustLevel: CordisScopeBinding['trustLevel']
+}
 
 export type {
   CordisPackageDraft,
   CordisPackageVersion,
   CordisReviewRequest,
   CordisScopeBinding,
+  CordisSessionGeneration,
   CordisWorkspaceProjection,
   DepartmentManagerSet,
   DerivedCordisPackage,

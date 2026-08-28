@@ -48,6 +48,20 @@ function define(
 }
 
 describe('dynamic runner definitions', () => {
+  it('restores a previously approved Client Package without opening a second approval', async () => {
+    const harness = await setup()
+    const restored = harness.runner.restoreApproved({
+      sessionId: AGENT_A.id, idPrefix: 'saved', name: 'Saved panel', purpose: 'Restore UI.',
+      code: { client: 'return { apply(ctx) { void ctx } }' },
+    })
+    const result = await harness.runner.run(AGENT_A, restored.pluginId, restored.packageId, 'run')
+
+    expect(result).toMatchObject({ ok: true, status: 'starting' })
+    expect(harness.gateway.events).toContainEqual([
+      'cordis/request-run', expect.objectContaining({ requiresApproval: false }),
+    ])
+  })
+
   it('lists the whole registry for a global surface, each row carrying its owning session', async () => {
     const { runner } = await setup()
     const mine = define(runner, { sessionId: AGENT_A.id, name: 'mine', purpose: 'ours', host: HOST_CODE })

@@ -148,7 +148,7 @@ export function classifyApiEndpoint(endpoint: string, input: unknown): ApiClassi
       ...(departmentId === undefined ? {} : { resourceId: departmentId }),
     }
   }
-  if (['cordisWorkspace.list', 'cordisReview.list'].includes(endpoint)) {
+  if (['cordisWorkspace.list', 'cordisWorkspace.pinGeneration', 'cordisReview.list'].includes(endpoint)) {
     return {
       action: 'plugin.read', resourceType: 'cordis-plugin',
       ...(cordisPluginId === undefined ? {} : { resourceId: cordisPluginId }),

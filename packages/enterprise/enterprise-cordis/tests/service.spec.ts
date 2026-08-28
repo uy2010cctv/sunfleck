@@ -170,6 +170,96 @@ describe('EnterpriseCordisService', () => {
     expect(disabled).toMatchObject({ disabled: true, revision: 2 })
   })
 
+  it('stops and rolls back a personal extension without deleting immutable versions', async () => {
+    const cordis = service()
+    const first = await cordis.savePersonal({
+      principal: member, workspaceId: 'personal-1', draft, idempotencyKey: 'save-first',
+    })
+    const firstBinding = await cordis.activatePersonal({
+      principal: member, workspaceId: 'personal-1', pluginId: first.pluginId,
+      packageId: first.packageId, expectedRevision: 0, idempotencyKey: 'activate-first',
+    })
+    const second = await cordis.savePersonal({
+      principal: member, workspaceId: 'personal-1',
+      draft: { ...draft, dynamicPackageId: 'pkg-runtime-2', purpose: 'Validate order totals.' },
+      idempotencyKey: 'save-second',
+    })
+    const secondBinding = await cordis.activatePersonal({
+      principal: member, workspaceId: 'personal-1', pluginId: second.pluginId,
+      packageId: second.packageId, expectedRevision: firstBinding.revision, idempotencyKey: 'activate-second',
+    })
+    const stopped = await cordis.stopBinding({
+      principal: member, bindingId: secondBinding.bindingId, expectedRevision: secondBinding.revision,
+      reason: 'Paused by owner.', idempotencyKey: 'stop-personal',
+    })
+    const rolledBack = await cordis.rollbackBinding({
+      principal: member, bindingId: stopped.bindingId, packageId: first.packageId,
+      expectedRevision: stopped.revision, reason: 'Restore known-good version.', idempotencyKey: 'rollback-personal',
+    })
+
+    expect(stopped).toMatchObject({ disabled: true, revision: 3 })
+    expect(rolledBack).toMatchObject({
+      activePackageId: first.packageId, disabled: false, generation: 3, revision: 4,
+    })
+    expect((await cordis.listWorkspace({ principal: member, workspaceId: 'personal-1' })).packages)
+      .toHaveLength(2)
+  })
+
+  it('pins one immutable plugin generation per Session', async () => {
+    const cordis = service()
+    const first = await cordis.savePersonal({
+      principal: member, workspaceId: 'personal-1', draft, idempotencyKey: 'pin-save-first',
+    })
+    const firstBinding = await cordis.activatePersonal({
+      principal: member, workspaceId: 'personal-1', pluginId: first.pluginId,
+      packageId: first.packageId, expectedRevision: 0, idempotencyKey: 'pin-activate-first',
+    })
+    const pinned = await cordis.pinSessionGeneration({
+      principal: member, workspaceId: 'personal-1', sessionId: 'session-a',
+    })
+    const second = await cordis.savePersonal({
+      principal: member, workspaceId: 'personal-1',
+      draft: { ...draft, dynamicPackageId: 'pkg-runtime-2', purpose: 'Version two.' },
+      idempotencyKey: 'pin-save-second',
+    })
+    await cordis.activatePersonal({
+      principal: member, workspaceId: 'personal-1', pluginId: second.pluginId,
+      packageId: second.packageId, expectedRevision: firstBinding.revision, idempotencyKey: 'pin-activate-second',
+    })
+    const repeated = await cordis.pinSessionGeneration({
+      principal: member, workspaceId: 'personal-1', sessionId: 'session-a',
+    })
+    const nextSession = await cordis.pinSessionGeneration({
+      principal: member, workspaceId: 'personal-1', sessionId: 'session-b',
+    })
+
+    expect(repeated).toEqual(pinned)
+    expect(pinned.entries).toEqual([expect.objectContaining({ packageId: first.packageId, generation: 1 })])
+    expect(nextSession.entries).toEqual([expect.objectContaining({ packageId: second.packageId, generation: 2 })])
+  })
+
+  it('only lets an administrator promote an organization binding trust level', async () => {
+    const cordis = service()
+    const submitted = await cordis.submitDepartment({
+      principal: member, workspaceId: 'department-1', draft, sourceSessionId: 'session-1',
+      idempotencyKey: 'trust-submit',
+    })
+    const published = await cordis.publishOrganization({
+      principal: manager, reviewId: submitted.reviewId, packageId: submitted.packageId,
+      expectedRevision: submitted.revision, idempotencyKey: 'trust-publish',
+    })
+    await expect(cordis.setTrust({
+      principal: manager, bindingId: published.organizationBinding.bindingId, trustLevel: 'trusted-in-process',
+      expectedRevision: published.organizationBinding.revision, reason: 'No.', idempotencyKey: 'trust-manager',
+    })).rejects.toMatchObject({ code: 'administrator-required' })
+    const trusted = await cordis.setTrust({
+      principal: admin, bindingId: published.organizationBinding.bindingId, trustLevel: 'trusted-in-process',
+      expectedRevision: published.organizationBinding.revision, reason: 'Reviewed enterprise package.',
+      idempotencyKey: 'trust-admin',
+    })
+    expect(trusted).toMatchObject({ trustLevel: 'trusted-in-process', revision: 2 })
+  })
+
   it('lets an administrator maintain multiple department managers with revision checks', async () => {
     const cordis = service()
     const saved = await cordis.setDepartmentManagers({

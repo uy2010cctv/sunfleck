@@ -31,7 +31,7 @@ describe('enterprise Cordis PostgreSQL adapter', () => {
       'dsh_enterprise_cordis_bindings', 'dsh_enterprise_cordis_commands',
       'dsh_enterprise_cordis_audit', 'dsh_enterprise_cordis_artifacts',
       'dsh_enterprise_cordis_validation_reports', 'dsh_enterprise_department_managers',
-      'dsh_enterprise_department_manager_sets',
+      'dsh_enterprise_department_manager_sets', 'dsh_enterprise_cordis_session_generations',
     ]) expect(sql).toContain(table)
     expect(sql).toContain('UNIQUE(org_id, scope_key, plugin_id)')
     expect(sql).toContain('UNIQUE(org_id, plugin_id, version)')

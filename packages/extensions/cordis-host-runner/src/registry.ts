@@ -107,6 +107,12 @@ export interface DynamicCordisDefineReceipt {
   hasClientHalf: boolean
 }
 
+/** Trusted host composition request for restoring a previously approved immutable Package. */
+export interface DynamicCordisRestoreRequest extends Omit<DynamicCordisDefineRequest, 'plugin'> {
+  /** Semantic prefix used only for the process-local runtime identity. */
+  readonly idPrefix: string
+}
+
 /** Source-free modification context for an explicit `@pluginId` reference. */
 export interface DynamicCordisReference {
   pluginId: CordisDynamicPluginId

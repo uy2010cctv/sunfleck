@@ -54,7 +54,25 @@ export interface CordisScopeBinding {
   readonly activatedBy: string
   readonly disabled: boolean
   readonly disabledReason?: string
+  readonly trustLevel: 'isolated' | 'trusted-in-process'
   readonly updatedAt: number
+}
+
+export interface CordisSessionGenerationEntry {
+  readonly pluginId: string
+  readonly packageId: string
+  readonly bindingId: string
+  readonly generation: number
+  readonly scope: CordisPluginScope
+}
+
+/** Immutable package selection captured when a Session first uses a Workspace. */
+export interface CordisSessionGeneration {
+  readonly sessionId: string
+  readonly orgId: string
+  readonly workspaceId: string
+  readonly entries: readonly CordisSessionGenerationEntry[]
+  readonly createdAt: number
 }
 
 export type CordisReviewStatus =
