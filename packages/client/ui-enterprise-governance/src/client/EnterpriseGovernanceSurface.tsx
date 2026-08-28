@@ -1,9 +1,9 @@
 /** Login gate and administrator governance ledger. */
 
-import { useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from 'react'
+import { useEffect, useId, useMemo, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from 'react'
 import {
-  IconChevronDownOutline14, IconChevronRightOutline14, IconFolderClose16, IconFolderOpen16,
-  IconUserOutline16,
+  IconChevronDownOutline14, IconChevronRightOutline14, IconEditOutline16, IconFolderClose16,
+  IconFolderOpen16, IconPlusOutline16, IconUserOutline16, Modal,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { randomUUID } from '@deepseek-ai/dsh-util-crypto'
 import type {
@@ -16,11 +16,20 @@ export interface EnterpriseGovernanceSurfaceProps {
   loginLocal(input: { organizationId: string; username: string; password: string }): Promise<void>
   logout(): Promise<void> | void
   createOrganization(input: { id: string; name: string }): Promise<void>
-  createUser(input: { id: string; username: string; displayName: string; roles: readonly string[] }): Promise<void>
+  createUser(input: {
+    id: string
+    username: string
+    displayName: string
+    password: string
+    roles: readonly string[]
+  }): Promise<void>
   createAsset(input: { type: 'channel' | 'model' | 'capability'; id: string; name: string; config: Record<string, unknown> }): Promise<void>
   updateUser(userId: string, input: {
     roles?: readonly string[]
     disabled?: boolean
+    username?: string
+    displayName?: string
+    password?: string
     departmentIds?: readonly string[]
     primaryDepartmentId?: string
     expectedRevision?: number
@@ -299,68 +308,194 @@ function LoginGate({ state, loginLocal }: Pick<EnterpriseGovernanceSurfaceProps,
   )
 }
 
+const USER_ROLES = [
+  ['administrator', '管理员'], ['creator', '创建者'], ['operator', '运营者'], ['auditor', '审计员'], ['member', '成员'],
+] as const
+
+function roleLabel(role: string): string {
+  return USER_ROLES.find(item => item[0] === role)?.[1] ?? role
+}
+
+function UserDialog({ mode, user, departments, createUser, updateUser, close }: {
+  mode: 'create' | 'edit'
+  user?: GovernanceUser
+  departments: readonly GovernanceDepartment[]
+  createUser: EnterpriseGovernanceSurfaceProps['createUser']
+  updateUser: EnterpriseGovernanceSurfaceProps['updateUser']
+  close: () => void
+}) {
+  const formId = useId()
+  const [username, setUsername] = useState(user?.username ?? '')
+  const [displayName, setDisplayName] = useState(user?.displayName ?? '')
+  const [password, setPassword] = useState('')
+  const [role, setRole] = useState(user?.roles[0] ?? 'member')
+  const [disabled, setDisabled] = useState(user?.disabled ?? false)
+  const [departmentIds, setDepartmentIds] = useState<string[]>([...(user?.departmentIds ?? [])])
+  const [primaryDepartmentId, setPrimaryDepartmentId] = useState(user?.primaryDepartmentId ?? '')
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const title = mode === 'create' ? '新增用户' : '编辑用户'
+  const submit = async (event: FormEvent): Promise<void> => {
+    event.preventDefault()
+    const normalizedUsername = username.trim()
+    const normalizedDisplayName = displayName.trim()
+    if (!/^\S{2,64}$/u.test(normalizedUsername)) {
+      setError('用户名需为 2–64 个不含空格的字符')
+      return
+    }
+    if (normalizedDisplayName.length < 1 || normalizedDisplayName.length > 100) {
+      setError('显示名称需为 1–100 个字符')
+      return
+    }
+    if ((mode === 'create' || password !== '') && (password.length < 8 || password.length > 128)) {
+      setError('密码需为 8–128 个字符')
+      return
+    }
+    setSaving(true)
+    setError(null)
+    try {
+      if (mode === 'create') {
+        await createUser({
+          id: `user-${randomUUID()}`, username: normalizedUsername, displayName: normalizedDisplayName,
+          password, roles: [role],
+        })
+      } else if (user !== undefined) {
+        await updateUser(user.id, {
+          username: normalizedUsername, displayName: normalizedDisplayName,
+          ...(password === '' ? {} : { password }), roles: [role], disabled, departmentIds,
+          ...(primaryDepartmentId === '' ? {} : { primaryDepartmentId }),
+          expectedRevision: user.departmentRevision ?? 0,
+        })
+      }
+      setPassword('')
+      close()
+    } catch {
+      setError(`${mode === 'create' ? '创建' : '保存'}失败，请检查用户名是否重复后重试`)
+    } finally {
+      setSaving(false)
+    }
+  }
+  return <Modal open onClose={() => { if (!saving) close() }} title={title} closeLabel="关闭"
+    {...(css.userDialog === undefined ? {} : { className: css.userDialog })} description={mode === 'create'
+      ? '创建后会自动分配独立个人工作区。'
+      : '修改登录身份、角色、部门和账号状态。新密码留空时保持原密码。'}
+    footer={<>
+      <button className={css.secondaryAction} type="button" disabled={saving} onClick={close}>取消</button>
+      <button className={css.primaryAction} type="submit" form={formId} disabled={saving}>
+        {saving ? '正在保存…' : mode === 'create' ? '创建用户' : '保存修改'}
+      </button>
+    </>}>
+    <form id={formId} className={css.userForm} onSubmit={(event) => { void submit(event) }}>
+      <label>用户名<input autoFocus aria-label="用户名" autoComplete="off" maxLength={64}
+        value={username} onChange={(event) => { setUsername(event.target.value) }} /></label>
+      <label>显示名称<input aria-label="显示名称" maxLength={100}
+        value={displayName} onChange={(event) => { setDisplayName(event.target.value) }} /></label>
+      <label>{mode === 'create' ? '初始密码' : '新密码（留空则不修改）'}<input type="password"
+        aria-label={mode === 'create' ? '初始密码' : '新密码（留空则不修改）'} autoComplete="new-password"
+        minLength={8} maxLength={128} value={password} onChange={(event) => { setPassword(event.target.value) }} /></label>
+      <label>角色<select aria-label="角色" value={role} onChange={(event) => { setRole(event.target.value) }}>
+        {USER_ROLES.map(item => <option key={item[0]} value={item[0]}>{item[1]} · {item[0]}</option>)}
+      </select></label>
+      {mode === 'edit' && <>
+        <fieldset className={css.departmentChoices}><legend>所属部门</legend>
+          {departments.length === 0
+            ? <span>暂无可分配部门</span>
+            : departments.map(department => <label key={department.id}>
+              <input type="checkbox" checked={departmentIds.includes(department.id)} onChange={(event) => {
+                setDepartmentIds((current) => {
+                  const next = event.target.checked
+                    ? [...current, department.id]
+                    : current.filter(id => id !== department.id)
+                  if (!next.includes(primaryDepartmentId)) setPrimaryDepartmentId(next[0] ?? '')
+                  return next
+                })
+              }} />{department.name}
+            </label>)}
+        </fieldset>
+        <label>主部门<select aria-label="主部门" value={primaryDepartmentId}
+          disabled={departmentIds.length === 0} onChange={(event) => { setPrimaryDepartmentId(event.target.value) }}>
+          <option value="">未设置主部门</option>
+          {departments.filter(department => departmentIds.includes(department.id))
+            .map(department => <option key={department.id} value={department.id}>{department.name}</option>)}
+        </select></label>
+        <label>账号状态<select aria-label="账号状态" value={disabled ? 'disabled' : 'active'}
+          onChange={(event) => { setDisabled(event.target.value === 'disabled') }}>
+          <option value="active">正常</option><option value="disabled">已停用</option>
+        </select></label>
+      </>}
+      {error !== null && <div className={css.formError} role="alert">{error}</div>}
+    </form>
+  </Modal>
+}
+
 function UsersSection({ state, createUser, updateUser }: Pick<
   EnterpriseGovernanceSurfaceProps, 'state' | 'createUser' | 'updateUser'
 >) {
-  const [id, setId] = useState('')
-  const [username, setUsername] = useState('')
-  const [displayName, setDisplayName] = useState('')
-  return (
-    <section className={css.ledgerSection}>
-      <header><h2>用户与角色</h2><span>{state.users.length}</span></header>
-      <form className={css.inlineForm} onSubmit={(event) => {
-        event.preventDefault()
-        void createUser({ id, username, displayName, roles: ['member'] })
-      }}>
-        <input aria-label="用户 ID" placeholder="user-id" value={id} onChange={(event) => { setId(event.target.value) }} />
-        <input aria-label="新用户名" placeholder="username" value={username} onChange={(event) => { setUsername(event.target.value) }} />
-        <input aria-label="显示名" placeholder="display name" value={displayName} onChange={(event) => { setDisplayName(event.target.value) }} />
-        <button type="submit">新增成员</button>
-      </form>
-      <div className={css.tableWrap}>
-        <table><thead><tr><th>用户</th><th>部门</th><th>角色</th><th>状态</th><th>动作</th></tr></thead><tbody>
-          {state.users.map(user => <tr key={user.id}>
-            <td><strong>{user.displayName}</strong><span>{user.username} · {user.id}</span></td>
-            <td><select multiple aria-label={`${user.displayName} 部门`} value={[...(user.departmentIds ?? [])]}
-              onChange={(event) => {
-                const departmentIds = [...event.currentTarget.selectedOptions].map(option => option.value)
-                const primaryDepartmentId = departmentIds.includes(user.primaryDepartmentId ?? '')
-                  ? user.primaryDepartmentId : departmentIds[0]
-                void updateUser(user.id, {
-                  departmentIds, ...(primaryDepartmentId === undefined ? {} : { primaryDepartmentId }),
-                  expectedRevision: user.departmentRevision ?? 0,
-                })
-              }}>
-              {state.departments.map(department => <option key={department.id} value={department.id}>
-                {department.name}{department.id === user.primaryDepartmentId ? '（主）' : ''}
-              </option>)}
-            </select>
-            <select aria-label={`${user.displayName} 主部门`} value={user.primaryDepartmentId ?? ''}
-              disabled={(user.departmentIds?.length ?? 0) === 0} onChange={(event) => {
-                void updateUser(user.id, {
-                  departmentIds: user.departmentIds ?? [],
-                  ...(event.target.value === '' ? {} : { primaryDepartmentId: event.target.value }),
-                  expectedRevision: user.departmentRevision ?? 0,
-                })
-              }}>
-              <option value="">未设置主部门</option>
-              {state.departments.filter(department => user.departmentIds?.includes(department.id) === true)
-                .map(department => <option key={department.id} value={department.id}>{department.name}</option>)}
-            </select></td>
-            <td><select aria-label={`${user.displayName} 角色`} value={user.roles[0] ?? 'member'} onChange={(event) => {
-              void updateUser(user.id, { roles: [event.target.value] })
-            }}>
-              <option value="administrator">administrator</option><option value="creator">creator</option>
-              <option value="operator">operator</option><option value="auditor">auditor</option><option value="member">member</option>
-            </select></td>
-            <td>{user.disabled ? '已停用' : '正常'}</td>
-            <td><button type="button" onClick={() => { void updateUser(user.id, { disabled: !user.disabled }) }}>
-              {user.disabled ? '启用' : '停用'}
-            </button></td>
-          </tr>)}</tbody></table>
-      </div>
-    </section>
-  )
+  const [dialog, setDialog] = useState<{ mode: 'create' } | { mode: 'edit'; user: GovernanceUser } | null>(null)
+  const [query, setQuery] = useState('')
+  const [busyUserId, setBusyUserId] = useState<string | null>(null)
+  const [actionError, setActionError] = useState<string | null>(null)
+  const normalizedQuery = query.trim().toLocaleLowerCase()
+  const users = state.users.filter(user => normalizedQuery === ''
+    || user.displayName.toLocaleLowerCase().includes(normalizedQuery)
+    || user.username.toLocaleLowerCase().includes(normalizedQuery))
+  const departmentName = (id: string): string => state.departments.find(item => item.id === id)?.name ?? id
+  return <section className={css.ledgerSection}>
+    <header className={css.userHeader}>
+      <div><h2>用户管理</h2><p>管理登录身份、角色、部门和账号状态。</p></div>
+      <span>{state.users.length} 位用户</span>
+    </header>
+    <div className={css.userToolbar}>
+      <input aria-label="搜索用户" placeholder="搜索姓名或用户名" value={query}
+        onChange={(event) => { setQuery(event.target.value) }} />
+      <button type="button" onClick={() => { setDialog({ mode: 'create' }) }}>
+        <IconPlusOutline16 size={14} />新增用户
+      </button>
+    </div>
+    {actionError !== null && <div className={css.error} role="alert">{actionError}</div>}
+    {users.length === 0
+      ? <p className={css.emptyState}>{state.users.length === 0 ? '还没有用户。点击“新增用户”创建首位成员。' : '没有匹配的用户。'}</p>
+      : <div className={`${css.tableWrap} ${css.userTable}`}>
+        <table><thead><tr><th>用户</th><th>部门</th><th>角色</th><th>状态</th><th>操作</th></tr></thead><tbody>
+          {users.map((user) => {
+            const primary = user.primaryDepartmentId
+            const secondary = (user.departmentIds ?? []).filter(id => id !== primary)
+            return <tr key={user.id}>
+              <td><div className={css.userIdentity}>
+                <span className={css.userAvatar} aria-hidden="true"><IconUserOutline16 size={16} /></span>
+                <span><strong>{user.displayName}</strong><small>@{user.username}</small></span>
+              </div></td>
+              <td><div className={css.departmentSummary}>
+                {primary !== undefined && <strong>{departmentName(primary)} · 主部门</strong>}
+                {secondary.length > 0 && <span>{secondary.map(departmentName).join('、')}</span>}
+                {primary === undefined && secondary.length === 0 && <span>未分配部门</span>}
+              </div></td>
+              <td><span className={css.roleBadge}><strong>{roleLabel(user.roles[0] ?? 'member')}</strong>
+                <small>{user.roles[0] ?? 'member'}</small></span></td>
+              <td><span className={css.statusLabel} data-disabled={user.disabled ? 'true' : 'false'}>
+                <i aria-hidden="true" />{user.disabled ? '已停用' : '正常'}
+              </span></td>
+              <td><div className={css.rowActions}>
+                <button type="button" aria-label={`编辑用户：${user.displayName}`}
+                  onClick={() => { setDialog({ mode: 'edit', user }) }}><IconEditOutline16 size={14} />编辑</button>
+                <button type="button" disabled={busyUserId === user.id} onClick={() => {
+                  const change = async (): Promise<void> => {
+                    setBusyUserId(user.id); setActionError(null)
+                    try { await updateUser(user.id, { disabled: !user.disabled }) }
+                    catch { setActionError(`${user.disabled ? '启用' : '停用'}用户失败，请重试`) }
+                    finally { setBusyUserId(null) }
+                  }
+                  void change()
+                }}>{busyUserId === user.id ? '处理中…' : user.disabled ? '启用' : '停用'}</button>
+              </div></td>
+            </tr>
+          })}</tbody></table>
+      </div>}
+    {dialog !== null && <UserDialog key={dialog.mode === 'create' ? 'create' : dialog.user.id}
+      mode={dialog.mode} {...(dialog.mode === 'edit' ? { user: dialog.user } : {})}
+      departments={state.departments} createUser={createUser} updateUser={updateUser}
+      close={() => { setDialog(null) }} />}
+  </section>
 }
 
 function WorkspacesSection({ state, createWorkspace, updateWorkspace }: Pick<

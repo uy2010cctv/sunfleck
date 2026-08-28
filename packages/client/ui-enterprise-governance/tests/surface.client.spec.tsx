@@ -172,12 +172,92 @@ describe('enterprise governance UI', () => {
     const users = screen.getByRole('tab', { name: '用户管理' })
     fireEvent.click(users)
     expect(users.getAttribute('aria-selected')).toBe('true')
-    expect(screen.getByRole('heading', { name: '用户与角色' })).toBeDefined()
+    expect(screen.getByRole('heading', { name: '用户管理' })).toBeDefined()
     expect(screen.queryByRole('heading', { name: '组织架构' })).toBeNull()
 
     fireEvent.keyDown(users, { key: 'ArrowRight' })
     expect(screen.getByRole('tab', { name: '工作区' }).getAttribute('aria-selected')).toBe('true')
     expect(screen.getByRole('heading', { name: '工作区与沙盒' })).toBeDefined()
+  })
+
+  it('creates a login-ready user through a focused dialog', async () => {
+    const createUser = vi.fn(() => Promise.resolve())
+    render(<EnterpriseGovernanceSettingsSection
+      state={state({
+        auth: {
+          authenticated: true,
+          principal: { userId: 'admin-1', orgId: 'org-a', displayName: 'Admin', username: 'admin', roles: ['administrator'] },
+          providers: [],
+        },
+      })}
+      loadAdmin={vi.fn()} loginLocal={vi.fn()} logout={vi.fn()} createOrganization={vi.fn()}
+      createAsset={vi.fn()} createUser={createUser} updateUser={vi.fn()} saveDepartment={vi.fn()}
+      createWorkspace={vi.fn()} updateWorkspace={vi.fn()} proposeMemory={vi.fn()} reviewMemory={vi.fn()}
+      savePolicy={vi.fn()} filterAudit={vi.fn()}
+    />)
+    fireEvent.click(screen.getByRole('tab', { name: '用户管理' }))
+    fireEvent.click(screen.getByRole('button', { name: '新增用户' }))
+
+    expect(screen.getByRole('dialog', { name: '新增用户' })).toBeDefined()
+    expect(screen.queryByLabelText('用户 ID')).toBeNull()
+    fireEvent.change(screen.getByLabelText('用户名'), { target: { value: 'buyer' } })
+    fireEvent.change(screen.getByLabelText('显示名称'), { target: { value: '采购员' } })
+    fireEvent.change(screen.getByLabelText('初始密码'), { target: { value: 'buyer@123' } })
+    fireEvent.change(screen.getByLabelText('角色'), { target: { value: 'operator' } })
+    fireEvent.click(screen.getByRole('button', { name: '创建用户' }))
+
+    await waitFor(() => { expect(createUser).toHaveBeenCalledOnce() })
+    expect(createUser).toHaveBeenCalledWith({
+      id: expect.stringMatching(/^user-/), username: 'buyer', displayName: '采购员',
+      password: 'buyer@123', roles: ['operator'],
+    })
+    expect(screen.queryByRole('dialog', { name: '新增用户' })).toBeNull()
+  })
+
+  it('shows a readable user list and edits identity fields in a dialog', async () => {
+    const updateUser = vi.fn(() => Promise.resolve())
+    render(<EnterpriseGovernanceSettingsSection
+      state={state({
+        auth: {
+          authenticated: true,
+          principal: { userId: 'admin-1', orgId: 'org-a', displayName: 'Admin', username: 'admin', roles: ['administrator'] },
+          providers: [],
+        },
+        departments: [{
+          id: 'dept-test', orgId: 'org-a', parentId: null, name: '测试部', sortOrder: 0,
+          revision: 1, createdAt: 1, updatedAt: 1,
+        }],
+        users: [{
+          id: 'admin-1', username: 'admin', displayName: 'Enterprise Administrator', disabled: false,
+          roles: ['administrator'], departmentIds: ['dept-test'], primaryDepartmentId: 'dept-test',
+          departmentRevision: 1,
+        }],
+      })}
+      loadAdmin={vi.fn()} loginLocal={vi.fn()} logout={vi.fn()} createOrganization={vi.fn()}
+      createAsset={vi.fn()} createUser={vi.fn()} updateUser={updateUser} saveDepartment={vi.fn()}
+      createWorkspace={vi.fn()} updateWorkspace={vi.fn()} proposeMemory={vi.fn()} reviewMemory={vi.fn()}
+      savePolicy={vi.fn()} filterAudit={vi.fn()}
+    />)
+    fireEvent.click(screen.getByRole('tab', { name: '用户管理' }))
+
+    expect(screen.getByText('@admin')).toBeDefined()
+    expect(screen.getByText('测试部 · 主部门')).toBeDefined()
+    expect(screen.queryByLabelText('Enterprise Administrator 部门')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: '编辑用户：Enterprise Administrator' }))
+    expect(screen.getByRole('dialog', { name: '编辑用户' })).toBeDefined()
+    expect(screen.getByLabelText('用户名')).toHaveProperty('value', 'admin')
+    fireEvent.change(screen.getByLabelText('用户名'), { target: { value: 'administrator' } })
+    fireEvent.change(screen.getByLabelText('显示名称'), { target: { value: '企业管理员' } })
+    fireEvent.change(screen.getByLabelText('新密码（留空则不修改）'), { target: { value: 'administrator@123' } })
+    fireEvent.click(screen.getByRole('button', { name: '保存修改' }))
+
+    await waitFor(() => { expect(updateUser).toHaveBeenCalledOnce() })
+    expect(updateUser).toHaveBeenCalledWith('admin-1', {
+      username: 'administrator', displayName: '企业管理员', password: 'administrator@123',
+      roles: ['administrator'], disabled: false, departmentIds: ['dept-test'],
+      primaryDepartmentId: 'dept-test', expectedRevision: 1,
+    })
+    expect(screen.queryByRole('dialog', { name: '编辑用户' })).toBeNull()
   })
 
   it('renders the current enterprise as an expandable department and member tree', () => {

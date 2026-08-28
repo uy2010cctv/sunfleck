@@ -3,6 +3,7 @@
 import type {
   EnterpriseLdapProvider, EnterpriseOidcProvider, EnterpriseSamlProvider, SsoLoginResult,
 } from '@deepseek-ai/dsh-enterprise-sso'
+import { createPasswordVerifier } from '@deepseek-ai/dsh-enterprise-sso'
 import type { SsoMappedIdentity } from '@deepseek-ai/dsh-enterprise-sso'
 import { randomUUID } from 'node:crypto'
 import type { EnterpriseRole } from '@deepseek-ai/dsh-enterprise-governance'
@@ -41,6 +42,18 @@ function json(value: unknown, status = 200, headers: HeadersInit = {}): Response
 function sameOrigin(request: Request): boolean {
   const origin = request.headers.get('origin')
   return origin !== null && origin === new URL(request.url).origin
+}
+
+function validUsername(value: unknown): value is string {
+  return typeof value === 'string' && value === value.trim() && /^\S{2,64}$/u.test(value)
+}
+
+function validDisplayName(value: unknown): value is string {
+  return typeof value === 'string' && value.trim().length >= 1 && value.trim().length <= 100
+}
+
+function validPassword(value: unknown): value is string {
+  return typeof value === 'string' && value.length >= 8 && value.length <= 128
 }
 
 async function jsonBody(request: Request): Promise<Record<string, unknown>> {
@@ -209,13 +222,19 @@ export class EnterpriseAuthHttpHandler {
       const id = body['id']
       const username = body['username']
       const displayName = body['displayName']
+      const password = body['password']
       const roles = this.roles(body['roles'])
-      if (typeof id !== 'string' || typeof username !== 'string' || typeof displayName !== 'string' || roles === undefined) {
+      if (typeof id !== 'string' || !validUsername(username) || !validDisplayName(displayName)
+        || !validPassword(password) || roles === undefined) {
         return json({ error: 'bad-request' }, 400)
       }
-      await this.security.repository.createUser({
-        id, orgId: principal.orgId, username, displayName, disabled: false,
-      })
+      try {
+        await this.security.repository.createUser({
+          id, orgId: principal.orgId, username, displayName: displayName.trim(), disabled: false,
+        }, { passwordVerifier: createPasswordVerifier(password) })
+      } catch (error) {
+        return json({ error: 'conflict', message: error instanceof Error ? error.message : String(error) }, 409)
+      }
       await this.security.repository.setRoles(id, roles)
       const user = await this.security.repository.findUser(principal.orgId, username)
       if (user !== undefined) await this.options.workspaceProvisioner?.ensurePersonal?.(user)
@@ -225,6 +244,26 @@ export class EnterpriseAuthHttpHandler {
       if (!sameOrigin(request)) return new Response('forbidden', { status: 403 })
       const userId = path[3] as string
       const body = await jsonBody(request)
+      const current = (await this.security.repository.listUsers(principal.orgId)).find(user => user.id === userId)
+      if (current === undefined) return json({ error: 'not-found' }, 404)
+      const username = body['username']
+      const displayName = body['displayName']
+      const password = body['password']
+      if ((username !== undefined && !validUsername(username))
+        || (displayName !== undefined && !validDisplayName(displayName))
+        || (password !== undefined && !validPassword(password))) return json({ error: 'bad-request' }, 400)
+      if (username !== undefined || displayName !== undefined || password !== undefined) {
+        try {
+          await this.security.repository.updateUserProfile({
+            orgId: principal.orgId, userId,
+            username: username ?? current.username,
+            displayName: displayName?.trim() ?? current.displayName,
+            ...(password === undefined ? {} : { passwordVerifier: createPasswordVerifier(password) }),
+          })
+        } catch (error) {
+          return json({ error: 'conflict', message: error instanceof Error ? error.message : String(error) }, 409)
+        }
+      }
       if (body['roles'] !== undefined) {
         const roles = this.roles(body['roles'])
         if (roles === undefined) return json({ error: 'bad-request' }, 400)

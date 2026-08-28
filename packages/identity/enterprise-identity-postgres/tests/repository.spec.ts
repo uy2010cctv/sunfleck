@@ -47,6 +47,22 @@ describe('PgEnterpriseIdentityRepository', () => {
     ])
     expect(database.queries[0]?.text).not.toContain("alice');")
   })
+
+  it('scopes profile and password updates by organization', async () => {
+    const database = new RecordingDatabase()
+    const repository = new PgEnterpriseIdentityRepository(database)
+
+    await repository.updateUserProfile({
+      orgId: 'org-a', userId: 'user-1', username: 'alice.renamed', displayName: 'Alice Renamed',
+      passwordVerifier: 'scrypt$redacted-verifier',
+    })
+
+    expect(database.queries).toHaveLength(1)
+    expect(database.queries[0]?.text).toContain('WHERE id = $5 AND org_id = $6')
+    expect(database.queries[0]?.values).toEqual([
+      'alice.renamed', 'Alice Renamed', 'scrypt$redacted-verifier', 'scrypt$redacted-verifier', 'user-1', 'org-a',
+    ])
+  })
 })
 
 describe('migrateSqliteEnterpriseIdentityToPostgres', () => {

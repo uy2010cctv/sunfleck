@@ -181,6 +181,7 @@ export class EnterpriseGovernanceController {
     id: string
     username: string
     displayName: string
+    password: string
     roles: readonly string[]
   }): Promise<void> {
     await this.request('/auth/admin/users', { method: 'POST', body: JSON.stringify(input) })
@@ -195,6 +196,9 @@ export class EnterpriseGovernanceController {
   async updateUser(userId: string, input: {
     roles?: readonly string[]
     disabled?: boolean
+    username?: string
+    displayName?: string
+    password?: string
     departmentIds?: readonly string[]
     primaryDepartmentId?: string
     expectedRevision?: number
@@ -203,6 +207,9 @@ export class EnterpriseGovernanceController {
       method: 'PATCH', body: JSON.stringify(input),
     })
     await this.loadAdmin()
+    if (input.username !== undefined || input.displayName !== undefined || input.password !== undefined) {
+      await this.refreshAuth()
+    }
   }
 
   async saveDepartment(input: {

@@ -20,6 +20,8 @@ export {
   type EnterpriseResourcePolicy,
   type EnterpriseUserInput,
   type EnterpriseUserView,
+  type CreateEnterpriseUserOptions,
+  type UpdateEnterpriseUserProfileInput,
   type EnterpriseDepartment,
   type SaveEnterpriseDepartmentInput,
   type SetUserDepartmentsInput,

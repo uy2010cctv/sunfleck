@@ -79,6 +79,27 @@ describe('EnterpriseIdentityRepository', () => {
     expect(JSON.stringify(repository.listUsers('org-a'))).not.toContain('scrypt')
   })
 
+  it('updates a user profile and password atomically inside its organization', () => {
+    repository.setPasswordVerifier('user-1', 'verifier-before')
+    repository.updateUserProfile({
+      orgId: 'org-a', userId: 'user-1', username: 'alice.renamed', displayName: 'Alice Renamed',
+      passwordVerifier: 'verifier-after',
+    })
+
+    expect(repository.findUser('org-a', 'alice.renamed')).toMatchObject({
+      id: 'user-1', displayName: 'Alice Renamed',
+    })
+    expect(repository.passwordLoginRecord('org-a', 'alice')).toBeUndefined()
+    expect(repository.passwordLoginRecord('org-a', 'alice.renamed')).toMatchObject({ verifier: 'verifier-after' })
+    expect(JSON.stringify(repository.listUsers('org-a'))).not.toContain('verifier-after')
+
+    repository.createOrganization({ id: 'org-b', name: 'Second' })
+    repository.createUser({ id: 'user-2', orgId: 'org-b', username: 'bob', displayName: 'Bob', disabled: false })
+    expect(() => { repository.updateUserProfile({
+      orgId: 'org-a', userId: 'user-2', username: 'intruder', displayName: 'Intruder',
+    }) }).toThrow(/outside organization or missing/)
+  })
+
   it('stores employee and session visibility policies with named allowed users', () => {
     repository.putResourcePolicy({
       resourceType: 'employee', resourceId: 'support', orgId: 'org-a', creatorUserId: 'user-1',

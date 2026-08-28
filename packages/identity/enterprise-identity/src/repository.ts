@@ -30,6 +30,20 @@ export interface EnterpriseUserView extends EnterpriseUserInput {
   readonly departmentRevision: number
 }
 
+export interface CreateEnterpriseUserOptions {
+  /** One-way verifier only; plaintext passwords never cross the repository seam. */
+  readonly passwordVerifier?: string
+}
+
+export interface UpdateEnterpriseUserProfileInput {
+  readonly orgId: string
+  readonly userId: string
+  readonly username: string
+  readonly displayName: string
+  /** Omit to preserve the current verifier. */
+  readonly passwordVerifier?: string
+}
+
 export interface EnterpriseDepartment {
   readonly id: string
   readonly orgId: string
@@ -220,9 +234,10 @@ export interface EnterpriseIdentityStore {
   close(): IdentityAwaitable<void>
   createOrganization(organization: EnterpriseOrganization): IdentityAwaitable<void>
   listOrganizations(): IdentityAwaitable<EnterpriseOrganization[]>
-  createUser(user: EnterpriseUserInput): IdentityAwaitable<void>
+  createUser(user: EnterpriseUserInput, options?: CreateEnterpriseUserOptions): IdentityAwaitable<void>
   listUsers(orgId: string): IdentityAwaitable<EnterpriseUserView[]>
   findUser(orgId: string, username: string): IdentityAwaitable<EnterpriseUserView | undefined>
+  updateUserProfile(input: UpdateEnterpriseUserProfileInput): IdentityAwaitable<void>
   setRoles(userId: string, roles: readonly EnterpriseRole[]): IdentityAwaitable<void>
   setUserDisabled(userId: string, disabled: boolean): IdentityAwaitable<void>
   saveDepartment(input: SaveEnterpriseDepartmentInput): IdentityAwaitable<EnterpriseDepartment>
@@ -328,10 +343,11 @@ export class EnterpriseIdentityRepository implements EnterpriseIdentityStore {
     }>).map(row => ({ id: row.id, name: row.name }))
   }
 
-  createUser(user: EnterpriseUserInput): void {
+  createUser(user: EnterpriseUserInput, options: CreateEnterpriseUserOptions = {}): void {
     this.database.prepare(
-      'INSERT INTO users(id, org_id, username, display_name, disabled) VALUES (?, ?, ?, ?, ?)',
-    ).run(user.id, user.orgId, user.username, user.displayName, user.disabled ? 1 : 0)
+      `INSERT INTO users(id, org_id, username, display_name, disabled, password_verifier)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+    ).run(user.id, user.orgId, user.username, user.displayName, user.disabled ? 1 : 0, options.passwordVerifier ?? null)
   }
 
   listUsers(orgId: string): EnterpriseUserView[] {
@@ -359,6 +375,19 @@ export class EnterpriseIdentityRepository implements EnterpriseIdentityStore {
 
   findUser(orgId: string, username: string): EnterpriseUserView | undefined {
     return this.listUsers(orgId).find(user => user.username === username)
+  }
+
+  updateUserProfile(input: UpdateEnterpriseUserProfileInput): void {
+    const username = input.username.trim()
+    const displayName = input.displayName.trim()
+    if (username === '' || displayName === '') throw new Error('enterprise username and display name are required')
+    const verifier = input.passwordVerifier ?? null
+    const result = this.database.prepare(`UPDATE users SET username = ?, display_name = ?,
+      password_verifier = CASE WHEN ? IS NULL THEN password_verifier ELSE ? END
+      WHERE id = ? AND org_id = ?`).run(
+      username, displayName, verifier, verifier, input.userId, input.orgId,
+    )
+    if (result.changes !== 1) throw new Error('enterprise user is outside organization or missing')
   }
 
   private user(userId: string): EnterpriseUserView | undefined {

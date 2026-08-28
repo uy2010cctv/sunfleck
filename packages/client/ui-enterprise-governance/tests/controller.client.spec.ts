@@ -96,6 +96,11 @@ describe('EnterpriseGovernanceController', () => {
     const fetcher = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = requestUrl(input)
       calls.push(`${init?.method ?? 'GET'} ${url}`)
+      if (url === '/auth/status') return Promise.resolve(response({
+        authenticated: true,
+        principal: { userId: 'admin-1', orgId: 'org-a', username: 'admin', displayName: 'Admin', roles: ['administrator'] },
+        providers: [],
+      }))
       if (url.endsWith('/users') && init?.method === 'POST') return Promise.resolve(response({}, 201))
       if (url.endsWith('/assets') && init?.method === 'POST') return Promise.resolve(response({}, 201))
       if (url.endsWith('/organizations') && init?.method === 'POST') return Promise.resolve(response({}, 201))
@@ -119,8 +124,13 @@ describe('EnterpriseGovernanceController', () => {
     const controller = new EnterpriseGovernanceController(fetcher)
     await controller.createOrganization({ id: 'org-b', name: 'Second organization' })
     await controller.createAsset({ type: 'channel', id: 'wecom-main', name: 'WeCom', config: {} })
-    await controller.createUser({ id: 'operator-1', username: 'operator', displayName: 'Operator', roles: ['operator'] })
-    await controller.updateUser('operator-1', { roles: ['auditor'], disabled: false })
+    await controller.createUser({
+      id: 'operator-1', username: 'operator', displayName: 'Operator', password: 'operator@123', roles: ['operator'],
+    })
+    await controller.updateUser('operator-1', {
+      username: 'operator.renamed', displayName: 'Renamed Operator', password: 'operator@456',
+      roles: ['auditor'], disabled: false,
+    })
     await controller.saveDepartment({ id: 'dept-1', name: 'Operations', parentId: null, sortOrder: 0, expectedRevision: 0 })
     await controller.createWorkspace({ name: '专项空间', idempotencyKey: 'workspace-1' })
     await controller.updateWorkspace('workspace-1', { sandboxMode: 'read-only', expectedRevision: 1 })
@@ -137,6 +147,7 @@ describe('EnterpriseGovernanceController', () => {
       'POST /auth/admin/organizations',
       'POST /auth/admin/assets',
       'PATCH /auth/admin/users/operator-1',
+      'GET /auth/status',
       'POST /auth/admin/departments',
       'POST /auth/workspaces',
       'PATCH /auth/admin/workspaces/workspace-1',

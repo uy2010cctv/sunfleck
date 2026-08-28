@@ -217,14 +217,35 @@ describe('EnterpriseAuthHttpHandler', () => {
     const created = await handler.fetch(new Request('https://dsh.example.com/auth/admin/users', {
       method: 'POST', headers: { 'content-type': 'application/json', origin: 'https://dsh.example.com', cookie },
       body: JSON.stringify({
-        id: 'operator-1', username: 'operator', displayName: 'Operator', roles: ['operator'],
+        id: 'operator-1', username: 'operator', displayName: 'Operator', password: 'operator-password',
+        roles: ['operator'],
       }),
     }))
     expect(created.status).toBe(201)
     const users = await handler.fetch(new Request('https://dsh.example.com/auth/admin/users', { headers: { cookie } }))
-    await expect(users.json()).resolves.toEqual(expect.arrayContaining([
+    const userRows = await users.json()
+    expect(userRows).toEqual(expect.arrayContaining([
       expect.objectContaining({ id: 'operator-1', roles: ['operator'] }),
     ]))
+    expect(JSON.stringify(userRows)).not.toContain('password')
+
+    const updated = await handler.fetch(new Request('https://dsh.example.com/auth/admin/users/operator-1', {
+      method: 'PATCH', headers: { 'content-type': 'application/json', origin: 'https://dsh.example.com', cookie },
+      body: JSON.stringify({
+        username: 'operator.renamed', displayName: 'Renamed Operator', password: 'operator-password-2',
+      }),
+    }))
+    expect(updated.status).toBe(204)
+    const oldLogin = await handler.fetch(new Request('https://dsh.example.com/auth/login/local', {
+      method: 'POST', headers: { 'content-type': 'application/json', origin: 'https://dsh.example.com' },
+      body: JSON.stringify({ organizationId: 'org-a', username: 'operator', password: 'operator-password' }),
+    }))
+    expect(oldLogin.status).toBe(401)
+    const newLogin = await handler.fetch(new Request('https://dsh.example.com/auth/login/local', {
+      method: 'POST', headers: { 'content-type': 'application/json', origin: 'https://dsh.example.com' },
+      body: JSON.stringify({ organizationId: 'org-a', username: 'operator.renamed', password: 'operator-password-2' }),
+    }))
+    expect(newLogin.status).toBe(200)
 
     const policy = await handler.fetch(new Request('https://dsh.example.com/auth/admin/resource-policies', {
       method: 'POST', headers: { 'content-type': 'application/json', origin: 'https://dsh.example.com', cookie },

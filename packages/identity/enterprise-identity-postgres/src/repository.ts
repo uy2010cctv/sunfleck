@@ -12,6 +12,8 @@ import type {
   EnterpriseResourcePolicy,
   EnterpriseUserInput,
   EnterpriseUserView,
+  CreateEnterpriseUserOptions,
+  UpdateEnterpriseUserProfileInput,
   EnterpriseWorkspaceGrant,
   ExternalIdentityBinding,
   RepositoryOptions,
@@ -161,10 +163,18 @@ export class PgEnterpriseIdentityRepository {
     return result.rows.map(row => ({ id: row.id, name: row.name }))
   }
 
-  async createUser(user: EnterpriseUserInput): Promise<void> {
+  async createUser(user: EnterpriseUserInput, options: CreateEnterpriseUserOptions = {}): Promise<void> {
+    if (options.passwordVerifier === undefined) {
+      await this.database.query(
+        'INSERT INTO users(id, org_id, username, display_name, disabled) VALUES ($1, $2, $3, $4, $5)',
+        [user.id, user.orgId, user.username, user.displayName, user.disabled],
+      )
+      return
+    }
     await this.database.query(
-      'INSERT INTO users(id, org_id, username, display_name, disabled) VALUES ($1, $2, $3, $4, $5)',
-      [user.id, user.orgId, user.username, user.displayName, user.disabled],
+      `INSERT INTO users(id, org_id, username, display_name, disabled, password_verifier)
+       VALUES ($1, $2, $3, $4, $5, $6)`,
+      [user.id, user.orgId, user.username, user.displayName, user.disabled, options.passwordVerifier],
     )
   }
 
@@ -186,6 +196,17 @@ export class PgEnterpriseIdentityRepository {
       [orgId, username],
     )
     return result.rows[0] === undefined ? undefined : this.userFromRow(result.rows[0])
+  }
+
+  async updateUserProfile(input: UpdateEnterpriseUserProfileInput): Promise<void> {
+    const username = input.username.trim()
+    const displayName = input.displayName.trim()
+    if (username === '' || displayName === '') throw new Error('enterprise username and display name are required')
+    const verifier = input.passwordVerifier ?? null
+    const result = await this.database.query(`UPDATE users SET username = $1, display_name = $2,
+      password_verifier = CASE WHEN $3::text IS NULL THEN password_verifier ELSE $4 END
+      WHERE id = $5 AND org_id = $6`, [username, displayName, verifier, verifier, input.userId, input.orgId])
+    if (result.rowCount !== 1) throw new Error('enterprise user is outside organization or missing')
   }
 
   private async userFromRow(row: UserRow): Promise<EnterpriseUserView> {
