@@ -8,7 +8,10 @@ import {
 } from '@deepseek-ai/dsh-cordis-host-runner'
 import type { EnterpriseCordisPrincipal } from '@deepseek-ai/dsh-enterprise-cordis'
 import { EnterpriseCordisService } from '@deepseek-ai/dsh-enterprise-cordis'
+import type {} from '@deepseek-ai/dsh-enterprise-auth-web'
+import type {} from '@deepseek-ai/dsh-enterprise-postgres'
 import type { EnterpriseIdentityStore, EnterpriseWorkspaceGrant } from '@deepseek-ai/dsh-enterprise-identity'
+import type { JsonValue } from '@deepseek-ai/dsh-session/types'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 
 export const name = 'enterprise-cordis-runtime'
@@ -39,7 +42,6 @@ async function grantForAgent(ctx: Context, agent: Agent): Promise<EnterpriseWork
 
 async function principalFor(
   ctx: Context,
-  agent: Agent,
   grant: EnterpriseWorkspaceGrant,
 ): Promise<EnterpriseCordisPrincipal> {
   const current = ctx.enterpriseRequestContext.current()
@@ -52,6 +54,10 @@ async function principalFor(
     if (user !== undefined && !user.disabled) return { orgId: user.orgId, userId: user.id, roles: user.roles }
   }
   throw new Error('authenticated enterprise principal is required for this Cordis persistence action')
+}
+
+function jsonValue(value: unknown): JsonValue {
+  return JSON.parse(JSON.stringify(value)) as JsonValue
 }
 
 function inspectedDraft(ctx: Context, agent: Agent, pluginId: string, packageId: string) {
@@ -82,7 +88,7 @@ async function restoreWorkspaceGeneration(
   agent: Agent,
 ): Promise<void> {
   const grant = await grantForAgent(ctx, agent)
-  const principal = await principalFor(ctx, agent, grant)
+  const principal = await principalFor(ctx, grant)
   const generation = await service.pinSessionGeneration({
     principal, workspaceId: grant.workspaceId, sessionId: String(agent.id),
   })
@@ -119,6 +125,7 @@ export function apply(ctx: Context): void {
       isDepartmentManager: async (orgId, departmentId, userId) =>
         (await composition.cordis.departmentManagers(orgId, departmentId))?.managerUserIds.includes(userId) ?? false,
     },
+    emit: (eventName, event) => { ctx.emit(eventName, event) },
   })
   ctx.provide('enterpriseCordis', service)
   ctx.systemPrompt.section({ name: 'enterprise:cordis-persistence', order: 2550, text: POLICY })
@@ -152,7 +159,7 @@ export function apply(ctx: Context): void {
       if (exec.agent === undefined) throw new Error('cordis_save_personal requires an owning Agent')
       const grant = await grantForAgent(ctx, exec.agent)
       if (grant.kind !== 'personal') throw new Error('cordis_save_personal requires a personal Workspace')
-      const principal = await principalFor(ctx, exec.agent, grant)
+      const principal = await principalFor(ctx, grant)
       const draft = inspectedDraft(ctx, exec.agent, args.pluginId, args.packageId)
       const packageVersion = await service.savePersonal({
         principal, workspaceId: grant.workspaceId, draft,
@@ -165,7 +172,7 @@ export function apply(ctx: Context): void {
         packageId: packageVersion.packageId, expectedRevision: current?.revision ?? 0,
         idempotencyKey: `${String(exec.rootCallId)}:activate`,
       })
-      return { package: packageVersion, binding }
+      return jsonValue({ package: packageVersion, binding })
     },
     presentCall: args => ({
       card: 'generic', kind: 'execute', title: `Save Cordis Plugin ${args.pluginId}`,
@@ -185,12 +192,12 @@ export function apply(ctx: Context): void {
       if (exec.agent === undefined) throw new Error('cordis_submit_department requires an owning Agent')
       const grant = await grantForAgent(ctx, exec.agent)
       if (grant.kind !== 'department') throw new Error('cordis_submit_department requires a department Workspace')
-      const principal = await principalFor(ctx, exec.agent, grant)
-      return service.submitDepartment({
+      const principal = await principalFor(ctx, grant)
+      return jsonValue(await service.submitDepartment({
         principal, workspaceId: grant.workspaceId, sourceSessionId: String(exec.agent.id),
         draft: inspectedDraft(ctx, exec.agent, args.pluginId, args.packageId),
         idempotencyKey: `${String(exec.rootCallId)}:submit`,
-      })
+      }))
     },
     presentCall: args => ({
       card: 'generic', kind: 'execute', title: `Submit Cordis Plugin ${args.pluginId}`,

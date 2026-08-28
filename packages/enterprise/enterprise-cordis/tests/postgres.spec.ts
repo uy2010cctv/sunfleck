@@ -18,6 +18,10 @@ class RecordingDatabase implements EnterpriseCordisPostgresDatabase {
     this.queries.push({ text, values })
     return { rows: [], rowCount: 1 }
   }
+
+  async transaction<T>(operation: (database: EnterpriseCordisPostgresDatabase) => Promise<T>): Promise<T> {
+    return operation(this)
+  }
 }
 
 describe('enterprise Cordis PostgreSQL adapter', () => {

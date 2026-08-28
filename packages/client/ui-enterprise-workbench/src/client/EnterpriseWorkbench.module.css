@@ -106,6 +106,15 @@
   outline-offset: 2px;
 }
 
+.extensionTabs button:focus-visible,
+.extensionWorkspace select:focus-visible,
+.extensionWorkspace button:focus-visible,
+.extensionReviewActions input:focus-visible,
+.extensionSource summary:focus-visible {
+  outline: 2px solid var(--dse-color-focus);
+  outline-offset: 2px;
+}
+
 .shell {
   flex: 1;
   min-inline-size: 0;
@@ -124,6 +133,8 @@
   padding: var(--dse-space-xs);
   border-block-end: 1px solid var(--dse-color-border);
   background: var(--dse-color-surface);
+  align-content: start;
+  grid-auto-rows: minmax(40px, auto);
 }
 
 .nav button {
@@ -383,6 +394,44 @@
 .mutationError button { min-block-size: 36px; border: 1px solid currentColor; border-radius: var(--dse-radius-control); background: transparent; color: inherit; padding-inline: var(--dse-space-xs); cursor: pointer; }
 .mutationError button:focus-visible { outline: 2px solid var(--dse-color-focus); outline-offset: 2px; }
 
+.extensionHeader {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dse-space-sm);
+  padding-block-end: var(--dse-space-sm);
+  border-block-end: 1px solid var(--dse-color-border);
+}
+.extensionHeader h2,
+.extensionHeader p { margin: 0; }
+.extensionHeader h2 { font-size: 1rem; line-height: 1.4; }
+.extensionHeader p { max-inline-size: 70ch; margin-block-start: var(--dse-space-3xs); color: var(--dse-color-muted); font-size: 0.8125rem; line-height: 1.5; }
+.extensionWorkspace { display: flex; align-items: end; gap: var(--dse-space-2xs); }
+.extensionWorkspace label,
+.extensionReviewActions label { display: flex; min-inline-size: 0; flex: 1; flex-direction: column; gap: var(--dse-space-3xs); color: var(--dse-color-muted); font-size: 0.75rem; }
+.extensionWorkspace select,
+.extensionReviewActions input { min-inline-size: 0; min-block-size: 38px; padding-inline: var(--dse-space-xs); border: 1px solid var(--dse-color-border); border-radius: var(--dse-radius-control); background: var(--dse-color-surface); color: var(--dse-color-ink); font: inherit; }
+.extensionTabs { display: flex; gap: var(--dse-space-3xs); margin-block: var(--dse-space-xs) var(--dse-space-sm); overflow-x: auto; border-block-end: 1px solid var(--dse-color-border); }
+.extensionTabs button { min-block-size: 40px; flex: none; padding-inline: var(--dse-space-xs); border: 0; border-block-end: 2px solid transparent; background: transparent; color: var(--dse-color-muted); font: inherit; font-size: 0.75rem; cursor: pointer; }
+.extensionTabs button:hover { color: var(--dse-color-ink); }
+.extensionTabs button[aria-current='page'] { border-block-end-color: var(--dse-color-accent); color: var(--dse-color-accent); font-weight: 650; }
+.extensionList { border-block-start: 1px solid var(--dse-color-border); }
+.extensionRow { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--dse-space-xs); padding-block: var(--dse-space-sm); border-block-end: 1px solid var(--dse-color-border); }
+.extensionRow[data-active='true'] .extensionIdentity > strong { color: var(--dse-color-accent); }
+.extensionIdentity { min-inline-size: 0; }
+.extensionIdentity > strong,
+.extensionIdentity > span { display: block; }
+.extensionIdentity > strong { overflow-wrap: anywhere; font-size: 0.875rem; }
+.extensionIdentity > span { margin-block-start: var(--dse-space-3xs); color: var(--dse-color-muted); font-family: var(--dse-font-code); font-size: 0.6875rem; }
+.extensionIdentity > p { max-inline-size: 70ch; margin: var(--dse-space-2xs) 0 0; font-size: 0.8125rem; line-height: 1.55; }
+.extensionCapabilities,
+.extensionMeta { display: flex; flex-wrap: wrap; gap: var(--dse-space-3xs); }
+.extensionCapabilities span,
+.extensionMeta span { padding: var(--dse-space-3xs) var(--dse-space-2xs); border-radius: 6px; background: var(--dse-color-surface-raised); color: var(--dse-color-muted); font-size: 0.6875rem; }
+.extensionSource { min-inline-size: 0; }
+.extensionSource summary { inline-size: fit-content; color: var(--dse-color-muted); font-size: 0.75rem; cursor: pointer; }
+.extensionSource pre { max-block-size: 18rem; margin: var(--dse-space-xs) 0 0; padding: var(--dse-space-xs); overflow: auto; border-radius: var(--dse-radius-control); background: var(--dse-color-surface-raised); color: var(--dse-color-ink); font-family: var(--dse-font-code); font-size: 0.6875rem; line-height: 1.55; white-space: pre-wrap; }
+.extensionReviewActions { display: grid; grid-template-columns: minmax(12rem, 1fr); gap: var(--dse-space-2xs); align-items: end; }
+
 .recordList { border-block-start: 1px solid var(--dse-color-border); }
 .record {
   inline-size: 100%;
@@ -454,6 +503,14 @@
   .fullField { grid-column: 1 / -1; }
   .wideField { grid-column: span 2; }
   .row { flex-direction: row; align-items: center; justify-content: space-between; }
+  .extensionHeader { flex-direction: row; align-items: end; justify-content: space-between; }
+  .extensionWorkspace { inline-size: min(28rem, 48%); }
+  .extensionRow { grid-template-columns: minmax(16rem, 1.4fr) minmax(10rem, .8fr); }
+  .extensionIdentity { grid-row: span 2; }
+  .extensionSource,
+  .extensionReviewActions,
+  .extensionRow > .inlineActions { grid-column: 1 / -1; }
+  .extensionReviewActions { grid-template-columns: minmax(12rem, 1fr) auto auto auto; }
 }
 
 @media (min-width: 72rem) {

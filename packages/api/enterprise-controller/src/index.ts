@@ -20,6 +20,16 @@ import {
   EnterpriseCordisService,
 } from '@deepseek-ai/dsh-enterprise-cordis'
 import type {
+  CordisPackageVersion,
+  CordisReviewRequest,
+  CordisScopeBinding,
+  CordisSessionGeneration,
+  CordisWorkspaceProjection,
+  DepartmentManagerSet,
+  DerivedCordisPackage,
+  PublishedCordisReview,
+} from '@deepseek-ai/dsh-enterprise-cordis/types'
+import type {
   EnterpriseEmployeeDraft,
   EnterpriseEmployeeListRequest,
   EnterpriseEmployeeLookup,
@@ -79,14 +89,6 @@ import type {
   CordisWorkspaceStopRequest,
   CordisWorkspaceListRequest,
   CordisWorkspaceSaveRequest,
-  CordisWorkspaceProjection,
-  CordisPackageVersion,
-  CordisReviewRequest,
-  CordisScopeBinding,
-  CordisSessionGeneration,
-  DepartmentManagerSet,
-  DerivedCordisPackage,
-  PublishedCordisReview,
 } from './contract/cordis.ts'
 
 export type * from './contract/index.ts'

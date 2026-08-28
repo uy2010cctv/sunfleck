@@ -7,6 +7,7 @@ import type {
   EnterpriseEmployeeRelease, EnterpriseSchedule,
   EnterpriseScheduleTarget, EnterpriseTeam, EnterpriseTeamMember,
   EnterpriseVisibility, EnterpriseWorkRecord as EnterpriseOperationWorkRecord,
+  CordisPackageVersion, CordisReviewRequest, CordisScopeBinding, CordisWorkspaceProjection,
 } from '@deepseek-ai/dsh-api-enterprise-controller/types'
 import type { AgentPresetRow } from '@deepseek-ai/dsh-agent-presets/types'
 import type { JsonValue } from '@deepseek-ai/dsh-session/types'
@@ -68,7 +69,8 @@ export interface EnterpriseView {
 }
 
 /** Overlay-local route. Governance deliberately remains in Settings. */
-export type EnterpriseWorkbenchPage = 'employees' | 'work-records' | 'approvals' | 'schedules' | 'assets' | 'teams'
+export type EnterpriseWorkbenchPage =
+  | 'employees' | 'work-records' | 'approvals' | 'schedules' | 'assets' | 'teams' | 'extensions'
 
 /** Shared asynchronous page state for enterprise PostgreSQL read models. */
 export interface EnterprisePageState<T> {
@@ -131,6 +133,10 @@ export interface EnterpriseWorkbenchState {
   readonly schedules: EnterprisePageState<EnterpriseSchedule>
   readonly assets: EnterprisePageState<EnterpriseAsset>
   readonly teams: EnterprisePageState<EnterpriseTeam>
+  readonly extensions: EnterprisePageState<CordisPackageVersion>
+  readonly extensionBindings: readonly CordisScopeBinding[]
+  readonly extensionReviews: EnterprisePageState<CordisReviewRequest>
+  readonly extensionWorkspaceId?: string
   readonly employeeEditor?: EnterpriseEmployeeEditorState
   readonly releases: readonly EnterpriseEmployeeRelease[]
   readonly mutationPhase: 'idle' | 'running' | 'error' | 'conflict'
@@ -145,6 +151,9 @@ export interface EnterpriseWorkbenchRemote {
   readonly enterpriseAssets: ClientRemote['enterpriseAsset']
   readonly enterpriseTeams: ClientRemote['enterpriseTeam']
   readonly enterpriseOperations: ClientRemote['enterpriseOperation']
+  readonly cordisWorkspace: ClientRemote['cordisWorkspace']
+  readonly cordisReview: ClientRemote['cordisReview']
+  readonly cordisGovernance: ClientRemote['cordisGovernance']
 }
 
 export type EnterpriseHostEventName =
@@ -276,6 +285,9 @@ const INITIAL_STATE: EnterpriseWorkbenchState = {
   schedules: emptyPage(),
   assets: emptyPage(),
   teams: emptyPage(),
+  extensions: emptyPage(),
+  extensionBindings: [],
+  extensionReviews: emptyPage(),
   releases: [],
   mutationPhase: 'idle',
   mutationError: null,
@@ -421,6 +433,7 @@ export class EnterpriseWorkbenchController {
       await Promise.all([
         this.refreshWorkRecords(), this.refreshApprovals(), this.refreshSchedules(),
         this.refreshAssets(), this.refreshTeams(),
+        this.refreshExtensions(),
       ])
       this.store.set({
         ...this.store.getSnapshot(),
@@ -565,6 +578,82 @@ export class EnterpriseWorkbenchController {
   /** Refresh fixed teams. */
   refreshTeams(): Promise<boolean> {
     return this.loadPage('teams', async () => valueOf(await this.api.enterpriseTeams.list({ limit: 50 })))
+  }
+
+  /** Select the Workspace whose personal or department extensions are projected. */
+  setExtensionWorkspace(workspaceId: string): void {
+    this.store.set({ ...this.store.getSnapshot(), extensionWorkspaceId: workspaceId })
+    void this.refreshExtensions()
+  }
+
+  /** Load visible personal, department, organization, and review projections. */
+  async refreshExtensions(): Promise<boolean> {
+    const before = this.store.getSnapshot()
+    const workspaceId = before.extensionWorkspaceId
+      ?? this.currentWorkspaceId()
+    if (workspaceId === undefined) {
+      this.store.set({ ...before, extensions: { phase: 'ready', items: [], error: null },
+        extensionBindings: [], extensionReviews: { phase: 'ready', items: [], error: null } })
+      return true
+    }
+    this.store.set({ ...before, extensionWorkspaceId: String(workspaceId),
+      extensions: { ...before.extensions, phase: 'loading', error: null },
+      extensionReviews: { ...before.extensionReviews, phase: 'loading', error: null } })
+    try {
+      const [projection, reviews] = await Promise.all([
+        this.api.cordisWorkspace.list({ workspaceId: String(workspaceId) }).then(response => valueOf(response)),
+        this.api.cordisReview.list({}).then(response => valueOf(response)),
+      ]) as [CordisWorkspaceProjection, readonly CordisReviewRequest[]]
+      this.store.set({ ...this.store.getSnapshot(), extensionWorkspaceId: String(workspaceId),
+        extensions: { phase: 'ready', items: projection.packages, error: null },
+        extensionBindings: projection.bindings,
+        extensionReviews: { phase: 'ready', items: reviews, error: null } })
+      return true
+    } catch (error) {
+      const current = this.store.getSnapshot()
+      this.store.set({ ...current,
+        extensions: pageFailure(current.extensions, error),
+        extensionReviews: pageFailure(current.extensionReviews, error) })
+      return false
+    }
+  }
+
+  private currentWorkspaceId(): string | undefined {
+    const currentSessionId = this.sessions.list.getSnapshot().current
+    const workspaces = this.workspaces.list.getSnapshot().items
+    return (currentSessionId === undefined
+      ? undefined
+      : workspaces.find(workspace => workspace.sessionIds.includes(currentSessionId))?.workspaceId)
+      ?? workspaces[0]?.workspaceId
+  }
+
+  /** Stop one durable scope binding without removing immutable versions. */
+  async stopExtension(binding: CordisScopeBinding, reason: string): Promise<void> {
+    await this.runMutation('cordis-stop', async () => valueOf(await this.api.cordisWorkspace.stop({
+      bindingId: binding.bindingId, pluginId: binding.pluginId, expectedRevision: binding.revision,
+      reason, idempotencyKey: mutationKey('cordis-stop'),
+    })), async () => { await this.refreshExtensions() })
+  }
+
+  /** Roll a binding back by atomically moving its active pointer. */
+  async rollbackExtension(binding: CordisScopeBinding, packageId: string, reason: string): Promise<void> {
+    await this.runMutation('cordis-rollback', async () => valueOf(await this.api.cordisWorkspace.rollback({
+      bindingId: binding.bindingId, pluginId: binding.pluginId, packageId,
+      expectedRevision: binding.revision, reason, idempotencyKey: mutationKey('cordis-rollback'),
+    })), async () => { await this.refreshExtensions() })
+  }
+
+  /** Apply one department-manager review action. */
+  async reviewExtension(review: CordisReviewRequest, action: 'approve' | 'return' | 'publish', reason: string): Promise<void> {
+    const request = {
+      reviewId: review.reviewId, pluginId: review.pluginId, packageId: review.packageId,
+      expectedRevision: review.revision, reason, idempotencyKey: mutationKey(`cordis-${action}`),
+    }
+    await this.runMutation(`cordis-${action}`, async () => {
+      if (action === 'approve') return valueOf(await this.api.cordisReview.approveDepartment(request))
+      if (action === 'return') return valueOf(await this.api.cordisReview.return(request))
+      return valueOf(await this.api.cordisReview.publishOrganization(request))
+    }, async () => { await this.refreshExtensions() })
   }
 
   /** Re-fold volatile operations state while retaining the loaded roster. */

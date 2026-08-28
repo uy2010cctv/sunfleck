@@ -8,12 +8,15 @@ import type {
   CordisReviewRequest,
   CordisScopeBinding,
   CordisSessionGeneration,
+  CordisValidationCheck,
   CordisWorkspaceProjection,
   DerivedCordisPackage,
   DepartmentManagerSet,
   EnterpriseCordisAuditEvent,
   EnterpriseCordisDirectory,
   EnterpriseCordisPrincipal,
+  EnterpriseCordisEvent,
+  EnterpriseCordisEventName,
   PublishedCordisReview,
 } from './types.ts'
 
@@ -30,6 +33,7 @@ export type EnterpriseCordisErrorCode =
   | 'review-package-mismatch'
   | 'review-state-invalid'
   | 'revision-conflict'
+  | 'validation-failed'
 
 export class EnterpriseCordisError extends Error {
   constructor(readonly code: EnterpriseCordisErrorCode, message: string) { super(message) }
@@ -39,6 +43,7 @@ export interface EnterpriseCordisServiceOptions {
   readonly directory: EnterpriseCordisDirectory
   readonly now?: () => number
   readonly randomId?: (prefix: string) => string
+  readonly emit?: (name: EnterpriseCordisEventName, event: EnterpriseCordisEvent) => void
 }
 
 declare module '@deepseek-ai/cordis' {
@@ -46,11 +51,24 @@ declare module '@deepseek-ai/cordis' {
     /** Shared enterprise Cordis domain service used by Host APIs and Agent tools. */
     enterpriseCordis: EnterpriseCordisService
   }
+  interface Events {
+    'enterprise/cordis-package-saved'(event: EnterpriseCordisEvent): void
+    'enterprise/cordis-review-requested'(event: EnterpriseCordisEvent): void
+    'enterprise/cordis-review-updated'(event: EnterpriseCordisEvent): void
+    'enterprise/cordis-department-activated'(event: EnterpriseCordisEvent): void
+    'enterprise/cordis-organization-published'(event: EnterpriseCordisEvent): void
+    'enterprise/cordis-run-health-updated'(event: EnterpriseCordisEvent): void
+    'enterprise/cordis-plugin-disabled'(event: EnterpriseCordisEvent): void
+  }
 }
 
 const PROTECTED = new Set([
   'identity.provider', 'authorization.policy', 'audit.sink', 'credentials.store',
   'session.persistence', 'enterprise.repository', 'artifact.store',
+])
+const CAPABILITIES = new Set([
+  'workspace.read', 'workspace.write', 'network.fetch', 'ui.slot',
+  'events.subscribe', 'tools.register', 'service.consume',
 ])
 
 function scopeKey(scope: CordisPluginScope): string { return JSON.stringify(scope) }
@@ -70,6 +88,7 @@ function isAdmin(roles: readonly EnterpriseRole[]): boolean { return roles.inclu
 export class EnterpriseCordisService {
   private readonly now: () => number
   private readonly randomId: (prefix: string) => string
+  private readonly inFlight = new Map<string, Promise<unknown>>()
 
   constructor(
     private readonly repository: EnterpriseCordisRepository,
@@ -77,6 +96,10 @@ export class EnterpriseCordisService {
   ) {
     this.now = options.now ?? Date.now
     this.randomId = options.randomId ?? (prefix => `${prefix}-${randomUUID()}`)
+  }
+
+  private emit(name: EnterpriseCordisEventName, event: Omit<EnterpriseCordisEvent, 'at'>): void {
+    this.options.emit?.(name, { ...event, at: this.now() })
   }
 
   private validateDraft(draft: CordisPackageDraft): void {
@@ -89,6 +112,35 @@ export class EnterpriseCordisService {
     if (draft.manifest.runtime === 'in-process') {
       throw new EnterpriseCordisError('protected-contract', 'User package must use an isolated runtime')
     }
+    if (draft.manifest.capabilities.some(capability => !CAPABILITIES.has(capability))) {
+      throw new EnterpriseCordisError('validation-failed', 'Cordis package requests an unknown capability')
+    }
+    const source = `${draft.hostCode ?? ''}\n${draft.clientCode ?? ''}`
+    if (/\b(?:process\.env|child_process|Deno\.|Bun\.)|\brequire\s*\(|\bimport\s*\(\s*['"]node:/u.test(source)) {
+      throw new EnterpriseCordisError('validation-failed', 'Cordis package uses a forbidden Host API')
+    }
+    if (/(?:api[_-]?key|access[_-]?token|password)\s*[:=]\s*['"][^'"]{8,}/iu.test(source)) {
+      throw new EnterpriseCordisError('validation-failed', 'Cordis package source contains a probable secret')
+    }
+  }
+
+  private validationChecks(draft: CordisPackageDraft): readonly CordisValidationCheck[] {
+    const source = `${draft.hostCode ?? ''}\n${draft.clientCode ?? ''}`
+    const check = (id: CordisValidationCheck['id'], passed: boolean, message: string): CordisValidationCheck => ({
+      id, status: passed ? 'passed' : 'failed', message,
+    })
+    return [
+      check('manifest', draft.manifest.apiVersion === 'dsh-plugin/v1'
+        && draft.name.trim() !== '' && draft.purpose.trim() !== ''
+        && (draft.hostCode !== undefined || draft.clientCode !== undefined), 'Manifest, identity, and package halves are valid.'),
+      check('permissions', draft.manifest.capabilities.every(capability => CAPABILITIES.has(capability))
+        && draft.manifest.provides.every(contract => !PROTECTED.has(contract)), 'Capabilities are declared and protected contracts are excluded.'),
+      check('isolation', draft.manifest.runtime !== 'in-process', 'User package uses an isolated runtime.'),
+      check('secrets', !/(?:api[_-]?key|access[_-]?token|password)\s*[:=]\s*['"][^'"]{8,}/iu.test(source), 'No probable embedded secret was found.'),
+      check('host-api', !/\b(?:process\.env|child_process|Deno\.|Bun\.)|\brequire\s*\(|\bimport\s*\(\s*['"]node:/u.test(source), 'No forbidden Node or host-global API was found.'),
+      check('ui-lifecycle', draft.clientCode === undefined || /\breturn\b/u.test(draft.clientCode), 'Client source exposes a loadable lifecycle value.'),
+      check('rollback', true, 'Immutable Package source supports pointer rollback.'),
+    ]
   }
 
   private async workspace(principal: EnterpriseCordisPrincipal, workspaceId: string) {
@@ -118,9 +170,16 @@ export class EnterpriseCordisService {
     const scope = this.commandScope(principal, operation)
     const existing = await this.repository.command<T>(scope, idempotencyKey)
     if (existing !== undefined) return existing
-    const value = await run()
-    await this.repository.putCommand(scope, idempotencyKey, value)
-    return value
+    const flightKey = `${scope}:${idempotencyKey}`
+    const current = this.inFlight.get(flightKey)
+    if (current !== undefined) return current as Promise<T>
+    const pending = (async () => {
+      const value = await run()
+      await this.repository.putCommand(scope, idempotencyKey, value)
+      return value
+    })()
+    this.inFlight.set(flightKey, pending)
+    try { return await pending } finally { this.inFlight.delete(flightKey) }
   }
 
   private async packageFromDraft(input: {
@@ -131,11 +190,20 @@ export class EnterpriseCordisService {
     modifiedBy?: string
     derivedFromPackageId?: string
   }): Promise<CordisPackageVersion> {
-    this.validateDraft(input.draft)
     const previous = await this.repository.packages(input.draft.pluginId, input.principal.orgId)
+    const packageId = this.randomId('cordis-package')
+    const validationReportRef = `${input.draft.validationReportRef}#${packageId}`
+    const checks = this.validationChecks(input.draft)
+    await this.repository.putValidationReport({
+      reportRef: validationReportRef, orgId: input.principal.orgId, packageId,
+      status: checks.some(check => check.status === 'failed') ? 'failed' : 'passed',
+      checks, createdAt: this.now(),
+    })
+    this.validateDraft(input.draft)
     const value: CordisPackageVersion = {
       ...input.draft,
-      packageId: this.randomId('cordis-package'),
+      packageId,
+      validationReportRef,
       orgId: input.principal.orgId,
       version: previous.length + 1,
       scope: input.scope,
@@ -160,10 +228,12 @@ export class EnterpriseCordisService {
       if (workspace.kind !== 'personal' || workspace.ownerUserId !== input.principal.userId) {
         throw new EnterpriseCordisError('personal-owner-required', 'Personal Workspace owner permission is required')
       }
-      return this.packageFromDraft({
+      const pkg = await this.packageFromDraft({
         principal: input.principal, draft: input.draft,
         scope: { type: 'personal-workspace', workspaceId: workspace.workspaceId, ownerUserId: input.principal.userId },
       })
+      this.emit('enterprise/cordis-package-saved', { orgId: input.principal.orgId, pluginId: pkg.pluginId, packageId: pkg.packageId })
+      return pkg
     })
   }
 
@@ -199,6 +269,7 @@ export class EnterpriseCordisService {
         trustLevel: current?.trustLevel ?? 'isolated', updatedAt: this.now(),
       }
       await this.repository.putBinding(value, current?.revision ?? 0)
+      this.emit('enterprise/cordis-run-health-updated', { orgId: value.orgId, pluginId: value.pluginId, packageId: value.activePackageId, bindingId: value.bindingId })
       return value
     })
   }
@@ -231,6 +302,7 @@ export class EnterpriseCordisService {
         status: 'pending', revision: 1, createdAt: at, updatedAt: at,
       }
       await this.repository.putReview(review, 0)
+      this.emit('enterprise/cordis-review-requested', { orgId: review.orgId, pluginId: review.pluginId, packageId: review.packageId, reviewId: review.reviewId })
       return review
     })
   }
@@ -265,6 +337,7 @@ export class EnterpriseCordisService {
         ...review, packageId: pkg.packageId, status: 'pending', revision: review.revision + 1, updatedAt: this.now(),
       }
       await this.repository.putReview(next, review.revision)
+      this.emit('enterprise/cordis-review-updated', { orgId: next.orgId, pluginId: next.pluginId, packageId: next.packageId, reviewId: next.reviewId })
       return { ...pkg, reviewRevision: next.revision }
     })
   }
@@ -290,7 +363,22 @@ export class EnterpriseCordisService {
         status: input.action === 'approve_department' ? 'approved-department' : 'changes-requested',
         reason: input.reason.trim(), revision: review.revision + 1, updatedAt: this.now(),
       }
-      await this.repository.putReview(next, review.revision)
+      if (input.action === 'approve_department') {
+        const scope: CordisPluginScope = { type: 'department', departmentId: review.departmentId }
+        const current = await this.repository.bindingForScope(input.principal.orgId, scopeKey(scope), review.pluginId)
+        const binding: CordisScopeBinding = {
+          bindingId: current?.bindingId ?? this.randomId('cordis-binding'), orgId: input.principal.orgId,
+          scope, pluginId: review.pluginId, activePackageId: review.packageId,
+          generation: (current?.generation ?? 0) + 1, revision: (current?.revision ?? 0) + 1,
+          activatedBy: input.principal.userId, disabled: false,
+          trustLevel: current?.trustLevel ?? 'isolated', updatedAt: this.now(),
+        }
+        await this.repository.approveDepartment(next, binding, review.revision, current?.revision ?? 0)
+        this.emit('enterprise/cordis-department-activated', { orgId: binding.orgId, pluginId: binding.pluginId, packageId: binding.activePackageId, bindingId: binding.bindingId, reviewId: review.reviewId })
+      } else {
+        await this.repository.putReview(next, review.revision)
+      }
+      this.emit('enterprise/cordis-review-updated', { orgId: next.orgId, pluginId: next.pluginId, packageId: next.packageId, reviewId: next.reviewId })
       return next
     })
   }
@@ -309,6 +397,10 @@ export class EnterpriseCordisService {
       const pkg = await this.repository.package(input.packageId)
       if (pkg === undefined) throw new EnterpriseCordisError('package-not-found', 'Cordis package was not found')
       this.validateDraft(pkg)
+      const report = await this.repository.validationReport(pkg.validationReportRef)
+      if (report?.status !== 'passed') {
+        throw new EnterpriseCordisError('validation-failed', 'Cordis package did not pass the automatic publication gate')
+      }
       const scope: CordisPluginScope = { type: 'organization', organizationId: input.principal.orgId }
       const current = await this.repository.bindingForScope(input.principal.orgId, scopeKey(scope), review.pluginId)
       const binding: CordisScopeBinding = {
@@ -318,13 +410,13 @@ export class EnterpriseCordisService {
         activatedBy: input.principal.userId, disabled: false,
         trustLevel: current?.trustLevel ?? 'isolated', updatedAt: this.now(),
       }
-      await this.repository.putBinding(binding, current?.revision ?? 0)
       const next: PublishedCordisReview = {
         ...review, status: 'published-organization', publishedBy: input.principal.userId,
         revision: review.revision + 1, updatedAt: this.now(), organizationBinding: binding,
       }
       const { organizationBinding: _binding, ...stored } = next
-      await this.repository.putReview(stored, review.revision)
+      await this.repository.publishOrganization(stored, binding, review.revision, current?.revision ?? 0)
+      this.emit('enterprise/cordis-organization-published', { orgId: binding.orgId, pluginId: binding.pluginId, packageId: binding.activePackageId, bindingId: binding.bindingId, reviewId: review.reviewId })
       return next
     })
   }
@@ -346,6 +438,7 @@ export class EnterpriseCordisService {
         revision: current.revision + 1, updatedAt: this.now(),
       }
       await this.repository.putBinding(next, current.revision)
+      this.emit('enterprise/cordis-plugin-disabled', { orgId: next.orgId, pluginId: next.pluginId, packageId: next.activePackageId, bindingId: next.bindingId })
       return next
     })
   }
@@ -381,6 +474,7 @@ export class EnterpriseCordisService {
         revision: current.revision + 1, updatedAt: this.now(),
       }
       await this.repository.putBinding(next, current.revision)
+      this.emit('enterprise/cordis-run-health-updated', { orgId: next.orgId, pluginId: next.pluginId, packageId: next.activePackageId, bindingId: next.bindingId })
       return next
     })
   }
@@ -417,6 +511,7 @@ export class EnterpriseCordisService {
         action: 'cordis.binding.rollback', pluginId: current.pluginId, packageId: pkg.packageId,
         at: next.updatedAt, details: { bindingId: current.bindingId, reason: input.reason.trim() },
       })
+      this.emit('enterprise/cordis-run-health-updated', { orgId: next.orgId, pluginId: next.pluginId, packageId: next.activePackageId, bindingId: next.bindingId })
       return next
     })
   }

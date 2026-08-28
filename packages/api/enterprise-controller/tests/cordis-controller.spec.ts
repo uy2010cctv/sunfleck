@@ -5,6 +5,7 @@ import {
   EnterpriseCordisService,
   type CordisPackageDraft,
 } from '@deepseek-ai/dsh-enterprise-cordis'
+import type { EnterpriseCordisWorkspaceView } from '@deepseek-ai/dsh-enterprise-cordis'
 import { EnterpriseRequestContext } from '@deepseek-ai/dsh-enterprise-auth-web'
 import {
   CordisGovernanceController,
@@ -26,7 +27,7 @@ async function setup() {
   const ctx = new Context()
   const cordis = new InMemoryEnterpriseCordisRepository()
   const identity = {
-    workspaceGrant: async (id: string) => id === 'personal-1'
+    workspaceGrant: async (id: string): Promise<EnterpriseCordisWorkspaceView | undefined> => id === 'personal-1'
       ? { workspaceId: id, orgId: 'org-a', kind: 'personal', ownerUserId: 'member-1' }
       : id === 'department-1'
         ? { workspaceId: id, orgId: 'org-a', kind: 'department', departmentId: 'dept-a' }

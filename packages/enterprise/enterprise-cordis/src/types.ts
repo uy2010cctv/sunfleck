@@ -17,6 +17,22 @@ export interface DshPluginManifestV1 {
   readonly runtime: 'in-process' | 'isolated-realm' | 'sandboxed-iframe'
   readonly provides: readonly string[]
   readonly capabilities: readonly string[]
+  readonly license?: string
+}
+
+export interface CordisValidationCheck {
+  readonly id: 'manifest' | 'permissions' | 'isolation' | 'secrets' | 'host-api' | 'ui-lifecycle' | 'rollback'
+  readonly status: 'passed' | 'failed'
+  readonly message: string
+}
+
+export interface CordisValidationReport {
+  readonly reportRef: string
+  readonly orgId: string
+  readonly packageId: string
+  readonly status: 'passed' | 'failed'
+  readonly checks: readonly CordisValidationCheck[]
+  readonly createdAt: number
 }
 
 export interface CordisPackageDraft {
@@ -146,4 +162,22 @@ export interface PublishedCordisReview extends CordisReviewRequest {
 export interface CordisWorkspaceProjection {
   readonly packages: readonly CordisPackageVersion[]
   readonly bindings: readonly CordisScopeBinding[]
+}
+
+export type EnterpriseCordisEventName =
+  | 'enterprise/cordis-package-saved'
+  | 'enterprise/cordis-review-requested'
+  | 'enterprise/cordis-review-updated'
+  | 'enterprise/cordis-department-activated'
+  | 'enterprise/cordis-organization-published'
+  | 'enterprise/cordis-run-health-updated'
+  | 'enterprise/cordis-plugin-disabled'
+
+export interface EnterpriseCordisEvent {
+  readonly orgId: string
+  readonly pluginId: string
+  readonly packageId?: string
+  readonly bindingId?: string
+  readonly reviewId?: string
+  readonly at: number
 }

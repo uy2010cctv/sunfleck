@@ -4,6 +4,7 @@ import type {
   CordisReviewRequest,
   CordisScopeBinding,
   CordisSessionGeneration,
+  CordisValidationReport,
   DepartmentManagerSet,
   EnterpriseCordisAuditEvent,
 } from './types.ts'
@@ -18,6 +19,7 @@ export interface EnterpriseCordisPostgresDatabase {
     text: string,
     values?: readonly unknown[],
   ): Promise<EnterpriseCordisPostgresResult<Row>>
+  transaction<T>(operation: (database: EnterpriseCordisPostgresDatabase) => Promise<T>): Promise<T>
 }
 
 const SCHEMA = [
@@ -309,6 +311,28 @@ export class PostgresEnterpriseCordisRepository implements EnterpriseCordisRepos
     return result.rows.map(reviewFromRow)
   }
 
+  async approveDepartment(
+    review: CordisReviewRequest,
+    binding: CordisScopeBinding,
+    expectedReviewRevision: number,
+    expectedBindingRevision: number,
+  ): Promise<void> {
+    await this.database.transaction(async (database) => {
+      const repository = new PostgresEnterpriseCordisRepository(database)
+      await repository.putBinding(binding, expectedBindingRevision)
+      await repository.putReview(review, expectedReviewRevision)
+    })
+  }
+
+  async publishOrganization(
+    review: CordisReviewRequest,
+    binding: CordisScopeBinding,
+    expectedReviewRevision: number,
+    expectedBindingRevision: number,
+  ): Promise<void> {
+    await this.approveDepartment(review, binding, expectedReviewRevision, expectedBindingRevision)
+  }
+
   async binding(bindingId: string): Promise<CordisScopeBinding | undefined> {
     const result = await this.database.query<BindingRow>(
       'SELECT * FROM dsh_enterprise_cordis_bindings WHERE binding_id = $1', [bindingId],
@@ -368,6 +392,28 @@ export class PostgresEnterpriseCordisRepository implements EnterpriseCordisRepos
       row.sessionId, row.orgId, row.workspaceId, JSON.stringify(row.entries), row.createdAt,
     ])
     if (result.rowCount !== 1) throw new Error('Cordis Session generation already exists')
+  }
+
+  async validationReport(reportRef: string): Promise<CordisValidationReport | undefined> {
+    const result = await this.database.query<Record<string, unknown>>(
+      'SELECT * FROM dsh_enterprise_cordis_validation_reports WHERE report_ref=$1', [reportRef],
+    )
+    const row = result.rows[0]
+    return row === undefined ? undefined : {
+      reportRef: String(row['report_ref']), orgId: String(row['org_id']), packageId: String(row['package_id']),
+      status: String(row['status']) as CordisValidationReport['status'],
+      checks: value<Record<string, unknown>>(row['report_json'])['checks'] as unknown as CordisValidationReport['checks'],
+      createdAt: Number(row['created_at']),
+    }
+  }
+
+  async putValidationReport(row: CordisValidationReport): Promise<void> {
+    const result = await this.database.query(`INSERT INTO dsh_enterprise_cordis_validation_reports(
+      report_ref,org_id,package_id,status,report_json,created_at
+    ) VALUES ($1,$2,$3,$4,$5::jsonb,$6) ON CONFLICT DO NOTHING`, [
+      row.reportRef, row.orgId, row.packageId, row.status, JSON.stringify({ checks: row.checks }), row.createdAt,
+    ])
+    if (result.rowCount !== 1) throw new Error('Cordis validation report already exists')
   }
 
   async command<T>(scope: string, idempotencyKey: string): Promise<T | undefined> {

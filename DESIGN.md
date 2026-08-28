@@ -67,6 +67,14 @@ Employee Operations Deck. The interface treats digital employees as finite opera
 - The memory surface separates proposed items from the approved enterprise awareness stream. It shows a short business summary, stable memory id, scope, kind, and source digest prefix, never raw conversation content.
 - Memory approval requires a visible reason. Privacy rejection remains an error state rather than silently rewriting the proposed summary.
 
+## Cordis Workspace extensions
+
+- The enterprise workbench owns one `Extensions` page instead of introducing a separate low-code shell. Its Workspace selector follows the current Session's Workspace and falls back only when the current Session cannot be resolved.
+- Scope is the primary wayfinding device: current running, personal, department, organization, and pending review use a quiet underline tab row over the same operational list.
+- Extension versions render as evidence rows, not equal-sized dashboard cards. Name, stable Plugin id, immutable version, purpose, provided capabilities, isolation level, author, source, and lifecycle actions remain visible in one reading path.
+- Empty extension scopes use the existing evidence-panel empty state. Desktop navigation stays compact at the top of its rail; mobile navigation becomes two columns and extension scope tabs scroll inside their own row without page-level horizontal overflow.
+- Stop and rollback remain secondary actions. Department approval requires a visible reason; organization publication is explicit and never presented as an automatic consequence of department approval.
+
 ## Employee card
 
 - Identity: display name, stable preset id as employee code, position, department.

@@ -60,6 +60,7 @@ const BASE_STATE: EnterpriseWorkbenchState = {
   error: null, busyEmployee: null, employeeFilters: {}, employees: EMPTY_PAGE,
   workRecords: EMPTY_PAGE, approvals: EMPTY_PAGE, schedules: EMPTY_PAGE,
   assets: EMPTY_PAGE, teams: EMPTY_PAGE,
+  extensions: EMPTY_PAGE, extensionBindings: [], extensionReviews: EMPTY_PAGE,
   releases: [],
   mutationPhase: 'idle', mutationError: null, retryAction: null,
 }
@@ -71,6 +72,11 @@ function workbenchProps(overrides: Partial<EnterpriseWorkbenchProps> & {
   const { state: _state, ...rest } = overrides
   return {
     useEnterprise: select => select(state),
+    useWorkspaces: select => select({
+      items: [{ workspaceId: 'workspace-1', title: '采购部', path: '/business/procurement', sessionIds: [],
+        createdAt: '2026-08-26T00:00:00.000Z', updatedAt: '2026-08-26T00:00:00.000Z' }],
+      archivedSessionIds: [], state: 'idle', phase: 'ready', error: null,
+    } as never),
     close: vi.fn(),
     refresh: vi.fn(() => Promise.resolve()),
     startEmployee: vi.fn(() => Promise.resolve()),
@@ -97,6 +103,44 @@ describe('EnterpriseTrigger', () => {
 })
 
 describe('EnterpriseWorkbench', () => {
+  it('shows Workspace Cordis versions, source, lifecycle actions, and department review actions', () => {
+    const stopExtension = vi.fn(() => Promise.resolve())
+    const reviewExtension = vi.fn(() => Promise.resolve())
+    render(<EnterpriseWorkbench {...workbenchProps({
+      state: {
+        mode: 'enterprise', page: 'extensions', extensionWorkspaceId: 'workspace-1',
+        extensions: { phase: 'ready', error: null, items: [{
+          packageId: 'package-1', orgId: 'org-a', pluginId: 'orders-1', dynamicPackageId: 'pkg-1',
+          version: 1, scope: { type: 'personal-workspace', workspaceId: 'workspace-1', ownerUserId: 'user-1' },
+          name: '订单校验', purpose: '提交前检查订单字段。', hostCode: 'return { apply() {} }',
+          manifest: { apiVersion: 'dsh-plugin/v1', runtime: 'isolated-realm', provides: ['tool:validate_order'], capabilities: [] },
+          artifactRef: 'artifact://orders/1', validationReportRef: 'report://orders/1', authoredBy: 'user-1',
+          sourceDigest: 'a'.repeat(64), createdAt: 1,
+        }] },
+        extensionBindings: [{
+          bindingId: 'binding-1', orgId: 'org-a', pluginId: 'orders-1', activePackageId: 'package-1',
+          scope: { type: 'personal-workspace', workspaceId: 'workspace-1', ownerUserId: 'user-1' },
+          generation: 1, revision: 1, activatedBy: 'user-1', disabled: false, trustLevel: 'isolated', updatedAt: 1,
+        }],
+        extensionReviews: { phase: 'ready', error: null, items: [{
+          reviewId: 'review-1', orgId: 'org-a', departmentId: 'dept-a', pluginId: 'orders-1',
+          packageId: 'package-1', sourceSessionId: 'session-1', submittedBy: 'user-1', status: 'pending',
+          revision: 1, createdAt: 1, updatedAt: 1,
+        }] },
+      }, stopExtension, reviewExtension,
+    } as never)} />)
+
+    expect(screen.getByText('订单校验')).toBeDefined()
+    fireEvent.click(screen.getByText('查看源码'))
+    expect(screen.getByText('return { apply() {} }')).toBeDefined()
+    fireEvent.click(screen.getByRole('button', { name: '停止' }))
+    expect(stopExtension).toHaveBeenCalledWith(expect.objectContaining({ bindingId: 'binding-1' }), zh['extensions.stopReason'])
+    fireEvent.click(screen.getByRole('button', { name: '待我审核' }))
+    fireEvent.change(screen.getByLabelText('审核原因'), { target: { value: '已验证' } })
+    fireEvent.click(screen.getByRole('button', { name: '批准部门启用' }))
+    expect(reviewExtension).toHaveBeenCalledWith(expect.objectContaining({ reviewId: 'review-1' }), 'approve', '已验证')
+  })
+
   it('provides local management navigation and opens the employee draft editor from the roster', () => {
     const openEmployeeDraft = vi.fn(() => Promise.resolve())
     render(<EnterpriseWorkbench {...workbenchProps({

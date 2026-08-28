@@ -3,6 +3,7 @@ import type {
   CordisReviewRequest,
   CordisScopeBinding,
   CordisSessionGeneration,
+  CordisValidationReport,
   DepartmentManagerSet,
   EnterpriseCordisAuditEvent,
 } from './types.ts'
@@ -14,6 +15,18 @@ export interface EnterpriseCordisRepository {
   putPackage(value: CordisPackageVersion): Promise<void>
   review(reviewId: string): Promise<CordisReviewRequest | undefined>
   putReview(value: CordisReviewRequest, expectedRevision: number): Promise<void>
+  approveDepartment(
+    review: CordisReviewRequest,
+    binding: CordisScopeBinding,
+    expectedReviewRevision: number,
+    expectedBindingRevision: number,
+  ): Promise<void>
+  publishOrganization(
+    review: CordisReviewRequest,
+    binding: CordisScopeBinding,
+    expectedReviewRevision: number,
+    expectedBindingRevision: number,
+  ): Promise<void>
   listReviews(orgId: string): Promise<readonly CordisReviewRequest[]>
   binding(bindingId: string): Promise<CordisScopeBinding | undefined>
   bindingForScope(orgId: string, scopeKey: string, pluginId: string): Promise<CordisScopeBinding | undefined>
@@ -21,6 +34,8 @@ export interface EnterpriseCordisRepository {
   listBindings(orgId: string): Promise<readonly CordisScopeBinding[]>
   sessionGeneration(sessionId: string): Promise<CordisSessionGeneration | undefined>
   putSessionGeneration(value: CordisSessionGeneration): Promise<void>
+  validationReport(reportRef: string): Promise<CordisValidationReport | undefined>
+  putValidationReport(value: CordisValidationReport): Promise<void>
   command<T>(scope: string, idempotencyKey: string): Promise<T | undefined>
   putCommand<T>(scope: string, idempotencyKey: string, value: T): Promise<void>
   appendAudit(value: EnterpriseCordisAuditEvent): Promise<void>
@@ -38,6 +53,7 @@ export class InMemoryEnterpriseCordisRepository implements EnterpriseCordisRepos
   private readonly bindingRows = new Map<string, CordisScopeBinding>()
   private readonly commands = new Map<string, unknown>()
   private readonly sessionGenerations = new Map<string, CordisSessionGeneration>()
+  private readonly validationReports = new Map<string, CordisValidationReport>()
   private readonly auditRows: EnterpriseCordisAuditEvent[] = []
   private readonly managerRows = new Map<string, DepartmentManagerSet>()
 
@@ -77,6 +93,29 @@ export class InMemoryEnterpriseCordisRepository implements EnterpriseCordisRepos
       .sort((left, right) => right.updatedAt - left.updatedAt || left.reviewId.localeCompare(right.reviewId)).map(copy)
   }
 
+  async approveDepartment(
+    review: CordisReviewRequest,
+    binding: CordisScopeBinding,
+    expectedReviewRevision: number,
+    expectedBindingRevision: number,
+  ): Promise<void> {
+    const currentReview = this.reviewRows.get(review.reviewId)
+    const currentBinding = this.bindingRows.get(binding.bindingId)
+    if ((currentReview?.revision ?? 0) !== expectedReviewRevision) throw new Error('Cordis review revision conflict')
+    if ((currentBinding?.revision ?? 0) !== expectedBindingRevision) throw new Error('Cordis binding revision conflict')
+    this.reviewRows.set(review.reviewId, copy(review))
+    this.bindingRows.set(binding.bindingId, copy(binding))
+  }
+
+  async publishOrganization(
+    review: CordisReviewRequest,
+    binding: CordisScopeBinding,
+    expectedReviewRevision: number,
+    expectedBindingRevision: number,
+  ): Promise<void> {
+    await this.approveDepartment(review, binding, expectedReviewRevision, expectedBindingRevision)
+  }
+
   async binding(bindingId: string): Promise<CordisScopeBinding | undefined> {
     const value = this.bindingRows.get(bindingId)
     return value === undefined ? undefined : copy(value)
@@ -110,6 +149,19 @@ export class InMemoryEnterpriseCordisRepository implements EnterpriseCordisRepos
       throw new Error('Cordis Session generation already exists')
     }
     this.sessionGenerations.set(value.sessionId, copy(value))
+  }
+
+  async validationReport(reportRef: string): Promise<CordisValidationReport | undefined> {
+    const value = this.validationReports.get(reportRef)
+    return value === undefined ? undefined : copy(value)
+  }
+
+  async putValidationReport(value: CordisValidationReport): Promise<void> {
+    const current = this.validationReports.get(value.reportRef)
+    if (current !== undefined && JSON.stringify(current) !== JSON.stringify(value)) {
+      throw new Error('Cordis validation report already exists')
+    }
+    this.validationReports.set(value.reportRef, copy(value))
   }
 
   async command<T>(scope: string, idempotencyKey: string): Promise<T | undefined> {

@@ -120,6 +120,10 @@ describe('EnterpriseCordisService', () => {
       version: 2, derivedFromPackageId: submitted.packageId, authoredBy: 'member-1', modifiedBy: 'manager-1',
     })
     expect(approved.status).toBe('approved-department')
+    expect((await cordis.listWorkspace({ principal: member, workspaceId: 'department-1' })).bindings)
+      .toEqual(expect.arrayContaining([expect.objectContaining({
+        scope: { type: 'department', departmentId: 'dept-a' }, activePackageId: derived.packageId,
+      })]))
     expect(published).toMatchObject({
       status: 'published-organization', publishedBy: 'manager-1',
       organizationBinding: { scope: { type: 'organization', organizationId: 'org-a' }, generation: 1 },
@@ -150,6 +154,31 @@ describe('EnterpriseCordisService', () => {
     await expect(cordis.savePersonal({
       principal: member, workspaceId: 'personal-1', draft: protectedDraft, idempotencyKey: 'protected-2',
     })).rejects.toMatchObject({ code: 'protected-contract' })
+  })
+
+  it('persists automatic gate evidence and rejects forbidden Host APIs', async () => {
+    const repository = new InMemoryEnterpriseCordisRepository()
+    const events: string[] = []
+    let next = 0
+    const cordis = new EnterpriseCordisService(repository, {
+      directory: directory(), now: () => 1_700_000_000_000 + next,
+      randomId: prefix => `${prefix}-${++next}`,
+      emit: (name) => { events.push(name) },
+    })
+    const saved = await cordis.savePersonal({
+      principal: member, workspaceId: 'personal-1', draft, idempotencyKey: 'gated-save',
+    })
+    expect(await repository.validationReport(saved.validationReportRef)).toMatchObject({
+      packageId: saved.packageId, status: 'passed',
+      checks: expect.arrayContaining([expect.objectContaining({ id: 'isolation', status: 'passed' })]),
+    })
+    expect(events).toEqual(['enterprise/cordis-package-saved'])
+
+    await expect(cordis.savePersonal({
+      principal: member, workspaceId: 'personal-1',
+      draft: { ...draft, dynamicPackageId: 'unsafe-runtime', hostCode: 'return process.env.API_KEY' },
+      idempotencyKey: 'gated-unsafe',
+    })).rejects.toMatchObject({ code: 'validation-failed' })
   })
 
   it('allows an administrator to emergency-disable an organization binding', async () => {
