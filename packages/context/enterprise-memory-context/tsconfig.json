@@ -7,6 +7,7 @@
     { "path": "../../../vendor/schemastery" },
     { "path": "../../core/agent" },
     { "path": "../../core/system-prompt" },
+    { "path": "../../core/tools" },
     { "path": "../../identity/enterprise-identity" },
     { "path": "../../runtime-diagnostics/invariants" }
   ]

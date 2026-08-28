@@ -559,6 +559,10 @@ function MemorySection({ state, proposeMemory, reviewMemory }: Pick<
       <div><h2>企业记忆</h2><p>让 Agent 记住经过审核的公司知识，并按企业或部门范围安全使用。</p></div>
       <span>{approved.length} 条已启用</span>
     </header>
+    <div className={css.memoryAutomation} role="status">
+      <strong>Agent 自动记忆已开启</strong>
+      <span>Agent 会自行评估可复用的业务知识；通过隐私与范围检查后立即生效，并保留自动来源和审计记录。</span>
+    </div>
     <ol className={css.memoryFlow} aria-label="企业记忆生效流程">
       <li><span>1</span><strong>提交业务知识</strong><small>填写可共享的规则、流程、术语或决策</small></li>
       <li><span>2</span><strong>管理员审核</strong><small>确认内容准确、适用范围正确且不含隐私</small></li>
@@ -654,9 +658,14 @@ function MemorySection({ state, proposeMemory, reviewMemory }: Pick<
         </div>
         {approved.length === 0 && <p className={css.emptyState}>还没有已启用记忆。审核通过后，Agent 才能使用。</p>}
         {approved.map(memory => <article key={memory.id} className={css.memoryItem}>
-          <div className={css.memoryMeta}><span>{scopeLabel(memory)}</span><span>{kindLabel(memory.kind)}</span></div>
+          <div className={css.memoryMeta}>
+            <span>{scopeLabel(memory)}</span><span>{kindLabel(memory.kind)}</span>
+            {memory.reviewReason === 'Agent 自动评估并直接启用' && <span>Agent 自动保存 · 已直接生效</span>}
+          </div>
           <strong className={css.memorySummary}>{memory.summary}</strong>
-          <small>{memory.reviewReason === undefined ? '已通过审核' : `审核说明：${memory.reviewReason}`}</small>
+          <small>{memory.reviewReason === 'Agent 自动评估并直接启用'
+            ? '由 Agent 自动评估并直接生效'
+            : memory.reviewReason === undefined ? '已通过审核' : `审核说明：${memory.reviewReason}`}</small>
         </article>)}
       </section>
     </div>

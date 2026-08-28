@@ -68,6 +68,9 @@
       config:
         maxEntries: 40
         maxChars: 12000
+        autoSave: true
+        actorUserId: bootstrap-admin
+        allowOrganizationScope: true
 
     - id: enterprise-controller
       name: '@deepseek-ai/dsh-api-enterprise-controller'

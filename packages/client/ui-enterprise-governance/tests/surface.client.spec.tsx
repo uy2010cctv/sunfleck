@@ -436,6 +436,32 @@ describe('enterprise governance UI', () => {
     })
   })
 
+  it('identifies Agent-evaluated memory that became active automatically', () => {
+    render(<EnterpriseGovernanceSettingsSection
+      state={state({
+        auth: {
+          authenticated: true,
+          principal: { userId: 'admin-1', orgId: 'org-a', displayName: 'Admin', username: 'admin', roles: ['administrator'] },
+          providers: [],
+        },
+        memories: [{
+          id: `agent-memory-${'a'.repeat(64)}`, orgId: 'org-a', scope: 'organization', kind: 'decision',
+          status: 'approved', summary: '公司统一使用年度合同模板。', sourceDigest: 'a'.repeat(64),
+          privacyFindings: [], createdBy: 'admin-1', reviewedBy: 'admin-1',
+          reviewReason: 'Agent 自动评估并直接启用', revision: 2, createdAt: 1, updatedAt: 2,
+        }],
+      })}
+      loadAdmin={vi.fn()} loginLocal={vi.fn()} logout={vi.fn()} createOrganization={vi.fn()}
+      createAsset={vi.fn()} createUser={vi.fn()} updateUser={vi.fn()} saveDepartment={vi.fn()}
+      createWorkspace={vi.fn()} updateWorkspace={vi.fn()} proposeMemory={vi.fn()} reviewMemory={vi.fn()}
+      savePolicy={vi.fn()} filterAudit={vi.fn()}
+    />)
+    fireEvent.click(screen.getByRole('tab', { name: '企业记忆' }))
+    expect(screen.getByText('Agent 自动记忆已开启')).toBeDefined()
+    expect(screen.getByText('Agent 自动保存 · 已直接生效')).toBeDefined()
+    expect(screen.getByText('由 Agent 自动评估并直接生效')).toBeDefined()
+  })
+
   it('edits the department tree and reviews the enterprise awareness stream', () => {
     const saveDepartment = vi.fn(() => Promise.resolve())
     const reviewMemory = vi.fn(() => Promise.resolve())
