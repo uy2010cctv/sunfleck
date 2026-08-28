@@ -144,6 +144,7 @@ export class EnterpriseGovernanceController {
     try {
       await this.request('/auth/login/local', { method: 'POST', body: JSON.stringify(input) })
       await this.refreshAuth()
+      if (this.store.getSnapshot().auth?.authenticated === true) globalThis.location.reload()
     } catch (error) {
       this.fail(error)
     }

@@ -51,6 +51,10 @@ export type * from './types.ts'
 /** Settings namespace carrying the user's chosen default preset. */
 export const SETTINGS_NAMESPACE = 'agent-presets'
 
+// Compatibility fence for defaults shipped by older DSH releases whose
+// preset directories no longer exist in the current distribution.
+const RETIRED_DEFAULT_PRESETS = new Set(['code'])
+
 /** Construct one typed preset failure for the Remote carrier. */
 function remotePresetFailure<Code extends keyof AgentPresetErrorDetailsMap>(
   code: Code,
@@ -295,7 +299,10 @@ export class AgentPresets extends TypertRemoteService {
    * every running session on the preset it was composed from.
    */
   get defaultId(): string {
-    return this.settings?.get().default ?? this.config.default
+    const configured = this.settings?.get().default
+    return configured === undefined || RETIRED_DEFAULT_PRESETS.has(configured)
+      ? this.config.default
+      : configured
   }
 
   /**

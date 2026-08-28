@@ -148,6 +148,15 @@ describe('the default preset as a user setting', () => {
     await expect(ctx.agentPresets.resolve())
       .rejects.toThrow(/preset "no-such-preset" not found/)
   })
+
+  it('re-inherits the composition default when an older release stored the retired code preset', async () => {
+    const { ctx } = await harness()
+
+    await ctx.settings.update(NS, { default: 'code' })
+
+    expect(ctx.agentPresets.defaultId).toBe('standard')
+    await expect(ctx.agentPresets.resolve()).resolves.toMatchObject({ id: 'standard' })
+  })
 })
 
 describe('a settings provider that goes away', () => {

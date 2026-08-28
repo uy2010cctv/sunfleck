@@ -64,7 +64,7 @@ describe('enterprise governance browser plugin', () => {
     const entry = ctx.slots.entries('settings.section')
       .find(candidate => candidate.options.id === 'enterprise-governance')!
     expect(entry.component).toBe(GovernanceSettingsSlot)
-    expect(entry.options).toMatchObject({ order: 100, label: '企业治理' })
+    expect(entry.options).toMatchObject({ order: 100, label: '企业管理' })
     expect(ctx.slots.entries('sidebar.footer.action')).toHaveLength(0)
 
     await fiber.dispose()

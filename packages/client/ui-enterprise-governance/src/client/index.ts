@@ -19,7 +19,7 @@ export function apply(ctx: Context): void {
       const isAdministrator = principal?.roles.includes('administrator') === true
       if (isAdministrator && disposeSection === undefined) {
         disposeSection = ctx.slots.register({
-          name: 'settings.section', id: 'enterprise-governance', order: 100, label: '企业治理',
+          name: 'settings.section', id: 'enterprise-governance', order: 100, label: '企业管理',
           inject: () => ({ hooks: { governance: controller.store }, controller }),
         }, GovernanceSettingsSlot)
       } else if (!isAdministrator && disposeSection !== undefined) {

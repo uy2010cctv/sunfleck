@@ -77,11 +77,18 @@ describe('EnterpriseGovernanceController', () => {
       }
       return Promise.resolve(response({ authenticated, providers: [] }))
     })
-    const controller = new EnterpriseGovernanceController(fetcher)
-    await controller.loginLocal({ organizationId: 'org-a', username: 'admin', password: 'password' })
-    expect(calls[0]?.init?.credentials).toBe('same-origin')
-    expect(calls[0]?.init?.body).toContain('password')
-    expect(JSON.stringify(controller.store.getSnapshot())).not.toContain('password')
+    const reload = vi.fn()
+    vi.stubGlobal('location', { reload })
+    try {
+      const controller = new EnterpriseGovernanceController(fetcher)
+      await controller.loginLocal({ organizationId: 'org-a', username: 'admin', password: 'password' })
+      expect(calls[0]?.init?.credentials).toBe('same-origin')
+      expect(calls[0]?.init?.body).toContain('password')
+      expect(JSON.stringify(controller.store.getSnapshot())).not.toContain('password')
+      expect(reload).toHaveBeenCalledOnce()
+    } finally {
+      vi.unstubAllGlobals()
+    }
   })
 
   it('creates users, updates roles, writes asset policies, and refreshes audit', async () => {
