@@ -4855,6 +4855,9 @@ importers:
       '@deepseek-ai/dsh-enterprise-catalog':
         specifier: workspace:^
         version: link:../../catalog/enterprise-catalog
+      '@deepseek-ai/dsh-enterprise-cordis':
+        specifier: workspace:^
+        version: link:../enterprise-cordis
       '@deepseek-ai/dsh-enterprise-identity-postgres':
         specifier: workspace:^
         version: link:../../identity/enterprise-identity-postgres

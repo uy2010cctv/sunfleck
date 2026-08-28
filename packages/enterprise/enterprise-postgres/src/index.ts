@@ -7,18 +7,23 @@ import { migrateEnterpriseIdentityPostgres, PgEnterpriseIdentityRepository } fro
 import { PostgresSessionStore } from '@deepseek-ai/dsh-session-persistence-postgres'
 import { EnterpriseCatalogRepository, migrateEnterpriseCatalog } from '@deepseek-ai/dsh-enterprise-catalog'
 import { EnterpriseOperationsRepository, migrateEnterpriseOperations } from '@deepseek-ai/dsh-enterprise-operations'
+import { PostgresEnterpriseCordisRepository, migrateEnterpriseCordis } from '@deepseek-ai/dsh-enterprise-cordis'
 import { EnterpriseKnowledgeRepository, migrateKnowledge } from '@deepseek-ai/dsh-knowledge-pgvector'
 import type { PostgresDatabase as IdentityDatabase, PostgresQueryResult as IdentityResult } from '@deepseek-ai/dsh-enterprise-identity-postgres'
 import type { PostgresDatabase as SessionDatabase, PostgresQueryResult as SessionResult } from '@deepseek-ai/dsh-session-persistence-postgres'
 import type { PostgresDatabase as CatalogDatabase, PostgresQueryResult as CatalogResult } from '@deepseek-ai/dsh-enterprise-catalog'
 import type { PostgresDatabase as OperationsDatabase, PostgresQueryResult as OperationsResult } from '@deepseek-ai/dsh-enterprise-operations'
 import type { PostgresDatabase as KnowledgeDatabase, PostgresQueryResult as KnowledgeResult } from '@deepseek-ai/dsh-knowledge-pgvector'
+import type {
+  EnterpriseCordisPostgresDatabase as CordisDatabase,
+  EnterpriseCordisPostgresResult as CordisResult,
+} from '@deepseek-ai/dsh-enterprise-cordis'
 
-type AnyResult = IdentityResult & SessionResult & CatalogResult & OperationsResult & KnowledgeResult
+type AnyResult = IdentityResult & SessionResult & CatalogResult & OperationsResult & KnowledgeResult & CordisResult
 
 /** One transaction-aware wrapper shared by all enterprise PG adapters. */
 export class EnterprisePostgresDatabase implements
-  IdentityDatabase, SessionDatabase, CatalogDatabase, OperationsDatabase, KnowledgeDatabase {
+  IdentityDatabase, SessionDatabase, CatalogDatabase, OperationsDatabase, KnowledgeDatabase, CordisDatabase {
   private ending: Promise<void> | undefined
 
   constructor(readonly pool: Pool, readonly client?: PoolClient) {}
@@ -96,6 +101,7 @@ export interface EnterprisePostgresComposition {
   readonly catalog: EnterpriseCatalogRepository
   readonly operations: EnterpriseOperationsRepository
   readonly knowledge: EnterpriseKnowledgeRepository
+  readonly cordis: PostgresEnterpriseCordisRepository
   readonly close: () => Promise<void>
 }
 
@@ -131,6 +137,7 @@ export async function createEnterprisePostgresComposition(config: EnterprisePost
     await migrateEnterpriseCatalog(database)
     await migrateEnterpriseOperations(database)
     await migrateKnowledge(database)
+    await migrateEnterpriseCordis(database as CordisDatabase)
     const identity = new PgEnterpriseIdentityRepository(database)
     const catalog = new EnterpriseCatalogRepository(database, {
       cursorSigningKey: deriveCursorKey('dsh-enterprise-catalog-cursor-v1'),
@@ -154,7 +161,8 @@ export async function createEnterprisePostgresComposition(config: EnterprisePost
       },
     })
     const knowledge = new EnterpriseKnowledgeRepository(database)
-    return { database, identity, session, catalog, operations, knowledge, close: () => database.end() }
+    const cordis = new PostgresEnterpriseCordisRepository(database)
+    return { database, identity, session, catalog, operations, knowledge, cordis, close: () => database.end() }
   } catch (error) {
     await database.end()
     throw error
