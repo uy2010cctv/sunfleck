@@ -162,7 +162,9 @@ describe('enterprise governance UI', () => {
       filterAudit={vi.fn()}
     />)
     expect(screen.getByRole('main', { name: '企业治理' })).toBeDefined()
-    expect(screen.getByRole('tablist', { name: '企业管理分区' })).toBeDefined()
+    const tablist = screen.getByRole('tablist', { name: '企业管理分区' })
+    expect(tablist).toBeDefined()
+    expect(tablist.getAttribute('data-appearance')).toBe('tonal')
     expect(screen.getAllByRole('tab')).toHaveLength(6)
     const organizations = screen.getByRole('tab', { name: '组织架构' })
     expect(organizations.getAttribute('aria-selected')).toBe('true')

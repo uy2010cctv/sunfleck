@@ -798,7 +798,7 @@ function GovernanceSections(props: EnterpriseGovernanceSurfaceProps) {
   >{content}</div>
 
   return <>
-    <div className={css.tabBar} role="tablist" aria-label="企业管理分区">
+    <div className={css.tabBar} role="tablist" aria-label="企业管理分区" data-appearance="tonal">
       {GOVERNANCE_TABS.map((tab, index) => <button
         key={tab.id}
         ref={(element) => { tabRefs.current[index] = element }}

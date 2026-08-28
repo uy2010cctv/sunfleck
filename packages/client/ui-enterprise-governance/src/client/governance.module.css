@@ -31,11 +31,11 @@
 .ledgerHeader button, .ledgerSection button { min-block-size: 36px; padding-inline: 12px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 8px; background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-label-primary); cursor: pointer; white-space: nowrap; }
 .ledgerHeader button:hover, .ledgerSection button:hover { background: var(--dsw-alias-interactive-bg-hover-solid); }
 .ledgerHeader button:active, .ledgerSection button:active { transform: translateY(1px); }
-.tabBar { position: sticky; inset-block-start: 0; z-index: 2; display: flex; gap: 4px; overflow-x: auto; margin-inline: -4px; padding: 10px 4px 8px; border-block-end: 1px solid var(--dsw-alias-border-l2); background: var(--dsw-alias-bg-base); scrollbar-width: none; }
+.tabBar { position: sticky; inset-block-start: 0; z-index: 2; display: flex; gap: 4px; overflow-x: auto; margin-block-start: 12px; padding: 4px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 12px; background: var(--dsw-alias-bg-layer-3); scrollbar-width: none; }
 .tabBar::-webkit-scrollbar { display: none; }
-.tab { flex: none; min-block-size: 40px; padding-inline: 12px; border: 0; border-radius: 8px; background: transparent; color: var(--dsw-alias-label-secondary); font: inherit; font-size: 12px; font-weight: 500; white-space: nowrap; cursor: pointer; }
+.tab { flex: none; min-block-size: 36px; padding-inline: 12px; border: 0; border-radius: 8px; background: transparent; color: var(--dsw-alias-label-secondary); font: inherit; font-size: 12px; font-weight: 500; white-space: nowrap; cursor: pointer; }
 .tab:hover { background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-primary); }
-.tab[aria-selected='true'] { box-shadow: inset 0 -2px var(--dsw-alias-state-business-primary); color: var(--dsw-alias-label-primary); }
+.tab[aria-selected='true'] { background: var(--dsw-specific-sidebar-nav-item-active); color: var(--dsw-alias-label-primary); }
 .tab:focus-visible { outline: 2px solid var(--dsw-alias-brand-primary-new-colorprimary-new-color); outline-offset: -2px; }
 .pagePanel[hidden] { display: none; }
 .ledgerSection { padding-block: 24px; scroll-margin-block-start: 16px; }
