@@ -1,0 +1,95 @@
+import type {
+  CordisPackageVersion,
+  CordisReviewRequest,
+  CordisScopeBinding,
+  EnterpriseCordisAuditEvent,
+} from './types.ts'
+
+export interface EnterpriseCordisRepository {
+  package(packageId: string): Promise<CordisPackageVersion | undefined>
+  packages(pluginId: string, orgId: string): Promise<readonly CordisPackageVersion[]>
+  putPackage(value: CordisPackageVersion): Promise<void>
+  review(reviewId: string): Promise<CordisReviewRequest | undefined>
+  putReview(value: CordisReviewRequest, expectedRevision: number): Promise<void>
+  binding(bindingId: string): Promise<CordisScopeBinding | undefined>
+  bindingForScope(orgId: string, scopeKey: string, pluginId: string): Promise<CordisScopeBinding | undefined>
+  putBinding(value: CordisScopeBinding, expectedRevision: number): Promise<void>
+  command<T>(scope: string, idempotencyKey: string): Promise<T | undefined>
+  putCommand<T>(scope: string, idempotencyKey: string, value: T): Promise<void>
+  appendAudit(value: EnterpriseCordisAuditEvent): Promise<void>
+  listAudit(orgId: string): Promise<readonly EnterpriseCordisAuditEvent[]>
+}
+
+function copy<T>(value: T): T { return structuredClone(value) }
+
+/** Deterministic in-memory adapter for domain tests and development composition. */
+export class InMemoryEnterpriseCordisRepository implements EnterpriseCordisRepository {
+  private readonly packageRows = new Map<string, CordisPackageVersion>()
+  private readonly reviewRows = new Map<string, CordisReviewRequest>()
+  private readonly bindingRows = new Map<string, CordisScopeBinding>()
+  private readonly commands = new Map<string, unknown>()
+  private readonly auditRows: EnterpriseCordisAuditEvent[] = []
+
+  async package(packageId: string): Promise<CordisPackageVersion | undefined> {
+    const value = this.packageRows.get(packageId)
+    return value === undefined ? undefined : copy(value)
+  }
+
+  async packages(pluginId: string, orgId: string): Promise<readonly CordisPackageVersion[]> {
+    return [...this.packageRows.values()].filter(row => row.pluginId === pluginId && row.orgId === orgId)
+      .sort((left, right) => left.version - right.version).map(copy)
+  }
+
+  async putPackage(value: CordisPackageVersion): Promise<void> {
+    if (this.packageRows.has(value.packageId)) throw new Error(`Cordis package ${value.packageId} already exists`)
+    this.packageRows.set(value.packageId, copy(value))
+  }
+
+  async review(reviewId: string): Promise<CordisReviewRequest | undefined> {
+    const value = this.reviewRows.get(reviewId)
+    return value === undefined ? undefined : copy(value)
+  }
+
+  async putReview(value: CordisReviewRequest, expectedRevision: number): Promise<void> {
+    const current = this.reviewRows.get(value.reviewId)
+    if ((current?.revision ?? 0) !== expectedRevision) throw new Error('Cordis review revision conflict')
+    this.reviewRows.set(value.reviewId, copy(value))
+  }
+
+  async binding(bindingId: string): Promise<CordisScopeBinding | undefined> {
+    const value = this.bindingRows.get(bindingId)
+    return value === undefined ? undefined : copy(value)
+  }
+
+  async bindingForScope(orgId: string, scopeKey: string, pluginId: string): Promise<CordisScopeBinding | undefined> {
+    const value = [...this.bindingRows.values()].find(row =>
+      row.orgId === orgId && row.pluginId === pluginId && JSON.stringify(row.scope) === scopeKey)
+    return value === undefined ? undefined : copy(value)
+  }
+
+  async putBinding(value: CordisScopeBinding, expectedRevision: number): Promise<void> {
+    const current = this.bindingRows.get(value.bindingId)
+    if ((current?.revision ?? 0) !== expectedRevision) throw new Error('Cordis binding revision conflict')
+    this.bindingRows.set(value.bindingId, copy(value))
+  }
+
+  async command<T>(scope: string, idempotencyKey: string): Promise<T | undefined> {
+    const value = this.commands.get(`${scope}:${idempotencyKey}`)
+    return value === undefined ? undefined : copy(value as T)
+  }
+
+  async putCommand<T>(scope: string, idempotencyKey: string, value: T): Promise<void> {
+    const key = `${scope}:${idempotencyKey}`
+    const current = this.commands.get(key)
+    if (current !== undefined && JSON.stringify(current) !== JSON.stringify(value)) {
+      throw new Error('Cordis idempotency key result conflict')
+    }
+    this.commands.set(key, copy(value))
+  }
+
+  async appendAudit(value: EnterpriseCordisAuditEvent): Promise<void> { this.auditRows.push(copy(value)) }
+
+  async listAudit(orgId: string): Promise<readonly EnterpriseCordisAuditEvent[]> {
+    return this.auditRows.filter(row => row.orgId === orgId).map(copy)
+  }
+}
