@@ -40,6 +40,13 @@ export interface EnterpriseCordisServiceOptions {
   readonly randomId?: (prefix: string) => string
 }
 
+declare module '@deepseek-ai/cordis' {
+  interface Context {
+    /** Shared enterprise Cordis domain service used by Host APIs and Agent tools. */
+    enterpriseCordis: EnterpriseCordisService
+  }
+}
+
 const PROTECTED = new Set([
   'identity.provider', 'authorization.policy', 'audit.sink', 'credentials.store',
   'session.persistence', 'enterprise.repository', 'artifact.store',

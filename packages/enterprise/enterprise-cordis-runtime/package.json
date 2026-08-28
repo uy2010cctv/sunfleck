@@ -1,0 +1,44 @@
+{
+  "name": "@deepseek-ai/dsh-enterprise-cordis-runtime",
+  "description": "Enterprise Cordis service composition, Agent persistence tools, and Workspace restoration",
+  "version": "0.1.2-alpha.1",
+  "publishConfig": { "access": "public" },
+  "type": "module",
+  "main": "lib/index.js",
+  "types": "lib/types/index.d.ts",
+  "exports": {
+    ".": { "types": "./lib/types/index.d.ts", "default": "./lib/index.js" },
+    "./invariant": { "types": "./lib/types/invariant.d.ts", "default": "./lib/invariant.js" },
+    "./src/*": "./src/*",
+    "./package.json": "./package.json"
+  },
+  "files": ["lib/index.js", "lib/invariant.js", "lib/types/**/*.d.ts"],
+  "license": "MIT",
+  "dependencies": { "@deepseek-ai/schemastery": "workspace:^" },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "workspace:^",
+    "@deepseek-ai/dsh-agent": "workspace:^",
+    "@deepseek-ai/dsh-cordis-host-runner": "workspace:^",
+    "@deepseek-ai/dsh-enterprise-auth-web": "workspace:^",
+    "@deepseek-ai/dsh-enterprise-cordis": "workspace:^",
+    "@deepseek-ai/dsh-enterprise-identity": "workspace:^",
+    "@deepseek-ai/dsh-enterprise-postgres": "workspace:^",
+    "@deepseek-ai/dsh-invariants": "workspace:^",
+    "@deepseek-ai/dsh-session": "workspace:^",
+    "@deepseek-ai/dsh-tools": "workspace:^"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "workspace:^",
+    "@deepseek-ai/dsh-agent": "workspace:^",
+    "@deepseek-ai/dsh-cordis-host-runner": "workspace:^",
+    "@deepseek-ai/dsh-enterprise-auth-web": "workspace:^",
+    "@deepseek-ai/dsh-enterprise-cordis": "workspace:^",
+    "@deepseek-ai/dsh-enterprise-identity": "workspace:^",
+    "@deepseek-ai/dsh-enterprise-postgres": "workspace:^",
+    "@deepseek-ai/dsh-invariants": "workspace:^",
+    "@deepseek-ai/dsh-llm": "workspace:^",
+    "@deepseek-ai/dsh-session": "workspace:^",
+    "@deepseek-ai/dsh-system-prompt": "workspace:^",
+    "@deepseek-ai/dsh-tools": "workspace:^"
+  }
+}

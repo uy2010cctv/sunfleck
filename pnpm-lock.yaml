@@ -4853,6 +4853,49 @@ importers:
         specifier: workspace:^
         version: link:../../runtime-diagnostics/invariants
 
+  packages/enterprise/enterprise-cordis-runtime:
+    dependencies:
+      '@deepseek-ai/schemastery':
+        specifier: link:../../../vendor/schemastery
+        version: link:../../../vendor/schemastery
+    devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: workspace:^
+        version: link:../../../vendor/cordis
+      '@deepseek-ai/dsh-agent':
+        specifier: workspace:^
+        version: link:../../core/agent
+      '@deepseek-ai/dsh-cordis-host-runner':
+        specifier: workspace:^
+        version: link:../../extensions/cordis-host-runner
+      '@deepseek-ai/dsh-enterprise-auth-web':
+        specifier: workspace:^
+        version: link:../../identity/enterprise-auth-web
+      '@deepseek-ai/dsh-enterprise-cordis':
+        specifier: workspace:^
+        version: link:../enterprise-cordis
+      '@deepseek-ai/dsh-enterprise-identity':
+        specifier: workspace:^
+        version: link:../../identity/enterprise-identity
+      '@deepseek-ai/dsh-enterprise-postgres':
+        specifier: workspace:^
+        version: link:../enterprise-postgres
+      '@deepseek-ai/dsh-invariants':
+        specifier: workspace:^
+        version: link:../../runtime-diagnostics/invariants
+      '@deepseek-ai/dsh-llm':
+        specifier: workspace:^
+        version: link:../../llm/llm
+      '@deepseek-ai/dsh-session':
+        specifier: workspace:^
+        version: link:../../core/session
+      '@deepseek-ai/dsh-system-prompt':
+        specifier: workspace:^
+        version: link:../../core/system-prompt
+      '@deepseek-ai/dsh-tools':
+        specifier: workspace:^
+        version: link:../../core/tools
+
   packages/enterprise/enterprise-postgres:
     dependencies:
       '@deepseek-ai/dsh-enterprise-catalog':

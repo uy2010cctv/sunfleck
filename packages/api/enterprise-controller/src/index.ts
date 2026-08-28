@@ -153,30 +153,8 @@ function operations(ctx: Context): EnterpriseOperationsService {
   })
 }
 
-const cordisServices = new WeakMap<Context, EnterpriseCordisService>()
-
-/** Build one shared enterprise Cordis domain service for the controller context. */
 function cordis(ctx: Context): EnterpriseCordisService {
-  let service = cordisServices.get(ctx)
-  if (service !== undefined) return service
-  service = new EnterpriseCordisService(ctx.enterprisePostgres.cordis, {
-    directory: {
-      workspace: async (workspaceId) => {
-        const grant = await ctx.enterprisePostgres.identity.workspaceGrant(workspaceId)
-        return grant === undefined ? undefined : {
-          workspaceId: grant.workspaceId, orgId: grant.orgId, kind: grant.kind,
-          ...(grant.ownerUserId === undefined ? {} : { ownerUserId: grant.ownerUserId }),
-          ...(grant.departmentId === undefined ? {} : { departmentId: grant.departmentId }),
-        }
-      },
-      userDepartments: async (orgId, userId) =>
-        (await ctx.enterprisePostgres.identity.listUsers(orgId)).find(user => user.id === userId)?.departmentIds ?? [],
-      isDepartmentManager: async (orgId, departmentId, userId) =>
-        (await ctx.enterprisePostgres.cordis.departmentManagers(orgId, departmentId))?.managerUserIds.includes(userId) ?? false,
-    },
-  })
-  cordisServices.set(ctx, service)
-  return service
+  return ctx.enterpriseCordis
 }
 
 /** Employee Draft/Release Remote service. */
@@ -669,5 +647,5 @@ export function apply(ctx: Context): void {
   new CordisGovernanceController(ctx)
 }
 
-export const inject = ['enterprisePostgres', 'enterpriseSecurity', 'enterpriseRequestContext']
+export const inject = ['enterprisePostgres', 'enterpriseSecurity', 'enterpriseRequestContext', 'enterpriseCordis']
 export { name } from './invariant.ts'

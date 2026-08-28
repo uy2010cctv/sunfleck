@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import {
   InMemoryEnterpriseCordisRepository,
+  EnterpriseCordisService,
   type CordisPackageDraft,
 } from '@deepseek-ai/dsh-enterprise-cordis'
 import { EnterpriseRequestContext } from '@deepseek-ai/dsh-enterprise-auth-web'
@@ -38,7 +39,17 @@ async function setup() {
   const authorizeApiAsync = vi.fn(async () => ({ allowed: true, reason: 'role' }))
   const auditApiAsync = vi.fn(async () => undefined)
   const requestContext = new EnterpriseRequestContext()
+  const service = new EnterpriseCordisService(cordis, {
+    directory: {
+      workspace: identity.workspaceGrant,
+      userDepartments: async (_orgId, userId) =>
+        (await identity.listUsers()).find(user => user.id === userId)?.departmentIds ?? [],
+      isDepartmentManager: async (orgId, departmentId, userId) =>
+        (await cordis.departmentManagers(orgId, departmentId))?.managerUserIds.includes(userId) ?? false,
+    },
+  })
   ctx.provide('enterprisePostgres' as never, { cordis, identity } as never)
+  ctx.provide('enterpriseCordis' as never, service as never)
   ctx.provide('enterpriseSecurity' as never, { authorizeApiAsync, auditApiAsync } as never)
   ctx.provide('enterpriseRequestContext' as never, requestContext as never)
   return {
