@@ -54,7 +54,7 @@ function validDisplayName(value: unknown): value is string {
 }
 
 function validPassword(value: unknown): value is string {
-  return typeof value === 'string' && value.length >= 8 && value.length <= 128
+  return typeof value === 'string' && value.length >= 12 && value.length <= 128
 }
 
 async function jsonBody(request: Request): Promise<Record<string, unknown>> {

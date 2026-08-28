@@ -284,4 +284,25 @@ describe('EnterpriseAuthHttpHandler', () => {
     expect(audit.status).toBe(200)
     expect((await audit.json() as unknown[]).length).toBeGreaterThan(0)
   })
+
+  it('rejects a local user password shorter than the scrypt verifier minimum before persistence', async () => {
+    const login = await handler.fetch(new Request('https://dsh.example.com/auth/login/local', {
+      method: 'POST', headers: { 'content-type': 'application/json', origin: 'https://dsh.example.com' },
+      body: JSON.stringify({ organizationId: 'org-a', username: 'admin', password: 'enterprise-password' }),
+    }))
+    const response = await handler.fetch(new Request('https://dsh.example.com/auth/admin/users', {
+      method: 'POST', headers: {
+        'content-type': 'application/json', origin: 'https://dsh.example.com',
+        cookie: login.headers.get('set-cookie') ?? '',
+      },
+      body: JSON.stringify({
+        id: 'short-password-user', username: 'shortpass', displayName: 'Short Password',
+        password: 'short@1234', roles: ['member'],
+      }),
+    }))
+
+    expect(response.status).toBe(400)
+    await expect(response.json()).resolves.toEqual({ error: 'bad-request' })
+    expect(repository.findUser('org-a', 'shortpass')).toBeUndefined()
+  })
 })

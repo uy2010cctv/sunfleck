@@ -347,8 +347,8 @@ function UserDialog({ mode, user, departments, createUser, updateUser, close }: 
       setError('显示名称需为 1–100 个字符')
       return
     }
-    if ((mode === 'create' || password !== '') && (password.length < 8 || password.length > 128)) {
-      setError('密码需为 8–128 个字符')
+    if ((mode === 'create' || password !== '') && (password.length < 12 || password.length > 128)) {
+      setError('密码需为 12–128 个字符')
       return
     }
     setSaving(true)
@@ -392,7 +392,7 @@ function UserDialog({ mode, user, departments, createUser, updateUser, close }: 
         value={displayName} onChange={(event) => { setDisplayName(event.target.value) }} /></label>
       <label>{mode === 'create' ? '初始密码' : '新密码（留空则不修改）'}<input type="password"
         aria-label={mode === 'create' ? '初始密码' : '新密码（留空则不修改）'} autoComplete="new-password"
-        minLength={8} maxLength={128} value={password} onChange={(event) => { setPassword(event.target.value) }} /></label>
+        minLength={12} maxLength={128} value={password} onChange={(event) => { setPassword(event.target.value) }} /></label>
       <label>角色<select aria-label="角色" value={role} onChange={(event) => { setRole(event.target.value) }}>
         {USER_ROLES.map(item => <option key={item[0]} value={item[0]}>{item[1]} · {item[0]}</option>)}
       </select></label>

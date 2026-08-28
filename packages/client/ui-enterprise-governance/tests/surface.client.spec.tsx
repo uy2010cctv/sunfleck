@@ -204,16 +204,42 @@ describe('enterprise governance UI', () => {
     expect(screen.queryByLabelText('用户 ID')).toBeNull()
     fireEvent.change(screen.getByLabelText('用户名'), { target: { value: 'buyer' } })
     fireEvent.change(screen.getByLabelText('显示名称'), { target: { value: '采购员' } })
-    fireEvent.change(screen.getByLabelText('初始密码'), { target: { value: 'buyer@123' } })
+    fireEvent.change(screen.getByLabelText('初始密码'), { target: { value: 'buyer-password' } })
     fireEvent.change(screen.getByLabelText('角色'), { target: { value: 'operator' } })
     fireEvent.click(screen.getByRole('button', { name: '创建用户' }))
 
     await waitFor(() => { expect(createUser).toHaveBeenCalledOnce() })
     expect(createUser).toHaveBeenCalledWith({
       id: expect.stringMatching(/^user-/), username: 'buyer', displayName: '采购员',
-      password: 'buyer@123', roles: ['operator'],
+      password: 'buyer-password', roles: ['operator'],
     })
     expect(screen.queryByRole('dialog', { name: '新增用户' })).toBeNull()
+  })
+
+  it('explains the verifier minimum before submitting a short local password', async () => {
+    const createUser = vi.fn(() => Promise.resolve())
+    render(<EnterpriseGovernanceSettingsSection
+      state={state({
+        auth: {
+          authenticated: true,
+          principal: { userId: 'admin-1', orgId: 'org-a', displayName: 'Admin', username: 'admin', roles: ['administrator'] },
+          providers: [],
+        },
+      })}
+      loadAdmin={vi.fn()} loginLocal={vi.fn()} logout={vi.fn()} createOrganization={vi.fn()}
+      createAsset={vi.fn()} createUser={createUser} updateUser={vi.fn()} saveDepartment={vi.fn()}
+      createWorkspace={vi.fn()} updateWorkspace={vi.fn()} proposeMemory={vi.fn()} reviewMemory={vi.fn()}
+      savePolicy={vi.fn()} filterAudit={vi.fn()}
+    />)
+    fireEvent.click(screen.getByRole('tab', { name: '用户管理' }))
+    fireEvent.click(screen.getByRole('button', { name: '新增用户' }))
+    fireEvent.change(screen.getByLabelText('用户名'), { target: { value: 'kris' } })
+    fireEvent.change(screen.getByLabelText('显示名称'), { target: { value: 'Kris' } })
+    fireEvent.change(screen.getByLabelText('初始密码'), { target: { value: 'short@1234' } })
+    fireEvent.click(screen.getByRole('button', { name: '创建用户' }))
+
+    expect(screen.getByRole('alert').textContent).toContain('密码需为 12–128 个字符')
+    expect(createUser).not.toHaveBeenCalled()
   })
 
   it('shows a readable user list and edits identity fields in a dialog', async () => {
