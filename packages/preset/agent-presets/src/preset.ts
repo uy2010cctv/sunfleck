@@ -1,6 +1,7 @@
 /** Agent-preset vocabulary shared by discovery, mounting, and consumers. */
 
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
+import type { EmployeeMetadata } from './metadata.ts'
 
 /**
  * Where a preset's composition came from. A `system` preset ships with the
@@ -33,6 +34,8 @@ export interface AgentPreset {
   readonly description?: string
   /** Declared position within its group; absent sorts after those that declare one. */
   readonly order?: number
+  /** Optional enterprise roster presentation; runtime identity remains this preset. */
+  readonly employee?: EmployeeMetadata
   /**
    * Why this preset cannot compose a session, absent when it can. A broken
    * preset stays on the roster — hiding it would leave its directory blocking

@@ -1,0 +1,16 @@
+{
+  "extends": "../../../tsconfig.base.json",
+  "compilerOptions": { "rootDir": "src", "outDir": "lib/types" },
+  "include": ["src"],
+  "references": [
+    { "path": "../../../vendor/cordis" },
+    { "path": "../../typert/protocol" },
+    { "path": "../../identity/enterprise-auth-web" },
+    { "path": "../../catalog/enterprise-catalog" },
+    { "path": "../../governance/enterprise-governance" },
+    { "path": "../../operations/enterprise-operations" },
+    { "path": "../../enterprise/enterprise-postgres" },
+    { "path": "../../core/session" },
+    { "path": "../../runtime-diagnostics/invariants" }
+  ]
+}

@@ -105,6 +105,30 @@ describe('copying a preset', () => {
       .toMatchObject({ description: '只做检索。' })
   })
 
+  it('keeps reusable employee metadata when copying a preset', async () => {
+    await seedPreset(userRoot, 'source', {
+      metadata: [
+        'name: 源模式',
+        'employee:',
+        '  position: 通用执行员工',
+        '  department: 数字化运营',
+        '  capabilities: [文件执行, 信息检索]',
+        '',
+      ].join('\n'),
+    })
+
+    await ctx.agentPresets.copy('source', 'mine')
+
+    expect((await ctx.agentPresets.list()).find(preset => preset.id === 'mine'))
+      .toMatchObject({
+        employee: {
+          position: '通用执行员工',
+          department: '数字化运营',
+          capabilities: ['文件执行', '信息检索'],
+        },
+      })
+  })
+
   it('stores the display name the author supplied', async () => {
     await ctx.agentPresets.copy('standard', 'mine', '我的模式')
 

@@ -606,6 +606,21 @@ describe('catalog-addressed navigation', () => {
 })
 
 describe('create', () => {
+  it('passes the selected agent preset to the Host', async () => {
+    const b = bench()
+    b.api.onCreate = () => Promise.resolve(ok({ sessionId: sid('employee-work') }))
+
+    await expect(b.svc.create({
+      workspaceId: 'workspace-1' as never,
+      agentPreset: 'standard',
+    })).resolves.toBe('employee-work')
+
+    expect(b.api.callsOf('session.create')).toEqual([{
+      workspaceId: 'workspace-1',
+      agentPreset: 'standard',
+    }])
+  })
+
   it('passes a preallocated id and preserves it on ordinary failure', async () => {
     const b = bench()
     b.api.onCreate = () => Promise.resolve(ok({ sessionId: sid('fresh') }))

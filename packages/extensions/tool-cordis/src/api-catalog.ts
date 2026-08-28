@@ -832,6 +832,329 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'enterpriseAssetController',
+    summary: 'Capability asset Remote service.',
+    description: 'Capability asset Remote service.',
+    methods: [
+      {
+        signature: '@Remote(\'list\') async list(request: EnterpriseAssetListRequest): Promise<EnterpriseAssetPage>',
+        description: 'Execute one authenticated enterprise operation.',
+        parameters: [{ name: 'request', description: 'asset page filters.' }],
+        returns: 'visible asset page.',
+      },
+      {
+        signature: '@Remote(\'get\') async get(request: EnterpriseAssetLookup): Promise<EnterpriseAsset>',
+        description: 'Execute one authenticated enterprise operation.',
+        parameters: [{ name: 'request', description: 'asset identity.' }],
+        returns: 'current asset row.',
+      },
+      {
+        signature: '@Remote(\'saveVersion\') async saveVersion(request: EnterpriseAssetSaveRequest): Promise<EnterpriseAssetVersion>',
+        description: 'Execute one authenticated enterprise operation.',
+        parameters: [{ name: 'request', description: 'new immutable asset content and CAS revision.' }],
+        returns: 'created version.',
+      },
+      {
+        signature: '@Remote(\'listVersions\') async listVersions(request: EnterpriseAssetLookup): Promise<readonly EnterpriseAssetVersion[]>',
+        description: 'Execute one authenticated enterprise operation.',
+        parameters: [{ name: 'request', description: 'asset identity.' }],
+        returns: 'immutable version history.',
+      },
+      {
+        signature: '@Remote(\'archive\') async archive(request: EnterpriseAssetArchiveRequest): Promise<EnterpriseAsset>',
+        description: 'Execute one authenticated enterprise operation.',
+        parameters: [{ name: 'request', description: 'asset identity and CAS revision.' }],
+        returns: 'archived asset row.',
+      },
+    ],
+  },
+  {
+    key: 'enterpriseEmployeeController',
+    summary: 'Employee Draft/Release Remote service.',
+    description: 'Employee Draft/Release Remote service.',
+    methods: [
+      {
+        signature: '@Remote(\'list\') async list(request: EnterpriseEmployeeListRequest): Promise<EnterpriseEmployeePage>',
+        description: 'Execute one authenticated enterprise operation.',
+        parameters: [{ name: 'request', description: 'page filters.' }],
+        returns: 'visible employee Draft page.',
+      },
+      {
+        signature: '@Remote(\'getDraft\') async getDraft(request: EnterpriseEmployeeLookup): Promise<EnterpriseEmployeeDraft>',
+        description: 'Execute one authenticated enterprise operation.',
+        parameters: [{ name: 'request', description: 'employee identity.' }],
+        returns: 'current mutable Draft.',
+      },
+      {
+        signature: '@Remote(\'saveDraft\') async saveDraft(request: EnterpriseEmployeeSaveRequest): Promise<EnterpriseEmployeeDraft>',
+        description: 'Execute one authenticated enterprise operation.',
+        parameters: [{ name: 'request', description: 'Draft snapshot and CAS revision.' }],
+        returns: 'saved Draft.',
+      },
+      {
+        signature: '@Remote(\'publish\') async publish(request: EnterpriseEmployeePublishRequest): Promise<EnterpriseEmployeeRelease>',
+        description: 'Execute one authenticated enterprise operation.',
+        parameters: [{ name: 'request', description: 'Draft identity and CAS revision.' }],
+        returns: 'immutable Release.',
+      },
+      {
+        signature: '@Remote(\'listReleases\') async listReleases(request: EnterpriseEmployeeLookup): Promise<readonly EnterpriseEmployeeRelease[]>',
+        description: 'Execute one authenticated enterprise operation.',
+        parameters: [{ name: 'request', description: 'employee identity.' }],
+        returns: 'immutable Release history.',
+      },
+      {
+        signature: '@Remote(\'rollback\') async rollback(request: EnterpriseEmployeeRollbackRequest): Promise<EnterpriseEmployeeRelease>',
+        description: 'Execute one authenticated enterprise operation.',
+        parameters: [{ name: 'request', description: 'source Release and target Draft CAS revision.' }],
+        returns: 'rollback Release.',
+      },
+    ],
+  },
+  {
+    key: 'enterpriseOperationController',
+    summary: 'Work record, approval, and schedule Remote service.',
+    description: 'Work record, approval, and schedule Remote service.',
+    methods: [
+      {
+        signature: '@Remote(\'listWorkRecords\') async listWorkRecords(request: EnterpriseWorkRecordListRequest): Promise<EnterprisePage<EnterpriseWorkRecord>>',
+        description: 'Execute one authenticated enterprise operation.',
+        parameters: [{ name: 'request', description: 'work-record page filters.' }],
+        returns: 'visible work-record page.',
+      },
+      {
+        signature: '@Remote(\'getWorkRecord\') async getWorkRecord(request: EnterpriseWorkRecordLookup): Promise<EnterpriseWorkRecord>',
+        description: 'Execute one authenticated enterprise operation.',
+        parameters: [{ name: 'request', description: 'composite work-record identity.' }],
+        returns: 'current work record.',
+      },
+      {
+        signature: '@Remote(\'updateWorkRecord\') async updateWorkRecord(request: EnterpriseWorkRecordUpdateRequest): Promise<EnterpriseWorkRecord>',
+        description: 'Execute one authenticated enterprise operation.',
+        parameters: [{ name: 'request', description: 'work-record state and CAS revision.' }],
+        returns: 'saved work record.',
+      },
+      {
+        signature: '@Remote(\'listApprovals\') async listApprovals(request: EnterpriseApprovalListRequest): Promise<EnterprisePage<EnterpriseApproval>>',
+        description: 'Execute one authenticated enterprise operation.',
+        parameters: [{ name: 'request', description: 'approval page filters.' }],
+        returns: 'visible approval page.',
+      },
+      {
+        signature: '@Remote(\'getApproval\') async getApproval(request: EnterpriseApprovalLookup): Promise<EnterpriseApproval>',
+        description: 'Execute one authenticated enterprise operation.',
+        parameters: [{ name: 'request', description: 'approval identity.' }],
+        returns: 'current approval.',
+      },
+      {
+        signature: '@Remote(\'createApproval\') async createApproval(request: EnterpriseApprovalCreateRequest): Promise<EnterpriseApproval>',
+        description: 'Execute one authenticated enterprise operation.',
+        parameters: [{ name: 'request', description: 'new approval request.' }],
+        returns: 'created approval.',
+      },
+      {
+        signature: '@Remote(\'transitionApproval\') async transitionApproval(request: EnterpriseApprovalTransitionRequest): Promise<EnterpriseApproval>',
+        description: 'Execute one authenticated enterprise operation.',
+        parameters: [{ name: 'request', description: 'approval decision and CAS revision.' }],
+        returns: 'transitioned approval.',
+      },
+      {
+        signature: '@Remote(\'cancelApproval\') async cancelApproval(request: EnterpriseApprovalCancelRequest): Promise<EnterpriseApproval>',
+        description: 'Execute one authenticated enterprise operation.',
+        parameters: [{ name: 'request', description: 'cancellation reason and CAS revision.' }],
+        returns: 'cancelled approval.',
+      },
+      {
+        signature: '@Remote(\'listSchedules\') async listSchedules(request: EnterpriseScheduleListRequest): Promise<EnterprisePage<EnterpriseSchedule>>',
+        description: 'Execute one authenticated enterprise operation.',
+        parameters: [{ name: 'request', description: 'schedule page filters.' }],
+        returns: 'visible schedule page.',
+      },
+      {
+        signature: '@Remote(\'getSchedule\') async getSchedule(request: EnterpriseScheduleLookup): Promise<EnterpriseSchedule>',
+        description: 'Execute one authenticated enterprise operation.',
+        parameters: [{ name: 'request', description: 'schedule identity.' }],
+        returns: 'current schedule.',
+      },
+      {
+        signature: '@Remote(\'saveSchedule\') async saveSchedule(request: EnterpriseScheduleSaveRequest): Promise<EnterpriseSchedule>',
+        description: 'Execute one authenticated enterprise operation.',
+        parameters: [{ name: 'request', description: 'schedule definition and CAS revision.' }],
+        returns: 'saved schedule.',
+      },
+      {
+        signature: '@Remote(\'transitionSchedule\') async transitionSchedule(request: EnterpriseScheduleTransitionRequest): Promise<EnterpriseSchedule>',
+        description: 'Execute one authenticated enterprise operation.',
+        parameters: [{ name: 'request', description: 'schedule state and CAS revision.' }],
+        returns: 'transitioned schedule.',
+      },
+    ],
+  },
+  {
+    key: 'enterprisePostgres',
+    summary: 'Shared production PostgreSQL adapters and their owned pool lifecycle.',
+    description: 'Shared production PostgreSQL adapters and their owned pool lifecycle.',
+    methods: [],
+  },
+  {
+    key: 'enterpriseRequestContext',
+    summary: 'Carries the server-authenticated principal through asynchronous Host work.',
+    description: 'Carries the server-authenticated principal through asynchronous Host work. Callers cannot establish a principal through an RPC payload; only the authenticated transport boundary invokes run.',
+    methods: [
+      {
+        signature: 'run<T>(principal: EnterprisePrincipal, callback: () => T): T',
+        description: 'Run one request callback with its authenticated principal.',
+        parameters: [{ name: 'principal', description: 'Principal established by the authenticated transport.' }, { name: 'callback', description: 'Host work that may read the principal.' }],
+        returns: 'the callback result.',
+      },
+      {
+        signature: 'current(): EnterprisePrincipal | undefined',
+        description: 'Return the principal for the active request, if any.',
+        parameters: [],
+        returns: 'the active principal, or `undefined` outside a live request.',
+      },
+      {
+        signature: 'requirePrincipal(): EnterprisePrincipal',
+        description: 'Return the active principal or fail closed outside an authenticated request.',
+        parameters: [],
+        returns: 'the active authenticated principal.',
+      },
+      {
+        signature: 'disable(): void',
+        description: 'Clear every context store inherited by outstanding asynchronous work.',
+        parameters: [],
+      },
+      {
+        signature: 'dispose(): void',
+        description: 'Release this request-context instance during plugin disposal.',
+        parameters: [],
+      },
+    ],
+  },
+  {
+    key: 'enterpriseSecurity',
+    summary: 'Central single-enterprise security service shared by HTTP, WebSocket, and admin APIs.',
+    description: 'Central single-enterprise security service shared by HTTP, WebSocket, and admin APIs.',
+    methods: [
+      {
+        signature: 'loginLocal(orgId: string, username: string, password: string): LoginResult | undefined',
+        description: 'Authenticate one local account through a synchronous identity adapter.',
+        parameters: [{ name: 'orgId', description: 'Organization boundary named by the login form.' }, { name: 'username', description: 'Organization-local username.' }, { name: 'password', description: 'Plaintext presented only to the password verifier.' }],
+        returns: 'the issued login result, or `undefined` for invalid credentials.',
+      },
+      {
+        signature: 'issueSession(userId: string): LoginResult',
+        description: 'Issue one synchronous persistent login Session for an enabled user.',
+        parameters: [{ name: 'userId', description: 'Canonical enterprise user id.' }],
+        returns: 'the issued token, cookie, and principal.',
+      },
+      {
+        signature: 'loginExternal(identity: SsoMappedIdentity): LoginResult',
+        description: 'Resolve or provision one synchronous external identity and issue its login Session.',
+        parameters: [{ name: 'identity', description: 'Validated and mapped external identity.' }],
+        returns: 'the issued token, cookie, and principal.',
+      },
+      {
+        signature: 'authenticateCookie(cookieHeader: string): EnterprisePrincipalView | undefined',
+        description: 'Authenticate one cookie through a synchronous identity adapter.',
+        parameters: [{ name: 'cookieHeader', description: 'Incoming Cookie header.' }],
+        returns: 'the active principal, or `undefined` when unavailable.',
+      },
+      {
+        signature: 'logout(cookieHeader: string): void',
+        description: 'Revoke the synchronous login Session named by a cookie header.',
+        parameters: [{ name: 'cookieHeader', description: 'Incoming Cookie header.' }],
+      },
+      {
+        signature: 'async loginLocalAsync(orgId: string, username: string, password: string): Promise<LoginResult | undefined>',
+        description: 'Authenticate one local account through the production asynchronous adapter.',
+        parameters: [{ name: 'orgId', description: 'Organization boundary named by the login form.' }, { name: 'username', description: 'Organization-local username.' }, { name: 'password', description: 'Plaintext presented only to the password verifier.' }],
+        returns: 'the issued login result, or `undefined` for invalid credentials.',
+      },
+      {
+        signature: 'async issueSessionAsync(userId: string): Promise<LoginResult>',
+        description: 'Issue one persistent login Session through the asynchronous identity adapter.',
+        parameters: [{ name: 'userId', description: 'Canonical enterprise user id.' }],
+        returns: 'the issued token, cookie, and principal.',
+      },
+      {
+        signature: 'async loginExternalAsync(identity: SsoMappedIdentity): Promise<LoginResult>',
+        description: 'Resolve or provision an external identity through the asynchronous adapter.',
+        parameters: [{ name: 'identity', description: 'Validated and mapped external identity.' }],
+        returns: 'the issued token, cookie, and principal.',
+      },
+      {
+        signature: 'async authenticateCookieAsync(cookieHeader: string): Promise<EnterprisePrincipalView | undefined>',
+        description: 'Authenticate one cookie through the asynchronous identity adapter.',
+        parameters: [{ name: 'cookieHeader', description: 'Incoming Cookie header.' }],
+        returns: 'the active principal, or `undefined` when unavailable.',
+      },
+      {
+        signature: 'async logoutAsync(cookieHeader: string): Promise<void>',
+        description: 'Revoke the asynchronous login Session named by a cookie header.',
+        parameters: [{ name: 'cookieHeader', description: 'Incoming Cookie header.' }],
+      },
+      {
+        signature: 'async authorizeApiAsync(principal: EnterprisePrincipal, endpoint: string, input: unknown): Promise<EnterpriseAuthorizationDecision>',
+        description: 'Resolve resource scope and authorize one asynchronous Host API operation.',
+        parameters: [{ name: 'principal', description: 'Authenticated caller.' }, { name: 'endpoint', description: 'Closed Host API endpoint name.' }, { name: 'input', description: 'Parsed request payload used only for resource addressing.' }],
+        returns: 'the authorization decision and stable reason.',
+      },
+      {
+        signature: 'async bindSessionWorkspaceAsync( principal: EnterprisePrincipal, sessionId: string, workspaceId: string, ): Promise<void>',
+        description: 'Bind a Session to a workspace only after the principal can create work in that compartment.',
+        parameters: [{ name: 'principal', description: 'Authenticated Session creator.' }, { name: 'sessionId', description: 'Newly created DSH Session id.' }, { name: 'workspaceId', description: 'Authorized DSH Workspace id.' }],
+      },
+      {
+        signature: 'async workspaceSandboxModeAsync( principal: EnterprisePrincipal, workspaceId: string, ): Promise<\'read-only\' | \'workspace-write\'>',
+        description: 'Resolve the durable sandbox mode a newly bound Session must snapshot.',
+        parameters: [{ name: 'principal', description: 'Authenticated Session creator.' }, { name: 'workspaceId', description: 'Authorized DSH Workspace id.' }],
+        returns: 'the grant\'s bounded sandbox mode.',
+      },
+      {
+        signature: 'async auditApiAsync( principal: EnterprisePrincipal, endpoint: string, input: unknown, decision: EnterpriseAuthorizationDecision, correlationId: string, ): Promise<void>',
+        description: 'Append one asynchronous Host API authorization decision to the audit sink.',
+        parameters: [{ name: 'principal', description: 'Authenticated caller.' }, { name: 'endpoint', description: 'Closed Host API endpoint name.' }, { name: 'input', description: 'Parsed request payload used only for resource addressing.' }, { name: 'decision', description: 'Previously computed authorization decision.' }, { name: 'correlationId', description: 'Request-scoped correlation identity.' }],
+      },
+      {
+        signature: 'authorizeApi(principal: EnterprisePrincipal, endpoint: string, input: unknown): EnterpriseAuthorizationDecision',
+        description: 'Resolve resource scope and authorize one synchronous Host API operation.',
+        parameters: [{ name: 'principal', description: 'Authenticated caller.' }, { name: 'endpoint', description: 'Closed Host API endpoint name.' }, { name: 'input', description: 'Parsed request payload used only for resource addressing.' }],
+        returns: 'the authorization decision and stable reason.',
+      },
+      {
+        signature: 'auditApi( principal: EnterprisePrincipal, endpoint: string, input: unknown, decision: EnterpriseAuthorizationDecision, correlationId: string, ): void',
+        description: 'Append one synchronous Host API authorization decision to the audit sink.',
+        parameters: [{ name: 'principal', description: 'Authenticated caller.' }, { name: 'endpoint', description: 'Closed Host API endpoint name.' }, { name: 'input', description: 'Parsed request payload used only for resource addressing.' }, { name: 'decision', description: 'Previously computed authorization decision.' }, { name: 'correlationId', description: 'Request-scoped correlation identity.' }],
+      },
+    ],
+  },
+  {
+    key: 'enterpriseTeamController',
+    summary: 'Fixed team Remote service.',
+    description: 'Fixed team Remote service.',
+    methods: [
+      {
+        signature: '@Remote(\'list\') async list(request: EnterpriseTeamListRequest): Promise<EnterpriseTeamPage>',
+        description: 'Execute one authenticated enterprise operation.',
+        parameters: [{ name: 'request', description: 'page cursor and size.' }],
+        returns: 'visible team page.',
+      },
+      {
+        signature: '@Remote(\'get\') async get(request: EnterpriseTeamLookup): Promise<EnterpriseTeam>',
+        description: 'Execute one authenticated enterprise operation.',
+        parameters: [{ name: 'request', description: 'team identity.' }],
+        returns: 'current team.',
+      },
+      {
+        signature: '@Remote(\'save\') async save(request: EnterpriseTeamSaveRequest): Promise<EnterpriseTeam>',
+        description: 'Execute one authenticated enterprise operation.',
+        parameters: [{ name: 'request', description: 'team composition and CAS revision.' }],
+        returns: 'saved team.',
+      },
+    ],
+  },
+  {
     key: 'fileReferences',
     summary: 'Host capability for cancellable file-reference discovery.',
     description: 'Host capability for cancellable file-reference discovery.',
@@ -3408,7 +3731,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'AgentPreset',
-    declaration: 'export interface AgentPreset {\n    readonly id: string;\n    readonly trust: PresetTrust;\n    readonly path: string;\n    readonly name?: string;\n    readonly description?: string;\n    readonly order?: number;\n    readonly broken?: string;\n}',
+    declaration: 'export interface AgentPreset {\n    readonly id: string;\n    readonly trust: PresetTrust;\n    readonly path: string;\n    readonly name?: string;\n    readonly description?: string;\n    readonly order?: number;\n    readonly employee?: EmployeeMetadata;\n    readonly broken?: string;\n}',
   },
   {
     name: 'AgentPresetDirectoryOpenValue',
@@ -3424,7 +3747,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'AgentPresetRow',
-    declaration: 'export interface AgentPresetRow {\n    readonly id: string;\n    readonly trust: PresetTrust;\n    readonly isDefault: boolean;\n    readonly name?: string;\n    readonly description?: string;\n    readonly broken?: string;\n}',
+    declaration: 'export interface AgentPresetRow {\n    readonly id: string;\n    readonly trust: PresetTrust;\n    readonly isDefault: boolean;\n    readonly name?: string;\n    readonly description?: string;\n    readonly employee?: EmployeeMetadata;\n    readonly broken?: string;\n}',
   },
   {
     name: 'AgentSetup',
@@ -3959,8 +4282,184 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface EditGoalRequest {\n    readonly objective?: string;\n    readonly maxGoalRounds?: number;\n}',
   },
   {
+    name: 'EmployeeMetadata',
+    declaration: 'export interface EmployeeMetadata {\n    readonly position?: string;\n    readonly department?: string;\n    readonly capabilities?: readonly string[];\n}',
+  },
+  {
     name: 'EncodedImageAttachment',
     declaration: 'export interface EncodedImageAttachment {\n    mediaType: ImageMediaType;\n    data: string;\n    name?: string;\n}',
+  },
+  {
+    name: 'EnterpriseApproval',
+    declaration: 'export interface EnterpriseApproval {\n    approvalId: string;\n    orgId: string;\n    kind: \'publish\' | \'tool\' | \'business\' | \'handoff\';\n    subjectType: string;\n    subjectId: string;\n    requestedBy: string;\n    state: \'pending\' | \'approved\' | \'rejected\' | \'cancelled\';\n    revision: number;\n    reviewerUserId?: string;\n    reason?: string;\n    createdAt: number;\n    updatedAt: number;\n}',
+  },
+  {
+    name: 'EnterpriseApprovalCancelRequest',
+    declaration: 'export interface EnterpriseApprovalCancelRequest {\n    readonly approvalId: string;\n    readonly reason?: string;\n    readonly expectedRevision: number;\n    readonly idempotencyKey: string;\n}',
+  },
+  {
+    name: 'EnterpriseApprovalCreateRequest',
+    declaration: 'export interface EnterpriseApprovalCreateRequest {\n    readonly approvalId: string;\n    readonly kind: EnterpriseApproval[\'kind\'];\n    readonly subjectType: string;\n    readonly subjectId: string;\n    readonly expectedRevision: number;\n    readonly idempotencyKey: string;\n}',
+  },
+  {
+    name: 'EnterpriseApprovalListRequest',
+    declaration: 'export interface EnterpriseApprovalListRequest {\n    readonly kind?: EnterpriseApproval[\'kind\'];\n    readonly state?: EnterpriseApproval[\'state\'];\n    readonly requestedBy?: string;\n    readonly limit?: number;\n    readonly cursor?: string;\n}',
+  },
+  {
+    name: 'EnterpriseApprovalTransitionRequest',
+    declaration: 'export interface EnterpriseApprovalTransitionRequest {\n    readonly approvalId: string;\n    readonly state: \'approved\' | \'rejected\';\n    readonly reason?: string;\n    readonly expectedRevision: number;\n    readonly idempotencyKey: string;\n}',
+  },
+  {
+    name: 'EnterpriseAsset',
+    declaration: 'export interface EnterpriseAsset {\n    assetId: string;\n    orgId: string;\n    kind: EnterpriseAssetKind;\n    name: string;\n    revision: number;\n    archived: boolean;\n    updatedAt: number;\n}',
+  },
+  {
+    name: 'EnterpriseAssetArchiveRequest',
+    declaration: 'export interface EnterpriseAssetArchiveRequest {\n    readonly assetId: string;\n    readonly expectedRevision: number;\n    readonly idempotencyKey: string;\n}',
+  },
+  {
+    name: 'EnterpriseAssetKind',
+    declaration: 'export type EnterpriseAssetKind = \'sop\' | \'knowledge\' | \'skill\' | \'tool\' | \'model\';',
+  },
+  {
+    name: 'EnterpriseAssetListRequest',
+    declaration: 'export interface EnterpriseAssetListRequest {\n    readonly limit?: number;\n    readonly cursor?: string;\n    readonly search?: string;\n    readonly kind?: EnterpriseAssetKind;\n    readonly archived?: boolean;\n}',
+  },
+  {
+    name: 'EnterpriseAssetLookup',
+    declaration: 'export interface EnterpriseAssetLookup {\n    readonly assetId: string;\n}',
+  },
+  {
+    name: 'EnterpriseAssetPage',
+    declaration: 'export interface EnterpriseAssetPage {\n    items: readonly EnterpriseAsset[];\n    nextCursor?: string;\n}',
+  },
+  {
+    name: 'EnterpriseAssetSaveRequest',
+    declaration: 'export interface EnterpriseAssetSaveRequest {\n    readonly assetId: string;\n    readonly kind: EnterpriseAssetKind;\n    readonly name: string;\n    readonly content: Readonly<Record<string, JsonValue>>;\n    readonly expectedRevision: number;\n    readonly idempotencyKey: string;\n}',
+  },
+  {
+    name: 'EnterpriseAssetVersion',
+    declaration: 'export interface EnterpriseAssetVersion {\n    assetId: string;\n    version: number;\n    content: Readonly<Record<string, JsonValue>>;\n    createdBy: string;\n    createdAt: number;\n}',
+  },
+  {
+    name: 'EnterpriseAuthorizationDecision',
+    declaration: 'export interface EnterpriseAuthorizationDecision {\n    readonly allowed: boolean;\n    readonly reason: EnterpriseAuthorizationReason;\n}',
+  },
+  {
+    name: 'EnterpriseAuthorizationReason',
+    declaration: 'export type EnterpriseAuthorizationReason = \'administrator\' | \'auditor\' | \'role\' | \'creator-owner\' | \'resource-visible\' | \'organization-mismatch\' | \'resource-hidden\' | \'insufficient-role\';',
+  },
+  {
+    name: 'EnterpriseBusinessState',
+    declaration: 'export type EnterpriseBusinessState = \'active\' | \'waiting-approval\' | \'completed\' | \'failed\';',
+  },
+  {
+    name: 'EnterpriseEmployeeAssetRef',
+    declaration: 'export interface EnterpriseEmployeeAssetRef {\n    kind: EnterpriseAssetKind;\n    assetId: string;\n    version: number;\n}',
+  },
+  {
+    name: 'EnterpriseEmployeeDraft',
+    declaration: 'export interface EnterpriseEmployeeDraft {\n    presetId: string;\n    orgId: string;\n    ownerUserId: string;\n    visibility: EnterpriseVisibility;\n    profile: Readonly<Record<string, JsonValue>>;\n    bindings: readonly EnterpriseEmployeeAssetRef[];\n    revision: number;\n    status: \'draft\' | \'published\';\n    updatedAt: number;\n}',
+  },
+  {
+    name: 'EnterpriseEmployeeListRequest',
+    declaration: 'export interface EnterpriseEmployeeListRequest {\n    readonly limit?: number;\n    readonly cursor?: string;\n    readonly search?: string;\n    readonly status?: EnterpriseEmployeeDraft[\'status\'];\n    readonly ownerUserId?: string;\n    readonly visibility?: EnterpriseVisibility;\n}',
+  },
+  {
+    name: 'EnterpriseEmployeeLookup',
+    declaration: 'export interface EnterpriseEmployeeLookup {\n    readonly presetId: string;\n}',
+  },
+  {
+    name: 'EnterpriseEmployeePage',
+    declaration: 'export interface EnterpriseEmployeePage {\n    items: readonly EnterpriseEmployeeDraft[];\n    nextCursor?: string;\n}',
+  },
+  {
+    name: 'EnterpriseEmployeePublishRequest',
+    declaration: 'export interface EnterpriseEmployeePublishRequest {\n    readonly presetId: string;\n    readonly expectedRevision: number;\n    readonly idempotencyKey: string;\n}',
+  },
+  {
+    name: 'EnterpriseEmployeeRelease',
+    declaration: 'export interface EnterpriseEmployeeRelease {\n    releaseId: string;\n    presetId: string;\n    orgId: string;\n    version: number;\n    digest: string;\n    snapshot: {\n        profile: Readonly<Record<string, JsonValue>>;\n        bindings: readonly EnterpriseEmployeeAssetRef[];\n    };\n    publishedBy: string;\n    publishedAt: number;\n    sourceReleaseId?: string;\n}',
+  },
+  {
+    name: 'EnterpriseEmployeeRollbackRequest',
+    declaration: 'export interface EnterpriseEmployeeRollbackRequest extends EnterpriseEmployeePublishRequest {\n    readonly releaseId: string;\n}',
+  },
+  {
+    name: 'EnterpriseEmployeeSaveRequest',
+    declaration: 'export interface EnterpriseEmployeeSaveRequest {\n    readonly presetId: string;\n    readonly expectedRevision: number;\n    readonly idempotencyKey: string;\n    readonly visibility: EnterpriseVisibility;\n    readonly profile: Readonly<Record<string, JsonValue>>;\n    readonly bindings: readonly EnterpriseEmployeeAssetRef[];\n}',
+  },
+  {
+    name: 'EnterprisePage',
+    declaration: 'export interface EnterprisePage<T> {\n    items: readonly T[];\n    nextCursor?: string;\n}',
+  },
+  {
+    name: 'EnterprisePrincipal',
+    declaration: 'export interface EnterprisePrincipal {\n    readonly userId: string;\n    readonly orgId: string;\n    readonly roles: readonly EnterpriseRole[];\n}',
+  },
+  {
+    name: 'EnterprisePrincipalView',
+    declaration: 'export interface EnterprisePrincipalView {\n    readonly userId: string;\n    readonly orgId: string;\n    readonly username: string;\n    readonly displayName: string;\n    readonly roles: readonly EnterpriseRole[];\n}',
+  },
+  {
+    name: 'EnterpriseRole',
+    declaration: 'export type EnterpriseRole = \'administrator\' | \'creator\' | \'operator\' | \'auditor\' | \'member\';',
+  },
+  {
+    name: 'EnterpriseSchedule',
+    declaration: 'export interface EnterpriseSchedule {\n    scheduleId: string;\n    orgId: string;\n    target: EnterpriseScheduleTarget;\n    timezone: string;\n    rule: string;\n    input: Readonly<Record<string, JsonValue>>;\n    state: \'active\' | \'paused\' | \'archived\';\n    nextRunAt: number | null;\n    lastRunAt: number | null;\n    revision: number;\n    createdAt: number;\n    updatedAt: number;\n}',
+  },
+  {
+    name: 'EnterpriseScheduleListRequest',
+    declaration: 'export interface EnterpriseScheduleListRequest {\n    readonly state?: EnterpriseSchedule[\'state\'];\n    readonly limit?: number;\n    readonly cursor?: string;\n}',
+  },
+  {
+    name: 'EnterpriseScheduleSaveRequest',
+    declaration: 'export interface EnterpriseScheduleSaveRequest {\n    readonly scheduleId: string;\n    readonly target: EnterpriseScheduleTarget;\n    readonly timezone: string;\n    readonly rule: string;\n    readonly input: Readonly<Record<string, JsonValue>>;\n    readonly nextRunAt: number | null;\n    readonly expectedRevision: number;\n    readonly idempotencyKey: string;\n}',
+  },
+  {
+    name: 'EnterpriseScheduleTarget',
+    declaration: 'export type EnterpriseScheduleTarget = {\n    kind: \'employee\';\n    employeeReleaseId: string;\n} | {\n    kind: \'team\';\n    teamId: string;\n};',
+  },
+  {
+    name: 'EnterpriseScheduleTransitionRequest',
+    declaration: 'export interface EnterpriseScheduleTransitionRequest {\n    readonly scheduleId: string;\n    readonly state: EnterpriseSchedule[\'state\'];\n    readonly expectedRevision: number;\n    readonly idempotencyKey: string;\n}',
+  },
+  {
+    name: 'EnterpriseTeam',
+    declaration: 'export interface EnterpriseTeam {\n    teamId: string;\n    orgId: string;\n    leaderEmployeeReleaseId: string;\n    members: readonly EnterpriseTeamMember[];\n    workflowTemplate: Readonly<Record<string, JsonValue>>;\n    approvalPolicy: Readonly<Record<string, JsonValue>>;\n    revision: number;\n    createdAt: number;\n    updatedAt: number;\n}',
+  },
+  {
+    name: 'EnterpriseTeamListRequest',
+    declaration: 'export interface EnterpriseTeamListRequest {\n    readonly limit?: number;\n    readonly cursor?: string;\n}',
+  },
+  {
+    name: 'EnterpriseTeamLookup',
+    declaration: 'export interface EnterpriseTeamLookup {\n    readonly teamId: string;\n}',
+  },
+  {
+    name: 'EnterpriseTeamMember',
+    declaration: 'export interface EnterpriseTeamMember {\n    employeeReleaseId: string;\n    role: string;\n}',
+  },
+  {
+    name: 'EnterpriseTeamPage',
+    declaration: 'export interface EnterpriseTeamPage {\n    items: readonly EnterpriseTeam[];\n    nextCursor?: string;\n}',
+  },
+  {
+    name: 'EnterpriseTeamSaveRequest',
+    declaration: 'export interface EnterpriseTeamSaveRequest {\n    readonly teamId: string;\n    readonly leaderEmployeeReleaseId: string;\n    readonly members: readonly EnterpriseTeamMember[];\n    readonly workflowTemplate: Readonly<Record<string, JsonValue>>;\n    readonly approvalPolicy: Readonly<Record<string, JsonValue>>;\n    readonly expectedRevision: number;\n    readonly idempotencyKey: string;\n}',
+  },
+  {
+    name: 'EnterpriseVisibility',
+    declaration: 'export type EnterpriseVisibility = \'organization\' | \'private\' | \'restricted\';',
+  },
+  {
+    name: 'EnterpriseWorkRecordListRequest',
+    declaration: 'export interface EnterpriseWorkRecordListRequest {\n    readonly businessState?: EnterpriseBusinessState;\n    readonly source?: EnterpriseWorkRecord[\'source\'];\n    readonly teamId?: string;\n    readonly limit?: number;\n    readonly cursor?: string;\n}',
+  },
+  {
+    name: 'EnterpriseWorkRecordUpdateRequest',
+    declaration: 'export interface EnterpriseWorkRecordUpdateRequest {\n    readonly sessionId: string;\n    readonly employeeReleaseId: string;\n    readonly teamId?: string;\n    readonly source: EnterpriseWorkRecord[\'source\'];\n    readonly businessState: EnterpriseBusinessState;\n    readonly sourceReferences: Readonly<Record<string, JsonValue>>;\n    readonly expectedRevision: number;\n    readonly idempotencyKey: string;\n}',
   },
   {
     name: 'EpochHeader',
@@ -4297,6 +4796,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'LlmRuntime',
     declaration: 'export class LlmRuntime extends TypertRemoteService {\n    constructor(ctx: Context);\n    registerAdapter(providers: string[], adapter: LlmAdapter): AdapterRegistrationHandle;\n    @Remote\n    listProviders(): LlmProviderInfo[];\n    registerConfigurableProviders(entries: readonly LlmConfigurableProvider[]): DirectoryRegistrationHandle;\n    @Remote\n    listConfigurableProviders(): LlmConfigurableProvider[];\n    registerModelDiscovery(settingsNs: string, discover: (request: LlmModelDiscoveryRequest, signal?: AbortSignal) => Promise<readonly LlmDiscoveredModel[]>): () => void;\n    async discoverModels(settingsNs: string, request: LlmModelDiscoveryRequest, signal?: AbortSignal): Promise<LlmDiscoveredModel[]>;\n    @Remote(\'discoverModels\')\n    async remoteDiscoverModels(settingsNs: string, request: LlmModelDiscoveryRequest, signal: AbortSignal): Promise<LlmDiscoveredModel[]>;\n    providerRetryPolicy(provider: string): ResolvedRetryPolicy;\n    imageRequestPricing(provider: string, model: string): LlmImageRequestPricing | undefined;\n    async listModels(provider: string): Promise<LlmModelInfo[]>;\n    async resolveModelInfo(provider: string, model: string, signal?: AbortSignal): Promise<LlmResolvedModelInfo>;\n    async resolveCallConfig(config: LlmCallConfig, signal?: AbortSignal): Promise<LlmCallConfig>;\n    async prepareCall(config: LlmCallConfig, signal?: AbortSignal): Promise<PreparedLlmCall>;\n    stream(options: GenerateOptions): AsyncIterable<StreamChunk>;\n}',
+  },
+  {
+    name: 'LoginResult',
+    declaration: 'export interface LoginResult {\n    readonly principal: EnterprisePrincipalView;\n    readonly token: string;\n    readonly cookie: string;\n}',
   },
   {
     name: 'LspHover',
@@ -5329,6 +5832,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'SpillSource',
     declaration: 'export interface SpillSource {\n    toolName: string;\n    callId: ToolCallId;\n    label: string;\n}',
+  },
+  {
+    name: 'SsoMappedIdentity',
+    declaration: 'export interface SsoMappedIdentity {\n    readonly providerId: string;\n    readonly subject: string;\n    readonly organizationId: string;\n    readonly username: string;\n    readonly displayName: string;\n    readonly roles: readonly EnterpriseRole[];\n}',
   },
   {
     name: 'StorageBackend',

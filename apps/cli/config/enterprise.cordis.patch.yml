@@ -1,0 +1,76 @@
+# Enterprise-security overlay for `dsh web --patch`.
+# Required environment:
+# - DSH_ENTERPRISE_MASTER_KEY: base64-encoded 32-byte AES key
+# - DSH_ENTERPRISE_ADMIN_PASSWORD: initial administrator password (12+ chars)
+
+- id: credentials
+  name: '@deepseek-ai/dsh-credentials-encrypted'
+  config:
+    path: !!js dshHomePath('enterprise/credentials.enc.json')
+    currentKeyId: !!js process.env.DSH_ENTERPRISE_KEY_ID ?? 'primary'
+    keys: !!js >-
+      ({ [process.env.DSH_ENTERPRISE_KEY_ID ?? 'primary']:
+      Buffer.from(process.env.DSH_ENTERPRISE_MASTER_KEY ?? '', 'base64') })
+
+- id: session-persistence-jsonl
+  disabled: true
+
+# The base Web composition declares Connection before this overlay's inserted
+# providers. Loader keeps it pending until enterprise auth has published both
+# security services; the ordinary Web profile retains its base-only injection.
+- id: connection
+  inject: [webRuntime, enterpriseSecurity, enterpriseRequestContext]
+
+- insert:
+    - id: enterprise-postgres
+      name: '@deepseek-ai/dsh-enterprise-postgres'
+      config:
+        connectionString: !!js process.env.DSH_ENTERPRISE_DATABASE_URL ?? ''
+        cursorSigningKey: !!js >-
+          process.getBuiltinModule('node:crypto')
+          .createHmac('sha256', Buffer.from(process.env.DSH_ENTERPRISE_MASTER_KEY ?? '', 'base64'))
+          .update('dsh-enterprise-catalog/cursor-signing/v1').digest()
+        poolMax: !!js Number(process.env.DSH_ENTERPRISE_PG_POOL_MAX ?? '20')
+        idleTimeoutMs: !!js Number(process.env.DSH_ENTERPRISE_PG_IDLE_TIMEOUT_MS ?? '30000')
+        connectionTimeoutMs: !!js Number(process.env.DSH_ENTERPRISE_PG_CONNECT_TIMEOUT_MS ?? '10000')
+        ssl: !!js process.env.DSH_ENTERPRISE_PG_SSL === 'true'
+
+    - id: session-persistence-postgres
+      name: '@deepseek-ai/dsh-session-persistence-postgres'
+      config:
+        databaseMode: postgres
+        connectionString: ''
+
+    - id: enterprise-auth-web
+      name: '@deepseek-ai/dsh-enterprise-auth-web'
+      config:
+        databaseMode: postgres
+        databasePath: !!js dshHomePath('enterprise/identity.sqlite')
+        workspaceRoot: !!js process.env.DSH_ENTERPRISE_WORKSPACE_ROOT ?? dshHomePath('enterprise/workspaces')
+        organizationId: !!js process.env.DSH_ENTERPRISE_ORG_ID ?? 'default-enterprise'
+        organizationName: !!js process.env.DSH_ENTERPRISE_ORG_NAME ?? 'DeepSeek Harness Enterprise'
+        sessionCookieName: dsh_enterprise_session
+        sessionTtlMs: 28800000
+        secureCookies: !!js process.env.DSH_ENTERPRISE_SECURE_COOKIES === 'true'
+        autoProvisionSsoUsers: true
+        localEnabled: true
+        bootstrapAdmin:
+          userId: bootstrap-admin
+          username: admin
+          displayName: Enterprise Administrator
+          passwordRef: DSH_ENTERPRISE_ADMIN_PASSWORD
+        oidc: !!js JSON.parse(process.env.DSH_ENTERPRISE_OIDC ?? '[]')
+        saml: !!js JSON.parse(process.env.DSH_ENTERPRISE_SAML ?? '[]')
+        ldap: !!js JSON.parse(process.env.DSH_ENTERPRISE_LDAP ?? '[]')
+
+    - id: enterprise-memory-context
+      name: '@deepseek-ai/dsh-enterprise-memory-context'
+      config:
+        maxEntries: 40
+        maxChars: 12000
+
+    - id: enterprise-controller
+      name: '@deepseek-ai/dsh-api-enterprise-controller'
+
+    - id: ui-enterprise-governance
+      name: '@deepseek-ai/dsh-client-ui-enterprise-governance'

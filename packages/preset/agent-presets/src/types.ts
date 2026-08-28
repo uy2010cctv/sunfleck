@@ -1,6 +1,7 @@
 /** Client-safe payloads and event declarations owned by the agent-preset domain. */
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { PresetTrust } from './preset.ts'
+import type { EmployeeMetadata } from './metadata.ts'
 
 export type { PresetTrust } from './preset.ts'
 
@@ -19,6 +20,8 @@ export interface AgentPresetRow {
   readonly name?: string
   /** One sentence on what this preset is for. */
   readonly description?: string
+  /** Optional enterprise roster presentation. */
+  readonly employee?: EmployeeMetadata
   /** Why this preset cannot compose a session; absent when it can. */
   readonly broken?: string
 }

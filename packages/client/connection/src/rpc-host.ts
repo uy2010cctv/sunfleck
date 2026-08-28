@@ -12,6 +12,7 @@ import { bridge, type FetchHandler } from './http-bridge.ts'
 import { isTrustedApiRequest } from './api-request-trust.ts'
 import { API_PATH } from './api-path.ts'
 import type { BrowserAuth } from './browser-auth.ts'
+import type { EnterpriseSecurity, EnterpriseRequestContext } from '@deepseek-ai/dsh-enterprise-auth-web'
 import type {
   ConnectionIndexRequest,
   ConnectionIndexResponse,
@@ -117,7 +118,7 @@ export class HostConnectionService extends Service implements HostConnectionHand
     channel: '/api',
   ): ConnectionFetchHandler {
     return {
-      fetch: (request) => {
+      fetch: request => this.withEnterprisePrincipal(request, () => {
         const pathname = new URL(request.url).pathname
         const route = this.fetchRoutes.get(pathname)
         if (route?.methods.has(request.method) === true) return route.fetch(request)
@@ -127,8 +128,19 @@ export class HostConnectionService extends Service implements HostConnectionHand
           return Promise.resolve(new Response('not found', { status: 404 }))
         }
         return interceptor.fetchHandler.fetch(request)
-      },
+      }),
     }
+  }
+
+  private async withEnterprisePrincipal(request: Request, operation: () => Promise<Response>): Promise<Response> {
+    const { security, requestContext } = optionalEnterpriseServices(this.ctx)
+    if (security === undefined && requestContext === undefined) return operation()
+    if (security === undefined || requestContext === undefined) {
+      return new Response('enterprise authentication is unavailable', { status: 503 })
+    }
+    const principal = await security.authenticateCookieAsync(request.headers.get('cookie') ?? '')
+    if (principal === undefined) return new Response('unauthorized', { status: 401 })
+    return requestContext.run(principal, operation)
   }
 
   private registerFetchRoute(
@@ -197,6 +209,17 @@ export class HostConnectionService extends Service implements HostConnectionHand
         this.interceptors.delete(channel)
       }
     }, `client-connection: ${channel} rpc interceptor`)
+  }
+}
+
+function optionalEnterpriseServices(ctx: Context): {
+  readonly security: EnterpriseSecurity | undefined
+  readonly requestContext: EnterpriseRequestContext | undefined
+} {
+  const getService = ctx.get.bind(ctx) as (name: string) => unknown
+  return {
+    security: getService('enterpriseSecurity') as EnterpriseSecurity | undefined,
+    requestContext: getService('enterpriseRequestContext') as EnterpriseRequestContext | undefined,
   }
 }
 

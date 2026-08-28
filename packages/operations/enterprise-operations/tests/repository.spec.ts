@@ -1,0 +1,865 @@
+/* eslint-disable typescript/no-base-to-string -- the SQL double stringifies repository parameter primitives. */
+import { describe, expect, it } from 'vitest'
+import {
+  ApprovalRevisionConflictError,
+  EnterpriseOperationsRepository,
+  type PostgresDatabase,
+  type PostgresQueryResult,
+} from '../src/index.ts'
+
+interface WorkRecordRow {
+  org_id: string
+  session_id: string
+  employee_release_id: string
+  team_id: string | null
+  source: string
+  business_state: string
+  source_references_json: unknown
+  revision: number
+  created_at: number
+  updated_at: number
+}
+
+interface ApprovalRow {
+  approval_id: string
+  org_id: string
+  kind: string
+  subject_type: string
+  subject_id: string
+  requested_by: string
+  state: string
+  reviewer_user_id: string | null
+  reason: string | null
+  revision: number
+  created_at: number
+  updated_at: number
+}
+
+interface ScheduleRow {
+  schedule_id: string
+  org_id: string
+  target_json: unknown
+  timezone: string
+  rule: string
+  input_json: unknown
+  state: string
+  next_run_at: number | null
+  last_run_at: number | null
+  revision: number
+  created_at: number
+  updated_at: number
+}
+
+interface TeamRow {
+  team_id: string
+  org_id: string
+  leader_release_id: string
+  workflow_template_json: unknown
+  approval_policy_json: unknown
+  revision: number
+  created_at: number
+  updated_at: number
+}
+
+interface TeamMemberRow {
+  team_id: string
+  employee_release_id: string
+  role: string
+}
+
+interface OutboxRow {
+  command_id: string
+  org_id: string
+  schedule_id: string
+  occurrence_key: string
+  work_session_id: string
+  employee_release_id: string
+  team_id: string | null
+  payload_json: unknown
+  state: string
+  created_at: number
+}
+
+/** Transactional in-memory PostgreSQL double for the operations repository. */
+class MemoryPostgresDatabase implements PostgresDatabase {
+  private readonly meta = new Map<string, string>()
+  private readonly workRecords = new Map<string, WorkRecordRow>()
+  private readonly approvals = new Map<string, ApprovalRow>()
+  private readonly schedules = new Map<string, ScheduleRow>()
+  private readonly teams = new Map<string, TeamRow>()
+  private readonly members = new Map<string, TeamMemberRow>()
+  private readonly outbox = new Map<string, OutboxRow>()
+  private readonly idempotency = new Map<string, unknown>()
+  private tail = Promise.resolve()
+  failNextOutboxInsert = false
+
+  constructor(schemaVersion?: number) {
+    if (schemaVersion !== undefined) this.meta.set('schema-version', String(schemaVersion))
+  }
+
+  get schemaVersion(): string | undefined {
+    return this.meta.get('schema-version')
+  }
+
+  setScheduleState(scheduleId: string, state: string): void {
+    const row = this.schedules.get(scheduleId)
+    if (row !== undefined) row.state = state
+  }
+
+  async transaction<T>(operation: (database: MemoryPostgresDatabase) => Promise<T>): Promise<T> {
+    const run = this.tail.then(async () => {
+      const checkpoint = structuredClone({
+        meta: this.meta,
+        workRecords: this.workRecords,
+        approvals: this.approvals,
+        schedules: this.schedules,
+        teams: this.teams,
+        members: this.members,
+        outbox: this.outbox,
+        idempotency: this.idempotency,
+      })
+      try {
+        return await operation(this)
+      } catch (error: unknown) {
+        this.restore(checkpoint)
+        throw error
+      }
+    })
+    this.tail = run.then(
+      () => undefined,
+      () => undefined,
+    )
+    return run
+  }
+
+  async query<Row extends Record<string, unknown> = Record<string, unknown>>(
+    text: string,
+    values: readonly unknown[] = [],
+  ): Promise<PostgresQueryResult<Row>> {
+    const rows = this.rows(text, values)
+    return { rows: rows as Row[], rowCount: rows.length }
+  }
+
+  private rows(text: string, values: readonly unknown[]): Record<string, unknown>[] {
+    if (text.startsWith('CREATE ') || text.startsWith('ALTER ') || text.startsWith('SELECT pg_advisory_xact_lock')) return []
+    if (text.startsWith('SELECT value FROM dsh_enterprise_operations_meta')) {
+      const value = this.meta.get('schema-version')
+      return value === undefined ? [] : [{ value }]
+    }
+    if (text.startsWith('INSERT INTO dsh_enterprise_operations_meta')) {
+      this.meta.set('schema-version', String(values[0]))
+      return []
+    }
+    if (text.startsWith('UPDATE dsh_enterprise_operations_meta')) {
+      this.meta.set('schema-version', String(values[0]))
+      return []
+    }
+    if (text.startsWith('UPDATE dsh_enterprise_operation_outbox SET state')) return []
+    if (text.startsWith('UPDATE dsh_enterprise_operations_idempotency SET result_json')) {
+      for (const [key, value] of this.idempotency) {
+        if (typeof value === 'object' && value !== null && 'result' in value) continue
+        this.idempotency.set(key, { requestDigest: '', result: value })
+      }
+      return []
+    }
+    if (text.startsWith('SELECT result_json FROM dsh_enterprise_operations_idempotency')) {
+      const value = this.idempotency.get(`${String(values[0])}:${String(values[1])}:${String(values[2])}`)
+      return value === undefined ? [] : [{ result_json: clone(value) }]
+    }
+    if (text.startsWith('INSERT INTO dsh_enterprise_operations_idempotency')) {
+      const key = `${String(values[0])}:${String(values[1])}:${String(values[2])}`
+      if (this.idempotency.has(key)) throw new Error('duplicate idempotency key')
+      this.idempotency.set(key, parse(values[3]))
+      return []
+    }
+    if (text.startsWith('SELECT ') && text.includes('FROM dsh_enterprise_work_records')) {
+      if (text.includes('WHERE org_id = $1') && text.includes('session_id = $2')) {
+        const row = this.workRecords.get(`${String(values[0])}:${String(values[1])}:${String(values[2])}`)
+        return row === undefined ? [] : [clone(row)]
+      }
+      if (text.includes('WHERE session_id = $1')) {
+        const row = [...this.workRecords.values()].find(
+          candidate => candidate.session_id === String(values[0]) && candidate.employee_release_id === String(values[1]),
+        )
+        return row === undefined ? [] : [clone(row)]
+      }
+      let index = 1
+      const businessState = text.includes('business_state = $') ? String(values[index++]) : undefined
+      const source = text.includes('source = $') ? String(values[index++]) : undefined
+      const teamId = text.includes('team_id = $') ? String(values[index++]) : undefined
+      const cursorCreatedAt = text.includes('(created_at, session_id, employee_release_id) <') ? Number(values[index++]) : undefined
+      const cursorSessionId = cursorCreatedAt === undefined ? undefined : String(values[index++])
+      const cursorReleaseId = cursorCreatedAt === undefined ? undefined : String(values[index++])
+      return [...this.workRecords.values()]
+        .filter(row => row.org_id === String(values[0]))
+        .filter(row => businessState === undefined || row.business_state === businessState)
+        .filter(row => source === undefined || row.source === source)
+        .filter(row => teamId === undefined || row.team_id === teamId)
+        .filter(row => cursorCreatedAt === undefined || row.created_at < cursorCreatedAt
+          || (row.created_at === cursorCreatedAt && row.session_id < (cursorSessionId as string))
+          || (row.created_at === cursorCreatedAt && row.session_id === cursorSessionId
+            && row.employee_release_id < (cursorReleaseId as string)))
+        .sort((left, right) => right.created_at - left.created_at
+          || right.session_id.localeCompare(left.session_id)
+          || right.employee_release_id.localeCompare(left.employee_release_id))
+        .slice(0, Number(values.at(-1))).map(clone)
+    }
+    if (text.startsWith('INSERT INTO dsh_enterprise_work_records')) {
+      const row: WorkRecordRow = {
+        org_id: String(values[0]),
+        session_id: String(values[1]),
+        employee_release_id: String(values[2]),
+        team_id: values[3] === null ? null : String(values[3]),
+        source: String(values[4]),
+        business_state: String(values[5]),
+        source_references_json: parse(values[6]),
+        revision: 1,
+        created_at: Number(values[7]),
+        updated_at: Number(values[7]),
+      }
+      this.workRecords.set(`${row.org_id}:${row.session_id}:${row.employee_release_id}`, row)
+      return [clone(row)]
+    }
+    if (text.startsWith('UPDATE dsh_enterprise_work_records')) {
+      const row = this.workRecords.get(`${String(values[3])}:${String(values.at(-2))}:${String(values.at(-1))}`)
+      if (row === undefined) return []
+      row.team_id = values[0] === null ? null : String(values[0])
+      row.business_state = String(values[1])
+      row.revision += 1
+      row.updated_at = Number(values[2])
+      return [clone(row)]
+    }
+    if (text.startsWith('SELECT ') && text.includes('FROM dsh_enterprise_approval_requests')) {
+      if (text.includes('ORDER BY created_at')) {
+        let index = 1
+        const kind = text.includes('kind = $') ? String(values[index++]) : undefined
+        const state = text.includes('state = $') ? String(values[index++]) : undefined
+        const requestedBy = text.includes('requested_by = $') ? String(values[index++]) : undefined
+        const cursorCreatedAt = text.includes('(created_at, approval_id) <') ? Number(values[index++]) : undefined
+        const cursorId = cursorCreatedAt === undefined ? undefined : String(values[index++])
+        const limit = Number(values.at(-1))
+        return [...this.approvals.values()]
+          .filter(row => row.org_id === String(values[0]))
+          .filter(row => kind === undefined || row.kind === kind)
+          .filter(row => state === undefined || row.state === state)
+          .filter(row => requestedBy === undefined || row.requested_by === requestedBy)
+          .filter(row => cursorCreatedAt === undefined || row.created_at < cursorCreatedAt
+            || (row.created_at === cursorCreatedAt && row.approval_id < (cursorId as string)))
+          .sort((left, right) => right.created_at - left.created_at || right.approval_id.localeCompare(left.approval_id))
+          .slice(0, limit).map(clone)
+      }
+      const row = this.approvals.get(String(values[0]))
+      return row === undefined || row.org_id !== String(values[1]) ? [] : [clone(row)]
+    }
+    if (text.startsWith('INSERT INTO dsh_enterprise_approval_requests')) {
+      const row: ApprovalRow = {
+        approval_id: String(values[0]),
+        org_id: String(values[1]),
+        kind: String(values[2]),
+        subject_type: String(values[3]),
+        subject_id: String(values[4]),
+        requested_by: String(values[5]),
+        state: 'pending',
+        reviewer_user_id: null,
+        reason: null,
+        revision: 1,
+        created_at: Number(values[6]),
+        updated_at: Number(values[6]),
+      }
+      this.approvals.set(row.approval_id, row)
+      return [clone(row)]
+    }
+    if (text.startsWith('UPDATE dsh_enterprise_approval_requests')) {
+      const row = this.approvals.get(String(values[4]))
+      if (row === undefined || row.org_id !== String(values[5]) || row.revision !== Number(values[6])) return []
+      row.state = String(values[0])
+      row.reviewer_user_id = String(values[1])
+      row.reason = values[2] === null ? null : String(values[2])
+      row.updated_at = Number(values[3])
+      row.revision += 1
+      return [clone(row)]
+    }
+    if (text.startsWith('SELECT ') && text.includes('FROM dsh_enterprise_schedules')) {
+      if (text.includes('ORDER BY created_at')) {
+        return [...this.schedules.values()].filter(row => row.org_id === String(values[0]))
+          .filter(row => !text.includes('state = $') || row.state === String(values[1]))
+          .sort((left, right) => right.created_at - left.created_at || right.schedule_id.localeCompare(left.schedule_id))
+          .slice(0, Number(values.at(-1))).map(clone)
+      }
+      const row = this.schedules.get(String(values[0]))
+      return row === undefined || row.org_id !== String(values[1]) ? [] : [clone(row)]
+    }
+    if (text.startsWith('INSERT INTO dsh_enterprise_schedules')) {
+      const row: ScheduleRow = {
+        schedule_id: String(values[0]),
+        org_id: String(values[1]),
+        target_json: parse(values[2]),
+        timezone: String(values[3]),
+        rule: String(values[4]),
+        input_json: parse(values[5]),
+        state: 'active',
+        next_run_at: values[6] as number | null,
+        last_run_at: null,
+        revision: 1,
+        created_at: Number(values[7]),
+        updated_at: Number(values[7]),
+      }
+      this.schedules.set(row.schedule_id, row)
+      return [clone(row)]
+    }
+    if (text.startsWith('UPDATE dsh_enterprise_schedules SET last_run_at')) {
+      const row = this.schedules.get(String(values[2]))
+      if (row === undefined || row.org_id !== String(values[3]) || row.revision !== Number(values[4])) return []
+      row.last_run_at = Number(values[0])
+      row.next_run_at = values[1] as number | null
+      row.updated_at = Number(values[0])
+      row.revision += 1
+      return [clone(row)]
+    }
+    if (text.startsWith('UPDATE dsh_enterprise_schedules SET target_json')) {
+      const row = this.schedules.get(String(values[6]))
+      if (row === undefined || row.org_id !== String(values[7]) || row.revision !== Number(values[8])) return []
+      row.target_json = parse(values[0]); row.timezone = String(values[1]); row.rule = String(values[2])
+      row.input_json = parse(values[3]); row.next_run_at = values[4] as number | null
+      row.updated_at = Number(values[5]); row.revision += 1
+      return [clone(row)]
+    }
+    if (text.startsWith('UPDATE dsh_enterprise_schedules SET state =')) {
+      const row = this.schedules.get(String(values[2]))
+      if (row === undefined || row.org_id !== String(values[3]) || row.revision !== Number(values[4])) return []
+      row.state = String(values[0]); row.updated_at = Number(values[1]); row.revision += 1
+      return [clone(row)]
+    }
+    if (text.startsWith('SELECT ') && text.includes('FROM dsh_enterprise_operation_outbox')) {
+      const row = [...this.outbox.values()].find(
+        candidate =>
+          candidate.schedule_id === String(values[0]) &&
+          candidate.occurrence_key === String(values[1]) &&
+          candidate.org_id === String(values[2]),
+      )
+      return row === undefined ? [] : [clone(row)]
+    }
+    if (text.startsWith('INSERT INTO dsh_enterprise_operation_outbox')) {
+      if (this.failNextOutboxInsert) {
+        this.failNextOutboxInsert = false
+        throw new Error('injected outbox failure')
+      }
+      const row: OutboxRow = {
+        command_id: String(values[0]),
+        org_id: String(values[1]),
+        schedule_id: String(values[2]),
+        occurrence_key: String(values[3]),
+        work_session_id: String(values[4]),
+        employee_release_id: String(values[5]),
+        team_id: values[6] === null ? null : String(values[6]),
+        payload_json: parse(values[7]),
+        state: 'pending',
+        created_at: Number(values[8]),
+      }
+      this.outbox.set(row.command_id, row)
+      return [clone(row)]
+    }
+    if (text.startsWith('SELECT ') && text.includes('FROM dsh_enterprise_fixed_teams')) {
+      if (text.includes('ORDER BY created_at')) {
+        return [...this.teams.values()].filter(row => row.org_id === String(values[0]))
+          .sort((left, right) => right.created_at - left.created_at || right.team_id.localeCompare(left.team_id))
+          .slice(0, Number(values.at(-1))).map(clone)
+      }
+      const row = this.teams.get(String(values[0]))
+      return row === undefined || (values[1] !== undefined && row.org_id !== String(values[1])) ? [] : [clone(row)]
+    }
+    if (text.startsWith('INSERT INTO dsh_enterprise_fixed_teams')) {
+      const row: TeamRow = {
+        team_id: String(values[0]),
+        org_id: String(values[1]),
+        leader_release_id: String(values[2]),
+        workflow_template_json: parse(values[3]),
+        approval_policy_json: parse(values[4]),
+        revision: 1,
+        created_at: Number(values[5]),
+        updated_at: Number(values[5]),
+      }
+      this.teams.set(row.team_id, row)
+      return [clone(row)]
+    }
+    if (text.startsWith('UPDATE dsh_enterprise_fixed_teams SET leader_release_id')) {
+      const row = this.teams.get(String(values[4]))
+      if (row === undefined || row.org_id !== String(values[5]) || row.revision !== Number(values[6])) return []
+      row.leader_release_id = String(values[0]); row.workflow_template_json = parse(values[1])
+      row.approval_policy_json = parse(values[2]); row.updated_at = Number(values[3]); row.revision += 1
+      return [clone(row)]
+    }
+    if (text.startsWith('DELETE FROM dsh_enterprise_fixed_team_members')) {
+      for (const [key, row] of this.members) if (row.team_id === String(values[0])) this.members.delete(key)
+      return []
+    }
+    if (text.startsWith('INSERT INTO dsh_enterprise_fixed_team_members')) {
+      const row: TeamMemberRow = { team_id: String(values[0]), employee_release_id: String(values[1]), role: String(values[2]) }
+      this.members.set(`${row.team_id}:${row.employee_release_id}`, row)
+      return []
+    }
+    if (text.startsWith('SELECT employee_release_id, role FROM dsh_enterprise_fixed_team_members')) {
+      return [...this.members.values()].filter(row => row.team_id === String(values[0])).map(clone)
+    }
+    throw new Error(`unhandled operations PostgreSQL test query: ${text}`)
+  }
+
+  private restore(snapshot: {
+    meta: Map<string, string>
+    workRecords: Map<string, WorkRecordRow>
+    approvals: Map<string, ApprovalRow>
+    schedules: Map<string, ScheduleRow>
+    teams: Map<string, TeamRow>
+    members: Map<string, TeamMemberRow>
+    outbox: Map<string, OutboxRow>
+    idempotency: Map<string, unknown>
+  }): void {
+    const stores = [
+      [this.meta, snapshot.meta],
+      [this.workRecords, snapshot.workRecords],
+      [this.approvals, snapshot.approvals],
+      [this.schedules, snapshot.schedules],
+      [this.teams, snapshot.teams],
+      [this.members, snapshot.members],
+      [this.outbox, snapshot.outbox],
+      [this.idempotency, snapshot.idempotency],
+    ] as const
+    for (const [target, source] of stores) {
+      target.clear()
+      for (const [key, value] of source) target.set(key, value)
+    }
+  }
+}
+
+function parse(value: unknown): unknown {
+  return typeof value === 'string' ? JSON.parse(value) : value
+}
+function clone<T>(value: T): T {
+  return structuredClone(value)
+}
+
+const work = {
+  orgId: 'org-a',
+  sessionId: 'session-a',
+  employeeReleaseId: 'release-a',
+  teamId: undefined,
+  source: 'console' as const,
+  businessState: 'active' as const,
+  sourceReferences: { nativeSessionId: 'session-a' },
+  expectedRevision: 0,
+  idempotencyKey: 'work-a',
+}
+
+const references = {
+  resolveSession: async (_database: PostgresDatabase, orgId: string, sessionId: string) =>
+    orgId === 'org-a' && !sessionId.startsWith('missing'),
+  resolveRelease: async (_database: PostgresDatabase, orgId: string, releaseId: string) =>
+    orgId === 'org-a' && !releaseId.startsWith('missing'),
+}
+
+function repository(database = new MemoryPostgresDatabase(), now?: () => number): EnterpriseOperationsRepository {
+  return new EnterpriseOperationsRepository(database, {
+    ...references,
+    cursorSigningKey: Buffer.from('operations-cursor-signing-key-32b!'),
+    ...(now === undefined ? {} : { now }),
+  })
+}
+
+describe('EnterpriseOperationsRepository', () => {
+  it('rejects cursor signing keys shorter than 32 bytes', () => {
+    expect(() => new EnterpriseOperationsRepository(new MemoryPostgresDatabase(), {
+      ...references, cursorSigningKey: 'short',
+    })).toThrow('at least 32 bytes')
+  })
+
+  it('migrates an existing schema version one database to version two', async () => {
+    const database = new MemoryPostgresDatabase(1)
+    const operations = new EnterpriseOperationsRepository(database)
+
+    await operations.createApprovalRequest({
+      approvalId: 'approval-migration',
+      orgId: 'org-a',
+      kind: 'publish',
+      subjectType: 'employee-release',
+      subjectId: 'release-a',
+      requestedBy: 'owner-a',
+      idempotencyKey: 'approval-migration-create',
+    })
+
+    expect(database.schemaVersion).toBe('6')
+  })
+
+  it('permits unverified local writes only through explicit configuration', async () => {
+    const operations = new EnterpriseOperationsRepository(new MemoryPostgresDatabase(), { allowUnverifiedReferences: true })
+
+    await expect(operations.upsertWorkRecord(work)).resolves.toMatchObject({ sessionId: 'session-a' })
+    await expect(new EnterpriseOperationsRepository(new MemoryPostgresDatabase()).upsertWorkRecord(work))
+      .rejects.toThrow('native session resolver is required')
+  })
+
+  it('keeps native session source references immutable while projecting one work record', async () => {
+    const operations = repository(new MemoryPostgresDatabase(), () => 100)
+    const created = await operations.upsertWorkRecord(work)
+    const retried = await operations.upsertWorkRecord(work)
+
+    expect(retried).toEqual(created)
+    await expect(operations.upsertWorkRecord({ ...work, businessState: 'completed' }))
+      .rejects.toMatchObject({ code: 'idempotency-conflict', resourceType: 'work-record' })
+    await expect(
+      operations.upsertWorkRecord({
+        ...work,
+        expectedRevision: 1,
+        idempotencyKey: 'work-mutate-source',
+        sourceReferences: { nativeSessionId: 'other' },
+      }),
+    ).rejects.toMatchObject({ code: 'immutable-source', resourceType: 'work-record' })
+  })
+
+  it('allows one pending approval transition and rejects a concurrent stale reviewer', async () => {
+    const operations = repository()
+    await operations.createApprovalRequest({
+      approvalId: 'approval-a',
+      orgId: 'org-a',
+      kind: 'publish',
+      subjectType: 'employee-release',
+      subjectId: 'release-a',
+      requestedBy: 'owner-a',
+      idempotencyKey: 'approval-create',
+    })
+    const settled = await Promise.allSettled([
+      operations.transitionApproval({
+        approvalId: 'approval-a',
+        orgId: 'org-a',
+        expectedRevision: 1,
+        idempotencyKey: 'approve-a',
+        state: 'approved',
+        reviewerUserId: 'reviewer-a',
+      }),
+      operations.transitionApproval({
+        approvalId: 'approval-a',
+        orgId: 'org-a',
+        expectedRevision: 1,
+        idempotencyKey: 'reject-a',
+        state: 'rejected',
+        reviewerUserId: 'reviewer-b',
+        reason: 'needs revision',
+      }),
+    ])
+
+    expect(settled.filter(item => item.status === 'fulfilled')).toHaveLength(1)
+    expect(settled.filter(item => item.status === 'rejected')[0]?.status).toBe('rejected')
+    const failure = settled.find(item => item.status === 'rejected')
+    expect(failure?.status === 'rejected' && failure.reason).toBeInstanceOf(ApprovalRevisionConflictError)
+  })
+
+  it('fires a schedule once per occurrence and creates one session command outbox record', async () => {
+    const operations = repository(new MemoryPostgresDatabase(), () => 200)
+    await operations.createSchedule({
+      scheduleId: 'schedule-a',
+      orgId: 'org-a',
+      target: { kind: 'employee', employeeReleaseId: 'release-a' },
+      timezone: 'Asia/Shanghai',
+      rule: '0 10 * * *',
+      input: { prompt: 'daily brief' },
+      nextRunAt: 200,
+      expectedRevision: 0,
+      idempotencyKey: 'schedule-create',
+    })
+    const fire = {
+      scheduleId: 'schedule-a',
+      orgId: 'org-a',
+      expectedRevision: 1,
+      idempotencyKey: 'fire-a',
+      occurrenceKey: '2026-08-27T10:00:00+08:00',
+      sessionId: 'session-scheduled-a',
+      firedAt: 200,
+      nextRunAt: 300,
+    }
+    const [first, second] = await Promise.all([operations.fireSchedule(fire), operations.fireSchedule(fire)])
+    const replayedOccurrence = await operations.fireSchedule({
+      ...fire,
+      expectedRevision: 0,
+      idempotencyKey: 'fire-a-fresh-key',
+      sessionId: 'missing-session-is-ignored-for-an-existing-occurrence',
+    })
+
+    expect(second).toEqual(first)
+    expect(replayedOccurrence).toEqual(first)
+    expect(first.workRecord.source).toBe('schedule')
+    expect(first.command.kind).toBe('start-session')
+    expect((await operations.listWorkRecords({ orgId: 'org-a' })).items).toHaveLength(1)
+  })
+
+  it('does not reveal or mutate records outside the requested organization', async () => {
+    const operations = repository()
+    await operations.upsertWorkRecord(work)
+
+    await expect(operations.getWorkRecord('org-b', 'session-a', 'release-a')).resolves.toBeUndefined()
+    await expect(operations.upsertWorkRecord({ ...work, orgId: 'org-b', expectedRevision: 0, idempotencyKey: 'org-b' }))
+      .rejects.toMatchObject({ code: 'not-found', resourceType: 'work-record' })
+  })
+
+  it('rolls back schedule state and work record when outbox creation fails', async () => {
+    const database = new MemoryPostgresDatabase()
+    const operations = repository(database)
+    await operations.createSchedule({
+      scheduleId: 'schedule-b',
+      orgId: 'org-a',
+      target: { kind: 'employee', employeeReleaseId: 'release-a' },
+      timezone: 'UTC',
+      rule: '0 * * * *',
+      input: {},
+      nextRunAt: 100,
+      expectedRevision: 0,
+      idempotencyKey: 'schedule-b-create',
+    })
+    database.failNextOutboxInsert = true
+
+    await expect(
+      operations.fireSchedule({
+        scheduleId: 'schedule-b',
+        orgId: 'org-a',
+        expectedRevision: 1,
+        idempotencyKey: 'schedule-b-fire',
+        occurrenceKey: 'occurrence-b',
+        sessionId: 'session-b',
+        firedAt: 100,
+        nextRunAt: 200,
+      }),
+    ).rejects.toThrow('injected outbox failure')
+    await expect(operations.getWorkRecord('org-a', 'session-b', 'release-a')).resolves.toBeUndefined()
+    await expect(operations.getSchedule('org-a', 'schedule-b')).resolves.toMatchObject({ revision: 1, lastRunAt: null })
+  })
+
+  it('stores a fixed team without bidding or shared-blackboard fields', async () => {
+    const operations = repository()
+    const team = await operations.createFixedTeam({
+      teamId: 'team-a',
+      orgId: 'org-a',
+      leaderEmployeeReleaseId: 'release-lead',
+      members: [{ employeeReleaseId: 'release-worker', role: 'researcher' }],
+      workflowTemplate: { name: 'handoff' },
+      approvalPolicy: { handoff: 'required' },
+      expectedRevision: 0,
+      idempotencyKey: 'team-a-create',
+    })
+
+    expect(team).toMatchObject({
+      teamId: 'team-a',
+      leaderEmployeeReleaseId: 'release-lead',
+      members: [{ employeeReleaseId: 'release-worker', role: 'researcher' }],
+    })
+  })
+
+  it('fires a team schedule through the organization-owned team leader', async () => {
+    const operations = repository()
+    await operations.createFixedTeam({
+      teamId: 'team-scheduled',
+      orgId: 'org-a',
+      leaderEmployeeReleaseId: 'release-lead',
+      members: [{ employeeReleaseId: 'release-worker', role: 'researcher' }],
+      workflowTemplate: {},
+      approvalPolicy: {},
+      expectedRevision: 0,
+      idempotencyKey: 'team-scheduled-create',
+    })
+    await operations.createSchedule({
+      scheduleId: 'schedule-team',
+      orgId: 'org-a',
+      target: { kind: 'team', teamId: 'team-scheduled' },
+      timezone: 'UTC',
+      rule: '0 9 * * *',
+      input: {},
+      nextRunAt: 100,
+      expectedRevision: 0,
+      idempotencyKey: 'schedule-team-create',
+    })
+
+    const fired = await operations.fireSchedule({
+      scheduleId: 'schedule-team',
+      orgId: 'org-a',
+      expectedRevision: 1,
+      idempotencyKey: 'schedule-team-fire',
+      occurrenceKey: 'team-occurrence',
+      sessionId: 'session-team',
+      firedAt: 100,
+      nextRunAt: 200,
+    })
+
+    expect(fired.workRecord).toMatchObject({ teamId: 'team-scheduled', employeeReleaseId: 'release-lead' })
+    expect(fired.command).toMatchObject({ teamId: 'team-scheduled', employeeReleaseId: 'release-lead' })
+  })
+
+  it('creates a scheduled session without requiring that new session to exist', async () => {
+    const operations = repository()
+    await operations.createSchedule({
+      scheduleId: 'schedule-new-session', orgId: 'org-a', target: { kind: 'employee', employeeReleaseId: 'release-a' },
+      timezone: 'UTC', rule: '0 9 * * *', input: {}, nextRunAt: 100, expectedRevision: 0, idempotencyKey: 'new-session-create',
+    })
+
+    await expect(operations.fireSchedule({
+      scheduleId: 'schedule-new-session', orgId: 'org-a', expectedRevision: 1, idempotencyKey: 'new-session-fire',
+      occurrenceKey: 'new-session-occurrence', sessionId: 'missing-new-session', firedAt: 100, nextRunAt: 200,
+    })).resolves.toMatchObject({ command: { sessionId: 'missing-new-session' } })
+  })
+
+  it('rejects a paused schedule without creating work', async () => {
+    const database = new MemoryPostgresDatabase()
+    const operations = repository(database)
+    await operations.createSchedule({
+      scheduleId: 'schedule-paused', orgId: 'org-a', target: { kind: 'employee', employeeReleaseId: 'release-a' },
+      timezone: 'UTC', rule: '0 9 * * *', input: {}, nextRunAt: 100, expectedRevision: 0, idempotencyKey: 'paused-create',
+    })
+    database.setScheduleState('schedule-paused', 'paused')
+
+    await expect(operations.fireSchedule({
+      scheduleId: 'schedule-paused', orgId: 'org-a', expectedRevision: 1, idempotencyKey: 'paused-fire',
+      occurrenceKey: 'paused-occurrence', sessionId: 'session-paused', firedAt: 100, nextRunAt: 200,
+    })).rejects.toThrow('schedule schedule-paused is not active')
+    await expect(operations.getWorkRecord('org-a', 'session-paused', 'release-a')).resolves.toBeUndefined()
+  })
+
+  it('rejects work records whose native session or release cannot be resolved', async () => {
+    const operations = repository()
+
+    await expect(
+      operations.upsertWorkRecord({
+        ...work,
+        employeeReleaseId: 'missing-release',
+        idempotencyKey: 'missing-release-work',
+      }),
+    ).rejects.toThrow('native employee release missing-release was not found in organization org-a')
+  })
+
+  it('rejects a work record that references a team outside the organization', async () => {
+    const operations = repository()
+
+    await expect(
+      operations.upsertWorkRecord({
+        ...work,
+        teamId: 'missing-team',
+        idempotencyKey: 'missing-team-work',
+      }),
+    ).rejects.toThrow('fixed team missing-team was not found in organization org-a')
+  })
+
+  it('gets, filters, cancels, and cursor-pages approvals', async () => {
+    const operations = repository()
+    for (const [approvalId, kind, requestedBy] of [
+      ['approval-1', 'publish', 'owner-a'],
+      ['approval-2', 'tool', 'owner-b'],
+      ['approval-3', 'publish', 'owner-a'],
+    ] as const) await operations.createApprovalRequest({
+      approvalId, orgId: 'org-a', kind, subjectType: 'release', subjectId: approvalId,
+      requestedBy, idempotencyKey: `create-${approvalId}`,
+    })
+
+    const first = await operations.listApprovals({ orgId: 'org-a', kind: 'publish', requestedBy: 'owner-a', limit: 1 })
+    expect(first.items).toHaveLength(1)
+    expect(first.nextCursor).toBeTypeOf('string')
+    const second = await operations.listApprovals({
+      orgId: 'org-a', kind: 'publish', requestedBy: 'owner-a', limit: 1, cursor: first.nextCursor,
+    })
+    expect(second.items).toHaveLength(1)
+    expect(second.items[0]?.approvalId).not.toBe(first.items[0]?.approvalId)
+    await expect(operations.getApproval('org-b', 'approval-1')).resolves.toBeUndefined()
+    await expect(operations.transitionApproval({
+      approvalId: 'approval-1', orgId: 'org-a', expectedRevision: 1, idempotencyKey: 'cancel-1',
+      state: 'cancelled', actorUserId: 'owner-a', reason: 'withdrawn',
+    })).resolves.toMatchObject({ state: 'cancelled', reviewerUserId: 'owner-a', reason: 'withdrawn' })
+  })
+
+  it('cursor-pages work records with source, state, and team scope', async () => {
+    const operations = repository()
+    for (const [sessionId, source, businessState] of [
+      ['work-1', 'console', 'active'], ['work-2', 'console', 'active'], ['work-3', 'wecom', 'failed'],
+    ] as const) await operations.upsertWorkRecord({
+      ...work, sessionId, source, businessState, idempotencyKey: `create-${sessionId}`,
+      sourceReferences: { nativeSessionId: sessionId },
+    })
+    const first = await operations.listWorkRecords({ orgId: 'org-a', source: 'console', businessState: 'active', limit: 1 })
+    expect(first.items).toHaveLength(1)
+    const second = await operations.listWorkRecords({
+      orgId: 'org-a', source: 'console', businessState: 'active', limit: 1, cursor: first.nextCursor,
+    })
+    expect(second.items).toHaveLength(1)
+    await expect(operations.listWorkRecords({ orgId: 'org-a', source: 'wecom', cursor: first.nextCursor }))
+      .rejects.toMatchObject({ code: 'cursor-invalid', resourceType: 'work-record' })
+  })
+
+  it('uses immutable creation order so updates between pages are not omitted', async () => {
+    let now = 1
+    const operations = repository(new MemoryPostgresDatabase(), () => now)
+    for (const sessionId of ['immutable-1', 'immutable-2', 'immutable-3']) {
+      await operations.upsertWorkRecord({
+        ...work, sessionId, sourceReferences: { nativeSessionId: sessionId }, idempotencyKey: `create-${sessionId}`,
+      })
+      now += 1
+    }
+    const first = await operations.listWorkRecords({ orgId: 'org-a', limit: 1 })
+    const cursorPayload = JSON.parse(Buffer.from(first.nextCursor?.split('.')[0] ?? '', 'base64url').toString('utf8')) as Record<string, unknown>
+    expect(cursorPayload).toMatchObject({ version: 2, createdAt: 3, ids: ['immutable-3', 'release-a'] })
+    expect(cursorPayload).not.toHaveProperty('updatedAt')
+    now = 10
+    await operations.upsertWorkRecord({
+      ...work, sessionId: 'immutable-1', sourceReferences: { nativeSessionId: 'immutable-1' },
+      businessState: 'completed', expectedRevision: 1, idempotencyKey: 'update-immutable-1',
+    })
+    const second = await operations.listWorkRecords({ orgId: 'org-a', limit: 1, cursor: first.nextCursor })
+    const third = await operations.listWorkRecords({ orgId: 'org-a', limit: 1, cursor: second.nextCursor })
+    expect([first.items[0]?.sessionId, second.items[0]?.sessionId, third.items[0]?.sessionId])
+      .toEqual(['immutable-3', 'immutable-2', 'immutable-1'])
+  })
+
+  it('passes the active transaction database to native reference resolvers', async () => {
+    const database = new MemoryPostgresDatabase()
+    const seen: unknown[] = []
+    const operations = new EnterpriseOperationsRepository(database, {
+      cursorSigningKey: Buffer.from('operations-cursor-signing-key-32b!'),
+      resolveSession: async (transaction, orgId, sessionId) => {
+        seen.push(transaction)
+        return orgId === 'org-a' && sessionId === 'session-a'
+      },
+      resolveRelease: async (transaction, orgId, releaseId) => {
+        seen.push(transaction)
+        return orgId === 'org-a' && releaseId === 'release-a'
+      },
+    })
+    await operations.upsertWorkRecord(work)
+    expect(seen).toEqual([database, database])
+  })
+
+  it('updates fixed teams and schedules with CAS and keeps archived schedules terminal', async () => {
+    const operations = repository()
+    await operations.createFixedTeam({
+      teamId: 'team-update', orgId: 'org-a', leaderEmployeeReleaseId: 'release-lead',
+      members: [{ employeeReleaseId: 'release-old', role: 'old' }], workflowTemplate: {}, approvalPolicy: {},
+      expectedRevision: 0, idempotencyKey: 'team-update-create',
+    })
+    const updatedTeam = await operations.saveFixedTeam({
+      teamId: 'team-update', orgId: 'org-a', leaderEmployeeReleaseId: 'release-new-lead',
+      members: [{ employeeReleaseId: 'release-new', role: 'new' }], workflowTemplate: { v: 2 }, approvalPolicy: {},
+      expectedRevision: 1, idempotencyKey: 'team-update-save',
+    })
+    expect(updatedTeam).toMatchObject({ revision: 2, members: [{ employeeReleaseId: 'release-new', role: 'new' }] })
+    await expect(operations.getFixedTeam('org-a', 'team-update')).resolves.toEqual(updatedTeam)
+
+    await operations.createSchedule({
+      scheduleId: 'schedule-update', orgId: 'org-a', target: { kind: 'employee', employeeReleaseId: 'release-a' },
+      timezone: 'UTC', rule: '0 * * * *', input: {}, nextRunAt: 1, expectedRevision: 0, idempotencyKey: 'schedule-update-create',
+    })
+    const updatedSchedule = await operations.saveSchedule({
+      scheduleId: 'schedule-update', orgId: 'org-a', target: { kind: 'employee', employeeReleaseId: 'release-b' },
+      timezone: 'Asia/Shanghai', rule: '0 9 * * *', input: { v: 2 }, nextRunAt: 2,
+      expectedRevision: 1, idempotencyKey: 'schedule-update-save',
+    })
+    expect(updatedSchedule).toMatchObject({ revision: 2, timezone: 'Asia/Shanghai', nextRunAt: 2 })
+    await operations.transitionSchedule({
+      scheduleId: 'schedule-update', orgId: 'org-a', state: 'archived', expectedRevision: 2, idempotencyKey: 'archive-update',
+    })
+    await expect(operations.saveSchedule({
+      scheduleId: 'schedule-update', orgId: 'org-a', target: { kind: 'employee', employeeReleaseId: 'release-c' },
+      timezone: 'UTC', rule: '* * * * *', input: {}, nextRunAt: 3, expectedRevision: 3, idempotencyKey: 'edit-archived',
+    })).rejects.toMatchObject({ code: 'invalid-state', resourceType: 'schedule' })
+  })
+})

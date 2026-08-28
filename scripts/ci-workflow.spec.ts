@@ -8,6 +8,39 @@ const runnerPrivatePnpmDestination = /^\$\{\{ runner\.temp \}\}\/setup-pnpm-\$\{
 const nativeWindowsPnpmDestination = '${{ runner.temp }}/setup-pnpm-js-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}'
 
 describe('CI workflow', () => {
+  it('runs the real enterprise Web composition in every relevant PostgreSQL change lane', () => {
+    const workflow = loadWorkflow('.github/workflows/enterprise-postgres.yml')
+    const pullRequest = workflowEvent(workflow, 'pull_request')
+    const push = workflowEvent(workflow, 'push')
+    const requiredPaths = [
+      'packages/bundle/web-app/**',
+      'packages/client/connection/**',
+      'packages/enterprise/enterprise-postgres/**',
+      'packages/identity/enterprise-auth-web/**',
+      'apps/cli/config/enterprise.cordis.patch.yml',
+    ]
+    for (const event of [pullRequest, push]) {
+      expect(event.paths).toEqual(expect.arrayContaining(requiredPaths))
+    }
+
+    const job = workflowJob(workflow, 'postgres-integration')
+    if (!Array.isArray(job.steps)) throw new TypeError('PostgreSQL integration job must define steps')
+    const steps: unknown[] = job.steps
+    const integration: unknown = steps.find(
+      step => isRecord(step) && step.name === 'Run enterprise PostgreSQL integration tests',
+    )
+    if (!isRecord(integration) || !isRecord(integration.env)) {
+      throw new TypeError('PostgreSQL integration step must define env')
+    }
+    expect(integration.env.DSH_TEST_POSTGRES_URL).toBe(
+      'postgresql://postgres:postgres@127.0.0.1:5432/dsh_enterprise_test',
+    )
+    expect(typeof integration.run === 'string' ? integration.run : '')
+      .toContain('packages/bundle/web-app/tests/enterprise-real-loader-composition.spec.ts')
+    expect(typeof integration.run === 'string' ? integration.run : '')
+      .toContain('packages/host/apiproxy/tests/enterprise-postgres.integration.spec.ts')
+  })
+
   it('isolates every pnpm action setup destination per runner', () => {
     const files = ['.github/workflows/ci.yml', '.github/workflows/ci-master.yml']
     const setups: Array<{ jobName: string; step: unknown }> = []

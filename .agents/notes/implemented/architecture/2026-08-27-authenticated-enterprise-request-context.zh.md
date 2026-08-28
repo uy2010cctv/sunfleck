@@ -1,0 +1,49 @@
+# Agent Note: 已认证的企业请求上下文
+
+Status: implemented
+
+[English](2026-08-27-authenticated-enterprise-request-context.md) | 中文
+
+## Problem
+
+Host RPC handler 需要认证后的企业身份，但 RPC payload 由客户端控制。把 payload 字段当作 `EnterprisePrincipal` 会让调用方声称其他用户、组织或角色，即使传输层认证的是另一个会话。在每个 Host API 中显式逐层传递 principal 也会把传输身份耦合到无关的业务契约，并容易遗漏。
+
+WebSocket 下行会在 HTTP upgrade 后创建异步流工作。其数据源必须看到同一个认证身份，又不能让该身份在 upgrade 之外的工作中可见。
+
+## Decision
+
+`@deepseek-ai/dsh-enterprise-auth-web` 提供基于 Node `AsyncLocalStorage` 的 `EnterpriseRequestContext`。`run(principal, callback)` 建立由服务端认证的 `EnterprisePrincipal`；`current()` 用于可选行为中观测它，`requirePrincipal()` 在认证请求之外失败关闭。
+
+Connection 传输只在 Cookie 认证、端点授权和审计完成后进入该上下文。HTTP 包裹选中的 Fetch handler。已授权的 WebSocket upgrade 包裹创建下行数据源及其异步资源的 handler。未组合 `enterpriseSecurity` 的部署继续走普通传输路径，不创建 principal 上下文。
+
+启用企业安全时，HTTP RPC payload 的顶层 `principal` 键为保留键。会话认证后，Connection 在授权、审计或 dispatch 之前返回 HTTP 400，不转发、删除或解释该值。因此无效 payload 不会产生 allowed 审计记录。普通 Profile 保留不受限制的 payload 契约。
+
+Auth plugin 卸载时会调用 `EnterpriseRequestContext.dispose()`，将实例标记为已 dispose、推进 generation，并禁用底层异步存储。每个 store 捕获 `run()` 建立时的 generation；只有 generation 仍匹配且 context 未 dispose 时，`current()` 才返回 principal。上下文构建后发生的初始化失败也会 dispose 它。Auth 只在自己创建 SQLite 后备仓库时关闭身份仓库；注入的 `identityStore` 或 `enterprisePostgres.identity` 仍由部署方所有并可继续使用。未完成的 continuation 会失去继承的 principal，之后的 plugin 加载会发布新的上下文实例。
+
+企业 overlay 为 Connection 注入 `enterpriseSecurity` 和 `enterpriseRequestContext`。因此 Loader 会等待 `enterprisePostgres` 激活 auth，再等 auth 发布两个服务后才激活 Connection；基础 Web Profile 仍只注入 `webRuntime`。
+
+企业 ApiProxy handler 只通过 `requirePrincipal()` 读取身份。Employee 与 Asset handler 在显式异步授权和审计后，向 PostgreSQL catalog 调用注入 `orgId`、`ownerUserId`、`createdBy` 或 `publishedBy`。PostgreSQL 模式下，identity policy miss 会把员工资源解析委托给 catalog draft；其 owner 与 visibility 成为授权资源，draft 不存在或 restricted draft 没有 identity-policy allowlist 时失败关闭。Team、Work Record、Approval 与 Schedule handler 委托 `EnterpriseOperationsService`，由它在调用 driver 前注入组织范围与 actor 身份。企业请求 schema 严格校验，不包含 principal 或组织字段。
+
+集合授权不代替资源授权。Employee 列表在返回前逐项授权并审计每个 draft。Draft 创建使用当前 actor 作为 owner，更新则读取并保留持久 owner；repository update 也保留已存 owner 列。
+
+企业写入仅在 repository Promise resolve 后发出带组织标记的失效事件。Host event stream 捕获打开请求的 `current()` principal，仅在事件组织匹配时转发企业帧；没有企业请求上下文的 stream 不订阅企业事件。
+
+## Alternatives considered
+
+**比较若干字段后信任 payload principal。** 不采用，因为 payload 仍是第二个身份权威，新增字段可能逃过比较，下游 handler 也可能意外读取未验证对象。
+
+**静默删除 `payload.principal`。** 不采用，因为这会隐藏客户端契约错误，还可能让请求在语义改变后看似成功。HTTP 400 使保留键边界明确可见。
+
+**在每个 RPC handler 参数中传递 principal。** 不采用，因为它会改变普通 Profile 的通用 RPC 契约，并要求每个中间层保留一个它并不拥有的安全值。
+
+## Consequences
+
+企业 Host 代码只有一个请求作用域的身份权威，它可跨 Promise 和并发请求传播，不会在请求间泄漏。Payload 无法冒充该身份，认证工作之外的调用失败关闭。
+
+企业管理 RPC 契约仍可由浏览器客户端导入，无需导入 Node 请求上下文或 PostgreSQL 类型。普通 Profile 保持现有 API，仅在调用企业域时收到明确的 unavailable 业务应答。
+
+企业 overlay 具有从 PostgreSQL 经 auth 到 Connection 的明确启动依赖。普通 Profile 不获得企业依赖，也不增加保留 payload 键。`AsyncLocalStorage` 使该服务仅属于 Node Host；浏览器和与传输无关的业务契约不导入它。
+
+定向测试固定匿名拒绝、回调生命期、并发隔离、HTTP 保留键拒绝、WebSocket 传播、普通 Profile 兼容性和 Loader 激活顺序。
+
+真实 Loader 集成测试会挂载已交付的 WebServer、Enterprise Postgres、企业 auth、Connection 和 ApiProxy 实现。提供 `DSH_TEST_POSTGRES_URL` 时，它通过 HTTP 登录，将 cookie 传入真实 `/api` fetch wire，并在 PostgreSQL 员工写入中观测 ALS 派生的组织与 owner 字段。它还固定匿名 401、伪造 principal 400、成员 mutation 403、private 列表过滤、使用新 request-context generation 的 auth reload，以及 shared pool 持续健康；始终运行的普通 Profile case 则观测没有企业服务时未知 `/api` 方法返回 404。企业 PostgreSQL workflow 会运行该测试和直接的四域 ApiProxy PostgreSQL 测试，并监视拥有这条链路的每个包与 overlay 路径。Enterprise Postgres pool close 是幂等的，因为 Loader 在卸载依赖方时可能再次访问同一个异步关闭边界。

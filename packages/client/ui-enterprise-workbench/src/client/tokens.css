@@ -1,0 +1,36 @@
+/* Hallmark · pre-emit critique: P5 H5 E4 S5 R5 V4
+ * genre: modern-minimal · macrostructure: workbench · design-system: DESIGN.md
+ */
+
+body {
+  --dse-color-canvas: var(--dsw-alias-bg-base);
+  --dse-color-surface: var(--dsw-alias-bg-layer-1);
+  --dse-color-surface-raised: var(--dsw-alias-bg-layer-2);
+  --dse-color-border: var(--dsw-alias-border-l2);
+  --dse-color-border-subtle: var(--dsw-alias-border-l1);
+  --dse-color-ink: var(--dsw-alias-label-primary);
+  --dse-color-muted: var(--dsw-alias-label-secondary);
+  --dse-color-accent: var(--dsw-alias-state-business-primary);
+  --dse-color-accent-soft: var(--dsw-alias-state-business-tertiary);
+  --dse-color-success: var(--dsw-alias-state-success-primary);
+  --dse-color-warning: var(--dsw-alias-state-warn-primary);
+  --dse-color-error: var(--dsw-alias-state-error-primary);
+  --dse-color-focus: var(--dsw-alias-brand-primary-new-colorprimary-new-color);
+  --dse-font-body: var(--ds-font-family, ui-sans-serif, system-ui, sans-serif);
+  --dse-font-code: var(--ds-font-family-code);
+  --dse-space-3xs: 0.25rem;
+  --dse-space-2xs: 0.5rem;
+  --dse-space-xs: 0.75rem;
+  --dse-space-sm: 1rem;
+  --dse-space-md: 1.5rem;
+  --dse-space-lg: 2rem;
+  --dse-space-xl: 3rem;
+  --dse-radius-control: 0.625rem;
+  --dse-radius-card: 0.875rem;
+  --dse-ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --dse-ease-in: cubic-bezier(0.7, 0, 0.84, 0);
+  --dse-ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --dse-duration-micro: 120ms;
+  --dse-duration-short: 220ms;
+  --dse-z-overlay: 20;
+}

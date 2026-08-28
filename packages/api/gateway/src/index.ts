@@ -9,6 +9,7 @@ import { randomUUID } from 'node:crypto'
 import { Context, Service, symbols } from '@deepseek-ai/cordis'
 import type { ConnectionRpcHandler } from '@deepseek-ai/dsh-client-connection'
 import type { WebUpgradeRoute } from '@deepseek-ai/dsh-host-webserver'
+import type { EnterpriseRequestContext, EnterpriseSecurity } from '@deepseek-ai/dsh-enterprise-auth-web'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import z from '@deepseek-ai/schemastery'
 import {
@@ -112,6 +113,17 @@ type ConnectionRpcResult = Awaited<ReturnType<ConnectionRpcHandler>>
 type ConnectionRpcError = Extract<ConnectionRpcResult, { readonly ok: false }>['error']
 const NEVER_ABORTED_SIGNAL = new AbortController().signal
 const DEFAULT_WEBSOCKET_HEARTBEAT_INTERVAL_MS = 30_000
+
+function optionalEnterpriseServices(ctx: Context): {
+  readonly security: EnterpriseSecurity | undefined
+  readonly requestContext: EnterpriseRequestContext | undefined
+} {
+  const getService = ctx.get.bind(ctx) as (name: string) => unknown
+  return {
+    security: getService('enterpriseSecurity') as EnterpriseSecurity | undefined,
+    requestContext: getService('enterpriseRequestContext') as EnterpriseRequestContext | undefined,
+  }
+}
 
 /** Gateway transport configuration. */
 export interface Config {
@@ -221,7 +233,22 @@ export class TypertGatewayService extends Service implements TypertGateway {
               rejectRemoteStreamUpgrade(socket, rejection)
               return
             }
-            mux.handleUpgrade(req, socket, head)
+            const { security, requestContext } = optionalEnterpriseServices(webCtx)
+            if (security === undefined && requestContext === undefined) {
+              mux.handleUpgrade(req, socket, head)
+              return
+            }
+            if (security === undefined || requestContext === undefined) {
+              rejectRemoteStreamUpgrade(socket, 403)
+              return
+            }
+            void security.authenticateCookieAsync(req.headers.cookie ?? '').then((principal) => {
+              if (principal === undefined) {
+                rejectRemoteStreamUpgrade(socket, 401)
+                return
+              }
+              requestContext.run(principal, () => { mux.handleUpgrade(req, socket, head) })
+            }).catch(() => { rejectRemoteStreamUpgrade(socket, 401) })
           },
         }
         const unregister = webCtx.webServer.registerUpgrade(route)

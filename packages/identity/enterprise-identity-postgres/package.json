@@ -1,0 +1,30 @@
+{
+  "name": "@deepseek-ai/dsh-enterprise-identity-postgres",
+  "description": "PostgreSQL persistence and safe SQLite migration for DSH enterprise identity",
+  "version": "0.1.1-rc.2",
+  "publishConfig": { "access": "public" },
+  "type": "module",
+  "main": "lib/index.js",
+  "types": "lib/types/index.d.ts",
+  "exports": {
+    ".": { "types": "./lib/types/index.d.ts", "default": "./lib/index.js" },
+    "./invariant": { "types": "./lib/types/invariant.d.ts", "default": "./lib/invariant.js" },
+    "./cli": { "types": "./lib/types/cli.d.ts", "default": "./lib/cli.js" },
+    "./src/*": "./src/*",
+    "./package.json": "./package.json"
+  },
+  "files": ["lib/index.js", "lib/cli.js", "lib/invariant.js", "lib/types/**/*.d.ts"],
+  "license": "MIT",
+  "peerDependencies": {
+    "@deepseek-ai/dsh-invariants": "workspace:^",
+    "@deepseek-ai/dsh-enterprise-governance": "workspace:^",
+    "@deepseek-ai/dsh-enterprise-identity": "workspace:^"
+  },
+  "dependencies": { "pg": "^8.16.3" },
+  "devDependencies": {
+    "@deepseek-ai/dsh-invariants": "workspace:^",
+    "@deepseek-ai/dsh-enterprise-governance": "workspace:^",
+    "@deepseek-ai/dsh-enterprise-identity": "workspace:^",
+    "@types/pg": "^8.15.5"
+  }
+}

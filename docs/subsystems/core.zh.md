@@ -790,6 +790,228 @@ roots(): Agent[]
 
 Source: [`packages/core/agent/src/index.ts`](../../packages/core/agent/src/index.ts)
 
+<a id="ctxenterpriseassetcontroller--enterpriseassetcontroller"></a>
+
+### `ctx.enterpriseAssetController` — `EnterpriseAssetController`
+
+Capability asset Remote service.
+
+```ts cordis-catalog
+/**
+ * Execute one authenticated enterprise operation.
+ * @param request - asset page filters.
+ * @returns visible asset page.
+ */
+@Remote('list') async list(request: EnterpriseAssetListRequest): Promise<EnterpriseAssetPage>
+
+/**
+ * Execute one authenticated enterprise operation.
+ * @param request - asset identity.
+ * @returns current asset row.
+ */
+@Remote('get') async get(request: EnterpriseAssetLookup): Promise<EnterpriseAsset>
+
+/**
+ * Execute one authenticated enterprise operation.
+ * @param request - new immutable asset content and CAS revision.
+ * @returns created version.
+ */
+@Remote('saveVersion') async saveVersion(request: EnterpriseAssetSaveRequest): Promise<EnterpriseAssetVersion>
+
+/**
+ * Execute one authenticated enterprise operation.
+ * @param request - asset identity.
+ * @returns immutable version history.
+ */
+@Remote('listVersions') async listVersions(request: EnterpriseAssetLookup): Promise<readonly EnterpriseAssetVersion[]>
+
+/**
+ * Execute one authenticated enterprise operation.
+ * @param request - asset identity and CAS revision.
+ * @returns archived asset row.
+ */
+@Remote('archive') async archive(request: EnterpriseAssetArchiveRequest): Promise<EnterpriseAsset>
+```
+
+Source: [`packages/api/enterprise-controller/src/index.ts`](../../packages/api/enterprise-controller/src/index.ts)
+
+<a id="ctxenterpriseemployeecontroller--enterpriseemployeecontroller"></a>
+
+### `ctx.enterpriseEmployeeController` — `EnterpriseEmployeeController`
+
+Employee Draft/Release Remote service.
+
+```ts cordis-catalog
+/**
+ * Execute one authenticated enterprise operation.
+ * @param request - page filters.
+ * @returns visible employee Draft page.
+ */
+@Remote('list') async list(request: EnterpriseEmployeeListRequest): Promise<EnterpriseEmployeePage>
+
+/**
+ * Execute one authenticated enterprise operation.
+ * @param request - employee identity.
+ * @returns current mutable Draft.
+ */
+@Remote('getDraft') async getDraft(request: EnterpriseEmployeeLookup): Promise<EnterpriseEmployeeDraft>
+
+/**
+ * Execute one authenticated enterprise operation.
+ * @param request - Draft snapshot and CAS revision.
+ * @returns saved Draft.
+ */
+@Remote('saveDraft') async saveDraft(request: EnterpriseEmployeeSaveRequest): Promise<EnterpriseEmployeeDraft>
+
+/**
+ * Execute one authenticated enterprise operation.
+ * @param request - Draft identity and CAS revision.
+ * @returns immutable Release.
+ */
+@Remote('publish') async publish(request: EnterpriseEmployeePublishRequest): Promise<EnterpriseEmployeeRelease>
+
+/**
+ * Execute one authenticated enterprise operation.
+ * @param request - employee identity.
+ * @returns immutable Release history.
+ */
+@Remote('listReleases') async listReleases(request: EnterpriseEmployeeLookup): Promise<readonly EnterpriseEmployeeRelease[]>
+
+/**
+ * Execute one authenticated enterprise operation.
+ * @param request - source Release and target Draft CAS revision.
+ * @returns rollback Release.
+ */
+@Remote('rollback') async rollback(request: EnterpriseEmployeeRollbackRequest): Promise<EnterpriseEmployeeRelease>
+```
+
+Source: [`packages/api/enterprise-controller/src/index.ts`](../../packages/api/enterprise-controller/src/index.ts)
+
+<a id="ctxenterpriseoperationcontroller--enterpriseoperationcontroller"></a>
+
+### `ctx.enterpriseOperationController` — `EnterpriseOperationController`
+
+Work record, approval, and schedule Remote service.
+
+```ts cordis-catalog
+/**
+ * Execute one authenticated enterprise operation.
+ * @param request - work-record page filters.
+ * @returns visible work-record page.
+ */
+@Remote('listWorkRecords') async listWorkRecords(request: EnterpriseWorkRecordListRequest): Promise<EnterprisePage<EnterpriseWorkRecord>>
+
+/**
+ * Execute one authenticated enterprise operation.
+ * @param request - composite work-record identity.
+ * @returns current work record.
+ */
+@Remote('getWorkRecord') async getWorkRecord(request: EnterpriseWorkRecordLookup): Promise<EnterpriseWorkRecord>
+
+/**
+ * Execute one authenticated enterprise operation.
+ * @param request - work-record state and CAS revision.
+ * @returns saved work record.
+ */
+@Remote('updateWorkRecord') async updateWorkRecord(request: EnterpriseWorkRecordUpdateRequest): Promise<EnterpriseWorkRecord>
+
+/**
+ * Execute one authenticated enterprise operation.
+ * @param request - approval page filters.
+ * @returns visible approval page.
+ */
+@Remote('listApprovals') async listApprovals(request: EnterpriseApprovalListRequest): Promise<EnterprisePage<EnterpriseApproval>>
+
+/**
+ * Execute one authenticated enterprise operation.
+ * @param request - approval identity.
+ * @returns current approval.
+ */
+@Remote('getApproval') async getApproval(request: EnterpriseApprovalLookup): Promise<EnterpriseApproval>
+
+/**
+ * Execute one authenticated enterprise operation.
+ * @param request - new approval request.
+ * @returns created approval.
+ */
+@Remote('createApproval') async createApproval(request: EnterpriseApprovalCreateRequest): Promise<EnterpriseApproval>
+
+/**
+ * Execute one authenticated enterprise operation.
+ * @param request - approval decision and CAS revision.
+ * @returns transitioned approval.
+ */
+@Remote('transitionApproval') async transitionApproval(request: EnterpriseApprovalTransitionRequest): Promise<EnterpriseApproval>
+
+/**
+ * Execute one authenticated enterprise operation.
+ * @param request - cancellation reason and CAS revision.
+ * @returns cancelled approval.
+ */
+@Remote('cancelApproval') async cancelApproval(request: EnterpriseApprovalCancelRequest): Promise<EnterpriseApproval>
+
+/**
+ * Execute one authenticated enterprise operation.
+ * @param request - schedule page filters.
+ * @returns visible schedule page.
+ */
+@Remote('listSchedules') async listSchedules(request: EnterpriseScheduleListRequest): Promise<EnterprisePage<EnterpriseSchedule>>
+
+/**
+ * Execute one authenticated enterprise operation.
+ * @param request - schedule identity.
+ * @returns current schedule.
+ */
+@Remote('getSchedule') async getSchedule(request: EnterpriseScheduleLookup): Promise<EnterpriseSchedule>
+
+/**
+ * Execute one authenticated enterprise operation.
+ * @param request - schedule definition and CAS revision.
+ * @returns saved schedule.
+ */
+@Remote('saveSchedule') async saveSchedule(request: EnterpriseScheduleSaveRequest): Promise<EnterpriseSchedule>
+
+/**
+ * Execute one authenticated enterprise operation.
+ * @param request - schedule state and CAS revision.
+ * @returns transitioned schedule.
+ */
+@Remote('transitionSchedule') async transitionSchedule(request: EnterpriseScheduleTransitionRequest): Promise<EnterpriseSchedule>
+```
+
+Source: [`packages/api/enterprise-controller/src/index.ts`](../../packages/api/enterprise-controller/src/index.ts)
+
+<a id="ctxenterpriseteamcontroller--enterpriseteamcontroller"></a>
+
+### `ctx.enterpriseTeamController` — `EnterpriseTeamController`
+
+Fixed team Remote service.
+
+```ts cordis-catalog
+/**
+ * Execute one authenticated enterprise operation.
+ * @param request - page cursor and size.
+ * @returns visible team page.
+ */
+@Remote('list') async list(request: EnterpriseTeamListRequest): Promise<EnterpriseTeamPage>
+
+/**
+ * Execute one authenticated enterprise operation.
+ * @param request - team identity.
+ * @returns current team.
+ */
+@Remote('get') async get(request: EnterpriseTeamLookup): Promise<EnterpriseTeam>
+
+/**
+ * Execute one authenticated enterprise operation.
+ * @param request - team composition and CAS revision.
+ * @returns saved team.
+ */
+@Remote('save') async save(request: EnterpriseTeamSaveRequest): Promise<EnterpriseTeam>
+```
+
+Source: [`packages/api/enterprise-controller/src/index.ts`](../../packages/api/enterprise-controller/src/index.ts)
+
 <a id="agent-events"></a>
 
 ### `agent/*` events

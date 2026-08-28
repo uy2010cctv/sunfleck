@@ -187,6 +187,12 @@
     - id: ui-sidebar
       name: '@deepseek-ai/dsh-client-ui-sidebar'
 
+    # DSH-native enterprise projection: Agent Presets become digital employees
+    # and Sessions become work records. The browser plugin is additive through
+    # sidebar.footer.action + shell.overlay and replaces no core surface.
+    - id: ui-enterprise-workbench
+      name: '@deepseek-ai/dsh-client-ui-enterprise-workbench'
+
     - id: ui-settings
       name: '@deepseek-ai/dsh-client-ui-settings'
 

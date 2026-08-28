@@ -66,6 +66,7 @@
     "apps/web/tests/access-confirmation.e2e.ts",
     "apps/web/tests/agent-preset-selection.e2e.ts",
     "apps/web/tests/agent-preset-authoring.e2e.ts",
+    "apps/web/tests/enterprise-workbench.e2e.ts",
     "apps/web/tests/shipped-composition.e2e.ts",
     "apps/web/tests/goal-bar.e2e.ts",
     "apps/web/tests/schedule-after.e2e.ts",
@@ -115,8 +116,29 @@
     "scripts/client-bundle-css.spec.ts",
     "packages/typert/generator/tests/fixtures/**",
     "scripts/client-bundle-purity.spec.ts"
+    ,"packages/catalog/enterprise-catalog/tests/**"
+    ,"packages/channel/channel-wecom/tests/**"
+    ,"packages/identity/enterprise-identity-postgres/tests/**"
+    ,"packages/knowledge/knowledge-pgvector/tests/**"
+    ,"packages/operations/enterprise-operations/tests/**"
+    ,"packages/session/session-persistence-postgres/tests/**"
   ],
   "references": [
+    { "path": "./packages/channel/channel-kernel" },
+    { "path": "./packages/channel/channel-wecom" },
+    { "path": "./packages/governance/enterprise-governance" },
+    { "path": "./packages/identity/enterprise-identity" },
+    { "path": "./packages/identity/enterprise-identity-postgres" },
+    { "path": "./packages/identity/enterprise-sso" },
+    { "path": "./packages/identity/enterprise-auth-web" },
+    { "path": "./packages/catalog/enterprise-catalog" },
+    { "path": "./packages/operations/enterprise-operations" },
+    { "path": "./packages/enterprise/enterprise-postgres" },
+    { "path": "./packages/knowledge/knowledge-pgvector" },
+    { "path": "./packages/session/session-persistence-postgres" },
+    { "path": "./packages/identity/enterprise-sso" },
+    { "path": "./packages/identity/enterprise-auth-web" },
+    { "path": "./packages/credentials/credentials-encrypted" },
     { "path": "./vendor/cosmokit" },
     { "path": "./vendor/schemastery" },
     { "path": "./vendor/cordis" },
@@ -149,6 +171,7 @@
     { "path": "./packages/api/session-controller/tsconfig.host.json" },
     { "path": "./packages/api/settings-controller" },
     { "path": "./packages/api/workspace-controller/tsconfig.host.json" },
+    { "path": "./packages/api/enterprise-controller" },
     { "path": "./packages/typert/loader" },
     { "path": "./packages/session/session-persistence" },
     { "path": "./packages/session/session-checkpoint-policy" },
@@ -191,6 +214,7 @@
     { "path": "./packages/feedback/command-feedback" },
     { "path": "./packages/schedule/schedule" },
     { "path": "./packages/context/time-context" },
+    { "path": "./packages/context/enterprise-memory-context" },
     { "path": "./packages/context/file-reference" },
     { "path": "./packages/context/file-reference-local" },
     { "path": "./packages/context/tmux-context" },

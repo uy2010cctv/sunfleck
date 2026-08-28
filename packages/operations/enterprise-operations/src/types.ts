@@ -1,0 +1,116 @@
+/** Driver-neutral contracts for DSH enterprise operations. */
+export type OperationSource = 'console' | 'schedule' | 'wecom'
+export type BusinessState = 'active' | 'waiting-approval' | 'completed' | 'failed'
+export type ApprovalKind = 'publish' | 'tool' | 'business' | 'handoff'
+
+export interface WorkRecordInput {
+  readonly orgId: string
+  readonly sessionId: string
+  readonly employeeReleaseId: string
+  readonly teamId?: string
+  readonly source: OperationSource
+  readonly businessState: BusinessState
+  readonly sourceReferences: Readonly<Record<string, unknown>>
+  readonly expectedRevision: number
+  readonly idempotencyKey: string
+}
+export interface WorkRecordView extends Omit<WorkRecordInput, 'expectedRevision' | 'idempotencyKey'> {
+  readonly revision: number
+  readonly createdAt: number
+  readonly updatedAt: number
+}
+export interface WorkRecordPage {
+  readonly items: readonly WorkRecordView[]
+  readonly nextCursor?: string
+}
+export interface ApprovalPage { readonly items: readonly ApprovalView[]; readonly nextCursor?: string }
+export interface FixedTeamPage { readonly items: readonly FixedTeamView[]; readonly nextCursor?: string }
+export interface SchedulePage { readonly items: readonly ScheduleView[]; readonly nextCursor?: string }
+
+export interface ApprovalView {
+  readonly approvalId: string
+  readonly orgId: string
+  readonly kind: ApprovalKind
+  readonly subjectType: string
+  readonly subjectId: string
+  readonly requestedBy: string
+  readonly state: 'pending' | 'approved' | 'rejected' | 'cancelled'
+  readonly reviewerUserId?: string
+  readonly reason?: string
+  readonly revision: number
+  readonly createdAt: number
+  readonly updatedAt: number
+}
+export type ScheduleTarget =
+  | { readonly kind: 'employee'; readonly employeeReleaseId: string }
+  | { readonly kind: 'team'; readonly teamId: string }
+export interface ScheduleView {
+  readonly scheduleId: string
+  readonly orgId: string
+  readonly target: ScheduleTarget
+  readonly timezone: string
+  readonly rule: string
+  readonly input: Readonly<Record<string, unknown>>
+  readonly state: 'active' | 'paused' | 'archived'
+  readonly nextRunAt: number | null
+  readonly lastRunAt: number | null
+  readonly revision: number
+  readonly createdAt: number
+  readonly updatedAt: number
+}
+export interface ScheduleFireView {
+  readonly workRecord: WorkRecordView
+  readonly command: {
+    readonly kind: 'start-session'
+    readonly sessionId: string
+    readonly employeeReleaseId: string
+    readonly teamId?: string
+  }
+}
+export type OutboxState = 'pending' | 'processing' | 'completed' | 'failed'
+export interface OutboxCommandView {
+  readonly commandId: string
+  readonly orgId: string
+  readonly scheduleId: string
+  readonly occurrenceKey: string
+  readonly workSessionId: string
+  readonly employeeReleaseId: string
+  readonly teamId?: string
+  readonly payload: Readonly<Record<string, unknown>>
+  readonly state: OutboxState
+  readonly attemptCount: number
+  readonly leaseOwner?: string
+  readonly leaseExpiresAt?: number
+  readonly lastError?: string
+  readonly completedAt?: number
+  readonly createdAt: number
+}
+export interface FixedTeamView {
+  readonly teamId: string
+  readonly orgId: string
+  readonly leaderEmployeeReleaseId: string
+  readonly members: readonly { employeeReleaseId: string; role: string }[]
+  readonly workflowTemplate: Readonly<Record<string, unknown>>
+  readonly approvalPolicy: Readonly<Record<string, unknown>>
+  readonly revision: number
+  readonly createdAt: number
+  readonly updatedAt: number
+}
+export interface PostgresQueryResult<Row extends Record<string, unknown> = Record<string, unknown>> {
+  readonly rows: readonly Row[]
+  readonly rowCount: number | null
+}
+export interface PostgresDatabase {
+  query<Row extends Record<string, unknown>>(text: string, values?: readonly unknown[]): Promise<PostgresQueryResult<Row>>
+  transaction<T>(operation: (database: PostgresDatabase) => Promise<T>): Promise<T>
+}
+
+export interface EnterpriseOperationsRepositoryOptions {
+  readonly now?: () => number
+  /** HMAC-SHA256 key used for scope-bound opaque list cursors. Must be at least 32 bytes. */
+  readonly cursorSigningKey?: Buffer | string
+  readonly resolveSession?: (database: PostgresDatabase, orgId: string, sessionId: string) => boolean | Promise<boolean>
+  readonly resolveRelease?: (database: PostgresDatabase, orgId: string, employeeReleaseId: string) => boolean | Promise<boolean>
+  /** Explicit test/development escape hatch; production composition must omit it. */
+  readonly allowUnverifiedReferences?: boolean
+}

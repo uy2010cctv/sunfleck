@@ -1,5 +1,5 @@
 /**
- * A preset's display metadata: the name and description a picker shows.
+ * A preset's display metadata: picker copy plus optional enterprise employee fields.
  *
  * It lives in its own file because the composition is a top-level list of
  * plugin rows — YAML cannot carry sibling keys beside it, and faking a
@@ -24,6 +24,16 @@ import yaml from 'js-yaml'
 /** The optional display-metadata file beside a preset's composition. */
 export const METADATA_FILE = 'preset.yml'
 
+/** Enterprise presentation carried by one preset without changing its runtime identity. */
+export interface EmployeeMetadata {
+  /** Human-facing position in the enterprise roster. */
+  readonly position?: string
+  /** Human-facing department in the enterprise roster. */
+  readonly department?: string
+  /** Bounded capability labels derived from the preset's real composition. */
+  readonly capabilities?: readonly string[]
+}
+
 /** Display text a preset may publish about itself. */
 export interface PresetMetadata {
   /** Human-facing name; falls back to the preset id when absent. */
@@ -36,6 +46,8 @@ export interface PresetMetadata {
    * can read in capability order while authored ones stay alphabetical.
    */
   readonly order?: number
+  /** Optional enterprise roster presentation; never an alternate agent identity. */
+  readonly employee?: EmployeeMetadata
 }
 
 /** A non-empty trimmed string, or undefined for anything else. */
@@ -43,6 +55,23 @@ function text(value: unknown): string | undefined {
   if (typeof value !== 'string') return undefined
   const trimmed = value.trim()
   return trimmed === '' ? undefined : trimmed
+}
+
+/** Normalize the optional employee block, dropping invalid and blank presentation fields. */
+function employee(value: unknown): EmployeeMetadata | undefined {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return undefined
+  const record = value as Record<string, unknown>
+  const position = text(record.position)
+  const department = text(record.department)
+  const capabilities = Array.isArray(record.capabilities)
+    ? [...new Set(record.capabilities.map(text).filter((item): item is string => item !== undefined))]
+    : []
+  if (position === undefined && department === undefined && capabilities.length === 0) return undefined
+  return {
+    ...position === undefined ? {} : { position },
+    ...department === undefined ? {} : { department },
+    ...capabilities.length === 0 ? {} : { capabilities },
+  }
 }
 
 /**
@@ -77,10 +106,12 @@ export async function readPresetMetadata(directory: string): Promise<PresetMetad
   const order = typeof record.order === 'number' && Number.isFinite(record.order)
     ? record.order
     : undefined
+  const employeeMetadata = employee(record.employee)
   return {
     ...name === undefined ? {} : { name },
     ...description === undefined ? {} : { description },
     ...order === undefined ? {} : { order },
+    ...employeeMetadata === undefined ? {} : { employee: employeeMetadata },
   }
 }
 
@@ -96,10 +127,12 @@ export function renderPresetMetadata(metadata: PresetMetadata): string | undefin
   const name = text(metadata.name)
   const description = text(metadata.description)
   const { order } = metadata
-  if (name === undefined && description === undefined && order === undefined) return undefined
+  const employeeMetadata = employee(metadata.employee)
+  if (name === undefined && description === undefined && order === undefined && employeeMetadata === undefined) return undefined
   return yaml.dump({
     ...name === undefined ? {} : { name },
     ...description === undefined ? {} : { description },
     ...order === undefined ? {} : { order },
+    ...employeeMetadata === undefined ? {} : { employee: employeeMetadata },
   }, { lineWidth: -1 })
 }
