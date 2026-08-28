@@ -16,7 +16,7 @@
 .loginPanel p { max-inline-size: 65ch; margin: 8px 0 24px; color: var(--dsw-alias-label-secondary); font-size: 13px; line-height: 1.6; }
 .loginPanel form { display: grid; gap: 16px; }
 .loginPanel label { display: grid; gap: 8px; color: var(--dsw-alias-label-secondary); font-size: 12px; }
-.loginPanel input, .inlineForm input, .inlineForm select, .departmentForm input, .departmentForm select, .workspaceCreate input, .memoryForm input, .memoryForm select, .memoryForm textarea, .reviewReason input, .userToolbar input, .userForm input, .userForm select { min-block-size: 44px; min-inline-size: 0; padding: 0 12px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 10px; outline: 2px solid transparent; background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-label-primary); font: inherit; }
+.loginPanel input, .inlineForm input, .inlineForm select, .departmentForm input, .departmentForm select, .workspaceCreate input, .memoryFields input, .memoryFields select, .memoryFields textarea, .memoryReviewReason input, .userToolbar input, .userForm input, .userForm select { min-block-size: 44px; min-inline-size: 0; padding: 0 12px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 10px; outline: 2px solid transparent; background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-label-primary); font: inherit; }
 .loginPanel button, .ssoButton { min-block-size: 44px; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--dsw-alias-label-primary); border-radius: 10px; background: var(--dsw-alias-label-primary); color: var(--dsw-alias-bg-base); font: inherit; text-decoration: none; cursor: pointer; white-space: nowrap; }
 .loginPanel button:hover, .ssoButton:hover { background: var(--dsw-alias-state-business-primary); border-color: var(--dsw-alias-state-business-primary); }
 .loginPanel button:active, .ssoButton:active { transform: translateY(1px); }
@@ -136,7 +136,7 @@ td span { margin-block-start: 4px; color: var(--dsw-alias-label-secondary); font
 .subsectionHeader > div > span { margin-block-start: 4px; }
 .subsectionHeader span { color: var(--dsw-alias-label-secondary); font-size: 12px; font-variant-numeric: tabular-nums; }
 .departmentForm { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
-.departmentForm label, .reviewReason { display: grid; gap: 6px; color: var(--dsw-alias-label-secondary); font-size: 11px; }
+.departmentForm label { display: grid; gap: 6px; color: var(--dsw-alias-label-secondary); font-size: 11px; }
 .departmentForm label:first-child { grid-column: 1 / -1; }
 .formError { grid-column: 1 / -1; padding: 9px 11px; border: 1px solid var(--dsw-alias-state-error-primary); border-radius: 8px; color: var(--dsw-alias-state-error-primary); font-size: 11px; }
 .formActions { grid-column: 1 / -1; display: flex; justify-content: flex-end; gap: 8px; }
@@ -191,16 +191,39 @@ td span { margin-block-start: 4px; color: var(--dsw-alias-label-secondary); font
 .workspaceList select { min-block-size: 34px; padding-inline: 8px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 8px; background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-label-primary); }
 .workspaceMeta { min-inline-size: 0; text-align: end; }
 .workspaceMeta code { display: block; margin-block-start: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.memoryForm { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-block: 16px 20px; }
-.memoryForm textarea { grid-column: 1 / -1; min-block-size: 88px; padding-block: 10px; resize: vertical; line-height: 1.5; }
-.memoryForm input { grid-column: span 2; }
+.memoryHeader > div { min-inline-size: 0; }
+.memoryHeader p { max-inline-size: 72ch; margin: 5px 0 0; color: var(--dsw-alias-label-secondary); font-size: 12px; }
+.memoryFlow { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0; margin: 16px 0 20px; padding: 0; overflow: hidden; border: 1px solid var(--dsw-alias-border-l2); border-radius: 12px; list-style: none; background: var(--dsw-alias-bg-layer-2); }
+.memoryFlow li { position: relative; display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: 2px 9px; min-inline-size: 0; padding: 12px 14px; }
+.memoryFlow li + li { border-inline-start: 1px solid var(--dsw-alias-border-l2); }
+.memoryFlow li > span { grid-row: 1 / 3; display: grid; place-items: center; inline-size: 26px; block-size: 26px; border-radius: 8px; background: var(--dsw-specific-sidebar-nav-item-active); font-size: 11px; font-variant-numeric: tabular-nums; }
+.memoryFlow strong { align-self: end; font-size: 12px; font-weight: 500; }
+.memoryFlow small { min-inline-size: 0; overflow: hidden; color: var(--dsw-alias-label-secondary); font-size: 10px; line-height: 1.45; text-overflow: ellipsis; white-space: nowrap; }
+.memoryComposer { display: grid; gap: 16px; margin-block-end: 24px; padding: 16px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 14px; }
+.memoryComposerHeader { display: grid; gap: 4px; }
+.memoryComposerHeader strong { font-size: 13px; font-weight: 500; }
+.memoryComposerHeader span { color: var(--dsw-alias-label-secondary); font-size: 11px; }
+.memoryFields { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.memoryFields > label { display: grid; align-content: start; gap: 7px; min-inline-size: 0; color: var(--dsw-alias-label-secondary); font-size: 11px; }
+.memoryFields label > small { color: var(--dsw-alias-label-tertiary); font-size: 10px; }
+.memorySummaryField { grid-column: 1 / -1; }
+.memoryFields textarea { min-block-size: 96px; padding-block: 10px; resize: vertical; line-height: 1.55; }
+.memorySummaryField > small { text-align: end; font-variant-numeric: tabular-nums; }
+.memoryPrivacy { display: grid; gap: 3px; padding: 10px 12px; border-radius: 9px; background: var(--dsw-alias-bg-layer-2); }
+.memoryPrivacy strong { font-size: 11px; font-weight: 500; }
+.memoryPrivacy span { color: var(--dsw-alias-label-secondary); font-size: 10px; line-height: 1.5; }
+.memorySubmit { display: flex; justify-content: flex-end; }
 .memoryColumns { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; }
-.reviewReason { margin-block-end: 12px; }
-.memoryItem { padding-block: 14px; border-block-start: 1px solid var(--dsw-alias-border-l1); }
-.memoryItem strong, .memoryItem span, .memoryItem small { display: block; }
-.memoryItem span, .memoryItem small { color: var(--dsw-alias-label-secondary); font-size: 11px; }
-.memoryItem strong { margin-block: 6px; line-height: 1.55; }
-.memoryActions { display: flex; gap: 8px; margin-block-start: 10px; }
+.memoryLane { min-inline-size: 0; }
+.memoryLane .subsectionHeader > div { display: grid; gap: 3px; }
+.memoryLane .subsectionHeader > div > span { margin: 0; white-space: normal; }
+.memoryItem { display: grid; gap: 9px; padding: 14px 0; border-block-start: 1px solid var(--dsw-alias-border-l1); }
+.memoryItem > small { color: var(--dsw-alias-label-secondary); font-size: 10px; line-height: 1.45; }
+.memoryMeta { display: flex; flex-wrap: wrap; gap: 6px; }
+.memoryMeta span { padding: 3px 7px; border-radius: 6px; background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-label-secondary); font-size: 10px; }
+.memorySummary { overflow-wrap: anywhere; font-size: 12px; font-weight: 500; line-height: 1.6; }
+.memoryReviewReason { display: grid; gap: 6px; color: var(--dsw-alias-label-secondary); font-size: 10px; }
+.memoryActions { display: flex; flex-wrap: wrap; gap: 8px; }
 .emptyState { max-inline-size: 52ch; color: var(--dsw-alias-label-secondary); font-size: 12px; line-height: 1.6; }
 .error { margin-block: 12px; padding: 8px 12px; border: 1px solid var(--dsw-alias-state-error-primary); border-radius: 10px; color: var(--dsw-alias-state-error-primary); font-size: 12px; }
 .settingsLedger button:disabled, .settingsLedger input:disabled, .settingsLedger select:disabled, .loginGate input:disabled { cursor: not-allowed; opacity: .55; }
@@ -213,8 +236,10 @@ td span { margin-block-start: 4px; color: var(--dsw-alias-label-secondary); font
   .policyList { grid-template-columns: minmax(0, 1fr); }
   .directoryLayout, .memoryColumns { grid-template-columns: minmax(0, 1fr); }
   .treePanel { border-inline-end: 0; border-block-end: 1px solid var(--dsw-alias-border-l2); }
-  .departmentForm, .memoryForm { grid-template-columns: minmax(0, 1fr); }
-  .memoryForm textarea, .memoryForm input { grid-column: 1; }
+  .departmentForm, .memoryFields { grid-template-columns: minmax(0, 1fr); }
+  .memorySummaryField { grid-column: 1; }
+  .memoryFlow { grid-template-columns: minmax(0, 1fr); }
+  .memoryFlow li + li { border-inline-start: 0; border-block-start: 1px solid var(--dsw-alias-border-l2); }
   .workspaceList > div { grid-template-columns: minmax(0, 1fr); gap: 6px; }
   .workspaceMeta { text-align: start; }
   .userToolbar { grid-template-columns: minmax(0, 1fr); }

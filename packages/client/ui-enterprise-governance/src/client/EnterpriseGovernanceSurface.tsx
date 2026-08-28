@@ -52,7 +52,7 @@ export interface EnterpriseGovernanceSurfaceProps {
     departmentId?: string
     kind: GovernanceMemory['kind']
     summary: string
-    sourceDigest: string
+    sourceDigest?: string
   }): Promise<void>
   reviewMemory(memoryId: string, input: {
     decision: 'approved' | 'rejected' | 'retired'
@@ -537,67 +537,128 @@ function MemorySection({ state, proposeMemory, reviewMemory }: Pick<
   const [departmentId, setDepartmentId] = useState(state.departments[0]?.id ?? '')
   const [kind, setKind] = useState<GovernanceMemory['kind']>('business-fact')
   const [summary, setSummary] = useState('')
-  const [sourceDigest, setSourceDigest] = useState('')
-  const [reviewReason, setReviewReason] = useState('')
+  const [reviewReasons, setReviewReasons] = useState<Record<string, string>>({})
+  const [busyMemoryId, setBusyMemoryId] = useState<string | null>(null)
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
   const proposed = state.memories.filter(memory => memory.status === 'proposed')
   const approved = state.memories.filter(memory => memory.status === 'approved')
+  const kindLabel = (value: GovernanceMemory['kind']): string => ({
+    'business-fact': '业务规则', process: '工作流程', terminology: '公司术语', decision: '已确认决策',
+  })[value]
+  const departmentName = (id: string | undefined): string =>
+    state.departments.find(department => department.id === id)?.name ?? '未找到部门'
+  const scopeLabel = (memory: GovernanceMemory): string => memory.scope === 'organization'
+    ? '全企业'
+    : departmentName(memory.departmentId)
   useEffect(() => {
     if (departmentId === '' && state.departments[0] !== undefined) setDepartmentId(state.departments[0].id)
   }, [departmentId, state.departments])
   return <section className={css.ledgerSection}>
-    <header><h2>组织记忆与 Agent 感知</h2><span>{approved.length}</span></header>
-    <p>只沉淀经过脱敏和审核的业务事实、流程、术语与决策；不保存个人偏好或原始对话正文。</p>
-    <form className={css.memoryForm} onSubmit={(event) => {
+    <header className={css.memoryHeader}>
+      <div><h2>企业记忆</h2><p>让 Agent 记住经过审核的公司知识，并按企业或部门范围安全使用。</p></div>
+      <span>{approved.length} 条已启用</span>
+    </header>
+    <ol className={css.memoryFlow} aria-label="企业记忆生效流程">
+      <li><span>1</span><strong>提交业务知识</strong><small>填写可共享的规则、流程、术语或决策</small></li>
+      <li><span>2</span><strong>管理员审核</strong><small>确认内容准确、适用范围正确且不含隐私</small></li>
+      <li><span>3</span><strong>Agent 可使用</strong><small>审核通过后进入对应企业或部门的 Agent 上下文</small></li>
+    </ol>
+    <form className={css.memoryComposer} onSubmit={(event) => {
       event.preventDefault()
-      void proposeMemory({
-        id: randomUUID(), scope, ...(scope === 'department' ? { departmentId } : {}),
-        kind, summary, sourceDigest,
-      })
-      setSummary(''); setSourceDigest('')
+      if (summary.trim() === '' || (scope === 'department' && departmentId === '')) return
+      const submit = async (): Promise<void> => {
+        setSubmitting(true); setError(null)
+        try {
+          await proposeMemory({
+            id: randomUUID(), scope, ...(scope === 'department' ? { departmentId } : {}),
+            kind, summary: summary.trim(),
+          })
+          setSummary('')
+        } catch { setError('提交审核失败。请确认内容不含姓名、联系方式、密码或其他个人敏感信息后重试。') }
+        finally { setSubmitting(false) }
+      }
+      void submit()
     }}>
-      <select aria-label="记忆范围" value={scope} onChange={(event) => { setScope(event.target.value as GovernanceMemory['scope']) }}>
-        <option value="department">部门记忆</option><option value="organization">企业记忆</option>
-      </select>
-      <select aria-label="记忆部门" value={departmentId} disabled={scope !== 'department'}
-        onChange={(event) => { setDepartmentId(event.target.value) }}>
-        {state.departments.map(department => <option key={department.id} value={department.id}>{department.name}</option>)}
-      </select>
-      <select aria-label="记忆类型" value={kind} onChange={(event) => { setKind(event.target.value as GovernanceMemory['kind']) }}>
-        <option value="business-fact">业务事实</option><option value="process">流程</option>
-        <option value="terminology">术语</option><option value="decision">决策</option>
-      </select>
-      <textarea aria-label="业务记忆摘要" placeholder="只写可共享的业务信息，不写姓名、联系方式、偏好或凭据。"
-        value={summary} onChange={(event) => { setSummary(event.target.value) }} />
-      <input aria-label="来源证据摘要" placeholder="SHA-256" value={sourceDigest}
-        onChange={(event) => { setSourceDigest(event.target.value) }} />
-      <button type="submit">提交审核</button>
+      <div className={css.memoryComposerHeader}><strong>新增业务记忆</strong>
+        <span>提交后不会立即影响 Agent，需要管理员审核通过。</span></div>
+      <div className={css.memoryFields}>
+        <label>适用范围<select aria-label="适用范围" value={scope}
+          onChange={(event) => { setScope(event.target.value as GovernanceMemory['scope']) }}>
+          <option value="organization">全企业 Agent</option><option value="department">指定部门 Agent</option>
+        </select><small>决定哪些对话会收到这条知识。</small></label>
+        <label>适用部门<select aria-label="适用部门" value={departmentId} disabled={scope !== 'department'}
+          onChange={(event) => { setDepartmentId(event.target.value) }}>
+          {state.departments.length === 0 && <option value="">请先创建部门</option>}
+          {state.departments.map(department => <option key={department.id} value={department.id}>{department.name}</option>)}
+        </select></label>
+        <label>业务知识类型<select aria-label="业务知识类型" value={kind}
+          onChange={(event) => { setKind(event.target.value as GovernanceMemory['kind']) }}>
+          <option value="business-fact">业务规则</option><option value="process">工作流程</option>
+          <option value="terminology">公司术语</option><option value="decision">已确认决策</option>
+        </select></label>
+        <label className={css.memorySummaryField}>要让 Agent 记住的内容<textarea aria-label="要让 Agent 记住的内容"
+          placeholder="例如：所有采购订单必须在入库前完成审批。" maxLength={1000}
+          value={summary} onChange={(event) => { setSummary(event.target.value) }} />
+        <small>{summary.length}/1000 · 只写可共享的公司业务信息。</small></label>
+      </div>
+      <div className={css.memoryPrivacy}><strong>隐私边界</strong><span>不要填写姓名、联系方式、个人偏好、客户原文、密码或密钥。系统只保存审核后的业务摘要，不保存原始对话。</span></div>
+      {error !== null && <div className={css.formError} role="alert">{error}</div>}
+      <div className={css.memorySubmit}><button type="submit" disabled={submitting || summary.trim() === ''
+        || (scope === 'department' && departmentId === '')}>{submitting ? '正在提交…' : '提交审核'}</button></div>
     </form>
     <div className={css.memoryColumns}>
-      <div>
-        <div className={css.subsectionHeader}><strong>待审核</strong><span>{proposed.length}</span></div>
-        <label className={css.reviewReason}>审核原因<input aria-label="记忆审核原因" value={reviewReason}
-          onChange={(event) => { setReviewReason(event.target.value) }} /></label>
+      <section className={css.memoryLane} aria-label="待管理员审核">
+        <div className={css.subsectionHeader}>
+          <div><strong>待管理员审核</strong><span>确认准确性、适用范围和隐私边界</span></div>
+          <span>{proposed.length}</span>
+        </div>
+        {proposed.length === 0 && <p className={css.emptyState}>暂无待审核内容。新提交的业务知识会出现在这里。</p>}
         {proposed.map(memory => <article key={memory.id} className={css.memoryItem}>
-          <div><span>{memory.scope === 'organization' ? '企业' : '部门'} · {memory.kind}</span><strong>{memory.summary}</strong></div>
-          <small>证据 {memory.sourceDigest.slice(0, 12)}… · 未保存原文</small>
+          <div className={css.memoryMeta}><span>{scopeLabel(memory)}</span><span>{kindLabel(memory.kind)}</span></div>
+          <strong className={css.memorySummary}>{memory.summary}</strong>
+          <small>系统已生成内容指纹 · 原始对话未保存</small>
+          <label className={css.memoryReviewReason}>审核说明<input aria-label={`${memory.summary} 审核说明`}
+            placeholder="说明核验依据或驳回原因" value={reviewReasons[memory.id] ?? ''}
+            onChange={(event) => { setReviewReasons(current => ({ ...current, [memory.id]: event.target.value })) }} /></label>
           <div className={css.memoryActions}>
-            <button type="button" disabled={reviewReason.trim() === ''} onClick={() => {
-              void reviewMemory(memory.id, { decision: 'approved', reason: reviewReason, expectedRevision: memory.revision })
-            }}>批准记忆</button>
-            <button type="button" disabled={reviewReason.trim() === ''} onClick={() => {
-              void reviewMemory(memory.id, { decision: 'rejected', reason: reviewReason, expectedRevision: memory.revision })
-            }}>驳回记忆</button>
+            <button type="button" disabled={(reviewReasons[memory.id]?.trim() ?? '') === '' || busyMemoryId !== null}
+              onClick={() => {
+                const review = async (): Promise<void> => {
+                  setBusyMemoryId(memory.id); setError(null)
+                  try { await reviewMemory(memory.id, {
+                    decision: 'approved', reason: reviewReasons[memory.id] ?? '', expectedRevision: memory.revision,
+                  }) } catch { setError('审核操作失败，请刷新后重试。') }
+                  finally { setBusyMemoryId(null) }
+                }
+                void review()
+              }}>{busyMemoryId === memory.id ? '正在处理…' : '批准并启用'}</button>
+            <button type="button" disabled={(reviewReasons[memory.id]?.trim() ?? '') === '' || busyMemoryId !== null}
+              onClick={() => {
+                const review = async (): Promise<void> => {
+                  setBusyMemoryId(memory.id); setError(null)
+                  try { await reviewMemory(memory.id, {
+                    decision: 'rejected', reason: reviewReasons[memory.id] ?? '', expectedRevision: memory.revision,
+                  }) } catch { setError('审核操作失败，请刷新后重试。') }
+                  finally { setBusyMemoryId(null) }
+                }
+                void review()
+              }}>驳回</button>
           </div>
         </article>)}
-      </div>
-      <div>
-        <div className={css.subsectionHeader}><strong>企业感知流</strong><span>{approved.length}</span></div>
-        {approved.length === 0 && <p className={css.emptyState}>审核通过的企业和部门业务记忆会出现在这里。</p>}
+      </section>
+      <section className={css.memoryLane} aria-label="Agent 已可使用">
+        <div className={css.subsectionHeader}>
+          <div><strong>Agent 已可使用</strong><span>以下知识会进入对应范围的 Agent 上下文</span></div>
+          <span>{approved.length}</span>
+        </div>
+        {approved.length === 0 && <p className={css.emptyState}>还没有已启用记忆。审核通过后，Agent 才能使用。</p>}
         {approved.map(memory => <article key={memory.id} className={css.memoryItem}>
-          <div><span>{memory.scope === 'organization' ? '全企业' : '部门'} · {memory.kind}</span><strong>{memory.summary}</strong></div>
-          <small>[{memory.id}]</small>
+          <div className={css.memoryMeta}><span>{scopeLabel(memory)}</span><span>{kindLabel(memory.kind)}</span></div>
+          <strong className={css.memorySummary}>{memory.summary}</strong>
+          <small>{memory.reviewReason === undefined ? '已通过审核' : `审核说明：${memory.reviewReason}`}</small>
         </article>)}
-      </div>
+      </section>
     </div>
   </section>
 }

@@ -7,6 +7,7 @@ import { createPasswordVerifier } from '@deepseek-ai/dsh-enterprise-sso'
 import type { SsoMappedIdentity } from '@deepseek-ai/dsh-enterprise-sso'
 import { randomUUID } from 'node:crypto'
 import type { EnterpriseRole } from '@deepseek-ai/dsh-enterprise-governance'
+import { memorySourceDigest } from '@deepseek-ai/dsh-enterprise-identity'
 import { clearSessionCookie } from './cookies.ts'
 import type { EnterpriseSecurity } from './security.ts'
 import type { EnterpriseWorkspaceProvisioner } from './workspace-provisioner.ts'
@@ -360,11 +361,17 @@ export class EnterpriseAuthHttpHandler {
       const departmentId = body['departmentId']
       const kind = body['kind']
       const summary = body['summary']
-      const sourceDigest = body['sourceDigest']
+      const providedSourceDigest = body['sourceDigest']
       if ((scope !== 'organization' && scope !== 'department')
         || (departmentId !== undefined && typeof departmentId !== 'string')
         || !['business-fact', 'process', 'terminology', 'decision'].includes(String(kind))
-        || typeof summary !== 'string' || typeof sourceDigest !== 'string') return json({ error: 'bad-request' }, 400)
+        || typeof summary !== 'string'
+        || (providedSourceDigest !== undefined && typeof providedSourceDigest !== 'string')) {
+        return json({ error: 'bad-request' }, 400)
+      }
+      const sourceDigest = providedSourceDigest ?? memorySourceDigest(JSON.stringify([
+        scope, departmentId ?? null, kind, summary.trim(),
+      ]))
       try {
         return json(await this.security.repository.proposeMemory({
           id, orgId: principal.orgId, scope,

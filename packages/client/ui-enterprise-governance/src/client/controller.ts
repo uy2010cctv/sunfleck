@@ -244,7 +244,7 @@ export class EnterpriseGovernanceController {
     departmentId?: string
     kind: GovernanceMemory['kind']
     summary: string
-    sourceDigest: string
+    sourceDigest?: string
   }): Promise<void> {
     await this.request('/auth/admin/memories', { method: 'POST', body: JSON.stringify(input) })
     await this.loadAdmin()

@@ -196,6 +196,16 @@ describe('EnterpriseAuthHttpHandler', () => {
       }),
     }))
     expect(proposal.status).toBe(201)
+    const automaticDigest = await managed.fetch(new Request('https://dsh.example.com/auth/admin/memories', {
+      method: 'POST', headers: mutationHeaders,
+      body: JSON.stringify({
+        id: 'memory-2', scope: 'organization', kind: 'terminology', summary: 'SKU 指库存单位。',
+      }),
+    }))
+    expect(automaticDigest.status).toBe(201)
+    await expect(automaticDigest.json()).resolves.toMatchObject({
+      id: 'memory-2', sourceDigest: expect.stringMatching(/^[a-f0-9]{64}$/),
+    })
     const review = await managed.fetch(new Request('https://dsh.example.com/auth/admin/memories/memory-1', {
       method: 'PATCH', headers: mutationHeaders,
       body: JSON.stringify({ decision: 'approved', reason: '制度核验完成', expectedRevision: 1 }),

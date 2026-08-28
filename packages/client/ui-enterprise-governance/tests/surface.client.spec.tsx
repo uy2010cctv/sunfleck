@@ -395,6 +395,47 @@ describe('enterprise governance UI', () => {
     })
   })
 
+  it('explains how business knowledge becomes Agent memory and hides technical digests', async () => {
+    const proposeMemory = vi.fn(() => Promise.resolve())
+    render(<EnterpriseGovernanceSettingsSection
+      state={state({
+        auth: {
+          authenticated: true,
+          principal: { userId: 'admin-1', orgId: 'org-a', displayName: 'Admin', username: 'admin', roles: ['administrator'] },
+          providers: [],
+        },
+        departments: [{
+          id: 'dept-ops', orgId: 'org-a', parentId: null, name: '运营部', sortOrder: 0,
+          revision: 1, createdAt: 1, updatedAt: 1,
+        }],
+      })}
+      loadAdmin={vi.fn()} loginLocal={vi.fn()} logout={vi.fn()} createOrganization={vi.fn()}
+      createAsset={vi.fn()} createUser={vi.fn()} updateUser={vi.fn()} saveDepartment={vi.fn()}
+      createWorkspace={vi.fn()} updateWorkspace={vi.fn()} proposeMemory={proposeMemory} reviewMemory={vi.fn()}
+      savePolicy={vi.fn()} filterAudit={vi.fn()}
+    />)
+    fireEvent.click(screen.getByRole('tab', { name: '企业记忆' }))
+
+    expect(screen.getByRole('heading', { name: '企业记忆' })).toBeDefined()
+    expect(screen.getByText('让 Agent 记住经过审核的公司知识，并按企业或部门范围安全使用。')).toBeDefined()
+    expect(screen.getByText('提交业务知识')).toBeDefined()
+    expect(screen.getByText('管理员审核')).toBeDefined()
+    expect(screen.getByText('Agent 可使用')).toBeDefined()
+    expect(screen.queryByLabelText('来源证据摘要')).toBeNull()
+    fireEvent.change(screen.getByLabelText('适用范围'), { target: { value: 'organization' } })
+    fireEvent.change(screen.getByLabelText('业务知识类型'), { target: { value: 'process' } })
+    fireEvent.change(screen.getByLabelText('要让 Agent 记住的内容'), {
+      target: { value: '所有采购订单必须在入库前完成审批。' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: '提交审核' }))
+
+    await waitFor(() => { expect(proposeMemory).toHaveBeenCalledOnce() })
+    expect(proposeMemory).toHaveBeenCalledWith({
+      id: expect.any(String), scope: 'organization', kind: 'process',
+      summary: '所有采购订单必须在入库前完成审批。',
+    })
+  })
+
   it('edits the department tree and reviews the enterprise awareness stream', () => {
     const saveDepartment = vi.fn(() => Promise.resolve())
     const reviewMemory = vi.fn(() => Promise.resolve())
@@ -447,8 +488,8 @@ describe('enterprise governance UI', () => {
     fireEvent.change(screen.getByLabelText('运营部 · 共享工作区 沙盒策略'), { target: { value: 'workspace-write' } })
     expect(updateWorkspace).toHaveBeenCalledWith('workspace-ops', { sandboxMode: 'workspace-write', expectedRevision: 1 })
     fireEvent.click(screen.getByRole('tab', { name: '企业记忆' }))
-    fireEvent.change(screen.getByLabelText('记忆审核原因'), { target: { value: '制度已核验' } })
-    fireEvent.click(screen.getByRole('button', { name: '批准记忆' }))
+    fireEvent.change(screen.getByLabelText('审批必须保留版本记录。 审核说明'), { target: { value: '制度已核验' } })
+    fireEvent.click(screen.getByRole('button', { name: '批准并启用' }))
     expect(reviewMemory).toHaveBeenCalledWith('memory-1', {
       decision: 'approved', reason: '制度已核验', expectedRevision: 1,
     })
