@@ -83,6 +83,13 @@
   --dsh-scrollbar-thumb-hover: var(--dsw-alias-scrollbar-hover-l2);
 }
 
+/* Enterprise governance contains split directory views and wide evidence
+   tables. It uses twice the standard desktop canvas, bounded by the same
+   viewport gutter; every other Settings section keeps the compact width. */
+.panelWide {
+  width: 1600px;
+}
+
 /* Nav rail (figma .Setting-nav 501:29958): 188 wide, pad (12,22,12,0),
    gap 18, no own fill — the panel white shows through. */
 .nav {

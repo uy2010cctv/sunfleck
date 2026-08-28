@@ -206,6 +206,23 @@ describe('SettingsPanel navigation', () => {
     expect(screen.queryByTestId('section-general')).toBeNull()
   })
 
+  it('widens only while the enterprise governance section is active', () => {
+    mount({ rows: [
+      { id: 'general', order: 0, label: 'General' },
+      { id: 'models', order: 10, label: 'Models' },
+      { id: 'enterprise-governance', order: 100, label: 'Enterprise management' },
+    ] })
+    openPanel()
+    const dialog = screen.getByRole('dialog')
+    expect(dialog.getAttribute('data-layout')).toBe('standard')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Enterprise management' }))
+    expect(dialog.getAttribute('data-layout')).toBe('wide')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Models' }))
+    expect(dialog.getAttribute('data-layout')).toBe('standard')
+  })
+
   it('mounts onboarding steps in order and transfers ownership only on completion', () => {
     const { renderSlot } = mount()
     const first = renderSlot.mock.calls.find(call => call[0] === 'settings.onboarding')
