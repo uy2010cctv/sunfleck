@@ -3,6 +3,7 @@ import type {
   CordisPackageVersion,
   CordisReviewRequest,
   CordisScopeBinding,
+  DepartmentManagerSet,
   EnterpriseCordisAuditEvent,
 } from './types.ts'
 
@@ -113,6 +114,15 @@ const SCHEMA = [
     granted_at BIGINT NOT NULL,
     revision BIGINT NOT NULL,
     PRIMARY KEY(org_id, department_id, user_id)
+  )`,
+  `CREATE TABLE IF NOT EXISTS dsh_enterprise_department_manager_sets (
+    org_id TEXT NOT NULL,
+    department_id TEXT NOT NULL,
+    manager_user_ids JSONB NOT NULL,
+    revision BIGINT NOT NULL,
+    updated_by TEXT NOT NULL,
+    updated_at BIGINT NOT NULL,
+    PRIMARY KEY(org_id, department_id)
   )`,
   'CREATE INDEX IF NOT EXISTS dsh_enterprise_cordis_reviews_department_status ON dsh_enterprise_cordis_reviews(org_id, department_id, status, updated_at DESC)',
   'CREATE INDEX IF NOT EXISTS dsh_enterprise_cordis_audit_org_time ON dsh_enterprise_cordis_audit(org_id, created_at DESC)',
@@ -342,5 +352,45 @@ export class PostgresEnterpriseCordisRepository implements EnterpriseCordisRepos
       ...(row['review_id'] === null ? {} : { reviewId: String(row['review_id']) }),
       at: Number(row['created_at']), details: value(row['details_json']),
     }))
+  }
+
+  async departmentManagers(orgId: string, departmentId: string): Promise<DepartmentManagerSet | undefined> {
+    const result = await this.database.query<Record<string, unknown>>(
+      `SELECT org_id,department_id,manager_user_ids,revision,updated_by,updated_at
+       FROM dsh_enterprise_department_manager_sets WHERE org_id=$1 AND department_id=$2`,
+      [orgId, departmentId],
+    )
+    const row = result.rows[0]
+    return row === undefined ? undefined : {
+      orgId: String(row['org_id']), departmentId: String(row['department_id']),
+      managerUserIds: value(row['manager_user_ids']), revision: Number(row['revision']),
+      updatedBy: String(row['updated_by']), updatedAt: Number(row['updated_at']),
+    }
+  }
+
+  async putDepartmentManagers(row: DepartmentManagerSet, expectedRevision: number): Promise<void> {
+    const result = expectedRevision === 0
+      ? await this.database.query(`INSERT INTO dsh_enterprise_department_manager_sets(
+        org_id,department_id,manager_user_ids,revision,updated_by,updated_at
+      ) VALUES ($1,$2,$3::jsonb,$4,$5,$6) ON CONFLICT DO NOTHING`, [
+        row.orgId, row.departmentId, JSON.stringify(row.managerUserIds), row.revision, row.updatedBy, row.updatedAt,
+      ])
+      : await this.database.query(`UPDATE dsh_enterprise_department_manager_sets SET
+        manager_user_ids=$1::jsonb,revision=$2,updated_by=$3,updated_at=$4
+        WHERE org_id=$5 AND department_id=$6 AND revision=$7`, [
+        JSON.stringify(row.managerUserIds), row.revision, row.updatedBy, row.updatedAt,
+        row.orgId, row.departmentId, expectedRevision,
+      ])
+    if (result.rowCount !== 1) throw new Error('Department manager revision conflict')
+    await this.database.query('DELETE FROM dsh_enterprise_department_managers WHERE org_id=$1 AND department_id=$2', [
+      row.orgId, row.departmentId,
+    ])
+    for (const userId of row.managerUserIds) {
+      await this.database.query(`INSERT INTO dsh_enterprise_department_managers(
+        org_id,department_id,user_id,granted_by,granted_at,revision
+      ) VALUES ($1,$2,$3,$4,$5,$6)`, [
+        row.orgId, row.departmentId, userId, row.updatedBy, row.updatedAt, row.revision,
+      ])
+    }
   }
 }

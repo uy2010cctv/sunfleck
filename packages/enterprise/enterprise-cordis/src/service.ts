@@ -8,6 +8,7 @@ import type {
   CordisReviewRequest,
   CordisScopeBinding,
   DerivedCordisPackage,
+  DepartmentManagerSet,
   EnterpriseCordisAuditEvent,
   EnterpriseCordisDirectory,
   EnterpriseCordisPrincipal,
@@ -336,6 +337,41 @@ export class EnterpriseCordisService {
       await this.repository.putBinding(next, current.revision)
       return next
     })
+  }
+
+  async setDepartmentManagers(input: {
+    principal: EnterpriseCordisPrincipal
+    departmentId: string
+    managerUserIds: readonly string[]
+    expectedRevision: number
+    idempotencyKey: string
+  }): Promise<DepartmentManagerSet> {
+    return this.idempotent(input.principal, 'set-department-managers', input.idempotencyKey, async () => {
+      if (!isAdmin(input.principal.roles)) {
+        throw new EnterpriseCordisError('administrator-required', 'Administrator permission is required')
+      }
+      const current = await this.repository.departmentManagers(input.principal.orgId, input.departmentId)
+      if ((current?.revision ?? 0) !== input.expectedRevision) {
+        throw new EnterpriseCordisError('revision-conflict', 'Department manager revision conflict')
+      }
+      const auditId = this.randomId('cordis-audit')
+      const value: DepartmentManagerSet = {
+        orgId: input.principal.orgId, departmentId: input.departmentId,
+        managerUserIds: [...new Set(input.managerUserIds)].sort(),
+        revision: (current?.revision ?? 0) + 1, updatedBy: input.principal.userId, updatedAt: this.now(),
+      }
+      await this.repository.putDepartmentManagers(value, current?.revision ?? 0)
+      await this.repository.appendAudit({
+        id: auditId, orgId: input.principal.orgId, actorUserId: input.principal.userId,
+        action: 'department-managers.update', pluginId: 'department-directory', at: value.updatedAt,
+        details: { departmentId: input.departmentId, managerUserIds: value.managerUserIds },
+      })
+      return value
+    })
+  }
+
+  async departmentManagers(orgId: string, departmentId: string): Promise<DepartmentManagerSet | undefined> {
+    return this.repository.departmentManagers(orgId, departmentId)
   }
 
   async audit(event: EnterpriseCordisAuditEvent): Promise<void> { await this.repository.appendAudit(event) }

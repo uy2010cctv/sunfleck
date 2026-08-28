@@ -28,7 +28,6 @@ export class EnterprisePostgresDatabase implements
 
   constructor(readonly pool: Pool, readonly client?: PoolClient) {}
 
-  // oxlint-disable-next-line typescript/no-unnecessary-type-parameters -- driver interface preserves caller row types
   async query<Row extends Record<string, unknown> = Record<string, unknown>>(
     text: string, values: readonly unknown[] = [],
   ): Promise<AnyResult & { rows: Row[] }> {

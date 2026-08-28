@@ -2,6 +2,7 @@ import type {
   CordisPackageVersion,
   CordisReviewRequest,
   CordisScopeBinding,
+  DepartmentManagerSet,
   EnterpriseCordisAuditEvent,
 } from './types.ts'
 
@@ -18,6 +19,8 @@ export interface EnterpriseCordisRepository {
   putCommand<T>(scope: string, idempotencyKey: string, value: T): Promise<void>
   appendAudit(value: EnterpriseCordisAuditEvent): Promise<void>
   listAudit(orgId: string): Promise<readonly EnterpriseCordisAuditEvent[]>
+  departmentManagers(orgId: string, departmentId: string): Promise<DepartmentManagerSet | undefined>
+  putDepartmentManagers(value: DepartmentManagerSet, expectedRevision: number): Promise<void>
 }
 
 function copy<T>(value: T): T { return structuredClone(value) }
@@ -29,6 +32,7 @@ export class InMemoryEnterpriseCordisRepository implements EnterpriseCordisRepos
   private readonly bindingRows = new Map<string, CordisScopeBinding>()
   private readonly commands = new Map<string, unknown>()
   private readonly auditRows: EnterpriseCordisAuditEvent[] = []
+  private readonly managerRows = new Map<string, DepartmentManagerSet>()
 
   async package(packageId: string): Promise<CordisPackageVersion | undefined> {
     const value = this.packageRows.get(packageId)
@@ -91,5 +95,17 @@ export class InMemoryEnterpriseCordisRepository implements EnterpriseCordisRepos
 
   async listAudit(orgId: string): Promise<readonly EnterpriseCordisAuditEvent[]> {
     return this.auditRows.filter(row => row.orgId === orgId).map(copy)
+  }
+
+  async departmentManagers(orgId: string, departmentId: string): Promise<DepartmentManagerSet | undefined> {
+    const value = this.managerRows.get(`${orgId}:${departmentId}`)
+    return value === undefined ? undefined : copy(value)
+  }
+
+  async putDepartmentManagers(value: DepartmentManagerSet, expectedRevision: number): Promise<void> {
+    const key = `${value.orgId}:${value.departmentId}`
+    const current = this.managerRows.get(key)
+    if ((current?.revision ?? 0) !== expectedRevision) throw new Error('Department manager revision conflict')
+    this.managerRows.set(key, copy(value))
   }
 }

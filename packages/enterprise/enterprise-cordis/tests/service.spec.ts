@@ -169,4 +169,20 @@ describe('EnterpriseCordisService', () => {
     })
     expect(disabled).toMatchObject({ disabled: true, revision: 2 })
   })
+
+  it('lets an administrator maintain multiple department managers with revision checks', async () => {
+    const cordis = service()
+    const saved = await cordis.setDepartmentManagers({
+      principal: admin, departmentId: 'dept-a', managerUserIds: ['manager-2', 'manager-1', 'manager-1'],
+      expectedRevision: 0, idempotencyKey: 'managers-1',
+    })
+    expect(saved).toEqual({
+      orgId: 'org-a', departmentId: 'dept-a', managerUserIds: ['manager-1', 'manager-2'],
+      revision: 1, updatedBy: 'admin-1', updatedAt: 1_700_000_000_001,
+    })
+    await expect(cordis.setDepartmentManagers({
+      principal: member, departmentId: 'dept-a', managerUserIds: ['member-1'],
+      expectedRevision: 1, idempotencyKey: 'managers-member',
+    })).rejects.toMatchObject({ code: 'administrator-required' })
+  })
 })

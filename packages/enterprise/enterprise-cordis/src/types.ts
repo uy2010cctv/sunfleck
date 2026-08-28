@@ -107,6 +107,15 @@ export interface EnterpriseCordisAuditEvent {
   readonly details: Readonly<Record<string, unknown>>
 }
 
+export interface DepartmentManagerSet {
+  readonly orgId: string
+  readonly departmentId: string
+  readonly managerUserIds: readonly string[]
+  readonly revision: number
+  readonly updatedBy: string
+  readonly updatedAt: number
+}
+
 export interface DerivedCordisPackage extends CordisPackageVersion {
   readonly reviewRevision: number
 }
