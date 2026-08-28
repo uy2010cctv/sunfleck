@@ -7,6 +7,8 @@
     { "path": "../store" },
     { "path": "../ui-layout" },
     { "path": "../ui-renderer" },
+    { "path": "../ui-sidebar" },
+    { "path": "../ui-primitives" },
     { "path": "../ui-settings" },
     { "path": "../ui-slots" },
     { "path": "../../runtime-diagnostics/invariants" }

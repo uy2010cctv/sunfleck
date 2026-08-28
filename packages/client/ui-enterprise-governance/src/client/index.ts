@@ -4,8 +4,10 @@ import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
+import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
 import { EnterpriseGovernanceController } from './controller.ts'
 import { GovernanceAuthGateSlot, GovernanceSettingsSlot } from './slots.tsx'
+import { EnterpriseAccountCard } from './EnterpriseAccountCard.tsx'
 
 export const inject = ['slots']
 
@@ -38,9 +40,31 @@ export function apply(ctx: Context): void {
     name: 'shell.overlay', id: 'enterprise-auth-gate', order: 100,
     inject: () => ({ hooks: { governance: controller.store }, controller }),
   }, GovernanceAuthGateSlot))
+  ctx.slots.inject('sidebar.account', () => {
+    let disposeAccount: (() => void) | undefined
+    const synchronize = (): void => {
+      const principal = controller.store.getSnapshot().auth?.principal
+      if (principal !== undefined && disposeAccount === undefined) {
+        disposeAccount = ctx.slots.register({
+          name: 'sidebar.account',
+          inject: () => ({ principal, logout: () => controller.logout() }),
+        }, EnterpriseAccountCard)
+      } else if (principal === undefined && disposeAccount !== undefined) {
+        disposeAccount()
+        disposeAccount = undefined
+      }
+    }
+    const unsubscribe = controller.store.subscribe(synchronize)
+    synchronize()
+    return () => {
+      unsubscribe()
+      disposeAccount?.()
+    }
+  })
 }
 
 export { EnterpriseGovernanceController, type EnterpriseGovernanceState } from './controller.ts'
 export {
   EnterpriseGovernanceSettingsSection, EnterpriseGovernanceSurface,
 } from './EnterpriseGovernanceSurface.tsx'
+export { EnterpriseAccountCard, type EnterpriseAccountCardProps } from './EnterpriseAccountCard.tsx'

@@ -1,10 +1,11 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   EnterpriseGovernanceSettingsSection, EnterpriseGovernanceSurface,
 } from '../src/client/EnterpriseGovernanceSurface.tsx'
 import type { EnterpriseGovernanceState } from '../src/client/controller.ts'
+import { EnterpriseAccountCard } from '../src/client/EnterpriseAccountCard.tsx'
 
 afterEach(cleanup)
 
@@ -21,6 +22,39 @@ function state(value: Partial<EnterpriseGovernanceState>): EnterpriseGovernanceS
 }
 
 describe('enterprise governance UI', () => {
+  it('shows the current identity below Settings and logs out without double submission', async () => {
+    const pending = Promise.withResolvers<undefined>()
+    const logout = vi.fn(() => pending.promise)
+    render(<EnterpriseAccountCard wide principal={{
+      userId: 'operator-1', orgId: 'org-a', displayName: '采购运营负责人超长姓名',
+      username: 'operator', roles: ['operator'],
+    }} logout={logout} />)
+
+    expect(screen.getByRole('region', { name: '当前用户' })).toBeDefined()
+    expect(screen.getByText('采购运营负责人超长姓名')).toBeDefined()
+    expect(screen.getByText('@operator · operator')).toBeDefined()
+    const button = screen.getByRole('button', { name: '退出登录' })
+    fireEvent.click(button)
+    fireEvent.click(button)
+    expect(logout).toHaveBeenCalledOnce()
+    expect(screen.getByRole('button', { name: '正在退出…' })).toHaveProperty('disabled', true)
+    pending.resolve(undefined)
+  })
+
+  it('keeps logout accessible on the collapsed rail and reports a failed attempt', async () => {
+    const logout = vi.fn(() => Promise.reject(new Error('offline')))
+    const principal = {
+      userId: 'member-1', orgId: 'org-a', displayName: 'Member', username: 'member', roles: ['member'],
+    }
+    const { rerender } = render(<EnterpriseAccountCard wide={false} principal={principal} logout={logout} />)
+    fireEvent.click(screen.getByRole('button', { name: '退出登录：Member' }))
+    await waitFor(() => { expect(logout).toHaveBeenCalledOnce() })
+
+    rerender(<EnterpriseAccountCard wide principal={principal} logout={logout} />)
+    fireEvent.click(screen.getByRole('button', { name: '退出登录' }))
+    expect((await screen.findByRole('alert')).textContent).toBe('退出失败，请重试')
+  })
+
   it('renders governance as an embedded Settings page and loads its datasets on entry', () => {
     const loadAdmin = vi.fn(() => Promise.resolve())
     const logout = vi.fn()

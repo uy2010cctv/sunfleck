@@ -1,0 +1,112 @@
+.card {
+  min-inline-size: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  margin-block-start: 4px;
+  padding: 10px;
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 12px;
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-primary);
+}
+
+.identity {
+  min-inline-size: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.avatar {
+  flex: none;
+  inline-size: 30px;
+  block-size: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--dsw-alias-interactive-bg-hover-solid);
+  color: var(--dsw-alias-label-primary);
+}
+
+.copy {
+  min-inline-size: 0;
+}
+
+.copy strong,
+.copy span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.copy strong {
+  font-size: 12px;
+  line-height: 16px;
+  font-weight: 600;
+}
+
+.copy span {
+  margin-block-start: 2px;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 10px;
+  line-height: 14px;
+}
+
+.logout,
+.railButton {
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  font: inherit;
+  cursor: pointer;
+}
+
+.logout {
+  min-block-size: 32px;
+  padding-inline: 8px;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.logout:hover,
+.railButton:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+}
+
+.logout:focus-visible,
+.railButton:focus-visible {
+  outline: 2px solid var(--dsw-alias-brand-primary-new-colorprimary-new-color);
+  outline-offset: 2px;
+}
+
+.logout:disabled,
+.railButton:disabled {
+  cursor: wait;
+  opacity: .55;
+}
+
+.railButton {
+  inline-size: 36px;
+  block-size: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.error {
+  grid-column: 1 / -1;
+  color: var(--dsw-alias-state-error-primary);
+  font-size: 10px;
+  line-height: 14px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .logout,
+  .railButton { transition: none; }
+}

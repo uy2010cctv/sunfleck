@@ -40,6 +40,7 @@ async function bench(roles: readonly string[]) {
     name: 'root',
     children: {
       'sidebar.footer.action': { kind: 'list', scope: 'root' },
+      'sidebar.account': { kind: 'single', scope: 'root' },
       'settings.section': { kind: 'list', scope: 'root' },
       'shell.overlay': { kind: 'list', scope: 'root' },
     },
@@ -75,6 +76,14 @@ describe('enterprise governance browser plugin', () => {
     const { ctx, fiber } = await bench(['member'])
     await new Promise((resolve) => { setTimeout(resolve, 0) })
     expect(ctx.slots.entries('settings.section')).toHaveLength(0)
+    expect(ctx.slots.entries('sidebar.account')).toHaveLength(1)
+    const account = ctx.slots.entries('sidebar.account')[0]!
+    const injected = (account.inject as unknown as () => {
+      principal: { displayName: string; username: string; roles: readonly string[] }
+      logout: () => Promise<void>
+    })()
+    expect(injected.principal).toMatchObject({ displayName: 'Admin', username: 'admin', roles: ['member'] })
+    expect(injected.logout).toBeTypeOf('function')
     expect(ctx.slots.entries('shell.overlay').map(entry => entry.options.id))
       .toContain('enterprise-auth-gate')
     await fiber.dispose()
