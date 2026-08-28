@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   EnterpriseGovernanceSettingsSection, EnterpriseGovernanceSurface,
@@ -166,18 +166,95 @@ describe('enterprise governance UI', () => {
     expect(screen.getAllByRole('tab')).toHaveLength(6)
     const organizations = screen.getByRole('tab', { name: '组织架构' })
     expect(organizations.getAttribute('aria-selected')).toBe('true')
-    expect(screen.getByRole('heading', { name: '组织与部门' })).toBeDefined()
+    expect(screen.getByRole('heading', { name: '组织架构' })).toBeDefined()
     expect(screen.queryByRole('heading', { name: '用户与角色' })).toBeNull()
 
     const users = screen.getByRole('tab', { name: '用户管理' })
     fireEvent.click(users)
     expect(users.getAttribute('aria-selected')).toBe('true')
     expect(screen.getByRole('heading', { name: '用户与角色' })).toBeDefined()
-    expect(screen.queryByRole('heading', { name: '组织与部门' })).toBeNull()
+    expect(screen.queryByRole('heading', { name: '组织架构' })).toBeNull()
 
     fireEvent.keyDown(users, { key: 'ArrowRight' })
     expect(screen.getByRole('tab', { name: '工作区' }).getAttribute('aria-selected')).toBe('true')
     expect(screen.getByRole('heading', { name: '工作区与沙盒' })).toBeDefined()
+  })
+
+  it('renders the current enterprise as an expandable department and member tree', () => {
+    render(<EnterpriseGovernanceSettingsSection
+      state={state({
+        auth: {
+          authenticated: true,
+          principal: { userId: 'admin-1', orgId: 'org-a', displayName: 'Admin', username: 'admin', roles: ['administrator'] },
+          providers: [],
+        },
+        organizations: [{ id: 'org-a', name: '示例企业' }, { id: 'other', name: '其他企业' }],
+        departments: [{
+          id: 'dept-ops', orgId: 'org-a', parentId: null, name: '运营部', sortOrder: 0,
+          revision: 1, createdAt: 1, updatedAt: 1,
+        }, {
+          id: 'dept-procurement', orgId: 'org-a', parentId: 'dept-ops', name: '采购组', sortOrder: 0,
+          revision: 1, createdAt: 1, updatedAt: 1,
+        }],
+        users: [{
+          id: 'admin-1', username: 'admin', displayName: 'Admin', disabled: false, roles: ['administrator'],
+          departmentIds: ['dept-ops'], primaryDepartmentId: 'dept-ops', departmentRevision: 1,
+        }, {
+          id: 'buyer-1', username: 'buyer', displayName: '采购员', disabled: false, roles: ['member'],
+          departmentIds: ['dept-procurement'], primaryDepartmentId: 'dept-procurement', departmentRevision: 1,
+        }],
+      })}
+      loadAdmin={vi.fn()} loginLocal={vi.fn()} logout={vi.fn()} createOrganization={vi.fn()}
+      createAsset={vi.fn()} createUser={vi.fn()} updateUser={vi.fn()} saveDepartment={vi.fn()}
+      createWorkspace={vi.fn()} updateWorkspace={vi.fn()} proposeMemory={vi.fn()} reviewMemory={vi.fn()}
+      savePolicy={vi.fn()} filterAudit={vi.fn()}
+    />)
+
+    const tree = screen.getByRole('tree', { name: '组织架构' })
+    expect(tree).toBeDefined()
+    expect(within(tree).getByText('示例企业')).toBeDefined()
+    expect(screen.queryByText('其他企业')).toBeNull()
+    expect(screen.queryByLabelText('组织 ID')).toBeNull()
+    expect(screen.queryByRole('button', { name: '新增组织' })).toBeNull()
+    expect(within(tree).getByText('Admin')).toBeDefined()
+    expect(within(tree).getByText('@admin · administrator')).toBeDefined()
+    fireEvent.click(screen.getByRole('button', { name: '收起运营部' }))
+    expect(within(tree).queryByText('@admin · administrator')).toBeNull()
+    expect(within(tree).queryByText('采购员')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: '展开运营部' }))
+    expect(within(tree).getByText('采购员')).toBeDefined()
+  })
+
+  it('creates a department without asking for an internal ID and reports failures', async () => {
+    const saveDepartment = vi.fn()
+      .mockRejectedValueOnce(new Error('duplicate department'))
+      .mockResolvedValueOnce(undefined)
+    render(<EnterpriseGovernanceSettingsSection
+      state={state({
+        auth: {
+          authenticated: true,
+          principal: { userId: 'admin-1', orgId: 'org-a', displayName: 'Admin', username: 'admin', roles: ['administrator'] },
+          providers: [],
+        },
+        organizations: [{ id: 'org-a', name: '示例企业' }],
+      })}
+      loadAdmin={vi.fn()} loginLocal={vi.fn()} logout={vi.fn()} createOrganization={vi.fn()}
+      createAsset={vi.fn()} createUser={vi.fn()} updateUser={vi.fn()} saveDepartment={saveDepartment}
+      createWorkspace={vi.fn()} updateWorkspace={vi.fn()} proposeMemory={vi.fn()} reviewMemory={vi.fn()}
+      savePolicy={vi.fn()} filterAudit={vi.fn()}
+    />)
+
+    fireEvent.click(screen.getByRole('button', { name: '新增根部门' }))
+    expect(screen.queryByLabelText('部门 ID')).toBeNull()
+    fireEvent.change(screen.getByLabelText('部门名称'), { target: { value: '采购部' } })
+    fireEvent.click(screen.getByRole('button', { name: '创建部门' }))
+    expect((await screen.findByRole('alert')).textContent).toBe('创建部门失败，请重试')
+    fireEvent.click(screen.getByRole('button', { name: '创建部门' }))
+    await waitFor(() => { expect(saveDepartment).toHaveBeenCalledTimes(2) })
+    expect(saveDepartment.mock.calls[1]?.[0]).toEqual({
+      id: expect.stringMatching(/^department-/), name: '采购部', parentId: null,
+      sortOrder: 0, expectedRevision: 0,
+    })
   })
 
   it('edits the department tree and reviews the enterprise awareness stream', () => {
@@ -225,7 +302,7 @@ describe('enterprise governance UI', () => {
       savePolicy={vi.fn()}
       filterAudit={vi.fn()}
     />)
-    expect(screen.getByRole('tree', { name: '部门组织架构' })).toBeDefined()
+    expect(screen.getByRole('tree', { name: '组织架构' })).toBeDefined()
     fireEvent.click(screen.getByRole('button', { name: '运营部' }))
     expect(screen.getAllByText('运营部 · 共享工作区')).toHaveLength(2)
     fireEvent.click(screen.getByRole('tab', { name: '工作区' }))

@@ -1,9 +1,13 @@
 /** Login gate and administrator governance ledger. */
 
-import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from 'react'
+import {
+  IconChevronDownOutline14, IconChevronRightOutline14, IconFolderClose16, IconFolderOpen16,
+  IconUserOutline16,
+} from '@deepseek-ai/dsh-client-ui-primitives'
 import { randomUUID } from '@deepseek-ai/dsh-util-crypto'
 import type {
-  EnterpriseGovernanceState, GovernanceDepartment, GovernanceMemory, GovernancePolicy,
+  EnterpriseGovernanceState, GovernanceDepartment, GovernanceMemory, GovernancePolicy, GovernanceUser,
 } from './controller.ts'
 import css from './governance.module.css'
 
@@ -55,100 +59,192 @@ export interface EnterpriseGovernanceSettingsSectionProps extends EnterpriseGove
 }
 
 function DepartmentBranch({
-  departments, parentId, selectedId, select, depth = 0,
+  departments, users, parentId, selectedId, expanded, select, toggle, depth = 0,
 }: {
   departments: readonly GovernanceDepartment[]
+  users: readonly GovernanceUser[]
   parentId: string | null
   selectedId: string | undefined
+  expanded: ReadonlySet<string>
   select: (department: GovernanceDepartment) => void
+  toggle: (departmentId: string) => void
   depth?: number
 }) {
   const children = departments.filter(item => item.parentId === parentId)
+    .toSorted((left, right) => left.sortOrder - right.sortOrder || left.name.localeCompare(right.name))
   if (children.length === 0) return null
-  return <ul role={depth === 0 ? 'tree' : 'group'} aria-label={depth === 0 ? '部门组织架构' : undefined}>
-    {children.map(department => <li key={department.id} role="treeitem" aria-level={depth + 1}>
-      <button type="button" aria-label={department.name} aria-pressed={selectedId === department.id}
-        onClick={() => { select(department) }}>
-        <span>{department.name}</span><small>{department.id}</small>
-      </button>
-      <DepartmentBranch departments={departments} parentId={department.id} selectedId={selectedId}
-        select={select} depth={depth + 1} />
-    </li>)}
+  return <ul role="group">
+    {children.map((department) => {
+      const departmentUsers = users.filter(user => user.departmentIds?.includes(department.id) === true)
+      const childCount = departments.filter(item => item.parentId === department.id).length
+      const hasChildren = childCount > 0 || departmentUsers.length > 0
+      const open = expanded.has(department.id)
+      return <li key={department.id} role="treeitem" aria-level={depth + 2}
+        aria-expanded={hasChildren ? open : undefined}>
+        <div className={`${css.treeRow} ${selectedId === department.id ? css.treeRowSelected : ''}`}>
+          {hasChildren
+            ? <button className={css.treeToggle} type="button" aria-label={`${open ? '收起' : '展开'}${department.name}`}
+              onClick={() => { toggle(department.id) }}>
+              {open ? <IconChevronDownOutline14 size={12} /> : <IconChevronRightOutline14 size={12} />}
+            </button>
+            : <span className={css.treeToggleSpacer} />}
+          <button className={css.departmentButton} type="button" aria-label={department.name}
+            aria-pressed={selectedId === department.id} onClick={() => { select(department) }}>
+            <span className={css.folderIcon} aria-hidden="true">
+              {open ? <IconFolderOpen16 size={18} /> : <IconFolderClose16 size={18} />}
+            </span>
+            <span className={css.treeLabel}>{department.name}</span>
+            <small>{departmentUsers.length + childCount}</small>
+          </button>
+        </div>
+        {open && hasChildren && <>
+          {departmentUsers.length > 0 && <ul role="group">
+            {departmentUsers.map(user => <li key={user.id} role="treeitem" aria-level={depth + 3}
+              className={css.memberRow}>
+              <span className={css.memberAvatar} aria-hidden="true"><IconUserOutline16 size={14} /></span>
+              <span className={css.memberIdentity}>
+                <strong>{user.displayName}</strong>
+                <small>@{user.username} · {user.roles.join(' / ')}{user.disabled ? ' · 已停用' : ''}</small>
+              </span>
+            </li>)}
+          </ul>}
+          <DepartmentBranch departments={departments} users={users} parentId={department.id}
+            selectedId={selectedId} expanded={expanded} select={select} toggle={toggle} depth={depth + 1} />
+        </>}
+      </li>
+    })}
   </ul>
 }
 
-function OrganizationsSection({ state, createOrganization, saveDepartment }: Pick<
-  EnterpriseGovernanceSurfaceProps, 'state' | 'createOrganization' | 'saveDepartment'
+function OrganizationsSection({ state, saveDepartment }: Pick<
+  EnterpriseGovernanceSurfaceProps, 'state' | 'saveDepartment'
 >) {
-  const [id, setId] = useState('')
-  const [name, setName] = useState('')
-  const [selectedId, setSelectedId] = useState<string | undefined>(state.departments[0]?.id)
-  const [departmentId, setDepartmentId] = useState('')
-  const [departmentName, setDepartmentName] = useState('')
-  const [parentId, setParentId] = useState('')
-  const [sortOrder, setSortOrder] = useState('0')
-  const selected = state.departments.find(item => item.id === selectedId)
+  const organizationId = state.auth?.principal?.orgId ?? state.auth?.organizationId
+  const organization = state.organizations.find(item => item.id === organizationId)
+  const organizationName = organization?.name ?? organizationId ?? '当前企业'
+  const departments = useMemo(
+    () => state.departments.filter(item => organizationId === undefined || item.orgId === organizationId),
+    [organizationId, state.departments],
+  )
+  const initial = departments[0]
+  const [selectedId, setSelectedId] = useState<string | undefined>(initial?.id)
+  const [departmentId, setDepartmentId] = useState(initial?.id ?? '')
+  const [departmentName, setDepartmentName] = useState(initial?.name ?? '')
+  const [parentId, setParentId] = useState(initial?.parentId ?? '')
+  const [sortOrder, setSortOrder] = useState(String(initial?.sortOrder ?? 0))
+  const [isCreating, setIsCreating] = useState(initial === undefined)
+  const [saving, setSaving] = useState(false)
+  const [submitError, setSubmitError] = useState<string | null>(null)
+  const [expanded, setExpanded] = useState<Set<string>>(() => new Set(departments.map(item => item.id)))
+  const selected = departments.find(item => item.id === selectedId)
   const select = (department: GovernanceDepartment): void => {
+    setIsCreating(false)
+    setSubmitError(null)
     setSelectedId(department.id)
     setDepartmentId(department.id)
     setDepartmentName(department.name)
     setParentId(department.parentId ?? '')
     setSortOrder(String(department.sortOrder))
   }
-  const selectedWorkspaces = state.workspaces.filter(workspace => workspace.departmentId === selectedId)
-  const selectedUsers = state.users.filter(user => user.departmentIds?.includes(selectedId ?? '') === true)
+  const beginCreate = (nextParentId: string | null): void => {
+    const siblings = departments.filter(item => item.parentId === nextParentId)
+    setIsCreating(true)
+    setSubmitError(null)
+    setSelectedId(undefined)
+    setDepartmentId(`department-${randomUUID()}`)
+    setDepartmentName('')
+    setParentId(nextParentId ?? '')
+    setSortOrder(String(siblings.length))
+  }
+  const toggle = (departmentIdToToggle: string): void => {
+    setExpanded((current) => {
+      const next = new Set(current)
+      if (next.has(departmentIdToToggle)) next.delete(departmentIdToToggle)
+      else next.add(departmentIdToToggle)
+      return next
+    })
+  }
+  const selectedWorkspaces = selectedId === undefined
+    ? []
+    : state.workspaces.filter(workspace => workspace.departmentId === selectedId)
+  const selectedUsers = selectedId === undefined
+    ? []
+    : state.users.filter(user => user.departmentIds?.includes(selectedId) === true)
   useEffect(() => {
-    if (selectedId !== undefined || state.departments[0] === undefined) return
-    const department = state.departments[0]
+    setExpanded(current => new Set([...current, ...departments.map(item => item.id)]))
+    if (isCreating || selectedId !== undefined || departments[0] === undefined) return
+    const department = departments[0]
     setSelectedId(department.id); setDepartmentId(department.id); setDepartmentName(department.name)
     setParentId(department.parentId ?? ''); setSortOrder(String(department.sortOrder))
-  }, [selectedId, state.departments])
+  }, [departments, isCreating, selectedId])
   return <section className={css.ledgerSection}>
-    <header><h2>组织与部门</h2><span>{state.departments.length}</span></header>
-    <form className={css.inlineForm} onSubmit={(event) => {
-      event.preventDefault()
-      void createOrganization({ id, name })
-    }}>
-      <input aria-label="组织 ID" placeholder="organization-id" value={id} onChange={(event) => { setId(event.target.value) }} />
-      <input aria-label="组织名称" placeholder="organization name" value={name} onChange={(event) => { setName(event.target.value) }} />
-      <button type="submit">新增组织</button>
-    </form>
-    <div className={css.organizationStrip}>{state.organizations.map(org => (
-      <div key={org.id}><strong>{org.name}</strong><span>{org.id}</span></div>
-    ))}</div>
+    <header className={css.directoryHeader}>
+      <div><h2>组织架构</h2><p>按部门查看成员，并维护上下级关系。</p></div>
+      <div className={css.directoryActions}>
+        <span>{departments.length} 个部门 · {state.users.length} 位成员</span>
+        <button type="button" onClick={() => { beginCreate(null) }}>新增根部门</button>
+      </div>
+    </header>
     <div className={css.directoryLayout}>
       <div className={css.treePanel}>
-        <div className={css.subsectionHeader}><strong>部门组织架构</strong><span>{state.departments.length}</span></div>
-        {state.departments.length === 0
-          ? <p className={css.emptyState}>先建立第一个部门，随后可在树中继续添加下级部门。</p>
-          : <DepartmentBranch departments={state.departments} parentId={null} selectedId={selectedId} select={select} />}
+        <ul className={css.organizationTree} role="tree" aria-label="组织架构">
+          <li role="treeitem" aria-level={1} aria-expanded="true">
+            <div className={css.enterpriseRoot}>
+              <span className={css.enterpriseMark} aria-hidden="true">DSH</span>
+              <span><strong>{organizationName}</strong><small>企业根节点</small></span>
+            </div>
+            {departments.length === 0
+              ? <p className={css.emptyState}>还没有部门。点击“新增根部门”，输入名称即可创建。</p>
+              : <DepartmentBranch departments={departments} users={state.users} parentId={null}
+                selectedId={selectedId} expanded={expanded} select={select} toggle={toggle} />}
+          </li>
+        </ul>
       </div>
       <div className={css.departmentDetail}>
         <div className={css.subsectionHeader}>
-          <strong>{selected?.name ?? '新建部门'}</strong>
+          <div><strong>{isCreating ? '新建部门' : selected?.name ?? '选择一个部门'}</strong>
+            <span>{isCreating ? '创建后会出现在左侧组织树中' : selected !== undefined ? `内部编号 ${selected.id}` : '从左侧选择部门以查看详情'}</span></div>
           {selected !== undefined && <span>修订 {selected.revision}</span>}
         </div>
         <form className={css.departmentForm} onSubmit={(event) => {
           event.preventDefault()
-          void saveDepartment({
-            id: departmentId, name: departmentName, parentId: parentId === '' ? null : parentId,
-            sortOrder: Number(sortOrder), expectedRevision: selected?.id === departmentId ? selected.revision : 0,
-          })
+          if (departmentName.trim() === '') {
+            setSubmitError('请输入部门名称')
+            return
+          }
+          const submit = async (): Promise<void> => {
+            setSaving(true)
+            setSubmitError(null)
+            try {
+              await saveDepartment({
+                id: departmentId, name: departmentName.trim(), parentId: parentId === '' ? null : parentId,
+                sortOrder: Number(sortOrder), expectedRevision: selected?.id === departmentId ? selected.revision : 0,
+              })
+              setSelectedId(departmentId)
+              setIsCreating(false)
+              setExpanded(current => new Set([...current, departmentId, ...(parentId === '' ? [] : [parentId])]))
+            } catch {
+              setSubmitError(`${isCreating ? '创建' : '保存'}部门失败，请重试`)
+            } finally {
+              setSaving(false)
+            }
+          }
+          void submit()
         }}>
-          <label>部门 ID<input value={departmentId} onChange={(event) => { setDepartmentId(event.target.value) }} /></label>
           <label>部门名称<input value={departmentName} onChange={(event) => { setDepartmentName(event.target.value) }} /></label>
           <label>上级部门<select value={parentId} onChange={(event) => { setParentId(event.target.value) }}>
             <option value="">企业根节点</option>
-            {state.departments.filter(item => item.id !== departmentId).map(item => (
+            {departments.filter(item => item.id !== departmentId).map(item => (
               <option key={item.id} value={item.id}>{item.name}</option>
             ))}
           </select></label>
-          <label>排序<input inputMode="numeric" value={sortOrder} onChange={(event) => { setSortOrder(event.target.value) }} /></label>
+          <label>同级排序<input inputMode="numeric" value={sortOrder} onChange={(event) => { setSortOrder(event.target.value) }} /></label>
+          {submitError !== null && <div className={css.formError} role="alert">{submitError}</div>}
           <div className={css.formActions}>
-            <button type="button" onClick={() => {
-              setSelectedId(undefined); setDepartmentId(''); setDepartmentName(''); setParentId(''); setSortOrder('0')
-            }}>新建根部门</button>
-            <button type="submit">{selected?.id === departmentId ? '保存部门' : '创建部门'}</button>
+            {selected !== undefined && <button type="button" onClick={() => { beginCreate(selected.id) }}>新增下级部门</button>}
+            <button type="submit" disabled={saving || departmentId === ''}>
+              {saving ? '正在保存…' : isCreating ? '创建部门' : '保存部门'}
+            </button>
           </div>
         </form>
         {selected !== undefined && <div className={css.departmentEvidence}>
@@ -484,7 +580,7 @@ function GovernanceSections(props: EnterpriseGovernanceSurfaceProps) {
     </div>
     {props.state.error !== null && <div className={css.error} role="alert">{props.state.error}</div>}
     {panel('organizations', <OrganizationsSection state={props.state}
-      createOrganization={input => props.createOrganization(input)} saveDepartment={input => props.saveDepartment(input)} />)}
+      saveDepartment={input => props.saveDepartment(input)} />)}
     {panel('users', <UsersSection {...props} />)}
     {panel('workspaces', <WorkspacesSection state={props.state}
       createWorkspace={input => props.createWorkspace(input)}
