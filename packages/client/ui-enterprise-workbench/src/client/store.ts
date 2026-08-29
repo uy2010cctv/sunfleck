@@ -7,7 +7,7 @@ import type {
   EnterpriseEmployeeRelease, EnterpriseSchedule,
   EnterpriseScheduleTarget, EnterpriseTeam, EnterpriseTeamMember,
   EnterpriseVisibility, EnterpriseWorkRecord as EnterpriseOperationWorkRecord,
-  CordisPackageVersion, CordisReviewRequest, CordisScopeBinding, CordisWorkspaceProjection,
+  CordisPackageVersion, CordisReviewRequest, CordisScopeBinding,
 } from '@deepseek-ai/dsh-api-enterprise-controller/types'
 import type { AgentPresetRow } from '@deepseek-ai/dsh-agent-presets/types'
 import type { JsonValue } from '@deepseek-ai/dsh-session/types'
@@ -606,15 +606,15 @@ export class EnterpriseWorkbenchController {
         extensionBindings: [], extensionReviews: { phase: 'ready', items: [], error: null } })
       return true
     }
-    this.store.set({ ...before, extensionWorkspaceId: String(workspaceId),
+    this.store.set({ ...before, extensionWorkspaceId: workspaceId,
       extensions: { ...before.extensions, phase: 'loading', error: null },
       extensionReviews: { ...before.extensionReviews, phase: 'loading', error: null } })
     try {
       const [projection, reviews] = await Promise.all([
-        this.api.cordisWorkspace.list({ workspaceId: String(workspaceId) }).then(response => valueOf(response)),
+        this.api.cordisWorkspace.list({ workspaceId }).then(response => valueOf(response)),
         this.api.cordisReview.list({}).then(response => valueOf(response)),
-      ]) as [CordisWorkspaceProjection, readonly CordisReviewRequest[]]
-      this.store.set({ ...this.store.getSnapshot(), extensionWorkspaceId: String(workspaceId),
+      ])
+      this.store.set({ ...this.store.getSnapshot(), extensionWorkspaceId: workspaceId,
         extensions: { phase: 'ready', items: projection.packages, error: null },
         extensionBindings: projection.bindings,
         extensionReviews: { phase: 'ready', items: reviews, error: null } })

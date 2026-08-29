@@ -1,6 +1,7 @@
 import { Context } from '@deepseek-ai/cordis'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SlotRegistry } from '@deepseek-ai/dsh-client-ui-renderer/client'
+import { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
 import { apply, inject } from '../src/client/index.ts'
 import { GovernanceSettingsSlot } from '../src/client/slots.tsx'
 
@@ -36,6 +37,7 @@ async function bench(roles: readonly string[]) {
   vi.stubGlobal('fetch', fetcher)
   const ctx = new Context()
   await ctx.plugin(SlotRegistry).await()
+  ctx.provide('locale', new LocaleRuntime(ctx))
   const cordisGovernance = {
     departmentManagers: () => Promise.resolve({ ok: true, value: null }),
     setDepartmentManagers: () => Promise.resolve({ ok: true, value: {} }),
@@ -71,7 +73,12 @@ describe('enterprise governance browser plugin', () => {
     const entry = ctx.slots.entries('settings.section')
       .find(candidate => candidate.options.id === 'enterprise-governance')!
     expect(entry.component).toBe(GovernanceSettingsSlot)
-    expect(entry.options).toMatchObject({ order: 100, label: '企业管理' })
+    expect(entry.options).toMatchObject({ order: 100 })
+    ctx.locale.setLocale('zh')
+    expect(typeof entry.options.label === 'function' ? entry.options.label() : entry.options.label).toBe('企业管理')
+    ctx.locale.setLocale('en')
+    expect(typeof entry.options.label === 'function' ? entry.options.label() : entry.options.label)
+      .toBe('Enterprise management')
     expect(ctx.slots.entries('sidebar.footer.action')).toHaveLength(0)
 
     await fiber.dispose()
