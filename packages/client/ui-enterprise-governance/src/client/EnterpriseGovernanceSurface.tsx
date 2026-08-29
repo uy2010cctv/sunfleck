@@ -953,7 +953,10 @@ function GovernanceSections(props: EnterpriseGovernanceSurfaceProps) {
     {panel('organizations', <OrganizationsSection state={props.state} saveDepartment={input => props.saveDepartment(input)} t={t} {...props.setDepartmentManagers === undefined ? {} : {
       setDepartmentManagers: (
         departmentId: string, managerUserIds: readonly string[], expectedRevision: number,
-      ) => props.setDepartmentManagers?.(departmentId, managerUserIds, expectedRevision),
+      ): Promise<void> => {
+        if (props.setDepartmentManagers === undefined) return Promise.resolve()
+        return props.setDepartmentManagers(departmentId, managerUserIds, expectedRevision)
+      },
     }}/>)}
     {panel('users', <UsersSection {...props} t={t}/>)}
     {panel('workspaces', <WorkspacesSection state={props.state} createWorkspace={input => props.createWorkspace(input)} updateWorkspace={(id, input) => props.updateWorkspace(id, input)} t={t}/>)}
