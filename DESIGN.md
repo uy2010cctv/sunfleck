@@ -54,7 +54,7 @@ Employee Operations Deck. The interface treats digital employees as finite opera
 ## Enterprise navigation
 
 - The existing DSH sidebar and session browser remain the shell authority.
-- A new `数字员工` / `Digital employees` footer action opens the enterprise workbench through `shell.overlay`.
+- The `数字员工` / `Digital employees` action opens the enterprise workbench through `shell.overlay`. It belongs to the same bottom control group as Settings and sits directly above Settings in both the expanded column and collapsed rail.
 - The overlay contains its own close control and does not replace the conversation slot.
 - Selecting a work record closes the overlay and opens the source Session.
 - Starting work with an employee creates a Session using that Agent Preset, then opens the existing conversation.
