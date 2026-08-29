@@ -11,7 +11,7 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { JsonValue } from '@deepseek-ai/dsh-session/types'
 import { TypertRemoteService, Remote } from '@deepseek-ai/dsh-typert-protocol'
-import { isPlugin, normalizeHandler } from './guard.ts'
+import { isPlugin, normalizeHandler, sandboxDefineTool, sandboxRegisterTool } from './guard.ts'
 import { CordisInspectRegistryService } from './inspect-registry.ts'
 import { missingServices, startHostHalf } from './lifecycle.ts'
 import { DynamicCordisRegistry } from './registry.ts'
@@ -22,7 +22,7 @@ import type {
   DynamicCordisReference, DynamicCordisRun,
   DynamicCordisRestoreRequest,
 } from './registry.ts'
-import { createSandbox, evaluateHostCode, precheckCode } from './sandbox.ts'
+import { createSandbox, evaluateHostCode, evaluateTrustedHostCode, precheckCode } from './sandbox.ts'
 import type {
   ApprovalRequestId, CordisDynamicPackageId, CordisDynamicPluginId, CordisDynamicPluginRunId, CordisErrorDetails,
   CordisDynamicRunMode, CordisInspectProviderManifest, CordisInspectQueryResolution,
@@ -189,6 +189,7 @@ export class DynamicCordisRunnerService extends TypertRemoteService {
       packageId,
       name,
       purpose,
+      execution: 'isolated-realm',
       ...request.code.host === undefined ? {} : { hostCode: request.code.host },
       ...request.code.client === undefined ? {} : { clientCode: request.code.client },
     }
@@ -219,6 +220,9 @@ export class DynamicCordisRunnerService extends TypertRemoteService {
     const plugin = this.registry.get(receipt.pluginId)
     if (plugin === undefined) throw new Error(`restored dynamic plugin "${receipt.pluginId}" disappeared`)
     plugin.approvedClientPackages.add(receipt.packageId)
+    const definition = plugin.packages.get(receipt.packageId)
+    if (definition === undefined) throw new Error(`restored dynamic package "${receipt.packageId}" disappeared`)
+    definition.execution = request.execution ?? 'isolated-realm'
     return receipt
   }
 
@@ -871,7 +875,7 @@ export class DynamicCordisRunnerService extends TypertRemoteService {
       ...requestId === undefined ? {} : { startedForRequest: requestId },
     }
     if (definition.hostCode !== undefined) {
-      const failure = await this.startHost(plugin, definition.hostCode, run)
+      const failure = await this.startHost(plugin, definition.hostCode, definition.execution, run)
       if (failure !== undefined) return { ok: false, ...failure }
     }
     plugin.run = run
@@ -904,6 +908,7 @@ export class DynamicCordisRunnerService extends TypertRemoteService {
   private async startHost(
     plugin: DynamicCordisPlugin,
     hostCode: string,
+    execution: DynamicCordisDefinition['execution'],
     run: DynamicCordisRun,
   ): Promise<CordisErrorDetails | undefined> {
     const handle = (method: unknown, fn: unknown): (() => void) => {
@@ -916,8 +921,10 @@ export class DynamicCordisRunnerService extends TypertRemoteService {
       return dispose
     }
     try {
-      const sandbox = createSandbox(plugin.pluginId, { handle })
-      const evaluated = await evaluateHostCode(sandbox, hostCode, plugin.pluginId, this.resolved.vmTimeoutMs)
+      const harness = { handle, defineTool: sandboxDefineTool, registerTool: sandboxRegisterTool }
+      const evaluated = execution === 'trusted-in-process'
+        ? await evaluateTrustedHostCode(hostCode, harness)
+        : await evaluateHostCode(createSandbox(plugin.pluginId, { handle }), hostCode, plugin.pluginId, this.resolved.vmTimeoutMs)
       if (!isPlugin(evaluated)) {
         throw new Error(evaluated === undefined
           ? 'the Host half returned `undefined` — did you forget `return`?'
@@ -927,6 +934,7 @@ export class DynamicCordisRunnerService extends TypertRemoteService {
         this.requireGroup(),
         evaluated,
         (error) => { this.steerGuardFailure(plugin, run, 'Host', errorDetails(error)) },
+        execution === 'trusted-in-process',
       )
       return undefined
     } catch (error) {

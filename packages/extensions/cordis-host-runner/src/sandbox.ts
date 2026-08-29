@@ -263,3 +263,13 @@ export async function evaluateHostCode(sandbox: object, code: string, id: string
     throw new Error(parseErrorMessage('code.host', syntaxErrorContext(error)))
   }
 }
+
+/** Evaluate a governance-approved Host body in the process realm with the ordinary Node globals. */
+export async function evaluateTrustedHostCode(code: string, harness: Record<string, unknown>): Promise<unknown> {
+  const AsyncFunction = Object.getPrototypeOf(async function () {})['constructor'] as new (
+    ...args: string[]
+  ) => (...values: unknown[]) => Promise<unknown>
+  // oxlint-disable-next-line typescript/no-implied-eval -- explicit administrator-approved in-process executor
+  const evaluate = new AsyncFunction('harness', code)
+  return evaluate(harness)
+}

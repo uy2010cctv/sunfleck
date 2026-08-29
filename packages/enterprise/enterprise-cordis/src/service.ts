@@ -569,6 +569,7 @@ export class EnterpriseCordisService {
       entries: projection.bindings.filter(binding => !binding.disabled).map(binding => ({
         pluginId: binding.pluginId, packageId: binding.activePackageId,
         bindingId: binding.bindingId, generation: binding.generation, scope: binding.scope,
+        trustLevel: binding.trustLevel,
       })).sort((left, right) => left.pluginId.localeCompare(right.pluginId)),
       createdAt: this.now(),
     }

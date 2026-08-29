@@ -97,6 +97,8 @@ async function restoreWorkspaceGeneration(
     if (pkg === undefined) throw new Error(`enterprise Cordis Package ${entry.packageId} is missing`)
     const defined = ctx.dynamicCordisRunner.restoreApproved({
       sessionId: agent.id, idPrefix: 'ent', name: pkg.name, purpose: pkg.purpose,
+      execution: entry.scope.type === 'organization' && entry.trustLevel === 'trusted-in-process'
+        ? 'trusted-in-process' : 'isolated-realm',
       code: {
         ...(pkg.hostCode === undefined ? {} : { host: pkg.hostCode }),
         ...(pkg.clientCode === undefined ? {} : { client: pkg.clientCode }),

@@ -288,6 +288,15 @@ describe('EnterpriseCordisService', () => {
       idempotencyKey: 'trust-admin',
     })
     expect(trusted).toMatchObject({ trustLevel: 'trusted-in-process', revision: 2 })
+    const generation = await cordis.pinSessionGeneration({
+      principal: member, workspaceId: 'personal-1', sessionId: 'trusted-session',
+    })
+    expect(generation.entries).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        packageId: submitted.packageId, scope: { type: 'organization', organizationId: 'org-a' },
+        trustLevel: 'trusted-in-process',
+      }),
+    ]))
   })
 
   it('lets an administrator maintain multiple department managers with revision checks', async () => {

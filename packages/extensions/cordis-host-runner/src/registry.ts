@@ -45,6 +45,8 @@ export interface DynamicCordisDefinition {
   hostCode?: string
   /** Client source. */
   clientCode?: string
+  /** Host execution substrate. User-authored definitions are always isolated. */
+  execution: 'isolated-realm' | 'trusted-in-process'
 }
 
 /** Stable plugin instance containing immutable package versions. */
@@ -111,6 +113,8 @@ export interface DynamicCordisDefineReceipt {
 export interface DynamicCordisRestoreRequest extends Omit<DynamicCordisDefineRequest, 'plugin'> {
   /** Semantic prefix used only for the process-local runtime identity. */
   readonly idPrefix: string
+  /** Durable governance decision; only enterprise restoration may request trusted execution. */
+  readonly execution?: DynamicCordisDefinition['execution']
 }
 
 /** Source-free modification context for an explicit `@pluginId` reference. */

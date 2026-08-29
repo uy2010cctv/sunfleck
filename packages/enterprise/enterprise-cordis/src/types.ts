@@ -80,6 +80,7 @@ export interface CordisSessionGenerationEntry {
   readonly bindingId: string
   readonly generation: number
   readonly scope: CordisPluginScope
+  readonly trustLevel: CordisScopeBinding['trustLevel']
 }
 
 /** Immutable package selection captured when a Session first uses a Workspace. */
