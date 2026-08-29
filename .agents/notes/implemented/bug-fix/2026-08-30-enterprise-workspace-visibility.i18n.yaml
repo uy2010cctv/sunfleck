@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-08-30-enterprise-workspace-visibility.md
+2026-08-30-enterprise-workspace-visibility.md: 8fb266a6fa9a10a9a88245ac7c93cec68768ca7a
+2026-08-30-enterprise-workspace-visibility.zh.md: f31e8d39efee5889ffa675c65ff0f7a2135ecddc

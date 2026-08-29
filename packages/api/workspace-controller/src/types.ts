@@ -27,6 +27,8 @@ export interface WorkspaceView {
   readonly createdAt: string
   /** ISO-8601 last-mutation instant. */
   readonly updatedAt: string
+  /** Caller-specific deletion capability; absent outside an enterprise projection. */
+  readonly deletable?: boolean
 }
 
 /** Stable Workspace failure details returned by unary methods. */

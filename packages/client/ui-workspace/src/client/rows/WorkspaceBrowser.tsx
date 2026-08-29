@@ -519,10 +519,10 @@ function SessionTree({
                     /* v8 ignore next -- narrowing guard: the actions object exists only for real-workspace groups. */
                       if (group.workspaceId !== undefined) onRenameRequest(group.workspaceId, group.label)
                     },
-                    delete: () => {
+                    ...(group.deletable === false ? {} : { delete: () => {
                     /* v8 ignore next -- narrowing guard: the actions object exists only for real-workspace groups. */
                       if (group.workspaceId !== undefined) onDeleteRequest(group.workspaceId, group.label)
-                    },
+                    } }),
                   }}
               />
               {(sessionsExpanded

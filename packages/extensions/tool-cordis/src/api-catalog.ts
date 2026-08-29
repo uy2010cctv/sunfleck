@@ -1333,6 +1333,17 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'the authorization decision and stable reason.',
       },
       {
+        signature: 'async *filterWorkspaceFollow( principal: EnterprisePrincipal, frames: AsyncIterable<unknown>, ): AsyncIterable<unknown>',
+        description: 'Project the native Workspace stream to the caller\'s personal and department grants. Protected default and shared Workspaces explicitly carry `deletable: false`.',
+        parameters: [{ name: 'principal', description: 'authenticated stream owner.' }, { name: 'frames', description: 'native Workspace baseline and increment stream.' }],
+        returns: 'a principal-scoped Workspace stream.',
+      },
+      {
+        signature: 'async recordWorkspaceCreated(principal: EnterprisePrincipal, result: unknown): Promise<void>',
+        description: 'Persist the ownership grant for a Workspace created through the native API.',
+        parameters: [{ name: 'principal', description: 'authenticated creator.' }, { name: 'result', description: 'native Workspace create result.' }],
+      },
+      {
         signature: 'async bindSessionWorkspaceAsync( principal: EnterprisePrincipal, sessionId: string, workspaceId: string, ): Promise<void>',
         description: 'Bind a Session to a workspace only after the principal can create work in that compartment.',
         parameters: [{ name: 'principal', description: 'Authenticated Session creator.' }, { name: 'sessionId', description: 'Newly created DSH Session id.' }, { name: 'workspaceId', description: 'Authorized DSH Workspace id.' }],
@@ -7031,7 +7042,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'WorkspaceView',
-    declaration: 'export interface WorkspaceView {\n    readonly workspaceId: WorkspaceId;\n    readonly path: string;\n    readonly title: string;\n    readonly sessionIds: readonly SessionId[];\n    readonly createdAt: string;\n    readonly updatedAt: string;\n}',
+    declaration: 'export interface WorkspaceView {\n    readonly workspaceId: WorkspaceId;\n    readonly path: string;\n    readonly title: string;\n    readonly sessionIds: readonly SessionId[];\n    readonly createdAt: string;\n    readonly updatedAt: string;\n    readonly deletable?: boolean;\n}',
   },
 ]
 

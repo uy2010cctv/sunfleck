@@ -279,6 +279,21 @@ describe('workspace browser rows', () => {
     expect(screen.queryByRole('menu')).toBeNull()
   })
 
+  it('omits delete for a protected personal or shared Workspace', () => {
+    const group: GroupNode = {
+      key: 'protected', workspaceId: wid('protected'), cwd: '/projects/protected', createdAt: 0,
+      label: 'Protected', sessionCount: 0, expanded: false, containsCurrent: false, sessions: [],
+      deletable: false,
+    }
+    render(<ProjectRowItem
+      group={group} onToggle={vi.fn()} onCreate={vi.fn()}
+      actions={{ rename: vi.fn(), delete: vi.fn() }} t={t}
+    />)
+    fireEvent.click(screen.getByRole('button', { name: '工作区“Protected”的操作' }))
+    expect(screen.getByRole('menuitem', { name: '重命名' })).toBeTruthy()
+    expect(screen.queryByRole('menuitem', { name: '删除工作区' })).toBeNull()
+  })
+
   it('workspace hover card shows its details and copies the full directory path', async () => {
     vi.useFakeTimers()
     const writeText = vi.fn(async () => {})

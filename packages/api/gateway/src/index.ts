@@ -94,6 +94,12 @@ interface RegisteredRemoteEventSource {
   readonly host: RemoteEventHostInfo
 }
 
+interface EnterpriseWorkspaceInvocation {
+  readonly endpoint: string
+  readonly principal: NonNullable<ReturnType<EnterpriseRequestContext['current']>>
+  readonly security: EnterpriseSecurity
+}
+
 interface RemoteEventClient {
   readonly id: RemoteEventClientId
   readonly queue: RemoteEventQueue
@@ -123,6 +129,14 @@ function optionalEnterpriseServices(ctx: Context): {
     security: getService('enterpriseSecurity') as EnterpriseSecurity | undefined,
     requestContext: getService('enterpriseRequestContext') as EnterpriseRequestContext | undefined,
   }
+}
+
+function enterpriseWorkspaceInput(payload: unknown): unknown {
+  if (typeof payload !== 'object' || payload === null || Array.isArray(payload)) return payload
+  const args = (payload as Record<string, unknown>)['args']
+  if (typeof args !== 'object' || args === null || Array.isArray(args)) return payload
+  const request = (args as Record<string, unknown>)['request']
+  return request ?? args
 }
 
 /** Gateway transport configuration. */
@@ -409,7 +423,11 @@ export class TypertGatewayService extends Service implements TypertGateway {
     if (endpoint === REMOTE_EVENT_STREAM_ENDPOINT) {
       return this.openRemoteEvents(payload, signal)
     }
-    return this.stream(remoteRequest(endpoint, payload, signal))
+    const enterprise = await this.authorizeEnterpriseWorkspace(endpoint, payload)
+    const stream = await this.stream(remoteRequest(endpoint, payload, signal))
+    return enterprise?.endpoint === 'workspace.follow'
+      ? enterprise.security.filterWorkspaceFollow(enterprise.principal, stream)
+      : stream
   }
 
   private async *openRemoteEvents(
@@ -620,7 +638,11 @@ export class TypertGatewayService extends Service implements TypertGateway {
 
   private async invokeRpc(endpoint: string, payload: unknown, signal: AbortSignal): Promise<ConnectionRpcResult> {
     try {
+      const enterprise = await this.authorizeEnterpriseWorkspace(endpoint, payload)
       const value = await this.invoke(remoteRequest(endpoint, payload, signal))
+      if (enterprise?.endpoint === 'workspace.create') {
+        await enterprise.security.recordWorkspaceCreated(enterprise.principal, value)
+      }
       // A void or explicitly absent business result carries no `value` field;
       // JSON has no `undefined`, and the envelope's optional slot is the one
       // representation of absence that both args and results already use.
@@ -628,6 +650,37 @@ export class TypertGatewayService extends Service implements TypertGateway {
     } catch (error) {
       return rpcFailure(error)
     }
+  }
+
+  private async authorizeEnterpriseWorkspace(
+    wireEndpoint: string,
+    payload: unknown,
+  ): Promise<EnterpriseWorkspaceInvocation | undefined> {
+    if (!wireEndpoint.startsWith('workspace/')) return undefined
+    const { security, requestContext } = optionalEnterpriseServices(this.ctx)
+    if (security === undefined && requestContext === undefined) return undefined
+    if (security === undefined || requestContext === undefined) {
+      throw new TypertRemoteFailure({
+        code: 'enterprise-unavailable', message: 'enterprise Workspace security is unavailable', details: {},
+      })
+    }
+    const principal = requestContext.current()
+    if (principal === undefined) {
+      throw new TypertRemoteFailure({
+        code: 'enterprise-unauthorized', message: 'authenticated enterprise principal is required', details: {},
+      })
+    }
+    const endpoint = wireEndpoint.replace('/', '.')
+    const input = enterpriseWorkspaceInput(payload)
+    const decision = await security.authorizeApiAsync(principal, endpoint, input)
+    await security.auditApiAsync(principal, endpoint, input, decision, randomUUID())
+    if (!decision.allowed) {
+      throw new TypertRemoteFailure({
+        code: 'enterprise-forbidden', message: 'enterprise Workspace operation is forbidden',
+        details: { endpoint, reason: decision.reason },
+      })
+    }
+    return { endpoint, principal, security }
   }
 
   private async prepareInvocation(request: InvokeRemoteRequest): Promise<PreparedInvocation> {

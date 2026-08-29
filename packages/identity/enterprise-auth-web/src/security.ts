@@ -8,6 +8,7 @@ import { authorizeEnterprise } from '@deepseek-ai/dsh-enterprise-governance'
 import {
   type EnterpriseIdentityStore,
   type EnterprisePrincipalView,
+  type EnterpriseWorkspaceGrant,
 } from '@deepseek-ai/dsh-enterprise-identity'
 import { verifyPassword } from '@deepseek-ai/dsh-enterprise-sso'
 import type { SsoMappedIdentity } from '@deepseek-ai/dsh-enterprise-sso'
@@ -51,6 +52,15 @@ function payloadOf(input: unknown): Record<string, unknown> {
 function stringField(payload: Record<string, unknown>, ...fields: string[]): string | undefined {
   for (const field of fields) if (typeof payload[field] === 'string') return payload[field]
   return undefined
+}
+
+function record(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function workspaceRecord(value: unknown): { workspaceId: string; value: Record<string, unknown> } | undefined {
+  if (!record(value) || typeof value['workspaceId'] !== 'string') return undefined
+  return { workspaceId: value['workspaceId'], value }
 }
 
 function syncValue<T>(value: T | Promise<T>, operation: string): T {
@@ -97,8 +107,9 @@ export function classifyApiEndpoint(endpoint: string, input: unknown): ApiClassi
   if (endpoint === 'enterpriseWorkspace.create') {
     return { action: 'session.create', resourceType: 'workspace-catalog' }
   }
+  if (endpoint === 'workspace.follow') return { action: 'session.read', resourceType: 'workspace-catalog' }
   const workspaceId = stringField(payload, 'workspaceId')
-  if (endpoint === 'workspace.create') return { action: 'workspace.manage', resourceType: 'workspace' }
+  if (endpoint === 'workspace.create') return { action: 'session.create', resourceType: 'workspace-catalog' }
   if (endpoint.startsWith('workspace.') && workspaceId !== undefined) {
     return {
       action: endpoint === 'workspace.list' ? 'session.read' : 'workspace.manage',
@@ -416,6 +427,7 @@ export class EnterpriseSecurity {
    * @returns the authorization decision and stable reason.
    */
   async authorizeApiAsync(principal: EnterprisePrincipal, endpoint: string, input: unknown): Promise<EnterpriseAuthorizationDecision> {
+    if (endpoint === 'workspace.delete') return this.authorizeWorkspaceDelete(principal, input)
     if ((endpoint === 'session.create' || endpoint === 'sessions.create')
       && stringField(payloadOf(input), 'workspaceId') === undefined) {
       return { allowed: false, reason: 'insufficient-role' }
@@ -433,6 +445,148 @@ export class EnterpriseSecurity {
       resource ??= { orgId: principal.orgId, visibility: 'organization' }
     }
     return authorizeEnterprise({ principal, action: classification.action, ...resource === undefined ? {} : { resource } })
+  }
+
+  /**
+   * Project the native Workspace stream to the caller's personal and department grants.
+   * Protected default and shared Workspaces explicitly carry `deletable: false`.
+   * @param principal - authenticated stream owner.
+   * @param frames - native Workspace baseline and increment stream.
+   * @returns a principal-scoped Workspace stream.
+   */
+  async *filterWorkspaceFollow(
+    principal: EnterprisePrincipal,
+    frames: AsyncIterable<unknown>,
+  ): AsyncIterable<unknown> {
+    const visible = new Map((await this.repository.listWorkspaceGrants({
+      orgId: principal.orgId, userId: principal.userId,
+    })).map(grant => [grant.workspaceId, grant]))
+    const deletable = this.deletableWorkspaceIds(principal, [...visible.values()])
+    const emitted = new Set<string>()
+    for await (const frame of frames) {
+      if (!record(frame) || typeof frame['type'] !== 'string') continue
+      if (frame['type'] === 'baseline') {
+        const value = record(frame['value']) ? frame['value'] : {}
+        const items = Array.isArray(value['items']) ? value['items'] : []
+        const projected = items.flatMap((item) => {
+          const workspace = workspaceRecord(item)
+          if (workspace === undefined || !visible.has(workspace.workspaceId)) return []
+          emitted.add(workspace.workspaceId)
+          return [{ ...workspace.value, deletable: deletable.has(workspace.workspaceId) }]
+        })
+        yield {
+          ...frame,
+          value: {
+            ...value,
+            items: projected,
+            archivedSessionIds: await this.visibleArchivedSessionIds(
+              Array.isArray(value['archivedSessionIds']) ? value['archivedSessionIds'] : [], visible,
+            ),
+          },
+        }
+        continue
+      }
+      if (frame['type'] === 'upsert') {
+        const workspace = workspaceRecord(frame['workspace'])
+        if (workspace === undefined) continue
+        const grant = visible.get(workspace.workspaceId)
+          ?? await this.waitForVisibleWorkspaceGrant(principal, workspace.workspaceId)
+        if (grant === undefined) continue
+        visible.set(workspace.workspaceId, grant)
+        const currentDeletable = this.deletableWorkspaceIds(principal, [...visible.values()])
+        emitted.add(workspace.workspaceId)
+        yield { ...frame, workspace: { ...workspace.value, deletable: currentDeletable.has(workspace.workspaceId) } }
+        continue
+      }
+      if (frame['type'] === 'remove') {
+        const workspaceId = frame['workspaceId']
+        if (typeof workspaceId !== 'string' || !emitted.delete(workspaceId)) continue
+        yield frame
+        continue
+      }
+      if (frame['type'] === 'order') {
+        const workspaceIds = Array.isArray(frame['workspaceIds'])
+          ? frame['workspaceIds'].filter((id): id is string => typeof id === 'string' && emitted.has(id))
+          : []
+        yield { ...frame, workspaceIds }
+        continue
+      }
+      if (frame['type'] === 'archived') {
+        yield {
+          ...frame,
+          archivedSessionIds: await this.visibleArchivedSessionIds(
+            Array.isArray(frame['archivedSessionIds']) ? frame['archivedSessionIds'] : [], visible,
+          ),
+        }
+      }
+    }
+  }
+
+  /**
+   * Persist the ownership grant for a Workspace created through the native API.
+   * @param principal - authenticated creator.
+   * @param result - native Workspace create result.
+   */
+  async recordWorkspaceCreated(principal: EnterprisePrincipal, result: unknown): Promise<void> {
+    if (!record(result) || result['created'] !== true) return
+    const workspace = workspaceRecord(result['workspace'])
+    if (workspace === undefined) throw new Error('enterprise Workspace creation returned an invalid projection')
+    await this.repository.saveWorkspaceGrant({
+      workspaceId: workspace.workspaceId,
+      orgId: principal.orgId,
+      name: typeof workspace.value['title'] === 'string' ? workspace.value['title'] : workspace.workspaceId,
+      kind: 'personal', ownerUserId: principal.userId,
+      rootPath: typeof workspace.value['path'] === 'string' ? workspace.value['path'] : '',
+      sandboxMode: 'workspace-write', expectedRevision: 0,
+    })
+  }
+
+  private async authorizeWorkspaceDelete(
+    principal: EnterprisePrincipal,
+    input: unknown,
+  ): Promise<EnterpriseAuthorizationDecision> {
+    const workspaceId = stringField(payloadOf(input), 'workspaceId')
+    if (workspaceId === undefined) return { allowed: false, reason: 'insufficient-role' }
+    const grants = await this.repository.listWorkspaceGrants({ orgId: principal.orgId, userId: principal.userId })
+    return this.deletableWorkspaceIds(principal, grants).has(workspaceId)
+      ? { allowed: true, reason: 'creator-owner' }
+      : { allowed: false, reason: 'resource-hidden' }
+  }
+
+  private deletableWorkspaceIds(
+    principal: EnterprisePrincipal,
+    grants: readonly EnterpriseWorkspaceGrant[],
+  ): Set<string> {
+    const personal = grants.filter(grant => grant.kind === 'personal' && grant.ownerUserId === principal.userId)
+      .toSorted((left, right) => left.createdAt - right.createdAt || left.workspaceId.localeCompare(right.workspaceId))
+    return new Set(personal.slice(1).map(grant => grant.workspaceId))
+  }
+
+  private async visibleArchivedSessionIds(
+    sessionIds: readonly unknown[],
+    visibleWorkspaces: ReadonlyMap<string, EnterpriseWorkspaceGrant>,
+  ): Promise<string[]> {
+    const visible: string[] = []
+    for (const sessionId of sessionIds) {
+      if (typeof sessionId !== 'string') continue
+      const grant = await this.repository.sessionWorkspaceGrant(sessionId)
+      if (grant !== undefined && visibleWorkspaces.has(grant.workspaceId)) visible.push(sessionId)
+    }
+    return visible
+  }
+
+  private async waitForVisibleWorkspaceGrant(
+    principal: EnterprisePrincipal,
+    workspaceId: string,
+  ): Promise<EnterpriseWorkspaceGrant | undefined> {
+    for (let attempt = 0; attempt < 20; attempt++) {
+      const grant = (await this.repository.listWorkspaceGrants({
+        orgId: principal.orgId, userId: principal.userId,
+      })).find(candidate => candidate.workspaceId === workspaceId)
+      if (grant !== undefined) return grant
+      await new Promise(resolve => setTimeout(resolve, 10))
+    }
+    return undefined
   }
 
   /**
