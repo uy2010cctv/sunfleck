@@ -168,6 +168,15 @@ describe('SidebarRoot shell', () => {
     expect(b.toggleSidebar).not.toHaveBeenCalled()
   })
 
+  it('groups footer actions with Settings and keeps actions immediately above Settings', () => {
+    mountShell()
+    const action = screen.getByTestId('footer-action-seat')
+    const settings = screen.getByTestId('settings-seat')
+
+    expect(action.parentElement).toBe(settings.parentElement)
+    expect(action.compareDocumentPosition(settings) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0)
+  })
+
   it('keeps the region mounted through collapse and expands on its request', () => {
     vi.useFakeTimers()
     const b = mountShell()

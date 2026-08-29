@@ -324,15 +324,15 @@
 }
 
 .settingsArea,
-.accountArea,
-.footerActions {
+.accountArea {
   flex: none;
   min-width: 0;
   width: 100%;
 }
 
-.footerActions {
+.settingsArea {
   display: flex;
+  flex-direction: column;
 }
 
 .collapsed .footArea {
@@ -340,9 +340,9 @@
 }
 
 .collapsed .settingsArea,
-.collapsed .accountArea,
-.collapsed .footerActions {
+.collapsed .accountArea {
   display: flex;
+  align-items: center;
   justify-content: center;
   width: auto;
 }
