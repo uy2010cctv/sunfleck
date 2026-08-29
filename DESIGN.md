@@ -13,7 +13,7 @@ Employee Operations Deck. The interface treats digital employees as finite opera
 ## Macrostructure family
 
 - App shell: Workbench with a persistent DSH sidebar action and a frame-level enterprise surface.
-- Employee discovery: finite roster grid with whole-cell status and capability summaries.
+- Employee discovery: StaffDeck-inspired roster gallery with dominant search, release tabs, explicit conversation actions, and capability evidence.
 - Operations: dense but quiet work-record list, exception-first status, and direct return to the source Session.
 - Conversation: existing DSH conversation and details columns remain unchanged.
 
@@ -46,7 +46,7 @@ Employee Operations Deck. The interface treats digital employees as finite opera
 ## Microinteractions stance
 
 - Silent success; errors and blocked work remain visible until resolved.
-- Whole employee cards are keyboard-addressable with an explicit primary action.
+- Employee cards expose explicit Manage and Start conversation controls; the surrounding card is descriptive, not a second hidden action.
 - Hover clarifies elevation; focus uses an immediate high-contrast ring.
 - Loading uses skeleton rows; empty states teach how to create or select an employee.
 - Closing the workbench returns focus to its sidebar trigger.
@@ -77,11 +77,11 @@ Employee Operations Deck. The interface treats digital employees as finite opera
 
 ## Employee card
 
-- Identity: display name, stable preset id as employee code, position, department.
-- State: active, waiting for review, ready, or unavailable, derived from real Session and Preset state.
-- Capability summary: explicit metadata when present; no invented capability counts.
-- Work summary: active and recent Session counts derived from the Session list.
-- Trust: locally authored presets remain visibly marked as custom definitions.
+- Identity: display name, position, department, and release state. Owner ids, revisions, visibility internals, and binding ids stay in management views.
+- Purpose: responsibility description is the primary body copy; an honest missing-description state replaces technical ids.
+- Capability summary: explicit profile tags plus real Knowledge, Skill/Tool, and SOP binding counts. No inferred abilities or fabricated totals.
+- Action: Start conversation is primary and Manage is secondary. Cards never require selection before the primary action appears.
+- Discovery: search matches the stored profile and Preset id; All, Published, and Draft tabs are the primary filters, with owner and visibility behind More filters.
 
 ## Work record
 
@@ -91,9 +91,9 @@ Employee Operations Deck. The interface treats digital employees as finite opera
 
 ## Responsive behavior
 
-- Desktop: summary rail, employee grid, and work-record panel in one workbench.
+- Desktop: grouped operations rail and a three-column employee gallery; narrower operational pages retain their evidence-row layouts.
 - Tablet: summary rail becomes a horizontal strip; roster and records stack.
-- Mobile: single column, sticky close/primary controls, no horizontal scroll.
+- Mobile: single-column gallery, contained horizontal navigation, visible actions on every card, no page-level horizontal scroll.
 - Existing DSH sidebar auto-collapse remains authoritative.
 
 ## Accessibility

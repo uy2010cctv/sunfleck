@@ -174,7 +174,43 @@ describe('EnterpriseWorkbench', () => {
     expect(openEmployeeDraft).toHaveBeenCalledWith('buyer')
   })
 
-  it('selects an enterprise employee as a keyboard-addressable whole cell and isolates start work', () => {
+  it('presents the roster as a StaffDeck-inspired employee gallery without technical metadata', () => {
+    render(<EnterpriseWorkbench {...workbenchProps({
+      state: {
+        mode: 'enterprise', page: 'employees',
+        employees: { phase: 'ready', error: null, items: [{
+          presetId: 'buyer', orgId: 'server-org', ownerUserId: 'owner-1', visibility: 'restricted',
+          profile: {
+            name: '采购专员', position: '采购协同顾问', department: '采购部',
+            description: '帮助员工准备采购需求和审批材料。', capabilities: ['需求澄清', '合规校验'],
+          },
+          bindings: [
+            { kind: 'sop', assetId: 'rfq', version: 2 },
+            { kind: 'knowledge', assetId: 'policy', version: 1 },
+          ],
+          revision: 4, status: 'published', updatedAt: 20,
+        }] },
+      } as never,
+    })} />)
+
+    expect(screen.getByRole('heading', { name: '选择数字员工' })).toBeDefined()
+    expect(screen.getByPlaceholderText('搜索数字员工名称、岗位或部门')).toBeDefined()
+    expect(screen.getByRole('tab', { name: '所有员工' }).getAttribute('aria-selected')).toBe('true')
+    expect(screen.getByRole('tab', { name: '已发布' })).toBeDefined()
+    expect(screen.getByRole('tab', { name: '草稿' })).toBeDefined()
+    expect(screen.getByText('采购协同顾问')).toBeDefined()
+    expect(screen.getByText('帮助员工准备采购需求和审批材料。')).toBeDefined()
+    expect(screen.getByText('1 SOP')).toBeDefined()
+    expect(screen.getByText('1 知识')).toBeDefined()
+    expect(screen.getByRole('button', { name: '与采购专员发起对话' })).toBeDefined()
+    expect(screen.queryByText('所有者：owner-1')).toBeNull()
+    expect(screen.queryByText('修订 4')).toBeNull()
+    const navigation = screen.getByRole('navigation', { name: '管理台导航' })
+    expect(within(navigation).getByText('使用')).toBeDefined()
+    expect(within(navigation).getByText('管理')).toBeDefined()
+  })
+
+  it('keeps employee management separate from the explicit conversation action', () => {
     const startEmployee = vi.fn(() => Promise.resolve()); const openEmployeeDraft = vi.fn(() => Promise.resolve())
     render(<EnterpriseWorkbench {...workbenchProps({
       state: { mode: 'enterprise', employees: { phase: 'ready', error: null, items: [{
@@ -182,14 +218,11 @@ describe('EnterpriseWorkbench', () => {
         profile: { name: '采购专员' }, bindings: [], revision: 1, status: 'published', updatedAt: 1,
       }] } }, startEmployee, openEmployeeDraft,
     } as never)} />)
-    const cell = screen.getByLabelText('选择采购专员')
-    expect(cell.getAttribute('tabindex')).toBe('0')
-    fireEvent.keyDown(cell, { key: 'Enter' })
-    const startButtons = screen.getAllByRole('button', { name: '与采购专员开始工作' })
-    expect(startButtons.length).toBeGreaterThan(1)
-    fireEvent.click(startButtons[0]!)
+    fireEvent.click(screen.getByRole('button', { name: '与采购专员发起对话' }))
     expect(startEmployee).toHaveBeenCalledWith('buyer')
     expect(openEmployeeDraft).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: '编辑采购专员' }))
+    expect(openEmployeeDraft).toHaveBeenCalledWith('buyer')
   })
 
   it('uses structured asset bindings and release selectors as the primary path', () => {
@@ -433,7 +466,7 @@ describe('EnterpriseWorkbench', () => {
     expect(screen.getByText('文件执行')).toBeDefined()
     expect(screen.getByText('供应商核验')).toBeDefined()
     expect(screen.getByText('标准模式 · 采购部')).toBeDefined()
-    expect(screen.getAllByText('开始工作')).toHaveLength(1)
+    expect(screen.getAllByText('发起对话')).toHaveLength(1)
     const metrics = screen.getByLabelText(zh['metrics.aria'])
     expect(metrics.getAttribute('aria-live')).toBe('polite')
     expect(within(metrics).getByText('2')).toBeDefined()
@@ -445,7 +478,7 @@ describe('EnterpriseWorkbench', () => {
     const openRecord = vi.fn()
     render(<EnterpriseWorkbench {...workbenchProps({ startEmployee, openRecord })} />)
 
-    fireEvent.click(screen.getByRole('button', { name: '与标准模式开始工作' }))
+    fireEvent.click(screen.getByRole('button', { name: '与标准模式发起对话' }))
     expect(startEmployee).toHaveBeenCalledWith('standard')
     expect(screen.getByRole('button', { name: '损坏员工不可用' }).hasAttribute('disabled')).toBe(true)
 

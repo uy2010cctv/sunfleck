@@ -1,8 +1,9 @@
-/* oxlint-disable @stylistic/max-len, typescript/no-non-null-assertion */
+/* oxlint-disable @stylistic/max-len */
 /** Enterprise digital-employee roster and operations overlay. */
 import { useEffect, useRef, useState } from 'react'
 import {
-  IconCheckOutline16, IconCloseOutline16, IconPlayOutline16, IconRefreshOutline16,
+  IconCheckOutline16, IconCloseOutline16, IconEditOutline16, IconPlayOutline16, IconRefreshOutline16,
+  IconSearchOutline16,
   IconUserOutline16, IconWarningOutline16, StateDot,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
@@ -63,10 +64,9 @@ export interface EnterpriseWorkbenchInjected {
 
 export type EnterpriseWorkbenchProps = PropsRuntime<'shell.overlay'> & PropsLocale<typeof NS> & InjectFace<EnterpriseWorkbenchInjected>
 type Translate = (key: EnterpriseWorkbenchKey, params?: Record<string, string | number>) => string
-const NAV: readonly [EnterpriseWorkbenchPage, EnterpriseWorkbenchKey][] = [
-  ['employees', 'nav.employees'], ['work-records', 'nav.work-records'], ['approvals', 'nav.approvals'],
-  ['schedules', 'nav.schedules'], ['assets', 'nav.assets'], ['teams', 'nav.teams'],
-  ['extensions', 'nav.extensions'],
+const NAV_GROUPS: readonly { label: EnterpriseWorkbenchKey; items: readonly [EnterpriseWorkbenchPage, EnterpriseWorkbenchKey][] }[] = [
+  { label: 'nav.use', items: [['employees', 'nav.employees'], ['work-records', 'nav.work-records'], ['approvals', 'nav.approvals']] },
+  { label: 'nav.manage', items: [['schedules', 'nav.schedules'], ['assets', 'nav.assets'], ['teams', 'nav.teams'], ['extensions', 'nav.extensions']] },
 ]
 
 function formatDate(value: number): string {
@@ -197,8 +197,19 @@ function EmployeesPage({ state, api, guardDirty, t }: {
   t: Translate
 }) {
   const filters = state.employeeFilters
-  const [search, setSearch] = useState(filters.search ?? ''); const [status, setStatus] = useState(filters.status ?? ''); const [visibility, setVisibility] = useState(filters.visibility ?? ''); const [owner, setOwner] = useState(filters.ownerUserId ?? '')
-  const [selectedEmployeeId, setSelectedEmployeeId] = useState<string | null>(null)
+  const [search, setSearch] = useState(filters.search ?? '')
+  const [status, setStatus] = useState<EnterpriseEmployeeDraft['status'] | ''>(filters.status ?? '')
+  const [visibility, setVisibility] = useState<EnterpriseVisibility | ''>(filters.visibility ?? '')
+  const [owner, setOwner] = useState(filters.ownerUserId ?? '')
+  const applyFilters = (nextStatus = status): void => {
+    api.setEmployeeFilters({
+      ...(search.trim() === '' ? {} : { search: search.trim() }),
+      ...(nextStatus === '' ? {} : { status: nextStatus }),
+      ...(visibility === '' ? {} : { visibility }),
+      ...(owner.trim() === '' ? {} : { ownerUserId: owner.trim() }),
+    })
+    void api.refreshEmployees()
+  }
   if (state.employeeEditor !== undefined) return <EmployeeEditor
     editor={state.employeeEditor}
     assets={state.assets}
@@ -208,8 +219,61 @@ function EmployeesPage({ state, api, guardDirty, t }: {
     mutationBusy={state.mutationPhase === 'running'}
     t={t}
   />
-  return <section aria-labelledby="employees-page-title"><div className={css.sectionHead}><h2 id="employees-page-title">{t('employees.title')}</h2><span>{state.employees.items.length}</span></div><form className={css.filters} onSubmit={(event) => { event.preventDefault(); api.setEmployeeFilters({ ...(search === '' ? {} : { search }), ...(status === '' ? {} : { status: status as EnterpriseEmployeeDraft['status'] }), ...(visibility === '' ? {} : { visibility: visibility as EnterpriseVisibility }), ...(owner === '' ? {} : { ownerUserId: owner }) }); void api.refreshEmployees() }}><label>{t('filters.search')}<input value={search} onChange={(event) => { setSearch(event.target.value) }} /></label><label>{t('filters.status')}<select value={status} onChange={(event) => { setStatus(event.target.value) }}><option value="">{t('filters.all')}</option><option value="draft">{t(RELEASE_KEYS.draft)}</option><option value="published">{t(RELEASE_KEYS.published)}</option></select></label><label>{t('filters.visibility')}<select value={visibility} onChange={(event) => { setVisibility(event.target.value) }}><option value="">{t('filters.all')}</option><option value="organization">{t(VISIBILITY_KEYS.organization)}</option><option value="private">{t(VISIBILITY_KEYS.private)}</option><option value="restricted">{t(VISIBILITY_KEYS.restricted)}</option></select></label><label>{t('filters.owner')}<input value={owner} onChange={(event) => { setOwner(event.target.value) }} /></label><button type="submit" className={css.secondaryButton}>{t('filters.apply')}</button></form>
-    <PageBoundary page={state.employees} t={t}><div className={css.employeeGrid}>{state.employees.items.map((draft) => { const name = profileText(draft, 'name', draft.presetId); const capabilities = profileList(draft, 'capabilities'); const select = (): void => { setSelectedEmployeeId(draft.presetId) }; return <article className={css.employeeCard} data-selected={selectedEmployeeId === draft.presetId} tabIndex={0} aria-label={t('employee.select', { name })} key={draft.presetId} onClick={select} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); select() } }}><div className={css.employeeHead}><div className={css.avatar} aria-hidden="true">{name.slice(0, 2)}</div><div className={css.employeeIdentity}><div className={css.employeeNameRow}><h3>{name}</h3><span className={css.badge}>{t(RELEASE_KEYS[draft.status])}</span></div><div className={css.employeeMeta}><span>{profileText(draft, 'position', draft.presetId)}</span>{profileText(draft, 'department') !== '' && <span>{profileText(draft, 'department')}</span>}</div></div></div><div className={css.capabilities}>{capabilities.map(value => <span key={value}>{value}</span>)}{draft.bindings.map(binding => <span key={`${binding.kind}:${binding.assetId}:${binding.version}`}>{t(ASSET_KEYS[binding.kind])} · {binding.assetId} {t('version.short', { version: binding.version })}</span>)}</div><dl className={css.facts}><div><dt>{t('employee.revision', { revision: draft.revision })}</dt><dd>{formatDate(draft.updatedAt)}</dd></div><div><dt>{t('employee.visibility', { visibility: t(VISIBILITY_KEYS[draft.visibility]) })}</dt><dd>{t('employee.owner', { owner: draft.ownerUserId })}</dd></div></dl><div className={css.employeeFoot}><span>{t('employee.bindings', { count: draft.bindings.length })}</span><div className={css.inlineActions}><button type="button" className={css.secondaryButton} aria-label={t('employee.edit', { name })} onClick={(event) => { event.stopPropagation(); void api.openEmployeeDraft(draft.presetId) }}>{t('editor.title')}</button><button type="button" className={css.primaryButton} aria-label={t('employee.start', { name })} disabled={state.busyEmployee === draft.presetId} onClick={(event) => { event.stopPropagation(); void api.startEmployee(draft.presetId) }}><IconPlayOutline16 size={16} />{t('employee.action')}</button></div></div></article> })}</div></PageBoundary>{state.employees.nextCursor !== undefined && <button type="button" className={css.loadMore} onClick={() => { void api.loadMoreEmployees() }}>{t('loadMore')}</button>}{selectedEmployeeId !== null && <div className={css.mobilePrimary}><button type="button" className={css.primaryButton} aria-label={t('employee.start', { name: profileText(state.employees.items.find(item => item.presetId === selectedEmployeeId)!, 'name', selectedEmployeeId) })} onClick={() => { void api.startEmployee(selectedEmployeeId) }}>{t('employee.action')}</button></div>}
+  return <section className={css.employeeGallery} aria-labelledby="employees-page-title">
+    <div className={css.galleryIntro}>
+      <div><h2 id="employees-page-title">{t('employees.heading')}</h2><p>{t('employees.intro')}</p></div>
+      <span>{t('employees.count', { count: state.employees.items.length })}</span>
+    </div>
+    <form className={css.galleryControls} onSubmit={(event) => { event.preventDefault(); applyFilters() }}>
+      <label className={css.searchField}>
+        <span className={css.visuallyHidden}>{t('filters.search')}</span>
+        <IconSearchOutline16 size={16}/>
+        <input value={search} placeholder={t('filters.searchPlaceholder')} onChange={(event) => { setSearch(event.target.value) }}/>
+      </label>
+      <button type="submit" className={css.secondaryButton}>{t('filters.searchAction')}</button>
+      <details className={css.advancedFilters}>
+        <summary>{t('filters.more')}</summary>
+        <div>
+          <label>{t('filters.visibility')}<select value={visibility} onChange={(event) => { setVisibility(event.target.value as EnterpriseVisibility | '') }}><option value="">{t('filters.all')}</option><option value="organization">{t(VISIBILITY_KEYS.organization)}</option><option value="private">{t(VISIBILITY_KEYS.private)}</option><option value="restricted">{t(VISIBILITY_KEYS.restricted)}</option></select></label>
+          <label>{t('filters.owner')}<input value={owner} onChange={(event) => { setOwner(event.target.value) }}/></label>
+          <button type="submit" className={css.secondaryButton}>{t('filters.apply')}</button>
+        </div>
+      </details>
+    </form>
+    <div className={css.employeeTabs} role="tablist" aria-label={t('employees.categories')}>
+      {([['', 'employees.all'], ['published', 'enum.employee.published'], ['draft', 'enum.employee.draft']] as const).map(([value, key]) => <button type="button" role="tab" key={value || 'all'} aria-selected={status === value} onClick={() => { setStatus(value); applyFilters(value) }}>{t(key)}</button>)}
+    </div>
+    <PageBoundary page={state.employees} t={t}><div className={css.employeeGrid}>{state.employees.items.map((draft) => {
+      const name = profileText(draft, 'name', draft.presetId)
+      const position = profileText(draft, 'position', t('employee.positionFallback'))
+      const department = profileText(draft, 'department')
+      const description = profileText(draft, 'description', t('employee.descriptionFallback'))
+      const capabilities = profileList(draft, 'capabilities')
+      const count = (kind: EnterpriseAssetKind): number => draft.bindings.filter(binding => binding.kind === kind).length
+      const toolCount = count('skill') + count('tool')
+      return <article className={css.employeeCard} data-status={draft.status} key={draft.presetId}>
+        <div className={css.employeeHead}>
+          <div className={css.avatar} aria-hidden="true">{name.slice(0, 2)}</div>
+          <div className={css.employeeIdentity}>
+            <div className={css.employeeNameRow}><h3>{name}</h3></div>
+            <div className={css.employeeMeta}><span>{position}</span>{department !== '' && <span>{department}</span>}</div>
+          </div>
+          <div className={css.rosterStatus}><StateDot state={draft.status === 'published' ? 'done' : 'warning'}/><span>{t(RELEASE_KEYS[draft.status])}</span></div>
+        </div>
+        <p className={css.description}>{description}</p>
+        {capabilities.length > 0 && <div className={css.capabilities}>{capabilities.slice(0, 3).map(value => <span key={value}>{value}</span>)}</div>}
+        <div className={css.assetStats} aria-label={t('employee.assetsSummary')}>
+          <span>{t('employee.stat.knowledge', { count: count('knowledge') })}</span>
+          <span>{t('employee.stat.tools', { count: toolCount })}</span>
+          <span>{t('employee.stat.sop', { count: count('sop') })}</span>
+        </div>
+        <div className={css.employeeActions}>
+          <button type="button" className={css.secondaryButton} aria-label={t('employee.edit', { name })} onClick={() => { void api.openEmployeeDraft(draft.presetId) }}><IconEditOutline16 size={16}/>{t('employee.manage')}</button>
+          <button type="button" className={css.startButton} aria-label={t('employee.start', { name })} disabled={state.busyEmployee === draft.presetId} onClick={() => { void api.startEmployee(draft.presetId) }}><IconPlayOutline16 size={16}/>{state.busyEmployee === draft.presetId ? t('employee.busy') : t('employee.action')}</button>
+        </div>
+      </article>
+    })}</div></PageBoundary>
+    {state.employees.nextCursor !== undefined && <button type="button" className={css.loadMore} onClick={() => { void api.loadMoreEmployees() }}>{t('loadMore')}</button>}
   </section>
 }
 
@@ -418,5 +482,5 @@ export function EnterpriseWorkbench(props: EnterpriseWorkbenchProps) {
   }
   return <section ref={dialogRef} className={css.workbench} role="dialog" aria-modal="true" aria-label={props.t('title')} onKeyDown={onKeyDown}><header className={css.header}><div><h1>{props.t('title')}</h1><p>{props.t('subtitle')}</p></div><div className={css.headerActions}><button type="button" className={css.iconButton} aria-label={props.t('refresh')} onClick={() => { void props.refresh() }}><IconRefreshOutline16 size={16} /></button><button ref={closeRef} type="button" className={css.iconButton} aria-label={props.t('close')} onClick={requestClose}><IconCloseOutline16 size={16} /></button></div></header>
     {state.mutationError !== null && <div className={css.mutationError} role="alert" aria-label={props.t('mutation.errorAria')}><IconWarningOutline16 size={18} /><span>{state.mutationPhase === 'conflict' ? props.t('mutation.conflict') : state.mutationError}</span>{state.mutationPhase === 'conflict' ? <button type="button" onClick={() => { void props.resolveMutationConflict() }}>{props.t('mutation.reload')}</button> : <button type="button" onClick={() => { void props.retryMutation() }}>{props.t('mutation.retry')}</button>}<button type="button" onClick={props.dismissMutationError}>{props.t('mutation.dismiss')}</button></div>}
-    {state.phase === 'loading' && state.mode === null && <div className={css.loading} role="status"><span className={css.skeleton} />{props.t('loading')}</div>}{state.phase === 'error' && <div className={css.error} role="alert"><IconWarningOutline16 size={18} /><span>{state.error}</span><button type="button" onClick={() => { void props.refresh() }}>{props.t('retry')}</button></div>}{state.phase !== 'error' && state.mode === 'fallback' && <main className={css.body}><FallbackPage state={state} start={props.startEmployee} open={props.openRecord} t={props.t} /></main>}{state.phase !== 'error' && state.mode === 'enterprise' && <div className={css.shell}><nav className={css.nav} aria-label={props.t('nav.aria')}>{NAV.map(([id, key]) => <button type="button" key={id} aria-current={page === id ? 'page' : undefined} onClick={() => { requestPage(id) }}>{props.t(key)}</button>)}</nav><main className={css.main}>{partial && <div className={css.notice} role="status">{props.t('partial')}</div>}{page === 'employees' && <EmployeesPage state={state} api={api} guardDirty={guardDirty} t={props.t} />}{page === 'work-records' && <WorkRecordsPage page={state.workRecords} update={props.updateWorkRecord} busy={mutationBusy} t={props.t} />}{page === 'approvals' && <ApprovalsPage page={state.approvals} api={api} busy={mutationBusy} t={props.t} />}{page === 'schedules' && <SchedulesPage page={state.schedules} api={api} busy={mutationBusy} onDirty={() => { setLocalFormDirty(true) }} t={props.t} />}{page === 'assets' && <AssetsPage page={state.assets} api={api} busy={mutationBusy} onDirty={() => { setLocalFormDirty(true) }} t={props.t} />}{page === 'teams' && <TeamsPage page={state.teams} releases={state.releases} api={api} busy={mutationBusy} onDirty={() => { setLocalFormDirty(true) }} t={props.t} />}{page === 'extensions' && <ExtensionsPage state={state} workspaces={workspaces} api={api} busy={mutationBusy} t={props.t} />}</main></div>}</section>
+    {state.phase === 'loading' && state.mode === null && <div className={css.loading} role="status"><span className={css.skeleton} />{props.t('loading')}</div>}{state.phase === 'error' && <div className={css.error} role="alert"><IconWarningOutline16 size={18} /><span>{state.error}</span><button type="button" onClick={() => { void props.refresh() }}>{props.t('retry')}</button></div>}{state.phase !== 'error' && state.mode === 'fallback' && <main className={css.body}><FallbackPage state={state} start={props.startEmployee} open={props.openRecord} t={props.t} /></main>}{state.phase !== 'error' && state.mode === 'enterprise' && <div className={css.shell}><nav className={css.nav} aria-label={props.t('nav.aria')}>{NAV_GROUPS.map(group => <div className={css.navGroup} key={group.label}><span>{props.t(group.label)}</span>{group.items.map(([id, key]) => <button type="button" key={id} aria-current={page === id ? 'page' : undefined} onClick={() => { requestPage(id) }}>{props.t(key)}</button>)}</div>)}</nav><main className={css.main}>{partial && <div className={css.notice} role="status">{props.t('partial')}</div>}{page === 'employees' && <EmployeesPage state={state} api={api} guardDirty={guardDirty} t={props.t} />}{page === 'work-records' && <WorkRecordsPage page={state.workRecords} update={props.updateWorkRecord} busy={mutationBusy} t={props.t} />}{page === 'approvals' && <ApprovalsPage page={state.approvals} api={api} busy={mutationBusy} t={props.t} />}{page === 'schedules' && <SchedulesPage page={state.schedules} api={api} busy={mutationBusy} onDirty={() => { setLocalFormDirty(true) }} t={props.t} />}{page === 'assets' && <AssetsPage page={state.assets} api={api} busy={mutationBusy} onDirty={() => { setLocalFormDirty(true) }} t={props.t} />}{page === 'teams' && <TeamsPage page={state.teams} releases={state.releases} api={api} busy={mutationBusy} onDirty={() => { setLocalFormDirty(true) }} t={props.t} />}{page === 'extensions' && <ExtensionsPage state={state} workspaces={workspaces} api={api} busy={mutationBusy} t={props.t} />}</main></div>}</section>
 }

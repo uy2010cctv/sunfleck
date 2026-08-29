@@ -12,7 +12,7 @@ Status: implemented
 
 `@deepseek-ai/dsh-client-ui-enterprise-workbench` 是基于强类型 `enterpriseEmployees`、`enterpriseAssets`、`enterpriseTeams` 和 `enterpriseOperations` 客户端域的企业运营台。Overlay 内部导航管理数字员工、工作记录、审批、定时任务、能力资产和团队。企业治理、身份、凭据和模型管理继续属于 Settings。
 
-员工名册把搜索、状态、可见性、负责人、limit 和 cursor 发送到 Host。员工编辑器加载一份持久草稿及其发布历史，在显式保存前只保留本地变更，校验受支持的 profile 字段，发送当前 `expectedRevision`，在 `enterprise-conflict` 时保留 dirty 输入，并把发布和回滚暴露为独立 mutation。工作、审批、调度、资产和团队页使用它们各自的强类型 read model 与 revision-fenced mutation。浏览器 payload 不包含 `orgId` 或 `principal`，这些值归经过身份校验的 Host 所有。
+员工名册把搜索、状态、可见性、负责人、limit 和 cursor 发送到 Host。其首屏是员工广场：主搜索、全部/已发布/草稿 tab、使用/管理分组导航、职责优先的员工卡片、真实的知识/技能/SOP 绑定数，以及唯一明确的“发起对话”主操作。负责人和可见性收入“更多筛选”；revision、owner、visibility 和 binding id 不再出现在名册卡片，只保留在员工管理中。员工编辑器加载一份持久草稿及其发布历史，在显式保存前只保留本地变更，校验受支持的 profile 字段，发送当前 `expectedRevision`，在 `enterprise-conflict` 时保留 dirty 输入，并把发布和回滚暴露为独立 mutation。工作、审批、调度、资产和团队页使用它们各自的强类型 read model 与 revision-fenced mutation。浏览器 payload 不包含 `orgId` 或 `principal`，这些值归经过身份校验的 Host 所有。
 
 Runtime 的唯一 Host 流消费者在原生 Session 和 Workspace fold 之后发射已解码的 `connection/host-frame` 事件。每个企业 frame 都携带资源类型（`employee`、`asset`、`team`、`work-record`、`approval`、`schedule` 或 `outbox`）。工作台对 `eventId` 进行有界去重，按资源类型刷新对应 read model，不从当前可见页面猜测。所有 mutation 经过同一套可控错误、conflict 和重试状态；每个操作在构建重试 closure 前生成 idempotency key，因此重试会复用同一 key。Conflict 会移除旧 mutation 重试 closure，改为重新加载权威状态。员工冲突保留本地字段与服务器副本，直到运营人员明确采用服务器草稿，或在新 revision 上保留本地字段。如果重载失败，只有同一重载可重试。失败不会以未处理 rejection 逃逸。各页状态相互独立，因此 forbidden 或失败读取可以与已成功可用的页面共存。
 
@@ -28,7 +28,7 @@ seed: enterprise-operations-deck-v1
 
 ### FORM
 
-使用附加式 DSH overlay：桌面运营导航栏、容器内窄屏导航、有限员工名册 cell、安静的记录行与移动端 sticky 主操作。治理继续属于 Settings。
+使用附加式 DSH overlay：分组的桌面运营导航栏、容器内窄屏导航、三列员工广场、显式卡片操作与安静的记录行。治理继续属于 Settings。
 
 ### TYPE
 
@@ -44,7 +44,7 @@ seed: enterprise-operations-deck-v1
 
 ### FIRST VIEWPORT
 
-关闭 header 保持可见；运营人员首先看到局部管理导航与员工名册或所选任务页。320 px 下导航为容器内 grid，选中员工后显示一个 sticky 开始工作主操作，页面不横向滚动。
+关闭 header 保持可见；运营人员首先看到使用/管理分组导航，员工广场的搜索与发布状态 tab 位于名册之前。320 px 下导航在自身容器内横向滚动，单列员工卡始终显示“管理”与“发起对话”，页面不横向滚动。
 
 ## Alternatives considered
 
@@ -55,4 +55,4 @@ seed: enterprise-operations-deck-v1
 
 ## Consequences
 
-运营人员可以不离开 DSH overlay 就管理持久企业实体，同时原生会话仍是执行界面。运营台支持 320 px、平板和桌面布局；键盘焦点约束、Escape、dirty 离开确认、减少动效以及中英成对文案都是组件契约的一部分。能力绑定和策略正文仍是面向运营人员的 ID/JSON 输入，UI 刻意不展示生产力、SLA、百分比或推断的业务结果。聚焦 controller、React、API fallback、conflict、事件去重、mutation payload 和响应式样式的测试固定了这些边界。
+运营人员无需理解 Preset id、revision、owner id 或 binding id 即可选择员工，管理功能仍保留在同一 overlay 中，原生会话仍是执行界面。运营台支持 320 px、平板和桌面布局；键盘焦点约束、Escape、dirty 离开确认、减少动效以及中英成对文案都是组件契约的一部分。能力绑定和策略正文仍是面向管理人员的 ID/JSON 输入，UI 刻意不展示生产力、SLA、百分比或推断的业务结果。聚焦 controller、React、API fallback、conflict、事件去重、mutation payload 和响应式样式的测试固定了这些边界。
