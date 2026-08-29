@@ -5,6 +5,7 @@ import type {
   CordisScopeBinding,
   CordisSessionGeneration,
   CordisValidationReport,
+  CordisArtifactMetadata,
   DepartmentManagerSet,
   EnterpriseCordisAuditEvent,
 } from './types.ts'
@@ -270,6 +271,37 @@ export class PostgresEnterpriseCordisRepository implements EnterpriseCordisRepos
       row.clientCode ?? null, row.sourceDigest, JSON.stringify(row.manifest),
       row.artifactRef, row.validationReportRef, row.createdAt,
     ])
+  }
+
+  async putPackageWithArtifact(row: CordisPackageVersion, artifact: CordisArtifactMetadata): Promise<void> {
+    await this.database.transaction(async (database) => {
+      const result = await database.query(`INSERT INTO dsh_enterprise_cordis_artifacts(
+        artifact_ref,org_id,digest,size_bytes,storage_uri,created_at
+      ) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT DO NOTHING`, [
+        artifact.artifactRef, artifact.orgId, artifact.digest, artifact.sizeBytes,
+        artifact.storageUri, artifact.createdAt,
+      ])
+      if (result.rowCount !== 1) {
+        const existing = await database.query<Record<string, unknown>>(
+          'SELECT digest,org_id FROM dsh_enterprise_cordis_artifacts WHERE artifact_ref=$1', [artifact.artifactRef],
+        )
+        if (existing.rows[0]?.['digest'] !== artifact.digest || existing.rows[0]?.['org_id'] !== artifact.orgId) {
+          throw new Error('Cordis artifact metadata conflict')
+        }
+      }
+      await new PostgresEnterpriseCordisRepository(database).putPackage(row)
+    })
+  }
+
+  async artifact(artifactRef: string): Promise<CordisArtifactMetadata | undefined> {
+    const result = await this.database.query<Record<string, unknown>>(
+      'SELECT * FROM dsh_enterprise_cordis_artifacts WHERE artifact_ref=$1', [artifactRef],
+    )
+    const row = result.rows[0]
+    return row === undefined ? undefined : {
+      artifactRef: String(row['artifact_ref']), orgId: String(row['org_id']), digest: String(row['digest']),
+      sizeBytes: Number(row['size_bytes']), storageUri: String(row['storage_uri']), createdAt: Number(row['created_at']),
+    }
   }
 
   async listPackages(orgId: string): Promise<readonly CordisPackageVersion[]> {

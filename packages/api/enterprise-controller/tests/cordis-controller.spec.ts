@@ -19,6 +19,7 @@ const draft: CordisPackageDraft = {
   manifest: {
     apiVersion: 'dsh-plugin/v1', runtime: 'isolated-realm',
     provides: ['tool:validate_order'], capabilities: ['workspace.read'],
+    license: 'LicenseRef-Proprietary', dependencies: [],
   },
   artifactRef: 'artifact://orders/1', validationReportRef: 'report://orders/1',
 }

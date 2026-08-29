@@ -7,7 +7,11 @@ import {
   CordisDynamicPluginId,
 } from '@deepseek-ai/dsh-cordis-host-runner'
 import type { EnterpriseCordisPrincipal } from '@deepseek-ai/dsh-enterprise-cordis'
-import { EnterpriseCordisService } from '@deepseek-ai/dsh-enterprise-cordis'
+import {
+  EnterpriseCordisService,
+  FilesystemEnterpriseCordisArtifactStore,
+  InMemoryEnterpriseCordisArtifactStore,
+} from '@deepseek-ai/dsh-enterprise-cordis'
 import type {} from '@deepseek-ai/dsh-enterprise-auth-web'
 import type {} from '@deepseek-ai/dsh-enterprise-postgres'
 import type { EnterpriseIdentityStore, EnterpriseWorkspaceGrant } from '@deepseek-ai/dsh-enterprise-identity'
@@ -25,6 +29,10 @@ const POLICY = [
   'Use cordis_submit_department when a department Workspace extension should enter manager review.',
   'Do not persist experiments, failed Packages, or capabilities the user did not ask to keep.',
 ].join(' ')
+
+export interface Config {
+  readonly artifactRoot?: string
+}
 
 function identity(ctx: Context): EnterpriseIdentityStore {
   const composition = ctx.get('enterprisePostgres') as { identity?: EnterpriseIdentityStore } | undefined
@@ -76,6 +84,8 @@ function inspectedDraft(ctx: Context, agent: Agent, pluginId: string, packageId:
       runtime: 'isolated-realm' as const,
       provides: [`dynamic-cordis:${pluginId}`],
       capabilities: [],
+      license: 'LicenseRef-Proprietary',
+      dependencies: [],
     },
     artifactRef: `cordis-artifact://${agent.id}/${pluginId}/${packageId}`,
     validationReportRef: `cordis-validation://${agent.id}/${pluginId}/${packageId}`,
@@ -93,7 +103,7 @@ async function restoreWorkspaceGeneration(
     principal, workspaceId: grant.workspaceId, sessionId: String(agent.id),
   })
   for (const entry of generation.entries) {
-    const pkg = await ctx.enterprisePostgres.cordis.package(entry.packageId)
+    const pkg = await service.packageSource(entry.packageId)
     if (pkg === undefined) throw new Error(`enterprise Cordis Package ${entry.packageId} is missing`)
     const defined = ctx.dynamicCordisRunner.restoreApproved({
       sessionId: agent.id, idPrefix: 'ent', name: pkg.name, purpose: pkg.purpose,
@@ -110,8 +120,11 @@ async function restoreWorkspaceGeneration(
 }
 
 /** Provide the shared service and register persistence/review tools. */
-export function apply(ctx: Context): void {
+export function apply(ctx: Context, config: Config = {}): void {
   const composition = ctx.enterprisePostgres
+  const artifactStore = config.artifactRoot === undefined
+    ? new InMemoryEnterpriseCordisArtifactStore()
+    : new FilesystemEnterpriseCordisArtifactStore(config.artifactRoot)
   const service = new EnterpriseCordisService(composition.cordis, {
     directory: {
       workspace: async (workspaceId) => {
@@ -128,6 +141,7 @@ export function apply(ctx: Context): void {
         (await composition.cordis.departmentManagers(orgId, departmentId))?.managerUserIds.includes(userId) ?? false,
     },
     emit: (eventName, event) => { ctx.emit(eventName, event) },
+    artifactStore,
   })
   ctx.provide('enterpriseCordis', service)
   ctx.systemPrompt.section({ name: 'enterprise:cordis-persistence', order: 2550, text: POLICY })

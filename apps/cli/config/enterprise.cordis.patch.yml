@@ -85,6 +85,8 @@
 
     - id: enterprise-cordis-runtime
       name: '@deepseek-ai/dsh-enterprise-cordis-runtime'
+      config:
+        artifactRoot: !!js dshHomePath('enterprise/artifacts/cordis')
 
     - id: enterprise-controller
       name: '@deepseek-ai/dsh-api-enterprise-controller'

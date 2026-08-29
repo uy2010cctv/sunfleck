@@ -18,10 +18,19 @@ export interface DshPluginManifestV1 {
   readonly provides: readonly string[]
   readonly capabilities: readonly string[]
   readonly license?: string
+  readonly dependencies?: readonly DshPluginDependency[]
+}
+
+export interface DshPluginDependency {
+  readonly name: string
+  readonly version: string
+  readonly integrity: string
+  readonly license: string
 }
 
 export interface CordisValidationCheck {
   readonly id: 'manifest' | 'permissions' | 'isolation' | 'secrets' | 'host-api' | 'ui-lifecycle' | 'rollback'
+    | 'malware' | 'license' | 'supply-chain'
   readonly status: 'passed' | 'failed'
   readonly message: string
 }
@@ -32,6 +41,15 @@ export interface CordisValidationReport {
   readonly packageId: string
   readonly status: 'passed' | 'failed'
   readonly checks: readonly CordisValidationCheck[]
+  readonly createdAt: number
+}
+
+export interface CordisArtifactMetadata {
+  readonly artifactRef: string
+  readonly orgId: string
+  readonly digest: string
+  readonly sizeBytes: number
+  readonly storageUri: string
   readonly createdAt: number
 }
 

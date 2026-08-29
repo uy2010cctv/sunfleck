@@ -32,6 +32,8 @@ const draft: CordisPackageDraft = {
     runtime: 'isolated-realm',
     provides: ['tool:validate_order'],
     capabilities: ['workspace.read'],
+    license: 'LicenseRef-Proprietary',
+    dependencies: [],
   },
   artifactRef: 'artifact://orders/pkg-runtime-1',
   validationReportRef: 'report://orders/pkg-runtime-1',
@@ -173,12 +175,41 @@ describe('EnterpriseCordisService', () => {
       packageId: saved.packageId, status: 'passed',
       checks: expect.arrayContaining([expect.objectContaining({ id: 'isolation', status: 'passed' })]),
     })
+    expect(await repository.package(saved.packageId)).not.toHaveProperty('hostCode')
+    expect(await repository.artifact(saved.artifactRef)).toMatchObject({
+      artifactRef: saved.artifactRef, orgId: 'org-a', digest: expect.stringMatching(/^[a-f0-9]{64}$/),
+    })
+    expect((await cordis.listWorkspace({ principal: member, workspaceId: 'personal-1' })).packages)
+      .toEqual([expect.objectContaining({ packageId: saved.packageId, hostCode: draft.hostCode })])
     expect(events).toEqual(['enterprise/cordis-package-saved'])
 
     await expect(cordis.savePersonal({
       principal: member, workspaceId: 'personal-1',
       draft: { ...draft, dynamicPackageId: 'unsafe-runtime', hostCode: 'return process.env.API_KEY' },
       idempotencyKey: 'gated-unsafe',
+    })).rejects.toMatchObject({ code: 'validation-failed' })
+    await expect(cordis.savePersonal({
+      principal: member, workspaceId: 'personal-1',
+      draft: {
+        ...draft, dynamicPackageId: 'unsafe-dependency',
+        manifest: { ...draft.manifest, dependencies: [{
+          name: 'left-pad', version: '^1.3.0', integrity: '', license: 'MIT',
+        }] },
+      },
+      idempotencyKey: 'gated-dependency',
+    })).rejects.toMatchObject({ code: 'validation-failed' })
+    await expect(cordis.savePersonal({
+      principal: member, workspaceId: 'personal-1',
+      draft: {
+        ...draft, dynamicPackageId: 'unsafe-license',
+        manifest: { ...draft.manifest, license: 'AGPL-3.0-only' },
+      },
+      idempotencyKey: 'gated-license',
+    })).rejects.toMatchObject({ code: 'validation-failed' })
+    await expect(cordis.savePersonal({
+      principal: member, workspaceId: 'personal-1',
+      draft: { ...draft, dynamicPackageId: 'unsafe-eval', hostCode: 'return eval("({ apply() {} })")' },
+      idempotencyKey: 'gated-malware',
     })).rejects.toMatchObject({ code: 'validation-failed' })
   })
 

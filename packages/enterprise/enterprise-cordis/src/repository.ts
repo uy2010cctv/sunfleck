@@ -4,6 +4,7 @@ import type {
   CordisScopeBinding,
   CordisSessionGeneration,
   CordisValidationReport,
+  CordisArtifactMetadata,
   DepartmentManagerSet,
   EnterpriseCordisAuditEvent,
 } from './types.ts'
@@ -13,6 +14,8 @@ export interface EnterpriseCordisRepository {
   packages(pluginId: string, orgId: string): Promise<readonly CordisPackageVersion[]>
   listPackages(orgId: string): Promise<readonly CordisPackageVersion[]>
   putPackage(value: CordisPackageVersion): Promise<void>
+  putPackageWithArtifact(value: CordisPackageVersion, artifact: CordisArtifactMetadata): Promise<void>
+  artifact(artifactRef: string): Promise<CordisArtifactMetadata | undefined>
   review(reviewId: string): Promise<CordisReviewRequest | undefined>
   putReview(value: CordisReviewRequest, expectedRevision: number): Promise<void>
   approveDepartment(
@@ -49,6 +52,7 @@ function copy<T>(value: T): T { return structuredClone(value) }
 /** Deterministic in-memory adapter for domain tests and development composition. */
 export class InMemoryEnterpriseCordisRepository implements EnterpriseCordisRepository {
   private readonly packageRows = new Map<string, CordisPackageVersion>()
+  private readonly artifactRows = new Map<string, CordisArtifactMetadata>()
   private readonly reviewRows = new Map<string, CordisReviewRequest>()
   private readonly bindingRows = new Map<string, CordisScopeBinding>()
   private readonly commands = new Map<string, unknown>()
@@ -70,6 +74,21 @@ export class InMemoryEnterpriseCordisRepository implements EnterpriseCordisRepos
   async putPackage(value: CordisPackageVersion): Promise<void> {
     if (this.packageRows.has(value.packageId)) throw new Error(`Cordis package ${value.packageId} already exists`)
     this.packageRows.set(value.packageId, copy(value))
+  }
+
+  async putPackageWithArtifact(value: CordisPackageVersion, artifact: CordisArtifactMetadata): Promise<void> {
+    if (this.packageRows.has(value.packageId)) throw new Error(`Cordis package ${value.packageId} already exists`)
+    const currentArtifact = this.artifactRows.get(artifact.artifactRef)
+    if (currentArtifact !== undefined && currentArtifact.digest !== artifact.digest) {
+      throw new Error('Cordis artifact metadata conflict')
+    }
+    this.artifactRows.set(artifact.artifactRef, copy(artifact))
+    this.packageRows.set(value.packageId, copy(value))
+  }
+
+  async artifact(artifactRef: string): Promise<CordisArtifactMetadata | undefined> {
+    const value = this.artifactRows.get(artifactRef)
+    return value === undefined ? undefined : copy(value)
   }
 
   async listPackages(orgId: string): Promise<readonly CordisPackageVersion[]> {

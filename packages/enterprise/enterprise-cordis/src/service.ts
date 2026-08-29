@@ -1,6 +1,11 @@
 import { createHash, randomUUID } from 'node:crypto'
 import type { EnterpriseRole } from '@deepseek-ai/dsh-enterprise-governance'
 import type { EnterpriseCordisRepository } from './repository.ts'
+import {
+  InMemoryEnterpriseCordisArtifactStore,
+  type EnterpriseCordisArtifactStore,
+} from './artifact-store.ts'
+import { BuiltinEnterpriseCordisScanner, type EnterpriseCordisScanner } from './scanner.ts'
 import type {
   CordisPackageDraft,
   CordisPackageVersion,
@@ -44,6 +49,8 @@ export interface EnterpriseCordisServiceOptions {
   readonly now?: () => number
   readonly randomId?: (prefix: string) => string
   readonly emit?: (name: EnterpriseCordisEventName, event: EnterpriseCordisEvent) => void
+  readonly artifactStore?: EnterpriseCordisArtifactStore
+  readonly scanners?: readonly EnterpriseCordisScanner[]
 }
 
 declare module '@deepseek-ai/cordis' {
@@ -89,6 +96,8 @@ export class EnterpriseCordisService {
   private readonly now: () => number
   private readonly randomId: (prefix: string) => string
   private readonly inFlight = new Map<string, Promise<unknown>>()
+  private readonly artifactStore: EnterpriseCordisArtifactStore
+  private readonly scanners: readonly EnterpriseCordisScanner[]
 
   constructor(
     private readonly repository: EnterpriseCordisRepository,
@@ -96,6 +105,8 @@ export class EnterpriseCordisService {
   ) {
     this.now = options.now ?? Date.now
     this.randomId = options.randomId ?? (prefix => `${prefix}-${randomUUID()}`)
+    this.artifactStore = options.artifactStore ?? new InMemoryEnterpriseCordisArtifactStore()
+    this.scanners = [new BuiltinEnterpriseCordisScanner(), ...(options.scanners ?? [])]
   }
 
   private emit(name: EnterpriseCordisEventName, event: Omit<EnterpriseCordisEvent, 'at'>): void {
@@ -124,12 +135,12 @@ export class EnterpriseCordisService {
     }
   }
 
-  private validationChecks(draft: CordisPackageDraft): readonly CordisValidationCheck[] {
+  private async validationChecks(draft: CordisPackageDraft): Promise<readonly CordisValidationCheck[]> {
     const source = `${draft.hostCode ?? ''}\n${draft.clientCode ?? ''}`
     const check = (id: CordisValidationCheck['id'], passed: boolean, message: string): CordisValidationCheck => ({
       id, status: passed ? 'passed' : 'failed', message,
     })
-    return [
+    const structural = [
       check('manifest', draft.manifest.apiVersion === 'dsh-plugin/v1'
         && draft.name.trim() !== '' && draft.purpose.trim() !== ''
         && (draft.hostCode !== undefined || draft.clientCode !== undefined), 'Manifest, identity, and package halves are valid.'),
@@ -141,6 +152,8 @@ export class EnterpriseCordisService {
       check('ui-lifecycle', draft.clientCode === undefined || /\breturn\b/u.test(draft.clientCode), 'Client source exposes a loadable lifecycle value.'),
       check('rollback', true, 'Immutable Package source supports pointer rollback.'),
     ]
+    const scanned = (await Promise.all(this.scanners.map(scanner => scanner.scan(draft)))).flat()
+    return [...structural, ...scanned]
   }
 
   private async workspace(principal: EnterpriseCordisPrincipal, workspaceId: string) {
@@ -193,16 +206,30 @@ export class EnterpriseCordisService {
     const previous = await this.repository.packages(input.draft.pluginId, input.principal.orgId)
     const packageId = this.randomId('cordis-package')
     const validationReportRef = `${input.draft.validationReportRef}#${packageId}`
-    const checks = this.validationChecks(input.draft)
+    const checks = await this.validationChecks(input.draft)
     await this.repository.putValidationReport({
       reportRef: validationReportRef, orgId: input.principal.orgId, packageId,
       status: checks.some(check => check.status === 'failed') ? 'failed' : 'passed',
       checks, createdAt: this.now(),
     })
     this.validateDraft(input.draft)
+    if (checks.some(check => check.status === 'failed')) {
+      throw new EnterpriseCordisError('validation-failed', 'Cordis package did not pass the automatic validation pipeline')
+    }
+    const artifact = await this.artifactStore.put({
+      orgId: input.principal.orgId, pluginId: input.draft.pluginId,
+      name: input.draft.name, purpose: input.draft.purpose,
+      ...(input.draft.hostCode === undefined ? {} : { hostCode: input.draft.hostCode }),
+      ...(input.draft.clientCode === undefined ? {} : { clientCode: input.draft.clientCode }),
+    })
+    const {
+      hostCode: _hostCode, clientCode: _clientCode, artifactRef: _requestedArtifactRef,
+      ...metadataDraft
+    } = input.draft
     const value: CordisPackageVersion = {
-      ...input.draft,
+      ...metadataDraft,
       packageId,
+      artifactRef: artifact.artifactRef,
       validationReportRef,
       orgId: input.principal.orgId,
       version: previous.length + 1,
@@ -213,8 +240,28 @@ export class EnterpriseCordisService {
       sourceDigest: digest(input.draft),
       createdAt: this.now(),
     }
-    await this.repository.putPackage(value)
-    return value
+    await this.repository.putPackageWithArtifact(value, {
+      ...artifact, orgId: input.principal.orgId, createdAt: value.createdAt,
+    })
+    return this.hydrate(value)
+  }
+
+  private async hydrate(pkg: CordisPackageVersion): Promise<CordisPackageVersion> {
+    if (pkg.hostCode !== undefined || pkg.clientCode !== undefined) return pkg
+    const source = await this.artifactStore.read(pkg.artifactRef)
+    if (source.orgId !== pkg.orgId || source.pluginId !== pkg.pluginId) {
+      throw new EnterpriseCordisError('validation-failed', 'Cordis artifact ownership mismatch')
+    }
+    return {
+      ...pkg,
+      ...(source.hostCode === undefined ? {} : { hostCode: source.hostCode }),
+      ...(source.clientCode === undefined ? {} : { clientCode: source.clientCode }),
+    }
+  }
+
+  async packageSource(packageId: string): Promise<CordisPackageVersion | undefined> {
+    const pkg = await this.repository.package(packageId)
+    return pkg === undefined ? undefined : this.hydrate(pkg)
   }
 
   async savePersonal(input: {
@@ -250,7 +297,8 @@ export class EnterpriseCordisService {
       if (workspace.kind !== 'personal' || workspace.ownerUserId !== input.principal.userId) {
         throw new EnterpriseCordisError('personal-owner-required', 'Personal Workspace owner permission is required')
       }
-      const pkg = await this.repository.package(input.packageId)
+      const storedPackage = await this.repository.package(input.packageId)
+      const pkg = storedPackage === undefined ? undefined : await this.hydrate(storedPackage)
       if (pkg === undefined || pkg.orgId !== input.principal.orgId || pkg.pluginId !== input.pluginId) {
         throw new EnterpriseCordisError('package-not-found', 'Cordis package was not found')
       }
@@ -394,7 +442,8 @@ export class EnterpriseCordisService {
       const review = await this.review(input)
       if (review.revision !== input.expectedRevision) throw new EnterpriseCordisError('revision-conflict', 'Cordis review revision conflict')
       if (review.packageId !== input.packageId) throw new EnterpriseCordisError('review-package-mismatch', 'Review package mismatch')
-      const pkg = await this.repository.package(input.packageId)
+      const storedPackage = await this.repository.package(input.packageId)
+      const pkg = storedPackage === undefined ? undefined : await this.hydrate(storedPackage)
       if (pkg === undefined) throw new EnterpriseCordisError('package-not-found', 'Cordis package was not found')
       this.validateDraft(pkg)
       const report = await this.repository.validationReport(pkg.validationReportRef)
@@ -641,7 +690,8 @@ export class EnterpriseCordisService {
       || (workspace.kind === 'department' && scope.type === 'department'
         && scope.departmentId === workspace.departmentId)
     return {
-      packages: (await this.repository.listPackages(input.principal.orgId)).filter(row => visible(row.scope)),
+      packages: await Promise.all((await this.repository.listPackages(input.principal.orgId))
+        .filter(row => visible(row.scope)).map(row => this.hydrate(row))),
       bindings: (await this.repository.listBindings(input.principal.orgId)).filter(row => visible(row.scope)),
     }
   }
