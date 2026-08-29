@@ -41,6 +41,7 @@ export interface EnterpriseGovernanceSurfaceProps {
     sortOrder: number
     expectedRevision: number
   }): Promise<void>
+  setDepartmentManagers?(departmentId: string, managerUserIds: readonly string[], expectedRevision: number): Promise<void>
   createWorkspace(input: { name: string; idempotencyKey: string }): Promise<void>
   updateWorkspace(workspaceId: string, input: {
     sandboxMode: 'read-only' | 'workspace-write'
@@ -125,8 +126,8 @@ function DepartmentBranch({
   </ul>
 }
 
-function OrganizationsSection({ state, saveDepartment }: Pick<
-  EnterpriseGovernanceSurfaceProps, 'state' | 'saveDepartment'
+function OrganizationsSection({ state, saveDepartment, setDepartmentManagers }: Pick<
+  EnterpriseGovernanceSurfaceProps, 'state' | 'saveDepartment' | 'setDepartmentManagers'
 >) {
   const organizationId = state.auth?.principal?.orgId ?? state.auth?.organizationId
   const organization = state.organizations.find(item => item.id === organizationId)
@@ -145,6 +146,9 @@ function OrganizationsSection({ state, saveDepartment }: Pick<
   const [saving, setSaving] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set(departments.map(item => item.id)))
+  const [managerIds, setManagerIds] = useState<string[]>([])
+  const [managerSaving, setManagerSaving] = useState(false)
+  const [managerError, setManagerError] = useState<string | null>(null)
   const selected = departments.find(item => item.id === selectedId)
   const select = (department: GovernanceDepartment): void => {
     setIsCreating(false)
@@ -179,6 +183,7 @@ function OrganizationsSection({ state, saveDepartment }: Pick<
   const selectedUsers = selectedId === undefined
     ? []
     : state.users.filter(user => user.departmentIds?.includes(selectedId) === true)
+  const managerSet = selectedId === undefined ? undefined : state.departmentManagers[selectedId]
   useEffect(() => {
     setExpanded(current => new Set([...current, ...departments.map(item => item.id)]))
     if (isCreating || selectedId !== undefined || departments[0] === undefined) return
@@ -186,6 +191,10 @@ function OrganizationsSection({ state, saveDepartment }: Pick<
     setSelectedId(department.id); setDepartmentId(department.id); setDepartmentName(department.name)
     setParentId(department.parentId ?? ''); setSortOrder(String(department.sortOrder))
   }, [departments, isCreating, selectedId])
+  useEffect(() => {
+    setManagerIds([...(managerSet?.managerUserIds ?? [])])
+    setManagerError(null)
+  }, [managerSet?.revision, selectedId])
   return <section className={css.ledgerSection}>
     <header className={css.directoryHeader}>
       <div><h2>组织架构</h2><p>按部门查看成员，并维护上下级关系。</p></div>
@@ -256,6 +265,34 @@ function OrganizationsSection({ state, saveDepartment }: Pick<
             </button>
           </div>
         </form>
+        {selected !== undefined && <fieldset className={css.managerEditor} aria-label="部门负责人" disabled={managerSaving}>
+          <legend>部门负责人</legend>
+          <p>负责人可审核部门 Cordis 扩展，并发布本部门通过验证的组织插件。</p>
+          <div className={css.managerChoices}>
+            {selectedUsers.length === 0
+              ? <span className={css.emptyState}>请先为该部门分配成员。</span>
+              : selectedUsers.map(user => <label key={user.id}>
+                <input type="checkbox" aria-label={user.displayName} checked={managerIds.includes(user.id)} disabled={user.disabled}
+                  onChange={(event) => { setManagerIds(current => event.target.checked
+                    ? [...current, user.id] : current.filter(id => id !== user.id)) }} />
+                <span><strong>{user.displayName}</strong><small>@{user.username}{user.disabled ? ' · 已停用' : ''}</small></span>
+              </label>)}
+          </div>
+          {managerError !== null && <div className={css.formError} role="alert">{managerError}</div>}
+          <div className={css.managerActions}><button type="button" disabled={managerSaving}
+            onClick={() => {
+              const save = async (): Promise<void> => {
+                setManagerSaving(true); setManagerError(null)
+                try {
+                  if (setDepartmentManagers === undefined) throw new Error('department manager service is unavailable')
+                  await setDepartmentManagers(selected.id, managerIds, managerSet?.revision ?? 0)
+                } catch {
+                  setManagerError('保存部门负责人失败，请刷新后重试')
+                } finally { setManagerSaving(false) }
+              }
+              void save()
+            }}>{managerSaving ? '正在保存…' : '保存部门负责人'}</button></div>
+        </fieldset>}
         {selected !== undefined && <div className={css.departmentEvidence}>
           <div><span>成员</span><strong>{selectedUsers.length}</strong></div>
           <div><span>共享工作区</span><strong>{selectedWorkspaces.length}</strong></div>
@@ -846,6 +883,7 @@ const GOVERNANCE_TABS: readonly { id: GovernancePage; label: string }[] = [
 function GovernanceSections(props: EnterpriseGovernanceSurfaceProps) {
   const [active, setActive] = useState<GovernancePage>('organizations')
   const tabRefs = useRef<Array<HTMLButtonElement | null>>([])
+  const setDepartmentManagers = props.setDepartmentManagers
   const selectByKeyboard = (event: KeyboardEvent<HTMLButtonElement>, index: number): void => {
     let next: number | undefined
     if (event.key === 'ArrowRight') next = (index + 1) % GOVERNANCE_TABS.length
@@ -885,7 +923,11 @@ function GovernanceSections(props: EnterpriseGovernanceSurfaceProps) {
     </div>
     {props.state.error !== null && <div className={css.error} role="alert">{props.state.error}</div>}
     {panel('organizations', <OrganizationsSection state={props.state}
-      saveDepartment={input => props.saveDepartment(input)} />)}
+      saveDepartment={input => props.saveDepartment(input)}
+      {...setDepartmentManagers === undefined ? {} : {
+        setDepartmentManagers: (departmentId: string, managerUserIds: readonly string[], expectedRevision: number) =>
+          setDepartmentManagers(departmentId, managerUserIds, expectedRevision),
+      }} />)}
     {panel('users', <UsersSection {...props} />)}
     {panel('workspaces', <WorkspacesSection state={props.state}
       createWorkspace={input => props.createWorkspace(input)}

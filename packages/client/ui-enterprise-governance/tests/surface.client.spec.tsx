@@ -17,6 +17,7 @@ function state(value: Partial<EnterpriseGovernanceState>): EnterpriseGovernanceS
       providers: [{ id: 'local', kind: 'local', label: 'Local account' }],
     },
     organizations: [], users: [], departments: [], workspaces: [], memories: [], assets: [], policies: [], audit: [],
+    departmentManagers: {},
     ...value,
   }
 }
@@ -96,7 +97,7 @@ describe('enterprise governance UI', () => {
     }
     const loading: EnterpriseGovernanceState = {
       phase: 'loading', error: null, organizations: [], users: [], departments: [], workspaces: [], memories: [],
-      assets: [], policies: [], audit: [],
+      assets: [], policies: [], audit: [], departmentManagers: {},
     }
     const { rerender } = render(<EnterpriseGovernanceSurface state={loading} {...props} />)
     expect(screen.getByLabelText('组织')).toHaveProperty('value', '')
@@ -268,7 +269,7 @@ describe('enterprise governance UI', () => {
     />)
     fireEvent.click(screen.getByRole('tab', { name: '用户管理' }))
 
-    expect(screen.getByText('@admin')).toBeDefined()
+    expect(screen.getAllByText('@admin').length).toBeGreaterThan(0)
     expect(screen.getByText('测试部 · 主部门')).toBeDefined()
     expect(screen.queryByLabelText('Enterprise Administrator 部门')).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: '编辑用户：Enterprise Administrator' }))
@@ -387,6 +388,43 @@ describe('enterprise governance UI', () => {
     expect(within(tree).queryByText('采购员')).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: '展开运营部' }))
     expect(within(tree).getByText('采购员')).toBeDefined()
+  })
+
+  it('assigns multiple department managers from department members', async () => {
+    const setDepartmentManagers = vi.fn(() => Promise.resolve())
+    render(<EnterpriseGovernanceSettingsSection
+      state={state({
+        auth: {
+          authenticated: true,
+          principal: { userId: 'admin-1', orgId: 'org-a', displayName: 'Admin', username: 'admin', roles: ['administrator'] },
+          providers: [],
+        },
+        departments: [{
+          id: 'dept-ops', orgId: 'org-a', parentId: null, name: '运营部', sortOrder: 0,
+          revision: 1, createdAt: 1, updatedAt: 1,
+        }],
+        users: [
+          { id: 'leader-1', username: 'leader', displayName: '部门主管', disabled: false, roles: ['member'], departmentIds: ['dept-ops'] },
+          { id: 'member-1', username: 'member', displayName: '部门成员', disabled: false, roles: ['member'], departmentIds: ['dept-ops'] },
+        ],
+        departmentManagers: { 'dept-ops': {
+          orgId: 'org-a', departmentId: 'dept-ops', managerUserIds: ['leader-1'],
+          revision: 1, updatedBy: 'admin-1', updatedAt: 1,
+        } },
+      })}
+      loadAdmin={vi.fn()} loginLocal={vi.fn()} logout={vi.fn()} createOrganization={vi.fn()}
+      createAsset={vi.fn()} createUser={vi.fn()} updateUser={vi.fn()} saveDepartment={vi.fn()}
+      setDepartmentManagers={setDepartmentManagers}
+      createWorkspace={vi.fn()} updateWorkspace={vi.fn()} proposeMemory={vi.fn()} reviewMemory={vi.fn()}
+      savePolicy={vi.fn()} filterAudit={vi.fn()}
+    />)
+
+    const managers = screen.getByRole('group', { name: '部门负责人' })
+    expect(within(managers).getByLabelText('部门主管')).toHaveProperty('checked', true)
+    fireEvent.click(within(managers).getByLabelText('部门成员'))
+    fireEvent.click(screen.getByRole('button', { name: '保存部门负责人' }))
+
+    await waitFor(() => { expect(setDepartmentManagers).toHaveBeenCalledWith('dept-ops', ['leader-1', 'member-1'], 1) })
   })
 
   it('creates a department without asking for an internal ID and reports failures', async () => {

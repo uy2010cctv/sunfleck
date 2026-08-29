@@ -36,6 +36,12 @@ async function bench(roles: readonly string[]) {
   vi.stubGlobal('fetch', fetcher)
   const ctx = new Context()
   await ctx.plugin(SlotRegistry).await()
+  const cordisGovernance = {
+    departmentManagers: () => Promise.resolve({ ok: true, value: null }),
+    setDepartmentManagers: () => Promise.resolve({ ok: true, value: {} }),
+  }
+  ctx.provide('remote' as never, { cordisGovernance } as never)
+  ctx.provide('remote.cordisGovernance' as never, cordisGovernance as never)
   ctx.slots.register({
     name: 'root',
     children: {

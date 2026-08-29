@@ -587,6 +587,15 @@ export class EnterpriseCordisService {
       if (!isAdmin(input.principal.roles)) {
         throw new EnterpriseCordisError('administrator-required', 'Administrator permission is required')
       }
+      for (const userId of new Set(input.managerUserIds)) {
+        const memberships = await this.options.directory.userDepartments(input.principal.orgId, userId)
+        if (!memberships.includes(input.departmentId)) {
+          throw new EnterpriseCordisError(
+            'department-member-required',
+            `Department manager ${userId} must belong to department ${input.departmentId}`,
+          )
+        }
+      }
       const current = await this.repository.departmentManagers(input.principal.orgId, input.departmentId)
       if ((current?.revision ?? 0) !== input.expectedRevision) {
         throw new EnterpriseCordisError('revision-conflict', 'Department manager revision conflict')

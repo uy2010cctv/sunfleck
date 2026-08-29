@@ -50,7 +50,17 @@ describe('EnterpriseGovernanceController', () => {
       if (path.endsWith('/audit')) return Promise.resolve(response([{ id: 'audit-1', action: 'user.manage' }]))
       throw new Error(path)
     })
-    const controller = new EnterpriseGovernanceController(fetcher)
+    const cordisGovernance = {
+      departmentManagers: vi.fn(() => Promise.resolve({ ok: true, value: {
+        orgId: 'org-a', departmentId: 'dept-1', managerUserIds: ['admin-1'],
+        revision: 1, updatedBy: 'admin-1', updatedAt: 1,
+      } })),
+      setDepartmentManagers: vi.fn(() => Promise.resolve({ ok: true, value: {
+        orgId: 'org-a', departmentId: 'dept-1', managerUserIds: ['admin-1'],
+        revision: 2, updatedBy: 'admin-1', updatedAt: 2,
+      } })),
+    }
+    const controller = new EnterpriseGovernanceController(fetcher, cordisGovernance as never)
     await controller.refreshAuth()
     expect(controller.store.getSnapshot().auth?.principal?.userId).toBe('admin-1')
 
@@ -61,8 +71,15 @@ describe('EnterpriseGovernanceController', () => {
       departments: [{ id: 'dept-1', name: 'Operations', parentId: null }],
       workspaces: [{ workspaceId: 'workspace-1', kind: 'personal' }],
       memories: [{ id: 'memory-1', status: 'proposed' }],
+      departmentManagers: { 'dept-1': expect.objectContaining({ managerUserIds: ['admin-1'], revision: 1 }) },
       policies: [], audit: [{ id: 'audit-1', action: 'user.manage' }],
     })
+
+    await controller.setDepartmentManagers('dept-1', ['admin-1'], 1)
+    expect(cordisGovernance.setDepartmentManagers).toHaveBeenCalledWith(expect.objectContaining({
+      departmentId: 'dept-1', managerUserIds: ['admin-1'], expectedRevision: 1,
+    }))
+    expect(controller.store.getSnapshot().departmentManagers['dept-1']?.revision).toBe(2)
   })
 
   it('submits local credentials without retaining the password and refreshes status', async () => {

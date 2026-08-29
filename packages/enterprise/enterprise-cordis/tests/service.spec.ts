@@ -44,7 +44,8 @@ function directory(): EnterpriseCordisDirectory {
       : workspaceId === 'department-1'
         ? { workspaceId, orgId: 'org-a', kind: 'department', departmentId: 'dept-a' }
         : undefined,
-    userDepartments: async (_orgId, userId) => userId === 'member-1' ? ['dept-a'] : [],
+    userDepartments: async (_orgId, userId) =>
+      ['member-1', 'manager-1', 'manager-2'].includes(userId) ? ['dept-a'] : [],
     isDepartmentManager: async (_orgId, departmentId, userId) =>
       departmentId === 'dept-a' && userId === 'manager-1',
   }
@@ -303,6 +304,10 @@ describe('EnterpriseCordisService', () => {
       principal: member, departmentId: 'dept-a', managerUserIds: ['member-1'],
       expectedRevision: 1, idempotencyKey: 'managers-member',
     })).rejects.toMatchObject({ code: 'administrator-required' })
+    await expect(cordis.setDepartmentManagers({
+      principal: admin, departmentId: 'dept-a', managerUserIds: ['outsider'],
+      expectedRevision: 1, idempotencyKey: 'managers-outsider',
+    })).rejects.toMatchObject({ code: 'department-member-required' })
   })
 
   it('projects only the caller-visible Workspace extensions and reviews', async () => {

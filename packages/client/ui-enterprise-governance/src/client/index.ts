@@ -5,14 +5,15 @@ import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
+import type {} from '@deepseek-ai/dsh-api-remotes/client'
 import { EnterpriseGovernanceController } from './controller.ts'
 import { GovernanceAuthGateSlot, GovernanceSettingsSlot } from './slots.tsx'
 import { EnterpriseAccountCard } from './EnterpriseAccountCard.tsx'
 
-export const inject = ['slots']
+export const inject = ['slots', 'remote', 'remote.cordisGovernance']
 
 export function apply(ctx: Context): void {
-  const controller = new EnterpriseGovernanceController()
+  const controller = new EnterpriseGovernanceController(undefined, ctx.remote.cordisGovernance)
   void controller.refreshAuth()
   ctx.slots.inject('settings.section', () => {
     let disposeSection: (() => void) | undefined

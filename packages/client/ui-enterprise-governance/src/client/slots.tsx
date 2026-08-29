@@ -19,6 +19,8 @@ export function GovernanceSettingsSlot({ useGovernance, controller }: {
     createAsset={input => controller.createAsset(input)}
     updateUser={(id, input) => controller.updateUser(id, input)}
     saveDepartment={input => controller.saveDepartment(input)}
+    setDepartmentManagers={(departmentId, managerUserIds, expectedRevision) =>
+      controller.setDepartmentManagers(departmentId, managerUserIds, expectedRevision)}
     createWorkspace={input => controller.createWorkspace(input)}
     updateWorkspace={(id, input) => controller.updateWorkspace(id, input)}
     proposeMemory={input => controller.proposeMemory(input)}
@@ -41,6 +43,8 @@ export function GovernanceAuthGateSlot({ useGovernance, controller }: {
     createAsset={input => controller.createAsset(input)}
     updateUser={(id, input) => controller.updateUser(id, input)}
     saveDepartment={input => controller.saveDepartment(input)}
+    setDepartmentManagers={(departmentId, managerUserIds, expectedRevision) =>
+      controller.setDepartmentManagers(departmentId, managerUserIds, expectedRevision)}
     createWorkspace={input => controller.createWorkspace(input)}
     updateWorkspace={(id, input) => controller.updateWorkspace(id, input)}
     proposeMemory={input => controller.proposeMemory(input)}
