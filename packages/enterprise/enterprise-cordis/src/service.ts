@@ -59,12 +59,47 @@ declare module '@deepseek-ai/cordis' {
     enterpriseCordis: EnterpriseCordisService
   }
   interface Events {
+    /**
+     * An immutable enterprise Cordis Package version was persisted.
+     * @param event - Package, scope, actor, and organization correlation data.
+     * @mode emit
+     */
     'enterprise/cordis-package-saved'(event: EnterpriseCordisEvent): void
+    /**
+     * A department Cordis Package entered manager review.
+     * @param event - Review target, actor, and organization correlation data.
+     * @mode emit
+     */
     'enterprise/cordis-review-requested'(event: EnterpriseCordisEvent): void
+    /**
+     * A Cordis review changed status or selected a derived Package.
+     * @param event - Review target, actor, and organization correlation data.
+     * @mode emit
+     */
     'enterprise/cordis-review-updated'(event: EnterpriseCordisEvent): void
+    /**
+     * A validated Package became the active department binding.
+     * @param event - Activated Package, scope, actor, and organization correlation data.
+     * @mode emit
+     */
     'enterprise/cordis-department-activated'(event: EnterpriseCordisEvent): void
+    /**
+     * A validated Package became the active organization binding.
+     * @param event - Published Package, scope, actor, and organization correlation data.
+     * @mode emit
+     */
     'enterprise/cordis-organization-published'(event: EnterpriseCordisEvent): void
+    /**
+     * The observed health of an enterprise Cordis run changed.
+     * @param event - Run health, Package, scope, and organization correlation data.
+     * @mode emit
+     */
     'enterprise/cordis-run-health-updated'(event: EnterpriseCordisEvent): void
+    /**
+     * An enterprise Cordis binding was stopped by governance.
+     * @param event - Disabled Package, scope, actor, and organization correlation data.
+     * @mode emit
+     */
     'enterprise/cordis-plugin-disabled'(event: EnterpriseCordisEvent): void
   }
 }
@@ -92,6 +127,7 @@ function digest(draft: CordisPackageDraft): string {
 
 function isAdmin(roles: readonly EnterpriseRole[]): boolean { return roles.includes('administrator') }
 
+/** Governs immutable enterprise Cordis Packages, bindings, reviews, and Session Generations. */
 export class EnterpriseCordisService {
   private readonly now: () => number
   private readonly randomId: (prefix: string) => string
@@ -141,8 +177,7 @@ export class EnterpriseCordisService {
       id, status: passed ? 'passed' : 'failed', message,
     })
     const structural = [
-      check('manifest', draft.manifest.apiVersion === 'dsh-plugin/v1'
-        && draft.name.trim() !== '' && draft.purpose.trim() !== ''
+      check('manifest', draft.name.trim() !== '' && draft.purpose.trim() !== ''
         && (draft.hostCode !== undefined || draft.clientCode !== undefined), 'Manifest, identity, and package halves are valid.'),
       check('permissions', draft.manifest.capabilities.every(capability => CAPABILITIES.has(capability))
         && draft.manifest.provides.every(contract => !PROTECTED.has(contract)), 'Capabilities are declared and protected contracts are excluded.'),
@@ -259,11 +294,21 @@ export class EnterpriseCordisService {
     }
   }
 
+  /**
+   * Load one Package and hydrate its verified source artifact.
+   * @param packageId - immutable Package identity.
+   * @returns hydrated Package when it exists.
+   */
   async packageSource(packageId: string): Promise<CordisPackageVersion | undefined> {
     const pkg = await this.repository.package(packageId)
     return pkg === undefined ? undefined : this.hydrate(pkg)
   }
 
+  /**
+   * Persist an immutable Package owned by a personal Workspace.
+   * @param input - authenticated principal, Workspace, draft, and idempotency key.
+   * @returns saved Package version.
+   */
   async savePersonal(input: {
     principal: EnterpriseCordisPrincipal
     workspaceId: string
@@ -284,6 +329,11 @@ export class EnterpriseCordisService {
     })
   }
 
+  /**
+   * Activate a personal Workspace Package using revision compare-and-swap.
+   * @param input - principal, Workspace, Package, revision, and idempotency data.
+   * @returns updated personal binding.
+   */
   async activatePersonal(input: {
     principal: EnterpriseCordisPrincipal
     workspaceId: string
@@ -322,6 +372,11 @@ export class EnterpriseCordisService {
     })
   }
 
+  /**
+   * Submit a department Workspace Package for manager review.
+   * @param input - principal, Workspace, source Session, draft, and idempotency data.
+   * @returns created review request.
+   */
   async submitDepartment(input: {
     principal: EnterpriseCordisPrincipal
     workspaceId: string
@@ -364,6 +419,11 @@ export class EnterpriseCordisService {
     return review
   }
 
+  /**
+   * Create an immutable manager-derived Package for an existing review.
+   * @param input - principal, review, revised draft, CAS revision, and idempotency data.
+   * @returns derived Package and new review revision.
+   */
   async deriveReview(input: {
     principal: EnterpriseCordisPrincipal
     reviewId: string
@@ -390,6 +450,11 @@ export class EnterpriseCordisService {
     })
   }
 
+  /**
+   * Approve a Package for department use or return it to its author.
+   * @param input - principal, review transition, reason, CAS revision, and idempotency data.
+   * @returns updated review request.
+   */
   async reviewDepartment(input: {
     principal: EnterpriseCordisPrincipal
     reviewId: string
@@ -431,6 +496,11 @@ export class EnterpriseCordisService {
     })
   }
 
+  /**
+   * Publish a validated department Package as the organization binding.
+   * @param input - principal, review Package, CAS revision, and idempotency data.
+   * @returns publication result and organization binding.
+   */
   async publishOrganization(input: {
     principal: EnterpriseCordisPrincipal
     reviewId: string
@@ -470,6 +540,11 @@ export class EnterpriseCordisService {
     })
   }
 
+  /**
+   * Emergency-disable a binding as an enterprise administrator.
+   * @param input - principal, binding, reason, CAS revision, and idempotency data.
+   * @returns disabled binding.
+   */
   async emergencyDisable(input: {
     principal: EnterpriseCordisPrincipal
     bindingId: string
@@ -502,6 +577,11 @@ export class EnterpriseCordisService {
     throw new EnterpriseCordisError('administrator-required', 'Administrator permission is required')
   }
 
+  /**
+   * Stop a binding within the caller's governed scope.
+   * @param input - principal, binding, reason, CAS revision, and idempotency data.
+   * @returns disabled binding.
+   */
   async stopBinding(input: {
     principal: EnterpriseCordisPrincipal
     bindingId: string
@@ -528,6 +608,11 @@ export class EnterpriseCordisService {
     })
   }
 
+  /**
+   * Move a binding pointer to an older immutable Package.
+   * @param input - principal, binding, Package, reason, CAS revision, and idempotency data.
+   * @returns updated binding.
+   */
   async rollbackBinding(input: {
     principal: EnterpriseCordisPrincipal
     bindingId: string
@@ -565,6 +650,11 @@ export class EnterpriseCordisService {
     })
   }
 
+  /**
+   * Set isolated or trusted in-process execution for an organization binding.
+   * @param input - administrator principal, binding, trust level, reason, and CAS data.
+   * @returns updated organization binding.
+   */
   async setTrust(input: {
     principal: EnterpriseCordisPrincipal
     bindingId: string
@@ -600,6 +690,11 @@ export class EnterpriseCordisService {
     })
   }
 
+  /**
+   * Capture the visible active bindings for one Session exactly once.
+   * @param input - principal, Workspace, and Session identity.
+   * @returns immutable Session Generation.
+   */
   async pinSessionGeneration(input: {
     principal: EnterpriseCordisPrincipal
     workspaceId: string
@@ -626,6 +721,11 @@ export class EnterpriseCordisService {
     return value
   }
 
+  /**
+   * Replace a department's manager set after membership validation.
+   * @param input - administrator principal, department members, CAS revision, and idempotency data.
+   * @returns updated department manager set.
+   */
   async setDepartmentManagers(input: {
     principal: EnterpriseCordisPrincipal
     departmentId: string
@@ -666,10 +766,21 @@ export class EnterpriseCordisService {
     })
   }
 
+  /**
+   * Read a department's manager set.
+   * @param orgId - owning organization.
+   * @param departmentId - department identity.
+   * @returns manager set when configured.
+   */
   async departmentManagers(orgId: string, departmentId: string): Promise<DepartmentManagerSet | undefined> {
     return this.repository.departmentManagers(orgId, departmentId)
   }
 
+  /**
+   * List Packages and bindings visible to a governed Workspace.
+   * @param input - principal and Workspace identity.
+   * @returns visible extension projection.
+   */
   async listWorkspace(input: {
     principal: EnterpriseCordisPrincipal
     workspaceId: string
@@ -696,6 +807,11 @@ export class EnterpriseCordisService {
     }
   }
 
+  /**
+   * List reviews authored by or governed by the caller.
+   * @param input - authenticated principal.
+   * @returns visible review requests.
+   */
   async listReviews(input: { principal: EnterpriseCordisPrincipal }): Promise<readonly CordisReviewRequest[]> {
     const reviews = await this.repository.listReviews(input.principal.orgId)
     if (isAdmin(input.principal.roles)) return reviews
@@ -709,5 +825,10 @@ export class EnterpriseCordisService {
     return visible
   }
 
+  /**
+   * Append an explicit Cordis governance audit event.
+   * @param event - immutable audit record.
+   * @returns when the event has been persisted.
+   */
   async audit(event: EnterpriseCordisAuditEvent): Promise<void> { await this.repository.appendAudit(event) }
 }

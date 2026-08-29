@@ -667,6 +667,129 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'cordisGovernanceController',
+    summary: 'Enterprise Cordis manager grants and emergency controls.',
+    description: 'Enterprise Cordis manager grants and emergency controls.',
+    methods: [
+      {
+        signature: '@Remote(\'departmentManagers\') async departmentManagers( request: CordisDepartmentManagersRequest, ): Promise<DepartmentManagerSet | null>',
+        description: 'Read the configured managers for a department.',
+        parameters: [{ name: 'request', description: 'Department identity.' }],
+        returns: 'manager set or null.',
+      },
+      {
+        signature: '@Remote(\'setDepartmentManagers\') async setDepartmentManagers( request: CordisDepartmentManagersSaveRequest, ): Promise<DepartmentManagerSet>',
+        description: 'Replace the configured managers for a department.',
+        parameters: [{ name: 'request', description: 'Members and CAS revision.' }],
+        returns: 'updated manager set.',
+      },
+      {
+        signature: '@Remote(\'disable\') async disable(request: CordisGovernanceDisableRequest): Promise<CordisScopeBinding>',
+        description: 'Emergency-disable an enterprise extension.',
+        parameters: [{ name: 'request', description: 'Binding, reason, and CAS data.' }],
+        returns: 'disabled binding.',
+      },
+      {
+        signature: '@Remote(\'rollback\') async rollback(request: CordisWorkspaceRollbackRequest): Promise<CordisScopeBinding>',
+        description: 'Roll an enterprise extension back to an immutable version.',
+        parameters: [{ name: 'request', description: 'Target version and CAS data.' }],
+        returns: 'updated binding.',
+      },
+      {
+        signature: '@Remote(\'setTrust\') async setTrust(request: CordisGovernanceSetTrustRequest): Promise<CordisScopeBinding>',
+        description: 'Change the execution trust of an organization extension.',
+        parameters: [{ name: 'request', description: 'Trust level, reason, and CAS data.' }],
+        returns: 'updated binding.',
+      },
+    ],
+  },
+  {
+    key: 'cordisReviewController',
+    summary: 'Department review, derived modification, and organization publication Remote service.',
+    description: 'Department review, derived modification, and organization publication Remote service.',
+    methods: [
+      {
+        signature: '@Remote(\'list\') async list(request: CordisReviewListRequest): Promise<readonly CordisReviewRequest[]>',
+        description: 'List Cordis reviews visible to the caller.',
+        parameters: [{ name: 'request', description: 'Optional review-status filter.' }],
+        returns: 'visible review requests.',
+      },
+      {
+        signature: '@Remote(\'submit\') async submit(request: CordisReviewSubmitRequest): Promise<CordisReviewRequest>',
+        description: 'Submit a department Package for manager review.',
+        parameters: [{ name: 'request', description: 'Draft, Workspace, and source Session data.' }],
+        returns: 'created review.',
+      },
+      {
+        signature: '@Remote(\'derive\') async derive(request: CordisReviewDeriveRequest): Promise<DerivedCordisPackage>',
+        description: 'Derive a manager-edited immutable Package.',
+        parameters: [{ name: 'request', description: 'Review, draft, and CAS data.' }],
+        returns: 'derived Package and review revision.',
+      },
+      {
+        signature: '@Remote(\'approveDepartment\') async approveDepartment( request: CordisReviewTransitionRequest, ): Promise<CordisReviewRequest>',
+        description: 'Approve a Package for department activation.',
+        parameters: [{ name: 'request', description: 'Review transition and reason.' }],
+        returns: 'updated review.',
+      },
+      {
+        signature: '@Remote(\'return\') async returnToAuthor(request: CordisReviewTransitionRequest): Promise<CordisReviewRequest>',
+        description: 'Return a review to its author.',
+        parameters: [{ name: 'request', description: 'Review transition and reason.' }],
+        returns: 'updated review.',
+      },
+      {
+        signature: '@Remote(\'publishOrganization\') async publishOrganization( request: CordisReviewPublishRequest, ): Promise<PublishedCordisReview>',
+        description: 'Publish an approved department Package organization-wide.',
+        parameters: [{ name: 'request', description: 'Review Package and CAS data.' }],
+        returns: 'publication result.',
+      },
+    ],
+  },
+  {
+    key: 'cordisWorkspaceController',
+    summary: 'Personal and department Workspace Cordis extension Remote service.',
+    description: 'Personal and department Workspace Cordis extension Remote service.',
+    methods: [
+      {
+        signature: '@Remote(\'list\') async list(request: CordisWorkspaceListRequest): Promise<CordisWorkspaceProjection>',
+        description: 'List Cordis Packages and active bindings visible to a Workspace.',
+        parameters: [{ name: 'request', description: 'Workspace identity.' }],
+        returns: 'visible extension projection.',
+      },
+      {
+        signature: '@Remote(\'save\') async save(request: CordisWorkspaceSaveRequest): Promise<CordisPackageVersion>',
+        description: 'Persist a personal Workspace Package version.',
+        parameters: [{ name: 'request', description: 'Package draft and idempotency data.' }],
+        returns: 'immutable Package version.',
+      },
+      {
+        signature: '@Remote(\'activate\') async activate(request: CordisWorkspaceActivateRequest): Promise<CordisScopeBinding>',
+        description: 'Activate a personal Workspace Package.',
+        parameters: [{ name: 'request', description: 'Package, Workspace, and CAS data.' }],
+        returns: 'updated scope binding.',
+      },
+      {
+        signature: '@Remote(\'stop\') async stop(request: CordisWorkspaceStopRequest): Promise<CordisScopeBinding>',
+        description: 'Stop an active Workspace extension.',
+        parameters: [{ name: 'request', description: 'Binding, reason, and CAS data.' }],
+        returns: 'disabled binding.',
+      },
+      {
+        signature: '@Remote(\'rollback\') async rollback(request: CordisWorkspaceRollbackRequest): Promise<CordisScopeBinding>',
+        description: 'Roll a Workspace extension back to an immutable version.',
+        parameters: [{ name: 'request', description: 'Target version and CAS data.' }],
+        returns: 'updated binding.',
+      },
+      {
+        signature: '@Remote(\'pinGeneration\') async pinGeneration( request: CordisWorkspacePinGenerationRequest, ): Promise<CordisSessionGeneration>',
+        description: 'Pin the visible extension Generation for a Session.',
+        parameters: [{ name: 'request', description: 'Workspace and Session identity.' }],
+        returns: 'immutable Session Generation.',
+      },
+    ],
+  },
+  {
     key: 'credentials',
     summary: 'Abstract credential service over two key spaces that answer two questions.',
     description: 'Abstract credential service over two key spaces that answer two questions.\n\nA CredentialRef answers "what is behind this environment-variable name", layered over the process environment, the provider-managed store, and `.env` files. One seam-wide rule binds that half: an empty stored value is absent everywhere — `resolve` skips it, `describe` reports it unconfigured — so a blank never masquerades as a configured secret.\n\nA CredentialKey answers "what credential does this plugin hold for this id". Nothing can layer here — an authorization grant has no environment to be read from — so presence of the record is the whole fact, and modifyRecord is the only write path because a correct write depends on the current value (a token refresh is read-decide-replace under one lock).',
@@ -865,6 +988,115 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         description: 'Execute one authenticated enterprise operation.',
         parameters: [{ name: 'request', description: 'asset identity and CAS revision.' }],
         returns: 'archived asset row.',
+      },
+    ],
+  },
+  {
+    key: 'enterpriseCordis',
+    summary: 'Governs immutable enterprise Cordis Packages, bindings, reviews, and Session Generations.',
+    description: 'Governs immutable enterprise Cordis Packages, bindings, reviews, and Session Generations.',
+    methods: [
+      {
+        signature: 'async packageSource(packageId: string): Promise<CordisPackageVersion | undefined>',
+        description: 'Load one Package and hydrate its verified source artifact.',
+        parameters: [{ name: 'packageId', description: 'immutable Package identity.' }],
+        returns: 'hydrated Package when it exists.',
+      },
+      {
+        signature: 'async savePersonal(input: { principal: EnterpriseCordisPrincipal workspaceId: string draft: CordisPackageDraft idempotencyKey: string }): Promise<CordisPackageVersion>',
+        description: 'Persist an immutable Package owned by a personal Workspace.',
+        parameters: [{ name: 'input', description: 'authenticated principal, Workspace, draft, and idempotency key.' }],
+        returns: 'saved Package version.',
+      },
+      {
+        signature: 'async activatePersonal(input: { principal: EnterpriseCordisPrincipal workspaceId: string pluginId: string packageId: string expectedRevision: number idempotencyKey: string }): Promise<CordisScopeBinding>',
+        description: 'Activate a personal Workspace Package using revision compare-and-swap.',
+        parameters: [{ name: 'input', description: 'principal, Workspace, Package, revision, and idempotency data.' }],
+        returns: 'updated personal binding.',
+      },
+      {
+        signature: 'async submitDepartment(input: { principal: EnterpriseCordisPrincipal workspaceId: string draft: CordisPackageDraft sourceSessionId: string idempotencyKey: string }): Promise<CordisReviewRequest>',
+        description: 'Submit a department Workspace Package for manager review.',
+        parameters: [{ name: 'input', description: 'principal, Workspace, source Session, draft, and idempotency data.' }],
+        returns: 'created review request.',
+      },
+      {
+        signature: 'async deriveReview(input: { principal: EnterpriseCordisPrincipal reviewId: string expectedRevision: number draft: CordisPackageDraft idempotencyKey: string }): Promise<DerivedCordisPackage>',
+        description: 'Create an immutable manager-derived Package for an existing review.',
+        parameters: [{ name: 'input', description: 'principal, review, revised draft, CAS revision, and idempotency data.' }],
+        returns: 'derived Package and new review revision.',
+      },
+      {
+        signature: 'async reviewDepartment(input: { principal: EnterpriseCordisPrincipal reviewId: string packageId: string action: \'approve_department\' | \'return_to_author\' reason: string expectedRevision: number idempotencyKey: string }): Promise<CordisReviewRequest>',
+        description: 'Approve a Package for department use or return it to its author.',
+        parameters: [{ name: 'input', description: 'principal, review transition, reason, CAS revision, and idempotency data.' }],
+        returns: 'updated review request.',
+      },
+      {
+        signature: 'async publishOrganization(input: { principal: EnterpriseCordisPrincipal reviewId: string packageId: string expectedRevision: number idempotencyKey: string }): Promise<PublishedCordisReview>',
+        description: 'Publish a validated department Package as the organization binding.',
+        parameters: [{ name: 'input', description: 'principal, review Package, CAS revision, and idempotency data.' }],
+        returns: 'publication result and organization binding.',
+      },
+      {
+        signature: 'async emergencyDisable(input: { principal: EnterpriseCordisPrincipal bindingId: string expectedRevision: number reason: string idempotencyKey: string }): Promise<CordisScopeBinding>',
+        description: 'Emergency-disable a binding as an enterprise administrator.',
+        parameters: [{ name: 'input', description: 'principal, binding, reason, CAS revision, and idempotency data.' }],
+        returns: 'disabled binding.',
+      },
+      {
+        signature: 'async stopBinding(input: { principal: EnterpriseCordisPrincipal bindingId: string expectedRevision: number reason: string idempotencyKey: string }): Promise<CordisScopeBinding>',
+        description: 'Stop a binding within the caller\'s governed scope.',
+        parameters: [{ name: 'input', description: 'principal, binding, reason, CAS revision, and idempotency data.' }],
+        returns: 'disabled binding.',
+      },
+      {
+        signature: 'async rollbackBinding(input: { principal: EnterpriseCordisPrincipal bindingId: string packageId: string expectedRevision: number reason: string idempotencyKey: string }): Promise<CordisScopeBinding>',
+        description: 'Move a binding pointer to an older immutable Package.',
+        parameters: [{ name: 'input', description: 'principal, binding, Package, reason, CAS revision, and idempotency data.' }],
+        returns: 'updated binding.',
+      },
+      {
+        signature: 'async setTrust(input: { principal: EnterpriseCordisPrincipal bindingId: string trustLevel: CordisScopeBinding[\'trustLevel\'] expectedRevision: number reason: string idempotencyKey: string }): Promise<CordisScopeBinding>',
+        description: 'Set isolated or trusted in-process execution for an organization binding.',
+        parameters: [{ name: 'input', description: 'administrator principal, binding, trust level, reason, and CAS data.' }],
+        returns: 'updated organization binding.',
+      },
+      {
+        signature: 'async pinSessionGeneration(input: { principal: EnterpriseCordisPrincipal workspaceId: string sessionId: string }): Promise<CordisSessionGeneration>',
+        description: 'Capture the visible active bindings for one Session exactly once.',
+        parameters: [{ name: 'input', description: 'principal, Workspace, and Session identity.' }],
+        returns: 'immutable Session Generation.',
+      },
+      {
+        signature: 'async setDepartmentManagers(input: { principal: EnterpriseCordisPrincipal departmentId: string managerUserIds: readonly string[] expectedRevision: number idempotencyKey: string }): Promise<DepartmentManagerSet>',
+        description: 'Replace a department\'s manager set after membership validation.',
+        parameters: [{ name: 'input', description: 'administrator principal, department members, CAS revision, and idempotency data.' }],
+        returns: 'updated department manager set.',
+      },
+      {
+        signature: 'async departmentManagers(orgId: string, departmentId: string): Promise<DepartmentManagerSet | undefined>',
+        description: 'Read a department\'s manager set.',
+        parameters: [{ name: 'orgId', description: 'owning organization.' }, { name: 'departmentId', description: 'department identity.' }],
+        returns: 'manager set when configured.',
+      },
+      {
+        signature: 'async listWorkspace(input: { principal: EnterpriseCordisPrincipal workspaceId: string }): Promise<CordisWorkspaceProjection>',
+        description: 'List Packages and bindings visible to a governed Workspace.',
+        parameters: [{ name: 'input', description: 'principal and Workspace identity.' }],
+        returns: 'visible extension projection.',
+      },
+      {
+        signature: 'async listReviews(input: { principal: EnterpriseCordisPrincipal }): Promise<readonly CordisReviewRequest[]>',
+        description: 'List reviews authored by or governed by the caller.',
+        parameters: [{ name: 'input', description: 'authenticated principal.' }],
+        returns: 'visible review requests.',
+      },
+      {
+        signature: 'async audit(event: EnterpriseCordisAuditEvent): Promise<void>',
+        description: 'Append an explicit Cordis governance audit event.',
+        parameters: [{ name: 'event', description: 'immutable audit record.' }],
+        returns: 'when the event has been persisted.',
       },
     ],
   },
@@ -3430,6 +3662,62 @@ export const EVENT_API: readonly EventApiEntry[] = [
     parameters: [{ name: 'change', description: 'domain, table (`\'\'` for global), key (`\'\'` for global), operation discriminant, and on `put` the new snapshot.' }],
   },
   {
+    name: 'enterprise/cordis-department-activated',
+    mode: 'emit',
+    signature: '\'enterprise/cordis-department-activated\'(event: EnterpriseCordisEvent): void',
+    summary: 'A validated Package became the active department binding.',
+    description: 'A validated Package became the active department binding.',
+    parameters: [{ name: 'event', description: 'Activated Package, scope, actor, and organization correlation data.' }],
+  },
+  {
+    name: 'enterprise/cordis-organization-published',
+    mode: 'emit',
+    signature: '\'enterprise/cordis-organization-published\'(event: EnterpriseCordisEvent): void',
+    summary: 'A validated Package became the active organization binding.',
+    description: 'A validated Package became the active organization binding.',
+    parameters: [{ name: 'event', description: 'Published Package, scope, actor, and organization correlation data.' }],
+  },
+  {
+    name: 'enterprise/cordis-package-saved',
+    mode: 'emit',
+    signature: '\'enterprise/cordis-package-saved\'(event: EnterpriseCordisEvent): void',
+    summary: 'An immutable enterprise Cordis Package version was persisted.',
+    description: 'An immutable enterprise Cordis Package version was persisted.',
+    parameters: [{ name: 'event', description: 'Package, scope, actor, and organization correlation data.' }],
+  },
+  {
+    name: 'enterprise/cordis-plugin-disabled',
+    mode: 'emit',
+    signature: '\'enterprise/cordis-plugin-disabled\'(event: EnterpriseCordisEvent): void',
+    summary: 'An enterprise Cordis binding was stopped by governance.',
+    description: 'An enterprise Cordis binding was stopped by governance.',
+    parameters: [{ name: 'event', description: 'Disabled Package, scope, actor, and organization correlation data.' }],
+  },
+  {
+    name: 'enterprise/cordis-review-requested',
+    mode: 'emit',
+    signature: '\'enterprise/cordis-review-requested\'(event: EnterpriseCordisEvent): void',
+    summary: 'A department Cordis Package entered manager review.',
+    description: 'A department Cordis Package entered manager review.',
+    parameters: [{ name: 'event', description: 'Review target, actor, and organization correlation data.' }],
+  },
+  {
+    name: 'enterprise/cordis-review-updated',
+    mode: 'emit',
+    signature: '\'enterprise/cordis-review-updated\'(event: EnterpriseCordisEvent): void',
+    summary: 'A Cordis review changed status or selected a derived Package.',
+    description: 'A Cordis review changed status or selected a derived Package.',
+    parameters: [{ name: 'event', description: 'Review target, actor, and organization correlation data.' }],
+  },
+  {
+    name: 'enterprise/cordis-run-health-updated',
+    mode: 'emit',
+    signature: '\'enterprise/cordis-run-health-updated\'(event: EnterpriseCordisEvent): void',
+    summary: 'The observed health of an enterprise Cordis run changed.',
+    description: 'The observed health of an enterprise Cordis run changed.',
+    parameters: [{ name: 'event', description: 'Run health, Package, scope, and organization correlation data.' }],
+  },
+  {
     name: 'fs/edit-intent',
     mode: 'waterfall',
     signature: '\'fs/edit-intent\'(target: FsTarget, actor: object | undefined, next: () => { version: FsVersion } | undefined | Promise<{ version: FsVersion } | undefined>): Promise<{ version: FsVersion } | undefined>',
@@ -4046,6 +4334,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface ContinuableSubagentDescriptorData extends SubagentDescriptorBase {\n    readonly mode: \'continuable\';\n    readonly label: string;\n    readonly agentProvider?: string;\n    readonly agentModel?: string;\n    readonly agentReasoningEffort?: ReasoningEffortId;\n    readonly persona?: string;\n    readonly toolFilter?: ToolRestriction;\n}',
   },
   {
+    name: 'CordisDepartmentManagersRequest',
+    declaration: 'export interface CordisDepartmentManagersRequest {\n    readonly departmentId: string;\n}',
+  },
+  {
+    name: 'CordisDepartmentManagersSaveRequest',
+    declaration: 'export interface CordisDepartmentManagersSaveRequest extends CordisDepartmentManagersRequest {\n    readonly managerUserIds: readonly string[];\n    readonly expectedRevision: number;\n    readonly idempotencyKey: string;\n}',
+  },
+  {
     name: 'CordisDynamicPackageId',
     declaration: 'export type CordisDynamicPackageId = Branded<\'CordisDynamicPackageId\'>;',
   },
@@ -4062,6 +4358,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type CordisDynamicRunMode = \'run\' | \'update\';',
   },
   {
+    name: 'CordisGovernanceDisableRequest',
+    declaration: 'export interface CordisGovernanceDisableRequest {\n    readonly bindingId: string;\n    readonly pluginId: string;\n    readonly expectedRevision: number;\n    readonly reason: string;\n    readonly idempotencyKey: string;\n}',
+  },
+  {
+    name: 'CordisGovernanceSetTrustRequest',
+    declaration: 'export interface CordisGovernanceSetTrustRequest extends CordisGovernanceDisableRequest {\n    readonly trustLevel: CordisScopeBinding[\'trustLevel\'];\n}',
+  },
+  {
     name: 'CordisInspectQueryRequest',
     declaration: 'export interface CordisInspectQueryRequest {\n    requestId: CordisInspectRequestId;\n    agentId: SessionId;\n    provider: string;\n    method: string;\n    input?: JsonValue;\n}',
   },
@@ -4072,6 +4376,46 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'CordisInspectRequestId',
     declaration: 'export type CordisInspectRequestId = Branded<\'CordisInspectRequestId\'>;',
+  },
+  {
+    name: 'CordisPackageDraft',
+    declaration: 'export interface CordisPackageDraft {\n    readonly pluginId: string;\n    readonly dynamicPackageId: string;\n    readonly name: string;\n    readonly purpose: string;\n    readonly hostCode?: string;\n    readonly clientCode?: string;\n    readonly manifest: DshPluginManifestV1;\n    readonly artifactRef: string;\n    readonly validationReportRef: string;\n}',
+  },
+  {
+    name: 'CordisPackageVersion',
+    declaration: 'export interface CordisPackageVersion extends CordisPackageDraft {\n    readonly packageId: string;\n    readonly orgId: string;\n    readonly version: number;\n    readonly scope: CordisPluginScope;\n    readonly derivedFromPackageId?: string;\n    readonly authoredBy: string;\n    readonly modifiedBy?: string;\n    readonly sourceDigest: string;\n    readonly createdAt: number;\n}',
+  },
+  {
+    name: 'CordisPluginScope',
+    declaration: 'export type CordisPluginScope = {\n    type: \'session\';\n    sessionId: string;\n} | {\n    type: \'personal-workspace\';\n    workspaceId: string;\n    ownerUserId: string;\n} | {\n    type: \'department\';\n    departmentId: string;\n} | {\n    type: \'organization\';\n    organizationId: string;\n};',
+  },
+  {
+    name: 'CordisReviewDeriveRequest',
+    declaration: 'export interface CordisReviewDeriveRequest {\n    readonly reviewId: string;\n    readonly pluginId: string;\n    readonly expectedRevision: number;\n    readonly draft: CordisPackageDraft;\n    readonly idempotencyKey: string;\n}',
+  },
+  {
+    name: 'CordisReviewListRequest',
+    declaration: 'export interface CordisReviewListRequest {\n    readonly status?: CordisReviewRequest[\'status\'];\n}',
+  },
+  {
+    name: 'CordisReviewPublishRequest',
+    declaration: 'export interface CordisReviewPublishRequest {\n    readonly reviewId: string;\n    readonly pluginId: string;\n    readonly packageId: string;\n    readonly expectedRevision: number;\n    readonly idempotencyKey: string;\n}',
+  },
+  {
+    name: 'CordisReviewRequest',
+    declaration: 'export interface CordisReviewRequest {\n    readonly reviewId: string;\n    readonly orgId: string;\n    readonly departmentId: string;\n    readonly pluginId: string;\n    readonly packageId: string;\n    readonly sourceSessionId: string;\n    readonly submittedBy: string;\n    readonly status: CordisReviewStatus;\n    readonly reason?: string;\n    readonly publishedBy?: string;\n    readonly revision: number;\n    readonly createdAt: number;\n    readonly updatedAt: number;\n}',
+  },
+  {
+    name: 'CordisReviewStatus',
+    declaration: 'export type CordisReviewStatus = \'pending\' | \'changes-requested\' | \'approved-department\' | \'published-organization\' | \'superseded\' | \'revoked\';',
+  },
+  {
+    name: 'CordisReviewSubmitRequest',
+    declaration: 'export interface CordisReviewSubmitRequest {\n    readonly workspaceId: string;\n    readonly sourceSessionId: string;\n    readonly draft: CordisPackageDraft;\n    readonly idempotencyKey: string;\n}',
+  },
+  {
+    name: 'CordisReviewTransitionRequest',
+    declaration: 'export interface CordisReviewTransitionRequest {\n    readonly reviewId: string;\n    readonly pluginId: string;\n    readonly packageId: string;\n    readonly reason: string;\n    readonly expectedRevision: number;\n    readonly idempotencyKey: string;\n}',
   },
   {
     name: 'CordisRuntimeConnection',
@@ -4112,6 +4456,46 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'CordisRuntimeTreeReader',
     declaration: 'export interface CordisRuntimeTreeReader {\n    getTree(): Promise<CordisRuntimeTree>;\n}',
+  },
+  {
+    name: 'CordisScopeBinding',
+    declaration: 'export interface CordisScopeBinding {\n    readonly bindingId: string;\n    readonly orgId: string;\n    readonly scope: CordisPluginScope;\n    readonly pluginId: string;\n    readonly activePackageId: string;\n    readonly generation: number;\n    readonly revision: number;\n    readonly activatedBy: string;\n    readonly disabled: boolean;\n    readonly disabledReason?: string;\n    readonly trustLevel: \'isolated\' | \'trusted-in-process\';\n    readonly updatedAt: number;\n}',
+  },
+  {
+    name: 'CordisSessionGeneration',
+    declaration: 'export interface CordisSessionGeneration {\n    readonly sessionId: string;\n    readonly orgId: string;\n    readonly workspaceId: string;\n    readonly entries: readonly CordisSessionGenerationEntry[];\n    readonly createdAt: number;\n}',
+  },
+  {
+    name: 'CordisSessionGenerationEntry',
+    declaration: 'export interface CordisSessionGenerationEntry {\n    readonly pluginId: string;\n    readonly packageId: string;\n    readonly bindingId: string;\n    readonly generation: number;\n    readonly scope: CordisPluginScope;\n    readonly trustLevel: CordisScopeBinding[\'trustLevel\'];\n}',
+  },
+  {
+    name: 'CordisWorkspaceActivateRequest',
+    declaration: 'export interface CordisWorkspaceActivateRequest {\n    readonly workspaceId: string;\n    readonly pluginId: string;\n    readonly packageId: string;\n    readonly expectedRevision: number;\n    readonly idempotencyKey: string;\n}',
+  },
+  {
+    name: 'CordisWorkspaceListRequest',
+    declaration: 'export interface CordisWorkspaceListRequest {\n    readonly workspaceId: string;\n}',
+  },
+  {
+    name: 'CordisWorkspacePinGenerationRequest',
+    declaration: 'export interface CordisWorkspacePinGenerationRequest {\n    readonly workspaceId: string;\n    readonly sessionId: string;\n}',
+  },
+  {
+    name: 'CordisWorkspaceProjection',
+    declaration: 'export interface CordisWorkspaceProjection {\n    readonly packages: readonly CordisPackageVersion[];\n    readonly bindings: readonly CordisScopeBinding[];\n}',
+  },
+  {
+    name: 'CordisWorkspaceRollbackRequest',
+    declaration: 'export interface CordisWorkspaceRollbackRequest extends CordisWorkspaceStopRequest {\n    readonly packageId: string;\n}',
+  },
+  {
+    name: 'CordisWorkspaceSaveRequest',
+    declaration: 'export interface CordisWorkspaceSaveRequest {\n    readonly workspaceId: string;\n    readonly draft: CordisPackageDraft;\n    readonly idempotencyKey: string;\n}',
+  },
+  {
+    name: 'CordisWorkspaceStopRequest',
+    declaration: 'export interface CordisWorkspaceStopRequest {\n    readonly bindingId: string;\n    readonly pluginId: string;\n    readonly expectedRevision: number;\n    readonly reason: string;\n    readonly idempotencyKey: string;\n}',
   },
   {
     name: 'CreateAgentOptions',
@@ -4172,6 +4556,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'DeepSeekLlmApiJson',
     declaration: 'export type DeepSeekLlmApiJson = null | boolean | number | string | DeepSeekLlmApiJson[] | {\n    [key: string]: DeepSeekLlmApiJson;\n};',
+  },
+  {
+    name: 'DepartmentManagerSet',
+    declaration: 'export interface DepartmentManagerSet {\n    readonly orgId: string;\n    readonly departmentId: string;\n    readonly managerUserIds: readonly string[];\n    readonly revision: number;\n    readonly updatedBy: string;\n    readonly updatedAt: number;\n}',
+  },
+  {
+    name: 'DerivedCordisPackage',
+    declaration: 'export interface DerivedCordisPackage extends CordisPackageVersion {\n    readonly reviewRevision: number;\n}',
   },
   {
     name: 'DiffCallView',
@@ -4260,6 +4652,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'DshEnvironmentKey',
     declaration: 'export type DshEnvironmentKey = `${typeof DSH_ENV_PREFIX}${string}`;',
+  },
+  {
+    name: 'DshPluginDependency',
+    declaration: 'export interface DshPluginDependency {\n    readonly name: string;\n    readonly version: string;\n    readonly integrity: string;\n    readonly license: string;\n}',
+  },
+  {
+    name: 'DshPluginManifestV1',
+    declaration: 'export interface DshPluginManifestV1 {\n    readonly apiVersion: \'dsh-plugin/v1\';\n    readonly runtime: \'in-process\' | \'isolated-realm\' | \'sandboxed-iframe\';\n    readonly provides: readonly string[];\n    readonly capabilities: readonly string[];\n    readonly license?: string;\n    readonly dependencies?: readonly DshPluginDependency[];\n}',
   },
   {
     name: 'DynamicCordisPackage',
@@ -4352,6 +4752,18 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'EnterpriseBusinessState',
     declaration: 'export type EnterpriseBusinessState = \'active\' | \'waiting-approval\' | \'completed\' | \'failed\';',
+  },
+  {
+    name: 'EnterpriseCordisAuditEvent',
+    declaration: 'export interface EnterpriseCordisAuditEvent {\n    readonly id: string;\n    readonly orgId: string;\n    readonly actorUserId: string;\n    readonly action: string;\n    readonly pluginId: string;\n    readonly packageId?: string;\n    readonly reviewId?: string;\n    readonly at: number;\n    readonly details: Readonly<Record<string, unknown>>;\n}',
+  },
+  {
+    name: 'EnterpriseCordisEvent',
+    declaration: 'export interface EnterpriseCordisEvent {\n    readonly orgId: string;\n    readonly pluginId: string;\n    readonly packageId?: string;\n    readonly bindingId?: string;\n    readonly reviewId?: string;\n    readonly at: number;\n}',
+  },
+  {
+    name: 'EnterpriseCordisPrincipal',
+    declaration: 'export interface EnterpriseCordisPrincipal {\n    readonly orgId: string;\n    readonly userId: string;\n    readonly roles: readonly EnterpriseRole[];\n}',
   },
   {
     name: 'EnterpriseEmployeeAssetRef',
@@ -5084,6 +5496,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'PtcDispatchLog',
     declaration: 'export interface PtcDispatchLog {\n    readonly exec: ToolExecution;\n    readonly agent?: Agent;\n    readonly subCallId: ToolCallId;\n    readonly name: string;\n    readonly isError: boolean;\n    readonly content: ContentBlock[];\n}',
+  },
+  {
+    name: 'PublishedCordisReview',
+    declaration: 'export interface PublishedCordisReview extends CordisReviewRequest {\n    readonly publishedBy: string;\n    readonly organizationBinding: CordisScopeBinding;\n}',
   },
   {
     name: 'ReadFileLine',

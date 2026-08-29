@@ -206,8 +206,10 @@ export class DynamicCordisRunnerService extends TypertRemoteService {
 
   /**
    * Restore one Package whose enterprise scope binding already records user or
-   * governance approval. This only suppresses a duplicate Client approval; the
-   * ordinary run path, sandbox, lifecycle, and browser loader remain in force.
+   * governance approval. This suppresses duplicate Client approval and selects
+   * either the isolated Realm or the explicitly trusted in-process executor.
+   * @param request - immutable source, Session identity, and approved execution mode.
+   * @returns restored dynamic Plugin and Package identities.
    */
   restoreApproved(request: DynamicCordisRestoreRequest): DynamicCordisDefineReceipt {
     const receipt = this.define({
