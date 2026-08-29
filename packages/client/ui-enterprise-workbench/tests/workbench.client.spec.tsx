@@ -60,7 +60,7 @@ const BASE_STATE: EnterpriseWorkbenchState = {
   error: null, busyEmployee: null, employeeFilters: {}, employees: EMPTY_PAGE,
   workRecords: EMPTY_PAGE, approvals: EMPTY_PAGE, schedules: EMPTY_PAGE,
   assets: EMPTY_PAGE, teams: EMPTY_PAGE,
-  extensions: EMPTY_PAGE, extensionBindings: [], extensionReviews: EMPTY_PAGE,
+  extensions: EMPTY_PAGE, extensionBindings: [], extensionReviews: EMPTY_PAGE, formalPlugins: EMPTY_PAGE,
   releases: [],
   mutationPhase: 'idle', mutationError: null, retryAction: null,
 }
@@ -127,6 +127,10 @@ describe('EnterpriseWorkbench', () => {
           packageId: 'package-1', sourceSessionId: 'session-1', submittedBy: 'user-1', status: 'pending',
           revision: 1, createdAt: 1, updatedAt: 1,
         }] },
+        formalPlugins: { phase: 'ready', error: null, items: [{
+          entryId: 'formal-orders', moduleName: '@company/dsh-orders', enabled: true, fiberPhase: 'active',
+          installSource: { kind: 'registry' }, protectedProfile: true,
+        }] },
       }, stopExtension, reviewExtension,
     } as never)} />)
 
@@ -139,6 +143,11 @@ describe('EnterpriseWorkbench', () => {
     fireEvent.change(screen.getByLabelText('审核原因'), { target: { value: '已验证' } })
     fireEvent.click(screen.getByRole('button', { name: '批准部门启用' }))
     expect(reviewExtension).toHaveBeenCalledWith(expect.objectContaining({ reviewId: 'review-1' }), 'approve', '已验证')
+    fireEvent.click(screen.getByRole('button', { name: '企业发行插件' }))
+    expect(screen.getByText('@company/dsh-orders')).toBeDefined()
+    expect(screen.getByText('已挂载')).toBeDefined()
+    expect(screen.getByText('私有 Registry')).toBeDefined()
+    expect(screen.getByText('受保护 Profile')).toBeDefined()
   })
 
   it('provides local management navigation and opens the employee draft editor from the roster', () => {

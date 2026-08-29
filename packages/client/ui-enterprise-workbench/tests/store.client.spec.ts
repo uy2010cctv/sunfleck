@@ -163,6 +163,9 @@ const unavailable = () => Promise.resolve({
 
 function controllerApi(overrides: Record<string, unknown> = {}) {
   return {
+    pluginInventory: { list: () => ok({ entries: [{
+      entryId: 'formal-plugin', moduleName: '@company/dsh-orders', enabled: true, fiberPhase: 'active',
+    }] }) },
     agentPresets: { list: () => ok({ presets: [STANDARD], authorable: false, hasDocument: false }) },
     enterpriseEmployees: {
       list: () => ok({ items: [{
@@ -295,6 +298,7 @@ describe('EnterpriseWorkbenchController enterprise read models', () => {
       mode: 'enterprise',
       employees: { phase: 'ready', nextCursor: 'employee-next' },
       workRecords: { phase: 'ready' },
+      formalPlugins: { phase: 'ready', items: [expect.objectContaining({ moduleName: '@company/dsh-orders' })] },
     })
   })
 

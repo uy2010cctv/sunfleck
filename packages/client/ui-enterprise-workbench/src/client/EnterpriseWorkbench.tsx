@@ -249,7 +249,7 @@ function TeamsPage({ page, releases, api, busy, onDirty, t }: { page: Enterprise
 const EXTENSION_SECTION = {
   running: 'running', personal: 'personal', department: 'department', organization: 'organization', reviews: 'reviews',
 } as const
-type ExtensionSection = typeof EXTENSION_SECTION[keyof typeof EXTENSION_SECTION]
+type ExtensionSection = typeof EXTENSION_SECTION[keyof typeof EXTENSION_SECTION] | 'formal'
 
 function extensionScope(pkg: CordisPackageVersion, t: Translate): string {
   if (pkg.scope.type === 'personal-workspace') return t('extensions.scope.personal')
@@ -278,6 +278,8 @@ function ExtensionsPage({ state, workspaces, api, busy, t }: {
 }) {
   const [section, setSection] = useState<ExtensionSection>(EXTENSION_SECTION.running)
   const [reason, setReason] = useState('')
+  const formalPlugins = state.formalPlugins.items.filter(plugin =>
+    plugin.installSource !== undefined || plugin.protectedProfile === true)
   const bindingFor = (pkg: CordisPackageVersion): CordisScopeBinding | undefined => state.extensionBindings.find(binding =>
     binding.pluginId === pkg.pluginId && sameExtensionScope(pkg.scope, binding.scope))
   const packagesByPlugin = new Map<string, CordisPackageVersion[]>()
@@ -296,7 +298,7 @@ function ExtensionsPage({ state, workspaces, api, busy, t }: {
   const tabs: readonly [ExtensionSection, EnterpriseWorkbenchKey][] = [
     [EXTENSION_SECTION.running, 'extensions.running'], [EXTENSION_SECTION.personal, 'extensions.personal'],
     [EXTENSION_SECTION.department, 'extensions.department'], [EXTENSION_SECTION.organization, 'extensions.organization'],
-    [EXTENSION_SECTION.reviews, 'extensions.reviews'],
+    ['formal', 'extensions.formal'], [EXTENSION_SECTION.reviews, 'extensions.reviews'],
   ]
   return <section aria-labelledby="extensions-page-title">
     <div className={css.extensionHeader}>
@@ -314,42 +316,60 @@ function ExtensionsPage({ state, workspaces, api, busy, t }: {
       {tabs.map(([id, key]) => <button type="button" key={id} aria-current={section === id ? 'page' : undefined}
         onClick={() => { setSection(id) }}>{t(key)}</button>)}
     </nav>
-    {section === EXTENSION_SECTION.reviews
-      ? <PageBoundary page={state.extensionReviews} t={t}><div className={css.extensionList}>
-        {state.extensionReviews.items.map(review => <article className={css.extensionRow} key={review.reviewId}>
-          <div className={css.extensionIdentity}><strong>{review.pluginId}</strong><span>{review.departmentId} · {t(`extensions.review.${review.status}` as EnterpriseWorkbenchKey)}</span></div>
-          <div className={css.extensionMeta}><span>{t('extensions.submittedBy', { user: review.submittedBy })}</span><span>{formatDate(review.updatedAt)}</span></div>
-          {(review.status === 'pending' || review.status === 'changes-requested' || review.status === 'approved-department') && <div className={css.extensionReviewActions}>
-            <label>{t('extensions.reason')}<input value={reason} onChange={(event) => { setReason(event.target.value) }} /></label>
-            {review.status !== 'approved-department' && <button type="button" className={css.primaryButton} disabled={busy || reason.trim() === ''}
-              onClick={() => { void api.reviewExtension(review, 'approve', reason) }}>{t('extensions.approve')}</button>}
-            <button type="button" className={css.secondaryButton} disabled={busy || reason.trim() === ''}
-              onClick={() => { void api.reviewExtension(review, 'return', reason) }}>{t('extensions.return')}</button>
-            <button type="button" className={css.secondaryButton} disabled={busy}
-              onClick={() => { void api.reviewExtension(review, 'publish', reason) }}>{t('extensions.publish')}</button>
-          </div>}
+    {section === 'formal'
+      ? <PageBoundary page={{ ...state.formalPlugins, items: formalPlugins }} t={t}><div className={css.extensionList}>
+        {formalPlugins.map(plugin => <article className={css.extensionRow} key={plugin.entryId}>
+          <div className={css.extensionIdentity}><strong>{plugin.moduleName}</strong><span>{plugin.entryId}</span>
+            <p>{t('extensions.formalDescription')}</p></div>
+          <div className={css.extensionMeta}>
+            <span>{plugin.enabled ? t('extensions.formalEnabled') : t('extensions.formalDisabled')}</span>
+            <span>{plugin.fiberPhase === 'active' ? t('extensions.formalActive')
+              : plugin.fiberPhase === 'failed' ? t('extensions.formalFailed')
+                : plugin.fiberPhase === 'pending' ? t('extensions.formalPending') : t('extensions.formalUnobserved')}</span>
+            {plugin.installSource !== undefined && <span>{t(plugin.installSource.kind === 'registry'
+              ? 'extensions.formalRegistry' : plugin.installSource.kind === 'tgz'
+                ? 'extensions.formalTgz' : plugin.installSource.kind === 'git'
+                  ? 'extensions.formalGit' : 'extensions.formalFile')}</span>}
+            {plugin.protectedProfile === true && <span>{t('extensions.formalProtected')}</span>}
+          </div>
         </article>)}
       </div></PageBoundary>
-      : <PageBoundary page={{ ...state.extensions, items: packages }} t={t}><div className={css.extensionList}>
-        {packages.map((pkg) => {
-          const binding = bindingFor(pkg)
-          const versions = packagesByPlugin.get(pkg.pluginId)?.toSorted((left, right) => right.version - left.version) ?? []
-          const previous = versions.find(version => version.version < pkg.version)
-          const active = binding?.activePackageId === pkg.packageId && !binding.disabled
-          return <article className={css.extensionRow} key={pkg.packageId} data-active={active}>
-            <div className={css.extensionIdentity}><strong>{pkg.name}</strong><span>{pkg.pluginId} · {t('extensions.version', { version: pkg.version })} · {extensionScope(pkg, t)}</span><p>{pkg.purpose}</p></div>
-            <div className={css.extensionCapabilities}>{pkg.manifest.provides.map(capability => <span key={capability}>{capability}</span>)}</div>
-            <div className={css.extensionMeta}><span>{active ? t('extensions.status.running') : binding?.disabled === true ? t('extensions.status.stopped') : t('extensions.status.available')}</span><span>{binding?.trustLevel === 'trusted-in-process' ? t('extensions.trust.trusted') : t('extensions.trust.isolated')}</span><span>{t('extensions.author', { user: pkg.authoredBy })}</span></div>
-            <details className={css.extensionSource}><summary>{t('extensions.source')}</summary>{pkg.hostCode !== undefined && <pre>{pkg.hostCode}</pre>}{pkg.clientCode !== undefined && <pre>{pkg.clientCode}</pre>}</details>
-            {binding !== undefined && <div className={css.inlineActions}>
-              {!binding.disabled && <button type="button" className={css.secondaryButton} disabled={busy}
-                onClick={() => { void api.stopExtension(binding, t('extensions.stopReason')) }}>{t('extensions.stop')}</button>}
-              {previous !== undefined && <button type="button" className={css.secondaryButton} disabled={busy}
-                onClick={() => { void api.rollbackExtension(binding, previous.packageId, t('extensions.rollbackReason')) }}>{t('extensions.rollback', { version: previous.version })}</button>}
+      : section === EXTENSION_SECTION.reviews
+        ? <PageBoundary page={state.extensionReviews} t={t}><div className={css.extensionList}>
+          {state.extensionReviews.items.map(review => <article className={css.extensionRow} key={review.reviewId}>
+            <div className={css.extensionIdentity}><strong>{review.pluginId}</strong><span>{review.departmentId} · {t(`extensions.review.${review.status}` as EnterpriseWorkbenchKey)}</span></div>
+            <div className={css.extensionMeta}><span>{t('extensions.submittedBy', { user: review.submittedBy })}</span><span>{formatDate(review.updatedAt)}</span></div>
+            {(review.status === 'pending' || review.status === 'changes-requested' || review.status === 'approved-department') && <div className={css.extensionReviewActions}>
+              <label>{t('extensions.reason')}<input value={reason} onChange={(event) => { setReason(event.target.value) }} /></label>
+              {review.status !== 'approved-department' && <button type="button" className={css.primaryButton} disabled={busy || reason.trim() === ''}
+                onClick={() => { void api.reviewExtension(review, 'approve', reason) }}>{t('extensions.approve')}</button>}
+              <button type="button" className={css.secondaryButton} disabled={busy || reason.trim() === ''}
+                onClick={() => { void api.reviewExtension(review, 'return', reason) }}>{t('extensions.return')}</button>
+              <button type="button" className={css.secondaryButton} disabled={busy}
+                onClick={() => { void api.reviewExtension(review, 'publish', reason) }}>{t('extensions.publish')}</button>
             </div>}
-          </article>
-        })}
-      </div></PageBoundary>}
+          </article>)}
+        </div></PageBoundary>
+        : <PageBoundary page={{ ...state.extensions, items: packages }} t={t}><div className={css.extensionList}>
+          {packages.map((pkg) => {
+            const binding = bindingFor(pkg)
+            const versions = packagesByPlugin.get(pkg.pluginId)?.toSorted((left, right) => right.version - left.version) ?? []
+            const previous = versions.find(version => version.version < pkg.version)
+            const active = binding?.activePackageId === pkg.packageId && !binding.disabled
+            return <article className={css.extensionRow} key={pkg.packageId} data-active={active}>
+              <div className={css.extensionIdentity}><strong>{pkg.name}</strong><span>{pkg.pluginId} · {t('extensions.version', { version: pkg.version })} · {extensionScope(pkg, t)}</span><p>{pkg.purpose}</p></div>
+              <div className={css.extensionCapabilities}>{pkg.manifest.provides.map(capability => <span key={capability}>{capability}</span>)}</div>
+              <div className={css.extensionMeta}><span>{active ? t('extensions.status.running') : binding?.disabled === true ? t('extensions.status.stopped') : t('extensions.status.available')}</span><span>{binding?.trustLevel === 'trusted-in-process' ? t('extensions.trust.trusted') : t('extensions.trust.isolated')}</span><span>{t('extensions.author', { user: pkg.authoredBy })}</span></div>
+              <details className={css.extensionSource}><summary>{t('extensions.source')}</summary>{pkg.hostCode !== undefined && <pre>{pkg.hostCode}</pre>}{pkg.clientCode !== undefined && <pre>{pkg.clientCode}</pre>}</details>
+              {binding !== undefined && <div className={css.inlineActions}>
+                {!binding.disabled && <button type="button" className={css.secondaryButton} disabled={busy}
+                  onClick={() => { void api.stopExtension(binding, t('extensions.stopReason')) }}>{t('extensions.stop')}</button>}
+                {previous !== undefined && <button type="button" className={css.secondaryButton} disabled={busy}
+                  onClick={() => { void api.rollbackExtension(binding, previous.packageId, t('extensions.rollbackReason')) }}>{t('extensions.rollback', { version: previous.version })}</button>}
+              </div>}
+            </article>
+          })}
+        </div></PageBoundary>}
   </section>
 }
 
@@ -374,7 +394,7 @@ export function EnterpriseWorkbench(props: EnterpriseWorkbenchProps) {
   if (!state.open) return null
   const onKeyDown = (event: React.KeyboardEvent<HTMLElement>): void => { if (event.key === 'Escape') { requestClose(); return } if (event.key !== 'Tab') return; const controls = [...dialogRef.current?.querySelectorAll<HTMLElement>('button:not(:disabled), [href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])') ?? []]; const first = controls[0]; const last = controls.at(-1); if (first === undefined || last === undefined) return; if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus() } else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus() } }
   const pages = [state.employees, state.workRecords, state.approvals, state.schedules, state.assets, state.teams,
-    state.extensions, state.extensionReviews]
+    state.extensions, state.extensionReviews, state.formalPlugins]
   const partial = state.mode === 'enterprise' && pages.some(value => value.phase === 'error' || value.phase === 'permission') && pages.some(value => value.phase === 'ready')
   const injected = props as unknown as EnterpriseWorkbenchInjected
   const api: EnterpriseWorkbenchInjected = {

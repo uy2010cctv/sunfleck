@@ -21,6 +21,17 @@
 - id: connection
   inject: [webRuntime, enterpriseSecurity, enterpriseRequestContext]
 
+- id: plugin-inventory
+  config:
+    profileManifestPath: !!js dshHomePath('profiles/web/package.json')
+    protectedEntryIds:
+      - credentials
+      - enterprise-postgres
+      - session-persistence-postgres
+      - enterprise-auth-web
+      - enterprise-cordis-runtime
+      - enterprise-controller
+
 - insert:
     - id: enterprise-postgres
       name: '@deepseek-ai/dsh-enterprise-postgres'

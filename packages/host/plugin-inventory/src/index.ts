@@ -1,6 +1,7 @@
 /** Read-only projection of the current Cordis Loader plugin entries. */
 
 import type { Context, FiberState } from '@deepseek-ai/cordis'
+import { readFileSync } from 'node:fs'
 import type {} from '@deepseek-ai/cordis-plugin-loader'
 import { TypertRemoteService, Remote } from '@deepseek-ai/dsh-typert-protocol'
 // Typert-generated ./typert and ./remote artifacts import Zod at runtime.
@@ -13,6 +14,30 @@ import type {
 } from './types.ts'
 
 export type * from './types.ts'
+
+export interface Config {
+  readonly profileManifestPath?: string
+  readonly protectedEntryIds?: readonly string[]
+}
+
+function installationKind(spec: string): NonNullable<PluginInventoryEntry['installSource']>['kind'] {
+  if (/\.tgz(?:$|[#?])/iu.test(spec)) return 'tgz'
+  if (/^(?:git\+|github:)|\.git(?:#|$)/iu.test(spec)) return 'git'
+  if (/^(?:file:|link:|\.{0,2}\/)/u.test(spec)) return 'file'
+  return 'registry'
+}
+
+function dependencies(path: string | undefined): Readonly<Record<string, string>> {
+  if (path === undefined) return {}
+  try {
+    const value = JSON.parse(readFileSync(path, 'utf8')) as { dependencies?: unknown }
+    if (typeof value.dependencies !== 'object' || value.dependencies === null) return {}
+    return Object.fromEntries(Object.entries(value.dependencies).filter((entry): entry is [string, string] =>
+      typeof entry[1] === 'string'))
+  } catch {
+    return {}
+  }
+}
 
 /** Brand an existing Loader-tree entry id at the owning boundary. */
 function pluginEntryId(value: string): PluginEntryId {
@@ -43,8 +68,11 @@ const FIBER_PHASE = {
 export class PluginInventoryGateway extends TypertRemoteService {
   static inject = ['loader']
 
-  constructor(ctx: Context) {
+  private readonly config: Config
+
+  constructor(ctx: Context, config: Config = {}) {
     super(ctx, 'pluginInventory')
+    this.config = config
   }
 
   /**
@@ -56,13 +84,19 @@ export class PluginInventoryGateway extends TypertRemoteService {
   @Remote('list')
   list(): PluginInventorySnapshot {
     const entries: PluginInventoryEntry[] = []
+    const installed = dependencies(this.config.profileManifestPath)
+    const protectedEntries = new Set(this.config.protectedEntryIds ?? [])
     for (const entry of this.ctx.loader.entries()) {
       if (entry.options.group) continue
+      const source = installed[entry.options.name]
+      const protectedProfile = protectedEntries.has(entry.id) || protectedEntries.has(entry.options.name)
       entries.push({
         entryId: pluginEntryId(entry.id),
         moduleName: entry.options.name,
         enabled: !entry.disabled,
         fiberPhase: entry.fiber === undefined ? null : FIBER_PHASE[entry.fiber.state],
+        ...(source === undefined ? {} : { installSource: { kind: installationKind(source) } }),
+        ...(protectedProfile ? { protectedProfile: true } : {}),
       })
     }
     return { entries }

@@ -32,6 +32,7 @@ export const inject = [
   'slots', 'locale', 'connection', 'sessions', 'workspaces', 'remote',
   'remote.agentPresets', 'remote.enterpriseEmployee', 'remote.enterpriseAsset',
   'remote.enterpriseTeam', 'remote.enterpriseOperation',
+  'remote.pluginInventory',
   'remote.cordisWorkspace', 'remote.cordisReview', 'remote.cordisGovernance',
 ]
 
@@ -43,6 +44,7 @@ export function apply(ctx: Context): void {
     enterpriseAssets: ctx.remote.enterpriseAsset,
     enterpriseTeams: ctx.remote.enterpriseTeam,
     enterpriseOperations: ctx.remote.enterpriseOperation,
+    pluginInventory: ctx.remote.pluginInventory,
     cordisWorkspace: ctx.remote.cordisWorkspace,
     cordisReview: ctx.remote.cordisReview,
     cordisGovernance: ctx.remote.cordisGovernance,

@@ -1,6 +1,6 @@
 /** Pure enterprise projection over existing DSH Preset, Session, and Workspace facts. */
 
-import type { ClientRemote, SessionId } from '@deepseek-ai/dsh-api-remotes/client'
+import type { ClientRemote, PluginInventorySnapshot, SessionId } from '@deepseek-ai/dsh-api-remotes/client'
 import type {
   EnterpriseApproval, EnterpriseAsset, EnterpriseAssetKind,
   EnterpriseBusinessState, EnterpriseEmployeeAssetRef, EnterpriseEmployeeDraft,
@@ -136,6 +136,7 @@ export interface EnterpriseWorkbenchState {
   readonly extensions: EnterprisePageState<CordisPackageVersion>
   readonly extensionBindings: readonly CordisScopeBinding[]
   readonly extensionReviews: EnterprisePageState<CordisReviewRequest>
+  readonly formalPlugins: EnterprisePageState<PluginInventorySnapshot['entries'][number]>
   readonly extensionWorkspaceId?: string
   readonly employeeEditor?: EnterpriseEmployeeEditorState
   readonly releases: readonly EnterpriseEmployeeRelease[]
@@ -151,6 +152,7 @@ export interface EnterpriseWorkbenchRemote {
   readonly enterpriseAssets: ClientRemote['enterpriseAsset']
   readonly enterpriseTeams: ClientRemote['enterpriseTeam']
   readonly enterpriseOperations: ClientRemote['enterpriseOperation']
+  readonly pluginInventory: ClientRemote['pluginInventory']
   readonly cordisWorkspace: ClientRemote['cordisWorkspace']
   readonly cordisReview: ClientRemote['cordisReview']
   readonly cordisGovernance: ClientRemote['cordisGovernance']
@@ -288,6 +290,7 @@ const INITIAL_STATE: EnterpriseWorkbenchState = {
   extensions: emptyPage(),
   extensionBindings: [],
   extensionReviews: emptyPage(),
+  formalPlugins: emptyPage(),
   releases: [],
   mutationPhase: 'idle',
   mutationError: null,
@@ -433,7 +436,7 @@ export class EnterpriseWorkbenchController {
       await Promise.all([
         this.refreshWorkRecords(), this.refreshApprovals(), this.refreshSchedules(),
         this.refreshAssets(), this.refreshTeams(),
-        this.refreshExtensions(),
+        this.refreshExtensions(), this.refreshFormalPlugins(),
       ])
       this.store.set({
         ...this.store.getSnapshot(),
@@ -525,7 +528,7 @@ export class EnterpriseWorkbenchController {
     }
   }
 
-  private async loadPage<K extends 'workRecords' | 'approvals' | 'schedules' | 'assets' | 'teams'>(
+  private async loadPage<K extends 'workRecords' | 'approvals' | 'schedules' | 'assets' | 'teams' | 'formalPlugins'>(
     key: K,
     load: () => Promise<{ items: EnterpriseWorkbenchState[K]['items']; nextCursor?: string }>,
   ): Promise<boolean> {
@@ -578,6 +581,13 @@ export class EnterpriseWorkbenchController {
   /** Refresh fixed teams. */
   refreshTeams(): Promise<boolean> {
     return this.loadPage('teams', async () => valueOf(await this.api.enterpriseTeams.list({ limit: 50 })))
+  }
+
+  /** Read formally installed Registry/tgz/Profile plugins from the live Loader inventory. */
+  refreshFormalPlugins(): Promise<boolean> {
+    return this.loadPage('formalPlugins', async () => ({
+      items: valueOf(await this.api.pluginInventory.list()).entries,
+    }))
   }
 
   /** Select the Workspace whose personal or department extensions are projected. */
