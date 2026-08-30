@@ -2,7 +2,7 @@
 import { useEffect, useId, useMemo, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from 'react'
 import { IconChevronDownOutline14, IconChevronRightOutline14, IconEditOutline16, IconFolderClose16, IconFolderOpen16, IconPlusOutline16, IconUserOutline16, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
 import { randomUUID } from '@deepseek-ai/dsh-util-crypto'
-import type { EnterpriseGovernanceState, GovernanceDepartment, GovernanceMemory, GovernancePolicy, GovernanceUser } from './controller.ts'
+import type { EnterpriseGovernanceState, GovernanceDepartment, GovernanceMemory, GovernancePolicy, GovernanceUser, GovernanceWorkspace } from './controller.ts'
 import css from './governance.module.css'
 import { defaultGovernanceTranslate, type GovernanceTranslate } from './locales.ts'
 export interface EnterpriseGovernanceSurfaceProps {
@@ -54,7 +54,8 @@ export interface EnterpriseGovernanceSurfaceProps {
     idempotencyKey: string
   }): Promise<void>
   updateWorkspace(workspaceId: string, input: {
-    sandboxMode: 'read-only' | 'workspace-write'
+    name?: string
+    sandboxMode?: 'read-only' | 'workspace-write'
     expectedRevision: number
   }): Promise<void>
   proposeMemory(input: {
@@ -554,6 +555,59 @@ function UsersSection({ state, createUser, updateUser, t }: Pick<EnterpriseGover
     {dialog !== null && <UserDialog key={dialog.mode === 'create' ? 'create' : dialog.user.id} mode={dialog.mode} {...(dialog.mode === 'edit' ? { user: dialog.user } : {})} departments={state.departments} createUser={createUser} updateUser={updateUser} t={t} close={() => { setDialog(null) }}/>}
   </section>
 }
+function WorkspaceRow({ workspace, updateWorkspace, t }: {
+  workspace: GovernanceWorkspace
+  updateWorkspace: EnterpriseGovernanceSurfaceProps['updateWorkspace']
+  t: GovernanceTranslate
+}) {
+  const [name, setName] = useState(workspace.name)
+  const [sandboxMode, setSandboxMode] = useState(workspace.sandboxMode)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  useEffect(() => {
+    setName(workspace.name)
+    setSandboxMode(workspace.sandboxMode)
+    setError(null)
+  }, [workspace.name, workspace.revision, workspace.sandboxMode])
+  const dirty = name.trim() !== workspace.name || sandboxMode !== workspace.sandboxMode
+  return <form className={css.workspaceRow} onSubmit={(event) => {
+    event.preventDefault()
+    const save = async (): Promise<void> => {
+      setSaving(true)
+      setError(null)
+      try {
+        await updateWorkspace(workspace.workspaceId, {
+          name: name.trim(), sandboxMode, expectedRevision: workspace.revision,
+        })
+      }
+      catch {
+        setError(t('workspace.error'))
+      }
+      finally {
+        setSaving(false)
+      }
+    }
+    void save()
+  }}>
+    <div className={css.workspaceIdentity}>
+      <label>{t('workspace.nameAria', { name: workspace.name })}<input aria-label={t('workspace.nameAria', { name: workspace.name })} maxLength={100} value={name} onChange={(event) => { setName(event.target.value) }}/></label>
+      <span>{workspace.kind === 'personal' ? t('\u4E2A\u4EBA') : t('\u90E8\u95E8\u5171\u4EAB')}</span>
+    </div>
+    <div className={css.workspaceControls}>
+      <label>{t('\u6C99\u76D2\u7B56\u7565')}<select aria-label={t('workspace.sandboxAria', { name: workspace.name })} value={sandboxMode} onChange={(event) => {
+        setSandboxMode(event.target.value as GovernanceWorkspace['sandboxMode'])
+      }}>
+        <option value="read-only">{t('\u53EA\u8BFB\u6C99\u76D2')}</option><option value="workspace-write">{t('\u5DE5\u4F5C\u533A\u53EF\u5199')}</option>
+      </select></label>
+      <button type="submit" aria-label={t('workspace.saveAria', { name: workspace.name })} disabled={saving || !dirty || name.trim() === ''}>
+        {saving ? t('workspace.saving') : t('workspace.save')}
+      </button>
+    </div>
+    <code>{workspace.rootPath}</code>
+    {error !== null && <div className={css.formError} role="alert">{error}</div>}
+  </form>
+}
+
 function WorkspacesSection({ state, createWorkspace, updateWorkspace, t }: Pick<EnterpriseGovernanceSurfaceProps, 'state' | 'createWorkspace' | 'updateWorkspace'> & {
   t: GovernanceTranslate
 }) {
@@ -569,19 +623,9 @@ function WorkspacesSection({ state, createWorkspace, updateWorkspace, t }: Pick<
       <input aria-label={t('\u65B0\u5DE5\u4F5C\u533A\u540D\u79F0')} placeholder={t('\u4F8B\u5982\uFF1A\u4E09\u5B63\u5EA6\u91C7\u8D2D\u4E13\u9879')} value={name} onChange={(event) => { setName(event.target.value) }}/>
       <button type="submit" disabled={name.trim() === ''}>{t('\u65B0\u5EFA\u6211\u7684\u5DE5\u4F5C\u533A')}</button>
     </form>
-    <div className={css.workspaceList}>{state.workspaces.map(workspace => <div key={workspace.workspaceId}>
-      <div><strong>{workspace.name}</strong><span>{workspace.kind === 'personal' ? t('\u4E2A\u4EBA') : t('\u90E8\u95E8\u5171\u4EAB')}</span></div>
-      <div className={css.workspaceMeta}>
-        <select aria-label={t('workspace.sandboxAria', { name: workspace.name })} value={workspace.sandboxMode} onChange={(event) => {
-          void updateWorkspace(workspace.workspaceId, {
-            sandboxMode: event.target.value as 'read-only' | 'workspace-write', expectedRevision: workspace.revision,
-          })
-        }}>
-          <option value="read-only">{t('\u53EA\u8BFB\u6C99\u76D2')}</option><option value="workspace-write">{t('\u5DE5\u4F5C\u533A\u53EF\u5199')}</option>
-        </select>
-        <code>{workspace.rootPath}</code>
-      </div>
-    </div>)}</div>
+    <div className={css.workspaceList}>{state.workspaces.map(workspace => <WorkspaceRow
+      key={workspace.workspaceId} workspace={workspace} updateWorkspace={updateWorkspace} t={t}
+    />)}</div>
   </section>
 }
 function MemorySection({ state, proposeMemory, reviewMemory, t }: Pick<EnterpriseGovernanceSurfaceProps, 'state' | 'proposeMemory' | 'reviewMemory'> & {

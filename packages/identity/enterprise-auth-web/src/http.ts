@@ -26,7 +26,7 @@ export interface EnterpriseAuthProviders {
 export interface EnterpriseAuthHttpOptions {
   readonly workspaceProvisioner?: Partial<Pick<
     EnterpriseWorkspaceProvisioner,
-    'ensurePersonal' | 'ensureDepartment' | 'createPersonal'
+    'ensurePersonal' | 'ensureDepartment' | 'ensureWorkspace' | 'createPersonal'
   >>
 }
 
@@ -324,11 +324,13 @@ export class EnterpriseAuthHttpHandler {
         return json({ error: 'bad-request' }, 400)
       }
       try {
+        const previous = (await this.security.repository.listDepartments(principal.orgId))
+          .find(department => department.id === id)
         const department = await this.security.repository.saveDepartment({
           id, orgId: principal.orgId, name, parentId, sortOrder: sortOrder as number,
           expectedRevision: expectedRevision as number,
         })
-        await this.options.workspaceProvisioner?.ensureDepartment?.(department)
+        await this.options.workspaceProvisioner?.ensureDepartment?.(department, previous?.name)
         return json(department, request.method === 'POST' ? 201 : 200)
       } catch (error) {
         return json({ error: 'conflict', message: error instanceof Error ? error.message : String(error) }, 409)
@@ -340,19 +342,28 @@ export class EnterpriseAuthHttpHandler {
     if (request.method === 'PATCH' && path.length === 4 && path[2] === 'workspaces') {
       if (!sameOrigin(request)) return new Response('forbidden', { status: 403 })
       const body = await jsonBody(request)
+      const name = body['name']
       const sandboxMode = body['sandboxMode']
       const expectedRevision = body['expectedRevision']
-      if ((sandboxMode !== 'read-only' && sandboxMode !== 'workspace-write')
+      if ((name !== undefined && (typeof name !== 'string' || name.trim().length === 0 || name.trim().length > 100))
+        || (sandboxMode !== undefined && sandboxMode !== 'read-only' && sandboxMode !== 'workspace-write')
+        || (name === undefined && sandboxMode === undefined)
         || !Number.isSafeInteger(expectedRevision)) return json({ error: 'bad-request' }, 400)
       const current = await this.security.repository.workspaceGrant(path[3] as string)
       if (current === undefined || current.orgId !== principal.orgId) return json({ error: 'not-found' }, 404)
       try {
-        return json(await this.security.repository.saveWorkspaceGrant({
-          workspaceId: current.workspaceId, orgId: current.orgId, name: current.name, kind: current.kind,
+        const updated = await this.security.repository.saveWorkspaceGrant({
+          workspaceId: current.workspaceId, orgId: current.orgId,
+          name: typeof name === 'string' ? name.trim() : current.name, kind: current.kind,
           ...(current.ownerUserId === undefined ? {} : { ownerUserId: current.ownerUserId }),
           ...(current.departmentId === undefined ? {} : { departmentId: current.departmentId }),
-          rootPath: current.rootPath, sandboxMode, expectedRevision: expectedRevision as number,
-        }))
+          rootPath: current.rootPath,
+          sandboxMode: sandboxMode === 'read-only' || sandboxMode === 'workspace-write'
+            ? sandboxMode : current.sandboxMode,
+          expectedRevision: expectedRevision as number,
+        })
+        await this.options.workspaceProvisioner?.ensureWorkspace?.(updated)
+        return json(updated)
       } catch (error) {
         return json({ error: 'conflict', message: error instanceof Error ? error.message : String(error) }, 409)
       }

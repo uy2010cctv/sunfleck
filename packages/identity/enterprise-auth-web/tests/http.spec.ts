@@ -148,6 +148,7 @@ describe('EnterpriseAuthHttpHandler', () => {
 
   it('manages departments, user membership, workspaces, and reviewed memory', async () => {
     const provisioned: string[] = []
+    const synchronizedWorkspaceNames: string[] = []
     let auditId = 0
     const security = new EnterpriseSecurity(repository, {
       organizationId: 'org-a', sessionCookieName: 'dsh_session', sessionTtlMs: 60_000,
@@ -169,6 +170,7 @@ describe('EnterpriseAuthHttpHandler', () => {
           workspaceId: 'workspace-extra', orgId: user.orgId, name, kind: 'personal',
           ownerUserId: user.id, rootPath: '/managed/extra', sandboxMode: 'workspace-write', expectedRevision: 0,
         }),
+        ensureWorkspace: async (grant) => { synchronizedWorkspaceNames.push(grant.name) },
       },
     })
     const login = await managed.fetch(new Request('https://dsh.example.com/auth/login/local', {
@@ -204,10 +206,13 @@ describe('EnterpriseAuthHttpHandler', () => {
     ])
     const sandbox = await managed.fetch(new Request('https://dsh.example.com/auth/admin/workspaces/workspace-extra', {
       method: 'PATCH', headers: mutationHeaders,
-      body: JSON.stringify({ sandboxMode: 'read-only', expectedRevision: 1 }),
+      body: JSON.stringify({ name: '管理员指定工作区', sandboxMode: 'read-only', expectedRevision: 1 }),
     }))
     expect(sandbox.status).toBe(200)
-    await expect(sandbox.json()).resolves.toMatchObject({ sandboxMode: 'read-only', revision: 2 })
+    await expect(sandbox.json()).resolves.toMatchObject({
+      name: '管理员指定工作区', sandboxMode: 'read-only', revision: 2,
+    })
+    expect(synchronizedWorkspaceNames).toContain('管理员指定工作区')
 
     const proposal = await managed.fetch(new Request('https://dsh.example.com/auth/admin/memories', {
       method: 'POST', headers: mutationHeaders,

@@ -52,6 +52,8 @@ The selected deployment target is one enterprise intranet with multiple users. T
 
 The opt-in enterprise overlay replaces the managed plaintext credential provider with AES-256-GCM envelope storage, mounts SQLite identity/session/resource-policy/audit persistence, and exposes local plus OIDC/SAML/LDAP login through `/auth` on the same Web port. The Connection carrier authenticates and authorizes every shared HTTP RPC, Typert endpoint, dedicated RPC channel, and WebSocket downlink when `ctx.enterpriseSecurity` is present; unknown endpoints fail closed. The browser adds a full-frame login gate and an administrator-only organization/user/role/asset-policy/audit ledger.
 
+Department shared Workspaces remain bound to the immutable department id. When a department is renamed, a system-generated `Department name · Shared workspace` label follows the new department name; an administrator-defined workspace label is preserved. The administrator Workspace ledger edits the display name and sandbox policy through one explicit revision-fenced save, then propagates the committed label to the native DSH Workspace Registry so the Sidebar and governance ledger agree. It does not reassign a Workspace across departments because Session visibility and department memory depend on that stable ownership boundary.
+
 External SSO is implementation-complete but deployment-validation-dependent. Protocol-library and simulated-provider tests prove PKCE/state/nonce, SAML signature/InResponseTo configuration, LDAP TLS/filter/bind behavior, and canonical claim mapping. They do not prove a customer's real IdP metadata, certificate chain, directory schema, group mapping, TLS termination, or secret-manager custody.
 
 ## Alternatives considered

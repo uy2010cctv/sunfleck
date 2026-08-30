@@ -58,6 +58,62 @@ describe('EnterpriseWorkspaceProvisioner', () => {
     })
   })
 
+  it('renames an automatically named shared workspace when its department is renamed', async () => {
+    repository.saveDepartment({ id: 'dept-ops', orgId: 'org-a', name: '运营部', parentId: null, sortOrder: 0, expectedRevision: 0 })
+    const provisioner = new EnterpriseWorkspaceProvisioner(repository, {
+      root: join(root, 'managed'),
+      registry: {
+        create: async (path, title) => ({ id: 'workspace-ops', path, title: title ?? 'workspace' }),
+        ensure: async (id, path, title) => ({ id, path, title }),
+      },
+    })
+    await provisioner.ensureDepartment(repository.listDepartments('org-a')[0]!)
+    repository.saveDepartment({ id: 'dept-ops', orgId: 'org-a', name: '客户运营部', parentId: null, sortOrder: 0, expectedRevision: 1 })
+
+    const renamed = await provisioner.ensureDepartment(repository.listDepartments('org-a')[0]!, '运营部')
+
+    expect(renamed).toMatchObject({ name: '客户运营部 · 共享工作区', revision: 2 })
+  })
+
+  it('preserves an administrator-defined shared workspace name when its department is renamed', async () => {
+    repository.saveDepartment({ id: 'dept-ops', orgId: 'org-a', name: '运营部', parentId: null, sortOrder: 0, expectedRevision: 0 })
+    const provisioner = new EnterpriseWorkspaceProvisioner(repository, {
+      root: join(root, 'managed'),
+      registry: {
+        create: async (path, title) => ({ id: 'workspace-ops', path, title: title ?? 'workspace' }),
+        ensure: async (id, path, title) => ({ id, path, title }),
+      },
+    })
+    const grant = await provisioner.ensureDepartment(repository.listDepartments('org-a')[0]!)
+    repository.saveWorkspaceGrant({ ...grant, name: '华东运营协作空间', expectedRevision: grant.revision })
+    repository.saveDepartment({ id: 'dept-ops', orgId: 'org-a', name: '客户运营部', parentId: null, sortOrder: 0, expectedRevision: 1 })
+
+    const preserved = await provisioner.ensureDepartment(repository.listDepartments('org-a')[0]!, '运营部')
+
+    expect(preserved).toMatchObject({ name: '华东运营协作空间', revision: 2 })
+  })
+
+  it('propagates an administrator-defined grant name to the native DSH Workspace', async () => {
+    const renamed: string[] = []
+    const provisioner = new EnterpriseWorkspaceProvisioner(repository, {
+      root: join(root, 'managed'),
+      registry: {
+        create: async (path, title) => ({ id: 'workspace-alice', path, title: title ?? 'workspace' }),
+        ensure: async (id, path, _title) => ({
+          id, path, title: 'Old title', setTitle: async (next: string) => { renamed.push(next) },
+        }),
+      },
+    })
+    const grant = await provisioner.ensurePersonal(repository.listUsers('org-a')[0]!)
+    const updated = repository.saveWorkspaceGrant({
+      ...grant, name: '管理员指定工作区', expectedRevision: grant.revision,
+    })
+
+    await provisioner.ensureWorkspace(updated)
+
+    expect(renamed).toEqual(['管理员指定工作区'])
+  })
+
   it('repairs the native Workspace registration when an enterprise grant already exists', async () => {
     const ensured: Array<{ id: string; path: string; title: string }> = []
     const registry = {

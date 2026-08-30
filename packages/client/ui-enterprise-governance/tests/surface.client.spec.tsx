@@ -573,10 +573,14 @@ describe('enterprise governance UI', () => {
     />)
     expect(screen.getByRole('tree', { name: '组织架构' })).toBeDefined()
     fireEvent.click(screen.getByRole('button', { name: '运营部' }))
-    expect(screen.getAllByText('运营部 · 共享工作区')).toHaveLength(2)
+    expect(screen.getByText('运营部 · 共享工作区')).toBeDefined()
     fireEvent.click(screen.getByRole('tab', { name: '工作区' }))
+    fireEvent.change(screen.getByLabelText('运营部 · 共享工作区 名称'), { target: { value: '华东运营协作空间' } })
     fireEvent.change(screen.getByLabelText('运营部 · 共享工作区 沙盒策略'), { target: { value: 'workspace-write' } })
-    expect(updateWorkspace).toHaveBeenCalledWith('workspace-ops', { sandboxMode: 'workspace-write', expectedRevision: 1 })
+    fireEvent.click(screen.getByRole('button', { name: '保存运营部 · 共享工作区' }))
+    expect(updateWorkspace).toHaveBeenCalledWith('workspace-ops', {
+      name: '华东运营协作空间', sandboxMode: 'workspace-write', expectedRevision: 1,
+    })
     fireEvent.click(screen.getByRole('tab', { name: '企业记忆' }))
     fireEvent.change(screen.getByLabelText('审批必须保留版本记录。 审核说明'), { target: { value: '制度已核验' } })
     fireEvent.click(screen.getByRole('button', { name: '批准并启用' }))

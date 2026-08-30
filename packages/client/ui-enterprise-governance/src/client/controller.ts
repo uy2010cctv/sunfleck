@@ -268,7 +268,8 @@ export class EnterpriseGovernanceController {
   }
 
   async updateWorkspace(workspaceId: string, input: {
-    sandboxMode: GovernanceWorkspace['sandboxMode']
+    name?: string
+    sandboxMode?: GovernanceWorkspace['sandboxMode']
     expectedRevision: number
   }): Promise<void> {
     await this.request(`/auth/admin/workspaces/${encodeURIComponent(workspaceId)}`, {

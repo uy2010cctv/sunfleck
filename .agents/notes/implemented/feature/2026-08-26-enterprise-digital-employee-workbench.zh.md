@@ -52,6 +52,8 @@ OpenBMB StaffDeck 只用于参考员工名册和运营信息架构。未复制 S
 
 可选企业 Overlay 用 AES-256-GCM Envelope 存储替换受管明文 Credential Provider，挂载 SQLite 身份/会话/资源策略/审计持久化，并在同一 Web 端口通过 `/auth` 提供本地和 OIDC/SAML/LDAP 登录。存在 `ctx.enterpriseSecurity` 时，Connection 载体会认证并授权每个共享 HTTP RPC、Typert 端点、独立 RPC Channel 和 WebSocket 下行；未知端点失败关闭。浏览器增加全帧登录 Gate 和仅管理员可见的组织/用户/角色/资产策略/审计账本。
 
+部门共享工作区始终绑定不可变的部门 id。部门改名时，系统生成的“部门名 · 共享工作区”会同步新名称；管理员自定义的工作区名称会被保留。管理员在工作区管理页中通过一次显式、受 revision 保护的保存同时修改显示名称和沙盒策略，再把已提交名称同步到 DSH 原生 Workspace Registry，使侧边栏与治理页保持一致。不允许把工作区随意转绑到其他部门，因为 Session 可见性和部门记忆依赖该稳定归属边界。
+
 外部 SSO 在实现上完成，但部署就绪依赖真实环境验证。协议库与模拟 Provider 测试证明 PKCE/state/nonce、SAML 签名/InResponseTo 配置、LDAP TLS/Filter/Bind 行为和规范 Claim 映射。它们不能证明客户真实 IdP Metadata、证书链、目录 Schema、Group 映射、TLS 终止或 Secret Manager 托管。
 
 ## 考虑过的替代方案

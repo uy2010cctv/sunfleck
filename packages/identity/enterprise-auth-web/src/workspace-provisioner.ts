@@ -14,6 +14,7 @@ interface WorkspaceLike {
   readonly id: unknown
   readonly path: string
   readonly title: string
+  setTitle?(title: string): Promise<void>
 }
 
 export interface EnterpriseWorkspaceRegistry {
@@ -46,7 +47,7 @@ export class EnterpriseWorkspaceProvisioner {
     const existing = (await this.repository.listOrganizationWorkspaceGrants(user.orgId))
       .find(grant => grant.kind === 'personal' && grant.ownerUserId === user.id)
     if (existing !== undefined) {
-      await this.options.registry.ensure?.(existing.workspaceId, existing.rootPath, existing.name)
+      await this.ensureWorkspace(existing)
       return existing
     }
     return this.provision({
@@ -75,12 +76,26 @@ export class EnterpriseWorkspaceProvisioner {
     })
   }
 
-  async ensureDepartment(department: EnterpriseDepartment): Promise<EnterpriseWorkspaceGrant> {
+  async ensureDepartment(
+    department: EnterpriseDepartment,
+    previousDepartmentName?: string,
+  ): Promise<EnterpriseWorkspaceGrant> {
     const existing = (await this.repository.listOrganizationWorkspaceGrants(department.orgId))
       .find(grant => grant.kind === 'department' && grant.departmentId === department.id)
     if (existing !== undefined) {
-      await this.options.registry.ensure?.(existing.workspaceId, existing.rootPath, existing.name)
-      return existing
+      const previousManagedName = previousDepartmentName === undefined
+        ? undefined
+        : `${previousDepartmentName} · 共享工作区`
+      const nextManagedName = `${department.name} · 共享工作区`
+      const resolved = previousManagedName !== undefined
+        && existing.name === previousManagedName
+        && existing.name !== nextManagedName
+        ? await this.repository.saveWorkspaceGrant({
+          ...existing, name: nextManagedName, expectedRevision: existing.revision,
+        })
+        : existing
+      await this.ensureWorkspace(resolved)
+      return resolved
     }
     return this.provision({
       orgId: department.orgId,
@@ -90,6 +105,11 @@ export class EnterpriseWorkspaceProvisioner {
       departmentId: department.id,
       sandboxMode: 'read-only',
     })
+  }
+
+  async ensureWorkspace(grant: EnterpriseWorkspaceGrant): Promise<void> {
+    const workspace = await this.options.registry.ensure?.(grant.workspaceId, grant.rootPath, grant.name)
+    if (workspace !== undefined && workspace.title !== grant.name) await workspace.setTitle?.(grant.name)
   }
 
   private async provision(input: Omit<EnterpriseWorkspaceGrant, 'workspaceId' | 'revision' | 'createdAt' | 'updatedAt'>): Promise<EnterpriseWorkspaceGrant> {
