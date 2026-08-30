@@ -419,6 +419,38 @@ describe('EnterpriseWorkbenchController edits, mutations, and events', () => {
     expect(controller.store.getSnapshot().employeeEditor).toMatchObject({ dirty: false, conflict: false })
   })
 
+  it('copies the default Agent Preset before saving a new managed employee draft', async () => {
+    const copy = vi.fn(() => ok(undefined))
+    const saveDraft = vi.fn((payload: Record<string, unknown>) => ok({
+      presetId: payload.presetId as string, orgId: 'server-org', ownerUserId: 'owner-1',
+      visibility: 'organization' as const, profile: payload.profile as Record<string, never>,
+      bindings: [], revision: 1, status: 'draft' as const, updatedAt: 30,
+    }))
+    const base = controllerApi()
+    const api = controllerApi({
+      agentPresets: { ...base.agentPresets, copy },
+      enterpriseEmployees: { ...base.enterpriseEmployees, saveDraft },
+    })
+    const services = controllerServices()
+    const controller = new EnterpriseWorkbenchController(api as never, services.sessions as never, services.workspaces as never)
+
+    controller.createEmployeeDraft()
+    controller.patchEmployeeDraft({
+      name: '采购专员', prompt: '负责采购需求核验。', modelRef: 'deepseek-chat',
+    })
+    await controller.saveEmployeeDraft()
+
+    const presetId = saveDraft.mock.calls[0]?.[0].presetId as string
+    expect(presetId).toMatch(/^employee-[a-z0-9-]+$/u)
+    expect(copy).toHaveBeenCalledWith('standard', presetId, '采购专员')
+    expect(saveDraft).toHaveBeenCalledWith(expect.objectContaining({
+      presetId, expectedRevision: 0, visibility: 'organization',
+    }))
+    expect(controller.store.getSnapshot().employeeEditor).toMatchObject({
+      dirty: false, revision: 1, fields: { presetId, name: '采购专员' },
+    })
+  })
+
   it('keeps dirty input and exposes revision conflict when a save loses the revision race', async () => {
     const saveDraft = (_payload: unknown) => Promise.resolve({ result: {
       ok: false as const,

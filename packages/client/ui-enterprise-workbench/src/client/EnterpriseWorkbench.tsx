@@ -35,6 +35,7 @@ export interface EnterpriseWorkbenchInjected {
   setEmployeeFilters: (filters: { search?: string; status?: EnterpriseEmployeeDraft['status']; visibility?: EnterpriseVisibility; ownerUserId?: string }) => void
   refreshEmployees: () => Promise<void>
   loadMoreEmployees: () => Promise<void>
+  createEmployeeDraft: () => void
   openEmployeeDraft: (presetId: string) => Promise<void>
   patchEmployeeDraft: (patch: Partial<EnterpriseEmployeeDraftFields>) => void
   saveEmployeeDraft: () => Promise<void>
@@ -212,7 +213,7 @@ function EmployeeEditor({ editor, assets, api, back, rollback, mutationBusy, t }
   const field = editor.fields
   const validationText = (error: string): string => error === 'name-required' ? t('editor.nameRequired') : error === 'prompt-required' ? t('editor.promptRequired') : error === 'model-required' ? t('editor.modelRequired') : error
   return <section className={css.editor} aria-labelledby="employee-editor-title">
-    <div className={css.sectionHead}><div><h2 id="employee-editor-title">{t('editor.title')}</h2><span className={css.code}>{field.presetId}</span></div><button type="button" className={css.secondaryButton} onClick={back}>{t('editor.back')}</button></div>
+    <div className={css.sectionHead}><div><h2 id="employee-editor-title">{editor.creatingFromPresetId === undefined ? t('editor.title') : t('editor.createTitle')}</h2>{editor.creatingFromPresetId === undefined ? <span className={css.code}>{field.presetId}</span> : <span>{t('editor.createHint')}</span>}</div><button type="button" className={css.secondaryButton} onClick={back}>{t('editor.back')}</button></div>
     {editor.errors.length > 0 && <div className={css.validation} role="alert"><strong>{t('editor.validation')}</strong><ul>{editor.errors.map(error => <li key={error}>{validationText(error)}</li>)}</ul></div>}
     {editor.conflict && <div className={css.validation} role="alert">{t('editor.conflict')}</div>}{editor.error !== null && !editor.conflict && <div className={css.inlineError} role="alert">{editor.error}</div>}
     {editor.conflictServerFields !== undefined && <section className={css.conflictComparison} aria-label={t('editor.conflictComparison', { revision: editor.conflictServerRevision ?? 0 })}><h3>{t('editor.conflictComparison', { revision: editor.conflictServerRevision ?? 0 })}</h3><div><div><strong>{t('editor.localCopy')}</strong><span>{field.name}</span><span>{field.prompt}</span><span>{field.modelRef}</span></div><div><strong>{t('editor.serverCopy')}</strong><span>{editor.conflictServerFields.name}</span><span>{editor.conflictServerFields.prompt}</span><span>{editor.conflictServerFields.modelRef}</span></div></div><div className={css.conflictActions}><button type="button" className={css.secondaryButton} onClick={api.adoptServerEmployeeConflict}>{t('editor.adoptServer')}</button><button type="button" className={css.primaryButton} onClick={api.keepLocalEmployeeConflict}>{t('editor.keepLocal')}</button></div></section>}
@@ -223,7 +224,7 @@ function EmployeeEditor({ editor, assets, api, back, rollback, mutationBusy, t }
         <label className={css.fullField}>{t('editor.description')}<textarea rows={3} value={field.description} onChange={(event) => { api.patchEmployeeDraft({ description: event.target.value }) }} /></label><label className={css.fullField}>{t('editor.prompt')}<textarea rows={8} value={field.prompt} onChange={(event) => { api.patchEmployeeDraft({ prompt: event.target.value }) }} /></label><label>{t('editor.visibility')}<select value={field.visibility} onChange={(event) => { api.patchEmployeeDraft({ visibility: event.target.value as EnterpriseVisibility }) }}><option value="organization">{t(VISIBILITY_KEYS.organization)}</option><option value="private">{t(VISIBILITY_KEYS.private)}</option><option value="restricted">{t(VISIBILITY_KEYS.restricted)}</option></select></label><details className={css.fullField}><summary>{t('editor.advancedJson')}</summary><label>{t('editor.bindings')}<textarea rows={5} value={JSON.stringify(field.bindings, null, 2)} readOnly /></label></details>
       </div>
     </fieldset>
-    <div className={css.formActions}><button type="button" className={css.primaryButton} disabled={editor.saving || editor.conflict || mutationBusy} onClick={() => { void api.saveEmployeeDraft() }}>{editor.saving ? t('editor.saving') : t('editor.save')}</button><button type="button" className={css.secondaryButton} disabled={editor.dirty || editor.saving || editor.conflict || mutationBusy} onClick={() => { void api.publishEmployee() }}>{t('editor.publish')}</button></div>
+    <div className={css.formActions}><button type="button" className={css.primaryButton} disabled={editor.saving || editor.conflict || mutationBusy} onClick={() => { void api.saveEmployeeDraft() }}>{editor.saving ? t('editor.saving') : t('editor.save')}</button><button type="button" className={css.secondaryButton} disabled={editor.revision === 0 || editor.dirty || editor.saving || editor.conflict || mutationBusy} onClick={() => { void api.publishEmployee() }}>{t('editor.publish')}</button></div>
     <section className={css.history} aria-labelledby="release-history-title"><h3 id="release-history-title">{t('editor.releases')}</h3>{editor.releases.length === 0 ? <p>{t('editor.noReleases')}</p> : <div className={css.rows}>{editor.releases.map(release => <div className={css.row} key={release.releaseId}><div><strong>{t('version.short', { version: release.version })}</strong><span>{formatDate(release.publishedAt)} · {release.publishedBy}</span></div><button type="button" className={css.secondaryButton} disabled={editor.saving || mutationBusy} onClick={() => { rollback(release.releaseId) }}>{t('editor.rollback', { version: release.version })}</button></div>)}</div>}</section>
   </section>
 }
@@ -260,7 +261,7 @@ function EmployeesPage({ state, api, guardDirty, t }: {
   return <section className={css.employeeGallery} aria-labelledby="employees-page-title">
     <div className={css.galleryIntro}>
       <div><h2 id="employees-page-title">{t('employees.heading')}</h2><p>{t('employees.intro')}</p></div>
-      <span>{t('employees.count', { count: state.employees.items.length })}</span>
+      <div className={css.galleryIntroActions}><span>{t('employees.count', { count: state.employees.items.length })}</span><button type="button" className={css.primaryButton} onClick={api.createEmployeeDraft}><IconPlusOutline16 size={16}/>{t('employees.create')}</button></div>
     </div>
     <form className={css.galleryControls} onSubmit={(event) => { event.preventDefault(); applyFilters() }}>
       <label className={css.searchField}>
@@ -281,7 +282,7 @@ function EmployeesPage({ state, api, guardDirty, t }: {
     <div className={css.employeeTabs} role="tablist" aria-label={t('employees.categories')}>
       {([['', 'employees.all'], ['published', 'enum.employee.published'], ['draft', 'enum.employee.draft']] as const).map(([value, key]) => <button type="button" role="tab" key={value || 'all'} aria-selected={status === value} onClick={() => { setStatus(value); applyFilters(value) }}>{t(key)}</button>)}
     </div>
-    <PageBoundary page={state.employees} t={t}><div className={css.employeeGrid}>{state.employees.items.map((draft) => {
+    <PageBoundary page={state.employees} t={t} empty={<ActionableEmpty title={t('employees.empty.title')} description={t('employees.empty.body')} action={<button type="button" className={css.primaryButton} onClick={api.createEmployeeDraft}><IconPlusOutline16 size={16}/>{t('employees.create')}</button>}/>}><div className={css.employeeGrid}>{state.employees.items.map((draft) => {
       const name = profileText(draft, 'name', draft.presetId)
       const position = profileText(draft, 'position', t('employee.positionFallback'))
       const department = profileText(draft, 'department')

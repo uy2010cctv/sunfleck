@@ -18,6 +18,10 @@ DSH 把 Agent Preset、Workspace、Session 和 Session Event 作为独立的开�
 
 `preset.yml` 有一个可选的 `employee` 展示块，包含职位、部门和能力标签。这些字段明确不具有权威性：Preset id 仍是身份，已挂载的 composition 仍是能力和权限的权威来源。复制 Preset 时保留可复用的展示元数据，但仍丢弃源名称和 roster 顺序。
 
+## 受管员工创建
+
+企业员工名册为空时必须提供主要操作“新建数字员工”，不能停在无下一步的空状态。编辑器先创建一个未保存的 revision 0 草稿，并隐藏系统生成的内部 id。首次通过校验并保存时，DSH 以该稳定 id 复制部署默认 Agent Preset，再持久化企业员工草稿；后续保存使用 revision CAS，发布时冻结不可变 Release。这样创建出的员工仍通过原生 Session `agentPreset` 链运行，而不是只有目录记录、无法发起对话的空壳。
+
 ## StaffDeck 来源边界
 
 OpenBMB StaffDeck 只用于参考员工名册和运营信息架构。未复制 StaffDeck 的 React 组件、FastAPI 模型、插图、头像、Logo 或源文件。DSH 保留自身的 MIT 源码、Cordis 插件拓扑、运行时服务、事件日志、主题 token 和浏览器 slot 系统。

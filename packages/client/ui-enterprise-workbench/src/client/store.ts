@@ -115,6 +115,9 @@ export interface EnterpriseEmployeeEditorState {
   readonly error: string | null
   readonly conflictServerFields?: EnterpriseEmployeeDraftFields
   readonly conflictServerRevision?: number
+  /** Native Agent Preset copied on the first save of a newly created managed employee. */
+  readonly creatingFromPresetId?: string
+  readonly presetCreated?: boolean
 }
 
 /** Browser lifecycle for the enterprise workbench. */
@@ -706,6 +709,22 @@ export class EnterpriseWorkbenchController {
     }
   }
 
+  /** Start one unsaved managed employee backed by a copy of the deployment's default Agent Preset. */
+  createEmployeeDraft(): void {
+    this.editorGeneration++
+    const source = this.roster.find(preset => preset.isDefault)?.id ?? this.roster[0]?.id ?? 'standard'
+    const fields: EnterpriseEmployeeDraftFields = {
+      presetId: `employee-${randomUUID()}`,
+      name: '', description: '', position: '', department: '', prompt: '', modelRef: '',
+      capabilities: [], visibility: 'organization', bindings: [],
+    }
+    this.store.set({ ...this.store.getSnapshot(), employeeEditor: {
+      phase: 'ready', fields, revision: 0, releases: [], dirty: false, saving: false,
+      conflict: false, errors: validateEmployeeDraft(fields), error: null,
+      creatingFromPresetId: source, presetCreated: false,
+    } })
+  }
+
   /** Patch local fields only; no write occurs until saveEmployeeDraft. */
   patchEmployeeDraft(patch: Partial<EnterpriseEmployeeDraftFields>): void {
     const state = this.store.getSnapshot()
@@ -766,16 +785,26 @@ export class EnterpriseWorkbenchController {
     const idempotencyKey = mutationKey('employee-save')
     this.store.set({ ...before, employeeEditor: { ...editor, saving: true, conflict: false, error: null } })
     const { presetId, visibility, bindings, name, description, position, department, prompt, modelRef, capabilities } = editor.fields
-    await this.runMutation('employee-save', async () => valueOf(await this.api.enterpriseEmployees.saveDraft({
-      presetId, expectedRevision, idempotencyKey, visibility,
-      profile: { name, description, position, department, prompt, modelRef, capabilities: [...capabilities] }, bindings,
-    })), async (saved) => {
+    await this.runMutation('employee-save', async () => {
+      if (editor.creatingFromPresetId !== undefined && editor.presetCreated !== true) {
+        valueOf(await this.api.agentPresets.copy(editor.creatingFromPresetId, presetId, name))
+        const copied = this.store.getSnapshot()
+        if (copied.employeeEditor !== undefined) {
+          this.store.set({ ...copied, employeeEditor: { ...copied.employeeEditor, presetCreated: true } })
+        }
+      }
+      return valueOf(await this.api.enterpriseEmployees.saveDraft({
+        presetId, expectedRevision, idempotencyKey, visibility,
+        profile: { name, description, position, department, prompt, modelRef, capabilities: [...capabilities] }, bindings,
+      }))
+    }, async (saved) => {
       const current = this.store.getSnapshot()
       const currentEditor = current.employeeEditor
       if (generation !== this.saveGeneration || currentEditor === undefined
         || currentEditor.revision !== expectedRevision) return
+      const { creatingFromPresetId: _source, presetCreated: _presetCreated, ...settledEditor } = currentEditor
       this.store.set({ ...current, employeeEditor: {
-        ...currentEditor, fields: draftFields(saved), revision: saved.revision,
+        ...settledEditor, fields: draftFields(saved), revision: saved.revision,
         saving: false, dirty: false, conflict: false, errors: [], error: null,
       } })
       await this.refreshEmployees()

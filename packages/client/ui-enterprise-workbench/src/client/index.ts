@@ -76,6 +76,7 @@ export function apply(ctx: Context): void {
     setEmployeeFilters: (filters) => { controller.setEmployeeFilters(filters) },
     refreshEmployees: async () => { await controller.refreshEmployees() },
     loadMoreEmployees: async () => { await controller.loadMoreEmployees() },
+    createEmployeeDraft: () => { controller.createEmployeeDraft() },
     openEmployeeDraft: id => controller.openEmployeeDraft(id),
     patchEmployeeDraft: (patch) => { controller.patchEmployeeDraft(patch) },
     saveEmployeeDraft: () => controller.saveEmployeeDraft(),

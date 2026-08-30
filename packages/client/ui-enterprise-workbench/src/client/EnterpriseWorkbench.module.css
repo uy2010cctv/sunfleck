@@ -178,7 +178,8 @@
 .galleryIntro p { margin: 0; }
 .galleryIntro h2 { font-size: 1.375rem; line-height: 1.3; letter-spacing: -0.025em; }
 .galleryIntro p { max-inline-size: 62ch; margin-block-start: var(--dse-space-2xs); color: var(--dse-color-muted); font-size: 0.8125rem; line-height: 1.55; }
-.galleryIntro > span { flex: none; padding-block-start: var(--dse-space-3xs); color: var(--dse-color-muted); font-size: 0.75rem; font-variant-numeric: tabular-nums; }
+.galleryIntroActions { flex: none; display: flex; align-items: center; gap: var(--dse-space-xs); }
+.galleryIntroActions > span { color: var(--dse-color-muted); font-size: 0.75rem; font-variant-numeric: tabular-nums; }
 
 .galleryControls {
   display: flex;

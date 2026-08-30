@@ -174,6 +174,38 @@ describe('EnterpriseWorkbench', () => {
     expect(openEmployeeDraft).toHaveBeenCalledWith('buyer')
   })
 
+  it('offers a primary creation action when the managed employee roster is empty', () => {
+    const createEmployeeDraft = vi.fn()
+    render(<EnterpriseWorkbench {...workbenchProps({
+      state: {
+        mode: 'enterprise', page: 'employees',
+        employees: { phase: 'ready', items: [], error: null },
+      },
+      createEmployeeDraft,
+    } as never)} />)
+
+    expect(screen.getByText('还没有数字员工')).toBeDefined()
+    fireEvent.click(screen.getAllByRole('button', { name: '新建数字员工' })[0]!)
+    expect(createEmployeeDraft).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not allow publishing a new employee before its first draft save', () => {
+    render(<EnterpriseWorkbench {...workbenchProps({ state: {
+      mode: 'enterprise', page: 'employees', employeeEditor: {
+        phase: 'ready', revision: 0, releases: [], dirty: false, saving: false, conflict: false,
+        errors: ['name-required', 'prompt-required', 'model-required'], error: null,
+        creatingFromPresetId: 'standard', presetCreated: false,
+        fields: {
+          presetId: 'employee-new', name: '', description: '', position: '', department: '',
+          prompt: '', modelRef: '', capabilities: [], visibility: 'organization', bindings: [],
+        },
+      },
+    } as never })} />)
+
+    expect(screen.getByRole('heading', { name: '新建数字员工' })).toBeDefined()
+    expect(screen.getByRole('button', { name: '发布' }).hasAttribute('disabled')).toBe(true)
+  })
+
   it('presents the roster as a StaffDeck-inspired employee gallery without technical metadata', () => {
     render(<EnterpriseWorkbench {...workbenchProps({
       state: {
