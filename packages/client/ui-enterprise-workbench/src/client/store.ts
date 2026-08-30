@@ -103,6 +103,12 @@ export interface EnterpriseEmployeeDraftFields {
   readonly bindings: readonly EnterpriseEmployeeAssetRef[]
 }
 
+export interface EnterpriseModelOption {
+  readonly value: string
+  readonly provider: string
+  readonly model: string
+}
+
 /** Explicit-save employee editor state. */
 export interface EnterpriseEmployeeEditorState {
   readonly phase: 'loading' | 'ready' | 'error'
@@ -119,6 +125,7 @@ export interface EnterpriseEmployeeEditorState {
   /** Native Agent Preset copied on the first save of a newly created managed employee. */
   readonly creatingFromPresetId?: string
   readonly presetCreated?: boolean
+  readonly optimizingPrompt?: boolean
 }
 
 /** Browser lifecycle for the enterprise workbench. */
@@ -141,6 +148,7 @@ export interface EnterpriseWorkbenchState {
   readonly extensionBindings: readonly CordisScopeBinding[]
   readonly extensionReviews: EnterprisePageState<CordisReviewRequest>
   readonly formalPlugins: EnterprisePageState<PluginInventorySnapshot['entries'][number]>
+  readonly modelOptions: readonly EnterpriseModelOption[]
   readonly extensionWorkspaceId?: string
   readonly employeeEditor?: EnterpriseEmployeeEditorState
   readonly releases: readonly EnterpriseEmployeeRelease[]
@@ -152,6 +160,7 @@ export interface EnterpriseWorkbenchState {
 /** Generated Remote namespaces consumed by the enterprise projection. */
 export interface EnterpriseWorkbenchRemote {
   readonly agentPresets: ClientRemote['agentPresets']
+  readonly session: Pick<ClientRemote['session'], 'modelCatalog'>
   readonly enterpriseEmployees: ClientRemote['enterpriseEmployee']
   readonly enterpriseAssets: ClientRemote['enterpriseAsset']
   readonly enterpriseTeams: ClientRemote['enterpriseTeam']
@@ -295,6 +304,7 @@ const INITIAL_STATE: EnterpriseWorkbenchState = {
   extensionBindings: [],
   extensionReviews: emptyPage(),
   formalPlugins: emptyPage(),
+  modelOptions: [],
   releases: [],
   mutationPhase: 'idle',
   mutationError: null,
@@ -441,7 +451,7 @@ export class EnterpriseWorkbenchController {
       await Promise.all([
         this.refreshWorkRecords(), this.refreshApprovals(), this.refreshSchedules(),
         this.refreshAssets(), this.refreshTeams(),
-        this.refreshExtensions(), this.refreshFormalPlugins(),
+        this.refreshExtensions(), this.refreshFormalPlugins(), this.refreshModelOptions(),
       ])
       this.store.set({
         ...this.store.getSnapshot(),
@@ -459,6 +469,21 @@ export class EnterpriseWorkbenchController {
         phase: 'error',
         error: error instanceof Error ? error.message : String(error),
       })
+    }
+  }
+
+  /** Read the active provider/model catalog already used by the native conversation selector. */
+  async refreshModelOptions(): Promise<void> {
+    try {
+      const catalog = valueOf(await this.api.session.modelCatalog())
+      const modelOptions = catalog.groups.flatMap(group => group.models.map(model => ({
+        value: `${group.id}/${model.id}`,
+        provider: group.name,
+        model: model.name,
+      })))
+      this.store.set({ ...this.store.getSnapshot(), modelOptions })
+    } catch {
+      this.store.set({ ...this.store.getSnapshot(), modelOptions: [] })
     }
   }
 
@@ -862,6 +887,39 @@ export class EnterpriseWorkbenchController {
         && this.store.getSnapshot().page === 'employees') await this.openEmployeeDraft(presetId)
       await this.refreshEmployees()
     }, (error) => { this.setEditorFailure(error) }, () => this.reloadEmployeeConflict(presetId))
+  }
+
+  /** Replace the local responsibility prompt with a model-generated improved draft. */
+  async optimizeEmployeePrompt(): Promise<void> {
+    const state = this.store.getSnapshot()
+    const editor = state.employeeEditor
+    if (editor?.fields === undefined || editor.optimizingPrompt === true) return
+    const route = state.modelOptions.find(option => option.value === editor.fields?.modelRef)
+    if (route === undefined || editor.fields.prompt.trim() === '') return
+    const separator = route.value.indexOf('/')
+    if (separator <= 0) return
+    this.store.set({ ...state, employeeEditor: { ...editor, optimizingPrompt: true, error: null } })
+    try {
+      const optimized = valueOf(await this.api.enterpriseEmployees.optimizePrompt({
+        provider: route.value.slice(0, separator),
+        model: route.value.slice(separator + 1),
+        prompt: editor.fields.prompt,
+      }))
+      const current = this.store.getSnapshot()
+      if (current.employeeEditor?.fields === undefined) return
+      this.store.set({ ...current, employeeEditor: {
+        ...current.employeeEditor,
+        fields: { ...current.employeeEditor.fields, prompt: optimized.prompt },
+        optimizingPrompt: false, dirty: true, error: null,
+      } })
+    } catch (error) {
+      const current = this.store.getSnapshot()
+      if (current.employeeEditor === undefined) return
+      this.store.set({ ...current, employeeEditor: {
+        ...current.employeeEditor, optimizingPrompt: false,
+        error: error instanceof Error ? error.message : String(error),
+      } })
+    }
   }
 
   /** Roll back by publishing a historical release as a new release. */

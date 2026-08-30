@@ -99,6 +99,7 @@ Employee Operations Deck. The interface treats digital employees as finite opera
 - Missing prerequisites use an actionable empty state that links back to Digital employees. A generic empty-record message is not acceptable on these pages.
 - Employee editing uses a two-column identity layout on desktop: a persistent avatar/profile preview supports a linear form divided into profile, responsibilities/runtime, and access/capabilities. Mobile stacks the preview above the same DOM-order form. Save/publish actions stay visible in one sticky footer; validation remains adjacent to the form rather than dominating the page.
 - Employee department is selected from the authenticated organization directory. Free-text department entry is not permitted because the employee profile must use the same department names that govern shared Workspaces and visibility.
+- Employee model selection reuses the native `session/modelCatalog` projection, grouped by configured provider. Prompt optimization is an explicit secondary action beside the responsibility field; it uses the selected configured route, replaces only the unsaved local prompt, and never persists until the operator saves the draft.
 
 ## Responsive behavior
 

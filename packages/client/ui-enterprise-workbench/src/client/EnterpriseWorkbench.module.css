@@ -537,6 +537,10 @@
 .formSection > header p { margin: 0; }
 .formSection > header h3 { font-size: 0.9375rem; line-height: 1.4; }
 .formSection > header p { max-inline-size: 68ch; margin-block-start: var(--dse-space-3xs); color: var(--dse-color-muted); font-size: 0.75rem; line-height: 1.5; }
+.promptField { min-inline-size: 0; }
+.promptToolbar { min-block-size: 36px; display: flex; align-items: center; justify-content: space-between; gap: var(--dse-space-xs); }
+.promptToolbar label { color: var(--dse-color-muted); font-size: 0.75rem; }
+.promptField textarea { inline-size: 100%; }
 .editorActions { position: sticky; inset-block-end: calc(-1 * var(--dse-space-md)); z-index: 2; display: flex; align-items: center; justify-content: space-between; gap: var(--dse-space-sm); margin-block-start: var(--dse-space-lg); padding: var(--dse-space-sm) 0 var(--dse-space-md); border-block-start: 1px solid var(--dse-color-border); background: var(--dse-color-canvas); }
 .editorActions > span { color: var(--dse-color-muted); font-size: 0.75rem; line-height: 1.45; }
 .editorActions > div { display: flex; align-items: center; gap: var(--dse-space-xs); }

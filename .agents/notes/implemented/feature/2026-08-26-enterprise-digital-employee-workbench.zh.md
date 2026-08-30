@@ -26,6 +26,8 @@ DSH 把 Agent Preset、Workspace、Session 和 Session Event 作为独立的开�
 
 员工编辑器通过当前登录会话读取 `/auth/departments`，并保存用户选择的规范部门名称。普通已登录成员按员工读取权限使用该目录；新建部门和调整组织树仍只属于管理员。表单采用名称整行、岗位与部门成对、说明与 Prompt 整行的排布，同时移除头像下方的解释文案。
 
+模型字段读取与对话输入框相同的实时 `session/modelCatalog`，并保存供应商/模型路由。“AI 优化”调用 `enterpriseEmployee.optimizePrompt`；Host 使用已选择且已配置的适配器，通过 `ctx.llm` 完成一次纯文本生成，不向浏览器暴露凭据。返回结果只替换本地未保存草稿，仍需用户显式保存并通过 revision fence 才会持久化。
+
 ## StaffDeck 来源边界
 
 OpenBMB StaffDeck 只用于参考员工名册和运营信息架构。未复制 StaffDeck 的 React 组件、FastAPI 模型、插图、头像、Logo 或源文件。DSH 保留自身的 MIT 源码、Cordis 插件拓扑、运行时服务、事件日志、主题 token 和浏览器 slot 系统。

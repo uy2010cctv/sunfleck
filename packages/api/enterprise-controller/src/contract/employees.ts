@@ -60,4 +60,12 @@ export interface EnterpriseEmployeePublishRequest {
 export interface EnterpriseEmployeeRollbackRequest extends EnterpriseEmployeePublishRequest {
   readonly releaseId: string
 }
+export interface EnterpriseEmployeeOptimizePromptRequest {
+  readonly provider: string
+  readonly model: string
+  readonly prompt: string
+}
+export interface EnterpriseEmployeeOptimizePromptResult {
+  readonly prompt: string
+}
 import type { JsonValue } from '@deepseek-ai/dsh-session/types'

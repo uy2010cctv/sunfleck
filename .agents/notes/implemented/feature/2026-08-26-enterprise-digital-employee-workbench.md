@@ -26,6 +26,8 @@ Each employee profile carries an opaque `avatarSeed`. New drafts receive a rando
 
 The employee editor reads `/auth/departments` through the current authenticated session and stores the selected canonical department name. This read route is available to ordinary authenticated members under employee-read policy; department creation and restructuring remain administrator-only. The form uses a full-width employee name, paired position/department controls, full-width descriptive fields, and no explanatory avatar paragraph.
 
+The model field reads the same live `session/modelCatalog` used by the conversation composer and stores a provider/model route. The **AI optimize** action calls `enterpriseEmployee.optimizePrompt`; the Host resolves the selected configured adapter, performs a text-only one-shot through `ctx.llm`, and returns an improved prompt without exposing credentials to the browser. The result only updates the unsaved local draft and remains subject to the ordinary explicit save/revision fence.
+
 ## StaffDeck provenance boundary
 
 OpenBMB StaffDeck informed the employee-roster and operations information architecture. No StaffDeck React components, FastAPI models, illustrations, avatars, logos, or source files are copied. DSH keeps its MIT source, Cordis plugin topology, runtime services, event log, theme tokens, and browser slot system.

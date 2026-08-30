@@ -61,6 +61,7 @@ const BASE_STATE: EnterpriseWorkbenchState = {
   error: null, busyEmployee: null, employeeFilters: {}, employees: EMPTY_PAGE,
   workRecords: EMPTY_PAGE, approvals: EMPTY_PAGE, schedules: EMPTY_PAGE,
   assets: EMPTY_PAGE, teams: EMPTY_PAGE,
+  modelOptions: [],
   extensions: EMPTY_PAGE, extensionBindings: [], extensionReviews: EMPTY_PAGE, formalPlugins: EMPTY_PAGE,
   releases: [],
   mutationPhase: 'idle', mutationError: null, retryAction: null,
@@ -239,6 +240,33 @@ describe('EnterpriseWorkbench', () => {
     expect(screen.queryByRole('textbox', { name: '部门' })).toBeNull()
     fireEvent.change(screen.getByRole('combobox', { name: '部门' }), { target: { value: '运营部' } })
     expect(patchEmployeeDraft).toHaveBeenCalledWith({ department: '运营部' })
+  })
+
+  it('selects a configured provider model and offers AI prompt optimization', () => {
+    const patchEmployeeDraft = vi.fn()
+    const optimizeEmployeePrompt = vi.fn(() => Promise.resolve())
+    render(<EnterpriseWorkbench {...workbenchProps({ state: {
+      mode: 'enterprise', page: 'employees', modelOptions: [{
+        value: 'deepseek/deepseek-chat', provider: 'DeepSeek', model: 'DeepSeek Chat',
+      }, {
+        value: 'deepseek/deepseek-reasoner', provider: 'DeepSeek', model: 'DeepSeek Reasoner',
+      }], employeeEditor: {
+        phase: 'ready', revision: 1, releases: [], dirty: true, saving: false, conflict: false,
+        optimizingPrompt: false, errors: [], error: null,
+        fields: {
+          presetId: 'employee-buyer', name: '采购专员', avatarSeed: 'seed', description: '',
+          position: '采购运营', department: '采购部', prompt: '负责采购。', modelRef: 'deepseek/deepseek-chat',
+          capabilities: [], visibility: 'organization', bindings: [],
+        },
+      },
+    } as never, patchEmployeeDraft, optimizeEmployeePrompt })} />)
+
+    const model = screen.getByRole('combobox', { name: '模型引用' })
+    expect(model.textContent).toContain('DeepSeek Chat')
+    fireEvent.change(model, { target: { value: 'deepseek/deepseek-reasoner' } })
+    expect(patchEmployeeDraft).toHaveBeenCalledWith({ modelRef: 'deepseek/deepseek-reasoner' })
+    fireEvent.click(screen.getByRole('button', { name: 'AI 优化' }))
+    expect(optimizeEmployeePrompt).toHaveBeenCalledTimes(1)
   })
 
   it('presents the roster as a StaffDeck-inspired employee gallery without technical metadata', () => {

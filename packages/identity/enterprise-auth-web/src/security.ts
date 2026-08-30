@@ -73,6 +73,7 @@ function syncValue<T>(value: T | Promise<T>, operation: string): T {
 const SESSION_READ = new Set([
   'host.describe', 'host.listDirectory', 'events.mux', 'events.host',
   'session.list', 'session.search', 'session.history', 'session.models', 'session.attachment',
+  'session.modelCatalog',
   'skill.list', 'subagent.list', 'subagent.history', 'workspace.list', 'downloads.sessionLog',
   // Legacy aliases kept for direct callers; the wire RPC registry uses the
   // singular names above.
@@ -136,7 +137,7 @@ export function classifyApiEndpoint(endpoint: string, input: unknown): ApiClassi
   if (endpoint.startsWith('credentials.')) return { action: 'credential.manage', resourceType: 'credential' }
   if (endpoint.startsWith('enterpriseAdmin.')) return { action: 'user.manage', resourceType: 'enterprise-admin' }
   if (endpoint === 'enterpriseAudit.list') return { action: 'audit.read', resourceType: 'audit' }
-  if (['enterpriseEmployee.list', 'enterpriseEmployee.getDraft', 'enterpriseEmployee.saveDraft', 'enterpriseEmployee.publish', 'enterpriseEmployee.listReleases', 'enterpriseEmployee.rollback'].includes(endpoint)) {
+  if (['enterpriseEmployee.list', 'enterpriseEmployee.getDraft', 'enterpriseEmployee.saveDraft', 'enterpriseEmployee.publish', 'enterpriseEmployee.listReleases', 'enterpriseEmployee.rollback', 'enterpriseEmployee.optimizePrompt'].includes(endpoint)) {
     const resourceId = stringField(payload, 'presetId', 'releaseId')
     const read = endpoint === 'enterpriseEmployee.list' || endpoint === 'enterpriseEmployee.getDraft' || endpoint === 'enterpriseEmployee.listReleases'
     const create = endpoint === 'enterpriseEmployee.saveDraft' && payload['expectedRevision'] === 0

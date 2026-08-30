@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-26-enterprise-digital-employee-workbench.md
-2026-08-26-enterprise-digital-employee-workbench.md: 7105fec354ca0564e4cd72dcffcd5335f5efb811
-2026-08-26-enterprise-digital-employee-workbench.zh.md: 0e2fe6dddffd57102d0226d209563117c2e3ee22
+2026-08-26-enterprise-digital-employee-workbench.md: e4f0742a8e3dfdb34cdb504273d0f34f989ee931
+2026-08-26-enterprise-digital-employee-workbench.zh.md: 11793182191d425ed6a28402cd1f450d4b952f6c

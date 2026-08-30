@@ -6,6 +6,12 @@ import type { EnterprisePrincipal } from '@deepseek-ai/dsh-enterprise-governance
 import type {} from '@deepseek-ai/dsh-enterprise-auth-web'
 import type {} from '@deepseek-ai/dsh-enterprise-postgres'
 import {
+  BlockAssembler,
+  createUserMessage,
+  type GenerateOptions,
+  type StreamChunk,
+} from '@deepseek-ai/dsh-llm'
+import {
   EmployeeDraftRevisionConflictError,
   EnterpriseCatalogError,
 } from '@deepseek-ai/dsh-enterprise-catalog'
@@ -33,6 +39,8 @@ import type {
   EnterpriseEmployeeDraft,
   EnterpriseEmployeeListRequest,
   EnterpriseEmployeeLookup,
+  EnterpriseEmployeeOptimizePromptRequest,
+  EnterpriseEmployeeOptimizePromptResult,
   EnterpriseEmployeePage,
   EnterpriseEmployeePublishRequest,
   EnterpriseEmployeeRelease,
@@ -165,8 +173,43 @@ function cordis(ctx: Context): EnterpriseCordisService {
 }
 
 /** Employee Draft/Release Remote service. */
+interface EmployeePromptLlm {
+  stream(options: GenerateOptions): AsyncIterable<StreamChunk>
+}
+
+export async function optimizeEmployeePromptWithLlm(
+  llm: EmployeePromptLlm,
+  request: EnterpriseEmployeeOptimizePromptRequest,
+): Promise<EnterpriseEmployeeOptimizePromptResult> {
+  const prompt = request.prompt.trim()
+  if (prompt === '' || prompt.length > 20_000 || request.provider.trim() === '' || request.model.trim() === '') {
+    throw new Error('employee prompt optimization requires a model route and a prompt up to 20000 characters')
+  }
+  const assembler = new BlockAssembler()
+  for await (const chunk of llm.stream({
+    provider: request.provider,
+    model: request.model,
+    system: 'You improve enterprise digital-employee responsibility prompts. Preserve the input language. Return only the improved prompt, with clear responsibilities, operating rules, boundaries, and expected outputs. Do not use Markdown fences or commentary.',
+    messages: [createUserMessage({
+      source: { kind: 'plugin', plugin: 'enterprise-employee-prompt-optimizer' },
+      content: [{ type: 'text', text: prompt }],
+    })],
+    temperature: 0.2,
+    maxTokens: 2_000,
+  })) assembler.push(chunk)
+  const finish = assembler.finish
+  if (finish.kind === 'error' || finish.kind === 'aborted') {
+    throw new Error(finish.failure.message)
+  }
+  const blocks = assembler.blocks()
+  if (blocks.some(block => block.type === 'tool-call')) throw new Error('prompt optimizer returned an unexpected tool call')
+  const optimized = blocks.flatMap(block => block.type === 'text' ? [block.text] : []).join('\n').trim()
+  if (optimized === '') throw new Error('prompt optimizer returned no text')
+  return { prompt: optimized }
+}
+
 export class EnterpriseEmployeeController extends TypertRemoteService {
-  static inject = ['enterprisePostgres', 'enterpriseSecurity', 'enterpriseRequestContext']
+  static inject = ['enterprisePostgres', 'enterpriseSecurity', 'enterpriseRequestContext', 'llm']
   /** @param ctx - authenticated enterprise Host context. */
   constructor(ctx: Context) { super(ctx, 'enterpriseEmployeeController', { namespace: 'enterpriseEmployee' }) }
 
@@ -200,6 +243,15 @@ export class EnterpriseEmployeeController extends TypertRemoteService {
       if (value === undefined) throw new EnterpriseCatalogError('not-found', 'employee', request.presetId)
       return value as EnterpriseEmployeeDraft
     })
+  }
+
+  /** Improve one unsaved responsibility prompt through a caller-selected configured model. */
+  @Remote('optimizePrompt')
+  async optimizePrompt(
+    request: EnterpriseEmployeeOptimizePromptRequest,
+  ): Promise<EnterpriseEmployeeOptimizePromptResult> {
+    return catalogCall(this.ctx, 'enterpriseEmployee.optimizePrompt', request, 'employee', 'prompt-optimizer', () =>
+      optimizeEmployeePromptWithLlm(this.ctx.llm, request))
   }
 
   /**
@@ -766,5 +818,5 @@ export function apply(ctx: Context): void {
   new CordisGovernanceController(ctx)
 }
 
-export const inject = ['enterprisePostgres', 'enterpriseSecurity', 'enterpriseRequestContext', 'enterpriseCordis']
+export const inject = ['enterprisePostgres', 'enterpriseSecurity', 'enterpriseRequestContext', 'enterpriseCordis', 'llm']
 export { name } from './invariant.ts'

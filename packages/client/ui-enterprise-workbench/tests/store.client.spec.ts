@@ -167,6 +167,10 @@ function controllerApi(overrides: Record<string, unknown> = {}) {
       entryId: 'formal-plugin', moduleName: '@company/dsh-orders', enabled: true, fiberPhase: 'active',
     }] }) },
     agentPresets: { list: () => ok({ presets: [STANDARD], authorable: false, hasDocument: false }) },
+    session: { modelCatalog: () => ok({
+      default: { provider: 'deepseek', model: 'deepseek-chat' }, routableProviders: ['deepseek'], failures: [],
+      groups: [{ id: 'deepseek', name: 'DeepSeek', models: [{ id: 'deepseek-chat', name: 'DeepSeek Chat' }] }],
+    }) },
     enterpriseEmployees: {
       list: () => ok({ items: [{
         presetId: 'buyer', orgId: 'server-org', ownerUserId: 'owner-1', visibility: 'restricted',
@@ -180,6 +184,7 @@ function controllerApi(overrides: Record<string, unknown> = {}) {
         revision: 4, status: 'published', updatedAt: 20,
       }),
       saveDraft: () => ok({}), publish: () => ok({}), listReleases: () => ok([]), rollback: () => ok({}),
+      optimizePrompt: () => ok({ prompt: '优化后的职责 Prompt' }),
     },
     enterpriseAssets: {
       list: () => ok({ items: [] }), get: () => ok({}), saveVersion: () => ok({}),
@@ -470,6 +475,31 @@ describe('EnterpriseWorkbenchController edits, mutations, and events', () => {
 
     expect(controller.store.getSnapshot().employeeEditor).toMatchObject({
       dirty: true, conflict: true, fields: { prompt: '新职责' },
+    })
+  })
+
+  it('loads configured models and replaces the draft prompt with an AI-optimized result', async () => {
+    const optimizePrompt = vi.fn(() => ok({ prompt: '负责采购需求澄清、校验与输出。' }))
+    const base = controllerApi()
+    const api = controllerApi({
+      enterpriseEmployees: { ...base.enterpriseEmployees, optimizePrompt },
+    })
+    const services = controllerServices()
+    const controller = new EnterpriseWorkbenchController(api as never, services.sessions as never, services.workspaces as never)
+    await controller.refresh()
+    await controller.openEmployeeDraft('buyer')
+    controller.patchEmployeeDraft({ modelRef: 'deepseek/deepseek-chat' })
+
+    await controller.optimizeEmployeePrompt()
+
+    expect(controller.store.getSnapshot().modelOptions).toEqual([{
+      value: 'deepseek/deepseek-chat', provider: 'DeepSeek', model: 'DeepSeek Chat',
+    }])
+    expect(optimizePrompt).toHaveBeenCalledWith({
+      provider: 'deepseek', model: 'deepseek-chat', prompt: '核验供应商',
+    })
+    expect(controller.store.getSnapshot().employeeEditor).toMatchObject({
+      optimizingPrompt: false, dirty: true, fields: { prompt: '负责采购需求澄清、校验与输出。' },
     })
   })
 

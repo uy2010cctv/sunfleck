@@ -33,6 +33,7 @@
     "@deepseek-ai/dsh-enterprise-cordis": "workspace:^",
     "@deepseek-ai/dsh-enterprise-postgres": "workspace:^",
     "@deepseek-ai/dsh-invariants": "workspace:^",
+    "@deepseek-ai/dsh-llm": "workspace:^",
     "@deepseek-ai/dsh-session": "workspace:^",
     "@deepseek-ai/dsh-typert-protocol": "workspace:^"
   },
@@ -45,6 +46,7 @@
     "@deepseek-ai/dsh-enterprise-cordis": "workspace:^",
     "@deepseek-ai/dsh-enterprise-postgres": "workspace:^",
     "@deepseek-ai/dsh-invariants": "workspace:^",
+    "@deepseek-ai/dsh-llm": "workspace:^",
     "@deepseek-ai/dsh-session": "workspace:^",
     "@deepseek-ai/dsh-typert-protocol": "workspace:^"
   }

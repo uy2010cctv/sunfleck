@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import {
   IconCheckOutline16, IconCloseOutline16, IconEditOutline16, IconPlayOutline16, IconRefreshOutline16,
-  IconPlusOutline16, IconSearchOutline16,
+  IconPlusOutline16, IconSearchOutline16, IconSparkle16,
   IconUserOutline16, IconWarningOutline16, StateDot,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
@@ -62,6 +62,7 @@ export interface EnterpriseWorkbenchInjected {
   dismissMutationError: () => void
   adoptServerEmployeeConflict: () => void
   keepLocalEmployeeConflict: () => void
+  optimizeEmployeePrompt: () => Promise<void>
 }
 
 export type EnterpriseWorkbenchProps = PropsRuntime<'shell.overlay'> & PropsLocale<typeof NS> & InjectFace<EnterpriseWorkbenchInjected>
@@ -218,9 +219,10 @@ function FallbackPage({ state, start, open, t }: { state: EnterpriseWorkbenchSta
   return <><div className={css.notice} role="status">{t('mode.fallback')}</div><dl className={css.metrics} aria-label={t('metrics.aria')} aria-live="polite">{([['metrics.employees', view.metrics.employees], ['metrics.active', view.metrics.active], ['metrics.attention', view.metrics.attention], ['metrics.records', view.metrics.workRecords]] as const).map(([label, value]) => <div key={label}><dt>{t(label)}</dt><dd>{value}</dd></div>)}</dl><div className={css.content}><section aria-labelledby="enterprise-employees-title"><div className={css.sectionHead}><h2 id="enterprise-employees-title">{t('employees.title')}</h2><span aria-live="polite">{view.employees.length}</span></div>{view.employees.length === 0 ? <div className={css.empty}><IconUserOutline16 size={20} /><strong>{t('employees.empty.title')}</strong><span>{t('employees.empty.body')}</span></div> : <div className={css.employeeGrid}>{view.employees.map(employee => <NativeEmployeeCard key={employee.id} employee={employee} busy={state.busyEmployee === employee.id} start={start} t={t} />)}</div>}</section><section aria-labelledby="enterprise-records-title"><div className={css.sectionHead}><h2 id="enterprise-records-title">{t('records.title')}</h2><span aria-live="polite">{view.records.length}</span></div>{view.records.length === 0 ? <div className={css.empty}><IconCheckOutline16 size={20} /><span>{t('records.empty')}</span></div> : <div className={css.recordList}>{view.records.map(record => <NativeRecord key={record.sessionId} record={record} open={open} t={t} />)}</div>}</section></div></>
 }
 
-function EmployeeEditor({ editor, assets, api, back, rollback, mutationBusy, t }: {
+function EmployeeEditor({ editor, assets, modelOptions, api, back, rollback, mutationBusy, t }: {
   editor: NonNullable<EnterpriseWorkbenchState['employeeEditor']>
   assets: EnterprisePageState<EnterpriseAsset>
+  modelOptions: EnterpriseWorkbenchState['modelOptions']
   api: EnterpriseWorkbenchInjected
   back: () => void
   rollback: (releaseId: string) => void
@@ -266,8 +268,8 @@ function EmployeeEditor({ editor, assets, api, back, rollback, mutationBusy, t }
             <label className={css.fullField}>{t('editor.description')}<textarea rows={3} value={field.description} placeholder={t('editor.descriptionPlaceholder')} onChange={(event) => { api.patchEmployeeDraft({ description: event.target.value }) }} /></label>
           </div></section>
           <section className={css.formSection} aria-labelledby="employee-runtime-section"><header><h3 id="employee-runtime-section">{t('editor.runtimeSection')}</h3><p>{t('editor.runtimeHelp')}</p></header><div className={css.formGrid}>
-            <label className={css.compactField}>{t('editor.model')}<input value={field.modelRef} placeholder={t('editor.modelPlaceholder')} onChange={(event) => { api.patchEmployeeDraft({ modelRef: event.target.value }) }} /></label>
-            <label className={css.fullField}>{t('editor.prompt')}<textarea rows={8} value={field.prompt} placeholder={t('editor.promptPlaceholder')} onChange={(event) => { api.patchEmployeeDraft({ prompt: event.target.value }) }} /></label>
+            <label className={css.compactField}>{t('editor.model')}<select value={field.modelRef} onChange={(event) => { api.patchEmployeeDraft({ modelRef: event.target.value }) }}><option value="">{t('editor.modelPlaceholder')}</option>{field.modelRef !== '' && !modelOptions.some(option => option.value === field.modelRef) && <option value={field.modelRef}>{field.modelRef}</option>}{modelOptions.map(option => <option key={option.value} value={option.value}>{option.provider} · {option.model}</option>)}</select></label>
+            <div className={`${css.fullField} ${css.promptField}`}><div className={css.promptToolbar}><label htmlFor="employee-responsibility-prompt">{t('editor.prompt')}</label><button type="button" className={css.secondaryButton} disabled={field.prompt.trim() === '' || field.modelRef === '' || editor.optimizingPrompt === true || mutationBusy} onClick={() => { void api.optimizeEmployeePrompt() }}><IconSparkle16 size={16}/>{editor.optimizingPrompt === true ? t('editor.optimizing') : t('editor.optimize')}</button></div><textarea id="employee-responsibility-prompt" rows={8} value={field.prompt} placeholder={t('editor.promptPlaceholder')} onChange={(event) => { api.patchEmployeeDraft({ prompt: event.target.value }) }} /></div>
           </div></section>
           <section className={css.formSection} aria-labelledby="employee-access-section"><header><h3 id="employee-access-section">{t('editor.accessSection')}</h3><p>{t('editor.accessHelp')}</p></header><div className={css.formGrid}>
             <label>{t('editor.visibility')}<select value={field.visibility} onChange={(event) => { api.patchEmployeeDraft({ visibility: event.target.value as EnterpriseVisibility }) }}><option value="organization">{t(VISIBILITY_KEYS.organization)}</option><option value="private">{t(VISIBILITY_KEYS.private)}</option><option value="restricted">{t(VISIBILITY_KEYS.restricted)}</option></select></label>
@@ -305,6 +307,7 @@ function EmployeesPage({ state, api, guardDirty, t }: {
   if (state.employeeEditor !== undefined) return <EmployeeEditor
     editor={state.employeeEditor}
     assets={state.assets}
+    modelOptions={state.modelOptions}
     api={api}
     back={() => { guardDirty(api.closeEmployeeEditor) }}
     rollback={(releaseId) => { guardDirty(() => { void api.rollbackEmployee(releaseId) }) }}

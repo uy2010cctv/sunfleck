@@ -31,7 +31,7 @@ interface EnterpriseTriggerInjected {
 export const inject = [
   'slots', 'locale', 'connection', 'sessions', 'workspaces', 'remote',
   'remote.agentPresets', 'remote.enterpriseEmployee', 'remote.enterpriseAsset',
-  'remote.enterpriseTeam', 'remote.enterpriseOperation',
+  'remote.enterpriseTeam', 'remote.enterpriseOperation', 'remote.session',
   'remote.pluginInventory',
   'remote.cordisWorkspace', 'remote.cordisReview', 'remote.cordisGovernance',
 ]
@@ -40,6 +40,7 @@ export const inject = [
 export function apply(ctx: Context): void {
   const controller = new EnterpriseWorkbenchController({
     agentPresets: ctx.remote.agentPresets,
+    session: ctx.remote.session,
     enterpriseEmployees: ctx.remote.enterpriseEmployee,
     enterpriseAssets: ctx.remote.enterpriseAsset,
     enterpriseTeams: ctx.remote.enterpriseTeam,
@@ -103,6 +104,7 @@ export function apply(ctx: Context): void {
     dismissMutationError: () => { controller.dismissMutationError() },
     adoptServerEmployeeConflict: () => { controller.adoptServerEmployeeConflict() },
     keepLocalEmployeeConflict: () => { controller.keepLocalEmployeeConflict() },
+    optimizeEmployeePrompt: () => controller.optimizeEmployeePrompt(),
   })
 
   ctx.slots.inject('sidebar.footer.action', () => ctx.slots.register({
