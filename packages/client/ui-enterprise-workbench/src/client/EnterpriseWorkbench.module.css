@@ -297,6 +297,58 @@
 .sectionHead h2 { font-size: 1rem; line-height: 1.4; }
 .sectionHead > span { color: var(--dse-color-muted); font-variant-numeric: tabular-nums; }
 
+.managementPage { max-inline-size: 74rem; margin-inline: auto; }
+.managementHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--dse-space-md);
+  margin-block-end: var(--dse-space-md);
+  padding-block-end: var(--dse-space-sm);
+  border-block-end: 1px solid var(--dse-color-border);
+}
+.managementHeader h2,
+.managementHeader p { margin: 0; }
+.managementHeader h2 { font-size: 1.125rem; line-height: 1.4; }
+.managementHeader p { max-inline-size: 62ch; margin-block-start: var(--dse-space-3xs); color: var(--dse-color-muted); font-size: 0.8125rem; line-height: 1.55; }
+.managementHeader > div:last-child { flex: none; display: flex; align-items: center; gap: var(--dse-space-xs); }
+.managementHeader > div:last-child > span { color: var(--dse-color-muted); font-size: 0.75rem; font-variant-numeric: tabular-nums; }
+
+.guidedForm {
+  margin-block-end: var(--dse-space-lg);
+  padding: var(--dse-space-md);
+  border: 1px solid var(--dse-color-border);
+  border-radius: var(--dse-radius-card);
+  background: var(--dse-color-surface-raised);
+}
+.formTitle { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--dse-space-sm); margin-block-end: var(--dse-space-md); }
+.formTitle h3,
+.formTitle p { margin: 0; }
+.formTitle h3 { font-size: 1rem; line-height: 1.4; }
+.formTitle p { max-inline-size: 60ch; margin-block-start: var(--dse-space-3xs); color: var(--dse-color-muted); font-size: 0.75rem; line-height: 1.5; }
+
+.actionableEmpty {
+  min-block-size: 14rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--dse-space-2xs);
+  padding: var(--dse-space-lg);
+  border: 1px solid var(--dse-color-border);
+  border-radius: var(--dse-radius-card);
+  background: var(--dse-color-surface);
+  text-align: center;
+}
+.actionableEmpty strong { font-size: 0.9375rem; }
+.actionableEmpty p { max-inline-size: 50ch; margin: 0; color: var(--dse-color-muted); font-size: 0.8125rem; line-height: 1.55; }
+.actionableEmpty button { margin-block-start: var(--dse-space-xs); }
+
+.memberChoices { min-inline-size: 0; margin: 0; padding: var(--dse-space-sm); border: 1px solid var(--dse-color-border); border-radius: var(--dse-radius-control); }
+.memberChoices legend { padding-inline: var(--dse-space-2xs); color: var(--dse-color-muted); font-size: 0.75rem; }
+.memberChoices label { min-block-size: 38px; display: flex; flex-direction: row; align-items: center; gap: var(--dse-space-2xs); color: var(--dse-color-ink); }
+.memberChoices input { inline-size: 16px; block-size: 16px; }
+
 .employeeGrid { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--dse-space-sm); }
 
 .employeeCard {

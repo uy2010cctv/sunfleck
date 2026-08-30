@@ -247,10 +247,107 @@ describe('EnterpriseWorkbench', () => {
       mode: 'enterprise', page: 'teams', releases: [{
         releaseId: 'release-buyer', presetId: 'buyer', orgId: 'o', version: 2, digest: 'd',
         snapshot: { profile: { name: '采购' }, bindings: [] }, publishedBy: 'u', publishedAt: 1,
+      }, {
+        releaseId: 'release-rfq', presetId: 'rfq', orgId: 'o', version: 1, digest: 'e',
+        snapshot: { profile: { name: '询价' }, bindings: [] }, publishedBy: 'u', publishedAt: 1,
       }],
     }, saveTeam } as never)} />)
+    fireEvent.click(screen.getByRole('button', { name: '新建团队' }))
     expect(screen.getByLabelText('领队数字员工').tagName).toBe('SELECT')
-    expect(screen.getByLabelText('团队成员').tagName).toBe('SELECT')
+    expect(screen.getByRole('checkbox', { name: '询价' })).toBeDefined()
+  })
+
+  it('explains employee prerequisites instead of rendering unusable schedule and team forms', () => {
+    const setPage = vi.fn()
+    const { rerender } = render(<EnterpriseWorkbench {...workbenchProps({
+      state: { mode: 'enterprise', page: 'schedules', releases: [] }, setPage,
+    })} />)
+    expect(screen.getByText('先发布一位数字员工')).toBeDefined()
+    expect(screen.queryByLabelText('任务 ID')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: '前往数字员工' }))
+    expect(setPage).toHaveBeenCalledWith('employees')
+
+    rerender(<EnterpriseWorkbench {...workbenchProps({
+      state: { mode: 'enterprise', page: 'teams', releases: [] }, setPage,
+    })} />)
+    expect(screen.getByText('至少需要两位已发布员工')).toBeDefined()
+    expect(screen.queryByLabelText('团队 ID')).toBeNull()
+  })
+
+  it('creates a schedule from business fields and a published employee', async () => {
+    const saveSchedule = vi.fn((_input: Parameters<EnterpriseWorkbenchProps['saveSchedule']>[0]) => Promise.resolve(true))
+    render(<EnterpriseWorkbench {...workbenchProps({
+      state: {
+        mode: 'enterprise', page: 'schedules', releases: [{
+          releaseId: 'release-buyer', presetId: 'buyer', orgId: 'o', version: 2, digest: 'd',
+          snapshot: { profile: { name: '采购专员' }, bindings: [] }, publishedBy: 'u', publishedAt: 1,
+        }],
+      }, saveSchedule,
+    } as never)} />)
+
+    fireEvent.click(screen.getByRole('button', { name: '新建定时任务' }))
+    fireEvent.change(screen.getByLabelText('任务名称'), { target: { value: '每日供应商跟进' } })
+    fireEvent.change(screen.getByLabelText('执行员工'), { target: { value: 'release-buyer' } })
+    fireEvent.change(screen.getByLabelText('任务说明'), { target: { value: '汇总逾期供应商并给出跟进清单' } })
+    fireEvent.change(screen.getByLabelText('执行频率'), { target: { value: 'weekdays' } })
+    fireEvent.change(screen.getByLabelText('执行时间'), { target: { value: '09:30' } })
+    fireEvent.click(screen.getByRole('button', { name: '保存定时任务' }))
+
+    await waitFor(() => { expect(saveSchedule).toHaveBeenCalledOnce() })
+    const savedSchedule = saveSchedule.mock.calls[0]![0]
+    expect(savedSchedule.scheduleId).toMatch(/^schedule-/u)
+    expect(savedSchedule).toMatchObject({
+      target: { kind: 'employee', employeeReleaseId: 'release-buyer' },
+      rule: '30 9 * * 1-5',
+      input: { prompt: '汇总逾期供应商并给出跟进清单' },
+    })
+  })
+
+  it('creates capability assets and teams without asking users for internal IDs or JSON', async () => {
+    const saveAssetVersion = vi.fn((_input: Parameters<EnterpriseWorkbenchProps['saveAssetVersion']>[0]) => Promise.resolve(true))
+    const saveTeam = vi.fn((_input: Parameters<EnterpriseWorkbenchProps['saveTeam']>[0]) => Promise.resolve(true))
+    const releases = [{
+      releaseId: 'release-lead', presetId: 'lead', orgId: 'o', version: 1, digest: 'a',
+      snapshot: { profile: { name: '采购主管' }, bindings: [] }, publishedBy: 'u', publishedAt: 1,
+    }, {
+      releaseId: 'release-member', presetId: 'member', orgId: 'o', version: 1, digest: 'b',
+      snapshot: { profile: { name: '询价专员' }, bindings: [] }, publishedBy: 'u', publishedAt: 1,
+    }] as never
+    const { rerender } = render(<EnterpriseWorkbench {...workbenchProps({
+      state: { mode: 'enterprise', page: 'assets' }, saveAssetVersion,
+    } as never)} />)
+
+    fireEvent.click(screen.getByRole('button', { name: '新建能力资产' }))
+    expect(screen.queryByLabelText('资产 ID')).toBeNull()
+    expect(screen.queryByLabelText('内容 JSON')).toBeNull()
+    fireEvent.change(screen.getByLabelText('资产名称'), { target: { value: '询价标准流程' } })
+    fireEvent.change(screen.getByLabelText('能力类型'), { target: { value: 'sop' } })
+    fireEvent.change(screen.getByLabelText('用途说明'), { target: { value: '统一供应商询价步骤' } })
+    fireEvent.change(screen.getByLabelText('能力内容'), { target: { value: '收集需求\n邀请报价\n对比并留痕' } })
+    fireEvent.click(screen.getByRole('button', { name: '保存能力资产' }))
+    await waitFor(() => { expect(saveAssetVersion).toHaveBeenCalledOnce() })
+    const savedAsset = saveAssetVersion.mock.calls[0]![0]
+    expect(savedAsset.assetId).toMatch(/^asset-/u)
+    expect(savedAsset).toMatchObject({
+      name: '询价标准流程', kind: 'sop',
+      content: { summary: '统一供应商询价步骤', steps: ['收集需求', '邀请报价', '对比并留痕'] },
+    })
+
+    rerender(<EnterpriseWorkbench {...workbenchProps({
+      state: { mode: 'enterprise', page: 'teams', releases }, saveTeam,
+    } as never)} />)
+    fireEvent.click(screen.getByRole('button', { name: '新建团队' }))
+    fireEvent.change(screen.getByLabelText('团队名称'), { target: { value: '采购协同组' } })
+    fireEvent.change(screen.getByLabelText('领队数字员工'), { target: { value: 'release-lead' } })
+    fireEvent.click(screen.getByRole('checkbox', { name: '询价专员' }))
+    fireEvent.click(screen.getByRole('button', { name: '保存团队' }))
+    await waitFor(() => { expect(saveTeam).toHaveBeenCalledOnce() })
+    const savedTeam = saveTeam.mock.calls[0]![0]
+    expect(savedTeam.teamId).toMatch(/^team-/u)
+    expect(savedTeam).toMatchObject({
+      leaderEmployeeReleaseId: 'release-lead',
+      members: [{ employeeReleaseId: 'release-member', role: 'member' }],
+    })
   })
 
   it('makes fallback employee cells an explicit start-work destination', () => {
@@ -384,9 +481,14 @@ describe('EnterpriseWorkbench', () => {
     const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false)
     render(<EnterpriseWorkbench {...workbenchProps({ state: {
       mode: 'enterprise', page: 'schedules', schedules: { phase: 'ready', items: [], error: null },
+      releases: [{
+        releaseId: 'release-buyer', presetId: 'buyer', orgId: 'o', version: 1, digest: 'd',
+        snapshot: { profile: { name: '采购' }, bindings: [] }, publishedBy: 'u', publishedAt: 1,
+      }],
     }, setPage, close } as never)} />)
 
-    fireEvent.change(screen.getByLabelText(zh['schedule.id']), { target: { value: 'schedule-1' } })
+    fireEvent.click(screen.getByRole('button', { name: zh['schedule.create'] }))
+    fireEvent.change(screen.getByLabelText(zh['schedule.name']), { target: { value: '采购日报' } })
     fireEvent.click(screen.getByRole('button', { name: zh['nav.employees'] }))
     fireEvent.click(screen.getByRole('button', { name: zh.close }))
 
@@ -396,10 +498,17 @@ describe('EnterpriseWorkbench', () => {
   })
 
   it('clears local form dirtiness only after successful schedule, asset, and team saves', async () => {
+    const releases = [{
+      releaseId: 'release-lead', presetId: 'lead', orgId: 'o', version: 1, digest: 'a',
+      snapshot: { profile: { name: '领队' }, bindings: [] }, publishedBy: 'u', publishedAt: 1,
+    }, {
+      releaseId: 'release-member', presetId: 'member', orgId: 'o', version: 1, digest: 'b',
+      snapshot: { profile: { name: '成员' }, bindings: [] }, publishedBy: 'u', publishedAt: 1,
+    }] as never
     const cases = [
-      { page: 'schedules', field: zh['schedule.id'], save: zh['schedule.save'], callback: 'saveSchedule', extras: [zh['schedule.target'], zh['schedule.rule']] },
-      { page: 'assets', field: zh['asset.id'], save: zh['asset.save'], callback: 'saveAssetVersion' },
-      { page: 'teams', field: zh['team.id'], save: zh['team.save'], callback: 'saveTeam' },
+      { page: 'schedules', create: zh['schedule.create'], save: zh['schedule.save'], callback: 'saveSchedule' },
+      { page: 'assets', create: zh['asset.create'], save: zh['asset.save'], callback: 'saveAssetVersion' },
+      { page: 'teams', create: zh['team.create'], save: zh['team.save'], callback: 'saveTeam' },
     ] as const
     for (const testCase of cases) {
       for (const success of [true, false]) {
@@ -407,12 +516,22 @@ describe('EnterpriseWorkbench', () => {
         const setPage = vi.fn(); const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false)
         const save = vi.fn(() => Promise.resolve(success))
         render(<EnterpriseWorkbench {...workbenchProps({
-          state: { mode: 'enterprise', page: testCase.page }, setPage,
+          state: { mode: 'enterprise', page: testCase.page, releases }, setPage,
           [testCase.callback]: save,
         } as never)} />)
-        fireEvent.change(screen.getByLabelText(testCase.field), { target: { value: 'resource-1' } })
-        for (const label of 'extras' in testCase ? testCase.extras : []) {
-          fireEvent.change(screen.getByLabelText(label), { target: { value: 'value' } })
+        fireEvent.click(screen.getByRole('button', { name: testCase.create }))
+        if (testCase.page === 'schedules') {
+          fireEvent.change(screen.getByLabelText(zh['schedule.name']), { target: { value: '日报' } })
+          fireEvent.change(screen.getByLabelText(zh['schedule.employee']), { target: { value: 'release-lead' } })
+          fireEvent.change(screen.getByLabelText(zh['schedule.instructions']), { target: { value: '生成日报' } })
+        } else if (testCase.page === 'assets') {
+          fireEvent.change(screen.getByLabelText(zh['asset.name']), { target: { value: '日报 SOP' } })
+          fireEvent.change(screen.getByLabelText(zh['asset.summary']), { target: { value: '统一日报' } })
+          fireEvent.change(screen.getByLabelText(zh['asset.body']), { target: { value: '收集\n汇总' } })
+        } else {
+          fireEvent.change(screen.getByLabelText(zh['team.name']), { target: { value: '日报团队' } })
+          fireEvent.change(screen.getByLabelText(zh['team.leaderSelect']), { target: { value: 'release-lead' } })
+          fireEvent.click(screen.getByRole('checkbox', { name: '成员' }))
         }
         const button = screen.getByRole('button', { name: testCase.save })
         fireEvent.submit(button.closest('form') as HTMLFormElement)

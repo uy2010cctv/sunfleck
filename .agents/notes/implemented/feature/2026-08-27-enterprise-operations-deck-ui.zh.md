@@ -14,6 +14,8 @@ Status: implemented
 
 员工名册把搜索、状态、可见性、负责人、limit 和 cursor 发送到 Host。其首屏是员工广场：主搜索、全部/已发布/草稿 tab、使用/管理分组导航、职责优先的员工卡片、真实的知识/技能/SOP 绑定数，以及唯一明确的“发起对话”主操作。负责人和可见性收入“更多筛选”；revision、owner、visibility 和 binding id 不再出现在名册卡片，只保留在员工管理中。员工编辑器加载一份持久草稿及其发布历史，在显式保存前只保留本地变更，校验受支持的 profile 字段，发送当前 `expectedRevision`，在 `enterprise-conflict` 时保留 dirty 输入，并把发布和回滚暴露为独立 mutation。工作、审批、调度、资产和团队页使用它们各自的强类型 read model 与 revision-fenced mutation。浏览器 payload 不包含 `orgId` 或 `principal`，这些值归经过身份校验的 Host 所有。
 
+定时任务、能力资产和团队的创建流程使用业务表单，不再要求用户填写内部合同。定时任务从已发布员工中选择不可变版本，并把人类可理解的频率和时间转换为存储规则。能力资产自动生成 id，将用途与内容存为结构化 envelope；SOP 的每行内容成为有序步骤。团队自动生成 id，至少需要两位已发布员工，使用一个领队选择器和明确的成员复选框。前置条件不足时，页面会说明需要先发布什么，并返回数字员工页，不再显示空白或禁用的下拉框。
+
 Runtime 的唯一 Host 流消费者在原生 Session 和 Workspace fold 之后发射已解码的 `connection/host-frame` 事件。每个企业 frame 都携带资源类型（`employee`、`asset`、`team`、`work-record`、`approval`、`schedule` 或 `outbox`）。工作台对 `eventId` 进行有界去重，按资源类型刷新对应 read model，不从当前可见页面猜测。所有 mutation 经过同一套可控错误、conflict 和重试状态；每个操作在构建重试 closure 前生成 idempotency key，因此重试会复用同一 key。Conflict 会移除旧 mutation 重试 closure，改为重新加载权威状态。员工冲突保留本地字段与服务器副本，直到运营人员明确采用服务器草稿，或在新 revision 上保留本地字段。如果重载失败，只有同一重载可重试。失败不会以未处理 rejection 逃逸。各页状态相互独立，因此 forbidden 或失败读取可以与已成功可用的页面共存。
 
 员工名册与 cursor 读取、各域页面读取、编辑器加载和 mutation attempt 都携带客户端 generation，只有最新且条件匹配的 generation 可以提交状态。企业事件只在目标刷新成功后记为 seen，因此失败事件可重放。同一员工的并发启动共用一个在途 Session 创建。调度、资产和团队表单的 dirty 状态与员工草稿共用 overlay 离开守卫，当前 mutation attempt 执行时所有 mutation 控件均禁用。
@@ -55,4 +57,4 @@ seed: enterprise-operations-deck-v1
 
 ## Consequences
 
-运营人员无需理解 Preset id、revision、owner id 或 binding id 即可选择员工，管理功能仍保留在同一 overlay 中，原生会话仍是执行界面。运营台支持 320 px、平板和桌面布局；键盘焦点约束、Escape、dirty 离开确认、减少动效以及中英成对文案都是组件契约的一部分。能力绑定和策略正文仍是面向管理人员的 ID/JSON 输入，UI 刻意不展示生产力、SLA、百分比或推断的业务结果。聚焦 controller、React、API fallback、conflict、事件去重、mutation payload 和响应式样式的测试固定了这些边界。
+运营人员无需理解 Preset id、release id、revision、owner id、binding id、Cron 语法或 JSON envelope，即可选择员工并创建定时任务、能力资产和团队。高级管理功能仍保留在同一 overlay 中，原生会话仍是执行界面。运营台支持 320 px、平板和桌面布局；键盘焦点约束、Escape、dirty 离开确认、减少动效以及中英成对文案都是组件契约的一部分。UI 刻意不展示生产力、SLA、百分比或推断的业务结果。聚焦 controller、React、API fallback、conflict、事件去重、mutation payload、前置条件和响应式样式的测试固定了这些边界。

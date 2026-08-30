@@ -3,16 +3,17 @@
 import { useEffect, useRef, useState } from 'react'
 import {
   IconCheckOutline16, IconCloseOutline16, IconEditOutline16, IconPlayOutline16, IconRefreshOutline16,
-  IconSearchOutline16,
+  IconPlusOutline16, IconSearchOutline16,
   IconUserOutline16, IconWarningOutline16, StateDot,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { SessionId } from '@deepseek-ai/dsh-api-remotes/client'
 import type { SnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type { JsonValue } from '@deepseek-ai/dsh-session/types'
+import { randomUUID } from '@deepseek-ai/dsh-util-crypto'
 import type {
   EnterpriseApproval, EnterpriseAsset, EnterpriseAssetKind, EnterpriseBusinessState,
-  EnterpriseEmployeeDraft, EnterpriseSchedule, EnterpriseScheduleTarget, EnterpriseTeam,
+  EnterpriseEmployeeDraft, EnterpriseEmployeeRelease, EnterpriseSchedule, EnterpriseScheduleTarget, EnterpriseTeam,
   EnterpriseTeamMember, EnterpriseVisibility, EnterpriseWorkRecord as OperationWorkRecord,
   CordisPackageVersion, CordisReviewRequest, CordisScopeBinding,
 } from '@deepseek-ai/dsh-api-enterprise-controller/types'
@@ -110,7 +111,6 @@ const APPROVAL_KIND_KEYS = {
 const SCHEDULE_KEYS = {
   active: 'enum.schedule.active', paused: 'enum.schedule.paused', archived: 'enum.schedule.archived',
 } as const
-const TARGET_KEYS = { employee: 'enum.target.employee', team: 'enum.target.team' } as const
 
 function employeeStatus(status: EmployeeOperationalState, t: Translate) {
   switch (status) {
@@ -130,12 +130,50 @@ function recordStatus(status: WorkRecordState, t: Translate) {
   }
 }
 
-function PageBoundary<T>({ page, t, children }: { page: EnterprisePageState<T>; t: Translate; children: React.ReactNode }) {
+function PageBoundary<T>({ page, t, children, empty }: { page: EnterprisePageState<T>; t: Translate; children: React.ReactNode; empty?: React.ReactNode }) {
   if (page.phase === 'loading' && page.items.length === 0) return <div className={css.loading} role="status"><span className={css.skeleton} />{t('loading')}</div>
   if (page.phase === 'permission') return <div className={css.empty} role="status"><IconWarningOutline16 size={20} /><strong>{t('permission.title')}</strong><span>{t('permission.body')}</span></div>
   if (page.phase === 'error' && page.items.length === 0) return <div className={css.empty} role="alert"><IconWarningOutline16 size={20} /><strong>{t('page.error')}</strong><span>{page.error}</span></div>
-  if (page.items.length === 0) return <div className={css.empty}><IconCheckOutline16 size={20} /><span>{t('page.empty')}</span></div>
+  if (page.items.length === 0) return <>{empty ?? <div className={css.empty}><IconCheckOutline16 size={20} /><span>{t('page.empty')}</span></div>}</>
   return <>{children}</>
+}
+
+function ManagementHeader({ id, title, description, count, action }: {
+  id: string
+  title: string
+  description: string
+  count: number
+  action?: React.ReactNode
+}) {
+  return <div className={css.managementHeader}>
+    <div><h2 id={id}>{title}</h2><p>{description}</p></div>
+    <div><span>{count}</span>{action}</div>
+  </div>
+}
+
+function ActionableEmpty({ title, description, action }: {
+  title: string
+  description: string
+  action?: React.ReactNode
+}) {
+  return <div className={css.actionableEmpty}>
+    <IconCheckOutline16 size={20}/><strong>{title}</strong><p>{description}</p>{action}
+  </div>
+}
+
+function releaseName(release: EnterpriseEmployeeRelease): string {
+  return recordText(release.snapshot.profile, 'name') || release.presetId
+}
+
+function scheduleRule(frequency: 'daily' | 'weekdays' | 'weekly', time: string): string {
+  const [hour = '9', minute = '0'] = time.split(':')
+  return `${String(Number(minute))} ${String(Number(hour))} * * ${frequency === 'daily' ? '*' : frequency === 'weekdays' ? '1-5' : '1'}`
+}
+
+function scheduleTargetLabel(target: EnterpriseScheduleTarget, releases: readonly EnterpriseEmployeeRelease[]): string {
+  if (target.kind === 'team') return target.teamId
+  const release = releases.find(candidate => candidate.releaseId === target.employeeReleaseId)
+  return release === undefined ? target.employeeReleaseId : releaseName(release)
 }
 
 function NativeEmployeeCard({ employee, busy, start, t }: { employee: EnterpriseEmployeeView; busy: boolean; start: (id: string) => Promise<void>; t: Translate }) {
@@ -285,28 +323,102 @@ function ApprovalsPage({ page, api, busy, t }: { page: EnterprisePageState<Enter
   return <section aria-labelledby="approvals-page-title"><div className={css.sectionHead}><h2 id="approvals-page-title">{t('nav.approvals')}</h2><span>{page.items.length}</span></div><PageBoundary page={page} t={t}><div className={css.rows}>{page.items.map(item => <div className={css.row} key={item.approvalId}><div><strong>{t(APPROVAL_KIND_KEYS[item.kind])} · {item.subjectType}</strong><span>{item.subjectId} · {t(APPROVAL_STATE_KEYS[item.state])} · {formatDate(item.updatedAt)}</span></div>{item.state === 'pending' && <div className={css.inlineActions}><button className={css.primaryButton} type="button" disabled={busy} onClick={() => { void api.transitionApproval(item, 'approved') }}>{t('approval.approve')}</button><button className={css.secondaryButton} type="button" disabled={busy} onClick={() => { void api.transitionApproval(item, 'rejected') }}>{t('approval.reject')}</button><button className={css.secondaryButton} type="button" disabled={busy} onClick={() => { void api.cancelApproval(item) }}>{t('approval.cancel')}</button></div>}</div>)}</div></PageBoundary></section>
 }
 
-function SchedulesPage({ page, api, busy, onDirty, t }: { page: EnterprisePageState<EnterpriseSchedule>; api: EnterpriseWorkbenchInjected; busy: boolean; onDirty: () => void; t: Translate }) {
-  const [scheduleId, setScheduleId] = useState(''); const [target, setTarget] = useState(''); const [timezone, setTimezone] = useState(Intl.DateTimeFormat().resolvedOptions().timeZone); const [rule, setRule] = useState('')
-  return <section aria-labelledby="schedules-page-title"><div className={css.sectionHead}><h2 id="schedules-page-title">{t('nav.schedules')}</h2><span>{page.items.length}</span></div><form className={css.createBar} onSubmit={(event) => { event.preventDefault(); if (scheduleId !== '' && target !== '' && rule !== '') void api.saveSchedule({ scheduleId, target: { kind: 'employee', employeeReleaseId: target }, timezone, rule, input: {}, nextRunAt: null, expectedRevision: 0 }) }}><label>{t('schedule.id')}<input required disabled={busy} value={scheduleId} onChange={(event) => { setScheduleId(event.target.value); onDirty() }} /></label><label>{t('schedule.target')}<input required disabled={busy} value={target} onChange={(event) => { setTarget(event.target.value); onDirty() }} /></label><label>{t('schedule.timezone')}<input required disabled={busy} value={timezone} onChange={(event) => { setTimezone(event.target.value); onDirty() }} /></label><label>{t('schedule.rule')}<input required disabled={busy} value={rule} onChange={(event) => { setRule(event.target.value); onDirty() }} /></label><button className={css.primaryButton} type="submit" disabled={busy}>{t('schedule.save')}</button></form><PageBoundary page={page} t={t}><div className={css.rows}>{page.items.map(item => <div className={css.row} key={item.scheduleId}><div><strong>{item.scheduleId}</strong><span>{t(TARGET_KEYS[item.target.kind])} · {item.target.kind === 'employee' ? item.target.employeeReleaseId : item.target.teamId} · {item.rule} · {item.timezone} · {t(SCHEDULE_KEYS[item.state])}</span></div><div className={css.inlineActions}>{item.state === 'active' && <button type="button" className={css.secondaryButton} disabled={busy} onClick={() => { void api.transitionSchedule(item, 'paused') }}>{t('schedule.pause')}</button>}{item.state === 'paused' && <button type="button" className={css.primaryButton} disabled={busy} onClick={() => { void api.transitionSchedule(item, 'active') }}>{t('schedule.resume')}</button>}{item.state !== 'archived' && <button type="button" className={css.secondaryButton} disabled={busy} onClick={() => { void api.transitionSchedule(item, 'archived') }}>{t('schedule.archive')}</button>}</div></div>)}</div></PageBoundary></section>
+function SchedulesPage({ page, releases, api, busy, onDirty, t }: { page: EnterprisePageState<EnterpriseSchedule>; releases: readonly EnterpriseEmployeeRelease[]; api: EnterpriseWorkbenchInjected; busy: boolean; onDirty: () => void; t: Translate }) {
+  const [creating, setCreating] = useState(false)
+  const [name, setName] = useState('')
+  const [target, setTarget] = useState('')
+  const [instructions, setInstructions] = useState('')
+  const [frequency, setFrequency] = useState<'daily' | 'weekdays' | 'weekly'>('daily')
+  const [time, setTime] = useState('09:00')
+  const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone
+  const canCreate = releases.length > 0
+  const goEmployees = <button type="button" className={css.primaryButton} onClick={() => { api.setPage('employees') }}>{t('prerequisite.goEmployees')}</button>
+  return <section className={css.managementPage} aria-labelledby="schedules-page-title">
+    <ManagementHeader id="schedules-page-title" title={t('nav.schedules')} description={t('schedule.description')} count={page.items.length}
+      action={page.items.length === 0 ? undefined : canCreate ? <button type="button" className={css.primaryButton} onClick={() => { setCreating(true) }}><IconPlusOutline16 size={16}/>{t('schedule.create')}</button> : goEmployees}/>
+    {!canCreate && <ActionableEmpty title={t('schedule.prerequisiteTitle')} description={t('schedule.prerequisiteBody')} action={goEmployees}/>}
+    {canCreate && creating && <form className={css.guidedForm} onSubmit={(event) => {
+      event.preventDefault()
+      const success = api.saveSchedule({
+        scheduleId: `schedule-${randomUUID()}`, target: { kind: 'employee', employeeReleaseId: target },
+        timezone, rule: scheduleRule(frequency, time), input: { name, prompt: instructions },
+        nextRunAt: null, expectedRevision: 0,
+      })
+      void success.then((saved) => { if (saved) { setCreating(false); setName(''); setTarget(''); setInstructions('') } })
+    }}>
+      <div className={css.formTitle}><div><h3>{t('schedule.create')}</h3><p>{t('schedule.formHelp')}</p></div><button type="button" className={css.secondaryButton} onClick={() => { setCreating(false) }}>{t('cancel')}</button></div>
+      <div className={css.formGrid}>
+        <label>{t('schedule.name')}<input required disabled={busy} value={name} onChange={(event) => { setName(event.target.value); onDirty() }}/></label>
+        <label>{t('schedule.employee')}<select required disabled={busy} value={target} onChange={(event) => { setTarget(event.target.value); onDirty() }}><option value="">{t('schedule.selectEmployee')}</option>{releases.map(release => <option key={release.releaseId} value={release.releaseId}>{releaseName(release)} {t('version.short', { version: release.version })}</option>)}</select></label>
+        <label className={css.fullField}>{t('schedule.instructions')}<textarea required rows={4} disabled={busy} value={instructions} onChange={(event) => { setInstructions(event.target.value); onDirty() }}/></label>
+        <label>{t('schedule.frequency')}<select disabled={busy} value={frequency} onChange={(event) => { setFrequency(event.target.value as typeof frequency); onDirty() }}><option value="daily">{t('schedule.daily')}</option><option value="weekdays">{t('schedule.weekdays')}</option><option value="weekly">{t('schedule.weekly')}</option></select></label>
+        <label>{t('schedule.time')}<input type="time" required disabled={busy} value={time} onChange={(event) => { setTime(event.target.value); onDirty() }}/></label>
+        <label className={css.fullField}>{t('schedule.timezone')}<input readOnly value={timezone}/></label>
+      </div>
+      <div className={css.formActions}><button className={css.primaryButton} type="submit" disabled={busy || name.trim() === '' || target === '' || instructions.trim() === ''}>{t('schedule.save')}</button></div>
+    </form>}
+    {canCreate && <PageBoundary page={page} t={t} empty={<ActionableEmpty title={t('schedule.emptyTitle')} description={t('schedule.emptyBody')} action={<button type="button" className={css.primaryButton} onClick={() => { setCreating(true) }}>{t('schedule.create')}</button>}/>}><div className={css.rows}>{page.items.map(item => <div className={css.row} key={item.scheduleId}><div><strong>{typeof item.input['name'] === 'string' ? item.input['name'] : item.scheduleId}</strong><span>{scheduleTargetLabel(item.target, releases)} · {item.rule} · {item.timezone} · {t(SCHEDULE_KEYS[item.state])}</span></div><div className={css.inlineActions}>{item.state === 'active' && <button type="button" className={css.secondaryButton} disabled={busy} onClick={() => { void api.transitionSchedule(item, 'paused') }}>{t('schedule.pause')}</button>}{item.state === 'paused' && <button type="button" className={css.primaryButton} disabled={busy} onClick={() => { void api.transitionSchedule(item, 'active') }}>{t('schedule.resume')}</button>}{item.state !== 'archived' && <button type="button" className={css.secondaryButton} disabled={busy} onClick={() => { void api.transitionSchedule(item, 'archived') }}>{t('schedule.archive')}</button>}</div></div>)}</div></PageBoundary>}
+  </section>
 }
 
 function AssetsPage({ page, api, busy, onDirty, t }: { page: EnterprisePageState<EnterpriseAsset>; api: EnterpriseWorkbenchInjected; busy: boolean; onDirty: () => void; t: Translate }) {
-  const [assetId, setAssetId] = useState(''); const [name, setName] = useState(''); const [kind, setKind] = useState<EnterpriseAssetKind>('sop'); const [content, setContent] = useState('{}'); const [jsonError, setJsonError] = useState(false)
-  return <section aria-labelledby="assets-page-title"><div className={css.sectionHead}><h2 id="assets-page-title">{t('nav.assets')}</h2><span>{page.items.length}</span></div><form className={css.createBar} onSubmit={(event) => { event.preventDefault(); try { const value = JSON.parse(content) as Readonly<Record<string, JsonValue>>; setJsonError(false); void api.saveAssetVersion({ assetId, name, kind, content: value, expectedRevision: page.items.find(item => item.assetId === assetId)?.revision ?? 0 }) } catch { setJsonError(true) } }}><label>{t('asset.id')}<input required disabled={busy} value={assetId} onChange={(event) => { setAssetId(event.target.value); onDirty() }} /></label><label>{t('asset.name')}<input required disabled={busy} value={name} onChange={(event) => { setName(event.target.value); onDirty() }} /></label><label>{t('asset.kind')}<select disabled={busy} value={kind} onChange={(event) => { setKind(event.target.value as EnterpriseAssetKind); onDirty() }}><option value="sop">{t(ASSET_KEYS.sop)}</option><option value="knowledge">{t(ASSET_KEYS.knowledge)}</option><option value="skill">{t(ASSET_KEYS.skill)}</option><option value="tool">{t(ASSET_KEYS.tool)}</option><option value="model">{t(ASSET_KEYS.model)}</option></select></label><label className={css.wideField}>{t('asset.content')}<textarea rows={2} disabled={busy} value={content} onChange={(event) => { setContent(event.target.value); onDirty() }} /></label><button className={css.primaryButton} type="submit" disabled={busy}>{t('asset.save')}</button>{jsonError && <span className={css.fieldError} role="alert">{t('json.invalid')}</span>}</form><PageBoundary page={page} t={t}><div className={css.rows}>{page.items.map(item => <div className={css.row} key={item.assetId}><div><strong>{item.name}</strong><span>{t(ASSET_KEYS[item.kind])} · {item.assetId} · {t('employee.revision', { revision: item.revision })} · {formatDate(item.updatedAt)}</span></div>{!item.archived && <button type="button" className={css.secondaryButton} disabled={busy} onClick={() => { void api.archiveAsset(item) }}>{t('asset.archive')}</button>}</div>)}</div></PageBoundary></section>
+  const [creating, setCreating] = useState(false)
+  const [name, setName] = useState('')
+  const [kind, setKind] = useState<EnterpriseAssetKind>('sop')
+  const [summary, setSummary] = useState('')
+  const [content, setContent] = useState('')
+  const createButton = <button type="button" className={css.primaryButton} onClick={() => { setCreating(true) }}><IconPlusOutline16 size={16}/>{t('asset.create')}</button>
+  return <section className={css.managementPage} aria-labelledby="assets-page-title">
+    <ManagementHeader id="assets-page-title" title={t('nav.assets')} description={t('asset.description')} count={page.items.length} action={page.items.length === 0 ? undefined : createButton}/>
+    {creating && <form className={css.guidedForm} onSubmit={(event) => {
+      event.preventDefault()
+      const payload: Readonly<Record<string, JsonValue>> = kind === 'sop'
+        ? { summary, steps: content.split('\n').map(step => step.trim()).filter(Boolean) }
+        : { summary, content }
+      const success = api.saveAssetVersion({ assetId: `asset-${randomUUID()}`, name, kind, content: payload, expectedRevision: 0 })
+      void success.then((saved) => { if (saved) { setCreating(false); setName(''); setSummary(''); setContent('') } })
+    }}>
+      <div className={css.formTitle}><div><h3>{t('asset.create')}</h3><p>{t('asset.formHelp')}</p></div><button type="button" className={css.secondaryButton} onClick={() => { setCreating(false) }}>{t('cancel')}</button></div>
+      <div className={css.formGrid}>
+        <label>{t('asset.name')}<input required disabled={busy} value={name} onChange={(event) => { setName(event.target.value); onDirty() }}/></label>
+        <label>{t('asset.kind')}<select disabled={busy} value={kind} onChange={(event) => { setKind(event.target.value as EnterpriseAssetKind); onDirty() }}><option value="sop">{t(ASSET_KEYS.sop)}</option><option value="knowledge">{t(ASSET_KEYS.knowledge)}</option><option value="skill">{t(ASSET_KEYS.skill)}</option><option value="tool">{t(ASSET_KEYS.tool)}</option><option value="model">{t(ASSET_KEYS.model)}</option></select></label>
+        <label className={css.fullField}>{t('asset.summary')}<input required disabled={busy} value={summary} onChange={(event) => { setSummary(event.target.value); onDirty() }}/></label>
+        <label className={css.fullField}>{t('asset.body')}<textarea required rows={6} disabled={busy} placeholder={kind === 'sop' ? t('asset.sopPlaceholder') : t('asset.contentPlaceholder')} value={content} onChange={(event) => { setContent(event.target.value); onDirty() }}/></label>
+      </div>
+      <div className={css.formActions}><button className={css.primaryButton} type="submit" disabled={busy || name.trim() === '' || summary.trim() === '' || content.trim() === ''}>{t('asset.save')}</button></div>
+    </form>}
+    <PageBoundary page={page} t={t} empty={<ActionableEmpty title={t('asset.emptyTitle')} description={t('asset.emptyBody')} action={createButton}/>}><div className={css.rows}>{page.items.map(item => <div className={css.row} key={item.assetId}><div><strong>{item.name}</strong><span>{t(ASSET_KEYS[item.kind])} · {t('employee.revision', { revision: item.revision })} · {formatDate(item.updatedAt)}</span></div>{!item.archived && <button type="button" className={css.secondaryButton} disabled={busy} onClick={() => { void api.archiveAsset(item) }}>{t('asset.archive')}</button>}</div>)}</div></PageBoundary>
+  </section>
 }
 
-function TeamsPage({ page, releases, api, busy, onDirty, t }: { page: EnterprisePageState<EnterpriseTeam>; releases: readonly import('@deepseek-ai/dsh-api-enterprise-controller/types').EnterpriseEmployeeRelease[]; api: EnterpriseWorkbenchInjected; busy: boolean; onDirty: () => void; t: Translate }) {
-  const [teamId, setTeamId] = useState(''); const [leader, setLeader] = useState(''); const [members, setMembers] = useState<EnterpriseTeamMember[]>([]); const [jsonError, setJsonError] = useState(false)
-  return <section aria-labelledby="teams-page-title">
-    <div className={css.sectionHead}><h2 id="teams-page-title">{t('nav.teams')}</h2><span aria-live="polite">{page.items.length}</span></div>
-    <form className={css.createBar} onSubmit={(event) => { event.preventDefault(); setJsonError(false); void api.saveTeam({ teamId, leaderEmployeeReleaseId: leader, members, workflowTemplate: {}, approvalPolicy: {}, expectedRevision: page.items.find(item => item.teamId === teamId)?.revision ?? 0 }) }}>
-      <label>{t('team.id')}<input required disabled={busy} value={teamId} onChange={(event) => { setTeamId(event.target.value); onDirty() }} /></label>
-      <label>{t('team.leaderSelect')}<select disabled={busy} value={leader} onChange={(event) => { setLeader(event.target.value); onDirty() }}><option value="">{t('filters.all')}</option>{releases.map(release => <option key={release.releaseId} value={release.releaseId}>{recordText(release.snapshot.profile, 'name') || release.presetId} {t('version.short', { version: release.version })}</option>)}</select></label>
-      <label>{t('team.memberSelect')}<select disabled={busy} value="" onChange={(event) => { const releaseId = event.target.value; if (releaseId !== '' && !members.some(member => member.employeeReleaseId === releaseId)) setMembers([...members, { employeeReleaseId: releaseId, role: 'member' }]); onDirty() }}><option value="">{t('filters.all')}</option>{releases.map(release => <option key={release.releaseId} value={release.releaseId}>{recordText(release.snapshot.profile, 'name') || release.presetId} {t('version.short', { version: release.version })}</option>)}</select></label>
-      <details className={css.wideField}><summary>{t('editor.advancedJson')}</summary><label>{t('team.members')}<textarea rows={2} readOnly value={JSON.stringify(members, null, 2)} /></label></details>
-      <button className={css.primaryButton} type="submit" disabled={busy || leader === ''}>{t('team.save')}</button>{jsonError && <span className={css.fieldError} role="alert">{t('json.invalid')}</span>}
-    </form>
-    <PageBoundary page={page} t={t}><div className={css.rows}>{page.items.map(item => <div className={css.row} key={item.teamId}><div><strong>{item.teamId}</strong><span>{item.leaderEmployeeReleaseId} · {item.members.length} · {t('employee.revision', { revision: item.revision })}</span></div><button type="button" className={css.secondaryButton} disabled={busy} onClick={() => { void api.saveTeam({ teamId: item.teamId, leaderEmployeeReleaseId: item.leaderEmployeeReleaseId, members: item.members, workflowTemplate: item.workflowTemplate, approvalPolicy: item.approvalPolicy, expectedRevision: item.revision }) }}>{t('team.save')}</button></div>)}</div></PageBoundary>
+function TeamsPage({ page, releases, api, busy, onDirty, t }: { page: EnterprisePageState<EnterpriseTeam>; releases: readonly EnterpriseEmployeeRelease[]; api: EnterpriseWorkbenchInjected; busy: boolean; onDirty: () => void; t: Translate }) {
+  const [creating, setCreating] = useState(false)
+  const [name, setName] = useState('')
+  const [leader, setLeader] = useState('')
+  const [members, setMembers] = useState<EnterpriseTeamMember[]>([])
+  const canCreate = releases.length >= 2
+  const goEmployees = <button type="button" className={css.primaryButton} onClick={() => { api.setPage('employees') }}>{t('prerequisite.goEmployees')}</button>
+  return <section className={css.managementPage} aria-labelledby="teams-page-title">
+    <ManagementHeader id="teams-page-title" title={t('nav.teams')} description={t('team.description')} count={page.items.length}
+      action={page.items.length === 0 ? undefined : canCreate ? <button type="button" className={css.primaryButton} onClick={() => { setCreating(true) }}><IconPlusOutline16 size={16}/>{t('team.create')}</button> : goEmployees}/>
+    {!canCreate && <ActionableEmpty title={t('team.prerequisiteTitle')} description={t('team.prerequisiteBody')} action={goEmployees}/>}
+    {canCreate && creating && <form className={css.guidedForm} onSubmit={(event) => {
+      event.preventDefault()
+      const success = api.saveTeam({
+        teamId: `team-${randomUUID()}`, leaderEmployeeReleaseId: leader, members,
+        workflowTemplate: { name }, approvalPolicy: {}, expectedRevision: 0,
+      })
+      void success.then((saved) => { if (saved) { setCreating(false); setName(''); setLeader(''); setMembers([]) } })
+    }}>
+      <div className={css.formTitle}><div><h3>{t('team.create')}</h3><p>{t('team.formHelp')}</p></div><button type="button" className={css.secondaryButton} onClick={() => { setCreating(false) }}>{t('cancel')}</button></div>
+      <div className={css.formGrid}>
+        <label className={css.fullField}>{t('team.name')}<input required disabled={busy} value={name} onChange={(event) => { setName(event.target.value); onDirty() }}/></label>
+        <label className={css.fullField}>{t('team.leaderSelect')}<select required disabled={busy} value={leader} onChange={(event) => { const next = event.target.value; setLeader(next); setMembers(current => current.filter(member => member.employeeReleaseId !== next)); onDirty() }}><option value="">{t('team.selectLeader')}</option>{releases.map(release => <option key={release.releaseId} value={release.releaseId}>{releaseName(release)} {t('version.short', { version: release.version })}</option>)}</select></label>
+        <fieldset className={`${css.fullField} ${css.memberChoices}`}><legend>{t('team.memberSelect')}</legend>{releases.filter(release => release.releaseId !== leader).map(release => <label key={release.releaseId}><input type="checkbox" disabled={busy} checked={members.some(member => member.employeeReleaseId === release.releaseId)} onChange={(event) => { setMembers(current => event.target.checked ? [...current, { employeeReleaseId: release.releaseId, role: 'member' }] : current.filter(member => member.employeeReleaseId !== release.releaseId)); onDirty() }}/><span>{releaseName(release)}</span></label>)}</fieldset>
+      </div>
+      <div className={css.formActions}><button className={css.primaryButton} type="submit" disabled={busy || name.trim() === '' || leader === '' || members.length === 0}>{t('team.save')}</button></div>
+    </form>}
+    {canCreate && <PageBoundary page={page} t={t} empty={<ActionableEmpty title={t('team.emptyTitle')} description={t('team.emptyBody')} action={<button type="button" className={css.primaryButton} onClick={() => { setCreating(true) }}>{t('team.create')}</button>}/>}><div className={css.rows}>{page.items.map(item => <div className={css.row} key={item.teamId}><div><strong>{recordText(item.workflowTemplate, 'name') || item.teamId}</strong><span>{releaseName(releases.find(release => release.releaseId === item.leaderEmployeeReleaseId) ?? { presetId: item.leaderEmployeeReleaseId, version: 0, snapshot: { profile: {} } } as EnterpriseEmployeeRelease)} · {t('team.memberCount', { count: item.members.length })}</span></div><button type="button" className={css.secondaryButton} disabled={busy} onClick={() => { void api.saveTeam({ teamId: item.teamId, leaderEmployeeReleaseId: item.leaderEmployeeReleaseId, members: item.members, workflowTemplate: item.workflowTemplate, approvalPolicy: item.approvalPolicy, expectedRevision: item.revision }) }}>{t('team.save')}</button></div>)}</div></PageBoundary>}
   </section>
 }
 
@@ -482,5 +594,5 @@ export function EnterpriseWorkbench(props: EnterpriseWorkbenchProps) {
   }
   return <section ref={dialogRef} className={css.workbench} role="dialog" aria-modal="true" aria-label={props.t('title')} onKeyDown={onKeyDown}><header className={css.header}><div><h1>{props.t('title')}</h1><p>{props.t('subtitle')}</p></div><div className={css.headerActions}><button type="button" className={css.iconButton} aria-label={props.t('refresh')} onClick={() => { void props.refresh() }}><IconRefreshOutline16 size={16} /></button><button ref={closeRef} type="button" className={css.iconButton} aria-label={props.t('close')} onClick={requestClose}><IconCloseOutline16 size={16} /></button></div></header>
     {state.mutationError !== null && <div className={css.mutationError} role="alert" aria-label={props.t('mutation.errorAria')}><IconWarningOutline16 size={18} /><span>{state.mutationPhase === 'conflict' ? props.t('mutation.conflict') : state.mutationError}</span>{state.mutationPhase === 'conflict' ? <button type="button" onClick={() => { void props.resolveMutationConflict() }}>{props.t('mutation.reload')}</button> : <button type="button" onClick={() => { void props.retryMutation() }}>{props.t('mutation.retry')}</button>}<button type="button" onClick={props.dismissMutationError}>{props.t('mutation.dismiss')}</button></div>}
-    {state.phase === 'loading' && state.mode === null && <div className={css.loading} role="status"><span className={css.skeleton} />{props.t('loading')}</div>}{state.phase === 'error' && <div className={css.error} role="alert"><IconWarningOutline16 size={18} /><span>{state.error}</span><button type="button" onClick={() => { void props.refresh() }}>{props.t('retry')}</button></div>}{state.phase !== 'error' && state.mode === 'fallback' && <main className={css.body}><FallbackPage state={state} start={props.startEmployee} open={props.openRecord} t={props.t} /></main>}{state.phase !== 'error' && state.mode === 'enterprise' && <div className={css.shell}><nav className={css.nav} aria-label={props.t('nav.aria')}>{NAV_GROUPS.map(group => <div className={css.navGroup} key={group.label}><span>{props.t(group.label)}</span>{group.items.map(([id, key]) => <button type="button" key={id} aria-current={page === id ? 'page' : undefined} onClick={() => { requestPage(id) }}>{props.t(key)}</button>)}</div>)}</nav><main className={css.main}>{partial && <div className={css.notice} role="status">{props.t('partial')}</div>}{page === 'employees' && <EmployeesPage state={state} api={api} guardDirty={guardDirty} t={props.t} />}{page === 'work-records' && <WorkRecordsPage page={state.workRecords} update={props.updateWorkRecord} busy={mutationBusy} t={props.t} />}{page === 'approvals' && <ApprovalsPage page={state.approvals} api={api} busy={mutationBusy} t={props.t} />}{page === 'schedules' && <SchedulesPage page={state.schedules} api={api} busy={mutationBusy} onDirty={() => { setLocalFormDirty(true) }} t={props.t} />}{page === 'assets' && <AssetsPage page={state.assets} api={api} busy={mutationBusy} onDirty={() => { setLocalFormDirty(true) }} t={props.t} />}{page === 'teams' && <TeamsPage page={state.teams} releases={state.releases} api={api} busy={mutationBusy} onDirty={() => { setLocalFormDirty(true) }} t={props.t} />}{page === 'extensions' && <ExtensionsPage state={state} workspaces={workspaces} api={api} busy={mutationBusy} t={props.t} />}</main></div>}</section>
+    {state.phase === 'loading' && state.mode === null && <div className={css.loading} role="status"><span className={css.skeleton} />{props.t('loading')}</div>}{state.phase === 'error' && <div className={css.error} role="alert"><IconWarningOutline16 size={18} /><span>{state.error}</span><button type="button" onClick={() => { void props.refresh() }}>{props.t('retry')}</button></div>}{state.phase !== 'error' && state.mode === 'fallback' && <main className={css.body}><FallbackPage state={state} start={props.startEmployee} open={props.openRecord} t={props.t} /></main>}{state.phase !== 'error' && state.mode === 'enterprise' && <div className={css.shell}><nav className={css.nav} aria-label={props.t('nav.aria')}>{NAV_GROUPS.map(group => <div className={css.navGroup} key={group.label}><span>{props.t(group.label)}</span>{group.items.map(([id, key]) => <button type="button" key={id} aria-current={page === id ? 'page' : undefined} onClick={() => { requestPage(id) }}>{props.t(key)}</button>)}</div>)}</nav><main className={css.main}>{partial && <div className={css.notice} role="status">{props.t('partial')}</div>}{page === 'employees' && <EmployeesPage state={state} api={api} guardDirty={guardDirty} t={props.t} />}{page === 'work-records' && <WorkRecordsPage page={state.workRecords} update={props.updateWorkRecord} busy={mutationBusy} t={props.t} />}{page === 'approvals' && <ApprovalsPage page={state.approvals} api={api} busy={mutationBusy} t={props.t} />}{page === 'schedules' && <SchedulesPage page={state.schedules} releases={state.releases} api={api} busy={mutationBusy} onDirty={() => { setLocalFormDirty(true) }} t={props.t} />}{page === 'assets' && <AssetsPage page={state.assets} api={api} busy={mutationBusy} onDirty={() => { setLocalFormDirty(true) }} t={props.t} />}{page === 'teams' && <TeamsPage page={state.teams} releases={state.releases} api={api} busy={mutationBusy} onDirty={() => { setLocalFormDirty(true) }} t={props.t} />}{page === 'extensions' && <ExtensionsPage state={state} workspaces={workspaces} api={api} busy={mutationBusy} t={props.t} />}</main></div>}</section>
 }

@@ -89,6 +89,14 @@ Employee Operations Deck. The interface treats digital employees as finite opera
 - Shows title, employee, business space, last update, running/completed/attention state.
 - Never invents an SLA, completion percentage, owner, or business outcome absent from DSH events.
 
+## Management creation flows
+
+- Schedules, capability assets, and teams open with a purpose statement and one primary action; raw ids and JSON are never the first interaction.
+- Schedule creation requires a published employee and asks for task name, employee, instructions, human frequency, time, and timezone. DSH derives the immutable schedule id and cron rule.
+- Capability assets are independently creatable. The user names the capability, selects its type, explains its purpose, and enters reusable content; DSH derives the asset id and structured content envelope.
+- Team creation requires at least two published employees. The user chooses one accountable lead and one or more members; DSH derives the team id and fixed-team contract.
+- Missing prerequisites use an actionable empty state that links back to Digital employees. A generic empty-record message is not acceptable on these pages.
+
 ## Responsive behavior
 
 - Desktop: grouped operations rail and a three-column employee gallery; narrower operational pages retain their evidence-row layouts.
