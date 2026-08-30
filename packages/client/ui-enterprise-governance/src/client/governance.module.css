@@ -140,6 +140,17 @@ td span { margin-block-start: 4px; color: var(--dsw-alias-label-secondary); font
 .departmentForm label:first-child { grid-column: 1 / -1; }
 .formError { grid-column: 1 / -1; padding: 9px 11px; border: 1px solid var(--dsw-alias-state-error-primary); border-radius: 8px; color: var(--dsw-alias-state-error-primary); font-size: 11px; }
 .formActions { grid-column: 1 / -1; display: flex; justify-content: flex-end; gap: 8px; }
+.managerEditor { display: grid; gap: 10px; margin-block-start: 18px; padding: 14px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 12px; }
+.managerEditor legend { padding-inline: 5px; font-size: 12px; font-weight: 600; }
+.managerEditor > p { max-inline-size: 65ch; margin: 0; color: var(--dsw-alias-label-secondary); font-size: 11px; line-height: 1.55; }
+.managerChoices { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.managerChoices > label { display: flex; align-items: center; gap: 9px; min-inline-size: 0; min-block-size: 44px; padding: 7px 9px; border-radius: 9px; background: var(--dsw-alias-bg-layer-2); font-size: 11px; }
+.managerChoices input { flex: none; inline-size: 16px; block-size: 16px; margin: 0; }
+.managerChoices span { min-inline-size: 0; }
+.managerChoices strong, .managerChoices small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.managerChoices small { margin-block-start: 2px; color: var(--dsw-alias-label-secondary); font-size: 10px; }
+.managerActions { display: flex; justify-content: flex-end; }
+.managerActions button { min-block-size: 38px; }
 .departmentEvidence { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-block-start: 18px; }
 .departmentEvidence > div { padding: 12px; border-block-start: 1px solid var(--dsw-alias-border-l2); }
 .departmentEvidence span, .departmentEvidence strong { display: block; }
@@ -240,6 +251,7 @@ td span { margin-block-start: 4px; color: var(--dsw-alias-label-secondary); font
   .directoryLayout, .memoryColumns { grid-template-columns: minmax(0, 1fr); }
   .treePanel { border-inline-end: 0; border-block-end: 1px solid var(--dsw-alias-border-l2); }
   .departmentForm, .memoryFields { grid-template-columns: minmax(0, 1fr); }
+  .managerChoices { grid-template-columns: minmax(0, 1fr); }
   .memorySummaryField { grid-column: 1; }
   .memoryFlow { grid-template-columns: minmax(0, 1fr); }
   .memoryFlow li + li { border-inline-start: 0; border-block-start: 1px solid var(--dsw-alias-border-l2); }

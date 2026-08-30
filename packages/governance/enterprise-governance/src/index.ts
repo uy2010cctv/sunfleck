@@ -26,6 +26,11 @@ export type EnterpriseAction =
   | 'schedule.read'
   | 'team.manage'
   | 'team.read'
+  | 'plugin.read'
+  | 'plugin.create'
+  | 'plugin.review'
+  | 'plugin.publish'
+  | 'plugin.manage'
 
 export interface EnterprisePrincipal {
   readonly userId: string
@@ -85,6 +90,7 @@ export function authorizeEnterprise(input: EnterpriseAuthorizationInput): Enterp
   if (hasRole(principal, 'auditor')) {
     return action === 'audit.read' || action === 'employee.read' || action === 'session.read' || action === 'operation.read'
       || action === 'capability.read' || action === 'approval.read' || action === 'schedule.read' || action === 'team.read'
+      || action === 'plugin.read'
       ? { allowed: true, reason: 'auditor' }
       : { allowed: false, reason: 'insufficient-role' }
   }
@@ -98,6 +104,10 @@ export function authorizeEnterprise(input: EnterpriseAuthorizationInput): Enterp
 
   if (action === 'employee.create' && hasRole(principal, 'creator')) {
     return { allowed: true, reason: 'role' }
+  }
+  if (action === 'plugin.read' || action === 'plugin.create' || action === 'plugin.review' || action === 'plugin.publish') {
+    const canCompose = principal.roles.some(role => role === 'creator' || role === 'operator' || role === 'member')
+    return canCompose ? { allowed: true, reason: 'role' } : { allowed: false, reason: 'insufficient-role' }
   }
   if (action === 'employee.update' && hasRole(principal, 'creator')
     && resource?.creatorUserId === principal.userId) {

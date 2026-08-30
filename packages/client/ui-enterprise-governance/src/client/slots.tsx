@@ -3,14 +3,17 @@ import type { EnterpriseGovernanceController, EnterpriseGovernanceState } from '
 import {
   EnterpriseGovernanceSettingsSection, EnterpriseGovernanceSurface,
 } from './EnterpriseGovernanceSurface.tsx'
+import type { GovernanceTranslate } from './locales.ts'
 
-export function GovernanceSettingsSlot({ useGovernance, controller }: {
+export function GovernanceSettingsSlot({ useGovernance, controller, t }: {
   useGovernance: <T>(select: (state: EnterpriseGovernanceState) => T) => T
   controller: EnterpriseGovernanceController
+  t: GovernanceTranslate
 }) {
   const loadAdmin = useCallback(() => controller.loadAdmin(), [controller])
   return <EnterpriseGovernanceSettingsSection
     state={useGovernance(state => state)}
+    t={t}
     loadAdmin={loadAdmin}
     loginLocal={input => controller.loginLocal(input)}
     logout={() => controller.logout()}
@@ -19,6 +22,8 @@ export function GovernanceSettingsSlot({ useGovernance, controller }: {
     createAsset={input => controller.createAsset(input)}
     updateUser={(id, input) => controller.updateUser(id, input)}
     saveDepartment={input => controller.saveDepartment(input)}
+    setDepartmentManagers={(departmentId, managerUserIds, expectedRevision) =>
+      controller.setDepartmentManagers(departmentId, managerUserIds, expectedRevision)}
     createWorkspace={input => controller.createWorkspace(input)}
     updateWorkspace={(id, input) => controller.updateWorkspace(id, input)}
     proposeMemory={input => controller.proposeMemory(input)}
@@ -28,12 +33,14 @@ export function GovernanceSettingsSlot({ useGovernance, controller }: {
   />
 }
 
-export function GovernanceAuthGateSlot({ useGovernance, controller }: {
+export function GovernanceAuthGateSlot({ useGovernance, controller, t }: {
   useGovernance: <T>(select: (state: EnterpriseGovernanceState) => T) => T
   controller: EnterpriseGovernanceController
+  t: GovernanceTranslate
 }) {
   return <EnterpriseGovernanceSurface
     state={useGovernance(state => state)}
+    t={t}
     loginLocal={input => controller.loginLocal(input)}
     logout={() => controller.logout()}
     createOrganization={input => controller.createOrganization(input)}
@@ -41,6 +48,8 @@ export function GovernanceAuthGateSlot({ useGovernance, controller }: {
     createAsset={input => controller.createAsset(input)}
     updateUser={(id, input) => controller.updateUser(id, input)}
     saveDepartment={input => controller.saveDepartment(input)}
+    setDepartmentManagers={(departmentId, managerUserIds, expectedRevision) =>
+      controller.setDepartmentManagers(departmentId, managerUserIds, expectedRevision)}
     createWorkspace={input => controller.createWorkspace(input)}
     updateWorkspace={(id, input) => controller.updateWorkspace(id, input)}
     proposeMemory={input => controller.proposeMemory(input)}

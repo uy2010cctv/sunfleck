@@ -1,21 +1,23 @@
 /** Login gate and administrator governance ledger. */
-
 import { useEffect, useId, useMemo, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from 'react'
-import {
-  IconChevronDownOutline14, IconChevronRightOutline14, IconEditOutline16, IconFolderClose16,
-  IconFolderOpen16, IconPlusOutline16, IconUserOutline16, Modal,
-} from '@deepseek-ai/dsh-client-ui-primitives'
+import { IconChevronDownOutline14, IconChevronRightOutline14, IconEditOutline16, IconFolderClose16, IconFolderOpen16, IconPlusOutline16, IconUserOutline16, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
 import { randomUUID } from '@deepseek-ai/dsh-util-crypto'
-import type {
-  EnterpriseGovernanceState, GovernanceDepartment, GovernanceMemory, GovernancePolicy, GovernanceUser,
-} from './controller.ts'
+import type { EnterpriseGovernanceState, GovernanceDepartment, GovernanceMemory, GovernancePolicy, GovernanceUser } from './controller.ts'
 import css from './governance.module.css'
-
+import { defaultGovernanceTranslate, type GovernanceTranslate } from './locales.ts'
 export interface EnterpriseGovernanceSurfaceProps {
+  t?: GovernanceTranslate
   state: EnterpriseGovernanceState
-  loginLocal(input: { organizationId: string; username: string; password: string }): Promise<void>
+  loginLocal(input: {
+    organizationId: string
+    username: string
+    password: string
+  }): Promise<void>
   logout(): Promise<void> | void
-  createOrganization(input: { id: string; name: string }): Promise<void>
+  createOrganization(input: {
+    id: string
+    name: string
+  }): Promise<void>
   createUser(input: {
     id: string
     username: string
@@ -23,7 +25,12 @@ export interface EnterpriseGovernanceSurfaceProps {
     password: string
     roles: readonly string[]
   }): Promise<void>
-  createAsset(input: { type: 'channel' | 'model' | 'capability'; id: string; name: string; config: Record<string, unknown> }): Promise<void>
+  createAsset(input: {
+    type: 'channel' | 'model' | 'capability'
+    id: string
+    name: string
+    config: Record<string, unknown>
+  }): Promise<void>
   updateUser(userId: string, input: {
     roles?: readonly string[]
     disabled?: boolean
@@ -41,7 +48,11 @@ export interface EnterpriseGovernanceSurfaceProps {
     sortOrder: number
     expectedRevision: number
   }): Promise<void>
-  createWorkspace(input: { name: string; idempotencyKey: string }): Promise<void>
+  setDepartmentManagers?(departmentId: string, managerUserIds: readonly string[], expectedRevision: number): Promise<void>
+  createWorkspace(input: {
+    name: string
+    idempotencyKey: string
+  }): Promise<void>
   updateWorkspace(workspaceId: string, input: {
     sandboxMode: 'read-only' | 'workspace-write'
     expectedRevision: number
@@ -60,16 +71,15 @@ export interface EnterpriseGovernanceSurfaceProps {
     expectedRevision: number
   }): Promise<void>
   savePolicy(input: GovernancePolicy): Promise<void>
-  filterAudit(input: { actorUserId?: string; action?: string }): Promise<void>
+  filterAudit(input: {
+    actorUserId?: string
+    action?: string
+  }): Promise<void>
 }
-
 export interface EnterpriseGovernanceSettingsSectionProps extends EnterpriseGovernanceSurfaceProps {
   loadAdmin: () => Promise<void>
 }
-
-function DepartmentBranch({
-  departments, users, parentId, selectedId, expanded, select, toggle, depth = 0,
-}: {
+function DepartmentBranch({ departments, users, parentId, selectedId, expanded, select, toggle, t, depth = 0 }: {
   departments: readonly GovernanceDepartment[]
   users: readonly GovernanceUser[]
   parentId: string | null
@@ -77,30 +87,29 @@ function DepartmentBranch({
   expanded: ReadonlySet<string>
   select: (department: GovernanceDepartment) => void
   toggle: (departmentId: string) => void
+  t: GovernanceTranslate
   depth?: number
 }) {
   const children = departments.filter(item => item.parentId === parentId)
     .toSorted((left, right) => left.sortOrder - right.sortOrder || left.name.localeCompare(right.name))
-  if (children.length === 0) return null
+  if (children.length === 0)
+    return null
   return <ul role="group">
     {children.map((department) => {
       const departmentUsers = users.filter(user => user.departmentIds?.includes(department.id) === true)
       const childCount = departments.filter(item => item.parentId === department.id).length
       const hasChildren = childCount > 0 || departmentUsers.length > 0
       const open = expanded.has(department.id)
-      return <li key={department.id} role="treeitem" aria-level={depth + 2}
-        aria-expanded={hasChildren ? open : undefined}>
+      return <li key={department.id} role="treeitem" aria-level={depth + 2} aria-expanded={hasChildren ? open : undefined}>
         <div className={`${css.treeRow} ${selectedId === department.id ? css.treeRowSelected : ''}`}>
           {hasChildren
-            ? <button className={css.treeToggle} type="button" aria-label={`${open ? '收起' : '展开'}${department.name}`}
-              onClick={() => { toggle(department.id) }}>
-              {open ? <IconChevronDownOutline14 size={12} /> : <IconChevronRightOutline14 size={12} />}
+            ? <button className={css.treeToggle} type="button" aria-label={`${open ? '收起' : '展开'}${department.name}`} onClick={() => { toggle(department.id) }}>
+              {open ? <IconChevronDownOutline14 size={12}/> : <IconChevronRightOutline14 size={12}/>}
             </button>
-            : <span className={css.treeToggleSpacer} />}
-          <button className={css.departmentButton} type="button" aria-label={department.name}
-            aria-pressed={selectedId === department.id} onClick={() => { select(department) }}>
+            : <span className={css.treeToggleSpacer}/>}
+          <button className={css.departmentButton} type="button" aria-label={department.name} aria-pressed={selectedId === department.id} onClick={() => { select(department) }}>
             <span className={css.folderIcon} aria-hidden="true">
-              {open ? <IconFolderOpen16 size={18} /> : <IconFolderClose16 size={18} />}
+              {open ? <IconFolderOpen16 size={18}/> : <IconFolderClose16 size={18}/>}
             </span>
             <span className={css.treeLabel}>{department.name}</span>
             <small>{departmentUsers.length + childCount}</small>
@@ -108,26 +117,26 @@ function DepartmentBranch({
         </div>
         {open && hasChildren && <>
           {departmentUsers.length > 0 && <ul role="group">
-            {departmentUsers.map(user => <li key={user.id} role="treeitem" aria-level={depth + 3}
-              className={css.memberRow}>
-              <span className={css.memberAvatar} aria-hidden="true"><IconUserOutline16 size={14} /></span>
+            {departmentUsers.map(user => <li key={user.id} role="treeitem" aria-level={depth + 3} className={css.memberRow}>
+              <span className={css.memberAvatar} aria-hidden="true"><IconUserOutline16 size={14}/></span>
               <span className={css.memberIdentity}>
                 <strong>{user.displayName}</strong>
-                <small>@{user.username} · {user.roles.join(' / ')}{user.disabled ? ' · 已停用' : ''}</small>
+                <small>@{user.username} · {user.roles.join(' / ')}{user.disabled ? t('common.disabledSuffix') : ''}</small>
               </span>
             </li>)}
           </ul>}
-          <DepartmentBranch departments={departments} users={users} parentId={department.id}
-            selectedId={selectedId} expanded={expanded} select={select} toggle={toggle} depth={depth + 1} />
+          <DepartmentBranch
+            departments={departments} users={users} parentId={department.id} selectedId={selectedId}
+            expanded={expanded} select={select} toggle={toggle} t={t} depth={depth + 1}
+          />
         </>}
       </li>
     })}
   </ul>
 }
-
-function OrganizationsSection({ state, saveDepartment }: Pick<
-  EnterpriseGovernanceSurfaceProps, 'state' | 'saveDepartment'
->) {
+function OrganizationsSection({ state, saveDepartment, setDepartmentManagers, t }: Pick<EnterpriseGovernanceSurfaceProps, 'state' | 'saveDepartment' | 'setDepartmentManagers'> & {
+  t: GovernanceTranslate
+}) {
   const organizationId = state.auth?.principal?.orgId ?? state.auth?.organizationId
   const organization = state.organizations.find(item => item.id === organizationId)
   const organizationName = organization?.name ?? organizationId ?? '当前企业'
@@ -145,6 +154,9 @@ function OrganizationsSection({ state, saveDepartment }: Pick<
   const [saving, setSaving] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set(departments.map(item => item.id)))
+  const [managerIds, setManagerIds] = useState<string[]>([])
+  const [managerSaving, setManagerSaving] = useState(false)
+  const [managerError, setManagerError] = useState<string | null>(null)
   const selected = departments.find(item => item.id === selectedId)
   const select = (department: GovernanceDepartment): void => {
     setIsCreating(false)
@@ -168,8 +180,10 @@ function OrganizationsSection({ state, saveDepartment }: Pick<
   const toggle = (departmentIdToToggle: string): void => {
     setExpanded((current) => {
       const next = new Set(current)
-      if (next.has(departmentIdToToggle)) next.delete(departmentIdToToggle)
-      else next.add(departmentIdToToggle)
+      if (next.has(departmentIdToToggle))
+        next.delete(departmentIdToToggle)
+      else
+        next.add(departmentIdToToggle)
       return next
     })
   }
@@ -179,41 +193,52 @@ function OrganizationsSection({ state, saveDepartment }: Pick<
   const selectedUsers = selectedId === undefined
     ? []
     : state.users.filter(user => user.departmentIds?.includes(selectedId) === true)
+  const managerSet = selectedId === undefined ? undefined : state.departmentManagers[selectedId]
   useEffect(() => {
     setExpanded(current => new Set([...current, ...departments.map(item => item.id)]))
-    if (isCreating || selectedId !== undefined || departments[0] === undefined) return
+    if (isCreating || selectedId !== undefined || departments[0] === undefined)
+      return
     const department = departments[0]
-    setSelectedId(department.id); setDepartmentId(department.id); setDepartmentName(department.name)
-    setParentId(department.parentId ?? ''); setSortOrder(String(department.sortOrder))
+    setSelectedId(department.id)
+    setDepartmentId(department.id)
+    setDepartmentName(department.name)
+    setParentId(department.parentId ?? '')
+    setSortOrder(String(department.sortOrder))
   }, [departments, isCreating, selectedId])
+  useEffect(() => {
+    setManagerIds([...(managerSet?.managerUserIds ?? [])])
+    setManagerError(null)
+  }, [managerSet?.revision, selectedId])
   return <section className={css.ledgerSection}>
     <header className={css.directoryHeader}>
-      <div><h2>组织架构</h2><p>按部门查看成员，并维护上下级关系。</p></div>
+      <div><h2>{t('\u7EC4\u7EC7\u67B6\u6784')}</h2><p>{t('\u6309\u90E8\u95E8\u67E5\u770B\u6210\u5458\uFF0C\u5E76\u7EF4\u62A4\u4E0A\u4E0B\u7EA7\u5173\u7CFB\u3002')}</p></div>
       <div className={css.directoryActions}>
-        <span>{departments.length} 个部门 · {state.users.length} 位成员</span>
-        <button type="button" onClick={() => { beginCreate(null) }}>新增根部门</button>
+        <span>{departments.length}{t('\u4E2A\u90E8\u95E8 \u00B7')}{state.users.length}{t('\u4F4D\u6210\u5458')}</span>
+        <button type="button" onClick={() => { beginCreate(null) }}>{t('\u65B0\u589E\u6839\u90E8\u95E8')}</button>
       </div>
     </header>
     <div className={css.directoryLayout}>
       <div className={css.treePanel}>
-        <ul className={css.organizationTree} role="tree" aria-label="组织架构">
+        <ul className={css.organizationTree} role="tree" aria-label={t('\u7EC4\u7EC7\u67B6\u6784')}>
           <li role="treeitem" aria-level={1} aria-expanded="true">
             <div className={css.enterpriseRoot}>
-              <span className={css.enterpriseMark} aria-hidden="true">DSH</span>
-              <span><strong>{organizationName}</strong><small>企业根节点</small></span>
+              <span className={css.enterpriseMark} aria-hidden="true">{t('DSH')}</span>
+              <span><strong>{organizationName}</strong><small>{t('\u4F01\u4E1A\u6839\u8282\u70B9')}</small></span>
             </div>
             {departments.length === 0
-              ? <p className={css.emptyState}>还没有部门。点击“新增根部门”，输入名称即可创建。</p>
-              : <DepartmentBranch departments={departments} users={state.users} parentId={null}
-                selectedId={selectedId} expanded={expanded} select={select} toggle={toggle} />}
+              ? <p className={css.emptyState}>{t('\u8FD8\u6CA1\u6709\u90E8\u95E8\u3002\u70B9\u51FB\u201C\u65B0\u589E\u6839\u90E8\u95E8\u201D\uFF0C\u8F93\u5165\u540D\u79F0\u5373\u53EF\u521B\u5EFA\u3002')}</p>
+              : <DepartmentBranch
+                departments={departments} users={state.users} parentId={null} selectedId={selectedId}
+                expanded={expanded} select={select} toggle={toggle} t={t}
+              />}
           </li>
         </ul>
       </div>
       <div className={css.departmentDetail}>
         <div className={css.subsectionHeader}>
-          <div><strong>{isCreating ? '新建部门' : selected?.name ?? '选择一个部门'}</strong>
-            <span>{isCreating ? '创建后会出现在左侧组织树中' : selected !== undefined ? `内部编号 ${selected.id}` : '从左侧选择部门以查看详情'}</span></div>
-          {selected !== undefined && <span>修订 {selected.revision}</span>}
+          <div><strong>{isCreating ? t('\u65B0\u5EFA\u90E8\u95E8') : selected?.name ?? t('\u9009\u62E9\u4E00\u4E2A\u90E8\u95E8')}</strong>
+            <span>{isCreating ? t('\u521B\u5EFA\u540E\u4F1A\u51FA\u73B0\u5728\u5DE6\u4FA7\u7EC4\u7EC7\u6811\u4E2D') : selected !== undefined ? t('department.internalId', { id: selected.id }) : t('\u4ECE\u5DE6\u4FA7\u9009\u62E9\u90E8\u95E8\u4EE5\u67E5\u770B\u8BE6\u60C5')}</span></div>
+          {selected !== undefined && <span>{t('\u4FEE\u8BA2')}{selected.revision}</span>}
         </div>
         <form className={css.departmentForm} onSubmit={(event) => {
           event.preventDefault()
@@ -232,43 +257,78 @@ function OrganizationsSection({ state, saveDepartment }: Pick<
               setSelectedId(departmentId)
               setIsCreating(false)
               setExpanded(current => new Set([...current, departmentId, ...(parentId === '' ? [] : [parentId])]))
-            } catch {
+            }
+            catch {
               setSubmitError(`${isCreating ? '创建' : '保存'}部门失败，请重试`)
-            } finally {
+            }
+            finally {
               setSaving(false)
             }
           }
           void submit()
         }}>
-          <label>部门名称<input value={departmentName} onChange={(event) => { setDepartmentName(event.target.value) }} /></label>
-          <label>上级部门<select value={parentId} onChange={(event) => { setParentId(event.target.value) }}>
-            <option value="">企业根节点</option>
-            {departments.filter(item => item.id !== departmentId).map(item => (
-              <option key={item.id} value={item.id}>{item.name}</option>
-            ))}
+          <label>{t('\u90E8\u95E8\u540D\u79F0')}<input value={departmentName} onChange={(event) => { setDepartmentName(event.target.value) }}/></label>
+          <label>{t('\u4E0A\u7EA7\u90E8\u95E8')}<select value={parentId} onChange={(event) => { setParentId(event.target.value) }}>
+            <option value="">{t('\u4F01\u4E1A\u6839\u8282\u70B9')}</option>
+            {departments.filter(item => item.id !== departmentId).map(item => (<option key={item.id} value={item.id}>{item.name}</option>))}
           </select></label>
-          <label>同级排序<input inputMode="numeric" value={sortOrder} onChange={(event) => { setSortOrder(event.target.value) }} /></label>
+          <label>{t('\u540C\u7EA7\u6392\u5E8F')}<input inputMode="numeric" value={sortOrder} onChange={(event) => { setSortOrder(event.target.value) }}/></label>
           {submitError !== null && <div className={css.formError} role="alert">{submitError}</div>}
           <div className={css.formActions}>
-            {selected !== undefined && <button type="button" onClick={() => { beginCreate(selected.id) }}>新增下级部门</button>}
+            {selected !== undefined && <button type="button" onClick={() => { beginCreate(selected.id) }}>{t('\u65B0\u589E\u4E0B\u7EA7\u90E8\u95E8')}</button>}
             <button type="submit" disabled={saving || departmentId === ''}>
-              {saving ? '正在保存…' : isCreating ? '创建部门' : '保存部门'}
+              {saving ? t('\u6B63\u5728\u4FDD\u5B58\u2026') : isCreating ? t('\u521B\u5EFA\u90E8\u95E8') : t('\u4FDD\u5B58\u90E8\u95E8')}
             </button>
           </div>
         </form>
+        {selected !== undefined && <fieldset className={css.managerEditor} aria-label={t('\u90E8\u95E8\u8D1F\u8D23\u4EBA')} disabled={managerSaving}>
+          <legend>{t('\u90E8\u95E8\u8D1F\u8D23\u4EBA')}</legend>
+          <p>{t('\u8D1F\u8D23\u4EBA\u53EF\u5BA1\u6838\u90E8\u95E8 Cordis \u6269\u5C55\uFF0C\u5E76\u53D1\u5E03\u672C\u90E8\u95E8\u901A\u8FC7\u9A8C\u8BC1\u7684\u7EC4\u7EC7\u63D2\u4EF6\u3002')}</p>
+          <div className={css.managerChoices}>
+            {selectedUsers.length === 0
+              ? <span className={css.emptyState}>{t('\u8BF7\u5148\u4E3A\u8BE5\u90E8\u95E8\u5206\u914D\u6210\u5458\u3002')}</span>
+              : selectedUsers.map(user => <label key={user.id}>
+                <input type="checkbox" aria-label={user.displayName} checked={managerIds.includes(user.id)} disabled={user.disabled} onChange={(event) => {
+                  setManagerIds(current => event.target.checked
+                    ? [...current, user.id] : current.filter(id => id !== user.id))
+                }}/>
+                <span><strong>{user.displayName}</strong><small>@{user.username}{user.disabled ? t('common.disabledSuffix') : ''}</small></span>
+              </label>)}
+          </div>
+          {managerError !== null && <div className={css.formError} role="alert">{managerError}</div>}
+          <div className={css.managerActions}><button type="button" disabled={managerSaving} onClick={() => {
+            const save = async (): Promise<void> => {
+              setManagerSaving(true)
+              setManagerError(null)
+              try {
+                if (setDepartmentManagers === undefined)
+                  throw new Error('department manager service is unavailable')
+                await setDepartmentManagers(selected.id, managerIds, managerSet?.revision ?? 0)
+              }
+              catch {
+                setManagerError('保存部门负责人失败，请刷新后重试')
+              }
+              finally {
+                setManagerSaving(false)
+              }
+            }
+            void save()
+          }}>{managerSaving ? t('\u6B63\u5728\u4FDD\u5B58\u2026') : t('\u4FDD\u5B58\u90E8\u95E8\u8D1F\u8D23\u4EBA')}</button></div>
+        </fieldset>}
         {selected !== undefined && <div className={css.departmentEvidence}>
-          <div><span>成员</span><strong>{selectedUsers.length}</strong></div>
-          <div><span>共享工作区</span><strong>{selectedWorkspaces.length}</strong></div>
+          <div><span>{t('\u6210\u5458')}</span><strong>{selectedUsers.length}</strong></div>
+          <div><span>{t('\u5171\u4EAB\u5DE5\u4F5C\u533A')}</span><strong>{selectedWorkspaces.length}</strong></div>
         </div>}
         {selectedWorkspaces.map(workspace => <div key={workspace.workspaceId} className={css.workspaceLine}>
-          <strong>{workspace.name}</strong><span>{workspace.sandboxMode === 'read-only' ? '只读沙盒' : '工作区可写'}</span>
+          <strong>{workspace.name}</strong><span>{workspace.sandboxMode === 'read-only' ? t('\u53EA\u8BFB\u6C99\u76D2') : t('\u5DE5\u4F5C\u533A\u53EF\u5199')}</span>
         </div>)}
       </div>
     </div>
   </section>
 }
-
-function LoginGate({ state, loginLocal }: Pick<EnterpriseGovernanceSurfaceProps, 'state' | 'loginLocal'>) {
+function LoginGate({ state, loginLocal, t }: Pick<EnterpriseGovernanceSurfaceProps, 'state' | 'loginLocal'> & {
+  t: GovernanceTranslate
+}) {
   const [organizationId, setOrganizationId] = useState(state.auth?.organizationId ?? '')
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
@@ -283,46 +343,42 @@ function LoginGate({ state, loginLocal }: Pick<EnterpriseGovernanceSurfaceProps,
     setPassword('')
     void loginLocal({ organizationId, username, password: secret })
   }
-  return (
-    <section className={css.loginGate} aria-label="企业登录">
-      <div className={css.loginPanel}>
-        <div className={css.loginIdentity}><span aria-hidden="true">DSH</span><strong>Enterprise</strong></div>
-        <h1>登录企业工作台</h1>
-        <p>身份将用于员工可见范围、Host API 授权与操作审计。</p>
-        <form onSubmit={submit}>
-          <label>组织<input value={organizationId} onChange={(event) => { setOrganizationId(event.target.value) }} /></label>
-          <label>用户名<input autoComplete="username" value={username} onChange={(event) => { setUsername(event.target.value) }} /></label>
-          <label>密码<input type="password" autoComplete="current-password" value={password} onChange={(event) => { setPassword(event.target.value) }} /></label>
-          <div className={css.errorSlot}>
-            {state.error !== null && <div className={css.error} role="alert">{state.error}</div>}
-          </div>
-          <button type="submit" disabled={state.phase === 'loading'}>{state.phase === 'loading' ? '正在验证…' : '登录'}</button>
-        </form>
-        {state.auth?.providers.filter(provider => provider.kind !== 'local').map(provider => (
-          <a key={provider.id} className={css.ssoButton} href={`/auth/login/${encodeURIComponent(provider.id)}`}>
-            {provider.label}
-          </a>
-        ))}
-      </div>
-    </section>
-  )
+  return (<section className={css.loginGate} aria-label={t('\u4F01\u4E1A\u767B\u5F55')}>
+    <div className={css.loginPanel}>
+      <div className={css.loginIdentity}><span aria-hidden="true">{t('DSH')}</span><strong>{t('Enterprise')}</strong></div>
+      <h1>{t('\u767B\u5F55\u4F01\u4E1A\u5DE5\u4F5C\u53F0')}</h1>
+      <p>{t('\u8EAB\u4EFD\u5C06\u7528\u4E8E\u5458\u5DE5\u53EF\u89C1\u8303\u56F4\u3001Host API \u6388\u6743\u4E0E\u64CD\u4F5C\u5BA1\u8BA1\u3002')}</p>
+      <form onSubmit={submit}>
+        <label>{t('\u7EC4\u7EC7')}<input value={organizationId} onChange={(event) => { setOrganizationId(event.target.value) }}/></label>
+        <label>{t('\u7528\u6237\u540D')}<input autoComplete="username" value={username} onChange={(event) => { setUsername(event.target.value) }}/></label>
+        <label>{t('\u5BC6\u7801')}<input type="password" autoComplete="current-password" value={password} onChange={(event) => { setPassword(event.target.value) }}/></label>
+        <div className={css.errorSlot}>
+          {state.error !== null && <div className={css.error} role="alert">{state.error}</div>}
+        </div>
+        <button type="submit" disabled={state.phase === 'loading'}>{state.phase === 'loading' ? t('\u6B63\u5728\u9A8C\u8BC1\u2026') : t('\u767B\u5F55')}</button>
+      </form>
+      {state.auth?.providers.filter(provider => provider.kind !== 'local').map(provider => (<a key={provider.id} className={css.ssoButton} href={`/auth/login/${encodeURIComponent(provider.id)}`}>
+        {provider.label}
+      </a>))}
+    </div>
+  </section>)
 }
-
 const USER_ROLES = [
-  ['administrator', '管理员'], ['creator', '创建者'], ['operator', '运营者'], ['auditor', '审计员'], ['member', '成员'],
+  ['administrator', 'role.administrator'], ['creator', 'role.creator'], ['operator', 'role.operator'],
+  ['auditor', 'role.auditor'], ['member', 'role.member'],
 ] as const
-
-function roleLabel(role: string): string {
-  return USER_ROLES.find(item => item[0] === role)?.[1] ?? role
+function roleLabel(role: string, t: GovernanceTranslate): string {
+  const key = USER_ROLES.find(item => item[0] === role)?.[1]
+  return key === undefined ? role : t(key)
 }
-
-function UserDialog({ mode, user, departments, createUser, updateUser, close }: {
+function UserDialog({ mode, user, departments, createUser, updateUser, close, t }: {
   mode: 'create' | 'edit'
   user?: GovernanceUser
   departments: readonly GovernanceDepartment[]
   createUser: EnterpriseGovernanceSurfaceProps['createUser']
   updateUser: EnterpriseGovernanceSurfaceProps['updateUser']
   close: () => void
+  t: GovernanceTranslate
 }) {
   const formId = useId()
   const [username, setUsername] = useState(user?.username ?? '')
@@ -334,7 +390,7 @@ function UserDialog({ mode, user, departments, createUser, updateUser, close }: 
   const [primaryDepartmentId, setPrimaryDepartmentId] = useState(user?.primaryDepartmentId ?? '')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const title = mode === 'create' ? '新增用户' : '编辑用户'
+  const title = mode === 'create' ? t('\u65B0\u589E\u7528\u6237') : t('\u7F16\u8F91\u7528\u6237')
   const submit = async (event: FormEvent): Promise<void> => {
     event.preventDefault()
     const normalizedUsername = username.trim()
@@ -359,7 +415,8 @@ function UserDialog({ mode, user, departments, createUser, updateUser, close }: 
           id: `user-${randomUUID()}`, username: normalizedUsername, displayName: normalizedDisplayName,
           password, roles: [role],
         })
-      } else if (user !== undefined) {
+      }
+      else if (user !== undefined) {
         await updateUser(user.id, {
           username: normalizedUsername, displayName: normalizedDisplayName,
           ...(password === '' ? {} : { password }), roles: [role], disabled, departmentIds,
@@ -369,170 +426,167 @@ function UserDialog({ mode, user, departments, createUser, updateUser, close }: 
       }
       setPassword('')
       close()
-    } catch {
+    }
+    catch {
       setError(`${mode === 'create' ? '创建' : '保存'}失败，请检查用户名是否重复后重试`)
-    } finally {
+    }
+    finally {
       setSaving(false)
     }
   }
-  return <Modal open onClose={() => { if (!saving) close() }} title={title} closeLabel="关闭"
-    {...(css.userDialog === undefined ? {} : { className: css.userDialog })} description={mode === 'create'
-      ? '创建后会自动分配独立个人工作区。'
-      : '修改登录身份、角色、部门和账号状态。新密码留空时保持原密码。'}
-    footer={<>
-      <button className={css.secondaryAction} type="button" disabled={saving} onClick={close}>取消</button>
-      <button className={css.primaryAction} type="submit" form={formId} disabled={saving}>
-        {saving ? '正在保存…' : mode === 'create' ? '创建用户' : '保存修改'}
-      </button>
-    </>}>
+  return <Modal open onClose={() => { if (!saving)
+    close() }} title={title} closeLabel={t('\u5173\u95ED')} {...(css.userDialog === undefined ? {} : { className: css.userDialog })} description={mode === 'create'
+    ? t('\u521B\u5EFA\u540E\u4F1A\u81EA\u52A8\u5206\u914D\u72EC\u7ACB\u4E2A\u4EBA\u5DE5\u4F5C\u533A\u3002') : t('\u4FEE\u6539\u767B\u5F55\u8EAB\u4EFD\u3001\u89D2\u8272\u3001\u90E8\u95E8\u548C\u8D26\u53F7\u72B6\u6001\u3002\u65B0\u5BC6\u7801\u7559\u7A7A\u65F6\u4FDD\u6301\u539F\u5BC6\u7801\u3002')} footer={<>
+    <button className={css.secondaryAction} type="button" disabled={saving} onClick={close}>{t('\u53D6\u6D88')}</button>
+    <button className={css.primaryAction} type="submit" form={formId} disabled={saving}>
+      {saving ? t('\u6B63\u5728\u4FDD\u5B58\u2026') : mode === 'create' ? t('\u521B\u5EFA\u7528\u6237') : t('\u4FDD\u5B58\u4FEE\u6539')}
+    </button>
+  </>}>
     <form id={formId} className={css.userForm} onSubmit={(event) => { void submit(event) }}>
-      <label>用户名<input autoFocus aria-label="用户名" autoComplete="off" maxLength={64}
-        value={username} onChange={(event) => { setUsername(event.target.value) }} /></label>
-      <label>显示名称<input aria-label="显示名称" maxLength={100}
-        value={displayName} onChange={(event) => { setDisplayName(event.target.value) }} /></label>
-      <label>{mode === 'create' ? '初始密码' : '新密码（留空则不修改）'}<input type="password"
-        aria-label={mode === 'create' ? '初始密码' : '新密码（留空则不修改）'} autoComplete="new-password"
-        minLength={12} maxLength={128} value={password} onChange={(event) => { setPassword(event.target.value) }} /></label>
-      <label>角色<select aria-label="角色" value={role} onChange={(event) => { setRole(event.target.value) }}>
-        {USER_ROLES.map(item => <option key={item[0]} value={item[0]}>{item[1]} · {item[0]}</option>)}
+      <label>{t('\u7528\u6237\u540D')}<input autoFocus aria-label={t('\u7528\u6237\u540D')} autoComplete="off" maxLength={64} value={username} onChange={(event) => { setUsername(event.target.value) }}/></label>
+      <label>{t('\u663E\u793A\u540D\u79F0')}<input aria-label={t('\u663E\u793A\u540D\u79F0')} maxLength={100} value={displayName} onChange={(event) => { setDisplayName(event.target.value) }}/></label>
+      <label>{mode === 'create' ? t('\u521D\u59CB\u5BC6\u7801') : t('\u65B0\u5BC6\u7801\uFF08\u7559\u7A7A\u5219\u4E0D\u4FEE\u6539\uFF09')}<input type="password" aria-label={mode === 'create' ? t('\u521D\u59CB\u5BC6\u7801') : t('\u65B0\u5BC6\u7801\uFF08\u7559\u7A7A\u5219\u4E0D\u4FEE\u6539\uFF09')} autoComplete="new-password" minLength={12} maxLength={128} value={password} onChange={(event) => { setPassword(event.target.value) }}/></label>
+      <label>{t('\u89D2\u8272')}<select aria-label={t('\u89D2\u8272')} value={role} onChange={(event) => { setRole(event.target.value) }}>
+        {USER_ROLES.map(item => <option key={item[0]} value={item[0]}>{t(item[1])} · {item[0]}</option>)}
       </select></label>
       {mode === 'edit' && <>
-        <fieldset className={css.departmentChoices}><legend>所属部门</legend>
+        <fieldset className={css.departmentChoices}><legend>{t('\u6240\u5C5E\u90E8\u95E8')}</legend>
           {departments.length === 0
-            ? <span>暂无可分配部门</span>
+            ? <span>{t('\u6682\u65E0\u53EF\u5206\u914D\u90E8\u95E8')}</span>
             : departments.map(department => <label key={department.id}>
               <input type="checkbox" checked={departmentIds.includes(department.id)} onChange={(event) => {
                 setDepartmentIds((current) => {
                   const next = event.target.checked
                     ? [...current, department.id]
                     : current.filter(id => id !== department.id)
-                  if (!next.includes(primaryDepartmentId)) setPrimaryDepartmentId(next[0] ?? '')
+                  if (!next.includes(primaryDepartmentId))
+                    setPrimaryDepartmentId(next[0] ?? '')
                   return next
                 })
-              }} />{department.name}
+              }}/>{department.name}
             </label>)}
         </fieldset>
-        <label>主部门<select aria-label="主部门" value={primaryDepartmentId}
-          disabled={departmentIds.length === 0} onChange={(event) => { setPrimaryDepartmentId(event.target.value) }}>
-          <option value="">未设置主部门</option>
+        <label>{t('\u4E3B\u90E8\u95E8')}<select aria-label={t('\u4E3B\u90E8\u95E8')} value={primaryDepartmentId} disabled={departmentIds.length === 0} onChange={(event) => { setPrimaryDepartmentId(event.target.value) }}>
+          <option value="">{t('\u672A\u8BBE\u7F6E\u4E3B\u90E8\u95E8')}</option>
           {departments.filter(department => departmentIds.includes(department.id))
             .map(department => <option key={department.id} value={department.id}>{department.name}</option>)}
         </select></label>
-        <label>账号状态<select aria-label="账号状态" value={disabled ? 'disabled' : 'active'}
-          onChange={(event) => { setDisabled(event.target.value === 'disabled') }}>
-          <option value="active">正常</option><option value="disabled">已停用</option>
+        <label>{t('\u8D26\u53F7\u72B6\u6001')}<select aria-label={t('\u8D26\u53F7\u72B6\u6001')} value={disabled ? 'disabled' : 'active'} onChange={(event) => { setDisabled(event.target.value === 'disabled') }}>
+          <option value="active">{t('\u6B63\u5E38')}</option><option value="disabled">{t('\u5DF2\u505C\u7528')}</option>
         </select></label>
       </>}
       {error !== null && <div className={css.formError} role="alert">{error}</div>}
     </form>
   </Modal>
 }
-
-function UsersSection({ state, createUser, updateUser }: Pick<
-  EnterpriseGovernanceSurfaceProps, 'state' | 'createUser' | 'updateUser'
->) {
-  const [dialog, setDialog] = useState<{ mode: 'create' } | { mode: 'edit'; user: GovernanceUser } | null>(null)
+function UsersSection({ state, createUser, updateUser, t }: Pick<EnterpriseGovernanceSurfaceProps, 'state' | 'createUser' | 'updateUser'> & {
+  t: GovernanceTranslate
+}) {
+  const [dialog, setDialog] = useState<{
+    mode: 'create'
+  } | {
+    mode: 'edit'
+    user: GovernanceUser
+  } | null>(null)
   const [query, setQuery] = useState('')
   const [busyUserId, setBusyUserId] = useState<string | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
   const normalizedQuery = query.trim().toLocaleLowerCase()
   const users = state.users.filter(user => normalizedQuery === ''
-    || user.displayName.toLocaleLowerCase().includes(normalizedQuery)
-    || user.username.toLocaleLowerCase().includes(normalizedQuery))
+        || user.displayName.toLocaleLowerCase().includes(normalizedQuery)
+        || user.username.toLocaleLowerCase().includes(normalizedQuery))
   const departmentName = (id: string): string => state.departments.find(item => item.id === id)?.name ?? id
   return <section className={css.ledgerSection}>
     <header className={css.userHeader}>
-      <div><h2>用户管理</h2><p>管理登录身份、角色、部门和账号状态。</p></div>
-      <span>{state.users.length} 位用户</span>
+      <div><h2>{t('\u7528\u6237\u7BA1\u7406')}</h2><p>{t('\u7BA1\u7406\u767B\u5F55\u8EAB\u4EFD\u3001\u89D2\u8272\u3001\u90E8\u95E8\u548C\u8D26\u53F7\u72B6\u6001\u3002')}</p></div>
+      <span>{state.users.length}{t('\u4F4D\u7528\u6237')}</span>
     </header>
     <div className={css.userToolbar}>
-      <input aria-label="搜索用户" placeholder="搜索姓名或用户名" value={query}
-        onChange={(event) => { setQuery(event.target.value) }} />
+      <input aria-label={t('\u641C\u7D22\u7528\u6237')} placeholder={t('\u641C\u7D22\u59D3\u540D\u6216\u7528\u6237\u540D')} value={query} onChange={(event) => { setQuery(event.target.value) }}/>
       <button type="button" onClick={() => { setDialog({ mode: 'create' }) }}>
-        <IconPlusOutline16 size={14} />新增用户
-      </button>
+        <IconPlusOutline16 size={14}/>{t('\u65B0\u589E\u7528\u6237')}</button>
     </div>
     {actionError !== null && <div className={css.error} role="alert">{actionError}</div>}
     {users.length === 0
-      ? <p className={css.emptyState}>{state.users.length === 0 ? '还没有用户。点击“新增用户”创建首位成员。' : '没有匹配的用户。'}</p>
+      ? <p className={css.emptyState}>{state.users.length === 0 ? t('\u8FD8\u6CA1\u6709\u7528\u6237\u3002\u70B9\u51FB\u201C\u65B0\u589E\u7528\u6237\u201D\u521B\u5EFA\u9996\u4F4D\u6210\u5458\u3002') : t('\u6CA1\u6709\u5339\u914D\u7684\u7528\u6237\u3002')}</p>
       : <div className={`${css.tableWrap} ${css.userTable}`}>
-        <table><thead><tr><th>用户</th><th>部门</th><th>角色</th><th>状态</th><th>操作</th></tr></thead><tbody>
+        <table><thead><tr><th>{t('\u7528\u6237')}</th><th>{t('\u90E8\u95E8')}</th><th>{t('\u89D2\u8272')}</th><th>{t('\u72B6\u6001')}</th><th>{t('\u64CD\u4F5C')}</th></tr></thead><tbody>
           {users.map((user) => {
             const primary = user.primaryDepartmentId
             const secondary = (user.departmentIds ?? []).filter(id => id !== primary)
             return <tr key={user.id}>
               <td><div className={css.userIdentity}>
-                <span className={css.userAvatar} aria-hidden="true"><IconUserOutline16 size={16} /></span>
+                <span className={css.userAvatar} aria-hidden="true"><IconUserOutline16 size={16}/></span>
                 <span><strong>{user.displayName}</strong><small>@{user.username}</small></span>
               </div></td>
               <td><div className={css.departmentSummary}>
-                {primary !== undefined && <strong>{departmentName(primary)} · 主部门</strong>}
+                {primary !== undefined && <strong>{t('department.primaryLabel', { name: departmentName(primary) })}</strong>}
                 {secondary.length > 0 && <span>{secondary.map(departmentName).join('、')}</span>}
-                {primary === undefined && secondary.length === 0 && <span>未分配部门</span>}
+                {primary === undefined && secondary.length === 0 && <span>{t('\u672A\u5206\u914D\u90E8\u95E8')}</span>}
               </div></td>
-              <td><span className={css.roleBadge}><strong>{roleLabel(user.roles[0] ?? 'member')}</strong>
-                <small>{user.roles[0] ?? 'member'}</small></span></td>
+              <td><span className={css.roleBadge}><strong>{roleLabel(user.roles[0] ?? 'member', t)}</strong>
+                <small>{user.roles[0] ?? t('member')}</small></span></td>
               <td><span className={css.statusLabel} data-disabled={user.disabled ? 'true' : 'false'}>
-                <i aria-hidden="true" />{user.disabled ? '已停用' : '正常'}
+                <i aria-hidden="true"/>{user.disabled ? t('\u5DF2\u505C\u7528') : t('\u6B63\u5E38')}
               </span></td>
               <td><div className={css.rowActions}>
-                <button type="button" aria-label={`编辑用户：${user.displayName}`}
-                  onClick={() => { setDialog({ mode: 'edit', user }) }}><IconEditOutline16 size={14} />编辑</button>
+                <button type="button" aria-label={t('user.editAria', { name: user.displayName })} onClick={() => { setDialog({ mode: 'edit', user }) }}><IconEditOutline16 size={14}/>{t('\u7F16\u8F91')}</button>
                 <button type="button" disabled={busyUserId === user.id} onClick={() => {
                   const change = async (): Promise<void> => {
-                    setBusyUserId(user.id); setActionError(null)
-                    try { await updateUser(user.id, { disabled: !user.disabled }) }
-                    catch { setActionError(`${user.disabled ? '启用' : '停用'}用户失败，请重试`) }
-                    finally { setBusyUserId(null) }
+                    setBusyUserId(user.id)
+                    setActionError(null)
+                    try {
+                      await updateUser(user.id, { disabled: !user.disabled })
+                    }
+                    catch {
+                      setActionError(`${user.disabled ? '启用' : '停用'}用户失败，请重试`)
+                    }
+                    finally {
+                      setBusyUserId(null)
+                    }
                   }
                   void change()
-                }}>{busyUserId === user.id ? '处理中…' : user.disabled ? '启用' : '停用'}</button>
+                }}>{busyUserId === user.id ? t('\u5904\u7406\u4E2D\u2026') : user.disabled ? t('\u542F\u7528') : t('\u505C\u7528')}</button>
               </div></td>
             </tr>
           })}</tbody></table>
       </div>}
-    {dialog !== null && <UserDialog key={dialog.mode === 'create' ? 'create' : dialog.user.id}
-      mode={dialog.mode} {...(dialog.mode === 'edit' ? { user: dialog.user } : {})}
-      departments={state.departments} createUser={createUser} updateUser={updateUser}
-      close={() => { setDialog(null) }} />}
+    {dialog !== null && <UserDialog key={dialog.mode === 'create' ? 'create' : dialog.user.id} mode={dialog.mode} {...(dialog.mode === 'edit' ? { user: dialog.user } : {})} departments={state.departments} createUser={createUser} updateUser={updateUser} t={t} close={() => { setDialog(null) }}/>}
   </section>
 }
-
-function WorkspacesSection({ state, createWorkspace, updateWorkspace }: Pick<
-  EnterpriseGovernanceSurfaceProps, 'state' | 'createWorkspace' | 'updateWorkspace'
->) {
+function WorkspacesSection({ state, createWorkspace, updateWorkspace, t }: Pick<EnterpriseGovernanceSurfaceProps, 'state' | 'createWorkspace' | 'updateWorkspace'> & {
+  t: GovernanceTranslate
+}) {
   const [name, setName] = useState('')
   return <section className={css.ledgerSection}>
-    <header><h2>工作区与沙盒</h2><span>{state.workspaces.length}</span></header>
-    <p>个人工作区彼此隔离；部门共享空间只向部门成员开放。Session cwd 是实际沙盒边界，沙盒策略变更对新建 Session 生效。</p>
+    <header><h2>{t('\u5DE5\u4F5C\u533A\u4E0E\u6C99\u76D2')}</h2><span>{state.workspaces.length}</span></header>
+    <p>{t('\u4E2A\u4EBA\u5DE5\u4F5C\u533A\u5F7C\u6B64\u9694\u79BB\uFF1B\u90E8\u95E8\u5171\u4EAB\u7A7A\u95F4\u53EA\u5411\u90E8\u95E8\u6210\u5458\u5F00\u653E\u3002Session cwd \u662F\u5B9E\u9645\u6C99\u76D2\u8FB9\u754C\uFF0C\u6C99\u76D2\u7B56\u7565\u53D8\u66F4\u5BF9\u65B0\u5EFA Session \u751F\u6548\u3002')}</p>
     <form className={css.workspaceCreate} onSubmit={(event) => {
       event.preventDefault()
       void createWorkspace({ name, idempotencyKey: randomUUID() })
       setName('')
     }}>
-      <input aria-label="新工作区名称" placeholder="例如：三季度采购专项" value={name}
-        onChange={(event) => { setName(event.target.value) }} />
-      <button type="submit" disabled={name.trim() === ''}>新建我的工作区</button>
+      <input aria-label={t('\u65B0\u5DE5\u4F5C\u533A\u540D\u79F0')} placeholder={t('\u4F8B\u5982\uFF1A\u4E09\u5B63\u5EA6\u91C7\u8D2D\u4E13\u9879')} value={name} onChange={(event) => { setName(event.target.value) }}/>
+      <button type="submit" disabled={name.trim() === ''}>{t('\u65B0\u5EFA\u6211\u7684\u5DE5\u4F5C\u533A')}</button>
     </form>
     <div className={css.workspaceList}>{state.workspaces.map(workspace => <div key={workspace.workspaceId}>
-      <div><strong>{workspace.name}</strong><span>{workspace.kind === 'personal' ? '个人' : '部门共享'}</span></div>
+      <div><strong>{workspace.name}</strong><span>{workspace.kind === 'personal' ? t('\u4E2A\u4EBA') : t('\u90E8\u95E8\u5171\u4EAB')}</span></div>
       <div className={css.workspaceMeta}>
-        <select aria-label={`${workspace.name} 沙盒策略`} value={workspace.sandboxMode} onChange={(event) => {
+        <select aria-label={t('workspace.sandboxAria', { name: workspace.name })} value={workspace.sandboxMode} onChange={(event) => {
           void updateWorkspace(workspace.workspaceId, {
             sandboxMode: event.target.value as 'read-only' | 'workspace-write', expectedRevision: workspace.revision,
           })
         }}>
-          <option value="read-only">只读沙盒</option><option value="workspace-write">工作区可写</option>
+          <option value="read-only">{t('\u53EA\u8BFB\u6C99\u76D2')}</option><option value="workspace-write">{t('\u5DE5\u4F5C\u533A\u53EF\u5199')}</option>
         </select>
         <code>{workspace.rootPath}</code>
       </div>
     </div>)}</div>
   </section>
 }
-
-function MemorySection({ state, proposeMemory, reviewMemory }: Pick<
-  EnterpriseGovernanceSurfaceProps, 'state' | 'proposeMemory' | 'reviewMemory'
->) {
+function MemorySection({ state, proposeMemory, reviewMemory, t }: Pick<EnterpriseGovernanceSurfaceProps, 'state' | 'proposeMemory' | 'reviewMemory'> & {
+  t: GovernanceTranslate
+}) {
   const [scope, setScope] = useState<GovernanceMemory['scope']>('department')
   const [departmentId, setDepartmentId] = useState(state.departments[0]?.id ?? '')
   const [kind, setKind] = useState<GovernanceMemory['kind']>('business-fact')
@@ -546,157 +600,177 @@ function MemorySection({ state, proposeMemory, reviewMemory }: Pick<
   const kindLabel = (value: GovernanceMemory['kind']): string => ({
     'business-fact': '业务规则', process: '工作流程', terminology: '公司术语', decision: '已确认决策',
   })[value]
-  const departmentName = (id: string | undefined): string =>
-    state.departments.find(department => department.id === id)?.name ?? '未找到部门'
+  const departmentName = (id: string | undefined): string => state.departments.find(department => department.id === id)?.name ?? '未找到部门'
   const scopeLabel = (memory: GovernanceMemory): string => memory.scope === 'organization'
     ? '全企业'
     : departmentName(memory.departmentId)
   useEffect(() => {
-    if (departmentId === '' && state.departments[0] !== undefined) setDepartmentId(state.departments[0].id)
+    if (departmentId === '' && state.departments[0] !== undefined)
+      setDepartmentId(state.departments[0].id)
   }, [departmentId, state.departments])
   return <section className={css.ledgerSection}>
     <header className={css.memoryHeader}>
-      <div><h2>企业记忆</h2><p>让 Agent 记住经过审核的公司知识，并按企业或部门范围安全使用。</p></div>
-      <span>{approved.length} 条已启用</span>
+      <div><h2>{t('\u4F01\u4E1A\u8BB0\u5FC6')}</h2><p>{t('\u8BA9 Agent \u8BB0\u4F4F\u7ECF\u8FC7\u5BA1\u6838\u7684\u516C\u53F8\u77E5\u8BC6\uFF0C\u5E76\u6309\u4F01\u4E1A\u6216\u90E8\u95E8\u8303\u56F4\u5B89\u5168\u4F7F\u7528\u3002')}</p></div>
+      <span>{approved.length}{t('\u6761\u5DF2\u542F\u7528')}</span>
     </header>
     <div className={css.memoryAutomation} role="status">
-      <strong>Agent 自动记忆已开启</strong>
-      <span>Agent 会自行评估可复用的业务知识；通过隐私与范围检查后立即生效，并保留自动来源和审计记录。</span>
+      <strong>{t('Agent \u81EA\u52A8\u8BB0\u5FC6\u5DF2\u5F00\u542F')}</strong>
+      <span>{t('Agent \u4F1A\u81EA\u884C\u8BC4\u4F30\u53EF\u590D\u7528\u7684\u4E1A\u52A1\u77E5\u8BC6\uFF1B\u901A\u8FC7\u9690\u79C1\u4E0E\u8303\u56F4\u68C0\u67E5\u540E\u7ACB\u5373\u751F\u6548\uFF0C\u5E76\u4FDD\u7559\u81EA\u52A8\u6765\u6E90\u548C\u5BA1\u8BA1\u8BB0\u5F55\u3002')}</span>
     </div>
-    <ol className={css.memoryFlow} aria-label="企业记忆生效流程">
-      <li><span>1</span><strong>提交业务知识</strong><small>填写可共享的规则、流程、术语或决策</small></li>
-      <li><span>2</span><strong>管理员审核</strong><small>确认内容准确、适用范围正确且不含隐私</small></li>
-      <li><span>3</span><strong>Agent 可使用</strong><small>审核通过后进入对应企业或部门的 Agent 上下文</small></li>
+    <ol className={css.memoryFlow} aria-label={t('\u4F01\u4E1A\u8BB0\u5FC6\u751F\u6548\u6D41\u7A0B')}>
+      <li><span>1</span><strong>{t('\u63D0\u4EA4\u4E1A\u52A1\u77E5\u8BC6')}</strong><small>{t('\u586B\u5199\u53EF\u5171\u4EAB\u7684\u89C4\u5219\u3001\u6D41\u7A0B\u3001\u672F\u8BED\u6216\u51B3\u7B56')}</small></li>
+      <li><span>2</span><strong>{t('\u7BA1\u7406\u5458\u5BA1\u6838')}</strong><small>{t('\u786E\u8BA4\u5185\u5BB9\u51C6\u786E\u3001\u9002\u7528\u8303\u56F4\u6B63\u786E\u4E14\u4E0D\u542B\u9690\u79C1')}</small></li>
+      <li><span>3</span><strong>{t('Agent \u53EF\u4F7F\u7528')}</strong><small>{t('\u5BA1\u6838\u901A\u8FC7\u540E\u8FDB\u5165\u5BF9\u5E94\u4F01\u4E1A\u6216\u90E8\u95E8\u7684 Agent \u4E0A\u4E0B\u6587')}</small></li>
     </ol>
     <form className={css.memoryComposer} onSubmit={(event) => {
       event.preventDefault()
-      if (summary.trim() === '' || (scope === 'department' && departmentId === '')) return
+      if (summary.trim() === '' || (scope === 'department' && departmentId === ''))
+        return
       const submit = async (): Promise<void> => {
-        setSubmitting(true); setError(null)
+        setSubmitting(true)
+        setError(null)
         try {
           await proposeMemory({
             id: randomUUID(), scope, ...(scope === 'department' ? { departmentId } : {}),
             kind, summary: summary.trim(),
           })
           setSummary('')
-        } catch { setError('提交审核失败。请确认内容不含姓名、联系方式、密码或其他个人敏感信息后重试。') }
-        finally { setSubmitting(false) }
+        }
+        catch {
+          setError('提交审核失败。请确认内容不含姓名、联系方式、密码或其他个人敏感信息后重试。')
+        }
+        finally {
+          setSubmitting(false)
+        }
       }
       void submit()
     }}>
-      <div className={css.memoryComposerHeader}><strong>新增业务记忆</strong>
-        <span>提交后不会立即影响 Agent，需要管理员审核通过。</span></div>
+      <div className={css.memoryComposerHeader}><strong>{t('\u65B0\u589E\u4E1A\u52A1\u8BB0\u5FC6')}</strong>
+        <span>{t('\u63D0\u4EA4\u540E\u4E0D\u4F1A\u7ACB\u5373\u5F71\u54CD Agent\uFF0C\u9700\u8981\u7BA1\u7406\u5458\u5BA1\u6838\u901A\u8FC7\u3002')}</span></div>
       <div className={css.memoryFields}>
-        <label>适用范围<select aria-label="适用范围" value={scope}
-          onChange={(event) => { setScope(event.target.value as GovernanceMemory['scope']) }}>
-          <option value="organization">全企业 Agent</option><option value="department">指定部门 Agent</option>
-        </select><small>决定哪些对话会收到这条知识。</small></label>
-        <label>适用部门<select aria-label="适用部门" value={departmentId} disabled={scope !== 'department'}
-          onChange={(event) => { setDepartmentId(event.target.value) }}>
-          {state.departments.length === 0 && <option value="">请先创建部门</option>}
+        <label>{t('\u9002\u7528\u8303\u56F4')}<select aria-label={t('\u9002\u7528\u8303\u56F4')} value={scope} onChange={(event) => { setScope(event.target.value as GovernanceMemory['scope']) }}>
+          <option value="organization">{t('\u5168\u4F01\u4E1A Agent')}</option><option value="department">{t('\u6307\u5B9A\u90E8\u95E8 Agent')}</option>
+        </select><small>{t('\u51B3\u5B9A\u54EA\u4E9B\u5BF9\u8BDD\u4F1A\u6536\u5230\u8FD9\u6761\u77E5\u8BC6\u3002')}</small></label>
+        <label>{t('\u9002\u7528\u90E8\u95E8')}<select aria-label={t('\u9002\u7528\u90E8\u95E8')} value={departmentId} disabled={scope !== 'department'} onChange={(event) => { setDepartmentId(event.target.value) }}>
+          {state.departments.length === 0 && <option value="">{t('\u8BF7\u5148\u521B\u5EFA\u90E8\u95E8')}</option>}
           {state.departments.map(department => <option key={department.id} value={department.id}>{department.name}</option>)}
         </select></label>
-        <label>业务知识类型<select aria-label="业务知识类型" value={kind}
-          onChange={(event) => { setKind(event.target.value as GovernanceMemory['kind']) }}>
-          <option value="business-fact">业务规则</option><option value="process">工作流程</option>
-          <option value="terminology">公司术语</option><option value="decision">已确认决策</option>
+        <label>{t('\u4E1A\u52A1\u77E5\u8BC6\u7C7B\u578B')}<select aria-label={t('\u4E1A\u52A1\u77E5\u8BC6\u7C7B\u578B')} value={kind} onChange={(event) => { setKind(event.target.value as GovernanceMemory['kind']) }}>
+          <option value="business-fact">{t('\u4E1A\u52A1\u89C4\u5219')}</option><option value="process">{t('\u5DE5\u4F5C\u6D41\u7A0B')}</option>
+          <option value="terminology">{t('\u516C\u53F8\u672F\u8BED')}</option><option value="decision">{t('\u5DF2\u786E\u8BA4\u51B3\u7B56')}</option>
         </select></label>
-        <label className={css.memorySummaryField}>要让 Agent 记住的内容<textarea aria-label="要让 Agent 记住的内容"
-          placeholder="例如：所有采购订单必须在入库前完成审批。" maxLength={1000}
-          value={summary} onChange={(event) => { setSummary(event.target.value) }} />
-        <small>{summary.length}/1000 · 只写可共享的公司业务信息。</small></label>
+        <label className={css.memorySummaryField}>{t('\u8981\u8BA9 Agent \u8BB0\u4F4F\u7684\u5185\u5BB9')}<textarea aria-label={t('\u8981\u8BA9 Agent \u8BB0\u4F4F\u7684\u5185\u5BB9')} placeholder={t('\u4F8B\u5982\uFF1A\u6240\u6709\u91C7\u8D2D\u8BA2\u5355\u5FC5\u987B\u5728\u5165\u5E93\u524D\u5B8C\u6210\u5BA1\u6279\u3002')} maxLength={1000} value={summary} onChange={(event) => { setSummary(event.target.value) }}/>
+          <small>{summary.length}{t('/1000 \u00B7 \u53EA\u5199\u53EF\u5171\u4EAB\u7684\u516C\u53F8\u4E1A\u52A1\u4FE1\u606F\u3002')}</small></label>
       </div>
-      <div className={css.memoryPrivacy}><strong>隐私边界</strong><span>不要填写姓名、联系方式、个人偏好、客户原文、密码或密钥。系统只保存审核后的业务摘要，不保存原始对话。</span></div>
+      <div className={css.memoryPrivacy}><strong>{t('\u9690\u79C1\u8FB9\u754C')}</strong><span>{t('\u4E0D\u8981\u586B\u5199\u59D3\u540D\u3001\u8054\u7CFB\u65B9\u5F0F\u3001\u4E2A\u4EBA\u504F\u597D\u3001\u5BA2\u6237\u539F\u6587\u3001\u5BC6\u7801\u6216\u5BC6\u94A5\u3002\u7CFB\u7EDF\u53EA\u4FDD\u5B58\u5BA1\u6838\u540E\u7684\u4E1A\u52A1\u6458\u8981\uFF0C\u4E0D\u4FDD\u5B58\u539F\u59CB\u5BF9\u8BDD\u3002')}</span></div>
       {error !== null && <div className={css.formError} role="alert">{error}</div>}
       <div className={css.memorySubmit}><button type="submit" disabled={submitting || summary.trim() === ''
-        || (scope === 'department' && departmentId === '')}>{submitting ? '正在提交…' : '提交审核'}</button></div>
+            || (scope === 'department' && departmentId === '')}>{submitting ? t('\u6B63\u5728\u63D0\u4EA4\u2026') : t('\u63D0\u4EA4\u5BA1\u6838')}</button></div>
     </form>
     <div className={css.memoryColumns}>
-      <section className={css.memoryLane} aria-label="待管理员审核">
+      <section className={css.memoryLane} aria-label={t('\u5F85\u7BA1\u7406\u5458\u5BA1\u6838')}>
         <div className={css.subsectionHeader}>
-          <div><strong>待管理员审核</strong><span>确认准确性、适用范围和隐私边界</span></div>
+          <div><strong>{t('\u5F85\u7BA1\u7406\u5458\u5BA1\u6838')}</strong><span>{t('\u786E\u8BA4\u51C6\u786E\u6027\u3001\u9002\u7528\u8303\u56F4\u548C\u9690\u79C1\u8FB9\u754C')}</span></div>
           <span>{proposed.length}</span>
         </div>
-        {proposed.length === 0 && <p className={css.emptyState}>暂无待审核内容。新提交的业务知识会出现在这里。</p>}
+        {proposed.length === 0 && <p className={css.emptyState}>{t('\u6682\u65E0\u5F85\u5BA1\u6838\u5185\u5BB9\u3002\u65B0\u63D0\u4EA4\u7684\u4E1A\u52A1\u77E5\u8BC6\u4F1A\u51FA\u73B0\u5728\u8FD9\u91CC\u3002')}</p>}
         {proposed.map(memory => <article key={memory.id} className={css.memoryItem}>
           <div className={css.memoryMeta}><span>{scopeLabel(memory)}</span><span>{kindLabel(memory.kind)}</span></div>
           <strong className={css.memorySummary}>{memory.summary}</strong>
-          <small>系统已生成内容指纹 · 原始对话未保存</small>
-          <label className={css.memoryReviewReason}>审核说明<input aria-label={`${memory.summary} 审核说明`}
-            placeholder="说明核验依据或驳回原因" value={reviewReasons[memory.id] ?? ''}
-            onChange={(event) => { setReviewReasons(current => ({ ...current, [memory.id]: event.target.value })) }} /></label>
+          <small>{t('\u7CFB\u7EDF\u5DF2\u751F\u6210\u5185\u5BB9\u6307\u7EB9 \u00B7 \u539F\u59CB\u5BF9\u8BDD\u672A\u4FDD\u5B58')}</small>
+          <label className={css.memoryReviewReason}>{t('\u5BA1\u6838\u8BF4\u660E')}<input aria-label={t('memory.reviewAria', { summary: memory.summary })} placeholder={t('\u8BF4\u660E\u6838\u9A8C\u4F9D\u636E\u6216\u9A73\u56DE\u539F\u56E0')} value={reviewReasons[memory.id] ?? ''} onChange={(event) => { setReviewReasons(current => ({ ...current, [memory.id]: event.target.value })) }}/></label>
           <div className={css.memoryActions}>
-            <button type="button" disabled={(reviewReasons[memory.id]?.trim() ?? '') === '' || busyMemoryId !== null}
-              onClick={() => {
-                const review = async (): Promise<void> => {
-                  setBusyMemoryId(memory.id); setError(null)
-                  try { await reviewMemory(memory.id, {
+            <button type="button" disabled={(reviewReasons[memory.id]?.trim() ?? '') === '' || busyMemoryId !== null} onClick={() => {
+              const review = async (): Promise<void> => {
+                setBusyMemoryId(memory.id)
+                setError(null)
+                try {
+                  await reviewMemory(memory.id, {
                     decision: 'approved', reason: reviewReasons[memory.id] ?? '', expectedRevision: memory.revision,
-                  }) } catch { setError('审核操作失败，请刷新后重试。') }
-                  finally { setBusyMemoryId(null) }
+                  })
                 }
-                void review()
-              }}>{busyMemoryId === memory.id ? '正在处理…' : '批准并启用'}</button>
-            <button type="button" disabled={(reviewReasons[memory.id]?.trim() ?? '') === '' || busyMemoryId !== null}
-              onClick={() => {
-                const review = async (): Promise<void> => {
-                  setBusyMemoryId(memory.id); setError(null)
-                  try { await reviewMemory(memory.id, {
+                catch {
+                  setError('审核操作失败，请刷新后重试。')
+                }
+                finally {
+                  setBusyMemoryId(null)
+                }
+              }
+              void review()
+            }}>{busyMemoryId === memory.id ? t('\u6B63\u5728\u5904\u7406\u2026') : t('\u6279\u51C6\u5E76\u542F\u7528')}</button>
+            <button type="button" disabled={(reviewReasons[memory.id]?.trim() ?? '') === '' || busyMemoryId !== null} onClick={() => {
+              const review = async (): Promise<void> => {
+                setBusyMemoryId(memory.id)
+                setError(null)
+                try {
+                  await reviewMemory(memory.id, {
                     decision: 'rejected', reason: reviewReasons[memory.id] ?? '', expectedRevision: memory.revision,
-                  }) } catch { setError('审核操作失败，请刷新后重试。') }
-                  finally { setBusyMemoryId(null) }
+                  })
                 }
-                void review()
-              }}>驳回</button>
+                catch {
+                  setError('审核操作失败，请刷新后重试。')
+                }
+                finally {
+                  setBusyMemoryId(null)
+                }
+              }
+              void review()
+            }}>{t('\u9A73\u56DE')}</button>
           </div>
         </article>)}
       </section>
-      <section className={css.memoryLane} aria-label="Agent 已可使用">
+      <section className={css.memoryLane} aria-label={t('Agent \u5DF2\u53EF\u4F7F\u7528')}>
         <div className={css.subsectionHeader}>
-          <div><strong>Agent 已可使用</strong><span>以下知识会进入对应范围的 Agent 上下文</span></div>
+          <div><strong>{t('Agent \u5DF2\u53EF\u4F7F\u7528')}</strong><span>{t('\u4EE5\u4E0B\u77E5\u8BC6\u4F1A\u8FDB\u5165\u5BF9\u5E94\u8303\u56F4\u7684 Agent \u4E0A\u4E0B\u6587')}</span></div>
           <span>{approved.length}</span>
         </div>
-        {approved.length === 0 && <p className={css.emptyState}>还没有已启用记忆。审核通过后，Agent 才能使用。</p>}
+        {approved.length === 0 && <p className={css.emptyState}>{t('\u8FD8\u6CA1\u6709\u5DF2\u542F\u7528\u8BB0\u5FC6\u3002\u5BA1\u6838\u901A\u8FC7\u540E\uFF0CAgent \u624D\u80FD\u4F7F\u7528\u3002')}</p>}
         {approved.map(memory => <article key={memory.id} className={css.memoryItem}>
           <div className={css.memoryMeta}>
             <span>{scopeLabel(memory)}</span><span>{kindLabel(memory.kind)}</span>
-            {memory.reviewReason === 'Agent 自动评估并直接启用' && <span>Agent 自动保存 · 已直接生效</span>}
+            {memory.reviewReason === 'Agent 自动评估并直接启用' && <span>{t('Agent \u81EA\u52A8\u4FDD\u5B58 \u00B7 \u5DF2\u76F4\u63A5\u751F\u6548')}</span>}
           </div>
           <strong className={css.memorySummary}>{memory.summary}</strong>
           <small>{memory.reviewReason === 'Agent 自动评估并直接启用'
-            ? '由 Agent 自动评估并直接生效'
-            : memory.reviewReason === undefined ? '已通过审核' : `审核说明：${memory.reviewReason}`}</small>
+            ? t('\u7531 Agent \u81EA\u52A8\u8BC4\u4F30\u5E76\u76F4\u63A5\u751F\u6548') : memory.reviewReason === undefined ? t('\u5DF2\u901A\u8FC7\u5BA1\u6838') : t('memory.reviewReason', { reason: memory.reviewReason })}</small>
         </article>)}
       </section>
     </div>
   </section>
 }
-
-function PoliciesSection({ state, savePolicy }: Pick<
-  EnterpriseGovernanceSurfaceProps, 'state' | 'savePolicy'
->) {
+function PoliciesSection({ state, savePolicy, t }: Pick<EnterpriseGovernanceSurfaceProps, 'state' | 'savePolicy'> & {
+  t: GovernanceTranslate
+}) {
   const typeLabel = (type: string): string => ({
     employee: '数字员工', model: '模型', capability: '能力', channel: '渠道',
   })[type] ?? type
   const resources = useMemo(() => {
-    const values = new Map<string, { key: string; type: string; id: string; name: string }>()
+    const values = new Map<string, {
+      key: string
+      type: string
+      id: string
+      name: string
+    }>()
     for (const asset of state.assets) {
       const key = `${asset.type}:${asset.id}`
       values.set(key, { key, type: asset.type, id: asset.id, name: asset.name })
     }
     for (const policy of state.policies) {
       const key = `${policy.resourceType}:${policy.resourceId}`
-      if (!values.has(key)) values.set(key, {
-        key, type: policy.resourceType, id: policy.resourceId,
-        name: `${typeLabel(policy.resourceType)} · ${policy.resourceId}`,
-      })
+      if (!values.has(key))
+        values.set(key, {
+          key, type: policy.resourceType, id: policy.resourceId,
+          name: `${typeLabel(policy.resourceType)} · ${policy.resourceId}`,
+        })
     }
     return [...values.values()].toSorted((left, right) => left.name.localeCompare(right.name))
   }, [state.assets, state.policies])
   const [selectedKey, setSelectedKey] = useState(resources[0]?.key ?? '')
   const selectedResource = resources.find(resource => resource.key === selectedKey) ?? resources[0]
-  const selectedPolicy = selectedResource === undefined ? undefined : state.policies.find(policy =>
-    policy.resourceType === selectedResource.type && policy.resourceId === selectedResource.id)
+  const selectedPolicy = selectedResource === undefined
+    ? undefined
+    : state.policies.find(policy => policy.resourceType === selectedResource.type
+      && policy.resourceId === selectedResource.id)
   const [visibility, setVisibility] = useState<GovernancePolicy['visibility']>(selectedPolicy?.visibility ?? 'organization')
   const [allowedUserIds, setAllowedUserIds] = useState<string[]>([...(selectedPolicy?.allowedUserIds ?? [])])
   const [saving, setSaving] = useState(false)
@@ -708,45 +782,51 @@ function PoliciesSection({ state, savePolicy }: Pick<
       setAllowedUserIds([])
       return
     }
-    if (selectedKey !== selectedResource.key) setSelectedKey(selectedResource.key)
+    if (selectedKey !== selectedResource.key)
+      setSelectedKey(selectedResource.key)
     setVisibility(selectedPolicy?.visibility ?? 'organization')
     setAllowedUserIds([...(selectedPolicy?.allowedUserIds ?? [])])
   }, [selectedKey, selectedPolicy, selectedResource])
   const selectResource = (key: string): void => {
     const resource = resources.find(item => item.key === key)
-    const policy = resource === undefined ? undefined : state.policies.find(item =>
-      item.resourceType === resource.type && item.resourceId === resource.id)
+    const policy = resource === undefined
+      ? undefined
+      : state.policies.find(item => item.resourceType === resource.type && item.resourceId === resource.id)
     setSelectedKey(key)
     setVisibility(policy?.visibility ?? 'organization')
     setAllowedUserIds([...(policy?.allowedUserIds ?? [])])
     setError(null)
   }
   const visibilitySummary = (policy: GovernancePolicy): string => {
-    if (policy.visibility === 'organization') return '全企业可用'
-    if (policy.visibility === 'private') return '仅负责人可用'
-    return `指定 ${policy.allowedUserIds.length} 位成员`
+    if (policy.visibility === 'organization')
+      return t('\u5168\u4F01\u4E1A\u53EF\u7528')
+    if (policy.visibility === 'private')
+      return t('\u4EC5\u8D1F\u8D23\u4EBA\u53EF\u7528')
+    return t('visibility.restrictedCount', { count: policy.allowedUserIds.length })
   }
   return <section className={css.ledgerSection}>
     <header className={css.permissionHeader}>
-      <div><h2>资源访问权限</h2><p>决定企业成员能否看到和使用数字员工、模型、能力与渠道。</p></div>
-      <span>{state.policies.length} 条规则</span>
+      <div><h2>{t('\u8D44\u6E90\u8BBF\u95EE\u6743\u9650')}</h2><p>{t('\u51B3\u5B9A\u4F01\u4E1A\u6210\u5458\u80FD\u5426\u770B\u5230\u548C\u4F7F\u7528\u6570\u5B57\u5458\u5DE5\u3001\u6A21\u578B\u3001\u80FD\u529B\u4E0E\u6E20\u9053\u3002')}</p></div>
+      <span>{state.policies.length}{t('\u6761\u89C4\u5219')}</span>
     </header>
     <div className={css.permissionGuide}>
-      <strong>这里控制“谁可以使用资源”</strong>
-      <span>不会修改模型参数、员工职责或渠道配置；管理员始终保留治理权限。</span>
+      <strong>{t('\u8FD9\u91CC\u63A7\u5236\u201C\u8C01\u53EF\u4EE5\u4F7F\u7528\u8D44\u6E90\u201D')}</strong>
+      <span>{t('\u4E0D\u4F1A\u4FEE\u6539\u6A21\u578B\u53C2\u6570\u3001\u5458\u5DE5\u804C\u8D23\u6216\u6E20\u9053\u914D\u7F6E\uFF1B\u7BA1\u7406\u5458\u59CB\u7EC8\u4FDD\u7559\u6CBB\u7406\u6743\u9650\u3002')}</span>
     </div>
     {resources.length === 0
       ? <div className={css.permissionEmpty}>
-        <IconFolderOpen16 size={20} />
-        <strong>暂无可授权资源</strong>
-        <span>请先在数字员工、模型或渠道管理中完成配置，资源会自动出现在这里。</span>
+        <IconFolderOpen16 size={20}/>
+        <strong>{t('\u6682\u65E0\u53EF\u6388\u6743\u8D44\u6E90')}</strong>
+        <span>{t('\u8BF7\u5148\u5728\u6570\u5B57\u5458\u5DE5\u3001\u6A21\u578B\u6216\u6E20\u9053\u7BA1\u7406\u4E2D\u5B8C\u6210\u914D\u7F6E\uFF0C\u8D44\u6E90\u4F1A\u81EA\u52A8\u51FA\u73B0\u5728\u8FD9\u91CC\u3002')}</span>
       </div>
       : <div className={css.permissionLayout}>
         <form className={css.permissionEditor} onSubmit={(event) => {
           event.preventDefault()
-          if (selectedResource === undefined || (visibility === 'restricted' && allowedUserIds.length === 0)) return
+          if (selectedResource === undefined || (visibility === 'restricted' && allowedUserIds.length === 0))
+            return
           const submit = async (): Promise<void> => {
-            setSaving(true); setError(null)
+            setSaving(true)
+            setError(null)
             try {
               const creatorUserId = selectedPolicy?.creatorUserId ?? state.auth?.principal?.userId
               await savePolicy({
@@ -754,56 +834,53 @@ function PoliciesSection({ state, savePolicy }: Pick<
                 ...(visibility === 'private' && creatorUserId !== undefined ? { creatorUserId } : {}),
                 visibility, allowedUserIds: visibility === 'restricted' ? [...allowedUserIds].sort() : [],
               })
-            } catch { setError('保存访问权限失败，请重试') }
-            finally { setSaving(false) }
+            }
+            catch {
+              setError('保存访问权限失败，请重试')
+            }
+            finally {
+              setSaving(false)
+            }
           }
           void submit()
         }}>
-          <label className={css.resourceSelect}>选择要授权的资源<select aria-label="选择资源" value={selectedResource?.key ?? ''}
-            onChange={(event) => { selectResource(event.target.value) }}>
+          <label className={css.resourceSelect}>{t('\u9009\u62E9\u8981\u6388\u6743\u7684\u8D44\u6E90')}<select aria-label={t('\u9009\u62E9\u8D44\u6E90')} value={selectedResource?.key ?? ''} onChange={(event) => { selectResource(event.target.value) }}>
             {resources.map(resource => <option key={resource.key} value={resource.key}>
               {resource.name} · {typeLabel(resource.type)}
             </option>)}
-          </select><small>资源编号：{selectedResource?.id}</small></label>
-          <fieldset className={css.visibilityChoices}><legend>谁可以使用</legend>
-            <label><input type="radio" name="visibility" value="organization" checked={visibility === 'organization'}
-              onChange={() => { setVisibility('organization') }} /><span><strong>全企业</strong><small>所有已登录企业成员都可以看到和使用</small></span></label>
-            <label><input type="radio" name="visibility" value="private" checked={visibility === 'private'}
-              onChange={() => { setVisibility('private') }} /><span><strong>仅负责人</strong><small>资源负责人和管理员可以使用</small></span></label>
-            <label><input aria-label="指定成员" type="radio" name="visibility" value="restricted"
-              checked={visibility === 'restricted'} onChange={() => { setVisibility('restricted') }} />
-            <span><strong>指定成员</strong><small>只允许勾选的成员使用</small></span></label>
+          </select><small>{t('\u8D44\u6E90\u7F16\u53F7\uFF1A')}{selectedResource?.id}</small></label>
+          <fieldset className={css.visibilityChoices}><legend>{t('\u8C01\u53EF\u4EE5\u4F7F\u7528')}</legend>
+            <label><input type="radio" name="visibility" value="organization" checked={visibility === 'organization'} onChange={() => { setVisibility('organization') }}/><span><strong>{t('\u5168\u4F01\u4E1A')}</strong><small>{t('\u6240\u6709\u5DF2\u767B\u5F55\u4F01\u4E1A\u6210\u5458\u90FD\u53EF\u4EE5\u770B\u5230\u548C\u4F7F\u7528')}</small></span></label>
+            <label><input type="radio" name="visibility" value="private" checked={visibility === 'private'} onChange={() => { setVisibility('private') }}/><span><strong>{t('\u4EC5\u8D1F\u8D23\u4EBA')}</strong><small>{t('\u8D44\u6E90\u8D1F\u8D23\u4EBA\u548C\u7BA1\u7406\u5458\u53EF\u4EE5\u4F7F\u7528')}</small></span></label>
+            <label><input aria-label={t('\u6307\u5B9A\u6210\u5458')} type="radio" name="visibility" value="restricted" checked={visibility === 'restricted'} onChange={() => { setVisibility('restricted') }}/>
+              <span><strong>{t('\u6307\u5B9A\u6210\u5458')}</strong><small>{t('\u53EA\u5141\u8BB8\u52FE\u9009\u7684\u6210\u5458\u4F7F\u7528')}</small></span></label>
           </fieldset>
-          {visibility === 'restricted' && <fieldset className={css.allowedUsers}><legend>选择成员</legend>
+          {visibility === 'restricted' && <fieldset className={css.allowedUsers}><legend>{t('\u9009\u62E9\u6210\u5458')}</legend>
             {state.users.length === 0
-              ? <span>暂无可选择成员</span>
+              ? <span>{t('\u6682\u65E0\u53EF\u9009\u62E9\u6210\u5458')}</span>
               : state.users.map(user => <label key={user.id}>
-                <input type="checkbox" aria-label={`${user.displayName} @${user.username}`} disabled={user.disabled}
-                  checked={allowedUserIds.includes(user.id)} onChange={(event) => {
-                    setAllowedUserIds(current => event.target.checked
-                      ? [...current, user.id]
-                      : current.filter(id => id !== user.id))
-                  }} />
-                <span>{user.displayName}<small>@{user.username}{user.disabled ? ' · 已停用' : ''}</small></span>
+                <input type="checkbox" aria-label={`${user.displayName} @${user.username}`} disabled={user.disabled} checked={allowedUserIds.includes(user.id)} onChange={(event) => {
+                  setAllowedUserIds(current => event.target.checked
+                    ? [...current, user.id]
+                    : current.filter(id => id !== user.id))
+                }}/>
+                <span>{user.displayName}<small>@{user.username}{user.disabled ? t('common.disabledSuffix') : ''}</small></span>
               </label>)}
           </fieldset>}
           {visibility === 'restricted' && allowedUserIds.length === 0
-            && <p className={css.permissionHint}>至少选择一位成员后才能保存。</p>}
+                    && <p className={css.permissionHint}>{t('\u81F3\u5C11\u9009\u62E9\u4E00\u4F4D\u6210\u5458\u540E\u624D\u80FD\u4FDD\u5B58\u3002')}</p>}
           {error !== null && <div className={css.formError} role="alert">{error}</div>}
-          <div className={css.permissionActions}><button type="submit"
-            disabled={saving || (visibility === 'restricted' && allowedUserIds.length === 0)}>
-            {saving ? '正在保存…' : '保存访问权限'}
+          <div className={css.permissionActions}><button type="submit" disabled={saving || (visibility === 'restricted' && allowedUserIds.length === 0)}>
+            {saving ? t('\u6B63\u5728\u4FDD\u5B58\u2026') : t('\u4FDD\u5B58\u8BBF\u95EE\u6743\u9650')}
           </button></div>
         </form>
         <div className={css.permissionRules}>
-          <div className={css.subsectionHeader}><strong>当前规则</strong><span>{state.policies.length}</span></div>
+          <div className={css.subsectionHeader}><strong>{t('\u5F53\u524D\u89C4\u5219')}</strong><span>{state.policies.length}</span></div>
           {state.policies.length === 0
-            ? <p className={css.emptyState}>尚未设置规则，资源默认按平台策略处理。</p>
+            ? <p className={css.emptyState}>{t('\u5C1A\u672A\u8BBE\u7F6E\u89C4\u5219\uFF0C\u8D44\u6E90\u9ED8\u8BA4\u6309\u5E73\u53F0\u7B56\u7565\u5904\u7406\u3002')}</p>
             : state.policies.map((policy) => {
               const resource = resources.find(item => item.type === policy.resourceType && item.id === policy.resourceId)
-              return <button key={`${policy.resourceType}:${policy.resourceId}`} type="button"
-                aria-label={`编辑权限：${resource?.name ?? policy.resourceId}`}
-                onClick={() => { selectResource(`${policy.resourceType}:${policy.resourceId}`) }}>
+              return <button key={`${policy.resourceType}:${policy.resourceId}`} type="button" aria-label={t('policy.editAria', { name: resource?.name ?? policy.resourceId })} onClick={() => { selectResource(`${policy.resourceType}:${policy.resourceId}`) }}>
                 <span><strong>{resource?.name ?? policy.resourceId}</strong><small>{typeLabel(policy.resourceType)}</small></span>
                 <em>{visibilitySummary(policy)}</em>
               </button>
@@ -812,18 +889,19 @@ function PoliciesSection({ state, savePolicy }: Pick<
       </div>}
   </section>
 }
-
-function AuditSection({ state, filterAudit }: Pick<EnterpriseGovernanceSurfaceProps, 'state' | 'filterAudit'>) {
+function AuditSection({ state, filterAudit, t }: Pick<EnterpriseGovernanceSurfaceProps, 'state' | 'filterAudit'> & {
+  t: GovernanceTranslate
+}) {
   const [actorUserId, setActorUserId] = useState('')
   const [action, setAction] = useState('')
   return <section className={css.ledgerSection}>
-    <header><h2>审计日志</h2><span>{state.audit.length}</span></header>
+    <header><h2>{t('\u5BA1\u8BA1\u65E5\u5FD7')}</h2><span>{state.audit.length}</span></header>
     <form className={css.auditFilter} onSubmit={(event) => { event.preventDefault(); void filterAudit({ actorUserId, action }) }}>
-      <input aria-label="审计执行者" placeholder="actor user id" value={actorUserId} onChange={(event) => { setActorUserId(event.target.value) }} />
-      <input aria-label="审计动作" placeholder="action" value={action} onChange={(event) => { setAction(event.target.value) }} />
-      <button type="submit">查询审计</button>
+      <input aria-label={t('\u5BA1\u8BA1\u6267\u884C\u8005')} placeholder={t('actor user id')} value={actorUserId} onChange={(event) => { setActorUserId(event.target.value) }}/>
+      <input aria-label={t('\u5BA1\u8BA1\u52A8\u4F5C')} placeholder={t('action')} value={action} onChange={(event) => { setAction(event.target.value) }}/>
+      <button type="submit">{t('\u67E5\u8BE2\u5BA1\u8BA1')}</button>
     </form>
-    <div className={css.tableWrap}><table><thead><tr><th>操作</th><th>执行者</th><th>决策</th><th>时间</th></tr></thead><tbody>
+    <div className={css.tableWrap}><table><thead><tr><th>{t('\u64CD\u4F5C')}</th><th>{t('\u6267\u884C\u8005')}</th><th>{t('\u51B3\u7B56')}</th><th>{t('\u65F6\u95F4')}</th></tr></thead><tbody>
       {state.audit.map(event => <tr key={event.id}>
         <td><strong>{event.action}</strong><span>{event.resourceType} · {event.resourceId}</span></td>
         <td>{event.actorUserId}</td><td>{event.decision}</td>
@@ -831,91 +909,81 @@ function AuditSection({ state, filterAudit }: Pick<EnterpriseGovernanceSurfacePr
       </tr>)}</tbody></table></div>
   </section>
 }
-
 type GovernancePage = 'organizations' | 'users' | 'workspaces' | 'memory' | 'policies' | 'audit'
-
-const GOVERNANCE_TABS: readonly { id: GovernancePage; label: string }[] = [
-  { id: 'organizations', label: '组织架构' },
-  { id: 'users', label: '用户管理' },
-  { id: 'workspaces', label: '工作区' },
-  { id: 'memory', label: '企业记忆' },
-  { id: 'policies', label: '资源权限' },
-  { id: 'audit', label: '审计日志' },
+const GOVERNANCE_TABS: readonly {
+  id: GovernancePage
+  label: string
+}[] = [
+  { id: 'organizations', label: 'nav.organizations' },
+  { id: 'users', label: 'nav.users' },
+  { id: 'workspaces', label: 'nav.workspaces' },
+  { id: 'memory', label: 'nav.memory' },
+  { id: 'policies', label: 'nav.policies' },
+  { id: 'audit', label: 'nav.audit' },
 ]
-
 function GovernanceSections(props: EnterpriseGovernanceSurfaceProps) {
+  const t = props.t ?? defaultGovernanceTranslate
   const [active, setActive] = useState<GovernancePage>('organizations')
   const tabRefs = useRef<Array<HTMLButtonElement | null>>([])
   const selectByKeyboard = (event: KeyboardEvent<HTMLButtonElement>, index: number): void => {
     let next: number | undefined
-    if (event.key === 'ArrowRight') next = (index + 1) % GOVERNANCE_TABS.length
-    else if (event.key === 'ArrowLeft') next = (index - 1 + GOVERNANCE_TABS.length) % GOVERNANCE_TABS.length
-    else if (event.key === 'Home') next = 0
-    else if (event.key === 'End') next = GOVERNANCE_TABS.length - 1
-    if (next === undefined) return
+    if (event.key === 'ArrowRight')
+      next = (index + 1) % GOVERNANCE_TABS.length
+    else if (event.key === 'ArrowLeft')
+      next = (index - 1 + GOVERNANCE_TABS.length) % GOVERNANCE_TABS.length
+    else if (event.key === 'Home')
+      next = 0
+    else if (event.key === 'End')
+      next = GOVERNANCE_TABS.length - 1
+    if (next === undefined)
+      return
     event.preventDefault()
     const tab = GOVERNANCE_TABS[next]
-    if (tab === undefined) return
+    if (tab === undefined)
+      return
     setActive(tab.id)
     tabRefs.current[next]?.focus()
   }
-  const panel = (page: GovernancePage, content: ReactNode) => <div
-    id={`governance-panel-${page}`}
-    className={css.pagePanel}
-    role="tabpanel"
-    aria-labelledby={`governance-tab-${page}`}
-    hidden={active !== page}
-  >{content}</div>
-
+  const panel = (page: GovernancePage, content: ReactNode) => <div id={`governance-panel-${page}`} className={css.pagePanel} role="tabpanel" aria-labelledby={`governance-tab-${page}`} hidden={active !== page}>{content}</div>
   return <>
-    <div className={css.tabBar} role="tablist" aria-label="企业管理分区" data-appearance="tonal">
-      {GOVERNANCE_TABS.map((tab, index) => <button
-        key={tab.id}
-        ref={(element) => { tabRefs.current[index] = element }}
-        id={`governance-tab-${tab.id}`}
-        className={css.tab}
-        type="button"
-        role="tab"
-        aria-selected={active === tab.id}
-        aria-controls={`governance-panel-${tab.id}`}
-        tabIndex={active === tab.id ? 0 : -1}
-        onClick={() => { setActive(tab.id) }}
-        onKeyDown={(event) => { selectByKeyboard(event, index) }}
-      >{tab.label}</button>)}
+    <div className={css.tabBar} role="tablist" aria-label={t('\u4F01\u4E1A\u7BA1\u7406\u5206\u533A')} data-appearance="tonal">
+      {GOVERNANCE_TABS.map((tab, index) => <button key={tab.id} ref={(element) => { tabRefs.current[index] = element }} id={`governance-tab-${tab.id}`} className={css.tab} type="button" role="tab" aria-selected={active === tab.id} aria-controls={`governance-panel-${tab.id}`} tabIndex={active === tab.id ? 0 : -1} onClick={() => { setActive(tab.id) }} onKeyDown={(event) => { selectByKeyboard(event, index) }}>{t(tab.label)}</button>)}
     </div>
     {props.state.error !== null && <div className={css.error} role="alert">{props.state.error}</div>}
-    {panel('organizations', <OrganizationsSection state={props.state}
-      saveDepartment={input => props.saveDepartment(input)} />)}
-    {panel('users', <UsersSection {...props} />)}
-    {panel('workspaces', <WorkspacesSection state={props.state}
-      createWorkspace={input => props.createWorkspace(input)}
-      updateWorkspace={(id, input) => props.updateWorkspace(id, input)} />)}
-    {panel('memory', <MemorySection state={props.state} proposeMemory={input => props.proposeMemory(input)}
-      reviewMemory={(id, input) => props.reviewMemory(id, input)} />)}
-    {panel('policies', <PoliciesSection state={props.state} savePolicy={input => props.savePolicy(input)} />)}
-    {panel('audit', <AuditSection state={props.state} filterAudit={input => props.filterAudit(input)} />)}
+    {panel('organizations', <OrganizationsSection state={props.state} saveDepartment={input => props.saveDepartment(input)} t={t} {...props.setDepartmentManagers === undefined ? {} : {
+      setDepartmentManagers: (
+        departmentId: string, managerUserIds: readonly string[], expectedRevision: number,
+      ): Promise<void> => {
+        if (props.setDepartmentManagers === undefined) return Promise.resolve()
+        return props.setDepartmentManagers(departmentId, managerUserIds, expectedRevision)
+      },
+    }}/>)}
+    {panel('users', <UsersSection {...props} t={t}/>)}
+    {panel('workspaces', <WorkspacesSection state={props.state} createWorkspace={input => props.createWorkspace(input)} updateWorkspace={(id, input) => props.updateWorkspace(id, input)} t={t}/>)}
+    {panel('memory', <MemorySection state={props.state} proposeMemory={input => props.proposeMemory(input)} reviewMemory={(id, input) => props.reviewMemory(id, input)} t={t}/>)}
+    {panel('policies', <PoliciesSection state={props.state} savePolicy={input => props.savePolicy(input)} t={t}/>)}
+    {panel('audit', <AuditSection state={props.state} filterAudit={input => props.filterAudit(input)} t={t}/>)}
   </>
 }
-
 /** Enterprise administration rendered as a first-class Settings section. */
 export function EnterpriseGovernanceSettingsSection(props: EnterpriseGovernanceSettingsSectionProps) {
+  const t = props.t ?? defaultGovernanceTranslate
   useEffect(() => { void props.loadAdmin() }, [props.loadAdmin])
   if (props.state.auth?.authenticated !== true
-    || !props.state.auth.principal?.roles.includes('administrator')) return null
-  return (
-    <main className={css.settingsLedger} aria-label="企业治理">
-      <header className={css.ledgerHeader}>
-        <div><h1>企业治理</h1><p>身份、权限、资产范围与操作证据。</p></div>
-        <button type="button" onClick={() => { void props.logout() }}>退出登录</button>
-      </header>
-      <GovernanceSections {...props} />
-    </main>
-  )
+        || !props.state.auth.principal?.roles.includes('administrator'))
+    return null
+  return (<main className={css.settingsLedger} aria-label={t('\u4F01\u4E1A\u6CBB\u7406')}>
+    <header className={css.ledgerHeader}>
+      <div><h1>{t('\u4F01\u4E1A\u6CBB\u7406')}</h1><p>{t('\u8EAB\u4EFD\u3001\u6743\u9650\u3001\u8D44\u4EA7\u8303\u56F4\u4E0E\u64CD\u4F5C\u8BC1\u636E\u3002')}</p></div>
+      <button type="button" onClick={() => { void props.logout() }}>{t('\u9000\u51FA\u767B\u5F55')}</button>
+    </header>
+    <GovernanceSections {...props}/>
+  </main>)
 }
-
 export function EnterpriseGovernanceSurface(props: EnterpriseGovernanceSurfaceProps) {
+  const t = props.t ?? defaultGovernanceTranslate
   if (props.state.auth?.authenticated !== true) {
-    return <LoginGate state={props.state} loginLocal={input => props.loginLocal(input)} />
+    return <LoginGate state={props.state} loginLocal={input => props.loginLocal(input)} t={t}/>
   }
   return null
 }

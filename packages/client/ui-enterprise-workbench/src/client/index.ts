@@ -32,6 +32,8 @@ export const inject = [
   'slots', 'locale', 'connection', 'sessions', 'workspaces', 'remote',
   'remote.agentPresets', 'remote.enterpriseEmployee', 'remote.enterpriseAsset',
   'remote.enterpriseTeam', 'remote.enterpriseOperation',
+  'remote.pluginInventory',
+  'remote.cordisWorkspace', 'remote.cordisReview', 'remote.cordisGovernance',
 ]
 
 /** Mount the enterprise trigger, overlay, and live projection subscriptions. */
@@ -42,6 +44,10 @@ export function apply(ctx: Context): void {
     enterpriseAssets: ctx.remote.enterpriseAsset,
     enterpriseTeams: ctx.remote.enterpriseTeam,
     enterpriseOperations: ctx.remote.enterpriseOperation,
+    pluginInventory: ctx.remote.pluginInventory,
+    cordisWorkspace: ctx.remote.cordisWorkspace,
+    cordisReview: ctx.remote.cordisReview,
+    cordisGovernance: ctx.remote.cordisGovernance,
   }, ctx.sessions, ctx.workspaces)
 
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'enterprise-workbench: dictionaries')
@@ -86,6 +92,11 @@ export function apply(ctx: Context): void {
     saveAssetVersion: input => controller.saveAssetVersion(input),
     archiveAsset: asset => controller.archiveAsset(asset),
     saveTeam: input => controller.saveTeam(input),
+    setExtensionWorkspace: (workspaceId) => { controller.setExtensionWorkspace(workspaceId) },
+    refreshExtensions: () => controller.refreshExtensions(),
+    stopExtension: (binding, reason) => controller.stopExtension(binding, reason),
+    rollbackExtension: (binding, packageId, reason) => controller.rollbackExtension(binding, packageId, reason),
+    reviewExtension: (review, action, reason) => controller.reviewExtension(review, action, reason),
     retryMutation: () => controller.retryMutation(),
     resolveMutationConflict: () => controller.resolveMutationConflict(),
     dismissMutationError: () => { controller.dismissMutationError() },

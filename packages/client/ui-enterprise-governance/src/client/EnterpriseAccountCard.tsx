@@ -4,19 +4,21 @@ import { useState } from 'react'
 import { IconUserOutline16, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { GovernancePrincipal } from './controller.ts'
 import css from './EnterpriseAccountCard.module.css'
+import { defaultGovernanceTranslate, type GovernanceTranslate } from './locales.ts'
 
 export interface EnterpriseAccountCardProps {
   readonly wide: boolean
   readonly principal: GovernancePrincipal
   readonly logout: () => Promise<void>
+  readonly t?: GovernanceTranslate
 }
 
 /** Show the current identity and provide the account-level logout action. */
-export function EnterpriseAccountCard({ wide, principal, logout }: EnterpriseAccountCardProps) {
+export function EnterpriseAccountCard({ wide, principal, logout, t = defaultGovernanceTranslate }: EnterpriseAccountCardProps) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const role = principal.roles.join(' · ')
-  const label = `退出登录：${principal.displayName}`
+  const label = t('account.logoutLabel', { name: principal.displayName })
   const submit = async (): Promise<void> => {
     if (busy) return
     setBusy(true)
@@ -38,7 +40,7 @@ export function EnterpriseAccountCard({ wide, principal, logout }: EnterpriseAcc
     </Tooltip>
   }
 
-  return <section className={css.card} aria-label="当前用户">
+  return <section className={css.card} aria-label={t('account.current')}>
     <div className={css.identity}>
       <span className={css.avatar} aria-hidden="true"><IconUserOutline16 size={16} /></span>
       <span className={css.copy}>
@@ -47,8 +49,8 @@ export function EnterpriseAccountCard({ wide, principal, logout }: EnterpriseAcc
       </span>
     </div>
     <button type="button" className={css.logout} disabled={busy} onClick={() => { void submit() }}>
-      {busy ? '正在退出…' : '退出登录'}
+      {busy ? t('account.loggingOut') : t('account.logout')}
     </button>
-    {error !== null && <span className={css.error} role="alert">退出失败，请重试</span>}
+    {error !== null && <span className={css.error} role="alert">{t('account.error')}</span>}
   </section>
 }

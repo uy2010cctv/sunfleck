@@ -15,6 +15,20 @@ import {
   EnterpriseOperationsError,
   EnterpriseOperationsService,
 } from '@deepseek-ai/dsh-enterprise-operations'
+import {
+  EnterpriseCordisError,
+  EnterpriseCordisService,
+} from '@deepseek-ai/dsh-enterprise-cordis'
+import type {
+  CordisPackageVersion,
+  CordisReviewRequest,
+  CordisScopeBinding,
+  CordisSessionGeneration,
+  CordisWorkspaceProjection,
+  DepartmentManagerSet,
+  DerivedCordisPackage,
+  PublishedCordisReview,
+} from '@deepseek-ai/dsh-enterprise-cordis/types'
 import type {
   EnterpriseEmployeeDraft,
   EnterpriseEmployeeListRequest,
@@ -59,6 +73,23 @@ import type {
   EnterpriseWorkRecordLookup,
   EnterpriseWorkRecordUpdateRequest,
 } from './contract/operations.ts'
+import type {
+  CordisDepartmentManagersRequest,
+  CordisDepartmentManagersSaveRequest,
+  CordisGovernanceDisableRequest,
+  CordisGovernanceSetTrustRequest,
+  CordisReviewDeriveRequest,
+  CordisReviewListRequest,
+  CordisReviewPublishRequest,
+  CordisReviewSubmitRequest,
+  CordisReviewTransitionRequest,
+  CordisWorkspaceActivateRequest,
+  CordisWorkspacePinGenerationRequest,
+  CordisWorkspaceRollbackRequest,
+  CordisWorkspaceStopRequest,
+  CordisWorkspaceListRequest,
+  CordisWorkspaceSaveRequest,
+} from './contract/cordis.ts'
 
 export type * from './contract/index.ts'
 
@@ -72,6 +103,12 @@ declare module '@deepseek-ai/cordis' {
     enterpriseTeamController: EnterpriseTeamController
     /** Enterprise operations Remote namespace owner. */
     enterpriseOperationController: EnterpriseOperationController
+    /** Enterprise Cordis Workspace extension Remote namespace owner. */
+    cordisWorkspaceController: CordisWorkspaceController
+    /** Enterprise Cordis review and publication Remote namespace owner. */
+    cordisReviewController: CordisReviewController
+    /** Enterprise Cordis governance Remote namespace owner. */
+    cordisGovernanceController: CordisGovernanceController
   }
 }
 
@@ -121,6 +158,10 @@ function operations(ctx: Context): EnterpriseOperationsService {
       )
     },
   })
+}
+
+function cordis(ctx: Context): EnterpriseCordisService {
+  return ctx.enterpriseCordis
 }
 
 /** Employee Draft/Release Remote service. */
@@ -479,6 +520,206 @@ export class EnterpriseOperationController extends TypertRemoteService {
   }
 }
 
+/** Personal and department Workspace Cordis extension Remote service. */
+export class CordisWorkspaceController extends TypertRemoteService {
+  static inject = ['enterprisePostgres', 'enterpriseSecurity', 'enterpriseRequestContext']
+  constructor(ctx: Context) { super(ctx, 'cordisWorkspaceController', { namespace: 'cordisWorkspace' }) }
+
+  /**
+   * List Cordis Packages and active bindings visible to a Workspace.
+   * @param request - Workspace identity.
+   * @returns visible extension projection.
+   */
+  @Remote('list') async list(request: CordisWorkspaceListRequest): Promise<CordisWorkspaceProjection> {
+    return catalogCall(this.ctx, 'cordisWorkspace.list', request, 'cordis-plugin', 'workspace', actor =>
+      cordis(this.ctx).listWorkspace({ principal: actor, workspaceId: request.workspaceId }))
+  }
+
+  /**
+   * Persist a personal Workspace Package version.
+   * @param request - Package draft and idempotency data.
+   * @returns immutable Package version.
+   */
+  @Remote('save') async save(request: CordisWorkspaceSaveRequest): Promise<CordisPackageVersion> {
+    return catalogCall(this.ctx, 'cordisWorkspace.save', request, 'cordis-plugin', request.draft.pluginId, actor =>
+      cordis(this.ctx).savePersonal({ principal: actor, ...request }))
+  }
+
+  /**
+   * Activate a personal Workspace Package.
+   * @param request - Package, Workspace, and CAS data.
+   * @returns updated scope binding.
+   */
+  @Remote('activate') async activate(request: CordisWorkspaceActivateRequest): Promise<CordisScopeBinding> {
+    return catalogCall(this.ctx, 'cordisWorkspace.activate', request, 'cordis-plugin', request.pluginId, actor =>
+      cordis(this.ctx).activatePersonal({ principal: actor, ...request }))
+  }
+
+  /**
+   * Stop an active Workspace extension.
+   * @param request - Binding, reason, and CAS data.
+   * @returns disabled binding.
+   */
+  @Remote('stop') async stop(request: CordisWorkspaceStopRequest): Promise<CordisScopeBinding> {
+    return catalogCall(this.ctx, 'cordisWorkspace.stop', request, 'cordis-plugin', request.pluginId, actor =>
+      cordis(this.ctx).stopBinding({ principal: actor, ...request }))
+  }
+
+  /**
+   * Roll a Workspace extension back to an immutable version.
+   * @param request - Target version and CAS data.
+   * @returns updated binding.
+   */
+  @Remote('rollback') async rollback(request: CordisWorkspaceRollbackRequest): Promise<CordisScopeBinding> {
+    return catalogCall(this.ctx, 'cordisWorkspace.rollback', request, 'cordis-plugin', request.pluginId, actor =>
+      cordis(this.ctx).rollbackBinding({ principal: actor, ...request }))
+  }
+
+  /**
+   * Pin the visible extension Generation for a Session.
+   * @param request - Workspace and Session identity.
+   * @returns immutable Session Generation.
+   */
+  @Remote('pinGeneration') async pinGeneration(
+    request: CordisWorkspacePinGenerationRequest,
+  ): Promise<CordisSessionGeneration> {
+    return catalogCall(this.ctx, 'cordisWorkspace.pinGeneration', request, 'cordis-plugin', request.sessionId, actor =>
+      cordis(this.ctx).pinSessionGeneration({ principal: actor, ...request }))
+  }
+}
+
+/** Department review, derived modification, and organization publication Remote service. */
+export class CordisReviewController extends TypertRemoteService {
+  static inject = ['enterprisePostgres', 'enterpriseSecurity', 'enterpriseRequestContext']
+  constructor(ctx: Context) { super(ctx, 'cordisReviewController', { namespace: 'cordisReview' }) }
+
+  /**
+   * List Cordis reviews visible to the caller.
+   * @param request - Optional review-status filter.
+   * @returns visible review requests.
+   */
+  @Remote('list') async list(request: CordisReviewListRequest): Promise<readonly CordisReviewRequest[]> {
+    return catalogCall(this.ctx, 'cordisReview.list', request, 'cordis-plugin', 'reviews', async (actor) => {
+      const rows = await cordis(this.ctx).listReviews({ principal: actor })
+      return request.status === undefined ? rows : rows.filter(row => row.status === request.status)
+    })
+  }
+
+  /**
+   * Submit a department Package for manager review.
+   * @param request - Draft, Workspace, and source Session data.
+   * @returns created review.
+   */
+  @Remote('submit') async submit(request: CordisReviewSubmitRequest): Promise<CordisReviewRequest> {
+    return catalogCall(this.ctx, 'cordisReview.submit', request, 'cordis-plugin', request.draft.pluginId, actor =>
+      cordis(this.ctx).submitDepartment({ principal: actor, ...request }))
+  }
+
+  /**
+   * Derive a manager-edited immutable Package.
+   * @param request - Review, draft, and CAS data.
+   * @returns derived Package and review revision.
+   */
+  @Remote('derive') async derive(request: CordisReviewDeriveRequest): Promise<DerivedCordisPackage> {
+    return catalogCall(this.ctx, 'cordisReview.derive', request, 'cordis-plugin', request.pluginId, actor =>
+      cordis(this.ctx).deriveReview({ principal: actor, ...request }))
+  }
+
+  /**
+   * Approve a Package for department activation.
+   * @param request - Review transition and reason.
+   * @returns updated review.
+   */
+  @Remote('approveDepartment') async approveDepartment(
+    request: CordisReviewTransitionRequest,
+  ): Promise<CordisReviewRequest> {
+    return catalogCall(this.ctx, 'cordisReview.approveDepartment', request, 'cordis-plugin', request.pluginId, actor =>
+      cordis(this.ctx).reviewDepartment({ principal: actor, ...request, action: 'approve_department' }))
+  }
+
+  /**
+   * Return a review to its author.
+   * @param request - Review transition and reason.
+   * @returns updated review.
+   */
+  @Remote('return') async returnToAuthor(request: CordisReviewTransitionRequest): Promise<CordisReviewRequest> {
+    return catalogCall(this.ctx, 'cordisReview.return', request, 'cordis-plugin', request.pluginId, actor =>
+      cordis(this.ctx).reviewDepartment({ principal: actor, ...request, action: 'return_to_author' }))
+  }
+
+  /**
+   * Publish an approved department Package organization-wide.
+   * @param request - Review Package and CAS data.
+   * @returns publication result.
+   */
+  @Remote('publishOrganization') async publishOrganization(
+    request: CordisReviewPublishRequest,
+  ): Promise<PublishedCordisReview> {
+    return catalogCall(this.ctx, 'cordisReview.publishOrganization', request, 'cordis-plugin', request.pluginId, actor =>
+      cordis(this.ctx).publishOrganization({ principal: actor, ...request }))
+  }
+}
+
+/** Enterprise Cordis manager grants and emergency controls. */
+export class CordisGovernanceController extends TypertRemoteService {
+  static inject = ['enterprisePostgres', 'enterpriseSecurity', 'enterpriseRequestContext']
+  constructor(ctx: Context) { super(ctx, 'cordisGovernanceController', { namespace: 'cordisGovernance' }) }
+
+  /**
+   * Read the configured managers for a department.
+   * @param request - Department identity.
+   * @returns manager set or null.
+   */
+  @Remote('departmentManagers') async departmentManagers(
+    request: CordisDepartmentManagersRequest,
+  ): Promise<DepartmentManagerSet | null> {
+    return catalogCall(this.ctx, 'cordisGovernance.departmentManagers', request, 'department', request.departmentId,
+      actor => cordis(this.ctx).departmentManagers(actor.orgId, request.departmentId).then(value => value ?? null))
+  }
+
+  /**
+   * Replace the configured managers for a department.
+   * @param request - Members and CAS revision.
+   * @returns updated manager set.
+   */
+  @Remote('setDepartmentManagers') async setDepartmentManagers(
+    request: CordisDepartmentManagersSaveRequest,
+  ): Promise<DepartmentManagerSet> {
+    return catalogCall(this.ctx, 'cordisGovernance.setDepartmentManagers', request, 'department', request.departmentId,
+      actor => cordis(this.ctx).setDepartmentManagers({ principal: actor, ...request }))
+  }
+
+  /**
+   * Emergency-disable an enterprise extension.
+   * @param request - Binding, reason, and CAS data.
+   * @returns disabled binding.
+   */
+  @Remote('disable') async disable(request: CordisGovernanceDisableRequest): Promise<CordisScopeBinding> {
+    return catalogCall(this.ctx, 'cordisGovernance.disable', request, 'cordis-plugin', request.pluginId, actor =>
+      cordis(this.ctx).emergencyDisable({ principal: actor, ...request }))
+  }
+
+  /**
+   * Roll an enterprise extension back to an immutable version.
+   * @param request - Target version and CAS data.
+   * @returns updated binding.
+   */
+  @Remote('rollback') async rollback(request: CordisWorkspaceRollbackRequest): Promise<CordisScopeBinding> {
+    return catalogCall(this.ctx, 'cordisGovernance.rollback', request, 'cordis-plugin', request.pluginId, actor =>
+      cordis(this.ctx).rollbackBinding({ principal: actor, ...request }))
+  }
+
+  /**
+   * Change the execution trust of an organization extension.
+   * @param request - Trust level, reason, and CAS data.
+   * @returns updated binding.
+   */
+  @Remote('setTrust') async setTrust(request: CordisGovernanceSetTrustRequest): Promise<CordisScopeBinding> {
+    return catalogCall(this.ctx, 'cordisGovernance.setTrust', request, 'cordis-plugin', request.pluginId, actor =>
+      cordis(this.ctx).setTrust({ principal: actor, ...request }))
+  }
+}
+
 function enterpriseFailure(
   error: unknown, endpoint: string, resourceType: string, resourceId: string,
 ): TypertRemoteFailure {
@@ -500,6 +741,12 @@ function enterpriseFailure(
         : error.code === 'not-found' ? 'enterprise-not-found'
           : error.code === 'conflict' ? 'enterprise-conflict' : 'enterprise-invalid-state'
     message = error.message
+  } else if (error instanceof EnterpriseCordisError) {
+    code = error.code.endsWith('required') || error.code === 'organization-mismatch'
+      ? 'enterprise-forbidden'
+      : error.code === 'revision-conflict' ? 'enterprise-conflict'
+        : error.code.endsWith('not-found') ? 'enterprise-not-found' : 'enterprise-invalid-state'
+    message = error.message
   } else if (error instanceof Error && /not found|does not exist/iu.test(error.message)) {
     code = 'enterprise-not-found'; message = error.message
   } else if (error instanceof Error && /revision conflict/iu.test(error.message)) {
@@ -514,7 +761,10 @@ export function apply(ctx: Context): void {
   new EnterpriseAssetController(ctx)
   new EnterpriseTeamController(ctx)
   new EnterpriseOperationController(ctx)
+  new CordisWorkspaceController(ctx)
+  new CordisReviewController(ctx)
+  new CordisGovernanceController(ctx)
 }
 
-export const inject = ['enterprisePostgres', 'enterpriseSecurity', 'enterpriseRequestContext']
+export const inject = ['enterprisePostgres', 'enterpriseSecurity', 'enterpriseRequestContext', 'enterpriseCordis']
 export { name } from './invariant.ts'

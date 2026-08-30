@@ -23,9 +23,10 @@ export async function startHostHalf(
   group: Fiber,
   plugin: Plugin,
   reportGuardFailure: (error: Error) => void,
+  trusted = false,
 ): Promise<Fiber> {
   await group.await()
-  const fiber = group.ctx.plugin(guardedPlugin(plugin, reportGuardFailure))
+  const fiber = group.ctx.plugin(trusted ? plugin : guardedPlugin(plugin, reportGuardFailure))
   try {
     await fiber.await()
   } catch (error) {

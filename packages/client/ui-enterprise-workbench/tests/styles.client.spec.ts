@@ -19,8 +19,9 @@ describe('enterprise workbench responsive shell', () => {
     expect(css).toMatch(/\.workbench\s*\{[^}]*max-inline-size:\s*100%/su)
     expect(css).toMatch(/\.shell\s*\{[^}]*min-inline-size:\s*0/su)
     expect(css).toMatch(/@media\s*\(min-width:\s*48rem\)/u)
-    expect(css).toMatch(/\.nav\s*\{[^}]*grid-template-columns:\s*repeat\(2,/su)
-    expect(css).not.toMatch(/\.nav\s*\{[^}]*overflow-x:\s*auto/su)
+    expect(css).toMatch(/\.nav\s*\{[^}]*display:\s*flex[^}]*overflow-x:\s*auto/su)
+    expect(css).toMatch(/@media\s*\(min-width:\s*48rem\)[\s\S]*\.nav\s*\{[^}]*inline-size:\s*12rem[^}]*flex-direction:\s*column/su)
+    expect(css).toMatch(/\.employeeGrid\s*\{[^}]*grid-template-columns:\s*repeat\(3,/su)
   })
 
   it('uses only DSH semantic colors and provides reduced-motion behavior', () => {

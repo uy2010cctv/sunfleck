@@ -1,6 +1,9 @@
 /** Browser controller for authentication and enterprise administration APIs. */
 
 import { createSnapshotStore, type SnapshotStore } from '@deepseek-ai/dsh-client-store'
+import type { ClientRemote } from '@deepseek-ai/dsh-api-remotes/client'
+import type { DepartmentManagerSet } from '@deepseek-ai/dsh-api-enterprise-controller/types'
+import { randomUUID } from '@deepseek-ai/dsh-util-crypto'
 
 export interface GovernancePrincipal {
   readonly userId: string
@@ -113,6 +116,7 @@ export interface EnterpriseGovernanceState {
   readonly assets: readonly GovernanceAsset[]
   readonly policies: readonly GovernancePolicy[]
   readonly audit: readonly GovernanceAudit[]
+  readonly departmentManagers: Readonly<Record<string, DepartmentManagerSet>>
 }
 
 type Fetcher = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
@@ -120,13 +124,23 @@ type Fetcher = (input: RequestInfo | URL, init?: RequestInit) => Promise<Respons
 const INITIAL: EnterpriseGovernanceState = {
   phase: 'loading', error: null, organizations: [], users: [], departments: [], workspaces: [], memories: [],
   assets: [], policies: [], audit: [],
+  departmentManagers: {},
+}
+
+type CordisGovernanceRemote = ClientRemote['cordisGovernance']
+
+function remoteValue<T>(response: { ok: true; value: T } | { ok: false; error: { code: string; message: string } }
+  | { result: { ok: true; value: T } | { ok: false; error: { code: string; message: string } } }): T {
+  const result = 'result' in response ? response.result : response
+  if (!result.ok) throw new Error(`${result.error.code}: ${result.error.message}`)
+  return result.value
 }
 
 export class EnterpriseGovernanceController {
   readonly store: SnapshotStore<EnterpriseGovernanceState> = createSnapshotStore(INITIAL)
   private readonly fetcher: Fetcher
 
-  constructor(fetcher?: Fetcher) {
+  constructor(fetcher?: Fetcher, private readonly cordisGovernance?: CordisGovernanceRemote) {
     this.fetcher = fetcher ?? ((input, init) => globalThis.fetch(input, init))
   }
 
@@ -168,13 +182,38 @@ export class EnterpriseGovernanceController {
         this.get<GovernancePolicy[]>('/auth/admin/resource-policies'),
         this.get<GovernanceAudit[]>('/auth/admin/audit?limit=200'),
       ])
+      const departmentManagers: Record<string, DepartmentManagerSet> = {}
+      const cordisGovernance = this.cordisGovernance
+      if (cordisGovernance !== undefined) {
+        await Promise.all(departments.map(async (department) => {
+          const value = remoteValue(await cordisGovernance.departmentManagers({ departmentId: department.id }))
+          if (value !== null) departmentManagers[department.id] = value
+        }))
+      }
       this.store.set({
         ...this.store.getSnapshot(), phase: 'ready', error: null,
-        organizations, users, departments, workspaces, memories, assets, policies, audit,
+        organizations, users, departments, workspaces, memories, assets, policies, audit, departmentManagers,
       })
     } catch (error) {
       this.fail(error)
     }
+  }
+
+  async setDepartmentManagers(
+    departmentId: string,
+    managerUserIds: readonly string[],
+    expectedRevision: number,
+  ): Promise<void> {
+    if (this.cordisGovernance === undefined) throw new Error('department manager service is unavailable')
+    const value = remoteValue(await this.cordisGovernance.setDepartmentManagers({
+      departmentId, managerUserIds, expectedRevision,
+      idempotencyKey: `department-managers:${randomUUID()}`,
+    }))
+    this.store.set({
+      ...this.store.getSnapshot(),
+      departmentManagers: { ...this.store.getSnapshot().departmentManagers, [departmentId]: value },
+      error: null,
+    })
   }
 
   async createUser(input: {

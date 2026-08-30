@@ -72,7 +72,7 @@ describe('EnterpriseSecurity', () => {
       action: 'session.create', resourceType: 'workspace', resourceId: 'workspace-1',
     })
     expect(classifyApiEndpoint('workspace.create', { path: '/tmp/outside' })).toEqual({
-      action: 'workspace.manage', resourceType: 'workspace',
+      action: 'session.create', resourceType: 'workspace-catalog',
     })
     expect(classifyApiEndpoint('enterpriseWorkspace.create', {})).toEqual({
       action: 'session.create', resourceType: 'workspace-catalog',
@@ -88,6 +88,18 @@ describe('EnterpriseSecurity', () => {
     expect(classifyApiEndpoint('enterpriseOperation.approvals.get', { approvalId: 'approval-1' })).toEqual({ action: 'approval.read', resourceType: 'approval', resourceId: 'approval-1' })
     expect(classifyApiEndpoint('enterpriseOperation.schedules.transition', { scheduleId: 'schedule-1' })).toEqual({ action: 'schedule.manage', resourceType: 'schedule', resourceId: 'schedule-1' })
     expect(classifyApiEndpoint('enterpriseEmployee.unknown', {})).toBeUndefined()
+    expect(classifyApiEndpoint('cordisWorkspace.save', { pluginId: 'plugin-1' })).toEqual({
+      action: 'plugin.create', resourceType: 'cordis-plugin', resourceId: 'plugin-1',
+    })
+    expect(classifyApiEndpoint('cordisReview.publishOrganization', { pluginId: 'plugin-1' })).toEqual({
+      action: 'plugin.publish', resourceType: 'cordis-plugin', resourceId: 'plugin-1',
+    })
+    expect(classifyApiEndpoint('cordisGovernance.disable', { pluginId: 'plugin-1' })).toEqual({
+      action: 'plugin.manage', resourceType: 'cordis-plugin', resourceId: 'plugin-1',
+    })
+    expect(classifyApiEndpoint('cordisGovernance.departmentManagers', { departmentId: 'dept-a' })).toEqual({
+      action: 'plugin.read', resourceType: 'department', resourceId: 'dept-a',
+    })
   })
 
   it('classifies developer inventory endpoints as administrator-only system inspection', () => {
@@ -118,6 +130,89 @@ describe('EnterpriseSecurity', () => {
     })
     expect(security.authorizeApi(member!, 'sessions.history', { sessionId: 'session-1' }))
       .toEqual({ allowed: false, reason: 'resource-hidden' })
+  })
+
+  it('shows only owned and department Workspaces and exposes safe delete affordances', async () => {
+    repository.saveDepartment({
+      id: 'dept-ops', orgId: 'org-a', parentId: null, name: 'Operations', sortOrder: 0, expectedRevision: 0,
+    })
+    repository.setUserDepartments({
+      orgId: 'org-a', userId: 'member-1', departmentIds: ['dept-ops'],
+      primaryDepartmentId: 'dept-ops', expectedRevision: 0,
+    })
+    repository.saveWorkspaceGrant({
+      workspaceId: 'member-default', orgId: 'org-a', name: 'Member personal', kind: 'personal',
+      ownerUserId: 'member-1', rootPath: '/managed/member', sandboxMode: 'workspace-write', expectedRevision: 0,
+    })
+    now++
+    repository.saveWorkspaceGrant({
+      workspaceId: 'member-created', orgId: 'org-a', name: 'Member project', kind: 'personal',
+      ownerUserId: 'member-1', rootPath: '/managed/member/project', sandboxMode: 'workspace-write', expectedRevision: 0,
+    })
+    repository.saveWorkspaceGrant({
+      workspaceId: 'admin-personal', orgId: 'org-a', name: 'Admin personal', kind: 'personal',
+      ownerUserId: 'admin-1', rootPath: '/managed/admin', sandboxMode: 'workspace-write', expectedRevision: 0,
+    })
+    repository.saveWorkspaceGrant({
+      workspaceId: 'dept-ops-shared', orgId: 'org-a', name: 'Operations shared', kind: 'department',
+      departmentId: 'dept-ops', rootPath: '/managed/departments/ops', sandboxMode: 'read-only', expectedRevision: 0,
+    })
+    const member = security.loginLocal('org-a', 'member', 'enterprise-password')!.principal
+    const source = (async function* () {
+      yield {
+        type: 'baseline',
+        value: {
+          items: ['member-default', 'member-created', 'admin-personal', 'dept-ops-shared']
+            .map(workspaceId => ({ workspaceId, title: workspaceId, path: `/${workspaceId}`, sessionIds: [] })),
+          archivedSessionIds: [],
+        },
+      }
+      yield { type: 'order', workspaceIds: ['admin-personal', 'member-created', 'dept-ops-shared'] }
+    })()
+    const project = (security as unknown as {
+      filterWorkspaceFollow(principal: typeof member, frames: AsyncIterable<unknown>): AsyncIterable<unknown>
+    }).filterWorkspaceFollow(member, source)
+    const frames: unknown[] = []
+    for await (const frame of project) frames.push(frame)
+    expect(frames).toEqual([
+      {
+        type: 'baseline',
+        value: {
+          items: [
+            expect.objectContaining({ workspaceId: 'member-default', deletable: false }),
+            expect.objectContaining({ workspaceId: 'member-created', deletable: true }),
+            expect.objectContaining({ workspaceId: 'dept-ops-shared', deletable: false }),
+          ],
+          archivedSessionIds: [],
+        },
+      },
+      { type: 'order', workspaceIds: ['member-created', 'dept-ops-shared'] },
+    ])
+  })
+
+  it('allows creation but deletes only a later personal Workspace owned by the caller', async () => {
+    repository.saveWorkspaceGrant({
+      workspaceId: 'member-default', orgId: 'org-a', name: 'Member personal', kind: 'personal',
+      ownerUserId: 'member-1', rootPath: '/managed/member', sandboxMode: 'workspace-write', expectedRevision: 0,
+    })
+    now++
+    repository.saveWorkspaceGrant({
+      workspaceId: 'member-created', orgId: 'org-a', name: 'Member project', kind: 'personal',
+      ownerUserId: 'member-1', rootPath: '/managed/member/project', sandboxMode: 'workspace-write', expectedRevision: 0,
+    })
+    repository.saveWorkspaceGrant({
+      workspaceId: 'admin-personal', orgId: 'org-a', name: 'Admin personal', kind: 'personal',
+      ownerUserId: 'admin-1', rootPath: '/managed/admin', sandboxMode: 'workspace-write', expectedRevision: 0,
+    })
+    const member = security.loginLocal('org-a', 'member', 'enterprise-password')!.principal
+    await expect(security.authorizeApiAsync(member, 'workspace.create', { path: '/managed/member/new' }))
+      .resolves.toMatchObject({ allowed: true })
+    await expect(security.authorizeApiAsync(member, 'workspace.delete', { workspaceId: 'member-default' }))
+      .resolves.toMatchObject({ allowed: false })
+    await expect(security.authorizeApiAsync(member, 'workspace.delete', { workspaceId: 'member-created' }))
+      .resolves.toMatchObject({ allowed: true })
+    await expect(security.authorizeApiAsync(member, 'workspace.delete', { workspaceId: 'admin-personal' }))
+      .resolves.toMatchObject({ allowed: false })
   })
 
   it('resolves catalog-owned employee policy after identity policy misses', async () => {

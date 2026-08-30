@@ -12,6 +12,51 @@ The extensions subsystem lets an agent define versioned Cordis packages, run the
 
 Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnpm run verify-cordis-catalog` in doc-sync; regenerate with `pnpm run gen-cordis-catalog`) — the language sides differ only in locale-specific paired document paths. Signature blocks use a `ts cordis-catalog` fence and keep the original source JSDoc; dispatch modes are defined in the [primer](../cordis-primer.md#dispatch-modes), and the framework-inherited `ctx` API lives in [cordis-api/inherited.md](../cordis-api/inherited.md).
 
+<a id="ctxcordisgovernancecontroller--cordisgovernancecontroller"></a>
+
+### `ctx.cordisGovernanceController` — `CordisGovernanceController`
+
+Enterprise Cordis manager grants and emergency controls.
+
+```ts cordis-catalog
+/**
+ * Read the configured managers for a department.
+ * @param request - Department identity.
+ * @returns manager set or null.
+ */
+@Remote('departmentManagers') async departmentManagers( request: CordisDepartmentManagersRequest, ): Promise<DepartmentManagerSet | null>
+
+/**
+ * Replace the configured managers for a department.
+ * @param request - Members and CAS revision.
+ * @returns updated manager set.
+ */
+@Remote('setDepartmentManagers') async setDepartmentManagers( request: CordisDepartmentManagersSaveRequest, ): Promise<DepartmentManagerSet>
+
+/**
+ * Emergency-disable an enterprise extension.
+ * @param request - Binding, reason, and CAS data.
+ * @returns disabled binding.
+ */
+@Remote('disable') async disable(request: CordisGovernanceDisableRequest): Promise<CordisScopeBinding>
+
+/**
+ * Roll an enterprise extension back to an immutable version.
+ * @param request - Target version and CAS data.
+ * @returns updated binding.
+ */
+@Remote('rollback') async rollback(request: CordisWorkspaceRollbackRequest): Promise<CordisScopeBinding>
+
+/**
+ * Change the execution trust of an organization extension.
+ * @param request - Trust level, reason, and CAS data.
+ * @returns updated binding.
+ */
+@Remote('setTrust') async setTrust(request: CordisGovernanceSetTrustRequest): Promise<CordisScopeBinding>
+```
+
+Source: [`packages/api/enterprise-controller/src/index.ts`](../../packages/api/enterprise-controller/src/index.ts)
+
 <a id="ctxcordisinspect--cordisinspectregistryservice"></a>
 
 ### `ctx.cordisInspect` — `CordisInspectRegistryService`
@@ -64,6 +109,110 @@ Types: [Agent](core.md)
 
 Source: [`packages/extensions/cordis-host-runner/src/inspect-registry.ts`](../../packages/extensions/cordis-host-runner/src/inspect-registry.ts)
 
+<a id="ctxcordisreviewcontroller--cordisreviewcontroller"></a>
+
+### `ctx.cordisReviewController` — `CordisReviewController`
+
+Department review, derived modification, and organization publication Remote service.
+
+```ts cordis-catalog
+/**
+ * List Cordis reviews visible to the caller.
+ * @param request - Optional review-status filter.
+ * @returns visible review requests.
+ */
+@Remote('list') async list(request: CordisReviewListRequest): Promise<readonly CordisReviewRequest[]>
+
+/**
+ * Submit a department Package for manager review.
+ * @param request - Draft, Workspace, and source Session data.
+ * @returns created review.
+ */
+@Remote('submit') async submit(request: CordisReviewSubmitRequest): Promise<CordisReviewRequest>
+
+/**
+ * Derive a manager-edited immutable Package.
+ * @param request - Review, draft, and CAS data.
+ * @returns derived Package and review revision.
+ */
+@Remote('derive') async derive(request: CordisReviewDeriveRequest): Promise<DerivedCordisPackage>
+
+/**
+ * Approve a Package for department activation.
+ * @param request - Review transition and reason.
+ * @returns updated review.
+ */
+@Remote('approveDepartment') async approveDepartment( request: CordisReviewTransitionRequest, ): Promise<CordisReviewRequest>
+
+/**
+ * Return a review to its author.
+ * @param request - Review transition and reason.
+ * @returns updated review.
+ */
+@Remote('return') async returnToAuthor(request: CordisReviewTransitionRequest): Promise<CordisReviewRequest>
+
+/**
+ * Publish an approved department Package organization-wide.
+ * @param request - Review Package and CAS data.
+ * @returns publication result.
+ */
+@Remote('publishOrganization') async publishOrganization( request: CordisReviewPublishRequest, ): Promise<PublishedCordisReview>
+```
+
+Source: [`packages/api/enterprise-controller/src/index.ts`](../../packages/api/enterprise-controller/src/index.ts)
+
+<a id="ctxcordisworkspacecontroller--cordisworkspacecontroller"></a>
+
+### `ctx.cordisWorkspaceController` — `CordisWorkspaceController`
+
+Personal and department Workspace Cordis extension Remote service.
+
+```ts cordis-catalog
+/**
+ * List Cordis Packages and active bindings visible to a Workspace.
+ * @param request - Workspace identity.
+ * @returns visible extension projection.
+ */
+@Remote('list') async list(request: CordisWorkspaceListRequest): Promise<CordisWorkspaceProjection>
+
+/**
+ * Persist a personal Workspace Package version.
+ * @param request - Package draft and idempotency data.
+ * @returns immutable Package version.
+ */
+@Remote('save') async save(request: CordisWorkspaceSaveRequest): Promise<CordisPackageVersion>
+
+/**
+ * Activate a personal Workspace Package.
+ * @param request - Package, Workspace, and CAS data.
+ * @returns updated scope binding.
+ */
+@Remote('activate') async activate(request: CordisWorkspaceActivateRequest): Promise<CordisScopeBinding>
+
+/**
+ * Stop an active Workspace extension.
+ * @param request - Binding, reason, and CAS data.
+ * @returns disabled binding.
+ */
+@Remote('stop') async stop(request: CordisWorkspaceStopRequest): Promise<CordisScopeBinding>
+
+/**
+ * Roll a Workspace extension back to an immutable version.
+ * @param request - Target version and CAS data.
+ * @returns updated binding.
+ */
+@Remote('rollback') async rollback(request: CordisWorkspaceRollbackRequest): Promise<CordisScopeBinding>
+
+/**
+ * Pin the visible extension Generation for a Session.
+ * @param request - Workspace and Session identity.
+ * @returns immutable Session Generation.
+ */
+@Remote('pinGeneration') async pinGeneration( request: CordisWorkspacePinGenerationRequest, ): Promise<CordisSessionGeneration>
+```
+
+Source: [`packages/api/enterprise-controller/src/index.ts`](../../packages/api/enterprise-controller/src/index.ts)
+
 <a id="ctxdynamiccordisrunner--dynamiccordisrunnerservice"></a>
 
 ### `ctx.dynamicCordisRunner` — `DynamicCordisRunnerService`
@@ -77,6 +226,15 @@ Dynamic Plugin registry and Host-half lifecycle.
  * @returns Host-minted Plugin and Package identities with declared-half metadata.
  */
 define(request: DynamicCordisDefineRequest): DynamicCordisDefineReceipt
+
+/**
+ * Restore one Package whose enterprise scope binding already records user or
+ * governance approval. This suppresses duplicate Client approval and selects
+ * either the isolated Realm or the explicitly trusted in-process executor.
+ * @param request - immutable source, Session identity, and approved execution mode.
+ * @returns restored dynamic Plugin and Package identities.
+ */
+restoreApproved(request: DynamicCordisRestoreRequest): DynamicCordisDefineReceipt
 
 /**
  * Remove a Plugin, its active run, and all immutable Packages.
@@ -256,6 +414,136 @@ Types: [Agent](core.md)
 
 Source: [`packages/extensions/cordis-host-runner/src/index.ts`](../../packages/extensions/cordis-host-runner/src/index.ts)
 
+<a id="ctxenterprisecordis--enterprisecordisservice"></a>
+
+### `ctx.enterpriseCordis` — `EnterpriseCordisService`
+
+Governs immutable enterprise Cordis Packages, bindings, reviews, and Session Generations.
+
+```ts cordis-catalog
+/**
+ * Load one Package and hydrate its verified source artifact.
+ * @param packageId - immutable Package identity.
+ * @returns hydrated Package when it exists.
+ */
+async packageSource(packageId: string): Promise<CordisPackageVersion | undefined>
+
+/**
+ * Persist an immutable Package owned by a personal Workspace.
+ * @param input - authenticated principal, Workspace, draft, and idempotency key.
+ * @returns saved Package version.
+ */
+async savePersonal(input: { principal: EnterpriseCordisPrincipal workspaceId: string draft: CordisPackageDraft idempotencyKey: string }): Promise<CordisPackageVersion>
+
+/**
+ * Activate a personal Workspace Package using revision compare-and-swap.
+ * @param input - principal, Workspace, Package, revision, and idempotency data.
+ * @returns updated personal binding.
+ */
+async activatePersonal(input: { principal: EnterpriseCordisPrincipal workspaceId: string pluginId: string packageId: string expectedRevision: number idempotencyKey: string }): Promise<CordisScopeBinding>
+
+/**
+ * Submit a department Workspace Package for manager review.
+ * @param input - principal, Workspace, source Session, draft, and idempotency data.
+ * @returns created review request.
+ */
+async submitDepartment(input: { principal: EnterpriseCordisPrincipal workspaceId: string draft: CordisPackageDraft sourceSessionId: string idempotencyKey: string }): Promise<CordisReviewRequest>
+
+/**
+ * Create an immutable manager-derived Package for an existing review.
+ * @param input - principal, review, revised draft, CAS revision, and idempotency data.
+ * @returns derived Package and new review revision.
+ */
+async deriveReview(input: { principal: EnterpriseCordisPrincipal reviewId: string expectedRevision: number draft: CordisPackageDraft idempotencyKey: string }): Promise<DerivedCordisPackage>
+
+/**
+ * Approve a Package for department use or return it to its author.
+ * @param input - principal, review transition, reason, CAS revision, and idempotency data.
+ * @returns updated review request.
+ */
+async reviewDepartment(input: { principal: EnterpriseCordisPrincipal reviewId: string packageId: string action: 'approve_department' | 'return_to_author' reason: string expectedRevision: number idempotencyKey: string }): Promise<CordisReviewRequest>
+
+/**
+ * Publish a validated department Package as the organization binding.
+ * @param input - principal, review Package, CAS revision, and idempotency data.
+ * @returns publication result and organization binding.
+ */
+async publishOrganization(input: { principal: EnterpriseCordisPrincipal reviewId: string packageId: string expectedRevision: number idempotencyKey: string }): Promise<PublishedCordisReview>
+
+/**
+ * Emergency-disable a binding as an enterprise administrator.
+ * @param input - principal, binding, reason, CAS revision, and idempotency data.
+ * @returns disabled binding.
+ */
+async emergencyDisable(input: { principal: EnterpriseCordisPrincipal bindingId: string expectedRevision: number reason: string idempotencyKey: string }): Promise<CordisScopeBinding>
+
+/**
+ * Stop a binding within the caller's governed scope.
+ * @param input - principal, binding, reason, CAS revision, and idempotency data.
+ * @returns disabled binding.
+ */
+async stopBinding(input: { principal: EnterpriseCordisPrincipal bindingId: string expectedRevision: number reason: string idempotencyKey: string }): Promise<CordisScopeBinding>
+
+/**
+ * Move a binding pointer to an older immutable Package.
+ * @param input - principal, binding, Package, reason, CAS revision, and idempotency data.
+ * @returns updated binding.
+ */
+async rollbackBinding(input: { principal: EnterpriseCordisPrincipal bindingId: string packageId: string expectedRevision: number reason: string idempotencyKey: string }): Promise<CordisScopeBinding>
+
+/**
+ * Set isolated or trusted in-process execution for an organization binding.
+ * @param input - administrator principal, binding, trust level, reason, and CAS data.
+ * @returns updated organization binding.
+ */
+async setTrust(input: { principal: EnterpriseCordisPrincipal bindingId: string trustLevel: CordisScopeBinding['trustLevel'] expectedRevision: number reason: string idempotencyKey: string }): Promise<CordisScopeBinding>
+
+/**
+ * Capture the visible active bindings for one Session exactly once.
+ * @param input - principal, Workspace, and Session identity.
+ * @returns immutable Session Generation.
+ */
+async pinSessionGeneration(input: { principal: EnterpriseCordisPrincipal workspaceId: string sessionId: string }): Promise<CordisSessionGeneration>
+
+/**
+ * Replace a department's manager set after membership validation.
+ * @param input - administrator principal, department members, CAS revision, and idempotency data.
+ * @returns updated department manager set.
+ */
+async setDepartmentManagers(input: { principal: EnterpriseCordisPrincipal departmentId: string managerUserIds: readonly string[] expectedRevision: number idempotencyKey: string }): Promise<DepartmentManagerSet>
+
+/**
+ * Read a department's manager set.
+ * @param orgId - owning organization.
+ * @param departmentId - department identity.
+ * @returns manager set when configured.
+ */
+async departmentManagers(orgId: string, departmentId: string): Promise<DepartmentManagerSet | undefined>
+
+/**
+ * List Packages and bindings visible to a governed Workspace.
+ * @param input - principal and Workspace identity.
+ * @returns visible extension projection.
+ */
+async listWorkspace(input: { principal: EnterpriseCordisPrincipal workspaceId: string }): Promise<CordisWorkspaceProjection>
+
+/**
+ * List reviews authored by or governed by the caller.
+ * @param input - authenticated principal.
+ * @returns visible review requests.
+ */
+async listReviews(input: { principal: EnterpriseCordisPrincipal }): Promise<readonly CordisReviewRequest[]>
+
+/**
+ * Append an explicit Cordis governance audit event.
+ * @param event - immutable audit record.
+ * @returns when the event has been persisted.
+ */
+async audit(event: EnterpriseCordisAuditEvent): Promise<void>
+```
+
+Source: [`packages/enterprise/enterprise-cordis/src/service.ts`](../../packages/enterprise/enterprise-cordis/src/service.ts)
+
 <a id="ctxinspector--inspectorservice"></a>
 
 ### `ctx.inspector` — `InspectorService`
@@ -379,4 +667,127 @@ A pending Client activation request left the answerable state.
 ```
 
 Source: [`packages/extensions/cordis-host-runner/src/types.ts`](../../packages/extensions/cordis-host-runner/src/types.ts)
+
+<a id="enterprise-events"></a>
+
+### `enterprise/*` events
+
+<a id="enterprisecordis-department-activated--emit"></a>
+
+#### `enterprise/cordis-department-activated` — emit
+
+A validated Package became the active department binding.
+
+```ts cordis-catalog
+/**
+ * A validated Package became the active department binding.
+ * @param event - Activated Package, scope, actor, and organization correlation data.
+ * @mode emit
+ */
+'enterprise/cordis-department-activated'(event: EnterpriseCordisEvent): void
+```
+
+Source: [`packages/enterprise/enterprise-cordis/src/service.ts`](../../packages/enterprise/enterprise-cordis/src/service.ts)
+
+<a id="enterprisecordis-organization-published--emit"></a>
+
+#### `enterprise/cordis-organization-published` — emit
+
+A validated Package became the active organization binding.
+
+```ts cordis-catalog
+/**
+ * A validated Package became the active organization binding.
+ * @param event - Published Package, scope, actor, and organization correlation data.
+ * @mode emit
+ */
+'enterprise/cordis-organization-published'(event: EnterpriseCordisEvent): void
+```
+
+Source: [`packages/enterprise/enterprise-cordis/src/service.ts`](../../packages/enterprise/enterprise-cordis/src/service.ts)
+
+<a id="enterprisecordis-package-saved--emit"></a>
+
+#### `enterprise/cordis-package-saved` — emit
+
+An immutable enterprise Cordis Package version was persisted.
+
+```ts cordis-catalog
+/**
+ * An immutable enterprise Cordis Package version was persisted.
+ * @param event - Package, scope, actor, and organization correlation data.
+ * @mode emit
+ */
+'enterprise/cordis-package-saved'(event: EnterpriseCordisEvent): void
+```
+
+Source: [`packages/enterprise/enterprise-cordis/src/service.ts`](../../packages/enterprise/enterprise-cordis/src/service.ts)
+
+<a id="enterprisecordis-plugin-disabled--emit"></a>
+
+#### `enterprise/cordis-plugin-disabled` — emit
+
+An enterprise Cordis binding was stopped by governance.
+
+```ts cordis-catalog
+/**
+ * An enterprise Cordis binding was stopped by governance.
+ * @param event - Disabled Package, scope, actor, and organization correlation data.
+ * @mode emit
+ */
+'enterprise/cordis-plugin-disabled'(event: EnterpriseCordisEvent): void
+```
+
+Source: [`packages/enterprise/enterprise-cordis/src/service.ts`](../../packages/enterprise/enterprise-cordis/src/service.ts)
+
+<a id="enterprisecordis-review-requested--emit"></a>
+
+#### `enterprise/cordis-review-requested` — emit
+
+A department Cordis Package entered manager review.
+
+```ts cordis-catalog
+/**
+ * A department Cordis Package entered manager review.
+ * @param event - Review target, actor, and organization correlation data.
+ * @mode emit
+ */
+'enterprise/cordis-review-requested'(event: EnterpriseCordisEvent): void
+```
+
+Source: [`packages/enterprise/enterprise-cordis/src/service.ts`](../../packages/enterprise/enterprise-cordis/src/service.ts)
+
+<a id="enterprisecordis-review-updated--emit"></a>
+
+#### `enterprise/cordis-review-updated` — emit
+
+A Cordis review changed status or selected a derived Package.
+
+```ts cordis-catalog
+/**
+ * A Cordis review changed status or selected a derived Package.
+ * @param event - Review target, actor, and organization correlation data.
+ * @mode emit
+ */
+'enterprise/cordis-review-updated'(event: EnterpriseCordisEvent): void
+```
+
+Source: [`packages/enterprise/enterprise-cordis/src/service.ts`](../../packages/enterprise/enterprise-cordis/src/service.ts)
+
+<a id="enterprisecordis-run-health-updated--emit"></a>
+
+#### `enterprise/cordis-run-health-updated` — emit
+
+The observed health of an enterprise Cordis run changed.
+
+```ts cordis-catalog
+/**
+ * The observed health of an enterprise Cordis run changed.
+ * @param event - Run health, Package, scope, and organization correlation data.
+ * @mode emit
+ */
+'enterprise/cordis-run-health-updated'(event: EnterpriseCordisEvent): void
+```
+
+Source: [`packages/enterprise/enterprise-cordis/src/service.ts`](../../packages/enterprise/enterprise-cordis/src/service.ts)
 <!-- END GENERATED cordis-surface -->

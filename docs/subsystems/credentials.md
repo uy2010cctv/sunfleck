@@ -377,6 +377,22 @@ async logoutAsync(cookieHeader: string): Promise<void>
 async authorizeApiAsync(principal: EnterprisePrincipal, endpoint: string, input: unknown): Promise<EnterpriseAuthorizationDecision>
 
 /**
+ * Project the native Workspace stream to the caller's personal and department grants.
+ * Protected default and shared Workspaces explicitly carry `deletable: false`.
+ * @param principal - authenticated stream owner.
+ * @param frames - native Workspace baseline and increment stream.
+ * @returns a principal-scoped Workspace stream.
+ */
+async *filterWorkspaceFollow( principal: EnterprisePrincipal, frames: AsyncIterable<unknown>, ): AsyncIterable<unknown>
+
+/**
+ * Persist the ownership grant for a Workspace created through the native API.
+ * @param principal - authenticated creator.
+ * @param result - native Workspace create result.
+ */
+async recordWorkspaceCreated(principal: EnterprisePrincipal, result: unknown): Promise<void>
+
+/**
  * Bind a Session to a workspace only after the principal can create work in that compartment.
  * @param principal - Authenticated Session creator.
  * @param sessionId - Newly created DSH Session id.

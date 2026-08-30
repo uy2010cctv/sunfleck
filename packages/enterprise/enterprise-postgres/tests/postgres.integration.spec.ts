@@ -16,11 +16,12 @@ describe.skipIf(url === undefined)('enterprise PostgreSQL production composition
         `SELECT table_name FROM information_schema.tables
          WHERE table_schema = current_schema()
            AND table_name IN ('organizations', 'dsh_session_headers', 'dsh_enterprise_employee_drafts',
-           'dsh_enterprise_work_records', 'dsh_knowledge_documents') ORDER BY table_name`,
+           'dsh_enterprise_work_records', 'dsh_knowledge_documents',
+           'dsh_enterprise_cordis_packages') ORDER BY table_name`,
       )
       expect(result.rows.map(row => row.table_name)).toEqual([
-        'dsh_enterprise_employee_drafts', 'dsh_enterprise_work_records', 'dsh_knowledge_documents',
-        'dsh_session_headers', 'organizations',
+        'dsh_enterprise_cordis_packages', 'dsh_enterprise_employee_drafts', 'dsh_enterprise_work_records',
+        'dsh_knowledge_documents', 'dsh_session_headers', 'organizations',
       ])
       await expect(composition.operations.upsertWorkRecord({
         orgId: 'resolver-org', sessionId: 'missing-session', employeeReleaseId: 'missing-release',

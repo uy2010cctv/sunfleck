@@ -20,6 +20,10 @@ export interface PluginInventoryEntry {
   /** Effective Loader enablement, including disabled ancestor groups. */
   readonly enabled: boolean
   readonly fiberPhase: PluginFiberPhase
+  /** Installation channel only; the original spec is deliberately never exposed. */
+  readonly installSource?: { readonly kind: 'registry' | 'tgz' | 'file' | 'git' }
+  /** Protected enterprise Profile contract that ordinary plugin management cannot replace. */
+  readonly protectedProfile?: boolean
 }
 
 /** Point-in-time inventory returned by the plugin inventory Remote. */

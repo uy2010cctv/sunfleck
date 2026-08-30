@@ -12,7 +12,7 @@ The first enterprise workbench projected Agent Presets and the current browser S
 
 `@deepseek-ai/dsh-client-ui-enterprise-workbench` is the enterprise operations deck over the typed `enterpriseEmployees`, `enterpriseAssets`, `enterpriseTeams`, and `enterpriseOperations` client domains. Its overlay-local navigation owns digital employees, work records, approvals, schedules, capability assets, and teams. Enterprise governance, identity, credentials, and model administration remain Settings surfaces.
 
-The employee roster sends search, status, visibility, owner, limit, and cursor fields to the Host. The employee editor loads one persistent draft and its release history, keeps changes local until explicit save, validates supported profile fields, sends the current `expectedRevision`, preserves dirty input on `enterprise-conflict`, and exposes publish and rollback as separate mutations. Work, approval, schedule, asset, and team pages use their typed read models and revision-fenced mutations. Browser payloads never contain `orgId` or `principal`; the authenticated Host owns those values.
+The employee roster sends search, status, visibility, owner, limit, and cursor fields to the Host. Its first view is an employee gallery: dominant search, All/Published/Draft release tabs, grouped Use/Manage navigation, responsibility-first employee cards, factual Knowledge/Skill/SOP binding counts, and one explicit Start conversation action. Owner id and visibility remain available under More filters; revision, ownership, visibility, and binding ids stay out of the roster card and remain in employee management. The employee editor loads one persistent draft and its release history, keeps changes local until explicit save, validates supported profile fields, sends the current `expectedRevision`, preserves dirty input on `enterprise-conflict`, and exposes publish and rollback as separate mutations. Work, approval, schedule, asset, and team pages use their typed read models and revision-fenced mutations. Browser payloads never contain `orgId` or `principal`; the authenticated Host owns those values.
 
 The runtime's single Host-stream consumer emits decoded `connection/host-frame` events after the native Session and Workspace folds. Every enterprise frame carries a resource type (`employee`, `asset`, `team`, `work-record`, `approval`, `schedule`, or `outbox`). The workbench bounds and deduplicates `eventId` values and refreshes the matching read model without guessing from the visible page. All mutations run through one contained error, conflict, and retry state; each action generates its idempotency key before constructing the retry closure, so a retry reuses the same key. Conflicts remove the stale mutation retry closure and reload authoritative state instead. Employee conflicts keep local fields beside the server comparison until the operator explicitly adopts the server draft or keeps local fields on the new revision. A failed reload makes only that reload retryable. Failures do not escape as unhandled rejections. Page states are independent, so a forbidden or failed read can coexist with usable successful pages.
 
@@ -28,7 +28,7 @@ seed: enterprise-operations-deck-v1
 
 ### FORM
 
-An additive DSH overlay with a desktop operations rail, contained narrow-screen navigation, finite employee roster cells, quiet record rows, and sticky mobile primary action. Governance stays in Settings.
+An additive DSH overlay with a grouped desktop operations rail, contained narrow-screen navigation, a three-column employee gallery, explicit card actions, and quiet record rows. Governance stays in Settings.
 
 ### TYPE
 
@@ -44,7 +44,7 @@ Cool canvas and raised neutral surfaces in light mode, inherited graphite layers
 
 ### FIRST VIEWPORT
 
-The close header remains visible; operators first see local management navigation and the employee roster or selected task page. At 320 px navigation is a contained grid and a selected employee exposes one sticky start-work action without page horizontal scroll.
+The close header remains visible; operators first see grouped Use/Manage navigation and an employee gallery whose search and release tabs precede the roster. At 320 px navigation scrolls inside its own row and every single-column employee card keeps Manage and Start conversation visible without page horizontal scroll.
 
 ## Alternatives considered
 
@@ -55,4 +55,4 @@ The close header remains visible; operators first see local management navigatio
 
 ## Consequences
 
-Operators can manage the persistent enterprise entities without leaving the DSH overlay, while the native conversation remains the execution surface. The deck has responsive 320 px, tablet, and desktop layouts; keyboard focus containment, Escape handling, dirty-leave confirmation, reduced-motion behavior, and paired Chinese/English vocabulary are part of the component contract. Capability bindings and policy bodies remain ID/JSON-oriented operator inputs, and the UI deliberately shows no productivity, SLA, percentage, or inferred business-result metrics. Focused controller, React, API-fallback, conflict, event-deduplication, mutation-payload, and responsive-style tests pin the boundary.
+Operators can choose an employee without understanding Preset ids, revisions, ownership ids, or binding ids, while management remains available in the same overlay and the native conversation remains the execution surface. The deck has responsive 320 px, tablet, and desktop layouts; keyboard focus containment, Escape handling, dirty-leave confirmation, reduced-motion behavior, and paired Chinese/English vocabulary are part of the component contract. Capability bindings and policy bodies remain ID/JSON-oriented management inputs, and the UI deliberately shows no productivity, SLA, percentage, or inferred business-result metrics. Focused controller, React, API-fallback, conflict, event-deduplication, mutation-payload, and responsive-style tests pin the boundary.

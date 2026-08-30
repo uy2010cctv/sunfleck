@@ -39,14 +39,23 @@ async function bench(declareSlots = true) {
   const enterpriseAsset = {}
   const enterpriseTeam = {}
   const enterpriseOperation = {}
+  const pluginInventory = {}
+  const cordisWorkspace = {}
+  const cordisReview = {}
+  const cordisGovernance = {}
   ctx.provide('remote', {
-    agentPresets, enterpriseEmployee, enterpriseAsset, enterpriseTeam, enterpriseOperation,
+    agentPresets, enterpriseEmployee, enterpriseAsset, enterpriseTeam, enterpriseOperation, pluginInventory,
+    cordisWorkspace, cordisReview, cordisGovernance,
   } as never)
   ctx.provide('remote.agentPresets', agentPresets as never)
   ctx.provide('remote.enterpriseEmployee', enterpriseEmployee as never)
   ctx.provide('remote.enterpriseAsset', enterpriseAsset as never)
   ctx.provide('remote.enterpriseTeam', enterpriseTeam as never)
   ctx.provide('remote.enterpriseOperation', enterpriseOperation as never)
+  ctx.provide('remote.pluginInventory', pluginInventory as never)
+  ctx.provide('remote.cordisWorkspace', cordisWorkspace as never)
+  ctx.provide('remote.cordisReview', cordisReview as never)
+  ctx.provide('remote.cordisGovernance', cordisGovernance as never)
   const fiber = ctx.plugin({ inject: [...inject], apply })
   await fiber.await()
   return { ctx, fiber, declare }
@@ -58,6 +67,8 @@ describe('enterprise workbench browser plugin', () => {
       'slots', 'locale', 'connection', 'sessions', 'workspaces', 'remote',
       'remote.agentPresets', 'remote.enterpriseEmployee', 'remote.enterpriseAsset',
       'remote.enterpriseTeam', 'remote.enterpriseOperation',
+      'remote.pluginInventory',
+      'remote.cordisWorkspace', 'remote.cordisReview', 'remote.cordisGovernance',
     ])
   })
 

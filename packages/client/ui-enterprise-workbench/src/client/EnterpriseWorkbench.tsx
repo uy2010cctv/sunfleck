@@ -1,8 +1,9 @@
-/* oxlint-disable @stylistic/max-len, typescript/no-non-null-assertion */
+/* oxlint-disable @stylistic/max-len */
 /** Enterprise digital-employee roster and operations overlay. */
 import { useEffect, useRef, useState } from 'react'
 import {
-  IconCheckOutline16, IconCloseOutline16, IconPlayOutline16, IconRefreshOutline16,
+  IconCheckOutline16, IconCloseOutline16, IconEditOutline16, IconPlayOutline16, IconRefreshOutline16,
+  IconSearchOutline16,
   IconUserOutline16, IconWarningOutline16, StateDot,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
@@ -13,7 +14,10 @@ import type {
   EnterpriseApproval, EnterpriseAsset, EnterpriseAssetKind, EnterpriseBusinessState,
   EnterpriseEmployeeDraft, EnterpriseSchedule, EnterpriseScheduleTarget, EnterpriseTeam,
   EnterpriseTeamMember, EnterpriseVisibility, EnterpriseWorkRecord as OperationWorkRecord,
+  CordisPackageVersion, CordisReviewRequest, CordisScopeBinding,
 } from '@deepseek-ai/dsh-api-enterprise-controller/types'
+import type { WorkspaceSnapshot } from '@deepseek-ai/dsh-api-workspace-controller/client'
+import type {} from '@deepseek-ai/dsh-client-ui-workspace/client'
 import { NS, type EnterpriseWorkbenchKey } from './locales.ts'
 import type {
   EmployeeOperationalState, EnterpriseEmployeeDraftFields, EnterpriseEmployeeView,
@@ -46,6 +50,11 @@ export interface EnterpriseWorkbenchInjected {
   saveAssetVersion: (input: { assetId: string; kind: EnterpriseAssetKind; name: string; content: Readonly<Record<string, JsonValue>>; expectedRevision: number }) => Promise<boolean>
   archiveAsset: (asset: EnterpriseAsset) => Promise<void>
   saveTeam: (input: { teamId: string; leaderEmployeeReleaseId: string; members: readonly EnterpriseTeamMember[]; workflowTemplate: Readonly<Record<string, JsonValue>>; approvalPolicy: Readonly<Record<string, JsonValue>>; expectedRevision: number }) => Promise<boolean>
+  setExtensionWorkspace: (workspaceId: string) => void
+  refreshExtensions: () => Promise<boolean>
+  stopExtension: (binding: CordisScopeBinding, reason: string) => Promise<void>
+  rollbackExtension: (binding: CordisScopeBinding, packageId: string, reason: string) => Promise<void>
+  reviewExtension: (review: CordisReviewRequest, action: 'approve' | 'return' | 'publish', reason: string) => Promise<void>
   retryMutation: () => Promise<void>
   resolveMutationConflict: () => Promise<void>
   dismissMutationError: () => void
@@ -55,9 +64,9 @@ export interface EnterpriseWorkbenchInjected {
 
 export type EnterpriseWorkbenchProps = PropsRuntime<'shell.overlay'> & PropsLocale<typeof NS> & InjectFace<EnterpriseWorkbenchInjected>
 type Translate = (key: EnterpriseWorkbenchKey, params?: Record<string, string | number>) => string
-const NAV: readonly [EnterpriseWorkbenchPage, EnterpriseWorkbenchKey][] = [
-  ['employees', 'nav.employees'], ['work-records', 'nav.work-records'], ['approvals', 'nav.approvals'],
-  ['schedules', 'nav.schedules'], ['assets', 'nav.assets'], ['teams', 'nav.teams'],
+const NAV_GROUPS: readonly { label: EnterpriseWorkbenchKey; items: readonly [EnterpriseWorkbenchPage, EnterpriseWorkbenchKey][] }[] = [
+  { label: 'nav.use', items: [['employees', 'nav.employees'], ['work-records', 'nav.work-records'], ['approvals', 'nav.approvals']] },
+  { label: 'nav.manage', items: [['schedules', 'nav.schedules'], ['assets', 'nav.assets'], ['teams', 'nav.teams'], ['extensions', 'nav.extensions']] },
 ]
 
 function formatDate(value: number): string {
@@ -177,7 +186,7 @@ function EmployeeEditor({ editor, assets, api, back, rollback, mutationBusy, t }
       </div>
     </fieldset>
     <div className={css.formActions}><button type="button" className={css.primaryButton} disabled={editor.saving || editor.conflict || mutationBusy} onClick={() => { void api.saveEmployeeDraft() }}>{editor.saving ? t('editor.saving') : t('editor.save')}</button><button type="button" className={css.secondaryButton} disabled={editor.dirty || editor.saving || editor.conflict || mutationBusy} onClick={() => { void api.publishEmployee() }}>{t('editor.publish')}</button></div>
-    <section className={css.history} aria-labelledby="release-history-title"><h3 id="release-history-title">{t('editor.releases')}</h3>{editor.releases.length === 0 ? <p>{t('editor.noReleases')}</p> : <div className={css.rows}>{editor.releases.map(release => <div className={css.row} key={release.releaseId}><div><strong>v{release.version}</strong><span>{formatDate(release.publishedAt)} · {release.publishedBy}</span></div><button type="button" className={css.secondaryButton} disabled={editor.saving || mutationBusy} onClick={() => { rollback(release.releaseId) }}>{t('editor.rollback', { version: release.version })}</button></div>)}</div>}</section>
+    <section className={css.history} aria-labelledby="release-history-title"><h3 id="release-history-title">{t('editor.releases')}</h3>{editor.releases.length === 0 ? <p>{t('editor.noReleases')}</p> : <div className={css.rows}>{editor.releases.map(release => <div className={css.row} key={release.releaseId}><div><strong>{t('version.short', { version: release.version })}</strong><span>{formatDate(release.publishedAt)} · {release.publishedBy}</span></div><button type="button" className={css.secondaryButton} disabled={editor.saving || mutationBusy} onClick={() => { rollback(release.releaseId) }}>{t('editor.rollback', { version: release.version })}</button></div>)}</div>}</section>
   </section>
 }
 
@@ -188,8 +197,19 @@ function EmployeesPage({ state, api, guardDirty, t }: {
   t: Translate
 }) {
   const filters = state.employeeFilters
-  const [search, setSearch] = useState(filters.search ?? ''); const [status, setStatus] = useState(filters.status ?? ''); const [visibility, setVisibility] = useState(filters.visibility ?? ''); const [owner, setOwner] = useState(filters.ownerUserId ?? '')
-  const [selectedEmployeeId, setSelectedEmployeeId] = useState<string | null>(null)
+  const [search, setSearch] = useState(filters.search ?? '')
+  const [status, setStatus] = useState<EnterpriseEmployeeDraft['status'] | ''>(filters.status ?? '')
+  const [visibility, setVisibility] = useState<EnterpriseVisibility | ''>(filters.visibility ?? '')
+  const [owner, setOwner] = useState(filters.ownerUserId ?? '')
+  const applyFilters = (nextStatus = status): void => {
+    api.setEmployeeFilters({
+      ...(search.trim() === '' ? {} : { search: search.trim() }),
+      ...(nextStatus === '' ? {} : { status: nextStatus }),
+      ...(visibility === '' ? {} : { visibility }),
+      ...(owner.trim() === '' ? {} : { ownerUserId: owner.trim() }),
+    })
+    void api.refreshEmployees()
+  }
   if (state.employeeEditor !== undefined) return <EmployeeEditor
     editor={state.employeeEditor}
     assets={state.assets}
@@ -199,8 +219,61 @@ function EmployeesPage({ state, api, guardDirty, t }: {
     mutationBusy={state.mutationPhase === 'running'}
     t={t}
   />
-  return <section aria-labelledby="employees-page-title"><div className={css.sectionHead}><h2 id="employees-page-title">{t('employees.title')}</h2><span>{state.employees.items.length}</span></div><form className={css.filters} onSubmit={(event) => { event.preventDefault(); api.setEmployeeFilters({ ...(search === '' ? {} : { search }), ...(status === '' ? {} : { status: status as EnterpriseEmployeeDraft['status'] }), ...(visibility === '' ? {} : { visibility: visibility as EnterpriseVisibility }), ...(owner === '' ? {} : { ownerUserId: owner }) }); void api.refreshEmployees() }}><label>{t('filters.search')}<input value={search} onChange={(event) => { setSearch(event.target.value) }} /></label><label>{t('filters.status')}<select value={status} onChange={(event) => { setStatus(event.target.value) }}><option value="">{t('filters.all')}</option><option value="draft">{t(RELEASE_KEYS.draft)}</option><option value="published">{t(RELEASE_KEYS.published)}</option></select></label><label>{t('filters.visibility')}<select value={visibility} onChange={(event) => { setVisibility(event.target.value) }}><option value="">{t('filters.all')}</option><option value="organization">{t(VISIBILITY_KEYS.organization)}</option><option value="private">{t(VISIBILITY_KEYS.private)}</option><option value="restricted">{t(VISIBILITY_KEYS.restricted)}</option></select></label><label>{t('filters.owner')}<input value={owner} onChange={(event) => { setOwner(event.target.value) }} /></label><button type="submit" className={css.secondaryButton}>{t('filters.apply')}</button></form>
-    <PageBoundary page={state.employees} t={t}><div className={css.employeeGrid}>{state.employees.items.map((draft) => { const name = profileText(draft, 'name', draft.presetId); const capabilities = profileList(draft, 'capabilities'); const select = (): void => { setSelectedEmployeeId(draft.presetId) }; return <article className={css.employeeCard} data-selected={selectedEmployeeId === draft.presetId} tabIndex={0} aria-label={t('employee.select', { name })} key={draft.presetId} onClick={select} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); select() } }}><div className={css.employeeHead}><div className={css.avatar} aria-hidden="true">{name.slice(0, 2)}</div><div className={css.employeeIdentity}><div className={css.employeeNameRow}><h3>{name}</h3><span className={css.badge}>{t(RELEASE_KEYS[draft.status])}</span></div><div className={css.employeeMeta}><span>{profileText(draft, 'position', draft.presetId)}</span>{profileText(draft, 'department') !== '' && <span>{profileText(draft, 'department')}</span>}</div></div></div><div className={css.capabilities}>{capabilities.map(value => <span key={value}>{value}</span>)}{draft.bindings.map(binding => <span key={`${binding.kind}:${binding.assetId}:${binding.version}`}>{t(ASSET_KEYS[binding.kind])} · {binding.assetId} v{binding.version}</span>)}</div><dl className={css.facts}><div><dt>{t('employee.revision', { revision: draft.revision })}</dt><dd>{formatDate(draft.updatedAt)}</dd></div><div><dt>{t('employee.visibility', { visibility: t(VISIBILITY_KEYS[draft.visibility]) })}</dt><dd>{t('employee.owner', { owner: draft.ownerUserId })}</dd></div></dl><div className={css.employeeFoot}><span>{t('employee.bindings', { count: draft.bindings.length })}</span><div className={css.inlineActions}><button type="button" className={css.secondaryButton} aria-label={t('employee.edit', { name })} onClick={(event) => { event.stopPropagation(); void api.openEmployeeDraft(draft.presetId) }}>{t('editor.title')}</button><button type="button" className={css.primaryButton} aria-label={t('employee.start', { name })} disabled={state.busyEmployee === draft.presetId} onClick={(event) => { event.stopPropagation(); void api.startEmployee(draft.presetId) }}><IconPlayOutline16 size={16} />{t('employee.action')}</button></div></div></article> })}</div></PageBoundary>{state.employees.nextCursor !== undefined && <button type="button" className={css.loadMore} onClick={() => { void api.loadMoreEmployees() }}>{t('loadMore')}</button>}{selectedEmployeeId !== null && <div className={css.mobilePrimary}><button type="button" className={css.primaryButton} aria-label={t('employee.start', { name: profileText(state.employees.items.find(item => item.presetId === selectedEmployeeId)!, 'name', selectedEmployeeId) })} onClick={() => { void api.startEmployee(selectedEmployeeId) }}>{t('employee.action')}</button></div>}
+  return <section className={css.employeeGallery} aria-labelledby="employees-page-title">
+    <div className={css.galleryIntro}>
+      <div><h2 id="employees-page-title">{t('employees.heading')}</h2><p>{t('employees.intro')}</p></div>
+      <span>{t('employees.count', { count: state.employees.items.length })}</span>
+    </div>
+    <form className={css.galleryControls} onSubmit={(event) => { event.preventDefault(); applyFilters() }}>
+      <label className={css.searchField}>
+        <span className={css.visuallyHidden}>{t('filters.search')}</span>
+        <IconSearchOutline16 size={16}/>
+        <input value={search} placeholder={t('filters.searchPlaceholder')} onChange={(event) => { setSearch(event.target.value) }}/>
+      </label>
+      <button type="submit" className={css.secondaryButton}>{t('filters.searchAction')}</button>
+      <details className={css.advancedFilters}>
+        <summary>{t('filters.more')}</summary>
+        <div>
+          <label>{t('filters.visibility')}<select value={visibility} onChange={(event) => { setVisibility(event.target.value as EnterpriseVisibility | '') }}><option value="">{t('filters.all')}</option><option value="organization">{t(VISIBILITY_KEYS.organization)}</option><option value="private">{t(VISIBILITY_KEYS.private)}</option><option value="restricted">{t(VISIBILITY_KEYS.restricted)}</option></select></label>
+          <label>{t('filters.owner')}<input value={owner} onChange={(event) => { setOwner(event.target.value) }}/></label>
+          <button type="submit" className={css.secondaryButton}>{t('filters.apply')}</button>
+        </div>
+      </details>
+    </form>
+    <div className={css.employeeTabs} role="tablist" aria-label={t('employees.categories')}>
+      {([['', 'employees.all'], ['published', 'enum.employee.published'], ['draft', 'enum.employee.draft']] as const).map(([value, key]) => <button type="button" role="tab" key={value || 'all'} aria-selected={status === value} onClick={() => { setStatus(value); applyFilters(value) }}>{t(key)}</button>)}
+    </div>
+    <PageBoundary page={state.employees} t={t}><div className={css.employeeGrid}>{state.employees.items.map((draft) => {
+      const name = profileText(draft, 'name', draft.presetId)
+      const position = profileText(draft, 'position', t('employee.positionFallback'))
+      const department = profileText(draft, 'department')
+      const description = profileText(draft, 'description', t('employee.descriptionFallback'))
+      const capabilities = profileList(draft, 'capabilities')
+      const count = (kind: EnterpriseAssetKind): number => draft.bindings.filter(binding => binding.kind === kind).length
+      const toolCount = count('skill') + count('tool')
+      return <article className={css.employeeCard} data-status={draft.status} key={draft.presetId}>
+        <div className={css.employeeHead}>
+          <div className={css.avatar} aria-hidden="true">{name.slice(0, 2)}</div>
+          <div className={css.employeeIdentity}>
+            <div className={css.employeeNameRow}><h3>{name}</h3></div>
+            <div className={css.employeeMeta}><span>{position}</span>{department !== '' && <span>{department}</span>}</div>
+          </div>
+          <div className={css.rosterStatus}><StateDot state={draft.status === 'published' ? 'done' : 'warning'}/><span>{t(RELEASE_KEYS[draft.status])}</span></div>
+        </div>
+        <p className={css.description}>{description}</p>
+        {capabilities.length > 0 && <div className={css.capabilities}>{capabilities.slice(0, 3).map(value => <span key={value}>{value}</span>)}</div>}
+        <div className={css.assetStats} aria-label={t('employee.assetsSummary')}>
+          <span>{t('employee.stat.knowledge', { count: count('knowledge') })}</span>
+          <span>{t('employee.stat.tools', { count: toolCount })}</span>
+          <span>{t('employee.stat.sop', { count: count('sop') })}</span>
+        </div>
+        <div className={css.employeeActions}>
+          <button type="button" className={css.secondaryButton} aria-label={t('employee.edit', { name })} onClick={() => { void api.openEmployeeDraft(draft.presetId) }}><IconEditOutline16 size={16}/>{t('employee.manage')}</button>
+          <button type="button" className={css.startButton} aria-label={t('employee.start', { name })} disabled={state.busyEmployee === draft.presetId} onClick={() => { void api.startEmployee(draft.presetId) }}><IconPlayOutline16 size={16}/>{state.busyEmployee === draft.presetId ? t('employee.busy') : t('employee.action')}</button>
+        </div>
+      </article>
+    })}</div></PageBoundary>
+    {state.employees.nextCursor !== undefined && <button type="button" className={css.loadMore} onClick={() => { void api.loadMoreEmployees() }}>{t('loadMore')}</button>}
   </section>
 }
 
@@ -228,8 +301,8 @@ function TeamsPage({ page, releases, api, busy, onDirty, t }: { page: Enterprise
     <div className={css.sectionHead}><h2 id="teams-page-title">{t('nav.teams')}</h2><span aria-live="polite">{page.items.length}</span></div>
     <form className={css.createBar} onSubmit={(event) => { event.preventDefault(); setJsonError(false); void api.saveTeam({ teamId, leaderEmployeeReleaseId: leader, members, workflowTemplate: {}, approvalPolicy: {}, expectedRevision: page.items.find(item => item.teamId === teamId)?.revision ?? 0 }) }}>
       <label>{t('team.id')}<input required disabled={busy} value={teamId} onChange={(event) => { setTeamId(event.target.value); onDirty() }} /></label>
-      <label>{t('team.leaderSelect')}<select disabled={busy} value={leader} onChange={(event) => { setLeader(event.target.value); onDirty() }}><option value="">{t('filters.all')}</option>{releases.map(release => <option key={release.releaseId} value={release.releaseId}>{recordText(release.snapshot.profile, 'name') || release.presetId} v{release.version}</option>)}</select></label>
-      <label>{t('team.memberSelect')}<select disabled={busy} value="" onChange={(event) => { const releaseId = event.target.value; if (releaseId !== '' && !members.some(member => member.employeeReleaseId === releaseId)) setMembers([...members, { employeeReleaseId: releaseId, role: 'member' }]); onDirty() }}><option value="">{t('filters.all')}</option>{releases.map(release => <option key={release.releaseId} value={release.releaseId}>{recordText(release.snapshot.profile, 'name') || release.presetId} v{release.version}</option>)}</select></label>
+      <label>{t('team.leaderSelect')}<select disabled={busy} value={leader} onChange={(event) => { setLeader(event.target.value); onDirty() }}><option value="">{t('filters.all')}</option>{releases.map(release => <option key={release.releaseId} value={release.releaseId}>{recordText(release.snapshot.profile, 'name') || release.presetId} {t('version.short', { version: release.version })}</option>)}</select></label>
+      <label>{t('team.memberSelect')}<select disabled={busy} value="" onChange={(event) => { const releaseId = event.target.value; if (releaseId !== '' && !members.some(member => member.employeeReleaseId === releaseId)) setMembers([...members, { employeeReleaseId: releaseId, role: 'member' }]); onDirty() }}><option value="">{t('filters.all')}</option>{releases.map(release => <option key={release.releaseId} value={release.releaseId}>{recordText(release.snapshot.profile, 'name') || release.presetId} {t('version.short', { version: release.version })}</option>)}</select></label>
       <details className={css.wideField}><summary>{t('editor.advancedJson')}</summary><label>{t('team.members')}<textarea rows={2} readOnly value={JSON.stringify(members, null, 2)} /></label></details>
       <button className={css.primaryButton} type="submit" disabled={busy || leader === ''}>{t('team.save')}</button>{jsonError && <span className={css.fieldError} role="alert">{t('json.invalid')}</span>}
     </form>
@@ -237,8 +310,137 @@ function TeamsPage({ page, releases, api, busy, onDirty, t }: { page: Enterprise
   </section>
 }
 
+const EXTENSION_SECTION = {
+  running: 'running', personal: 'personal', department: 'department', organization: 'organization',
+  formal: 'formal', reviews: 'reviews',
+} as const
+type ExtensionSection = typeof EXTENSION_SECTION[keyof typeof EXTENSION_SECTION]
+
+function extensionScope(pkg: CordisPackageVersion, t: Translate): string {
+  if (pkg.scope.type === 'personal-workspace') return t('extensions.scope.personal')
+  if (pkg.scope.type === 'department') return t('extensions.scope.department')
+  if (pkg.scope.type === 'organization') return t('extensions.scope.organization')
+  return t('extensions.scope.session')
+}
+
+function sameExtensionScope(left: CordisPackageVersion['scope'], right: CordisScopeBinding['scope']): boolean {
+  if (left.type !== right.type) return false
+  if (left.type === 'personal-workspace' && right.type === 'personal-workspace') {
+    return left.workspaceId === right.workspaceId && left.ownerUserId === right.ownerUserId
+  }
+  if (left.type === 'department' && right.type === 'department') return left.departmentId === right.departmentId
+  if (left.type === 'organization' && right.type === 'organization') return left.organizationId === right.organizationId
+  if (left.type === 'session' && right.type === 'session') return left.sessionId === right.sessionId
+  return false
+}
+
+function ExtensionsPage({ state, workspaces, api, busy, t }: {
+  state: EnterpriseWorkbenchState
+  workspaces: WorkspaceSnapshot
+  api: EnterpriseWorkbenchInjected
+  busy: boolean
+  t: Translate
+}) {
+  const [section, setSection] = useState<ExtensionSection>(EXTENSION_SECTION.running)
+  const [reason, setReason] = useState('')
+  const formalPlugins = state.formalPlugins.items.filter(plugin =>
+    plugin.installSource !== undefined || plugin.protectedProfile === true)
+  const bindingFor = (pkg: CordisPackageVersion): CordisScopeBinding | undefined => state.extensionBindings.find(binding =>
+    binding.pluginId === pkg.pluginId && sameExtensionScope(pkg.scope, binding.scope))
+  const packagesByPlugin = new Map<string, CordisPackageVersion[]>()
+  for (const pkg of state.extensions.items) {
+    const rows = packagesByPlugin.get(pkg.pluginId) ?? []
+    rows.push(pkg)
+    packagesByPlugin.set(pkg.pluginId, rows)
+  }
+  const packages = section === EXTENSION_SECTION.running
+    ? state.extensions.items.filter((pkg) => {
+      const binding = bindingFor(pkg)
+      return binding?.activePackageId === pkg.packageId && !binding.disabled
+    })
+    : state.extensions.items.filter(pkg => pkg.scope.type === (section === EXTENSION_SECTION.personal
+      ? 'personal-workspace' : section === EXTENSION_SECTION.department ? 'department' : 'organization'))
+  const tabs: readonly [ExtensionSection, EnterpriseWorkbenchKey][] = [
+    [EXTENSION_SECTION.running, 'extensions.running'], [EXTENSION_SECTION.personal, 'extensions.personal'],
+    [EXTENSION_SECTION.department, 'extensions.department'], [EXTENSION_SECTION.organization, 'extensions.organization'],
+    [EXTENSION_SECTION.formal, 'extensions.formal'], [EXTENSION_SECTION.reviews, 'extensions.reviews'],
+  ]
+  return <section aria-labelledby="extensions-page-title">
+    <div className={css.extensionHeader}>
+      <div><h2 id="extensions-page-title">{t('extensions.title')}</h2><p>{t('extensions.description')}</p></div>
+      <div className={css.extensionWorkspace}>
+        <label>{t('extensions.workspace')}<select value={state.extensionWorkspaceId ?? ''}
+          onChange={(event) => { api.setExtensionWorkspace(event.target.value) }}>
+          {workspaces.items.map(workspace => <option key={workspace.workspaceId} value={workspace.workspaceId}>{workspace.title}</option>)}
+        </select></label>
+        <button type="button" className={css.secondaryButton} disabled={busy}
+          onClick={() => { void api.refreshExtensions() }}><IconRefreshOutline16 size={16} />{t('refresh')}</button>
+      </div>
+    </div>
+    <nav className={css.extensionTabs} aria-label={t('extensions.sections')}>
+      {tabs.map(([id, key]) => <button type="button" key={id} aria-current={section === id ? 'page' : undefined}
+        onClick={() => { setSection(id) }}>{t(key)}</button>)}
+    </nav>
+    {section === EXTENSION_SECTION.formal
+      ? <PageBoundary page={{ ...state.formalPlugins, items: formalPlugins }} t={t}><div className={css.extensionList}>
+        {formalPlugins.map(plugin => <article className={css.extensionRow} key={plugin.entryId}>
+          <div className={css.extensionIdentity}><strong>{plugin.moduleName}</strong><span>{plugin.entryId}</span>
+            <p>{t('extensions.formalDescription')}</p></div>
+          <div className={css.extensionMeta}>
+            <span>{plugin.enabled ? t('extensions.formalEnabled') : t('extensions.formalDisabled')}</span>
+            <span>{plugin.fiberPhase === 'active' ? t('extensions.formalActive')
+              : plugin.fiberPhase === 'failed' ? t('extensions.formalFailed')
+                : plugin.fiberPhase === 'pending' ? t('extensions.formalPending') : t('extensions.formalUnobserved')}</span>
+            {plugin.installSource !== undefined && <span>{t(plugin.installSource.kind === 'registry'
+              ? 'extensions.formalRegistry' : plugin.installSource.kind === 'tgz'
+                ? 'extensions.formalTgz' : plugin.installSource.kind === 'git'
+                  ? 'extensions.formalGit' : 'extensions.formalFile')}</span>}
+            {plugin.protectedProfile === true && <span>{t('extensions.formalProtected')}</span>}
+          </div>
+        </article>)}
+      </div></PageBoundary>
+      : section === EXTENSION_SECTION.reviews
+        ? <PageBoundary page={state.extensionReviews} t={t}><div className={css.extensionList}>
+          {state.extensionReviews.items.map(review => <article className={css.extensionRow} key={review.reviewId}>
+            <div className={css.extensionIdentity}><strong>{review.pluginId}</strong><span>{review.departmentId} · {t(`extensions.review.${review.status}`)}</span></div>
+            <div className={css.extensionMeta}><span>{t('extensions.submittedBy', { user: review.submittedBy })}</span><span>{formatDate(review.updatedAt)}</span></div>
+            {(review.status === 'pending' || review.status === 'changes-requested' || review.status === 'approved-department') && <div className={css.extensionReviewActions}>
+              <label>{t('extensions.reason')}<input value={reason} onChange={(event) => { setReason(event.target.value) }} /></label>
+              {review.status !== 'approved-department' && <button type="button" className={css.primaryButton} disabled={busy || reason.trim() === ''}
+                onClick={() => { void api.reviewExtension(review, 'approve', reason) }}>{t('extensions.approve')}</button>}
+              <button type="button" className={css.secondaryButton} disabled={busy || reason.trim() === ''}
+                onClick={() => { void api.reviewExtension(review, 'return', reason) }}>{t('extensions.return')}</button>
+              <button type="button" className={css.secondaryButton} disabled={busy}
+                onClick={() => { void api.reviewExtension(review, 'publish', reason) }}>{t('extensions.publish')}</button>
+            </div>}
+          </article>)}
+        </div></PageBoundary>
+        : <PageBoundary page={{ ...state.extensions, items: packages }} t={t}><div className={css.extensionList}>
+          {packages.map((pkg) => {
+            const binding = bindingFor(pkg)
+            const versions = packagesByPlugin.get(pkg.pluginId)?.toSorted((left, right) => right.version - left.version) ?? []
+            const previous = versions.find(version => version.version < pkg.version)
+            const active = binding?.activePackageId === pkg.packageId && !binding.disabled
+            return <article className={css.extensionRow} key={pkg.packageId} data-active={active}>
+              <div className={css.extensionIdentity}><strong>{pkg.name}</strong><span>{pkg.pluginId} · {t('extensions.version', { version: pkg.version })} · {extensionScope(pkg, t)}</span><p>{pkg.purpose}</p></div>
+              <div className={css.extensionCapabilities}>{pkg.manifest.provides.map(capability => <span key={capability}>{capability}</span>)}</div>
+              <div className={css.extensionMeta}><span>{active ? t('extensions.status.running') : binding?.disabled === true ? t('extensions.status.stopped') : t('extensions.status.available')}</span><span>{binding?.trustLevel === 'trusted-in-process' ? t('extensions.trust.trusted') : t('extensions.trust.isolated')}</span><span>{t('extensions.author', { user: pkg.authoredBy })}</span></div>
+              <details className={css.extensionSource}><summary>{t('extensions.source')}</summary>{pkg.hostCode !== undefined && <pre>{pkg.hostCode}</pre>}{pkg.clientCode !== undefined && <pre>{pkg.clientCode}</pre>}</details>
+              {binding !== undefined && <div className={css.inlineActions}>
+                {!binding.disabled && <button type="button" className={css.secondaryButton} disabled={busy}
+                  onClick={() => { void api.stopExtension(binding, t('extensions.stopReason')) }}>{t('extensions.stop')}</button>}
+                {previous !== undefined && <button type="button" className={css.secondaryButton} disabled={busy}
+                  onClick={() => { void api.rollbackExtension(binding, previous.packageId, t('extensions.rollbackReason')) }}>{t('extensions.rollback', { version: previous.version })}</button>}
+              </div>}
+            </article>
+          })}
+        </div></PageBoundary>}
+  </section>
+}
+
 export function EnterpriseWorkbench(props: EnterpriseWorkbenchProps) {
   const state = props.useEnterprise(snapshot => snapshot); const dialogRef = useRef<HTMLElement>(null); const closeRef = useRef<HTMLButtonElement>(null); const page = state.page
+  const workspaces = props.useWorkspaces(snapshot => snapshot)
   const [localFormDirty, setLocalFormDirty] = useState(false)
   const mutationBusy = state.mutationPhase === 'running'
   const dirty = state.employeeEditor?.dirty === true || localFormDirty
@@ -256,7 +458,8 @@ export function EnterpriseWorkbench(props: EnterpriseWorkbenchProps) {
   useEffect(() => { if (!dirty) return; const warn = (event: BeforeUnloadEvent): void => { event.preventDefault() }; window.addEventListener('beforeunload', warn); return () => { window.removeEventListener('beforeunload', warn) } }, [dirty])
   if (!state.open) return null
   const onKeyDown = (event: React.KeyboardEvent<HTMLElement>): void => { if (event.key === 'Escape') { requestClose(); return } if (event.key !== 'Tab') return; const controls = [...dialogRef.current?.querySelectorAll<HTMLElement>('button:not(:disabled), [href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])') ?? []]; const first = controls[0]; const last = controls.at(-1); if (first === undefined || last === undefined) return; if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus() } else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus() } }
-  const pages = [state.employees, state.workRecords, state.approvals, state.schedules, state.assets, state.teams]
+  const pages = [state.employees, state.workRecords, state.approvals, state.schedules, state.assets, state.teams,
+    state.extensions, state.extensionReviews, state.formalPlugins]
   const partial = state.mode === 'enterprise' && pages.some(value => value.phase === 'error' || value.phase === 'permission') && pages.some(value => value.phase === 'ready')
   const injected = props as unknown as EnterpriseWorkbenchInjected
   const api: EnterpriseWorkbenchInjected = {
@@ -279,5 +482,5 @@ export function EnterpriseWorkbench(props: EnterpriseWorkbenchProps) {
   }
   return <section ref={dialogRef} className={css.workbench} role="dialog" aria-modal="true" aria-label={props.t('title')} onKeyDown={onKeyDown}><header className={css.header}><div><h1>{props.t('title')}</h1><p>{props.t('subtitle')}</p></div><div className={css.headerActions}><button type="button" className={css.iconButton} aria-label={props.t('refresh')} onClick={() => { void props.refresh() }}><IconRefreshOutline16 size={16} /></button><button ref={closeRef} type="button" className={css.iconButton} aria-label={props.t('close')} onClick={requestClose}><IconCloseOutline16 size={16} /></button></div></header>
     {state.mutationError !== null && <div className={css.mutationError} role="alert" aria-label={props.t('mutation.errorAria')}><IconWarningOutline16 size={18} /><span>{state.mutationPhase === 'conflict' ? props.t('mutation.conflict') : state.mutationError}</span>{state.mutationPhase === 'conflict' ? <button type="button" onClick={() => { void props.resolveMutationConflict() }}>{props.t('mutation.reload')}</button> : <button type="button" onClick={() => { void props.retryMutation() }}>{props.t('mutation.retry')}</button>}<button type="button" onClick={props.dismissMutationError}>{props.t('mutation.dismiss')}</button></div>}
-    {state.phase === 'loading' && state.mode === null && <div className={css.loading} role="status"><span className={css.skeleton} />{props.t('loading')}</div>}{state.phase === 'error' && <div className={css.error} role="alert"><IconWarningOutline16 size={18} /><span>{state.error}</span><button type="button" onClick={() => { void props.refresh() }}>{props.t('retry')}</button></div>}{state.phase !== 'error' && state.mode === 'fallback' && <main className={css.body}><FallbackPage state={state} start={props.startEmployee} open={props.openRecord} t={props.t} /></main>}{state.phase !== 'error' && state.mode === 'enterprise' && <div className={css.shell}><nav className={css.nav} aria-label={props.t('nav.aria')}>{NAV.map(([id, key]) => <button type="button" key={id} aria-current={page === id ? 'page' : undefined} onClick={() => { requestPage(id) }}>{props.t(key)}</button>)}</nav><main className={css.main}>{partial && <div className={css.notice} role="status">{props.t('partial')}</div>}{page === 'employees' && <EmployeesPage state={state} api={api} guardDirty={guardDirty} t={props.t} />}{page === 'work-records' && <WorkRecordsPage page={state.workRecords} update={props.updateWorkRecord} busy={mutationBusy} t={props.t} />}{page === 'approvals' && <ApprovalsPage page={state.approvals} api={api} busy={mutationBusy} t={props.t} />}{page === 'schedules' && <SchedulesPage page={state.schedules} api={api} busy={mutationBusy} onDirty={() => { setLocalFormDirty(true) }} t={props.t} />}{page === 'assets' && <AssetsPage page={state.assets} api={api} busy={mutationBusy} onDirty={() => { setLocalFormDirty(true) }} t={props.t} />}{page === 'teams' && <TeamsPage page={state.teams} releases={state.releases} api={api} busy={mutationBusy} onDirty={() => { setLocalFormDirty(true) }} t={props.t} />}</main></div>}</section>
+    {state.phase === 'loading' && state.mode === null && <div className={css.loading} role="status"><span className={css.skeleton} />{props.t('loading')}</div>}{state.phase === 'error' && <div className={css.error} role="alert"><IconWarningOutline16 size={18} /><span>{state.error}</span><button type="button" onClick={() => { void props.refresh() }}>{props.t('retry')}</button></div>}{state.phase !== 'error' && state.mode === 'fallback' && <main className={css.body}><FallbackPage state={state} start={props.startEmployee} open={props.openRecord} t={props.t} /></main>}{state.phase !== 'error' && state.mode === 'enterprise' && <div className={css.shell}><nav className={css.nav} aria-label={props.t('nav.aria')}>{NAV_GROUPS.map(group => <div className={css.navGroup} key={group.label}><span>{props.t(group.label)}</span>{group.items.map(([id, key]) => <button type="button" key={id} aria-current={page === id ? 'page' : undefined} onClick={() => { requestPage(id) }}>{props.t(key)}</button>)}</div>)}</nav><main className={css.main}>{partial && <div className={css.notice} role="status">{props.t('partial')}</div>}{page === 'employees' && <EmployeesPage state={state} api={api} guardDirty={guardDirty} t={props.t} />}{page === 'work-records' && <WorkRecordsPage page={state.workRecords} update={props.updateWorkRecord} busy={mutationBusy} t={props.t} />}{page === 'approvals' && <ApprovalsPage page={state.approvals} api={api} busy={mutationBusy} t={props.t} />}{page === 'schedules' && <SchedulesPage page={state.schedules} api={api} busy={mutationBusy} onDirty={() => { setLocalFormDirty(true) }} t={props.t} />}{page === 'assets' && <AssetsPage page={state.assets} api={api} busy={mutationBusy} onDirty={() => { setLocalFormDirty(true) }} t={props.t} />}{page === 'teams' && <TeamsPage page={state.teams} releases={state.releases} api={api} busy={mutationBusy} onDirty={() => { setLocalFormDirty(true) }} t={props.t} />}{page === 'extensions' && <ExtensionsPage state={state} workspaces={workspaces} api={api} busy={mutationBusy} t={props.t} />}</main></div>}</section>
 }

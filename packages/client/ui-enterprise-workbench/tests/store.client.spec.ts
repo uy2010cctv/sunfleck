@@ -163,6 +163,9 @@ const unavailable = () => Promise.resolve({
 
 function controllerApi(overrides: Record<string, unknown> = {}) {
   return {
+    pluginInventory: { list: () => ok({ entries: [{
+      entryId: 'formal-plugin', moduleName: '@company/dsh-orders', enabled: true, fiberPhase: 'active',
+    }] }) },
     agentPresets: { list: () => ok({ presets: [STANDARD], authorable: false, hasDocument: false }) },
     enterpriseEmployees: {
       list: () => ok({ items: [{
@@ -194,6 +197,18 @@ function controllerApi(overrides: Record<string, unknown> = {}) {
       createApproval: () => ok({}), transitionApproval: () => ok({}), cancelApproval: () => ok({}),
       listSchedules: () => ok({ items: [] }), getSchedule: () => ok({}), saveSchedule: () => ok({}), transitionSchedule: () => ok({}),
     },
+    cordisWorkspace: {
+      list: () => ok({ packages: [], bindings: [] }), save: () => ok({}), activate: () => ok({}),
+      stop: () => ok({}), rollback: () => ok({}), pinGeneration: () => ok({}),
+    },
+    cordisReview: {
+      list: () => ok([]), submit: () => ok({}), derive: () => ok({}), approveDepartment: () => ok({}),
+      return: () => ok({}), publishOrganization: () => ok({}),
+    },
+    cordisGovernance: {
+      departmentManagers: () => ok(null), setDepartmentManagers: () => ok({}), disable: () => ok({}),
+      rollback: () => ok({}), setTrust: () => ok({}),
+    },
     ...overrides,
   }
 }
@@ -209,6 +224,60 @@ function controllerServices() {
 }
 
 describe('EnterpriseWorkbenchController enterprise read models', () => {
+  it('loads and mutates Workspace Cordis projections through typed remotes', async () => {
+    const base = controllerApi()
+    const binding = {
+      bindingId: 'binding-1', orgId: 'server-org', pluginId: 'orders-1', activePackageId: 'package-1',
+      scope: { type: 'personal-workspace', workspaceId: 'workspace-1', ownerUserId: 'owner-1' },
+      generation: 1, revision: 1, activatedBy: 'owner-1', disabled: false, trustLevel: 'isolated', updatedAt: 1,
+    }
+    const pkg = {
+      packageId: 'package-1', orgId: 'server-org', pluginId: 'orders-1', dynamicPackageId: 'pkg-1', version: 1,
+      scope: binding.scope, name: 'Orders', purpose: 'Validate orders.', hostCode: 'return { apply() {} }',
+      manifest: { apiVersion: 'dsh-plugin/v1', runtime: 'isolated-realm', provides: ['tool:orders'], capabilities: [] },
+      artifactRef: 'artifact://orders/1', validationReportRef: 'report://orders/1', authoredBy: 'owner-1',
+      sourceDigest: 'a'.repeat(64), createdAt: 1,
+    }
+    const list = vi.fn(() => ok({ packages: [pkg], bindings: [binding] }))
+    const stop = vi.fn(() => ok({ ...binding, disabled: true, revision: 2 }))
+    const controller = new EnterpriseWorkbenchController(controllerApi({
+      cordisWorkspace: { ...base.cordisWorkspace, list, stop },
+    }) as never, controllerServices().sessions as never, controllerServices().workspaces as never)
+
+    await controller.refreshExtensions()
+    await controller.stopExtension(binding as never, 'Pause.')
+
+    expect(list).toHaveBeenCalledWith({ workspaceId: 'workspace-1' })
+    expect(stop).toHaveBeenCalledWith(expect.objectContaining({
+      bindingId: 'binding-1', expectedRevision: 1, reason: 'Pause.',
+    }))
+    expect(controller.store.getSnapshot()).toMatchObject({
+      extensionWorkspaceId: 'workspace-1', extensions: { phase: 'ready', items: [expect.objectContaining({ packageId: 'package-1' })] },
+    })
+  })
+
+  it('defaults extensions to the current Session Workspace instead of list order', async () => {
+    const base = controllerServices()
+    const list = vi.fn(() => ok({ packages: [], bindings: [] }))
+    const currentSessions = sessions([{ id: 'current-session' }])
+    const controller = new EnterpriseWorkbenchController(controllerApi({
+      cordisWorkspace: { ...controllerApi().cordisWorkspace, list },
+    }) as never, {
+      ...base.sessions,
+      list: { getSnapshot: () => ({ ...currentSessions, current: 'current-session' as SessionId }), subscribe: () => () => {} },
+    } as never, {
+      list: { getSnapshot: () => ({ ...workspaces(), items: [
+        { ...workspaces().items[0]!, workspaceId: 'department-first' as WorkspaceId, sessionIds: [] },
+        { ...workspaces().items[0]!, workspaceId: 'personal-current' as WorkspaceId, sessionIds: ['current-session' as SessionId] },
+      ] }), subscribe: () => () => {} },
+    } as never)
+
+    await controller.refreshExtensions()
+
+    expect(list).toHaveBeenCalledWith({ workspaceId: 'personal-current' })
+    expect(controller.store.getSnapshot().extensionWorkspaceId).toBe('personal-current')
+  })
+
   it('loads PostgreSQL employee and operations pages and forwards roster filters/cursor', async () => {
     const list = vi.fn(controllerApi().enterpriseEmployees.list)
     const api = controllerApi({ enterpriseEmployees: { ...controllerApi().enterpriseEmployees, list } })
@@ -229,6 +298,7 @@ describe('EnterpriseWorkbenchController enterprise read models', () => {
       mode: 'enterprise',
       employees: { phase: 'ready', nextCursor: 'employee-next' },
       workRecords: { phase: 'ready' },
+      formalPlugins: { phase: 'ready', items: [expect.objectContaining({ moduleName: '@company/dsh-orders' })] },
     })
   })
 
