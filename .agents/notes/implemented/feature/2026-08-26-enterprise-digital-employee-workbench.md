@@ -24,6 +24,8 @@ An empty enterprise roster must expose a primary **New digital employee** action
 
 Each employee profile carries an opaque `avatarSeed`. New drafts receive a random seed, while older records fall back to the stable Preset id. The browser renders the seed with DiceBear's Lorelei HTTP API; it never sends a person's name, email, prompt, or organization data to the avatar service. Lorelei is a CC0-licensed remix and remains presentation metadata rather than runtime identity.
 
+The employee editor reads `/auth/departments` through the current authenticated session and stores the selected canonical department name. This read route is available to ordinary authenticated members under employee-read policy; department creation and restructuring remain administrator-only. The form uses a full-width employee name, paired position/department controls, full-width descriptive fields, and no explanatory avatar paragraph.
+
 ## StaffDeck provenance boundary
 
 OpenBMB StaffDeck informed the employee-roster and operations information architecture. No StaffDeck React components, FastAPI models, illustrations, avatars, logos, or source files are copied. DSH keeps its MIT source, Cordis plugin topology, runtime services, event log, theme tokens, and browser slot system.

@@ -679,7 +679,8 @@
   .formGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .editorLayout { grid-template-columns: minmax(13rem, 17rem) minmax(0, 1fr); }
   .identityPanel { position: sticky; inset-block-start: var(--dse-space-sm); }
-  .fullField { grid-column: 1 / -1; }
+.fullField { grid-column: 1 / -1; }
+.compactField { inline-size: min(100%, 32rem); }
   .wideField { grid-column: span 2; }
   .row { flex-direction: row; align-items: center; justify-content: space-between; }
   .extensionHeader { flex-direction: row; align-items: end; justify-content: space-between; }

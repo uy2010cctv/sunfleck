@@ -189,9 +189,23 @@ export class EnterpriseAuthHttpHandler {
     }
 
     if (path[1] === 'workspaces') return this.workspaces(request, path)
+    if (path[1] === 'departments') return this.departments(request, path)
     if (path[1] === 'admin') return this.admin(request, url, path)
 
     return new Response('not found', { status: 404 })
+  }
+
+  private async departments(request: Request, path: string[]): Promise<Response> {
+    if (request.method !== 'GET' || path.length !== 2) return new Response('not found', { status: 404 })
+    const principal = await this.security.authenticateCookieAsync(request.headers.get('cookie') ?? '')
+    if (principal === undefined) return new Response('unauthorized', { status: 401 })
+    const endpoint = 'enterpriseEmployee.list'
+    const decision = await this.security.authorizeApiAsync(principal, endpoint, {})
+    await this.security.auditApiAsync(
+      principal, endpoint, {}, decision, request.headers.get('x-request-id') ?? randomUUID(),
+    )
+    if (!decision.allowed) return new Response('forbidden', { status: 403 })
+    return json(await this.security.repository.listDepartments(principal.orgId))
   }
 
   private async admin(request: Request, url: URL, path: string[]): Promise<Response> {

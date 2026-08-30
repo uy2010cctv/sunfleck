@@ -228,6 +228,15 @@ function EmployeeEditor({ editor, assets, api, back, rollback, mutationBusy, t }
   t: Translate
 }) {
   const [bindingAssetId, setBindingAssetId] = useState('')
+  const [departments, setDepartments] = useState<readonly { id: string; name: string }[]>([])
+  useEffect(() => {
+    const abort = new AbortController()
+    void fetch('/auth/departments', { credentials: 'same-origin', signal: abort.signal })
+      .then(async response => response.ok ? response.json() as Promise<readonly { id: string; name: string }[]> : [])
+      .then((items) => { setDepartments(items) })
+      .catch(() => {})
+    return () => { abort.abort() }
+  }, [])
   if (editor.phase === 'loading') return <div className={css.loading} role="status">{t('loading')}</div>
   if (editor.fields === undefined) return <div className={css.empty} role="alert"><span>{editor.error ?? t('page.error')}</span></div>
   const field = editor.fields
@@ -244,7 +253,6 @@ function EmployeeEditor({ editor, assets, api, back, rollback, mutationBusy, t }
         <div className={css.avatarStage}><EmployeeAvatar name={displayName} seed={avatarSeed} large t={t}/></div>
         <div className={css.identityCopy}><strong>{displayName}</strong><span>{field.position.trim() || t('employee.positionFallback')}</span>{field.department.trim() !== '' && <span>{field.department}</span>}</div>
         <button type="button" className={css.secondaryButton} onClick={() => { api.patchEmployeeDraft({ avatarSeed: randomUUID() }) }}>{t('editor.changeAvatar')}</button>
-        <p>{t('editor.avatarHelp')}</p>
       </aside>
       <div className={css.editorContent}>
         {editor.errors.length > 0 && <div className={css.validation} role="alert"><strong>{t('editor.validation')}</strong><ul>{editor.errors.map(error => <li key={error}>{validationText(error)}</li>)}</ul></div>}
@@ -252,13 +260,13 @@ function EmployeeEditor({ editor, assets, api, back, rollback, mutationBusy, t }
         {editor.conflictServerFields !== undefined && <section className={css.conflictComparison} aria-label={t('editor.conflictComparison', { revision: editor.conflictServerRevision ?? 0 })}><h3>{t('editor.conflictComparison', { revision: editor.conflictServerRevision ?? 0 })}</h3><div><div><strong>{t('editor.localCopy')}</strong><span>{field.name}</span><span>{field.prompt}</span><span>{field.modelRef}</span></div><div><strong>{t('editor.serverCopy')}</strong><span>{editor.conflictServerFields.name}</span><span>{editor.conflictServerFields.prompt}</span><span>{editor.conflictServerFields.modelRef}</span></div></div><div className={css.conflictActions}><button type="button" className={css.secondaryButton} onClick={api.adoptServerEmployeeConflict}>{t('editor.adoptServer')}</button><button type="button" className={css.primaryButton} onClick={api.keepLocalEmployeeConflict}>{t('editor.keepLocal')}</button></div></section>}
         <fieldset className={css.editorFields} disabled={editor.saving}>
           <section className={css.formSection} aria-labelledby="employee-profile-section"><header><h3 id="employee-profile-section">{t('editor.profileSection')}</h3><p>{t('editor.profileHelp')}</p></header><div className={css.formGrid}>
-            <label>{t('editor.name')}<input value={field.name} placeholder={t('editor.namePlaceholder')} onChange={(event) => { api.patchEmployeeDraft({ name: event.target.value }) }} /></label>
+            <label className={css.fullField}>{t('editor.name')}<input value={field.name} placeholder={t('editor.namePlaceholder')} onChange={(event) => { api.patchEmployeeDraft({ name: event.target.value }) }} /></label>
             <label>{t('editor.position')}<input value={field.position} placeholder={t('editor.positionPlaceholder')} onChange={(event) => { api.patchEmployeeDraft({ position: event.target.value }) }} /></label>
-            <label>{t('editor.department')}<input value={field.department} placeholder={t('editor.departmentPlaceholder')} onChange={(event) => { api.patchEmployeeDraft({ department: event.target.value }) }} /></label>
+            <label>{t('editor.department')}<select value={field.department} onChange={(event) => { api.patchEmployeeDraft({ department: event.target.value }) }}><option value="">{departments.length === 0 ? t('editor.departmentEmpty') : t('editor.departmentPlaceholder')}</option>{field.department !== '' && !departments.some(department => department.name === field.department) && <option value={field.department}>{field.department}</option>}{departments.map(department => <option key={department.id} value={department.name}>{department.name}</option>)}</select></label>
             <label className={css.fullField}>{t('editor.description')}<textarea rows={3} value={field.description} placeholder={t('editor.descriptionPlaceholder')} onChange={(event) => { api.patchEmployeeDraft({ description: event.target.value }) }} /></label>
           </div></section>
           <section className={css.formSection} aria-labelledby="employee-runtime-section"><header><h3 id="employee-runtime-section">{t('editor.runtimeSection')}</h3><p>{t('editor.runtimeHelp')}</p></header><div className={css.formGrid}>
-            <label>{t('editor.model')}<input value={field.modelRef} placeholder={t('editor.modelPlaceholder')} onChange={(event) => { api.patchEmployeeDraft({ modelRef: event.target.value }) }} /></label>
+            <label className={css.compactField}>{t('editor.model')}<input value={field.modelRef} placeholder={t('editor.modelPlaceholder')} onChange={(event) => { api.patchEmployeeDraft({ modelRef: event.target.value }) }} /></label>
             <label className={css.fullField}>{t('editor.prompt')}<textarea rows={8} value={field.prompt} placeholder={t('editor.promptPlaceholder')} onChange={(event) => { api.patchEmployeeDraft({ prompt: event.target.value }) }} /></label>
           </div></section>
           <section className={css.formSection} aria-labelledby="employee-access-section"><header><h3 id="employee-access-section">{t('editor.accessSection')}</h3><p>{t('editor.accessHelp')}</p></header><div className={css.formGrid}>

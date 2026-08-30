@@ -12,6 +12,7 @@ import type { EnterpriseView, EnterpriseWorkbenchState } from '../src/client/sto
 afterEach(() => {
   cleanup()
   vi.restoreAllMocks()
+  vi.unstubAllGlobals()
 })
 
 const t = makeTranslate(zh)
@@ -213,6 +214,31 @@ describe('EnterpriseWorkbench', () => {
     expect(typeof avatarPatch.avatarSeed).toBe('string')
     expect(avatarPatch.avatarSeed).not.toBe('new-avatar-seed')
     expect(screen.getByRole('button', { name: '发布' }).hasAttribute('disabled')).toBe(true)
+  })
+
+  it('loads the enterprise department directory into a selector', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify([
+      { id: 'dept-procurement', name: '采购部' }, { id: 'dept-ops', name: '运营部' },
+    ]), { status: 200, headers: { 'content-type': 'application/json' } })))
+    const patchEmployeeDraft = vi.fn()
+    render(<EnterpriseWorkbench {...workbenchProps({ state: {
+      mode: 'enterprise', page: 'employees', employeeEditor: {
+        phase: 'ready', revision: 1, releases: [], dirty: false, saving: false, conflict: false,
+        errors: [], error: null,
+        fields: {
+          presetId: 'employee-buyer', name: '采购专员', avatarSeed: 'seed', description: '',
+          position: '采购运营', department: '采购部', prompt: '负责采购。', modelRef: 'deepseek-chat',
+          capabilities: [], visibility: 'organization', bindings: [],
+        },
+      },
+    } as never, patchEmployeeDraft })} />)
+
+    await waitFor(() => {
+      expect(screen.getByRole('combobox', { name: '部门' })).toBeDefined()
+    })
+    expect(screen.queryByRole('textbox', { name: '部门' })).toBeNull()
+    fireEvent.change(screen.getByRole('combobox', { name: '部门' }), { target: { value: '运营部' } })
+    expect(patchEmployeeDraft).toHaveBeenCalledWith({ department: '运营部' })
   })
 
   it('presents the roster as a StaffDeck-inspired employee gallery without technical metadata', () => {

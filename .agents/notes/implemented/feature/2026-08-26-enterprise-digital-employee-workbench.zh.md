@@ -24,6 +24,8 @@ DSH 把 Agent Preset、Workspace、Session 和 Session Event 作为独立的开�
 
 每位员工档案保存一个不含个人信息的 `avatarSeed`。新草稿随机生成 seed，旧记录在没有 seed 时使用稳定的 Preset id。浏览器通过 DiceBear Lorelei HTTP API 渲染头像，不会把姓名、邮箱、Prompt 或组织数据发送给头像服务。Lorelei 是 CC0 授权的 remix；头像只属于展示元数据，不参与运行时身份判定。
 
+员工编辑器通过当前登录会话读取 `/auth/departments`，并保存用户选择的规范部门名称。普通已登录成员按员工读取权限使用该目录；新建部门和调整组织树仍只属于管理员。表单采用名称整行、岗位与部门成对、说明与 Prompt 整行的排布，同时移除头像下方的解释文案。
+
 ## StaffDeck 来源边界
 
 OpenBMB StaffDeck 只用于参考员工名册和运营信息架构。未复制 StaffDeck 的 React 组件、FastAPI 模型、插图、头像、Logo 或源文件。DSH 保留自身的 MIT 源码、Cordis 插件拓扑、运行时服务、事件日志、主题 token 和浏览器 slot 系统。

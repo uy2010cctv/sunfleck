@@ -98,6 +98,7 @@ Employee Operations Deck. The interface treats digital employees as finite opera
 - Team creation requires at least two published employees. The user chooses one accountable lead and one or more members; DSH derives the team id and fixed-team contract.
 - Missing prerequisites use an actionable empty state that links back to Digital employees. A generic empty-record message is not acceptable on these pages.
 - Employee editing uses a two-column identity layout on desktop: a persistent avatar/profile preview supports a linear form divided into profile, responsibilities/runtime, and access/capabilities. Mobile stacks the preview above the same DOM-order form. Save/publish actions stay visible in one sticky footer; validation remains adjacent to the form rather than dominating the page.
+- Employee department is selected from the authenticated organization directory. Free-text department entry is not permitted because the employee profile must use the same department names that govern shared Workspaces and visibility.
 
 ## Responsive behavior
 

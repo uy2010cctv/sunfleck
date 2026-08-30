@@ -125,6 +125,27 @@ describe('EnterpriseAuthHttpHandler', () => {
     expect((await handler.fetch(new Request('https://dsh.example.com/auth/nope'))).status).toBe(404)
   })
 
+  it('lists the organization department directory for an authenticated member', async () => {
+    repository.createUser({ id: 'member-1', orgId: 'org-a', username: 'member', displayName: 'Member', disabled: false })
+    repository.setRoles('member-1', ['member'])
+    repository.setPasswordVerifier('member-1', createPasswordVerifier('member-password'))
+    repository.saveDepartment({
+      id: 'dept-ops', orgId: 'org-a', name: '运营部', parentId: null, sortOrder: 0, expectedRevision: 0,
+    })
+    const login = await handler.fetch(new Request('https://dsh.example.com/auth/login/local', {
+      method: 'POST', headers: { 'content-type': 'application/json', origin: 'https://dsh.example.com' },
+      body: JSON.stringify({ organizationId: 'org-a', username: 'member', password: 'member-password' }),
+    }))
+    const response = await handler.fetch(new Request('https://dsh.example.com/auth/departments', {
+      headers: { cookie: login.headers.get('set-cookie') ?? '' },
+    }))
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual([
+      expect.objectContaining({ id: 'dept-ops', name: '运营部' }),
+    ])
+  })
+
   it('manages departments, user membership, workspaces, and reviewed memory', async () => {
     const provisioned: string[] = []
     let auditId = 0
@@ -203,9 +224,9 @@ describe('EnterpriseAuthHttpHandler', () => {
       }),
     }))
     expect(automaticDigest.status).toBe(201)
-    await expect(automaticDigest.json()).resolves.toMatchObject({
-      id: 'memory-2', sourceDigest: expect.stringMatching(/^[a-f0-9]{64}$/),
-    })
+    const automaticMemory = await automaticDigest.json() as { id?: unknown; sourceDigest?: unknown }
+    expect(automaticMemory.id).toBe('memory-2')
+    expect(automaticMemory.sourceDigest).toMatch(/^[a-f0-9]{64}$/)
     const review = await managed.fetch(new Request('https://dsh.example.com/auth/admin/memories/memory-1', {
       method: 'PATCH', headers: mutationHeaders,
       body: JSON.stringify({ decision: 'approved', reason: '制度核验完成', expectedRevision: 1 }),
@@ -233,7 +254,7 @@ describe('EnterpriseAuthHttpHandler', () => {
     }))
     expect(created.status).toBe(201)
     const users = await handler.fetch(new Request('https://dsh.example.com/auth/admin/users', { headers: { cookie } }))
-    const userRows = await users.json()
+    const userRows: unknown = await users.json()
     expect(userRows).toEqual(expect.arrayContaining([
       expect.objectContaining({ id: 'operator-1', roles: ['operator'] }),
     ]))
