@@ -5,6 +5,7 @@ import WebSocket, { type RawData } from 'ws'
 import { Context, Service, symbols } from '@deepseek-ai/cordis'
 import { apply as applyConnection, inject as connectionInject } from '@deepseek-ai/dsh-client-connection'
 import WebServer from '@deepseek-ai/dsh-host-webserver'
+import { EnterpriseRequestContext } from '@deepseek-ai/dsh-enterprise-auth-web'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import {
   bindTypertRemote,
@@ -88,6 +89,12 @@ class FeedService extends Service {
   *sync(label: string): Iterable<string> {
     yield `${label}:one`
     yield `${label}:two`
+  }
+
+  @Remote({ mode: 'stream' })
+  *enterprisePrincipal(): Iterable<string> {
+    const context = this.ctx.get('enterpriseRequestContext')
+    yield context?.current()?.userId ?? 'missing-principal'
   }
 
   @Remote({ mode: 'stream' })
@@ -987,6 +994,31 @@ describe('Typert Remote streams', () => {
     rejected.resume()
     ;(request as { abort(): void }).abort()
   })
+
+  it('keeps the authenticated enterprise principal active while a logical stream is consumed', async () => {
+    const { ctx } = await setup(true)
+    const principal = { userId: 'member-1', orgId: 'org-a', roles: ['member'] as const }
+    const requestContext = new EnterpriseRequestContext()
+    ctx.provide('enterpriseRequestContext' as never, requestContext as never)
+    ctx.provide('enterpriseSecurity' as never, {
+      authenticateCookieAsync: vi.fn(async () => principal),
+    } as never)
+    const socket = new WebSocket(`ws://127.0.0.1:${String(ctx.webServer.port)}/api/remote.mux`, {
+      headers: { cookie: browserCookie(ctx) },
+    })
+    await once(socket, 'open')
+    const frames: Record<string, unknown>[] = []
+    socket.on('message', (data) => { frames.push(JSON.parse(rawText(data)) as Record<string, unknown>) })
+
+    sendOpen(socket, 'enterprise-principal', 'feed/enterprisePrincipal', {})
+
+    await vi.waitFor(() => {
+      expect(frames).toContainEqual({
+        type: 'item', streamId: 'enterprise-principal', value: principal.userId,
+      })
+    })
+    socket.close()
+  })
 })
 
 async function setup(
@@ -1036,6 +1068,7 @@ function descriptors(): InvocationDescriptor[] {
   return [
     { ...stream('follow', [label], z.string()), cancellation: { parameter: 'signal' } },
     stream('sync', [label], z.string()),
+    stream('enterprisePrincipal', [], z.string()),
     stream('invalid', [], z.string()),
     stream('nonJson', [], z.unknown()),
     stream('missing', [], z.string()),

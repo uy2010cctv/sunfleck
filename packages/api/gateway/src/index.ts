@@ -100,6 +100,34 @@ interface EnterpriseWorkspaceInvocation {
   readonly security: EnterpriseSecurity
 }
 
+/** Keep every lazy iterator step inside the authenticated transport scope. */
+function enterpriseScopedStream(
+  requestContext: EnterpriseRequestContext,
+  principal: EnterpriseWorkspaceInvocation['principal'],
+  open: () => Promise<AsyncIterable<unknown>>,
+): AsyncIterable<unknown> {
+  return (async function* () {
+    const source = await requestContext.run(principal, open)
+    const iterator = source[Symbol.asyncIterator]()
+    let completed = false
+    try {
+      while (true) {
+        const result = await requestContext.run(principal, () => iterator.next())
+        if (result.done) {
+          completed = true
+          return
+        }
+        yield result.value
+      }
+    } finally {
+      const close = iterator.return?.bind(iterator)
+      if (!completed && close !== undefined) {
+        await requestContext.run(principal, () => close())
+      }
+    }
+  })()
+}
+
 interface RemoteEventClient {
   readonly id: RemoteEventClientId
   readonly queue: RemoteEventQueue
@@ -261,7 +289,12 @@ export class TypertGatewayService extends Service implements TypertGateway {
                 rejectRemoteStreamUpgrade(socket, 401)
                 return
               }
-              requestContext.run(principal, () => { mux.handleUpgrade(req, socket, head) })
+              mux.handleUpgrade(req, socket, head, (endpoint, payload, signal) =>
+                Promise.resolve(enterpriseScopedStream(
+                  requestContext,
+                  principal,
+                  () => this.openWireStream(endpoint, payload, signal),
+                )))
             }).catch(() => { rejectRemoteStreamUpgrade(socket, 401) })
           },
         }

@@ -126,10 +126,12 @@ export async function apply(ctx: Context, config: EnterpriseAuthWebConfig): Prom
       await repository.setPasswordVerifier(config.bootstrapAdmin.userId, createPasswordVerifier(resolved.value))
     }
     if (workspaceProvisioner !== undefined) {
-      const admin = config.bootstrapAdmin === undefined
-        ? undefined
-        : await repository.findUser(config.organizationId, config.bootstrapAdmin.username)
-      if (admin !== undefined) await workspaceProvisioner.ensurePersonal(admin)
+      for (const user of await repository.listUsers(config.organizationId)) {
+        await workspaceProvisioner.ensurePersonal(user)
+      }
+      for (const department of await repository.listDepartments(config.organizationId)) {
+        await workspaceProvisioner.ensureDepartment(department)
+      }
     }
 
     const security = new EnterpriseSecurity(repository, config, {

@@ -18,6 +18,7 @@ interface WorkspaceLike {
 
 export interface EnterpriseWorkspaceRegistry {
   create(path: string, title?: string): Promise<WorkspaceLike>
+  ensure?(id: string, path: string, title: string): Promise<WorkspaceLike>
 }
 
 export interface EnterpriseWorkspaceProvisionerOptions {
@@ -44,7 +45,10 @@ export class EnterpriseWorkspaceProvisioner {
   async ensurePersonal(user: EnterpriseUserView): Promise<EnterpriseWorkspaceGrant> {
     const existing = (await this.repository.listOrganizationWorkspaceGrants(user.orgId))
       .find(grant => grant.kind === 'personal' && grant.ownerUserId === user.id)
-    if (existing !== undefined) return existing
+    if (existing !== undefined) {
+      await this.options.registry.ensure?.(existing.workspaceId, existing.rootPath, existing.name)
+      return existing
+    }
     return this.provision({
       orgId: user.orgId,
       rootPath: join(this.root, 'users', compartmentId(user.id)),
@@ -74,7 +78,10 @@ export class EnterpriseWorkspaceProvisioner {
   async ensureDepartment(department: EnterpriseDepartment): Promise<EnterpriseWorkspaceGrant> {
     const existing = (await this.repository.listOrganizationWorkspaceGrants(department.orgId))
       .find(grant => grant.kind === 'department' && grant.departmentId === department.id)
-    if (existing !== undefined) return existing
+    if (existing !== undefined) {
+      await this.options.registry.ensure?.(existing.workspaceId, existing.rootPath, existing.name)
+      return existing
+    }
     return this.provision({
       orgId: department.orgId,
       rootPath: join(this.root, 'departments', compartmentId(department.id)),

@@ -164,6 +164,35 @@ export class WorkspaceRegistry extends Service {
   }
 
   /**
+   * Ensure a deployment-managed Workspace keeps its externally assigned identity.
+   * This repairs a registration that was removed while its enterprise grant and directory remained durable.
+   * @param id - stable Workspace identity owned by the provisioning control plane.
+   * @param path - existing directory the Workspace must own.
+   * @param title - user-visible title used when the record must be recreated.
+   * @returns the matching existing or restored Workspace.
+   */
+  async ensure(id: WorkspaceId, path: string, title: string): Promise<Workspace> {
+    const canonical = await realpathNormalize(path)
+    if (!(await stat(canonical)).isDirectory()) {
+      throw new Error(`cannot ensure a workspace at '${canonical}': path is not a directory`)
+    }
+    return await this.enqueueOperation(() => {
+      const byId = this.entities.get(id)
+      if (byId !== undefined) {
+        if (byId.path !== canonical) {
+          throw new Error(`workspace '${id}' already owns '${byId.path}', not '${canonical}'`)
+        }
+        return Promise.resolve(byId)
+      }
+      const byPath = [...this.entities.values()].find(entity => entity.path === canonical)
+      if (byPath !== undefined) {
+        throw new Error(`workspace path '${canonical}' is already owned by '${byPath.id}', not '${id}'`)
+      }
+      return this.createCanonical(canonical, title, id)
+    })
+  }
+
+  /**
    * Look up a workspace by id.
    * @param id - Workspace id.
    * @returns the workspace, or `undefined` when unknown.
@@ -282,7 +311,7 @@ export class WorkspaceRegistry extends Service {
     return undefined
   }
 
-  private async createCanonical(canonical: string, title?: string): Promise<WorkspaceEntity> {
+  private async createCanonical(canonical: string, title?: string, assignedId?: WorkspaceId): Promise<WorkspaceEntity> {
     for (const entity of this.entities.values()) {
       if (entity.path === canonical) return entity
     }
@@ -290,7 +319,7 @@ export class WorkspaceRegistry extends Service {
     const workspaceName = title ?? basename(canonical)
     const table = this.requireTable()
     const state = this.requireState()
-    const id = WorkspaceId(randomUUID())
+    const id = assignedId ?? WorkspaceId(randomUUID())
     const now = new Date().toISOString()
     const record: WorkspaceRecord = {
       path: canonical,

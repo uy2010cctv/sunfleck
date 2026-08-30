@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-08-30-enterprise-workspace-visibility.md
-2026-08-30-enterprise-workspace-visibility.md: 8fb266a6fa9a10a9a88245ac7c93cec68768ca7a
-2026-08-30-enterprise-workspace-visibility.zh.md: f31e8d39efee5889ffa675c65ff0f7a2135ecddc
+2026-08-30-enterprise-workspace-visibility.md: 4469c97177cee118281e0f41031d57a678df1997
+2026-08-30-enterprise-workspace-visibility.zh.md: 634222a2c4937bf95f93b68c69fca3ba2b8b36ea

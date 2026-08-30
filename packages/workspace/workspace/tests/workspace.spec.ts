@@ -499,6 +499,22 @@ describe('WorkspaceRegistry create and lookup', () => {
     expect(reregistered.sessionIds).toEqual([])
   })
 
+  it('restores a missing managed registration with its enterprise Workspace id', async () => {
+    const dir = await makeDir('restore-managed-registration')
+    const result = await harness()
+    const workspaceId = WorkspaceId('enterprise-department-workspace')
+
+    const restored = await result.registry.ensure(workspaceId, dir, 'Operations · Shared Workspace')
+    const repeated = await result.registry.ensure(workspaceId, dir, 'Operations · Shared Workspace')
+
+    expect(restored.id).toBe(workspaceId)
+    expect(restored.path).toBe(dir)
+    expect(restored.title).toBe('Operations · Shared Workspace')
+    expect(repeated).toBe(restored)
+    expect(result.registry.list()).toEqual([restored])
+    expect(storedState(result.pool).workspaceIds).toEqual([workspaceId])
+  })
+
   it('rolls registry order and cache back when record deletion fails', async () => {
     const dir = await makeDir('delete-rollback')
     const pool = new MemoryMediaPool()

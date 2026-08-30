@@ -57,4 +57,24 @@ describe('EnterpriseWorkspaceProvisioner', () => {
       workspaceId: 'workspace-ops', kind: 'department', departmentId: 'dept-ops', sandboxMode: 'read-only',
     })
   })
+
+  it('repairs the native Workspace registration when an enterprise grant already exists', async () => {
+    const ensured: Array<{ id: string; path: string; title: string }> = []
+    const registry = {
+      create: async (path: string, title?: string) => ({ id: 'workspace-alice', path, title: title ?? 'workspace' }),
+      ensure: async (id: string, path: string, title: string) => {
+        ensured.push({ id, path, title })
+        return { id, path, title }
+      },
+    }
+    const provisioner = new EnterpriseWorkspaceProvisioner(repository, {
+      root: join(root, 'managed'), registry,
+    })
+    const user = repository.listUsers('org-a')[0]!
+    const grant = await provisioner.ensurePersonal(user)
+
+    await provisioner.ensurePersonal(user)
+
+    expect(ensured).toEqual([{ id: grant.workspaceId, path: grant.rootPath, title: grant.name }])
+  })
 })

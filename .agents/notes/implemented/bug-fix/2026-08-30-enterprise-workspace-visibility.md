@@ -56,3 +56,18 @@ The enterprise layer projects and authorizes that source instead of forking it.
   history, preserving the native DSH deletion contract.
 - Existing ungranted Registry rows disappear from enterprise sidebars instead
   of being treated as organization-wide Workspaces.
+
+## Authenticated stream and recovery follow-up
+
+The authenticated principal must remain active for every lazy iterator step of
+the multiplexed Workspace WebSocket stream. Scoping only the HTTP upgrade is
+insufficient because the socket already existed before the authentication
+context and later `message` callbacks can run outside it. The Gateway therefore
+binds a principal-specific opener to each accepted connection and re-enters the
+request context for stream creation, `next()`, and iterator cleanup.
+
+Enterprise grants also outlive an accidentally removed native Workspace
+registration. On startup, provisioning reconciles every user and department,
+and the native Registry can restore the missing row with the grant's original
+Workspace id. This preserves session/grant references and makes personal and
+department Workspaces visible again without creating duplicate identities.
