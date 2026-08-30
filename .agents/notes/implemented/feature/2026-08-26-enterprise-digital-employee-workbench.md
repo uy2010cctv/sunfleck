@@ -22,6 +22,8 @@ The browser surface is additive: one Sidebar footer action and one frame overlay
 
 An empty enterprise roster must expose a primary **New digital employee** action instead of a terminal empty state. The editor begins as an unsaved revision-zero draft and hides the generated internal id. On the first valid save, DSH copies the deployment's default Agent Preset under that stable generated id, then persists the enterprise draft. Later saves use revision CAS, publishing freezes an immutable Release, and the employee remains runnable through the native Session `agentPreset` path rather than becoming a catalog-only record.
 
+Each employee profile carries an opaque `avatarSeed`. New drafts receive a random seed, while older records fall back to the stable Preset id. The browser renders the seed with DiceBear's Lorelei HTTP API; it never sends a person's name, email, prompt, or organization data to the avatar service. Lorelei is a CC0-licensed remix and remains presentation metadata rather than runtime identity.
+
 ## StaffDeck provenance boundary
 
 OpenBMB StaffDeck informed the employee-roster and operations information architecture. No StaffDeck React components, FastAPI models, illustrations, avatars, logos, or source files are copied. DSH keeps its MIT source, Cordis plugin topology, runtime services, event log, theme tokens, and browser slot system.

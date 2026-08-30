@@ -435,17 +435,21 @@ describe('EnterpriseWorkbenchController edits, mutations, and events', () => {
     const controller = new EnterpriseWorkbenchController(api as never, services.sessions as never, services.workspaces as never)
 
     controller.createEmployeeDraft()
+    const assignedSeed = controller.store.getSnapshot().employeeEditor?.fields?.avatarSeed
     controller.patchEmployeeDraft({
       name: '采购专员', prompt: '负责采购需求核验。', modelRef: 'deepseek-chat',
     })
     await controller.saveEmployeeDraft()
 
     const presetId = saveDraft.mock.calls[0]?.[0].presetId as string
+    const savedProfile = saveDraft.mock.calls[0]?.[0].profile as { avatarSeed?: unknown }
     expect(presetId).toMatch(/^employee-[a-z0-9-]+$/u)
+    expect(assignedSeed).toMatch(/^[a-f0-9-]{36}$/u)
     expect(copy).toHaveBeenCalledWith('standard', presetId, '采购专员')
     expect(saveDraft).toHaveBeenCalledWith(expect.objectContaining({
       presetId, expectedRevision: 0, visibility: 'organization',
     }))
+    expect(savedProfile.avatarSeed).toBe(assignedSeed)
     expect(controller.store.getSnapshot().employeeEditor).toMatchObject({
       dirty: false, revision: 1, fields: { presetId, name: '采购专员' },
     })

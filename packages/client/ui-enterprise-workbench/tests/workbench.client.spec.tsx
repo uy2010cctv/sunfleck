@@ -190,6 +190,7 @@ describe('EnterpriseWorkbench', () => {
   })
 
   it('does not allow publishing a new employee before its first draft save', () => {
+    const patchEmployeeDraft = vi.fn()
     render(<EnterpriseWorkbench {...workbenchProps({ state: {
       mode: 'enterprise', page: 'employees', employeeEditor: {
         phase: 'ready', revision: 0, releases: [], dirty: false, saving: false, conflict: false,
@@ -198,11 +199,19 @@ describe('EnterpriseWorkbench', () => {
         fields: {
           presetId: 'employee-new', name: '', description: '', position: '', department: '',
           prompt: '', modelRef: '', capabilities: [], visibility: 'organization', bindings: [],
+          avatarSeed: 'new-avatar-seed',
         },
       },
-    } as never })} />)
+    } as never, patchEmployeeDraft })} />)
 
     expect(screen.getByRole('heading', { name: '新建数字员工' })).toBeDefined()
+    expect(screen.getByRole('img', { name: '数字员工头像' }).getAttribute('src')).toContain(
+      'https://api.dicebear.com/10.x/lorelei/svg?seed=new-avatar-seed',
+    )
+    fireEvent.click(screen.getByRole('button', { name: '换一个头像' }))
+    const avatarPatch = patchEmployeeDraft.mock.calls[0]?.[0] as { avatarSeed?: unknown }
+    expect(typeof avatarPatch.avatarSeed).toBe('string')
+    expect(avatarPatch.avatarSeed).not.toBe('new-avatar-seed')
     expect(screen.getByRole('button', { name: '发布' }).hasAttribute('disabled')).toBe(true)
   })
 
@@ -215,6 +224,7 @@ describe('EnterpriseWorkbench', () => {
           profile: {
             name: '采购专员', position: '采购协同顾问', department: '采购部',
             description: '帮助员工准备采购需求和审批材料。', capabilities: ['需求澄清', '合规校验'],
+            avatarSeed: 'opaque-avatar-seed',
           },
           bindings: [
             { kind: 'sop', assetId: 'rfq', version: 2 },
@@ -231,6 +241,9 @@ describe('EnterpriseWorkbench', () => {
     expect(screen.getByRole('tab', { name: '已发布' })).toBeDefined()
     expect(screen.getByRole('tab', { name: '草稿' })).toBeDefined()
     expect(screen.getByText('采购协同顾问')).toBeDefined()
+    expect(screen.getByRole('img', { name: '采购专员头像' }).getAttribute('src')).toContain(
+      'https://api.dicebear.com/10.x/lorelei/svg?seed=opaque-avatar-seed',
+    )
     expect(screen.getByText('帮助员工准备采购需求和审批材料。')).toBeDefined()
     expect(screen.getByText('1 SOP')).toBeDefined()
     expect(screen.getByText('1 知识')).toBeDefined()

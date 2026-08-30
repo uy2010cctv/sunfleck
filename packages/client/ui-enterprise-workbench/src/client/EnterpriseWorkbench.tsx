@@ -84,6 +84,26 @@ function profileList(draft: EnterpriseEmployeeDraft, key: string): readonly stri
     ? draft.profile[key] : []
 }
 
+/** Stable DiceBear Lorelei URL; seeds are opaque ids, never employee names or email addresses. */
+export function dicebearAvatarUrl(seed: string): string {
+  return `https://api.dicebear.com/10.x/lorelei/svg?seed=${encodeURIComponent(seed)}`
+}
+
+function EmployeeAvatar({ name, seed, large = false, t }: {
+  name: string
+  seed: string
+  large?: boolean
+  t: Translate
+}) {
+  return <img
+    className={large ? css.avatarImageLarge : css.avatarImage}
+    src={dicebearAvatarUrl(seed)}
+    alt={t('avatar.alt', { name })}
+    loading="lazy"
+    referrerPolicy="no-referrer"
+  />
+}
+
 function recordText(record: Readonly<Record<string, JsonValue>>, key: string): string {
   return typeof record[key] === 'string' ? record[key] : ''
 }
@@ -180,7 +200,7 @@ function scheduleTargetLabel(target: EnterpriseScheduleTarget, releases: readonl
 function NativeEmployeeCard({ employee, busy, start, t }: { employee: EnterpriseEmployeeView; busy: boolean; start: (id: string) => Promise<void>; t: Translate }) {
   const status = employeeStatus(employee.status, t); const unavailable = employee.status === 'unavailable'
   return <article className={css.employeeCard} data-status={employee.status} tabIndex={unavailable ? -1 : 0} aria-label={t('employee.destination', { name: employee.name })} onClick={() => { if (!unavailable) void start(employee.id) }} onKeyDown={(event) => { if (!unavailable && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); void start(employee.id) } }}>
-    <div className={css.employeeHead}><div className={css.avatar} aria-hidden="true">{employee.name.slice(0, 2)}</div><div className={css.employeeIdentity}><div className={css.employeeNameRow}><h3>{employee.name}</h3>{employee.isDefault && <span className={css.badge}>{t('employee.default')}</span>}{employee.custom && <span className={css.badge}>{t('employee.custom')}</span>}</div><div className={css.employeeMeta}><span>{employee.position ?? employee.description ?? employee.employeeCode}</span>{employee.department !== undefined && <span>{employee.department}</span>}</div></div><div className={css.status}><StateDot state={status.dot} /><span>{status.label}</span></div></div>
+    <div className={css.employeeHead}><EmployeeAvatar name={employee.name} seed={employee.id} t={t}/><div className={css.employeeIdentity}><div className={css.employeeNameRow}><h3>{employee.name}</h3>{employee.isDefault && <span className={css.badge}>{t('employee.default')}</span>}{employee.custom && <span className={css.badge}>{t('employee.custom')}</span>}</div><div className={css.employeeMeta}><span>{employee.position ?? employee.description ?? employee.employeeCode}</span>{employee.department !== undefined && <span>{employee.department}</span>}</div></div><div className={css.status}><StateDot state={status.dot} /><span>{status.label}</span></div></div>
     {employee.description !== undefined && employee.position !== undefined && <p className={css.description}>{employee.description}</p>}
     <div className={css.capabilities}>{employee.capabilities.map(value => <span key={value}>{value}</span>)}</div>
     <div className={css.employeeFoot}><span>{t('employee.work', { count: employee.recentWork })}</span><button type="button" className={css.primaryButton} aria-label={unavailable ? t('employee.unavailable', { name: employee.name }) : t('employee.start', { name: employee.name })} disabled={unavailable || busy} onClick={(event) => { event.stopPropagation(); void start(employee.id) }}>{busy ? <IconRefreshOutline16 className={css.spin} size={16} /> : <IconPlayOutline16 size={16} />}{busy ? t('employee.busy') : unavailable ? status.label : t('employee.action')}</button></div>
@@ -211,21 +231,46 @@ function EmployeeEditor({ editor, assets, api, back, rollback, mutationBusy, t }
   if (editor.phase === 'loading') return <div className={css.loading} role="status">{t('loading')}</div>
   if (editor.fields === undefined) return <div className={css.empty} role="alert"><span>{editor.error ?? t('page.error')}</span></div>
   const field = editor.fields
+  const displayName = field.name.trim() || t('editor.unnamed')
+  const avatarSeed = field.avatarSeed || field.presetId
   const validationText = (error: string): string => error === 'name-required' ? t('editor.nameRequired') : error === 'prompt-required' ? t('editor.promptRequired') : error === 'model-required' ? t('editor.modelRequired') : error
   return <section className={css.editor} aria-labelledby="employee-editor-title">
-    <div className={css.sectionHead}><div><h2 id="employee-editor-title">{editor.creatingFromPresetId === undefined ? t('editor.title') : t('editor.createTitle')}</h2>{editor.creatingFromPresetId === undefined ? <span className={css.code}>{field.presetId}</span> : <span>{t('editor.createHint')}</span>}</div><button type="button" className={css.secondaryButton} onClick={back}>{t('editor.back')}</button></div>
-    {editor.errors.length > 0 && <div className={css.validation} role="alert"><strong>{t('editor.validation')}</strong><ul>{editor.errors.map(error => <li key={error}>{validationText(error)}</li>)}</ul></div>}
-    {editor.conflict && <div className={css.validation} role="alert">{t('editor.conflict')}</div>}{editor.error !== null && !editor.conflict && <div className={css.inlineError} role="alert">{editor.error}</div>}
-    {editor.conflictServerFields !== undefined && <section className={css.conflictComparison} aria-label={t('editor.conflictComparison', { revision: editor.conflictServerRevision ?? 0 })}><h3>{t('editor.conflictComparison', { revision: editor.conflictServerRevision ?? 0 })}</h3><div><div><strong>{t('editor.localCopy')}</strong><span>{field.name}</span><span>{field.prompt}</span><span>{field.modelRef}</span></div><div><strong>{t('editor.serverCopy')}</strong><span>{editor.conflictServerFields.name}</span><span>{editor.conflictServerFields.prompt}</span><span>{editor.conflictServerFields.modelRef}</span></div></div><div className={css.conflictActions}><button type="button" className={css.secondaryButton} onClick={api.adoptServerEmployeeConflict}>{t('editor.adoptServer')}</button><button type="button" className={css.primaryButton} onClick={api.keepLocalEmployeeConflict}>{t('editor.keepLocal')}</button></div></section>}
-    <div className={css.bindingPicker}><label>{t('editor.asset')}<select value={bindingAssetId} onChange={(event) => { setBindingAssetId(event.target.value) }}><option value="">{t('filters.all')}</option>{assets.items.filter(asset => !asset.archived).map(asset => <option key={asset.assetId} value={asset.assetId}>{asset.name}</option>)}</select></label><button type="button" className={css.secondaryButton} disabled={bindingAssetId === '' || mutationBusy} onClick={() => { const asset = assets.items.find(item => item.assetId === bindingAssetId); if (asset !== undefined) api.patchEmployeeDraft({ bindings: [...field.bindings, { kind: asset.kind, assetId: asset.assetId, version: asset.revision }] }) }}>{t('editor.addBinding')}</button></div>
-    <fieldset className={css.editorFields} disabled={editor.saving}>
-      <div className={css.formGrid}>
-        <label>{t('editor.name')}<input value={field.name} onChange={(event) => { api.patchEmployeeDraft({ name: event.target.value }) }} /></label><label>{t('editor.position')}<input value={field.position} onChange={(event) => { api.patchEmployeeDraft({ position: event.target.value }) }} /></label><label>{t('editor.department')}<input value={field.department} onChange={(event) => { api.patchEmployeeDraft({ department: event.target.value }) }} /></label><label>{t('editor.model')}<input value={field.modelRef} onChange={(event) => { api.patchEmployeeDraft({ modelRef: event.target.value }) }} /></label>
-        <label className={css.fullField}>{t('editor.description')}<textarea rows={3} value={field.description} onChange={(event) => { api.patchEmployeeDraft({ description: event.target.value }) }} /></label><label className={css.fullField}>{t('editor.prompt')}<textarea rows={8} value={field.prompt} onChange={(event) => { api.patchEmployeeDraft({ prompt: event.target.value }) }} /></label><label>{t('editor.visibility')}<select value={field.visibility} onChange={(event) => { api.patchEmployeeDraft({ visibility: event.target.value as EnterpriseVisibility }) }}><option value="organization">{t(VISIBILITY_KEYS.organization)}</option><option value="private">{t(VISIBILITY_KEYS.private)}</option><option value="restricted">{t(VISIBILITY_KEYS.restricted)}</option></select></label><details className={css.fullField}><summary>{t('editor.advancedJson')}</summary><label>{t('editor.bindings')}<textarea rows={5} value={JSON.stringify(field.bindings, null, 2)} readOnly /></label></details>
+    <header className={css.editorHeader}>
+      <div><h2 id="employee-editor-title">{editor.creatingFromPresetId === undefined ? t('editor.title') : t('editor.createTitle')}</h2><p>{editor.creatingFromPresetId === undefined ? t('editor.editHint') : t('editor.createHint')}</p></div>
+      <button type="button" className={css.secondaryButton} onClick={back}>{t('editor.back')}</button>
+    </header>
+    <div className={css.editorLayout}>
+      <aside className={css.identityPanel} aria-label={t('editor.identityPreview')}>
+        <div className={css.avatarStage}><EmployeeAvatar name={displayName} seed={avatarSeed} large t={t}/></div>
+        <div className={css.identityCopy}><strong>{displayName}</strong><span>{field.position.trim() || t('employee.positionFallback')}</span>{field.department.trim() !== '' && <span>{field.department}</span>}</div>
+        <button type="button" className={css.secondaryButton} onClick={() => { api.patchEmployeeDraft({ avatarSeed: randomUUID() }) }}>{t('editor.changeAvatar')}</button>
+        <p>{t('editor.avatarHelp')}</p>
+      </aside>
+      <div className={css.editorContent}>
+        {editor.errors.length > 0 && <div className={css.validation} role="alert"><strong>{t('editor.validation')}</strong><ul>{editor.errors.map(error => <li key={error}>{validationText(error)}</li>)}</ul></div>}
+        {editor.conflict && <div className={css.validation} role="alert">{t('editor.conflict')}</div>}{editor.error !== null && !editor.conflict && <div className={css.inlineError} role="alert">{editor.error}</div>}
+        {editor.conflictServerFields !== undefined && <section className={css.conflictComparison} aria-label={t('editor.conflictComparison', { revision: editor.conflictServerRevision ?? 0 })}><h3>{t('editor.conflictComparison', { revision: editor.conflictServerRevision ?? 0 })}</h3><div><div><strong>{t('editor.localCopy')}</strong><span>{field.name}</span><span>{field.prompt}</span><span>{field.modelRef}</span></div><div><strong>{t('editor.serverCopy')}</strong><span>{editor.conflictServerFields.name}</span><span>{editor.conflictServerFields.prompt}</span><span>{editor.conflictServerFields.modelRef}</span></div></div><div className={css.conflictActions}><button type="button" className={css.secondaryButton} onClick={api.adoptServerEmployeeConflict}>{t('editor.adoptServer')}</button><button type="button" className={css.primaryButton} onClick={api.keepLocalEmployeeConflict}>{t('editor.keepLocal')}</button></div></section>}
+        <fieldset className={css.editorFields} disabled={editor.saving}>
+          <section className={css.formSection} aria-labelledby="employee-profile-section"><header><h3 id="employee-profile-section">{t('editor.profileSection')}</h3><p>{t('editor.profileHelp')}</p></header><div className={css.formGrid}>
+            <label>{t('editor.name')}<input value={field.name} placeholder={t('editor.namePlaceholder')} onChange={(event) => { api.patchEmployeeDraft({ name: event.target.value }) }} /></label>
+            <label>{t('editor.position')}<input value={field.position} placeholder={t('editor.positionPlaceholder')} onChange={(event) => { api.patchEmployeeDraft({ position: event.target.value }) }} /></label>
+            <label>{t('editor.department')}<input value={field.department} placeholder={t('editor.departmentPlaceholder')} onChange={(event) => { api.patchEmployeeDraft({ department: event.target.value }) }} /></label>
+            <label className={css.fullField}>{t('editor.description')}<textarea rows={3} value={field.description} placeholder={t('editor.descriptionPlaceholder')} onChange={(event) => { api.patchEmployeeDraft({ description: event.target.value }) }} /></label>
+          </div></section>
+          <section className={css.formSection} aria-labelledby="employee-runtime-section"><header><h3 id="employee-runtime-section">{t('editor.runtimeSection')}</h3><p>{t('editor.runtimeHelp')}</p></header><div className={css.formGrid}>
+            <label>{t('editor.model')}<input value={field.modelRef} placeholder={t('editor.modelPlaceholder')} onChange={(event) => { api.patchEmployeeDraft({ modelRef: event.target.value }) }} /></label>
+            <label className={css.fullField}>{t('editor.prompt')}<textarea rows={8} value={field.prompt} placeholder={t('editor.promptPlaceholder')} onChange={(event) => { api.patchEmployeeDraft({ prompt: event.target.value }) }} /></label>
+          </div></section>
+          <section className={css.formSection} aria-labelledby="employee-access-section"><header><h3 id="employee-access-section">{t('editor.accessSection')}</h3><p>{t('editor.accessHelp')}</p></header><div className={css.formGrid}>
+            <label>{t('editor.visibility')}<select value={field.visibility} onChange={(event) => { api.patchEmployeeDraft({ visibility: event.target.value as EnterpriseVisibility }) }}><option value="organization">{t(VISIBILITY_KEYS.organization)}</option><option value="private">{t(VISIBILITY_KEYS.private)}</option><option value="restricted">{t(VISIBILITY_KEYS.restricted)}</option></select></label>
+            <div className={css.bindingPicker}><label>{t('editor.asset')}<select value={bindingAssetId} onChange={(event) => { setBindingAssetId(event.target.value) }}><option value="">{t('editor.assetPlaceholder')}</option>{assets.items.filter(asset => !asset.archived).map(asset => <option key={asset.assetId} value={asset.assetId}>{asset.name}</option>)}</select></label><button type="button" className={css.secondaryButton} disabled={bindingAssetId === '' || mutationBusy} onClick={() => { const asset = assets.items.find(item => item.assetId === bindingAssetId); if (asset !== undefined) api.patchEmployeeDraft({ bindings: [...field.bindings, { kind: asset.kind, assetId: asset.assetId, version: asset.revision }] }) }}>{t('editor.addBinding')}</button></div>
+            <details className={css.fullField}><summary>{t('editor.advancedJson')}</summary><label>{t('editor.bindings')}<textarea rows={5} value={JSON.stringify(field.bindings, null, 2)} readOnly /></label></details>
+          </div></section>
+        </fieldset>
+        <section className={css.history} aria-labelledby="release-history-title"><h3 id="release-history-title">{t('editor.releases')}</h3>{editor.releases.length === 0 ? <p>{t('editor.noReleases')}</p> : <div className={css.rows}>{editor.releases.map(release => <div className={css.row} key={release.releaseId}><div><strong>{t('version.short', { version: release.version })}</strong><span>{formatDate(release.publishedAt)} · {release.publishedBy}</span></div><button type="button" className={css.secondaryButton} disabled={editor.saving || mutationBusy} onClick={() => { rollback(release.releaseId) }}>{t('editor.rollback', { version: release.version })}</button></div>)}</div>}</section>
       </div>
-    </fieldset>
-    <div className={css.formActions}><button type="button" className={css.primaryButton} disabled={editor.saving || editor.conflict || mutationBusy} onClick={() => { void api.saveEmployeeDraft() }}>{editor.saving ? t('editor.saving') : t('editor.save')}</button><button type="button" className={css.secondaryButton} disabled={editor.revision === 0 || editor.dirty || editor.saving || editor.conflict || mutationBusy} onClick={() => { void api.publishEmployee() }}>{t('editor.publish')}</button></div>
-    <section className={css.history} aria-labelledby="release-history-title"><h3 id="release-history-title">{t('editor.releases')}</h3>{editor.releases.length === 0 ? <p>{t('editor.noReleases')}</p> : <div className={css.rows}>{editor.releases.map(release => <div className={css.row} key={release.releaseId}><div><strong>{t('version.short', { version: release.version })}</strong><span>{formatDate(release.publishedAt)} · {release.publishedBy}</span></div><button type="button" className={css.secondaryButton} disabled={editor.saving || mutationBusy} onClick={() => { rollback(release.releaseId) }}>{t('editor.rollback', { version: release.version })}</button></div>)}</div>}</section>
+    </div>
+    <footer className={css.editorActions}><span>{editor.revision === 0 || editor.dirty ? t('editor.saveBeforePublish') : t('editor.readyToPublish')}</span><div><button type="button" className={css.secondaryButton} disabled={editor.revision === 0 || editor.dirty || editor.saving || editor.conflict || mutationBusy} onClick={() => { void api.publishEmployee() }}>{t('editor.publish')}</button><button type="button" className={css.primaryButton} disabled={editor.saving || editor.conflict || mutationBusy} onClick={() => { void api.saveEmployeeDraft() }}>{editor.saving ? t('editor.saving') : t('editor.save')}</button></div></footer>
   </section>
 }
 
@@ -288,11 +333,12 @@ function EmployeesPage({ state, api, guardDirty, t }: {
       const department = profileText(draft, 'department')
       const description = profileText(draft, 'description', t('employee.descriptionFallback'))
       const capabilities = profileList(draft, 'capabilities')
+      const avatarSeed = profileText(draft, 'avatarSeed', draft.presetId)
       const count = (kind: EnterpriseAssetKind): number => draft.bindings.filter(binding => binding.kind === kind).length
       const toolCount = count('skill') + count('tool')
       return <article className={css.employeeCard} data-status={draft.status} key={draft.presetId}>
         <div className={css.employeeHead}>
-          <div className={css.avatar} aria-hidden="true">{name.slice(0, 2)}</div>
+          <EmployeeAvatar name={name} seed={avatarSeed} t={t}/>
           <div className={css.employeeIdentity}>
             <div className={css.employeeNameRow}><h3>{name}</h3></div>
             <div className={css.employeeMeta}><span>{position}</span>{department !== '' && <span>{department}</span>}</div>

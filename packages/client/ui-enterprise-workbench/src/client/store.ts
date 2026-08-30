@@ -91,6 +91,7 @@ export interface EnterpriseEmployeeFilters {
 /** Editable fields projected from an employee draft profile. */
 export interface EnterpriseEmployeeDraftFields {
   readonly presetId: string
+  readonly avatarSeed?: string
   readonly name: string
   readonly description: string
   readonly position: string
@@ -346,6 +347,7 @@ function profileStrings(profile: Readonly<Record<string, unknown>>, key: string)
 function draftFields(draft: EnterpriseEmployeeDraft): EnterpriseEmployeeDraftFields {
   return {
     presetId: draft.presetId,
+    avatarSeed: profileString(draft.profile, 'avatarSeed') || draft.presetId,
     name: profileString(draft.profile, 'name'),
     description: profileString(draft.profile, 'description'),
     position: profileString(draft.profile, 'position'),
@@ -715,6 +717,7 @@ export class EnterpriseWorkbenchController {
     const source = this.roster.find(preset => preset.isDefault)?.id ?? this.roster[0]?.id ?? 'standard'
     const fields: EnterpriseEmployeeDraftFields = {
       presetId: `employee-${randomUUID()}`,
+      avatarSeed: randomUUID(),
       name: '', description: '', position: '', department: '', prompt: '', modelRef: '',
       capabilities: [], visibility: 'organization', bindings: [],
     }
@@ -785,6 +788,7 @@ export class EnterpriseWorkbenchController {
     const idempotencyKey = mutationKey('employee-save')
     this.store.set({ ...before, employeeEditor: { ...editor, saving: true, conflict: false, error: null } })
     const { presetId, visibility, bindings, name, description, position, department, prompt, modelRef, capabilities } = editor.fields
+    const avatarSeed = editor.fields.avatarSeed || presetId
     await this.runMutation('employee-save', async () => {
       if (editor.creatingFromPresetId !== undefined && editor.presetCreated !== true) {
         valueOf(await this.api.agentPresets.copy(editor.creatingFromPresetId, presetId, name))
@@ -795,7 +799,7 @@ export class EnterpriseWorkbenchController {
       }
       return valueOf(await this.api.enterpriseEmployees.saveDraft({
         presetId, expectedRevision, idempotencyKey, visibility,
-        profile: { name, description, position, department, prompt, modelRef, capabilities: [...capabilities] }, bindings,
+        profile: { name, avatarSeed, description, position, department, prompt, modelRef, capabilities: [...capabilities] }, bindings,
       }))
     }, async (saved) => {
       const current = this.store.getSnapshot()

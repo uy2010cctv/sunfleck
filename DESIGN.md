@@ -77,6 +77,7 @@ Employee Operations Deck. The interface treats digital employees as finite opera
 
 ## Employee card
 
+- Avatar: DiceBear Lorelei rendered from an opaque persisted seed. New employees receive a random seed; names, emails, and other personal data never become avatar seeds. Existing records without a seed fall back to their stable Preset id.
 - Identity: display name, position, department, and release state. Owner ids, revisions, visibility internals, and binding ids stay in management views.
 - Purpose: responsibility description is the primary body copy; an honest missing-description state replaces technical ids.
 - Capability summary: explicit profile tags plus real Knowledge, Skill/Tool, and SOP binding counts. No inferred abilities or fabricated totals.
@@ -96,6 +97,7 @@ Employee Operations Deck. The interface treats digital employees as finite opera
 - Capability assets are independently creatable. The user names the capability, selects its type, explains its purpose, and enters reusable content; DSH derives the asset id and structured content envelope.
 - Team creation requires at least two published employees. The user chooses one accountable lead and one or more members; DSH derives the team id and fixed-team contract.
 - Missing prerequisites use an actionable empty state that links back to Digital employees. A generic empty-record message is not acceptable on these pages.
+- Employee editing uses a two-column identity layout on desktop: a persistent avatar/profile preview supports a linear form divided into profile, responsibilities/runtime, and access/capabilities. Mobile stacks the preview above the same DOM-order form. Save/publish actions stay visible in one sticky footer; validation remains adjacent to the form rather than dominating the page.
 
 ## Responsive behavior
 
