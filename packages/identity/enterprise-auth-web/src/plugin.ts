@@ -19,7 +19,9 @@ import { EnterpriseRequestContext } from './request-context.ts'
 import { EnterpriseSecurity, type EnterpriseSecurityConfig } from './security.ts'
 import type { EnterprisePrincipal, EnterpriseResource } from '@deepseek-ai/dsh-enterprise-governance'
 import type { WorkspaceRegistry } from '@deepseek-ai/dsh-workspace'
-import { EnterpriseWorkspaceProvisioner } from './workspace-provisioner.ts'
+import {
+  EnterpriseWorkspaceProvisioner, backfillSessionWorkspaceBindings,
+} from './workspace-provisioner.ts'
 
 export interface BootstrapAdminConfig {
   readonly userId: string
@@ -132,6 +134,8 @@ export async function apply(ctx: Context, config: EnterpriseAuthWebConfig): Prom
       for (const department of await repository.listDepartments(config.organizationId)) {
         await workspaceProvisioner.ensureDepartment(department)
       }
+      if (workspaceRegistry === undefined) throw new Error('enterprise workspace registry is unavailable')
+      await backfillSessionWorkspaceBindings(repository, workspaceRegistry, config.organizationId)
     }
 
     const security = new EnterpriseSecurity(repository, config, {

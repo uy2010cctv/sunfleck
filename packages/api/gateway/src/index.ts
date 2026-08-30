@@ -167,6 +167,12 @@ function enterpriseWorkspaceInput(payload: unknown): unknown {
   return request ?? args
 }
 
+function stringProperty(value: unknown, key: string): string | undefined {
+  if (!isObject(value)) return undefined
+  const field = Reflect.get(value, key) as unknown
+  return typeof field === 'string' ? field : undefined
+}
+
 /** Gateway transport configuration. */
 export interface Config {
   /** WebSocket Ping interval from 1 through 2,147,483,647 milliseconds. @default 30000 */
@@ -676,6 +682,19 @@ export class TypertGatewayService extends Service implements TypertGateway {
       if (enterprise?.endpoint === 'workspace.create') {
         await enterprise.security.recordWorkspaceCreated(enterprise.principal, value)
       }
+      if (enterprise?.endpoint === 'session.create') {
+        const input = enterpriseWorkspaceInput(payload)
+        const sessionId = stringProperty(value, 'sessionId')
+        const workspaceId = stringProperty(input, 'workspaceId')
+        if (sessionId === undefined || workspaceId === undefined) {
+          throw new TypertRemoteFailure({
+            code: 'enterprise-unavailable',
+            message: 'enterprise Session binding result is incomplete',
+            details: {},
+          })
+        }
+        await enterprise.security.bindSessionWorkspaceAsync(enterprise.principal, sessionId, workspaceId)
+      }
       // A void or explicitly absent business result carries no `value` field;
       // JSON has no `undefined`, and the envelope's optional slot is the one
       // representation of absence that both args and results already use.
@@ -689,7 +708,7 @@ export class TypertGatewayService extends Service implements TypertGateway {
     wireEndpoint: string,
     payload: unknown,
   ): Promise<EnterpriseWorkspaceInvocation | undefined> {
-    if (!wireEndpoint.startsWith('workspace/')) return undefined
+    if (!wireEndpoint.startsWith('workspace/') && wireEndpoint !== 'session/create') return undefined
     const { security, requestContext } = optionalEnterpriseServices(this.ctx)
     if (security === undefined && requestContext === undefined) return undefined
     if (security === undefined || requestContext === undefined) {

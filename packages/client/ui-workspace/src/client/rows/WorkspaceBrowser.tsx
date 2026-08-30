@@ -1022,14 +1022,34 @@ export function WorkspaceBrowser({
     setSessionRenameError(null)
   }
 
+  const [archiveFeedback, setArchiveFeedback] = useState<{
+    sessionId: SessionNode['id']
+    pending: boolean
+    success: boolean
+    error: string | null
+  } | null>(null)
+  const archiveAttempt = (sessionId: SessionNode['id']) => {
+    setArchiveFeedback({ sessionId, pending: true, success: false, error: null })
+    archiveSession(sessionId).then(() => {
+      setArchiveFeedback(current => current?.sessionId === sessionId
+        ? { sessionId, pending: false, success: true, error: null }
+        : current)
+    }).catch((reason: unknown) => {
+      console.warn('session archive rejected:', reason)
+      setArchiveFeedback({
+        sessionId,
+        pending: false,
+        success: false,
+        error: reason instanceof Error ? reason.message : String(reason),
+      })
+    })
+  }
+
   // Archive is dialog-free: not destructive (the log and the accounting slot
   // remain), so the menu action commits directly; the row disappears when the
-  // archive-set echo lands. Failures are non-fatal console diagnostics, the
-  // same posture as reorder rejections.
+  // archive-set echo lands. A rejected request remains visible and retryable.
   const onSessionArchive = (sessionId: SessionNode['id']) => {
-    archiveSession(sessionId).catch((reason: unknown) => {
-      console.warn('session archive rejected:', reason)
-    })
+    archiveAttempt(sessionId)
   }
 
   // Delete dialog is separate from the row so a successful removal can
@@ -1179,6 +1199,27 @@ export function WorkspaceBrowser({
           onClose={() => { setWsPickerOpen(false) }}
         />
       </div>
+
+      {wide && archiveFeedback !== null && <div
+        className={clsx(css.archiveFeedback, archiveFeedback.error !== null && css.archiveFeedbackError)}
+        role={archiveFeedback.error === null ? 'status' : 'alert'}
+        aria-live={archiveFeedback.error === null ? 'polite' : 'assertive'}
+      >
+        <span>{archiveFeedback.error === null
+          ? archiveFeedback.pending ? t('archive.pending') : t('archive.success')
+          : t('archive.error', { reason: archiveFeedback.error })}</span>
+        {archiveFeedback.error !== null && <div>
+          <button type="button" onClick={() => { archiveAttempt(archiveFeedback.sessionId) }}>{t('archive.retry')}</button>
+          <button type="button" aria-label={t('archive.dismiss')} onClick={() => { setArchiveFeedback(null) }}>
+            {t('archive.dismiss')}
+          </button>
+        </div>}
+        {archiveFeedback.success && <button
+          type="button"
+          aria-label={t('archive.dismissSuccess')}
+          onClick={() => { setArchiveFeedback(null) }}
+        ><IconCloseFill14 /></button>}
+      </div>}
 
       {/* The collapsed rail keeps search as its own 36px control. */}
       {!wide && <div className={css.search}>

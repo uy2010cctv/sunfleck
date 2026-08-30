@@ -14,12 +14,28 @@ interface WorkspaceLike {
   readonly id: unknown
   readonly path: string
   readonly title: string
+  readonly sessionIds?: readonly string[]
   setTitle?(title: string): Promise<void>
 }
 
 export interface EnterpriseWorkspaceRegistry {
   create(path: string, title?: string): Promise<WorkspaceLike>
   ensure?(id: string, path: string, title: string): Promise<WorkspaceLike>
+  get?(id: string): WorkspaceLike | undefined
+}
+
+export async function backfillSessionWorkspaceBindings(
+  repository: EnterpriseIdentityStore,
+  registry: EnterpriseWorkspaceRegistry,
+  orgId: string,
+): Promise<void> {
+  for (const grant of await repository.listOrganizationWorkspaceGrants(orgId)) {
+    const workspace = registry.get?.(grant.workspaceId)
+    if (workspace === undefined) continue
+    for (const sessionId of workspace.sessionIds ?? []) {
+      await repository.bindSessionWorkspace({ sessionId, workspaceId: grant.workspaceId, orgId })
+    }
+  }
 }
 
 export interface EnterpriseWorkspaceProvisionerOptions {

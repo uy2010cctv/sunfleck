@@ -449,6 +449,28 @@
   font-size: 13px;
 }
 
+.archiveFeedback {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0 4px 6px;
+  padding: 8px 10px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 8px;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 11px;
+  line-height: 16px;
+}
+
+.archiveFeedbackError { color: var(--dsw-alias-state-error-primary); }
+.archiveFeedback > span { min-width: 0; overflow-wrap: anywhere; }
+.archiveFeedback > div { flex: none; display: flex; gap: 4px; }
+.archiveFeedback button { min-height: 28px; padding: 0 8px; border: 0; border-radius: 6px; background: transparent; color: inherit; cursor: pointer; }
+.archiveFeedback button:hover { background: var(--dsw-alias-interactive-bg-hover); }
+.archiveFeedback button:focus-visible { outline: 2px solid currentColor; outline-offset: 1px; }
+
 /* Rename dialog form (same figma dialog family as the create modals). */
 .renameInput {
   box-sizing: border-box;

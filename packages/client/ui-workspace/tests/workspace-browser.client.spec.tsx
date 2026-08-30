@@ -422,6 +422,7 @@ describe('WorkspaceBrowser', () => {
     fireEvent.click(screen.getByRole('button', { name: '会话“gone-s”的操作' }))
     fireEvent.click(screen.getByRole('menuitem', { name: '归档会话' }))
     expect(archiveSession).toHaveBeenCalledWith(sid('gone-s'))
+    await waitFor(() => { expect(screen.getByRole('status').textContent).toContain('会话已归档') })
 
     // The archive-set echo hides the row in grouped and flat modes.
     rerender(b, { useWorkspaces: hook(workspaceState([workspace('alpha', ['kept-s', 'gone-s'])], [sid('gone-s')])) })
@@ -432,9 +433,11 @@ describe('WorkspaceBrowser', () => {
     expect(screen.queryByText('gone-s')).toBeNull()
   })
 
-  it('logs and keeps the tree when the archive call rejects', async () => {
+  it('shows an archive failure and retries the same session', async () => {
     const rejection = new Error('archive exploded')
-    const archiveSession = vi.fn(async () => { throw rejection })
+    const archiveSession = vi.fn()
+      .mockRejectedValueOnce(rejection)
+      .mockResolvedValueOnce(undefined)
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     try {
       mount({
@@ -445,10 +448,12 @@ describe('WorkspaceBrowser', () => {
       fireEvent.click(screen.getByText('alpha'))
       fireEvent.click(screen.getByRole('button', { name: '会话“alpha-s”的操作' }))
       fireEvent.click(screen.getByRole('menuitem', { name: '归档会话' }))
-      await Promise.resolve()
-      await Promise.resolve()
+      expect((await screen.findByRole('alert')).textContent).toContain('归档失败：archive exploded')
       expect(warn).toHaveBeenCalledWith('session archive rejected:', rejection)
       expect(screen.getByText('alpha-s')).toBeTruthy()
+      fireEvent.click(screen.getByRole('button', { name: '重试归档' }))
+      await waitFor(() => { expect(archiveSession).toHaveBeenCalledTimes(2) })
+      await waitFor(() => { expect(screen.queryByRole('alert')).toBeNull() })
     } finally {
       warn.mockRestore()
     }

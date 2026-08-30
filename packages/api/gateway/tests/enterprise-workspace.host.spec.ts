@@ -8,6 +8,7 @@ import TypertRegistry from '@deepseek-ai/dsh-typert-registry'
 class WorkspaceFixture extends Service {
   readonly typertRemote = bindTypertRemote(this, 'workspaceFixture', { namespace: 'workspace' })
   readonly deleted: string[] = []
+  readonly archived: string[] = []
 
   constructor(ctx: Context) { super(ctx, 'workspaceFixture') }
 
@@ -23,8 +24,25 @@ class WorkspaceFixture extends Service {
     return { deleted: true }
   }
 
+  @Remote archiveSession(request: { sessionId: string }) {
+    this.archived.push(request.sessionId)
+    return { archivedSessionIds: [...this.archived] }
+  }
+
   @Remote({ mode: 'stream' }) async *follow(): AsyncIterable<unknown> {
     yield { type: 'baseline', value: { items: [{ workspaceId: 'raw' }], archivedSessionIds: [] } }
+  }
+}
+
+class SessionFixture extends Service {
+  readonly typertRemote = bindTypertRemote(this, 'sessionFixture', { namespace: 'session' })
+  readonly created: string[] = []
+
+  constructor(ctx: Context) { super(ctx, 'sessionFixture') }
+
+  @Remote create(request: { workspaceId: string }) {
+    this.created.push(request.workspaceId)
+    return { sessionId: 'session-created' }
   }
 }
 
@@ -64,6 +82,31 @@ describe('enterprise Workspace gateway enforcement', () => {
     expect(frames).toEqual([{ type: 'projected' }])
     expect(harness.security.filterWorkspaceFollow).toHaveBeenCalledOnce()
   })
+
+  it('authorizes and dispatches session archive requests through the enterprise gateway', async () => {
+    const harness = await setup({ allowed: true })
+    const archived = await harness.gateway.dispatchRpc(
+      'workspace/archiveSession', { args: { request: { sessionId: 'session-1' } } }, new AbortController().signal,
+    )
+    expect(archived).toEqual({ ok: true, value: { archivedSessionIds: ['session-1'] } })
+    expect(harness.service.archived).toEqual(['session-1'])
+    expect(harness.security.authorizeApiAsync).toHaveBeenCalledWith(
+      harness.principal, 'workspace.archiveSession', { sessionId: 'session-1' },
+    )
+    expect(harness.security.auditApiAsync).toHaveBeenCalledOnce()
+  })
+
+  it('binds a newly created Session to its authorized enterprise Workspace', async () => {
+    const harness = await setup({ allowed: true })
+    const created = await harness.gateway.dispatchRpc(
+      'session/create', { args: { request: { workspaceId: 'workspace-1' } } }, new AbortController().signal,
+    )
+    expect(created).toEqual({ ok: true, value: { sessionId: 'session-created' } })
+    expect(harness.session.created).toEqual(['workspace-1'])
+    expect(harness.security.bindSessionWorkspaceAsync).toHaveBeenCalledWith(
+      harness.principal, 'session-created', 'workspace-1',
+    )
+  })
 })
 
 async function setup(decision: { allowed: boolean }) {
@@ -77,6 +120,7 @@ async function setup(decision: { allowed: boolean }) {
     })),
     auditApiAsync: vi.fn(async () => {}),
     recordWorkspaceCreated: vi.fn(async () => {}),
+    bindSessionWorkspaceAsync: vi.fn(async () => {}),
     filterWorkspaceFollow: vi.fn(async function* () { yield { type: 'projected' } }),
   }
   ctx.provide('enterpriseSecurity' as never, security as never)
@@ -87,17 +131,24 @@ async function setup(decision: { allowed: boolean }) {
   await ctx.plugin(TypertRegistry)
   await ctx.plugin(TypertGatewayService)
   await ctx.plugin(WorkspaceFixture)
+  await ctx.plugin(SessionFixture)
   ctx.typert.register({
     package: '@fixture/enterprise-workspace', face: 'host', schemas: [],
     model: { events: [], objects: [], services: [] },
     invocations: descriptors(),
   })
   const receiver = ctx.get('workspaceFixture') as WorkspaceFixture & { [symbols.original]?: WorkspaceFixture }
+  const sessionReceiver = ctx.get('sessionFixture') as SessionFixture & { [symbols.original]?: SessionFixture }
   const gateway = ctx.typertGateway as unknown as {
     dispatchRpc(endpoint: string, payload: unknown, signal: AbortSignal): Promise<unknown>
     openWireStream(endpoint: string, payload: unknown, signal: AbortSignal): Promise<AsyncIterable<unknown>>
   }
-  return { ctx, principal, security, service: receiver[symbols.original] ?? receiver, gateway }
+  return {
+    ctx, principal, security,
+    service: receiver[symbols.original] ?? receiver,
+    session: sessionReceiver[symbols.original] ?? sessionReceiver,
+    gateway,
+  }
 }
 
 function record(value: unknown): value is Record<string, unknown> {
@@ -122,8 +173,18 @@ function descriptors(): InvocationDescriptor[] {
       parameters: request(z.object({ workspaceId: z.string() })), result,
     },
     {
+      id: '@fixture/enterprise-workspace#workspace/archiveSession', service: 'workspaceFixture', namespace: 'workspace',
+      method: 'archiveSession', invocation: { kind: 'direct' },
+      parameters: request(z.object({ sessionId: z.string() })), result,
+    },
+    {
       id: '@fixture/enterprise-workspace#workspace/follow', service: 'workspaceFixture', namespace: 'workspace',
       method: 'follow', mode: 'stream', invocation: { kind: 'direct' }, parameters: [], result,
+    },
+    {
+      id: '@fixture/enterprise-workspace#session/create', service: 'sessionFixture', namespace: 'session',
+      method: 'create', invocation: { kind: 'direct' },
+      parameters: request(z.object({ workspaceId: z.string() })), result,
     },
   ]
 }
