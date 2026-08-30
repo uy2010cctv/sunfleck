@@ -34,6 +34,8 @@ DSH 把 Agent Preset、Workspace、Session 和 Session Event 作为独立的开�
 
 发布时还会把不可变 Release 中的身份编译进用户可写的原生 Agent Preset：姓名、说明、岗位、部门、能力标签与职责 Prompt 会同步到 `preset.yml` 和作用域内的 `@deepseek-ai/dsh-persona` 行。生成的 Persona 要求自我介绍必须基于数字员工身份，不得把自己说成通用编码 Agent 或 DSH 系统。Composition stamp 会为之后的 Session 创建新的 Preset 代际；已经运行的 Session 保留启动时代际。
 
+员工编辑器与能力资产管理页使用同一套 5 类卡片分类：SOP、知识、技能、工具和 Cordis 扩展。前四张卡片筛选可创建或可绑定的版本化企业资产；Cordis 卡片进入现有扩展中心，因为 Cordis Package 保留自己的作用域、审核、Generation 与运行时生命周期。模型选择继续属于员工运行配置，不作为能力资产展示。卡片显示真实存储或已绑定数量，并从桌面端五列自适应回流到更小网格。
+
 ## StaffDeck 来源边界
 
 OpenBMB StaffDeck 只用于参考员工名册和运营信息架构。未复制 StaffDeck 的 React 组件、FastAPI 模型、插图、头像、Logo 或源文件。DSH 保留自身的 MIT 源码、Cordis 插件拓扑、运行时服务、事件日志、主题 token 和浏览器 slot 系统。

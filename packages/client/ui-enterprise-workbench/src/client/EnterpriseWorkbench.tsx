@@ -2,8 +2,9 @@
 /** Enterprise digital-employee roster and operations overlay. */
 import { useEffect, useRef, useState } from 'react'
 import {
-  IconCheckOutline16, IconCloseOutline16, IconEditOutline16, IconPlayOutline16, IconRefreshOutline16,
-  IconPlusOutline16, IconSearchOutline16, IconSparkle16,
+  IconApiOutline14, IconCheckOutline16, IconChecklistOutline14, IconCloseOutline16,
+  IconContextInjectionOutline16, IconCordisPluginOutline14, IconEditOutline16, IconPlayOutline16,
+  IconRefreshOutline16, IconPlusOutline16, IconSearchOutline16, IconSkillOutline16, IconSparkle16,
   IconUserOutline16, IconWarningOutline16, StateDot,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
@@ -117,6 +118,57 @@ const ASSET_KEYS = {
   sop: 'enum.asset.sop', knowledge: 'enum.asset.knowledge', skill: 'enum.asset.skill',
   tool: 'enum.asset.tool', model: 'enum.asset.model',
 } as const
+type ManagedAssetKind = 'sop' | 'knowledge' | 'skill' | 'tool'
+type CapabilityCategory = ManagedAssetKind | 'cordis'
+const MANAGED_ASSET_KINDS: readonly ManagedAssetKind[] = ['sop', 'knowledge', 'skill', 'tool']
+const CAPABILITY_CARD_KEYS = {
+  sop: ['capability.sop', 'capability.sopDescription'],
+  knowledge: ['enum.asset.knowledge', 'capability.knowledgeDescription'],
+  skill: ['enum.asset.skill', 'capability.skillDescription'],
+  tool: ['enum.asset.tool', 'capability.toolDescription'],
+  cordis: ['capability.cordis', 'capability.cordisDescription'],
+} as const satisfies Record<CapabilityCategory, readonly [EnterpriseWorkbenchKey, EnterpriseWorkbenchKey]>
+
+function CapabilityIcon({ category }: { category: CapabilityCategory }) {
+  if (category === 'sop') return <IconChecklistOutline14 size={18}/>
+  if (category === 'knowledge') return <IconContextInjectionOutline16 size={18}/>
+  if (category === 'skill') return <IconSkillOutline16 size={18}/>
+  if (category === 'tool') return <IconApiOutline14 size={18}/>
+  return <IconCordisPluginOutline14 size={18}/>
+}
+
+function CapabilityTypeCards({ counts, selected, select, openCordis, t }: {
+  counts: Readonly<Record<CapabilityCategory, number>>
+  selected: ManagedAssetKind
+  select: (kind: ManagedAssetKind) => void
+  openCordis: () => void
+  t: Translate
+}) {
+  return <div className={css.capabilityTypeGrid} role="list" aria-label={t('capability.categories')}>
+    {([...MANAGED_ASSET_KINDS, 'cordis'] as const).map((category) => {
+      const [labelKey, descriptionKey] = CAPABILITY_CARD_KEYS[category]
+      const active = category === selected
+      return <div role="listitem" key={category}><button
+        type="button"
+        className={css.capabilityTypeCard}
+        data-selected={active}
+        aria-pressed={category === 'cordis' ? undefined : active}
+        onClick={() => { if (category === 'cordis') openCordis(); else select(category) }}
+      >
+        <span className={css.capabilityTypeIcon}><CapabilityIcon category={category}/></span>
+        <span className={css.capabilityTypeCopy}><strong>{t(labelKey)}</strong><small>{t(descriptionKey)}</small></span>
+        <span className={css.capabilityTypeCount}>{t('capability.count', { count: counts[category] })}</span>
+      </button></div>
+    })}
+  </div>
+}
+
+function cordisExtensionCount(state: EnterpriseWorkbenchState): number {
+  return new Set([
+    ...state.extensions.items.map(item => `package:${item.pluginId}`),
+    ...state.formalPlugins.items.map(item => `formal:${item.entryId}`),
+  ]).size
+}
 const SOURCE_KEYS = { console: 'enum.source.console', schedule: 'enum.source.schedule', wecom: 'enum.source.wecom' } as const
 const WORK_KEYS = {
   active: 'enum.work.active', 'waiting-approval': 'enum.work.waiting-approval',
@@ -219,17 +271,20 @@ function FallbackPage({ state, start, open, t }: { state: EnterpriseWorkbenchSta
   return <><div className={css.notice} role="status">{t('mode.fallback')}</div><dl className={css.metrics} aria-label={t('metrics.aria')} aria-live="polite">{([['metrics.employees', view.metrics.employees], ['metrics.active', view.metrics.active], ['metrics.attention', view.metrics.attention], ['metrics.records', view.metrics.workRecords]] as const).map(([label, value]) => <div key={label}><dt>{t(label)}</dt><dd>{value}</dd></div>)}</dl><div className={css.content}><section aria-labelledby="enterprise-employees-title"><div className={css.sectionHead}><h2 id="enterprise-employees-title">{t('employees.title')}</h2><span aria-live="polite">{view.employees.length}</span></div>{view.employees.length === 0 ? <div className={css.empty}><IconUserOutline16 size={20} /><strong>{t('employees.empty.title')}</strong><span>{t('employees.empty.body')}</span></div> : <div className={css.employeeGrid}>{view.employees.map(employee => <NativeEmployeeCard key={employee.id} employee={employee} busy={state.busyEmployee === employee.id} start={start} t={t} />)}</div>}</section><section aria-labelledby="enterprise-records-title"><div className={css.sectionHead}><h2 id="enterprise-records-title">{t('records.title')}</h2><span aria-live="polite">{view.records.length}</span></div>{view.records.length === 0 ? <div className={css.empty}><IconCheckOutline16 size={20} /><span>{t('records.empty')}</span></div> : <div className={css.recordList}>{view.records.map(record => <NativeRecord key={record.sessionId} record={record} open={open} t={t} />)}</div>}</section></div></>
 }
 
-function EmployeeEditor({ editor, assets, modelOptions, api, back, rollback, mutationBusy, t }: {
+function EmployeeEditor({ editor, assets, modelOptions, cordisCount, api, back, rollback, openExtensions, mutationBusy, t }: {
   editor: NonNullable<EnterpriseWorkbenchState['employeeEditor']>
   assets: EnterprisePageState<EnterpriseAsset>
   modelOptions: EnterpriseWorkbenchState['modelOptions']
+  cordisCount: number
   api: EnterpriseWorkbenchInjected
   back: () => void
   rollback: (releaseId: string) => void
+  openExtensions: () => void
   mutationBusy: boolean
   t: Translate
 }) {
   const [bindingAssetId, setBindingAssetId] = useState('')
+  const [bindingKind, setBindingKind] = useState<ManagedAssetKind>('sop')
   const [departments, setDepartments] = useState<readonly { id: string; name: string }[]>([])
   useEffect(() => {
     const abort = new AbortController()
@@ -244,6 +299,12 @@ function EmployeeEditor({ editor, assets, modelOptions, api, back, rollback, mut
   const field = editor.fields
   const displayName = field.name.trim() || t('editor.unnamed')
   const avatarSeed = field.avatarSeed || field.presetId
+  const bindingCounts = Object.fromEntries(MANAGED_ASSET_KINDS.map(kind => [
+    kind, field.bindings.filter(binding => binding.kind === kind).length,
+  ])) as Record<ManagedAssetKind, number>
+  const capabilityCounts: Record<CapabilityCategory, number> = { ...bindingCounts, cordis: cordisCount }
+  const availableAssets = assets.items.filter(asset => !asset.archived && asset.kind === bindingKind
+    && !field.bindings.some(binding => binding.assetId === asset.assetId && binding.version === asset.revision))
   const validationText = (error: string): string => error === 'name-required' ? t('editor.nameRequired') : error === 'prompt-required' ? t('editor.promptRequired') : error === 'model-required' ? t('editor.modelRequired') : error
   return <section className={css.editor} aria-labelledby="employee-editor-title">
     <header className={css.editorHeader}>
@@ -273,7 +334,8 @@ function EmployeeEditor({ editor, assets, modelOptions, api, back, rollback, mut
           </div></section>
           <section className={css.formSection} aria-labelledby="employee-access-section"><header><h3 id="employee-access-section">{t('editor.accessSection')}</h3><p>{t('editor.accessHelp')}</p></header><div className={css.formGrid}>
             <label>{t('editor.visibility')}<select value={field.visibility} onChange={(event) => { api.patchEmployeeDraft({ visibility: event.target.value as EnterpriseVisibility }) }}><option value="organization">{t(VISIBILITY_KEYS.organization)}</option><option value="private">{t(VISIBILITY_KEYS.private)}</option><option value="restricted">{t(VISIBILITY_KEYS.restricted)}</option></select></label>
-            <div className={css.bindingPicker}><label>{t('editor.asset')}<select value={bindingAssetId} onChange={(event) => { setBindingAssetId(event.target.value) }}><option value="">{t('editor.assetPlaceholder')}</option>{assets.items.filter(asset => !asset.archived).map(asset => <option key={asset.assetId} value={asset.assetId}>{asset.name}</option>)}</select></label><button type="button" className={css.secondaryButton} disabled={bindingAssetId === '' || mutationBusy} onClick={() => { const asset = assets.items.find(item => item.assetId === bindingAssetId); if (asset !== undefined) api.patchEmployeeDraft({ bindings: [...field.bindings, { kind: asset.kind, assetId: asset.assetId, version: asset.revision }] }) }}>{t('editor.addBinding')}</button></div>
+            <div className={css.fullField}><CapabilityTypeCards counts={capabilityCounts} selected={bindingKind} select={(kind) => { setBindingKind(kind); setBindingAssetId('') }} openCordis={openExtensions} t={t}/></div>
+            <div className={`${css.fullField} ${css.bindingPicker}`}><label>{t('editor.asset')}<select value={bindingAssetId} onChange={(event) => { setBindingAssetId(event.target.value) }}><option value="">{availableAssets.length === 0 ? t('editor.assetEmpty') : t('editor.assetPlaceholder')}</option>{availableAssets.map(asset => <option key={asset.assetId} value={asset.assetId}>{asset.name}</option>)}</select></label><button type="button" className={css.secondaryButton} disabled={bindingAssetId === '' || mutationBusy} onClick={() => { const asset = availableAssets.find(item => item.assetId === bindingAssetId); if (asset !== undefined) { api.patchEmployeeDraft({ bindings: [...field.bindings, { kind: asset.kind, assetId: asset.assetId, version: asset.revision }] }); setBindingAssetId('') } }}>{t('editor.addBinding')}</button></div>
             <details className={css.fullField}><summary>{t('editor.advancedJson')}</summary><label>{t('editor.bindings')}<textarea rows={5} value={JSON.stringify(field.bindings, null, 2)} readOnly /></label></details>
           </div></section>
         </fieldset>
@@ -308,9 +370,11 @@ function EmployeesPage({ state, api, guardDirty, t }: {
     editor={state.employeeEditor}
     assets={state.assets}
     modelOptions={state.modelOptions}
+    cordisCount={cordisExtensionCount(state)}
     api={api}
     back={() => { guardDirty(api.closeEmployeeEditor) }}
     rollback={(releaseId) => { guardDirty(() => { void api.rollbackEmployee(releaseId) }) }}
+    openExtensions={() => { guardDirty(() => { api.setPage('extensions') }) }}
     mutationBusy={state.mutationPhase === 'running'}
     t={t}
   />
@@ -419,15 +483,23 @@ function SchedulesPage({ page, releases, api, busy, onDirty, t }: { page: Enterp
   </section>
 }
 
-function AssetsPage({ page, api, busy, onDirty, t }: { page: EnterprisePageState<EnterpriseAsset>; api: EnterpriseWorkbenchInjected; busy: boolean; onDirty: () => void; t: Translate }) {
+function AssetsPage({ page, cordisCount, api, busy, onDirty, openExtensions, t }: { page: EnterprisePageState<EnterpriseAsset>; cordisCount: number; api: EnterpriseWorkbenchInjected; busy: boolean; onDirty: () => void; openExtensions: () => void; t: Translate }) {
   const [creating, setCreating] = useState(false)
   const [name, setName] = useState('')
-  const [kind, setKind] = useState<EnterpriseAssetKind>('sop')
+  const [kind, setKind] = useState<ManagedAssetKind>('sop')
   const [summary, setSummary] = useState('')
   const [content, setContent] = useState('')
+  const managedAssets = page.items.filter(asset => MANAGED_ASSET_KINDS.includes(asset.kind as ManagedAssetKind))
+  const filteredAssets = managedAssets.filter(asset => asset.kind === kind)
+  const counts = Object.fromEntries(MANAGED_ASSET_KINDS.map(category => [
+    category, managedAssets.filter(asset => asset.kind === category).length,
+  ])) as Record<ManagedAssetKind, number>
+  const capabilityCounts: Record<CapabilityCategory, number> = { ...counts, cordis: cordisCount }
+  const filteredPage = { ...page, items: filteredAssets }
   const createButton = <button type="button" className={css.primaryButton} onClick={() => { setCreating(true) }}><IconPlusOutline16 size={16}/>{t('asset.create')}</button>
   return <section className={css.managementPage} aria-labelledby="assets-page-title">
-    <ManagementHeader id="assets-page-title" title={t('nav.assets')} description={t('asset.description')} count={page.items.length} action={page.items.length === 0 ? undefined : createButton}/>
+    <ManagementHeader id="assets-page-title" title={t('nav.assets')} description={t('asset.description')} count={managedAssets.length} action={managedAssets.length === 0 ? undefined : createButton}/>
+    <CapabilityTypeCards counts={capabilityCounts} selected={kind} select={setKind} openCordis={openExtensions} t={t}/>
     {creating && <form className={css.guidedForm} onSubmit={(event) => {
       event.preventDefault()
       const payload: Readonly<Record<string, JsonValue>> = kind === 'sop'
@@ -439,13 +511,13 @@ function AssetsPage({ page, api, busy, onDirty, t }: { page: EnterprisePageState
       <div className={css.formTitle}><div><h3>{t('asset.create')}</h3><p>{t('asset.formHelp')}</p></div><button type="button" className={css.secondaryButton} onClick={() => { setCreating(false) }}>{t('cancel')}</button></div>
       <div className={css.formGrid}>
         <label>{t('asset.name')}<input required disabled={busy} value={name} onChange={(event) => { setName(event.target.value); onDirty() }}/></label>
-        <label>{t('asset.kind')}<select disabled={busy} value={kind} onChange={(event) => { setKind(event.target.value as EnterpriseAssetKind); onDirty() }}><option value="sop">{t(ASSET_KEYS.sop)}</option><option value="knowledge">{t(ASSET_KEYS.knowledge)}</option><option value="skill">{t(ASSET_KEYS.skill)}</option><option value="tool">{t(ASSET_KEYS.tool)}</option><option value="model">{t(ASSET_KEYS.model)}</option></select></label>
+        <div className={css.categoryField}><span>{t('asset.kind')}</span><strong>{t(ASSET_KEYS[kind])}</strong></div>
         <label className={css.fullField}>{t('asset.summary')}<input required disabled={busy} value={summary} onChange={(event) => { setSummary(event.target.value); onDirty() }}/></label>
         <label className={css.fullField}>{t('asset.body')}<textarea required rows={6} disabled={busy} placeholder={kind === 'sop' ? t('asset.sopPlaceholder') : t('asset.contentPlaceholder')} value={content} onChange={(event) => { setContent(event.target.value); onDirty() }}/></label>
       </div>
       <div className={css.formActions}><button className={css.primaryButton} type="submit" disabled={busy || name.trim() === '' || summary.trim() === '' || content.trim() === ''}>{t('asset.save')}</button></div>
     </form>}
-    <PageBoundary page={page} t={t} empty={<ActionableEmpty title={t('asset.emptyTitle')} description={t('asset.emptyBody')} action={createButton}/>}><div className={css.rows}>{page.items.map(item => <div className={css.row} key={item.assetId}><div><strong>{item.name}</strong><span>{t(ASSET_KEYS[item.kind])} · {t('employee.revision', { revision: item.revision })} · {formatDate(item.updatedAt)}</span></div>{!item.archived && <button type="button" className={css.secondaryButton} disabled={busy} onClick={() => { void api.archiveAsset(item) }}>{t('asset.archive')}</button>}</div>)}</div></PageBoundary>
+    <PageBoundary page={filteredPage} t={t} empty={<ActionableEmpty title={t('asset.emptyCategoryTitle', { category: t(ASSET_KEYS[kind]) })} description={t('asset.emptyBody')} action={createButton}/>}><div className={css.rows}>{filteredAssets.map(item => <div className={css.row} key={item.assetId}><div><strong>{item.name}</strong><span>{t(ASSET_KEYS[item.kind])} · {t('employee.revision', { revision: item.revision })} · {formatDate(item.updatedAt)}</span></div>{!item.archived && <button type="button" className={css.secondaryButton} disabled={busy} onClick={() => { void api.archiveAsset(item) }}>{t('asset.archive')}</button>}</div>)}</div></PageBoundary>
   </section>
 }
 
@@ -652,5 +724,5 @@ export function EnterpriseWorkbench(props: EnterpriseWorkbenchProps) {
   }
   return <section ref={dialogRef} className={css.workbench} role="dialog" aria-modal="true" aria-label={props.t('title')} onKeyDown={onKeyDown}><header className={css.header}><div><h1>{props.t('title')}</h1><p>{props.t('subtitle')}</p></div><div className={css.headerActions}><button type="button" className={css.iconButton} aria-label={props.t('refresh')} onClick={() => { void props.refresh() }}><IconRefreshOutline16 size={16} /></button><button ref={closeRef} type="button" className={css.iconButton} aria-label={props.t('close')} onClick={requestClose}><IconCloseOutline16 size={16} /></button></div></header>
     {state.mutationError !== null && <div className={css.mutationError} role="alert" aria-label={props.t('mutation.errorAria')}><IconWarningOutline16 size={18} /><span>{state.mutationPhase === 'conflict' ? props.t('mutation.conflict') : state.mutationError}</span>{state.mutationPhase === 'conflict' ? <button type="button" onClick={() => { void props.resolveMutationConflict() }}>{props.t('mutation.reload')}</button> : <button type="button" onClick={() => { void props.retryMutation() }}>{props.t('mutation.retry')}</button>}<button type="button" onClick={props.dismissMutationError}>{props.t('mutation.dismiss')}</button></div>}
-    {state.phase === 'loading' && state.mode === null && <div className={css.loading} role="status"><span className={css.skeleton} />{props.t('loading')}</div>}{state.phase === 'error' && <div className={css.error} role="alert"><IconWarningOutline16 size={18} /><span>{state.error}</span><button type="button" onClick={() => { void props.refresh() }}>{props.t('retry')}</button></div>}{state.phase !== 'error' && state.mode === 'fallback' && <main className={css.body}><FallbackPage state={state} start={props.startEmployee} open={props.openRecord} t={props.t} /></main>}{state.phase !== 'error' && state.mode === 'enterprise' && <div className={css.shell}><nav className={css.nav} aria-label={props.t('nav.aria')}>{NAV_GROUPS.map(group => <div className={css.navGroup} key={group.label}><span>{props.t(group.label)}</span>{group.items.map(([id, key]) => <button type="button" key={id} aria-current={page === id ? 'page' : undefined} onClick={() => { requestPage(id) }}>{props.t(key)}</button>)}</div>)}</nav><main className={css.main}>{partial && <div className={css.notice} role="status">{props.t('partial')}</div>}{page === 'employees' && <EmployeesPage state={state} api={api} guardDirty={guardDirty} t={props.t} />}{page === 'work-records' && <WorkRecordsPage page={state.workRecords} update={props.updateWorkRecord} busy={mutationBusy} t={props.t} />}{page === 'approvals' && <ApprovalsPage page={state.approvals} api={api} busy={mutationBusy} t={props.t} />}{page === 'schedules' && <SchedulesPage page={state.schedules} releases={state.releases} api={api} busy={mutationBusy} onDirty={() => { setLocalFormDirty(true) }} t={props.t} />}{page === 'assets' && <AssetsPage page={state.assets} api={api} busy={mutationBusy} onDirty={() => { setLocalFormDirty(true) }} t={props.t} />}{page === 'teams' && <TeamsPage page={state.teams} releases={state.releases} api={api} busy={mutationBusy} onDirty={() => { setLocalFormDirty(true) }} t={props.t} />}{page === 'extensions' && <ExtensionsPage state={state} workspaces={workspaces} api={api} busy={mutationBusy} t={props.t} />}</main></div>}</section>
+    {state.phase === 'loading' && state.mode === null && <div className={css.loading} role="status"><span className={css.skeleton} />{props.t('loading')}</div>}{state.phase === 'error' && <div className={css.error} role="alert"><IconWarningOutline16 size={18} /><span>{state.error}</span><button type="button" onClick={() => { void props.refresh() }}>{props.t('retry')}</button></div>}{state.phase !== 'error' && state.mode === 'fallback' && <main className={css.body}><FallbackPage state={state} start={props.startEmployee} open={props.openRecord} t={props.t} /></main>}{state.phase !== 'error' && state.mode === 'enterprise' && <div className={css.shell}><nav className={css.nav} aria-label={props.t('nav.aria')}>{NAV_GROUPS.map(group => <div className={css.navGroup} key={group.label}><span>{props.t(group.label)}</span>{group.items.map(([id, key]) => <button type="button" key={id} aria-current={page === id ? 'page' : undefined} onClick={() => { requestPage(id) }}>{props.t(key)}</button>)}</div>)}</nav><main className={css.main}>{partial && <div className={css.notice} role="status">{props.t('partial')}</div>}{page === 'employees' && <EmployeesPage state={state} api={api} guardDirty={guardDirty} t={props.t} />}{page === 'work-records' && <WorkRecordsPage page={state.workRecords} update={props.updateWorkRecord} busy={mutationBusy} t={props.t} />}{page === 'approvals' && <ApprovalsPage page={state.approvals} api={api} busy={mutationBusy} t={props.t} />}{page === 'schedules' && <SchedulesPage page={state.schedules} releases={state.releases} api={api} busy={mutationBusy} onDirty={() => { setLocalFormDirty(true) }} t={props.t} />}{page === 'assets' && <AssetsPage page={state.assets} cordisCount={cordisExtensionCount(state)} api={api} busy={mutationBusy} onDirty={() => { setLocalFormDirty(true) }} openExtensions={() => { requestPage('extensions') }} t={props.t} />}{page === 'teams' && <TeamsPage page={state.teams} releases={state.releases} api={api} busy={mutationBusy} onDirty={() => { setLocalFormDirty(true) }} t={props.t} />}{page === 'extensions' && <ExtensionsPage state={state} workspaces={workspaces} api={api} busy={mutationBusy} t={props.t} />}</main></div>}</section>
 }

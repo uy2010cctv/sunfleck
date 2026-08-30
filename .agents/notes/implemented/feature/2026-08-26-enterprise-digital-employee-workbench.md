@@ -34,6 +34,8 @@ Release validation accepts that direct configured provider/model route without r
 
 Publishing also compiles the immutable Release identity into the user-authored native Agent Preset: name, description, position, department, capability labels, and responsibility Prompt update `preset.yml` plus the scoped `@deepseek-ai/dsh-persona` row. The generated persona explicitly answers self-introduction from the employee identity instead of claiming to be a generic coding Agent or the DSH system. The composition stamp starts a new standing Preset generation for later Sessions; already-running Sessions retain the generation they started with.
 
+Capability discovery uses the same five-card taxonomy in the employee editor and capability-management page: SOP, Knowledge, Skill, Tool, and Cordis Extension. The first four cards filter versioned enterprise assets for creation or binding; the Cordis card opens the existing Extension center because Cordis packages keep their own scope, review, Generation, and runtime lifecycle. Model selection remains in the employee runtime section and is not presented as a capability asset. Cards show honest stored or bound counts and reflow from five desktop columns to smaller responsive grids.
+
 ## StaffDeck provenance boundary
 
 OpenBMB StaffDeck informed the employee-roster and operations information architecture. No StaffDeck React components, FastAPI models, illustrations, avatars, logos, or source files are copied. DSH keeps its MIT source, Cordis plugin topology, runtime services, event log, theme tokens, and browser slot system.

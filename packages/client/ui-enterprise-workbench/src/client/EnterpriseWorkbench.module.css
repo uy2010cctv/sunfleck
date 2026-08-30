@@ -335,6 +335,42 @@
 .formTitle h3 { font-size: 1rem; line-height: 1.4; }
 .formTitle p { max-inline-size: 60ch; margin-block-start: var(--dse-space-3xs); color: var(--dse-color-muted); font-size: 0.75rem; line-height: 1.5; }
 
+.capabilityTypeGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--dse-space-2xs);
+  margin-block: 0 var(--dse-space-md);
+}
+.capabilityTypeGrid > div { min-inline-size: 0; }
+.capabilityTypeCard {
+  inline-size: 100%;
+  min-block-size: 7rem;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-rows: 1fr auto;
+  align-items: start;
+  gap: var(--dse-space-2xs) var(--dse-space-xs);
+  padding: var(--dse-space-sm);
+  border: 1px solid var(--dse-color-border);
+  border-radius: var(--dse-radius-card);
+  background: var(--dse-color-surface);
+  color: var(--dse-color-ink);
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+  transition: border-color var(--dse-duration-short) var(--dse-ease-out), background-color var(--dse-duration-short) var(--dse-ease-out), transform var(--dse-duration-short) var(--dse-ease-out);
+}
+.capabilityTypeCard:hover { transform: translateY(-1px); border-color: var(--dse-color-accent); }
+.capabilityTypeCard[data-selected='true'] { border-color: var(--dse-color-accent); background: var(--dse-color-accent-soft); }
+.capabilityTypeCard:focus-visible { outline: 2px solid var(--dse-color-focus); outline-offset: 2px; }
+.capabilityTypeIcon { inline-size: 2rem; block-size: 2rem; display: grid; place-items: center; border-radius: var(--dse-radius-control); background: var(--dse-color-surface-raised); color: var(--dse-color-accent); }
+.capabilityTypeCopy { min-inline-size: 0; display: grid; gap: var(--dse-space-3xs); }
+.capabilityTypeCopy strong { font-size: 0.8125rem; line-height: 1.35; }
+.capabilityTypeCopy small { color: var(--dse-color-muted); font-size: 0.6875rem; line-height: 1.45; }
+.capabilityTypeCount { grid-column: 1 / -1; color: var(--dse-color-muted); font-size: 0.6875rem; font-variant-numeric: tabular-nums; }
+.categoryField { min-inline-size: 0; display: grid; align-content: center; gap: var(--dse-space-3xs); min-block-size: 38px; color: var(--dse-color-muted); font-size: 0.75rem; }
+.categoryField strong { color: var(--dse-color-ink); font-size: 0.8125rem; font-weight: 600; }
+
 .actionableEmpty {
   min-block-size: 14rem;
   display: flex;
@@ -676,6 +712,7 @@
   .employeeGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .record { grid-template-columns: minmax(6rem, auto) minmax(0, 1fr) auto; }
   .recordTime { display: block; }
+  .capabilityTypeGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 @media (min-width: 48rem) {
@@ -707,6 +744,7 @@
 @media (min-width: 72rem) {
   .content { grid-template-columns: minmax(0, 1.35fr) minmax(22rem, 0.65fr); }
   .employeeGrid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .capabilityTypeGrid { grid-template-columns: repeat(5, minmax(0, 1fr)); }
 }
 
 @media (max-width: 39.99rem) {
@@ -735,6 +773,7 @@
   .secondaryButton,
   .loadMore,
   .employeeCard,
+  .capabilityTypeCard,
   .spin,
   .skeleton { transition: none; animation: none; }
 }

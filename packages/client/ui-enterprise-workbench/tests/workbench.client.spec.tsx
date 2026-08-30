@@ -356,6 +356,45 @@ describe('EnterpriseWorkbench', () => {
     expect(screen.getByRole('checkbox', { name: '询价' })).toBeDefined()
   })
 
+  it('uses the same five capability cards for asset management and employee binding', () => {
+    const setPage = vi.fn()
+    const patchEmployeeDraft = vi.fn()
+    const assets = { phase: 'ready' as const, error: null, items: [
+      { assetId: 'sop-1', orgId: 'o', kind: 'sop' as const, name: '报销 SOP', revision: 1, archived: false, updatedAt: 1 },
+      { assetId: 'knowledge-1', orgId: 'o', kind: 'knowledge' as const, name: '财务制度', revision: 1, archived: false, updatedAt: 1 },
+      { assetId: 'skill-1', orgId: 'o', kind: 'skill' as const, name: '发票识别', revision: 1, archived: false, updatedAt: 1 },
+      { assetId: 'tool-1', orgId: 'o', kind: 'tool' as const, name: '财务 MCP', revision: 1, archived: false, updatedAt: 1 },
+    ] }
+    const extensions = { phase: 'ready' as const, error: null, items: [{
+      packageId: 'pkg-1', pluginId: 'finance-panel', version: 1, scope: { type: 'organization', organizationId: 'o' },
+      authoredBy: 'u', sourceDigest: 'd', manifest: { apiVersion: 'dsh-plugin/v1', runtime: 'isolated-realm', provides: [], capabilities: [], license: 'MIT', dependencies: [] },
+      artifactRef: 'a', validationReportRef: 'v', createdAt: 1,
+    }] }
+    const { rerender } = render(<EnterpriseWorkbench {...workbenchProps({
+      state: { mode: 'enterprise', page: 'assets', assets, extensions }, setPage,
+    } as never)} />)
+
+    const managementCards = screen.getByRole('list', { name: '能力分类' })
+    for (const label of ['SOP', '知识', '技能', '工具', 'Cordis 扩展']) {
+      expect(within(managementCards).getByRole('button', { name: new RegExp(label, 'u') })).toBeDefined()
+    }
+    fireEvent.click(within(managementCards).getByRole('button', { name: /Cordis 扩展/u }))
+    expect(setPage).toHaveBeenCalledWith('extensions')
+
+    rerender(<EnterpriseWorkbench {...workbenchProps({ state: {
+      mode: 'enterprise', page: 'employees', assets, extensions,
+      employeeEditor: {
+        phase: 'ready', dirty: false, saving: false, conflict: false, errors: [], error: null, revision: 1,
+        fields: { presetId: 'finance', name: '小钱', description: '', position: '', department: '', prompt: '职责', modelRef: 'm', capabilities: [], visibility: 'organization', bindings: [{ kind: 'sop', assetId: 'sop-1', version: 1 }] }, releases: [],
+      },
+    }, setPage, patchEmployeeDraft } as never)} />)
+    const employeeCards = screen.getByRole('list', { name: '能力分类' })
+    expect(within(employeeCards).getByRole('button', { name: /SOP.*1 项/u })).toBeDefined()
+    fireEvent.click(within(employeeCards).getByRole('button', { name: /技能/u }))
+    expect(screen.getByRole('combobox', { name: '能力资产' }).textContent).toContain('发票识别')
+    expect(screen.getByRole('combobox', { name: '能力资产' }).textContent).not.toContain('报销 SOP')
+  })
+
   it('explains employee prerequisites instead of rendering unusable schedule and team forms', () => {
     const setPage = vi.fn()
     const { rerender } = render(<EnterpriseWorkbench {...workbenchProps({
@@ -420,7 +459,6 @@ describe('EnterpriseWorkbench', () => {
     expect(screen.queryByLabelText('资产 ID')).toBeNull()
     expect(screen.queryByLabelText('内容 JSON')).toBeNull()
     fireEvent.change(screen.getByLabelText('资产名称'), { target: { value: '询价标准流程' } })
-    fireEvent.change(screen.getByLabelText('能力类型'), { target: { value: 'sop' } })
     fireEvent.change(screen.getByLabelText('用途说明'), { target: { value: '统一供应商询价步骤' } })
     fireEvent.change(screen.getByLabelText('能力内容'), { target: { value: '收集需求\n邀请报价\n对比并留痕' } })
     fireEvent.click(screen.getByRole('button', { name: '保存能力资产' }))
