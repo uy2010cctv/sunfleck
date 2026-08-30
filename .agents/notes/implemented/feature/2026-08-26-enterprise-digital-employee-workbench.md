@@ -36,6 +36,8 @@ Publishing also compiles the immutable Release identity into the user-authored n
 
 Capability discovery uses the same five-card taxonomy in the employee editor and capability-management page: SOP, Knowledge, Skill, Tool, and Cordis Extension. The first four cards filter versioned enterprise assets for creation or binding; the Cordis card opens the existing Extension center because Cordis packages keep their own scope, review, Generation, and runtime lifecycle. Model selection remains in the employee runtime section and is not presented as a capability asset. Cards show honest stored or bound counts and reflow from five desktop columns to smaller responsive grids.
 
+The team editor groups immutable Releases by employee Preset and offers only the newest published Release for each employee. Lead and member selection use responsive identity cards with the employee avatar, role, department, and explicit Release version; the lead is a single choice and is removed from the member choices after selection. Saving still records the selected immutable Release ids, so later employee publishing does not silently change an existing team definition.
+
 ## StaffDeck provenance boundary
 
 OpenBMB StaffDeck informed the employee-roster and operations information architecture. No StaffDeck React components, FastAPI models, illustrations, avatars, logos, or source files are copied. DSH keeps its MIT source, Cordis plugin topology, runtime services, event log, theme tokens, and browser slot system.

@@ -521,12 +521,59 @@ function AssetsPage({ page, cordisCount, api, busy, onDirty, openExtensions, t }
   </section>
 }
 
+export function latestEmployeeReleases(
+  releases: readonly EnterpriseEmployeeRelease[],
+): readonly EnterpriseEmployeeRelease[] {
+  const order: string[] = []
+  const latest = new Map<string, EnterpriseEmployeeRelease>()
+  for (const release of releases) {
+    const current = latest.get(release.presetId)
+    if (current === undefined) order.push(release.presetId)
+    if (current === undefined || release.version > current.version
+      || (release.version === current.version && release.publishedAt > current.publishedAt)) {
+      latest.set(release.presetId, release)
+    }
+  }
+  return order.flatMap(presetId => latest.get(presetId) ?? [])
+}
+
+function TeamEmployeeChoice({ release, type, checked, disabled, change, t }: {
+  release: EnterpriseEmployeeRelease
+  type: 'radio' | 'checkbox'
+  checked: boolean
+  disabled: boolean
+  change: (checked: boolean) => void
+  t: Translate
+}) {
+  const name = releaseName(release)
+  const avatarSeed = recordText(release.snapshot.profile, 'avatarSeed') || release.presetId
+  const position = recordText(release.snapshot.profile, 'position')
+  const department = recordText(release.snapshot.profile, 'department')
+  return <label className={css.teamEmployeeChoice} data-selected={checked} data-disabled={disabled}>
+    <input
+      type={type}
+      name={type === 'radio' ? 'team-leader' : undefined}
+      aria-label={t(type === 'radio' ? 'team.leaderAria' : 'team.memberAria', { name })}
+      checked={checked}
+      disabled={disabled}
+      onChange={(event) => { change(event.target.checked) }}
+    />
+    <EmployeeAvatar name={name} seed={avatarSeed} t={t}/>
+    <span className={css.teamEmployeeIdentity}>
+      <strong>{name}</strong>
+      {(position !== '' || department !== '') && <small>{[position, department].filter(Boolean).join(' · ')}</small>}
+      <small>{t('team.latestVersion', { version: release.version })}</small>
+    </span>
+  </label>
+}
+
 function TeamsPage({ page, releases, api, busy, onDirty, t }: { page: EnterprisePageState<EnterpriseTeam>; releases: readonly EnterpriseEmployeeRelease[]; api: EnterpriseWorkbenchInjected; busy: boolean; onDirty: () => void; t: Translate }) {
   const [creating, setCreating] = useState(false)
   const [name, setName] = useState('')
   const [leader, setLeader] = useState('')
   const [members, setMembers] = useState<EnterpriseTeamMember[]>([])
-  const canCreate = releases.length >= 2
+  const latestReleases = latestEmployeeReleases(releases)
+  const canCreate = latestReleases.length >= 2
   const goEmployees = <button type="button" className={css.primaryButton} onClick={() => { api.setPage('employees') }}>{t('prerequisite.goEmployees')}</button>
   return <section className={css.managementPage} aria-labelledby="teams-page-title">
     <ManagementHeader id="teams-page-title" title={t('nav.teams')} description={t('team.description')} count={page.items.length}
@@ -543,8 +590,8 @@ function TeamsPage({ page, releases, api, busy, onDirty, t }: { page: Enterprise
       <div className={css.formTitle}><div><h3>{t('team.create')}</h3><p>{t('team.formHelp')}</p></div><button type="button" className={css.secondaryButton} onClick={() => { setCreating(false) }}>{t('cancel')}</button></div>
       <div className={css.formGrid}>
         <label className={css.fullField}>{t('team.name')}<input required disabled={busy} value={name} onChange={(event) => { setName(event.target.value); onDirty() }}/></label>
-        <label className={css.fullField}>{t('team.leaderSelect')}<select required disabled={busy} value={leader} onChange={(event) => { const next = event.target.value; setLeader(next); setMembers(current => current.filter(member => member.employeeReleaseId !== next)); onDirty() }}><option value="">{t('team.selectLeader')}</option>{releases.map(release => <option key={release.releaseId} value={release.releaseId}>{releaseName(release)} {t('version.short', { version: release.version })}</option>)}</select></label>
-        <fieldset className={`${css.fullField} ${css.memberChoices}`}><legend>{t('team.memberSelect')}</legend>{releases.filter(release => release.releaseId !== leader).map(release => <label key={release.releaseId}><input type="checkbox" disabled={busy} checked={members.some(member => member.employeeReleaseId === release.releaseId)} onChange={(event) => { setMembers(current => event.target.checked ? [...current, { employeeReleaseId: release.releaseId, role: 'member' }] : current.filter(member => member.employeeReleaseId !== release.releaseId)); onDirty() }}/><span>{releaseName(release)}</span></label>)}</fieldset>
+        <fieldset className={`${css.fullField} ${css.teamPicker}`}><legend>{t('team.leaderSelect')}</legend><p>{t('team.leaderHelp')}</p><div className={css.teamChoiceGrid}>{latestReleases.map(release => <TeamEmployeeChoice key={release.releaseId} release={release} type="radio" checked={leader === release.releaseId} disabled={busy} change={(selected) => { if (!selected) return; setLeader(release.releaseId); setMembers(current => current.filter(member => member.employeeReleaseId !== release.releaseId)); onDirty() }} t={t}/>)}</div></fieldset>
+        <fieldset className={`${css.fullField} ${css.teamPicker}`}><legend>{t('team.memberSelect')}</legend><p>{leader === '' ? t('team.memberHelpBeforeLeader') : t('team.memberHelp')}</p><div className={css.teamChoiceGrid}>{latestReleases.filter(release => release.releaseId !== leader).map(release => <TeamEmployeeChoice key={release.releaseId} release={release} type="checkbox" checked={members.some(member => member.employeeReleaseId === release.releaseId)} disabled={busy || leader === ''} change={(selected) => { setMembers(current => selected ? [...current, { employeeReleaseId: release.releaseId, role: 'member' }] : current.filter(member => member.employeeReleaseId !== release.releaseId)); onDirty() }} t={t}/>)}</div></fieldset>
       </div>
       <div className={css.formActions}><button className={css.primaryButton} type="submit" disabled={busy || name.trim() === '' || leader === '' || members.length === 0}>{t('team.save')}</button></div>
     </form>}

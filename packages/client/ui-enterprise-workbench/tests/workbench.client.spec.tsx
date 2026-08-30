@@ -352,8 +352,8 @@ describe('EnterpriseWorkbench', () => {
       }],
     }, saveTeam } as never)} />)
     fireEvent.click(screen.getByRole('button', { name: '新建团队' }))
-    expect(screen.getByLabelText('领队数字员工').tagName).toBe('SELECT')
-    expect(screen.getByRole('checkbox', { name: '询价' })).toBeDefined()
+    expect(screen.getByRole('radio', { name: '选择采购为领队' })).toBeDefined()
+    expect(screen.getByRole('checkbox', { name: '选择询价为成员' })).toBeDefined()
   })
 
   it('uses the same five capability cards for asset management and employee binding', () => {
@@ -475,8 +475,8 @@ describe('EnterpriseWorkbench', () => {
     } as never)} />)
     fireEvent.click(screen.getByRole('button', { name: '新建团队' }))
     fireEvent.change(screen.getByLabelText('团队名称'), { target: { value: '采购协同组' } })
-    fireEvent.change(screen.getByLabelText('领队数字员工'), { target: { value: 'release-lead' } })
-    fireEvent.click(screen.getByRole('checkbox', { name: '询价专员' }))
+    fireEvent.click(screen.getByRole('radio', { name: '选择采购主管为领队' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: '选择询价专员为成员' }))
     fireEvent.click(screen.getByRole('button', { name: '保存团队' }))
     await waitFor(() => { expect(saveTeam).toHaveBeenCalledOnce() })
     const savedTeam = saveTeam.mock.calls[0]![0]
@@ -485,6 +485,46 @@ describe('EnterpriseWorkbench', () => {
       leaderEmployeeReleaseId: 'release-lead',
       members: [{ employeeReleaseId: 'release-member', role: 'member' }],
     })
+  })
+
+  it('shows one latest Release per employee in an avatar-based team picker', async () => {
+    const saveTeam = vi.fn((_input: Parameters<EnterpriseWorkbenchProps['saveTeam']>[0]) => Promise.resolve(true))
+    const release = (presetId: string, releaseId: string, version: number, name: string, avatarSeed: string) => ({
+      releaseId, presetId, orgId: 'o', version, digest: `${presetId}-${String(version)}`,
+      snapshot: { profile: { name, avatarSeed, position: '业务专员', department: '运营部' }, bindings: [] },
+      publishedBy: 'u', publishedAt: version,
+    })
+    render(<EnterpriseWorkbench {...workbenchProps({
+      state: { mode: 'enterprise', page: 'teams', releases: [
+        release('buyer', 'buyer-v1', 1, '小圆', 'buyer-old'),
+        release('buyer', 'buyer-v3', 3, '小圆', 'buyer-latest'),
+        release('finance', 'finance-v1', 1, '小钱', 'finance-old'),
+        release('finance', 'finance-v2', 2, '小钱', 'finance-latest'),
+      ] }, saveTeam,
+    } as never)} />)
+
+    fireEvent.click(screen.getByRole('button', { name: '新建团队' }))
+    expect(screen.getAllByRole('radio')).toHaveLength(2)
+    expect(screen.getAllByRole('checkbox')).toHaveLength(2)
+    const buyerAvatars = screen.getAllByRole('img', { name: '小圆头像' })
+    const financeAvatars = screen.getAllByRole('img', { name: '小钱头像' })
+    expect(buyerAvatars).toHaveLength(2)
+    expect(financeAvatars).toHaveLength(2)
+    expect(buyerAvatars.every(avatar => avatar.getAttribute('src')?.includes('buyer-latest'))).toBe(true)
+    expect(financeAvatars.every(avatar => avatar.getAttribute('src')?.includes('finance-latest'))).toBe(true)
+    expect(screen.getAllByText('最新版本 v3')).toHaveLength(2)
+    expect(screen.getAllByText('最新版本 v2')).toHaveLength(2)
+
+    fireEvent.click(screen.getByRole('radio', { name: '选择小圆为领队' }))
+    expect(screen.getAllByRole('checkbox')).toHaveLength(1)
+    fireEvent.click(screen.getByRole('checkbox', { name: '选择小钱为成员' }))
+    fireEvent.change(screen.getByLabelText('团队名称'), { target: { value: '运营协同组' } })
+    fireEvent.click(screen.getByRole('button', { name: '保存团队' }))
+    await waitFor(() => { expect(saveTeam).toHaveBeenCalledOnce() })
+    expect(saveTeam).toHaveBeenCalledWith(expect.objectContaining({
+      leaderEmployeeReleaseId: 'buyer-v3',
+      members: [{ employeeReleaseId: 'finance-v2', role: 'member' }],
+    }))
   })
 
   it('makes fallback employee cells an explicit start-work destination', () => {
@@ -667,8 +707,8 @@ describe('EnterpriseWorkbench', () => {
           fireEvent.change(screen.getByLabelText(zh['asset.body']), { target: { value: '收集\n汇总' } })
         } else {
           fireEvent.change(screen.getByLabelText(zh['team.name']), { target: { value: '日报团队' } })
-          fireEvent.change(screen.getByLabelText(zh['team.leaderSelect']), { target: { value: 'release-lead' } })
-          fireEvent.click(screen.getByRole('checkbox', { name: '成员' }))
+          fireEvent.click(screen.getByRole('radio', { name: '选择领队为领队' }))
+          fireEvent.click(screen.getByRole('checkbox', { name: '选择成员为成员' }))
         }
         const button = screen.getByRole('button', { name: testCase.save })
         fireEvent.submit(button.closest('form') as HTMLFormElement)

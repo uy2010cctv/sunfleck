@@ -388,10 +388,21 @@
 .actionableEmpty p { max-inline-size: 50ch; margin: 0; color: var(--dse-color-muted); font-size: 0.8125rem; line-height: 1.55; }
 .actionableEmpty button { margin-block-start: var(--dse-space-xs); }
 
-.memberChoices { min-inline-size: 0; margin: 0; padding: var(--dse-space-sm); border: 1px solid var(--dse-color-border); border-radius: var(--dse-radius-control); }
-.memberChoices legend { padding-inline: var(--dse-space-2xs); color: var(--dse-color-muted); font-size: 0.75rem; }
-.memberChoices label { min-block-size: 38px; display: flex; flex-direction: row; align-items: center; gap: var(--dse-space-2xs); color: var(--dse-color-ink); }
-.memberChoices input { inline-size: 16px; block-size: 16px; }
+.teamPicker { min-inline-size: 0; margin: 0; padding: var(--dse-space-sm); border: 1px solid var(--dse-color-border); border-radius: var(--dse-radius-card); }
+.teamPicker legend { padding-inline: var(--dse-space-2xs); color: var(--dse-color-ink); font-size: 0.8125rem; font-weight: 650; }
+.teamPicker > p { margin: 0 0 var(--dse-space-sm); color: var(--dse-color-muted); font-size: 0.75rem; line-height: 1.5; }
+.teamChoiceGrid { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--dse-space-2xs); }
+.formGrid .teamEmployeeChoice { position: relative; min-inline-size: 0; min-block-size: 4.75rem; display: grid; grid-template-columns: auto 3rem minmax(0, 1fr); align-items: center; gap: var(--dse-space-xs); padding: var(--dse-space-xs); border: 1px solid var(--dse-color-border); border-radius: var(--dse-radius-control); background: var(--dse-color-surface); color: var(--dse-color-ink); cursor: pointer; }
+.teamEmployeeChoice:hover { border-color: var(--dse-color-accent); }
+.teamEmployeeChoice[data-selected='true'] { border-color: var(--dse-color-accent); background: var(--dse-color-accent-soft); }
+.teamEmployeeChoice[data-disabled='true'] { cursor: not-allowed; opacity: 0.6; }
+.formGrid .teamEmployeeChoice input { inline-size: 16px; block-size: 16px; min-block-size: 16px; margin: 0; padding: 0; accent-color: var(--dse-color-accent); }
+.teamEmployeeChoice .avatarImage { inline-size: 3rem; block-size: 3rem; }
+.teamEmployeeIdentity { min-inline-size: 0; display: grid; gap: var(--dse-space-3xs); }
+.teamEmployeeIdentity strong,
+.teamEmployeeIdentity small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.teamEmployeeIdentity strong { font-size: 0.8125rem; }
+.teamEmployeeIdentity small { color: var(--dse-color-muted); font-size: 0.6875rem; }
 
 .employeeGrid { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--dse-space-sm); }
 
@@ -713,6 +724,7 @@
   .record { grid-template-columns: minmax(6rem, auto) minmax(0, 1fr) auto; }
   .recordTime { display: block; }
   .capabilityTypeGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .teamChoiceGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 @media (min-width: 48rem) {
@@ -745,6 +757,7 @@
   .content { grid-template-columns: minmax(0, 1.35fr) minmax(22rem, 0.65fr); }
   .employeeGrid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .capabilityTypeGrid { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+  .teamChoiceGrid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 
 @media (max-width: 39.99rem) {

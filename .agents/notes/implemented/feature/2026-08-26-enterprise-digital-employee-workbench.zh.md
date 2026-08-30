@@ -36,6 +36,8 @@ DSH 把 Agent Preset、Workspace、Session 和 Session Event 作为独立的开�
 
 员工编辑器与能力资产管理页使用同一套 5 类卡片分类：SOP、知识、技能、工具和 Cordis 扩展。前四张卡片筛选可创建或可绑定的版本化企业资产；Cordis 卡片进入现有扩展中心，因为 Cordis Package 保留自己的作用域、审核、Generation 与运行时生命周期。模型选择继续属于员工运行配置，不作为能力资产展示。卡片显示真实存储或已绑定数量，并从桌面端五列自适应回流到更小网格。
 
+团队编辑器按员工 Preset 合并不可变 Release，每位员工只提供最新已发布版本。领队和成员都使用自适应身份卡选择，展示员工头像、岗位、部门和明确的 Release 版本；领队为单选，选定后会从成员候选中移除。保存时仍记录所选的不可变 Release id，因此后续发布新员工版本不会暗中改变已存在的团队定义。
+
 ## StaffDeck 来源边界
 
 OpenBMB StaffDeck 只用于参考员工名册和运营信息架构。未复制 StaffDeck 的 React 组件、FastAPI 模型、插图、头像、Logo 或源文件。DSH 保留自身的 MIT 源码、Cordis 插件拓扑、运行时服务、事件日志、主题 token 和浏览器 slot 系统。
