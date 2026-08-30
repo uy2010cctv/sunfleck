@@ -28,6 +28,8 @@ The employee editor reads `/auth/departments` through the current authenticated 
 
 The model field reads the same live `session/modelCatalog` used by the conversation composer and stores a provider/model route. The **AI optimize** action calls `enterpriseEmployee.optimizePrompt`; the Host resolves the selected configured adapter, performs a text-only one-shot through `ctx.llm`, and returns an improved prompt without exposing credentials to the browser. The result only updates the unsaved local draft and remains subject to the ordinary explicit save/revision fence.
 
+Release validation accepts that direct configured provider/model route without requiring a duplicate enterprise `model` asset binding. Historical drafts that reference a versioned model asset retain the original asset/version validation path. This keeps model selection aligned with the live DSH Provider catalog while preserving immutable legacy releases.
+
 ## StaffDeck provenance boundary
 
 OpenBMB StaffDeck informed the employee-roster and operations information architecture. No StaffDeck React components, FastAPI models, illustrations, avatars, logos, or source files are copied. DSH keeps its MIT source, Cordis plugin topology, runtime services, event log, theme tokens, and browser slot system.

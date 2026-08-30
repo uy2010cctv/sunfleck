@@ -26,6 +26,17 @@ function refs(value: unknown): EnterpriseAssetRef[] {
   return parsed as EnterpriseAssetRef[]
 }
 
+function configuredModelRoute(value: unknown): boolean {
+  if (typeof value === 'string') {
+    const separator = value.indexOf('/')
+    return separator > 0 && separator < value.length - 1
+  }
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false
+  const route = value as Record<string, unknown>
+  return typeof route['provider'] === 'string' && route['provider'].length > 0
+    && typeof route['model'] === 'string' && route['model'].length > 0
+}
+
 function canonical(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`
   if (typeof value === 'object' && value !== null) {
@@ -567,7 +578,7 @@ export class EnterpriseCatalogRepository {
       const snapshot = { profile: object(draft.profile_json), bindings: refs(draft.bindings_json) }
       assertNoSecrets(snapshot)
       const modelRef = snapshot.profile['modelRef']
-      if (modelRef !== undefined) {
+      if (modelRef !== undefined && !configuredModelRoute(modelRef)) {
         if (typeof modelRef !== 'object' || modelRef === null || Array.isArray(modelRef)) {
           throw new EnterpriseCatalogError('invalid-binding', 'employee', input.presetId)
         }

@@ -28,6 +28,8 @@ DSH 把 Agent Preset、Workspace、Session 和 Session Event 作为独立的开�
 
 模型字段读取与对话输入框相同的实时 `session/modelCatalog`，并保存供应商/模型路由。“AI 优化”调用 `enterpriseEmployee.optimizePrompt`；Host 使用已选择且已配置的适配器，通过 `ctx.llm` 完成一次纯文本生成，不向浏览器暴露凭据。返回结果只替换本地未保存草稿，仍需用户显式保存并通过 revision fence 才会持久化。
 
+发布校验允许直接使用这条已配置的供应商/模型路由，不再要求重复绑定一个企业 `model` 资产。历史草稿若引用固定版本模型资产，仍继续执行原有资产与版本校验。这样既与 DSH 实时 Provider 目录一致，也保留旧 Release 的不可变语义。
+
 ## StaffDeck 来源边界
 
 OpenBMB StaffDeck 只用于参考员工名册和运营信息架构。未复制 StaffDeck 的 React 组件、FastAPI 模型、插图、头像、Logo 或源文件。DSH 保留自身的 MIT 源码、Cordis 插件拓扑、运行时服务、事件日志、主题 token 和浏览器 slot 系统。

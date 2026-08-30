@@ -385,6 +385,23 @@ describe('EnterpriseCatalogRepository', () => {
     expect((await repository.listReleases('preset-sales', 'org-a'))[0].snapshot.profile.prompt).toBe('Help the sales team.')
   })
 
+  it('publishes a configured provider model route without requiring a model catalog asset', async () => {
+    const repository = catalogRepository(new MemoryPostgresDatabase(), { now: () => 200 })
+    await repository.saveDraft({
+      ...firstDraft,
+      idempotencyKey: 'draft-provider-route',
+      profile: { ...firstDraft.profile, modelRef: 'deepseek/deepseek-v4-flash' },
+      bindings: [],
+    })
+
+    await expect(repository.publishDraft({
+      orgId: 'org-a', presetId: 'preset-sales', expectedRevision: 1,
+      idempotencyKey: 'publish-provider-route', publishedBy: 'user-a',
+    })).resolves.toMatchObject({
+      snapshot: { profile: { modelRef: 'deepseek/deepseek-v4-flash' }, bindings: [] },
+    })
+  })
+
   it('rolls back by creating a new release from an immutable prior snapshot', async () => {
     const repository = catalogRepository()
     await repository.saveDraft(firstDraft)
