@@ -5,6 +5,13 @@
  * icons: pass (30) · mobile: pass (34, 49, 50–57)
  */
 
+.workbench,
+.workbench *,
+.workbench *::before,
+.workbench *::after {
+  box-sizing: border-box;
+}
+
 .workbench {
   position: absolute;
   inset: 0;

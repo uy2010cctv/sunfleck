@@ -26,6 +26,8 @@ DSH 把 Agent Preset、Workspace、Session 和 Session Event 作为独立的开�
 
 员工编辑器通过当前登录会话读取 `/auth/departments`，并保存用户选择的规范部门名称。普通已登录成员按员工读取权限使用该目录；新建部门和调整组织树仍只属于管理员。表单采用名称整行、岗位与部门成对、说明与 Prompt 整行的排布，同时移除头像下方的解释文案。
 
+`EnterpriseWorkbench.module.css` 在工作台根节点、所有后代及伪元素上局部强制 `border-box` 尺寸规则。控件设置 `inline-size: 100%` 时，padding 和 border 会被包含在所属网格列内。数字员工、定时任务、能力资产、团队和扩展表单因此可共用响应式字段网格，相邻输入框不再重叠。
+
 模型字段读取与对话输入框相同的实时 `session/modelCatalog`，并保存供应商/模型路由。“AI 优化”调用 `enterpriseEmployee.optimizePrompt`；Host 使用已选择且已配置的适配器，通过 `ctx.llm` 完成一次纯文本生成，不向浏览器暴露凭据。返回结果只替换本地未保存草稿，仍需用户显式保存并通过 revision fence 才会持久化。
 
 发布校验允许直接使用这条已配置的供应商/模型路由，不再要求重复绑定一个企业 `model` 资产。历史草稿若引用固定版本模型资产，仍继续执行原有资产与版本校验。这样既与 DSH 实时 Provider 目录一致，也保留旧 Release 的不可变语义。

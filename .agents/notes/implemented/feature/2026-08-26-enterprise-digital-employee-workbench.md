@@ -26,6 +26,8 @@ Each employee profile carries an opaque `avatarSeed`. New drafts receive a rando
 
 The employee editor reads `/auth/departments` through the current authenticated session and stores the selected canonical department name. This read route is available to ordinary authenticated members under employee-read policy; department creation and restructuring remain administrator-only. The form uses a full-width employee name, paired position/department controls, full-width descriptive fields, and no explanatory avatar paragraph.
 
+`EnterpriseWorkbench.module.css` applies a scoped `border-box` sizing invariant to the workbench root and every descendant or pseudo-element. A control declared as `inline-size: 100%` therefore includes its padding and border inside its grid track. Employee, schedule, asset, team, and extension forms can share responsive field grids without adjacent inputs overlapping.
+
 The model field reads the same live `session/modelCatalog` used by the conversation composer and stores a provider/model route. The **AI optimize** action calls `enterpriseEmployee.optimizePrompt`; the Host resolves the selected configured adapter, performs a text-only one-shot through `ctx.llm`, and returns an improved prompt without exposing credentials to the browser. The result only updates the unsaved local draft and remains subject to the ordinary explicit save/revision fence.
 
 Release validation accepts that direct configured provider/model route without requiring a duplicate enterprise `model` asset binding. Historical drafts that reference a versioned model asset retain the original asset/version validation path. This keeps model selection aligned with the live DSH Provider catalog while preserving immutable legacy releases.

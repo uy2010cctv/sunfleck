@@ -14,6 +14,16 @@ describe('enterprise theme aliases', () => {
 })
 
 describe('enterprise workbench responsive shell', () => {
+  it('keeps every workbench control inside its grid track with scoped border-box sizing', () => {
+    const css = readFileSync(WORKBENCH, 'utf8')
+    expect(css).toContain(`.workbench,
+.workbench *,
+.workbench *::before,
+.workbench *::after {
+  box-sizing: border-box;
+}`)
+  })
+
   it('keeps the overlay within 320px and switches to a desktop navigation rail at 768px', () => {
     const css = readFileSync(WORKBENCH, 'utf8')
     expect(css).toMatch(/\.workbench\s*\{[^}]*max-inline-size:\s*100%/su)
