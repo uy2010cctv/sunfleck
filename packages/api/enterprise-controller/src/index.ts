@@ -5,6 +5,7 @@ import { Remote, TypertRemoteFailure, TypertRemoteService } from '@deepseek-ai/d
 import type { EnterprisePrincipal } from '@deepseek-ai/dsh-enterprise-governance'
 import type {} from '@deepseek-ai/dsh-enterprise-auth-web'
 import type {} from '@deepseek-ai/dsh-enterprise-postgres'
+import type { EmployeePresetDefinition } from '@deepseek-ai/dsh-agent-presets'
 import {
   BlockAssembler,
   createUserMessage,
@@ -172,6 +173,34 @@ function cordis(ctx: Context): EnterpriseCordisService {
   return ctx.enterpriseCordis
 }
 
+function employeePresetDefinition(release: EnterpriseEmployeeRelease): EmployeePresetDefinition {
+  const profile = release.snapshot.profile
+  const required = (field: string): string => {
+    const value = profile[field]
+    if (typeof value !== 'string' || value.trim() === '') {
+      throw new Error(`employee release ${release.releaseId} has no ${field}`)
+    }
+    return value.trim()
+  }
+  const optional = (field: string): string | undefined => {
+    const value = profile[field]
+    return typeof value === 'string' && value.trim() !== '' ? value.trim() : undefined
+  }
+  const capabilities = Array.isArray(profile['capabilities'])
+    ? profile['capabilities'].filter((value): value is string => typeof value === 'string' && value.trim() !== '')
+    : []
+  const description = optional('description')
+  const position = optional('position')
+  const department = optional('department')
+  return {
+    name: required('name'), prompt: required('prompt'),
+    ...description === undefined ? {} : { description },
+    ...position === undefined ? {} : { position },
+    ...department === undefined ? {} : { department },
+    capabilities,
+  }
+}
+
 /** Employee Draft/Release Remote service. */
 interface EmployeePromptLlm {
   stream(options: GenerateOptions): AsyncIterable<StreamChunk>
@@ -209,7 +238,7 @@ export async function optimizeEmployeePromptWithLlm(
 }
 
 export class EnterpriseEmployeeController extends TypertRemoteService {
-  static inject = ['enterprisePostgres', 'enterpriseSecurity', 'enterpriseRequestContext', 'llm']
+  static inject = ['enterprisePostgres', 'enterpriseSecurity', 'enterpriseRequestContext', 'agentPresets', 'llm']
   /** @param ctx - authenticated enterprise Host context. */
   constructor(ctx: Context) { super(ctx, 'enterpriseEmployeeController', { namespace: 'enterpriseEmployee' }) }
 
@@ -279,10 +308,13 @@ export class EnterpriseEmployeeController extends TypertRemoteService {
    */
   @Remote('publish')
   async publish(request: EnterpriseEmployeePublishRequest): Promise<EnterpriseEmployeeRelease> {
-    return catalogCall(this.ctx, 'enterpriseEmployee.publish', request, 'employee', request.presetId, principal =>
-      this.ctx.enterprisePostgres.catalog.publishDraft({
+    return catalogCall(this.ctx, 'enterpriseEmployee.publish', request, 'employee', request.presetId, async (principal) => {
+      const release = await this.ctx.enterprisePostgres.catalog.publishDraft({
         ...request, orgId: principal.orgId, publishedBy: principal.userId,
-      }) as Promise<EnterpriseEmployeeRelease>)
+      }) as EnterpriseEmployeeRelease
+      await this.ctx.agentPresets.configureEmployee(request.presetId, employeePresetDefinition(release))
+      return release
+    })
   }
 
   /**

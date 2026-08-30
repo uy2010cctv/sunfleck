@@ -32,6 +32,8 @@ The model field reads the same live `session/modelCatalog` used by the conversat
 
 Release validation accepts that direct configured provider/model route without requiring a duplicate enterprise `model` asset binding. Historical drafts that reference a versioned model asset retain the original asset/version validation path. This keeps model selection aligned with the live DSH Provider catalog while preserving immutable legacy releases.
 
+Publishing also compiles the immutable Release identity into the user-authored native Agent Preset: name, description, position, department, capability labels, and responsibility Prompt update `preset.yml` plus the scoped `@deepseek-ai/dsh-persona` row. The generated persona explicitly answers self-introduction from the employee identity instead of claiming to be a generic coding Agent or the DSH system. The composition stamp starts a new standing Preset generation for later Sessions; already-running Sessions retain the generation they started with.
+
 ## StaffDeck provenance boundary
 
 OpenBMB StaffDeck informed the employee-roster and operations information architecture. No StaffDeck React components, FastAPI models, illustrations, avatars, logos, or source files are copied. DSH keeps its MIT source, Cordis plugin topology, runtime services, event log, theme tokens, and browser slot system.

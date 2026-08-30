@@ -21,6 +21,15 @@ import AgentPresets, {
 
 const FIXTURES = join(dirname(fileURLToPath(import.meta.url)), 'fixtures')
 const VALID = '- id: tool-alpha\n  name: ../../plugins/contribute.js\n  config:\n    tool: alpha\n'
+const EMPLOYEE_BASE = [
+  '- id: persona',
+  "  name: '@deepseek-ai/dsh-persona'",
+  '  config:',
+  '    text: You are a coding agent.',
+  '- id: tool-alpha',
+  '  name: ../../plugins/contribute.js',
+  '',
+].join('\n')
 
 let ctx: Context
 let userRoot: string
@@ -62,6 +71,25 @@ beforeEach(async () => {
 })
 
 describe('copying a preset', () => {
+  it('compiles an employee identity and responsibilities into a copied preset', async () => {
+    await seedPreset(userRoot, 'source', { composition: EMPLOYEE_BASE })
+    await ctx.agentPresets.copy('source', 'finance')
+
+    await ctx.agentPresets.configureEmployee('finance', {
+      name: '小钱', description: '负责企业财务事务。', position: '财务总监', department: '财务部',
+      capabilities: ['报销审核', '财务分析'], prompt: '审核报销单据，编制财务报表，所有资金操作需人工复核。',
+    })
+
+    const composition = await ctx.agentPresets.read('finance')
+    expect(composition).toContain('你是企业数字员工“小钱”，岗位是“财务总监”，所属部门是“财务部”。')
+    expect(composition).toContain('审核报销单据，编制财务报表')
+    expect(composition).toContain('当用户询问你是谁或要求自我介绍时')
+    expect((await ctx.agentPresets.list()).find(preset => preset.id === 'finance')).toMatchObject({
+      name: '小钱', description: '负责企业财务事务。',
+      employee: { position: '财务总监', department: '财务部', capabilities: ['报销审核', '财务分析'] },
+    })
+  })
+
   it('copies a shipped preset into the user root and lists it', async () => {
     await ctx.agentPresets.copy('standard', 'mine')
 

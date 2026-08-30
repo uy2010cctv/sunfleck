@@ -37,7 +37,8 @@ import { settingsNamespace, type SettingsScope, type default as SettingsService 
 import { dshHomePath } from '@deepseek-ai/dsh-home-paths'
 import { discoverPresets, SHIPPED_PRESET_ROOT, USER_PRESET_DIR } from './discovery.ts'
 import {
-  copyComposition, deleteComposition, readComposition,
+  configureEmployeeComposition, copyComposition, deleteComposition, readComposition,
+  type EmployeePresetDefinition,
   InvalidPresetIdError, PresetExistsError, PresetNotWritableError,
 } from './authoring.ts'
 import { mountPreset, serviceForAgent, standingMountFor } from './mount.ts'
@@ -136,7 +137,8 @@ export {
   type JoinedPresetMount, type PresetMount,
 } from './mount.ts'
 export {
-  copyComposition, deleteComposition, InvalidPresetIdError, PresetExistsError,
+  configureEmployeeComposition, copyComposition, deleteComposition, InvalidPresetIdError, PresetExistsError,
+  type EmployeePresetDefinition,
   PresetNotWritableError, readComposition, writableRoot,
 } from './authoring.ts'
 export { agentPresetProjectionDefinition } from './session.ts'
@@ -552,6 +554,12 @@ export class AgentPresets extends TypertRemoteService {
     // A settled mount under this id can only be stale (its preset was deleted
     // from disk outside `remove`); the new preset must not inherit it. Every
     // session already joined keeps the generation it runs on regardless.
+    this.standing.delete(id)
+  }
+
+  /** Compile a published enterprise employee identity into one user-authored preset. */
+  async configureEmployee(id: string, input: EmployeePresetDefinition): Promise<void> {
+    await configureEmployeeComposition(this.resolvedRoots, await this.resolve(id), input)
     this.standing.delete(id)
   }
 

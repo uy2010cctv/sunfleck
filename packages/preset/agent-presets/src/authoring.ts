@@ -5,19 +5,30 @@
  * the deployment, and letting a browser rewrite it would turn "reset to a known
  * preset" into something the same caller could have broken first.
  *
- * The only authoring write is a whole-directory copy of an existing preset.
- * No caller supplies composition text: the inputs are ids the host resolves
- * against its own roots plus an optional display name, so authoring grants no
- * capability the copied preset did not already carry.
+ * Browser authoring remains a whole-directory copy of an existing preset.
+ * The authenticated enterprise Host additionally owns one narrow compiler:
+ * it may replace a copied preset's existing persona text and presentation
+ * metadata from an immutable employee Release, but cannot add plugins or tools.
  * @module @deepseek-ai/dsh-agent-presets/authoring
  */
 
 import { chmod, cp, readdir, readFile, rm, stat } from 'node:fs/promises'
 import { dirname, isAbsolute, join, resolve } from 'node:path'
+import yaml from 'js-yaml'
+import { entryListSchema } from '@deepseek-ai/cordis-plugin-include'
 import { writeFileAtomic } from '@deepseek-ai/dsh-atomic-write'
 import { expandHomePath } from '@deepseek-ai/dsh-home-paths'
 import { METADATA_FILE, renderPresetMetadata } from './metadata.ts'
 import { PRESET_ID, type AgentPreset, type PresetRoot } from './preset.ts'
+
+export interface EmployeePresetDefinition {
+  readonly name: string
+  readonly description?: string
+  readonly position?: string
+  readonly department?: string
+  readonly capabilities?: readonly string[]
+  readonly prompt: string
+}
 
 /** A preset id that cannot be used as a directory name under a root. */
 export class InvalidPresetIdError extends Error {
@@ -168,6 +179,74 @@ export async function copyComposition(
     throw error
   }
   return dir
+}
+
+function employeePersona(input: EmployeePresetDefinition): string {
+  const chinese = /[\u3400-\u9fff]/u.test([
+    input.name, input.description, input.position, input.department, input.prompt,
+  ].filter((value): value is string => value !== undefined).join(''))
+  if (chinese) {
+    const identity = [
+      `你是企业数字员工“${input.name.trim()}”`,
+      ...(input.position?.trim() ? [`岗位是“${input.position.trim()}”`] : []),
+      ...(input.department?.trim() ? [`所属部门是“${input.department.trim()}”`] : []),
+    ].join('，')
+    return `${identity}。\n\n${input.prompt.trim()}\n\n身份一致性规则：当用户询问你是谁或要求自我介绍时，应基于上述数字员工身份、岗位和职责回答；不要把自己描述为通用编码 Agent 或 DSH 系统本身。`
+  }
+  const identity = [
+    `You are the enterprise digital employee "${input.name.trim()}"`,
+    ...(input.position?.trim() ? [`your position is "${input.position.trim()}"`] : []),
+    ...(input.department?.trim() ? [`your department is "${input.department.trim()}"`] : []),
+  ].join(', ')
+  return `${identity}.\n\n${input.prompt.trim()}\n\nIdentity consistency: when asked who you are or to introduce yourself, answer from this digital-employee identity, position, and responsibilities. Do not describe yourself as a generic coding agent or as the DSH system itself.`
+}
+
+export async function configureEmployeeComposition(
+  roots: readonly PresetRoot[],
+  preset: AgentPreset,
+  input: EmployeePresetDefinition,
+): Promise<void> {
+  if (preset.trust !== 'user') {
+    throw new PresetNotWritableError(preset.id, 'it ships with the deployment')
+  }
+  if (!input.name.trim() || !input.prompt.trim()) {
+    throw new PresetNotWritableError(preset.id, 'employee name and responsibility prompt are required')
+  }
+  const dir = join(writableRoot(roots), preset.id)
+  if (!isAbsolute(preset.path) || !preset.path.startsWith(dir)) {
+    throw new PresetNotWritableError(preset.id, 'it does not live under the writable preset root')
+  }
+  const raw = await readFile(preset.path, 'utf8')
+  const parsed: unknown = yaml.load(raw, { schema: entryListSchema })
+  if (!Array.isArray(parsed)) {
+    throw new PresetNotWritableError(preset.id, 'its composition is not a top-level entry list')
+  }
+  const rows = parsed as unknown[]
+  const persona = rows.find((value): value is Record<string, unknown> => {
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) return false
+    const row = value as Record<string, unknown>
+    return row['id'] === 'persona' && row['name'] === '@deepseek-ai/dsh-persona'
+  })
+  if (persona === undefined) {
+    throw new PresetNotWritableError(preset.id, 'its composition has no editable persona row')
+  }
+  const config = typeof persona['config'] === 'object' && persona['config'] !== null
+    && !Array.isArray(persona['config']) ? persona['config'] as Record<string, unknown> : {}
+  persona['config'] = { ...config, text: employeePersona(input) }
+  const composition = yaml.dump(rows, { schema: entryListSchema, lineWidth: -1, noRefs: true })
+  const metadata = renderPresetMetadata({
+    name: input.name,
+    ...(input.description?.trim() ? { description: input.description.trim() } : {}),
+    employee: {
+      ...(input.position?.trim() ? { position: input.position.trim() } : {}),
+      ...(input.department?.trim() ? { department: input.department.trim() } : {}),
+      capabilities: input.capabilities ?? [],
+    },
+  })
+  await writeFileAtomic(preset.path, composition, { mode: 0o600, dirMode: 0o700 })
+  const metadataPath = join(dirname(preset.path), METADATA_FILE)
+  if (metadata === undefined) await rm(metadataPath, { force: true })
+  else await writeFileAtomic(metadataPath, metadata, { mode: 0o600, dirMode: 0o700 })
 }
 
 /**

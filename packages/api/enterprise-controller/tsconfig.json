@@ -11,6 +11,7 @@
     { "path": "../../operations/enterprise-operations" },
     { "path": "../../enterprise/enterprise-cordis" },
     { "path": "../../enterprise/enterprise-postgres" },
+    { "path": "../../preset/agent-presets" },
     { "path": "../../core/session" },
     { "path": "../../runtime-diagnostics/invariants" }
   ]

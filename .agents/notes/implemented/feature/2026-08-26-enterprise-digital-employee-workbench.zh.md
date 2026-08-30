@@ -32,6 +32,8 @@ DSH 把 Agent Preset、Workspace、Session 和 Session Event 作为独立的开�
 
 发布校验允许直接使用这条已配置的供应商/模型路由，不再要求重复绑定一个企业 `model` 资产。历史草稿若引用固定版本模型资产，仍继续执行原有资产与版本校验。这样既与 DSH 实时 Provider 目录一致，也保留旧 Release 的不可变语义。
 
+发布时还会把不可变 Release 中的身份编译进用户可写的原生 Agent Preset：姓名、说明、岗位、部门、能力标签与职责 Prompt 会同步到 `preset.yml` 和作用域内的 `@deepseek-ai/dsh-persona` 行。生成的 Persona 要求自我介绍必须基于数字员工身份，不得把自己说成通用编码 Agent 或 DSH 系统。Composition stamp 会为之后的 Session 创建新的 Preset 代际；已经运行的 Session 保留启动时代际。
+
 ## StaffDeck 来源边界
 
 OpenBMB StaffDeck 只用于参考员工名册和运营信息架构。未复制 StaffDeck 的 React 组件、FastAPI 模型、插图、头像、Logo 或源文件。DSH 保留自身的 MIT 源码、Cordis 插件拓扑、运行时服务、事件日志、主题 token 和浏览器 slot 系统。
