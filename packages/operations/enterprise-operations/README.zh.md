@@ -43,7 +43,7 @@ kind: "package-reference"
 - Pending 审批可取消。Repository 记录 actor 和 reason；`EnterpriseOperationsService` 仅允许申请人本人或管理员取消。
 - 原生引用在缺失解析器时会快速失败。测试和本地开发可显式设置 `allowUnverifiedReferences`；生产组合必须省略该开关。
 - 幂等键会绑定 SHA-256 请求摘要，使用不同输入重复该键会被拒绝。只有 active 调度可执行；Outbox 命令负责创建新的调度 Session。
-- `EnterpriseOperationsWorker` 在调用外部 Session 创建器前 admit 已领取的 Outbox 命令。Admission 在短事务与共享团队锁中复验 active 状态、processing owner 和未过期 lease，持久化 `startAdmittedAt` 后释放连接。Definition save/archive 拒绝活跃 admitted lease；pending 或过期命令不阻塞。Start 或 admission 失败会用调用方提供的重试时间调用失败处理，并通过正常 outbox 失败迁移清除 admission。
+- `EnterpriseOperationsWorker` 在调用外部 Session 创建器前 admit 已领取的 Outbox 命令。Admission 在短事务与共享团队锁中复验 active 状态、processing owner 和未过期 lease，持久化 `startAdmittedAt` 后释放连接。Owner 丢失、lease 过期和 admission update race 返回可重试 `fencing-lost`；非 active 或过期章程数据返回确定性 `admission-rejected` 或 team-definition `invalid-state`，并进入 dead-letter。Definition save/archive 拒绝活跃 admitted lease；pending 或过期命令不阻塞。
 
 ## Host API 服务合同
 

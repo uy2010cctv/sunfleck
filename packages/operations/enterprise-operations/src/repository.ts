@@ -29,7 +29,7 @@ import { assertTeamDefinitionExecutable, validateTeamDefinition } from './team-d
 export class EnterpriseOperationsError extends Error {
   constructor(
     readonly code: 'conflict' | 'immutable-source' | 'invalid-transition' | 'not-found'
-      | 'cursor-invalid' | 'idempotency-conflict' | 'invalid-state',
+      | 'cursor-invalid' | 'idempotency-conflict' | 'invalid-state' | 'fencing-lost' | 'admission-rejected',
     readonly resourceType: 'work-record' | 'approval' | 'schedule' | 'team' | 'team-definition' | 'operation-outbox',
     readonly resourceId?: string,
   ) {
@@ -876,13 +876,13 @@ export class EnterpriseOperationsRepository {
       const now = this.now()
       if (row === undefined || row.state !== 'processing' || row.lease_owner !== input.workerId
         || row.lease_expires_at === null || Number(row.lease_expires_at) < now)
-        throw new EnterpriseOperationsError('invalid-state', 'operation-outbox', input.commandId)
+        throw new EnterpriseOperationsError('fencing-lost', 'operation-outbox', input.commandId)
       if (row.team_id !== null) {
         const target = await this.teamTarget(database, input.orgId, row.team_id)
         if (row.team_definition_revision === null
           || Number(row.team_definition_revision) !== target.definition.revision
           || row.employee_release_id !== target.definition.leaderEmployeeReleaseId)
-          throw new EnterpriseOperationsError('invalid-state', 'team-definition', row.team_id)
+          throw new EnterpriseOperationsError('admission-rejected', 'team-definition', row.team_id)
       }
       const admitted = await database.query<OutboxRow>(
         `UPDATE dsh_enterprise_operation_outbox SET start_admitted_at=$1
@@ -890,7 +890,7 @@ export class EnterpriseOperationsRepository {
         [now, input.commandId, input.orgId, input.workerId],
       )
       if (admitted.rows[0] === undefined)
-        throw new EnterpriseOperationsError('invalid-state', 'operation-outbox', input.commandId)
+        throw new EnterpriseOperationsError('fencing-lost', 'operation-outbox', input.commandId)
       return this.outbox(admitted.rows[0])
     })
   }

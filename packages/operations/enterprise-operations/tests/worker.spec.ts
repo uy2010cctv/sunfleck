@@ -78,4 +78,40 @@ describe('EnterpriseOperationsWorker', () => {
     expect(events).toEqual(['revalidate', 'fail:600:false'])
     await expect(worker.runOnce(101)).resolves.toBe(false)
   })
+
+  it('classifies lost fencing as retryable even when the fallback classifier says no', async () => {
+    let claims = 0
+    const failures: Array<{ retryable: boolean }> = []
+    const worker = new EnterpriseOperationsWorker({
+      claimOutbox: async () => ++claims <= 2 ? claimed : undefined,
+      admit: async () => {
+        if (claims === 1) throw new EnterpriseOperationsError('fencing-lost', 'operation-outbox', 'command-a')
+      },
+      createSession: async () => undefined,
+      complete: async () => undefined,
+      fail: async (failure) => { failures.push(failure) },
+      retryable: () => false,
+      nextAttemptAt: now => now + 1,
+    })
+    await expect(worker.runOnce(100)).rejects.toMatchObject({ code: 'fencing-lost' })
+    await expect(worker.runOnce(101)).resolves.toBe(true)
+    expect(failures).toEqual([expect.objectContaining({ retryable: true })])
+  })
+
+  it.each(['revision mismatch', 'leader mismatch', 'missing revision'])('dead-letters deterministic %s once', async () => {
+    let claims = 0
+    const failures: Array<{ retryable: boolean }> = []
+    const worker = new EnterpriseOperationsWorker({
+      claimOutbox: async () => ++claims === 1 ? claimed : undefined,
+      admit: async () => { throw new EnterpriseOperationsError('admission-rejected', 'team-definition', 'team-a') },
+      createSession: async () => undefined,
+      complete: async () => undefined,
+      fail: async (failure) => { failures.push(failure) },
+      retryable: () => true,
+      nextAttemptAt: now => now + 1,
+    })
+    await expect(worker.runOnce(100)).rejects.toMatchObject({ code: 'admission-rejected' })
+    await expect(worker.runOnce(101)).resolves.toBe(false)
+    expect(failures).toEqual([expect.objectContaining({ retryable: false })])
+  })
 })

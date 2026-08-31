@@ -40,14 +40,15 @@ export class EnterpriseOperationsWorker {
       return true
     } catch (error) {
       const deterministicAdmissionFailure = error instanceof EnterpriseOperationsError
-        && error.code === 'invalid-state'
-        && (error.resourceType === 'team-definition' || error.resourceType === 'operation-outbox')
+        && (error.code === 'admission-rejected'
+          || (error.code === 'invalid-state' && error.resourceType === 'team-definition'))
+      const retryableFencingFailure = error instanceof EnterpriseOperationsError && error.code === 'fencing-lost'
       await this.options.fail({
         commandId: claimed.commandId,
         attempt: claimed.attempt,
         error,
         nextAttemptAt: this.options.nextAttemptAt(now, claimed.attempt, error),
-        retryable: deterministicAdmissionFailure ? false : this.options.retryable(error),
+        retryable: retryableFencingFailure ? true : deterministicAdmissionFailure ? false : this.options.retryable(error),
       })
       throw error
     }

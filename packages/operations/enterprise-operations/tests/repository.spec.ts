@@ -1609,6 +1609,23 @@ describe('EnterpriseOperationsRepository team definitions', () => {
     })).rejects.toMatchObject({ code: 'invalid-state', resourceType: 'team-definition' })
   })
 
+  it('returns retryable fencing errors for expired or lost leases and permits reclaim', async () => {
+    const database = new MemoryPostgresDatabase()
+    const operations = repository(database, () => 100)
+    database.seedOutbox({
+      commandId: 'expired-fence', orgId: 'org-a', teamId: 'team-a', state: 'processing',
+      workerId: 'worker-a', leaseExpiresAt: 99, teamDefinitionRevision: 1,
+    })
+    await expect(operations.admitOutboxStart({
+      orgId: 'org-a', commandId: 'expired-fence', workerId: 'worker-a',
+    })).rejects.toMatchObject({ code: 'fencing-lost', resourceType: 'operation-outbox' })
+    await expect(operations.claimOutbox({ orgId: 'org-a', workerId: 'worker-b', leaseMs: 100 }))
+      .resolves.toEqual([expect.objectContaining({ commandId: 'expired-fence', leaseOwner: 'worker-b' })])
+    await expect(operations.admitOutboxStart({
+      orgId: 'org-a', commandId: 'expired-fence', workerId: 'worker-a',
+    })).rejects.toMatchObject({ code: 'fencing-lost', resourceType: 'operation-outbox' })
+  })
+
   it('rejects an outbox command captured from an older active definition revision', async () => {
     const database = new MemoryPostgresDatabase()
     const operations = repository(database, () => 100)
@@ -1632,7 +1649,7 @@ describe('EnterpriseOperationsRepository team definitions', () => {
     })
     await expect(operations.admitOutboxStart({
       orgId: 'org-a', commandId: 'stale-command', workerId: 'worker-a',
-    })).rejects.toMatchObject({ code: 'invalid-state', resourceType: 'team-definition' })
+    })).rejects.toMatchObject({ code: 'admission-rejected', resourceType: 'team-definition' })
   })
 
   it('dead-letters non-retryable failures and keeps retryable failures claimable', async () => {
