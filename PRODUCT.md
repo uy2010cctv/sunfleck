@@ -75,9 +75,9 @@ The enterprise layer is a projection and control plane over the real DSH runtime
 
 ## Channel Plane
 
-DSH is the only state and audit authority for Team definitions, Sessions, tasks, approvals, roster state, decisions, and execution evidence. A channel is an adapter around DSH: it authenticates a transport account, normalizes an inbound intent, submits that intent to DSH authorization and command handling, and delivers a projection or notification. Provider delivery records do not become a parallel task, approval, or Team ledger.
+Across every channel, DSH is the only business-state and audit system. Within DSH, PostgreSQL is the persistent authority for reusable Team Definitions, while each root Session event log is the runtime authority for its TeamRun, roster, task, mailbox, decision, verification, and handoff state. A channel authenticates a transport account, submits an intent to DSH authorization and command handling, and delivers a projection or notification; it never becomes a state or audit source.
 
-- The first enterprise channel target is Enterprise WeChat. Feishu and DingTalk adapters follow the same DSH-owned command and audit model.
+- The first phase delivers the DSH core collaboration loop only, without an enterprise channel command surface. A later channel phase starts with Enterprise WeChat, then reuses that DSH-owned adapter protocol for Feishu and DingTalk.
 - Personal WeChat is limited to notifications and invitations to take over in DSH. It cannot create, edit, assign, complete, or approve a task; change a Team or roster; or mutate any other work state.
 - A canonical enterprise user may bind several channel-account aliases, but channel identity never substitutes for the authenticated DSH principal required by an action.
 - One channel binding may expose permitted Agent Presets and route a message to a DSH Session. Employee selection and continuation remain DSH commands with Session events, not adapter-local sticky state.

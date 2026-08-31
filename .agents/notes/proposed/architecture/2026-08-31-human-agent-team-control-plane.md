@@ -14,9 +14,15 @@ Adding those concerns directly to a channel, a PostgreSQL task database, or a se
 
 This proposal adds an enterprise control projection around DSH rather than another execution engine. It extends, and does not supersede, the current [Agent Teams runtime decision](../../implemented/feature/2026-08-05-agent-teams.md) or its [experimental package boundary](../../implemented/architecture/2026-08-18-experimental-agent-teams-packages.md). The existing roster, task, mailbox, continuation, and Session-log folds remain the execution foundation; this proposal supplies reusable definitions, Human actors, grants, decision records, and cross-Run views.
 
+### Delivery sequence
+
+The first delivery phase implements the DSH core collaboration loop only: Team Definition, TeamRun launch, Human and Agent roster, Agent Lead coordination, task DAG, decisions, verification, handoff, and cross-Run Human attention inside authenticated DSH. It does not expose an enterprise channel command surface.
+
+After that core loop passes its replay, authorization, recovery, and Human-attention acceptance criteria, the enterprise channel phase starts with Enterprise WeChat. Feishu and DingTalk then reuse the same DSH adapter protocol rather than introducing provider-specific workflow state. Personal WeChat remains limited to notifications and invitations to take over in authenticated DSH throughout every phase.
+
 ### Team Definition and TeamRun
 
-`TeamDefinition` is a reusable, versioned enterprise definition stored in PostgreSQL. It contains the Human-authored charter, Human and Agent role templates, one Agent Lead, required Employee Release and Credential references, task-type policy, Doer–Verifier separation rules, capability grants, review cadence, stop conditions, and channel notification policy. Saving or revising a definition creates no Session, Team task, mailbox message, or approval.
+`TeamDefinition` is a reusable, versioned enterprise definition whose persistent authority is PostgreSQL. It contains the Human-authored charter, Human and Agent role templates, one Agent Lead, required Employee Release and Credential references, task-type policy, Doer–Verifier separation rules, capability grants, review cadence, stop conditions, and channel notification policy. Saving or revising a definition creates no Session, Team task, mailbox message, or approval.
 
 `TeamRun` is one execution of an exact Team Definition version. Its durable identity is the DSH root `SessionId`; PostgreSQL stores a query projection keyed by that same identity rather than allocating a second run authority. Launch records the definition version, Run-specific North Star, Workspace, active roster, effective grants, and decision policy in the root Session before the Agent Lead begins decomposition.
 
@@ -24,9 +30,11 @@ The Team Definition may change while a Run is active, but the Run retains its la
 
 ### State ownership and projection
 
-The root DSH Session log is the sole source of runtime truth for Team membership materialized for that Run, task and mailbox state, Human instructions and decisions, Agent actions, approvals, verification, artifacts, and channel delivery evidence. Session replay must reconstruct the Run without PostgreSQL. Session event order and identity remain the audit order and correlation source.
+Each root DSH Session event log is the runtime authority for its TeamRun, materialized roster, task, mailbox, decision, verification, and handoff state, including Human instructions, Agent actions, approvals, artifacts, and channel delivery evidence. Session replay reconstructs that runtime state from the launched Team Definition snapshot and later events without treating PostgreSQL rows as runtime truth. Session event order and identity remain the runtime audit order and correlation source.
 
-PostgreSQL owns reusable Team Definitions, search indexes, organization policy references, and rebuildable cross-Run query projections such as `Needs my attention`. A projection cursor records the last applied Session event. Projection lag may make a list stale but may never authorize an action; every mutation reloads and authorizes against the DSH owner before appending a Session event.
+PostgreSQL is the persistent authority for reusable Team Definitions and also stores search indexes, organization policy references, and rebuildable cross-Run query projections such as `Needs my attention`. Those query projections are not runtime authorities. A projection cursor records the last applied Session event; lag may make a list stale but may never authorize an action. Every runtime mutation reloads and authorizes against the owning root Session before appending a Session event.
+
+DSH as a product is the only business-state and audit system across all channels: PostgreSQL supplies Team Definition truth, root Session event logs supply TeamRun runtime truth, and channels supply transport observations only. No channel database, sticky selection, delivery receipt, or provider event may override either DSH owner.
 
 Existing DSH authorities remain unchanged: Workspace owns the business-space and filesystem boundary, Employee Release selects immutable published Agent composition, Approval owns interactive authorization, Subagent and experimental Agent Teams own child execution and coordination, Credential owns secret material, and SessionEvent owns audit and replay. PostgreSQL does not copy credential values or raw conversation content into Team definitions or query rows.
 
@@ -59,7 +67,7 @@ Batch decisions are permitted only when selected requests share the same action 
 
 ### Channels are adapters
 
-Enterprise WeChat is the first enterprise adapter; Feishu and DingTalk follow the same interface. An adapter authenticates its transport account, maps an intent to a DSH command, submits it under the resolved Human principal, and renders the resulting DSH projection or delivery receipt. It owns transport retry and provider acknowledgement only.
+After the DSH core collaboration loop ships, Enterprise WeChat is the first enterprise adapter; Feishu and DingTalk later reuse the same interface. An adapter authenticates its transport account, maps an intent to a DSH command, submits it under the resolved Human principal, and renders the resulting DSH projection or delivery receipt. It owns transport retry and provider acknowledgement only.
 
 Personal WeChat is notification and Human-takeover transport only. It cannot issue a DSH command that creates, edits, assigns, completes, or approves a task; changes roster or grants; settles a decision; or modifies Team state. Its message directs the Human to the authenticated DSH surface.
 
@@ -67,7 +75,7 @@ No channel database or provider acknowledgement is a task, approval, roster, dec
 
 ## Alternatives considered
 
-**Store Team tasks and approvals primarily in PostgreSQL.** This would make Session replay incomplete and create dual-write ordering between the execution log and control database. PostgreSQL remains definition storage and a rebuildable query projection.
+**Store Team tasks and approvals primarily in PostgreSQL.** This would make Session replay incomplete and create dual-write ordering between the execution log and control database. PostgreSQL remains the persistent Team Definition authority and stores rebuildable query projections, while root Session event logs own TeamRun runtime state.
 
 **Give each channel its own workflow state and synchronize later.** Reconciliation could not establish one authoritative decision when channels disagree or delivery retries reorder commands. Channels remain adapters to DSH commands and projections.
 
@@ -83,12 +91,12 @@ No channel database or provider acknowledgement is a task, approval, roster, dec
 
 ## Acceptance criteria
 
-- Replaying one root Session from an empty projection reconstructs its launched definition version, effective Human and Agent roster, task DAG, mailbox state, decisions, approvals, verification, artifacts, and grant amendments without reading PostgreSQL runtime rows.
+- Replaying one root Session from an empty projection reconstructs its launched definition version, effective Human and Agent roster, task DAG, mailbox state, decisions, approvals, verification, handoffs, artifacts, and grant amendments without using PostgreSQL as TeamRun runtime truth.
 - Deleting and rebuilding PostgreSQL query projections from Session events produces the same cross-Run attention items and records a detectable lag cursor; a stale projection cannot authorize a mutation.
 - Authorization tests cover each trust level and the full Agent × task type × capability intersection, including denial of self-escalation, grant transfer, Human credential reuse, Doer–Verifier conflict, and irreversible delegated execution.
 - Team launch tests prove that one definition version can create independent Runs, later definition edits do not change them, and an explicit Human amendment is attributable and replayable.
 - Existing experimental Agent Teams tests continue to own task CAS, DAG, roster, mailbox, recovery, and continuation behavior; enterprise composition tests prove that the control projection calls those owners rather than introducing another task or mailbox store.
-- Channel tests prove that Enterprise WeChat commands append authorized DSH events, duplicates remain idempotent, provider receipts do not settle business state, and personal WeChat state-changing intents are rejected before command execution.
+- Release and channel tests prove that the core collaboration loop has no enterprise channel command dependency, Enterprise WeChat is the first later adapter, Feishu and DingTalk reuse its DSH protocol, provider receipts do not settle business state, and personal WeChat state-changing intents are rejected before command execution.
 - Client tests cover keyboard use, responsive Team Room reading order, Human and Agent roster distinction, secret redaction, task DAG list equivalence, evidence-linked verification, urgent-item visibility, compatible-only batching, and partial batch failure.
 - Keyless Session snapshots pin model-visible Team charter, scoped grants, Agent Lead responsibilities, Doer–Verifier separation, escalation packets, and the negative guarantees for channels and irreversible decisions.
 - Recovery tests interrupt launch, projection, Agent execution, verification, and batch decision commits at each durable edge and prove that retries do not duplicate actors, tasks, decisions, or external mutations.

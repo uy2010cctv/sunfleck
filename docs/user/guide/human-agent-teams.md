@@ -36,7 +36,7 @@ Agents escalate when values conflict, authority is missing, evidence is insuffic
 
 Review compatible items in batches only when they have the same action semantics and authorization requirements. Preserve risk, expiry, and dependency order; do not let batching hide an urgent decision or convert several distinct approvals into one ambiguous consent.
 
-Channel notifications are invitations to review DSH state. Enterprise WeChat, and later Feishu or DingTalk, may adapt authenticated DSH actions, but DSH remains the state and audit authority. Personal WeChat can notify and invite takeover only; make the decision inside DSH.
+The first delivery phase is the DSH core collaboration loop, without an enterprise channel command surface. A later phase starts with Enterprise WeChat and then reuses its DSH adapter protocol for Feishu and DingTalk. Across those channels, DSH remains the only business-state and audit system; channel notifications are invitations to review DSH state. Personal WeChat can notify and invite takeover only, so make the decision inside DSH.
 
 ## 6. Close and review the Run
 

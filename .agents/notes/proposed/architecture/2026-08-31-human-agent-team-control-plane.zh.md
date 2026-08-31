@@ -14,9 +14,15 @@ DSH 已经拥有持久 Session、Workspace、Employee Release、审批、subagen
 
 本提案在 DSH 周边增加企业控制投影，而不是增加另一个执行引擎。它扩展但不取代现有 [Agent Teams 运行时决策](../../implemented/feature/2026-08-05-agent-teams.zh.md)及其 [experimental 包边界](../../implemented/architecture/2026-08-18-experimental-agent-teams-packages.zh.md)。现有 roster、task、mailbox、continuation 和 Session log fold 继续作为执行基础；本提案补充可复用定义、Human actor、授权、决策记录和跨 Run 视图。
 
+### 交付阶段顺序
+
+首个交付阶段只实现 DSH 核心协作闭环：在经认证的 DSH 内实现 Team Definition、TeamRun 启动、Human 和 Agent roster、Agent Lead 协调、任务 DAG、决策、验证、人工接管以及跨 Run Human 待处理入口。它不暴露企业渠道命令界面。
+
+该核心闭环通过回放、授权、恢复和 Human 注意事项验收标准后，企业渠道阶段先接入企业微信。飞书和钉钉随后复用同一 DSH 适配器协议，而不引入提供方特定工作流状态。在所有阶段中，个人微信都仍限于通知和邀请用户进入经认证 DSH 完成人工接管。
+
 ### Team Definition 与 TeamRun
 
-`TeamDefinition` 是存储在 PostgreSQL 中的可复用、可版本化企业定义。它包含 Human 编写的章程、Human 和 Agent 角色模板、一名 Agent Lead、必需的 Employee Release 和 Credential 引用、任务类型策略、Doer–Verifier 分离规则、能力授权、审查节奏、停止条件和渠道通知策略。保存或修订定义不会创建 Session、Team task、mailbox message 或审批。
+`TeamDefinition` 是可复用、可版本化的企业定义，其持久化权威为 PostgreSQL。它包含 Human 编写的章程、Human 和 Agent 角色模板、一名 Agent Lead、必需的 Employee Release 和 Credential 引用、任务类型策略、Doer–Verifier 分离规则、能力授权、审查节奏、停止条件和渠道通知策略。保存或修订定义不会创建 Session、Team task、mailbox message 或审批。
 
 `TeamRun` 是一次执行精确 Team Definition 版本的过程。它的持久身份是 DSH 根 `SessionId`；PostgreSQL 保存以同一身份为键的查询投影，而不分配第二个 Run 权威身份。启动会先把定义版本、Run 特定北极星、Workspace、实际参与的 roster、有效授权和决策策略记录进根 Session，然后 Agent Lead 才开始拆解。
 
@@ -24,9 +30,11 @@ Team Definition 可以在 Run 活动期间变更，但 Run 保留其启动版本
 
 ### 状态归属与投影
 
-DSH 根 Session log 是该 Run 中实例化 Team 成员、task 和 mailbox 状态、Human 指令和决策、Agent 操作、审批、验证、产物以及渠道交付证据的唯一运行时真源。Session 回放必须能在不读取 PostgreSQL 的情况下重建 Run。Session event 顺序和身份继续作为审计顺序和关联来源。
+每个 DSH 根 Session event log 都是其 TeamRun、实例化 roster、task、mailbox、决策、验证和人工接管状态的运行时权威，其中包括 Human 指令、Agent 操作、审批、产物和渠道交付证据。Session 回放从已启动 Team Definition 快照和后续 event 重建运行时状态，而不把 PostgreSQL 行当作运行时真源。Session event 顺序和身份继续作为运行时审计顺序和关联来源。
 
-PostgreSQL 拥有可复用 Team Definition、搜索索引、组织策略引用和可重建的跨 Run 查询投影，例如 `Needs my attention`。投影 cursor 记录已应用的最后一个 Session event。投影延迟可能使列表陈旧，但绝不能授权操作；每项变更都会先重新加载 DSH 权威状态并完成授权，然后追加 Session event。
+PostgreSQL 是可复用 Team Definition 的持久化权威，并保存搜索索引、组织策略引用和可重建的跨 Run 查询投影，例如 `Needs my attention`。这些查询投影不是运行时权威。投影 cursor 记录已应用的最后一个 Session event；延迟可能使列表陈旧，但绝不能授权操作。每项运行时变更都会先重新加载并根据所属根 Session 完成授权，然后追加 Session event。
+
+DSH 作为产品是所有渠道中唯一业务状态与审计系统：PostgreSQL 提供 Team Definition 真源，根 Session event log 提供 TeamRun 运行时真源，渠道只提供传输观察。任何渠道数据库、sticky 选择、交付回执或提供方 event 都不得覆盖两个 DSH 权威之一。
 
 现有 DSH 权威保持不变：Workspace 拥有业务空间和文件系统边界，Employee Release 选择不可变的已发布 Agent 组合，Approval 拥有交互授权，Subagent 和 experimental Agent Teams 拥有子执行与协调，Credential 拥有密钥材料，SessionEvent 拥有审计和回放。PostgreSQL 不会把凭据值或原始对话内容复制进 Team 定义或查询行。
 
@@ -59,7 +67,7 @@ Agent 不能授予、扩大或转移自治权。Human 授权会记录原范围�
 
 ### 渠道是适配器
 
-企业微信是第一个企业适配器；飞书和钉钉遵循同一接口。适配器验证其传输账户、把意图映射为 DSH 命令、以解析后的 Human principal 提交命令，并呈现所得 DSH 投影或交付回执。它只拥有传输重试和提供方确认。
+DSH 核心协作闭环交付后，企业微信是第一个企业适配器；飞书和钉钉随后复用同一接口。适配器验证其传输账户、把意图映射为 DSH 命令、以解析后的 Human principal 提交命令，并呈现所得 DSH 投影或交付回执。它只拥有传输重试和提供方确认。
 
 个人微信只是通知和 Human 接管传输。它不能发出创建、编辑、分配、完成或审批 task，变更 roster 或 grant，结算决策，或修改 Team 状态的 DSH 命令。它的消息引导 Human 进入经认证的 DSH 界面。
 
@@ -67,7 +75,7 @@ Agent 不能授予、扩大或转移自治权。Human 授权会记录原范围�
 
 ## Alternatives considered
 
-**把 Team task 和审批主要存储在 PostgreSQL。** 这会使 Session 回放不完整，并在执行日志与控制数据库之间引入双写顺序。PostgreSQL 保持为定义存储和可重建查询投影。
+**把 Team task 和审批主要存储在 PostgreSQL。** 这会使 Session 回放不完整，并在执行日志与控制数据库之间引入双写顺序。PostgreSQL 保持为 Team Definition 的持久化权威并存储可重建查询投影，而根 Session event log 拥有 TeamRun 运行时状态。
 
 **让每个渠道拥有自己的工作流状态，再于事后同步。** 渠道意见不一致或交付重试对命令重新排序时，对账无法确立唯一权威决策。渠道保持为 DSH 命令和投影的适配器。
 
@@ -83,12 +91,12 @@ Agent 不能授予、扩大或转移自治权。Human 授权会记录原范围�
 
 ## Acceptance criteria
 
-- 从空投影回放一个根 Session，能在不读取 PostgreSQL 运行时行的情况下，重建其已启动定义版本、有效 Human 和 Agent roster、任务 DAG、mailbox 状态、决策、审批、验证、产物和授权修订。
+- 从空投影回放一个根 Session，能在不把 PostgreSQL 当作 TeamRun 运行时真源的情况下，重建其已启动定义版本、有效 Human 和 Agent roster、任务 DAG、mailbox 状态、决策、审批、验证、人工接管、产物和授权修订。
 - 删除 PostgreSQL 查询投影并从 Session event 重建，会产生相同的跨 Run 待处理事项并记录可检测延迟 cursor；陈旧投影不能授权变更。
 - 授权测试覆盖每个信任级别和完整 Agent × 任务类型 × 能力交集，包括拒绝自我升权、授权转移、Human 凭据复用、Doer–Verifier 冲突和不可逆的委托执行。
 - Team 启动测试证明一个定义版本可以创建独立 Run，后续定义编辑不会修改它们，而明示 Human 修订可归因且可回放。
 - 现有 experimental Agent Teams 测试继续拥有 task CAS、DAG、roster、mailbox、恢复和 continuation 行为；企业组合测试证明控制投影调用这些权威，而没有引入另一个 task 或 mailbox store。
-- 渠道测试证明企业微信命令追加经授权 DSH event，重复命令保持幂等，提供方回执不会结算业务状态，个人微信状态变更意图在命令执行前被拒绝。
+- 发布和渠道测试证明核心协作闭环不依赖企业渠道命令，企业微信是后续首个适配器，飞书和钉钉复用其 DSH 协议，提供方回执不会结算业务状态，个人微信状态变更意图在命令执行前被拒绝。
 - Client 测试覆盖键盘使用、响应式 Team Room 阅读顺序、Human 和 Agent roster 区分、密钥隐藏、任务 DAG 列表等价视图、证据关联验证、紧急事项可见性、仅兼容事项批处理和局部批处理失败。
 - Keyless Session snapshot 锁定模型可见 Team 章程、有范围的授权、Agent Lead 职责、Doer–Verifier 分离、升级包、渠道负面保证和不可逆决策负面保证。
 - 恢复测试在每个持久边缘中断启动、投影、Agent 执行、验证和批量决策提交，并证明重试不会重复 actor、task、决策或外部变更。
