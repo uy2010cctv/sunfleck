@@ -174,9 +174,12 @@ export interface EnterpriseTeamControlAuditEvent {
   readonly principal: EnterprisePrincipal
   readonly endpoint: EnterpriseTeamControlEndpoint
   readonly decision: EnterpriseTeamControlAuthorizationDecision
-  readonly resourceType: 'team-run' | 'team-decision' | 'team-autonomy-grant'
-  readonly resourceId: string
+  readonly resource: {
+    readonly type: 'team-definition' | 'team-run' | 'team-decision' | 'team-autonomy-grant'
+    readonly id: string
+  }
   readonly correlationId: string
+  readonly details: Readonly<Record<string, unknown>>
 }
 /** Team control-service callbacks supplied by the authenticated Host. */
 export interface EnterpriseTeamControlServiceOptions {
@@ -271,10 +274,15 @@ export class EnterpriseTeamControlService {
     return authorization(await this.options.authorize(principal, endpoint, input))
   }
 
-  private async audit(principal: EnterprisePrincipal, endpoint: EnterpriseTeamControlEndpoint,
-    resourceType: EnterpriseTeamControlAuditEvent['resourceType'], resourceId: string,
-    decision: EnterpriseTeamControlAuthorizationDecision, correlationId = resourceId): Promise<void> {
-    await this.options.audit({ principal, endpoint, resourceType, resourceId, decision, correlationId })
+  private async audit(
+    principal: EnterprisePrincipal,
+    endpoint: EnterpriseTeamControlEndpoint,
+    resource: EnterpriseTeamControlAuditEvent['resource'],
+    decision: EnterpriseTeamControlAuthorizationDecision,
+    correlationId = resource.id,
+    details: Readonly<Record<string, unknown>> = {},
+  ): Promise<void> {
+    await this.options.audit({ principal, endpoint, resource, decision, correlationId, details })
   }
 
   private deny(endpoint: EnterpriseTeamControlEndpoint): never {
@@ -283,10 +291,10 @@ export class EnterpriseTeamControlService {
   }
 
   private async requireAuthorized(principal: EnterprisePrincipal, endpoint: EnterpriseTeamControlEndpoint,
-    input: unknown, resourceType: EnterpriseTeamControlAuditEvent['resourceType'], resourceId: string,
+    input: unknown, resourceType: EnterpriseTeamControlAuditEvent['resource']['type'], resourceId: string,
     correlationId = resourceId): Promise<void> {
     const result = await this.decision(principal, endpoint, input)
-    await this.audit(principal, endpoint, resourceType, resourceId, result, correlationId)
+    await this.audit(principal, endpoint, { type: resourceType, id: resourceId }, result, correlationId)
     if (!result.allowed) this.deny(endpoint)
   }
 
@@ -298,63 +306,125 @@ export class EnterpriseTeamControlService {
 
   /** @param principal - authenticated Host actor. @param input - browser-safe start fields. @returns runtime-backed run projection. */
   async startRun(principal: EnterprisePrincipal, input: EnterpriseTeamRunStartInput): Promise<EnterpriseTeamRun> {
+    const correlationId = `team-run:start:${input.idempotencyKey}`
+    const definitionDetails = {
+      teamId: input.teamId,
+      teamDefinitionRevision: input.expectedTeamRevision,
+    }
+    const deniedDefinition = async (reason: string): Promise<void> => this.audit(
+      principal, 'enterpriseTeamRun.start', { type: 'team-definition', id: input.teamId },
+      { allowed: false, reason }, correlationId, { ...definitionDetails, outcomeReason: reason },
+    )
     const authorizationDecision = await this.decision(principal, 'enterpriseTeamRun.start', input)
     if (!authorizationDecision.allowed) {
-      await this.audit(principal, 'enterpriseTeamRun.start', 'team-run', input.teamId, authorizationDecision)
+      await deniedDefinition(authorizationDecision.reason ?? 'insufficient-role')
       this.deny('enterpriseTeamRun.start')
     }
     const idempotencyFingerprint = createHash('sha256').update(JSON.stringify({
       teamId: input.teamId, expectedTeamRevision: input.expectedTeamRevision, workspaceId: input.workspaceId,
       prompt: input.prompt, source: input.source,
     })).digest('hex')
-    const repeated = await this.projections.getTeamRunByStartKey(
-      principal.orgId, input.idempotencyKey, idempotencyFingerprint,
-    )
+    let repeated: EnterpriseTeamRun | undefined
+    try {
+      repeated = await this.projections.getTeamRunByStartKey(
+        principal.orgId, input.idempotencyKey, idempotencyFingerprint,
+      )
+    } catch (error) {
+      if (error instanceof EnterpriseOperationsError && error.code === 'idempotency-conflict')
+        await deniedDefinition('idempotency-conflict')
+      throw error
+    }
     if (repeated !== undefined) {
       if (repeated.createdBy !== principal.userId
-        || await this.projections.getTeamDefinition(principal.orgId, repeated.teamId, this.scope(principal)) === undefined)
+        || await this.projections.getTeamDefinition(principal.orgId, repeated.teamId, this.scope(principal)) === undefined) {
+        await deniedDefinition('definition-hidden')
         throw new EnterpriseOperationsError('not-found', 'team-run', repeated.runId)
+      }
       await this.audit(
-        principal, 'enterpriseTeamRun.start', 'team-run', repeated.runId,
-        authorizationDecision, repeated.runId,
+        principal, 'enterpriseTeamRun.start', { type: 'team-run', id: repeated.runId },
+        authorizationDecision, repeated.runId, {
+          teamId: repeated.teamId,
+          teamDefinitionRevision: repeated.teamDefinitionRevision,
+        },
       )
       return repeated
     }
-    const definition = await this.definition(principal, input.teamId)
-    if (definition.revision !== input.expectedTeamRevision)
+    const definition = await this.projections.getTeamDefinition(principal.orgId, input.teamId, this.scope(principal))
+    if (definition === undefined) {
+      await deniedDefinition('definition-hidden')
+      throw new EnterpriseOperationsError('not-found', 'team-definition', input.teamId)
+    }
+    if (definition.revision !== input.expectedTeamRevision) {
+      await deniedDefinition('definition-stale')
       throw new EnterpriseOperationsError('conflict', 'team-definition', input.teamId)
-    if (definition.state !== 'active') throw new EnterpriseOperationsError('invalid-state', 'team-definition', input.teamId)
-    if (!(await this.options.authorizeWorkspace(principal, input.workspaceId)))
+    }
+    if (definition.state !== 'active') {
+      await deniedDefinition('definition-inactive')
+      throw new EnterpriseOperationsError('invalid-state', 'team-definition', input.teamId)
+    }
+    if (!(await this.options.authorizeWorkspace(principal, input.workspaceId))) {
+      await deniedDefinition('workspace-forbidden')
       throw new EnterpriseOperationsError('forbidden', 'team-run', input.teamId)
-    const created = await this.projections.createTeamRunStarting({
-      orgId: principal.orgId, teamId: definition.teamId, teamDefinitionRevision: definition.revision,
-      workspaceId: input.workspaceId, rosterSnapshot: structuredClone(definition.roster), createdBy: principal.userId,
-      source: input.source, state: 'starting', runtimeRevision: 0, idempotencyKey: input.idempotencyKey,
-      idempotencyFingerprint,
-    }, this.runId)
-    if (created.run.createdBy !== principal.userId)
+    }
+    let created: { readonly run: EnterpriseTeamRun; readonly created: boolean }
+    try {
+      created = await this.projections.createTeamRunStarting({
+        orgId: principal.orgId, teamId: definition.teamId, teamDefinitionRevision: definition.revision,
+        workspaceId: input.workspaceId, rosterSnapshot: structuredClone(definition.roster), createdBy: principal.userId,
+        source: input.source, state: 'starting', runtimeRevision: 0, idempotencyKey: input.idempotencyKey,
+        idempotencyFingerprint,
+      }, this.runId)
+    } catch (error) {
+      if (error instanceof EnterpriseOperationsError && error.code === 'idempotency-conflict')
+        await deniedDefinition('idempotency-conflict')
+      throw error
+    }
+    if (created.run.createdBy !== principal.userId) {
+      await deniedDefinition('definition-hidden')
       throw new EnterpriseOperationsError('not-found', 'team-run', created.run.runId)
-    await this.audit(
-      principal, 'enterpriseTeamRun.start', 'team-run', created.run.runId,
-      authorizationDecision, created.run.runId,
+    }
+    const runAudit = async (
+      decision: EnterpriseTeamControlAuthorizationDecision,
+      reason?: string,
+    ): Promise<void> => this.audit(
+      principal, 'enterpriseTeamRun.start', { type: 'team-run', id: created.run.runId },
+      decision, created.run.runId, {
+        teamId: created.run.teamId,
+        teamDefinitionRevision: created.run.teamDefinitionRevision,
+        ...(reason === undefined ? {} : { outcomeReason: reason }),
+      },
     )
-    if (!created.created || created.run.state !== 'starting' || created.run.rootSessionId !== undefined) return created.run
+    if (!created.created || created.run.state !== 'starting' || created.run.rootSessionId !== undefined) {
+      const settled = created.run.state === 'active' || created.run.state === 'completed'
+      await runAudit(settled
+        ? { allowed: true, ...(authorizationDecision.reason === undefined ? {} : { reason: authorizationDecision.reason }) }
+        : { allowed: false, reason: 'runtime-pending' }, settled ? undefined : 'runtime-pending')
+      return created.run
+    }
     try {
       const result = await this.runtime.startRun({ operationId: `team-run:start:${created.run.runId}`, runId: created.run.runId,
         orgId: principal.orgId, definition: { ...definition, roster: structuredClone(created.run.rosterSnapshot) },
         workspaceId: input.workspaceId, prompt: input.prompt, actor: principal })
-      return await this.projections.projectTeamRun({ orgId: principal.orgId, runId: created.run.runId,
+      const active = await this.projections.projectTeamRun({ orgId: principal.orgId, runId: created.run.runId,
         expectedRevision: created.run.revision, state: 'active', rootSessionId: result.rootSessionId,
         runtimeRevision: result.runtimeRevision,
         ...(result.sourceEventSeq === undefined ? {} : { sourceEventSeq: result.sourceEventSeq }),
       })
+      await runAudit(authorizationDecision)
+      return active
     } catch (error) {
       if (error instanceof EnterpriseTeamRuntimeError && error.outcome === 'deterministic') {
-        return this.projections.projectTeamRun({ orgId: principal.orgId, runId: created.run.runId,
+        const failed = await this.projections.projectTeamRun({ orgId: principal.orgId, runId: created.run.runId,
           expectedRevision: created.run.revision, state: 'failed', runtimeRevision: created.run.runtimeRevision,
           failure: { code: error.code, message: error.message } })
+        await runAudit({ allowed: false, reason: 'runtime-deterministic-failure' }, error.code)
+        return failed
       }
-      if (error instanceof EnterpriseTeamRuntimeError && error.outcome === 'unknown') return created.run
+      if (error instanceof EnterpriseTeamRuntimeError && error.outcome === 'unknown') {
+        await runAudit({ allowed: false, reason: 'runtime-unknown' }, error.code)
+        return created.run
+      }
+      await runAudit({ allowed: false, reason: 'runtime-failure' }, 'runtime-failure')
       throw error
     }
   }
@@ -432,7 +502,15 @@ export class EnterpriseTeamControlService {
     const allowed = (principal.roles.includes('administrator') && central.allowed)
       || principal.userId === decision.assigneeUserId
       || principal.userId === definition?.ownerUserId
-    await this.audit(principal, 'enterpriseTeamDecision.respond', 'team-decision', decision.decisionId, { allowed }, decision.runId)
+    await this.audit(
+      principal, 'enterpriseTeamDecision.respond', { type: 'team-decision', id: decision.decisionId },
+      { allowed, ...allowed ? {} : { reason: 'insufficient-role' } }, decision.runId, {
+        runId: decision.runId,
+        ...(run === undefined ? {} : { teamId: run.teamId }),
+        ...(definition === undefined ? {} : { teamDefinitionRevision: definition.revision }),
+        ...allowed ? {} : { outcomeReason: 'insufficient-role' },
+      },
+    )
     if (!allowed) this.deny('enterpriseTeamDecision.respond')
     const idempotencyFingerprint = createHash('sha256').update(JSON.stringify({
       decisionId: input.decisionId, answer: input.answer, expectedRevision: input.expectedRevision,
@@ -456,12 +534,20 @@ export class EnterpriseTeamControlService {
     principal: EnterprisePrincipal,
     teamId: string,
     endpoint: EnterpriseTeamControlEndpoint,
+    resourceId: string,
+    details: Readonly<Record<string, unknown>>,
   ): Promise<EnterpriseTeamDefinition> {
     const definition = await this.definition(principal, teamId)
     const central = await this.decision(principal, endpoint, { teamId })
     const allowed = (principal.roles.includes('administrator') && central.allowed)
       || definition.ownerUserId === principal.userId
-    await this.audit(principal, endpoint, 'team-autonomy-grant', teamId, { allowed })
+    await this.audit(
+      principal, endpoint, { type: 'team-autonomy-grant', id: resourceId },
+      { allowed, ...allowed ? {} : { reason: 'insufficient-role' } }, resourceId, {
+        ...details, teamId, teamDefinitionRevision: definition.revision,
+        ...allowed ? {} : { outcomeReason: 'insufficient-role' },
+      },
+    )
     if (!allowed) this.deny(endpoint)
     return definition
   }
@@ -479,8 +565,12 @@ export class EnterpriseTeamControlService {
 
   /** @param principal - explicit human grantor. @param input - grant fields and CAS. @returns active grant. */
   async saveAutonomyGrant(principal: EnterprisePrincipal, input: EnterpriseTeamAutonomySaveInput): Promise<EnterpriseTeamAutonomyGrant> {
-    const definition = await this.requireAutonomyManager(principal, input.teamId, 'enterpriseTeamAutonomy.save')
     const taskType = input.taskType.trim(); const capabilityScope = input.capabilityScope.trim()
+    const resourceId = `${input.teamId}:${input.employeeReleaseId}:${taskType}:${capabilityScope}`
+    const definition = await this.requireAutonomyManager(
+      principal, input.teamId, 'enterpriseTeamAutonomy.save', resourceId,
+      { employeeReleaseId: input.employeeReleaseId, taskType, capabilityScope },
+    )
     if (taskType === '' || capabilityScope === '' || !definition.roster.some(member =>
       member.actor.kind === 'agent' && member.actor.employeeReleaseId === input.employeeReleaseId))
       throw new EnterpriseOperationsError('invalid-state', 'team-autonomy-grant')
@@ -495,7 +585,11 @@ export class EnterpriseTeamControlService {
     principal: EnterprisePrincipal,
     input: EnterpriseTeamAutonomyRevokeInput,
   ): Promise<EnterpriseTeamAutonomyGrant> {
-    await this.requireAutonomyManager(principal, input.teamId, 'enterpriseTeamAutonomy.revoke')
+    const resourceId = `${input.teamId}:${input.employeeReleaseId}:${input.taskType}:${input.capabilityScope}`
+    await this.requireAutonomyManager(
+      principal, input.teamId, 'enterpriseTeamAutonomy.revoke', resourceId,
+      { employeeReleaseId: input.employeeReleaseId, taskType: input.taskType, capabilityScope: input.capabilityScope },
+    )
     return this.projections.revokeAutonomyGrant({ orgId: principal.orgId, ...input })
   }
 }

@@ -56,21 +56,23 @@ function setup(allowStart = true) {
     respondDecision: vi.fn().mockResolvedValue({ runtimeRevision: 2, sourceEventSeq: 3 }),
     reconcileRun: vi.fn(),
   }
-  const authorizeApiAsync = vi.fn().mockImplementation(async (_principal, endpoint: string) => ({
-    allowed: (endpoint === 'enterpriseTeamRun.start' && allowStart) || endpoint === 'session.create'
+  const authorizeApiAsync = vi.fn().mockImplementation(async (_principal, endpoint: string) => {
+    const allowed = (endpoint === 'enterpriseTeamRun.start' && allowStart) || endpoint === 'session.create'
       || endpoint === 'enterpriseTeamDecision.respond' || endpoint === 'enterpriseTeamAutonomy.save'
-      || endpoint.endsWith('.list') || endpoint.endsWith('.get'),
-    reason: 'role',
-  }))
+      || endpoint.endsWith('.list') || endpoint.endsWith('.get')
+    return { allowed, reason: allowed ? 'role' : 'insufficient-role' }
+  })
   const auditApiAsync = vi.fn()
+  const auditApiResourceAsync = vi.fn()
   const requestContext = new EnterpriseRequestContext()
   const ctx = new Context()
   ctx.provide('enterprisePostgres' as never, { teamControl } as never)
   ctx.provide('enterpriseTeamRuntimeDriver' as never, runtime as never)
-  ctx.provide('enterpriseSecurity' as never, { authorizeApiAsync, auditApiAsync } as never)
+  ctx.provide('enterpriseSecurity' as never, { authorizeApiAsync, auditApiAsync, auditApiResourceAsync } as never)
   ctx.provide('enterpriseRequestContext' as never, requestContext as never)
   return { run: new EnterpriseTeamRunController(ctx), decision: new EnterpriseTeamDecisionController(ctx),
-    autonomy: new EnterpriseTeamAutonomyController(ctx), teamControl, runtime, authorizeApiAsync, auditApiAsync, requestContext }
+    autonomy: new EnterpriseTeamAutonomyController(ctx), teamControl, runtime, authorizeApiAsync,
+    auditApiAsync, auditApiResourceAsync, requestContext }
 }
 
 describe('enterprise team-control Remote namespaces', () => {
@@ -86,8 +88,10 @@ describe('enterprise team-control Remote namespaces', () => {
     expect(request).not.toHaveProperty('orgId')
     expect(request).not.toHaveProperty('createdBy')
     expect(request).not.toHaveProperty('runtimeRevision')
-    expect(app.auditApiAsync).toHaveBeenCalledWith(principal, 'enterpriseTeamRun.start', expect.anything(),
-      expect.objectContaining({ allowed: true }), expect.any(String))
+    expect(app.auditApiResourceAsync).toHaveBeenCalledWith(
+      principal, 'enterpriseTeamRun.start', { runId: 'run-a' }, expect.objectContaining({ allowed: true }), 'run-a',
+      { type: 'team-run', id: 'run-a', details: { teamId: 'team-a', teamDefinitionRevision: 4 } },
+    )
   })
 
   it('exposes list/get/cancel, decision list/respond, and autonomy list/save/revoke namespace methods', () => {
@@ -108,9 +112,14 @@ describe('enterprise team-control Remote namespaces', () => {
     expect(failure).toBeInstanceOf(TypertRemoteFailure)
     expect((failure as TypertRemoteFailure).failure.code).toBe('enterprise-forbidden')
     expect(app.teamControl.createTeamRunStarting).not.toHaveBeenCalled()
-    expect(app.auditApiAsync).toHaveBeenCalledWith(
-      principal, 'enterpriseTeamRun.start', { teamId: 'team-a' },
-      { allowed: false, reason: 'insufficient-role' }, 'team-a',
+    expect(app.auditApiResourceAsync).toHaveBeenCalledWith(
+      principal, 'enterpriseTeamRun.start', expect.objectContaining({ teamId: 'team-a' }),
+      { allowed: false, reason: 'insufficient-role' }, 'team-run:start:denied-a',
+      { type: 'team-definition', id: 'team-a',
+        // oxlint-disable-next-line typescript/no-unsafe-assignment -- Vitest asymmetric matcher.
+        details: expect.objectContaining({
+          teamId: 'team-a', teamDefinitionRevision: 4, outcomeReason: 'insufficient-role',
+        }) },
     )
   })
 
@@ -132,5 +141,19 @@ describe('enterprise team-control Remote namespaces', () => {
     }
     expect(app.runtime.respondDecision).not.toHaveBeenCalled()
     expect(app.teamControl.saveAutonomyGrant).not.toHaveBeenCalled()
+    expect(app.auditApiResourceAsync).toHaveBeenCalledWith(
+      principal, 'enterpriseTeamDecision.respond', expect.anything(), expect.objectContaining({ allowed: false }),
+      'run-a', { type: 'team-decision', id: 'decision-a',
+        // oxlint-disable-next-line typescript/no-unsafe-assignment -- Vitest asymmetric matcher.
+        details: expect.objectContaining({ teamId: 'team-a' }) },
+    )
+    expect(app.auditApiResourceAsync).toHaveBeenCalledWith(
+      principal, 'enterpriseTeamAutonomy.save', expect.anything(), expect.objectContaining({ allowed: false }),
+      'team-a:release-a:close:ledger.read', {
+        type: 'team-autonomy-grant', id: 'team-a:release-a:close:ledger.read',
+        // oxlint-disable-next-line typescript/no-unsafe-assignment -- Vitest asymmetric matcher.
+        details: expect.objectContaining({ teamId: 'team-a', teamDefinitionRevision: 4 }),
+      },
+    )
   })
 })

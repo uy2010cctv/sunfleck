@@ -40,6 +40,13 @@ export interface ApiClassification {
   readonly resourceId?: string
 }
 
+/** Explicit resource address and safe details for an API audit event. */
+export interface EnterpriseApiAuditResource {
+  readonly type: string
+  readonly id: string
+  readonly details?: Readonly<Record<string, unknown>>
+}
+
 function payloadOf(input: unknown): Record<string, unknown> {
   if (typeof input !== 'object' || input === null || Array.isArray(input)) return {}
   const record = input as Record<string, unknown>
@@ -752,12 +759,45 @@ export class EnterpriseSecurity {
     const classification = classifyApiEndpoint(endpoint, input) ?? {
       action: 'api.unknown' as const, resourceType: 'api-endpoint', resourceId: endpoint,
     }
+    await this.appendApiAudit(principal, endpoint, decision, correlationId, classification.action, {
+      type: classification.resourceType, id: classification.resourceId ?? endpoint,
+    })
+  }
+
+  /**
+   * Append an API audit decision with a Host-resolved resource address.
+   * @param principal - Authenticated caller.
+   * @param endpoint - Closed Host API endpoint name used to classify the action.
+   * @param input - Parsed request fields used only for action classification.
+   * @param decision - Previously computed authorization decision.
+   * @param correlationId - Request or operation correlation identity.
+   * @param resource - Explicit resource type, identity, and safe details.
+   */
+  async auditApiResourceAsync(
+    principal: EnterprisePrincipal,
+    endpoint: string,
+    input: unknown,
+    decision: EnterpriseAuthorizationDecision,
+    correlationId: string,
+    resource: EnterpriseApiAuditResource,
+  ): Promise<void> {
+    const action = classifyApiEndpoint(endpoint, input)?.action ?? 'api.unknown'
+    await this.appendApiAudit(principal, endpoint, decision, correlationId, action, resource)
+  }
+
+  private async appendApiAudit(
+    principal: EnterprisePrincipal,
+    endpoint: string,
+    decision: EnterpriseAuthorizationDecision,
+    correlationId: string,
+    action: EnterpriseAction,
+    resource: EnterpriseApiAuditResource,
+  ): Promise<void> {
     await this.repository.appendAudit({
       id: this.randomId(), orgId: principal.orgId, actorUserId: principal.userId,
-      action: classification.action, resourceType: classification.resourceType,
-      resourceId: classification.resourceId ?? endpoint,
+      action, resourceType: resource.type, resourceId: resource.id,
       decision: decision.allowed ? 'allowed' : 'denied', reason: decision.reason,
-      correlationId, at: this.now(), details: { endpoint },
+      correlationId, at: this.now(), details: { endpoint, ...resource.details },
     })
   }
 

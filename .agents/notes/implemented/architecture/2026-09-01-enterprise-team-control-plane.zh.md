@@ -14,6 +14,8 @@ Status: implemented
 
 `EnterpriseTeamRuntimeDriver` 是唯一 runtime 依赖。Start、cancel、decision response 和 reconciliation 都接收稳定 operation ID。Driver 负责将权威事实追加到 root Session event log。PostgreSQL `team_runs` 和 `team_decisions` 记录只以 runtime revision 和 source event sequence 作为查询投影；driver 未知结果保持可 reconcile，不对外宣称原子提交。Start 幂等在审计和 run id 分配前解析；repository lock 只为胜出的 insert 调用 allocator，成功或重复请求的审计都记录已持久化 run id。
 
+每次 start attempt 只结算一条审计事件。Reservation 前的拒绝以 team definition 为资源，并与稳定 start 幂等 operation 相关联；reservation 后的结果以已持久化 TeamRun 为资源，同时将 team id 和 definition revision 保留为安全 details。Active 投影记录 allowed decision，确定性 runtime 失败与未知 runtime 结果使用不同稳定 reason 记录 denied decision；未知结果保持 `starting` 以供 reconciliation。TeamDecision 与自主权审计 adapter 保留各自的 resource type 和 id，不会从 Remote endpoint 重新归类所有事件。
+
 Start 固定 active 定义 revision 和不可变名册。后续定义修改不改变已有 run。Runtime 产生的 decision 只能通过 Host 投影方法进入 PostgreSQL；browser 不能创建。只有被指派人类、团队 owner 或管理员可回答，且 driver 先追加答案，投影再进入 `answered`。自主权写入仅允许团队 owner 和管理员。
 
 自主权授权是人类创建的记录，以 team、不可变 employee release、task type 和 capability scope 为键。只有已入名册的 Agent release 可获授权。Evidence reference 会 canonicalize，撤销为终态，runtime 代码不存在 grant write 方法，因此不能根据成功记录自动提升自主权。Run、decision 与 grant 查询会 join 当前 definition，并在 limit 前应用最小 viewer/admin 可见性 scope；签名 cursor 将该 scope 与组织、filter 绑定。

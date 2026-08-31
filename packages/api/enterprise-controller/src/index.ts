@@ -218,15 +218,20 @@ function teamControl(ctx: Context): EnterpriseTeamControlService {
     authorizeWorkspace: async (actor, workspaceId) =>
       (await ctx.enterpriseSecurity.authorizeApiAsync(actor, 'session.create', { workspaceId })).allowed,
     audit: (event) => {
-      const field = event.endpoint.startsWith('enterpriseTeamDecision') ? 'decisionId'
-        : event.endpoint.startsWith('enterpriseTeamAutonomy') || event.endpoint === 'enterpriseTeamRun.start' ? 'teamId'
-          : 'runId'
-      return ctx.enterpriseSecurity.auditApiAsync(
-        event.principal, event.endpoint, { [field]: event.resourceId },
+      const input = event.endpoint.startsWith('enterpriseTeamDecision')
+        ? { decisionId: event.resource.id }
+        : event.endpoint.startsWith('enterpriseTeamAutonomy')
+          ? { teamId: event.details['teamId'] }
+          : event.resource.type === 'team-definition'
+            ? { teamId: event.resource.id }
+            : { runId: event.resource.id }
+      return ctx.enterpriseSecurity.auditApiResourceAsync(
+        event.principal, event.endpoint, input,
         event.decision.allowed
           ? { allowed: true, reason: 'role' }
           : { allowed: false, reason: 'insufficient-role' },
         event.correlationId,
+        { ...event.resource, details: event.details },
       )
     },
   })

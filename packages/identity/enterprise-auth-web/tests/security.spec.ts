@@ -342,6 +342,22 @@ describe('EnterpriseSecurity', () => {
     ])
   })
 
+  it('records a Host-resolved audit resource without reclassifying its type from the endpoint', async () => {
+    const member = security.loginLocal('org-a', 'member', 'enterprise-password')!.principal
+    await security.auditApiResourceAsync(
+      member, 'enterpriseTeamRun.start', { runId: 'run-a' },
+      { allowed: false, reason: 'insufficient-role' }, 'run-a',
+      { type: 'team-run', id: 'run-a', details: { teamId: 'team-a', teamDefinitionRevision: 4 } },
+    )
+    expect(repository.listAudit({ orgId: 'org-a', limit: 10 })).toEqual([
+      expect.objectContaining({
+        action: 'team.execute', resourceType: 'team-run', resourceId: 'run-a',
+        decision: 'denied', correlationId: 'run-a',
+        details: { endpoint: 'enterpriseTeamRun.start', teamId: 'team-a', teamDefinitionRevision: 4 },
+      }),
+    ])
+  })
+
   it('revokes logout sessions and expires them at the configured boundary', () => {
     const login = security.loginLocal('org-a', 'admin', 'enterprise-password')!
     security.logout(login.cookie)

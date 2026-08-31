@@ -222,10 +222,16 @@ describe('enterprise TeamRun control service', () => {
       .rejects.toMatchObject({ code: 'idempotency-conflict' })
     expect(app.projection.allocations).toBe(1)
     expect(app.audit).toHaveBeenNthCalledWith(1, expect.objectContaining({
-      resourceId: first.runId, correlationId: first.runId,
+      resource: { type: 'team-run', id: first.runId }, correlationId: first.runId,
+      // oxlint-disable-next-line typescript/no-unsafe-assignment -- Vitest asymmetric matcher.
+      details: expect.objectContaining({ teamId: 'team-a', teamDefinitionRevision: 4 }),
     }))
     expect(app.audit).toHaveBeenNthCalledWith(2, expect.objectContaining({
-      resourceId: first.runId, correlationId: first.runId,
+      resource: { type: 'team-run', id: first.runId }, correlationId: first.runId,
+    }))
+    expect(app.audit).toHaveBeenNthCalledWith(3, expect.objectContaining({
+      resource: { type: 'team-definition', id: 'team-a' }, decision: { allowed: false, reason: 'idempotency-conflict' },
+      correlationId: 'team-run:start:start-a',
     }))
   })
 
@@ -240,26 +246,51 @@ describe('enterprise TeamRun control service', () => {
     expect(app.projection.allocations).toBe(1)
     expect(app.runtimeDriver.startRun).toHaveBeenCalledTimes(1)
     expect(app.audit).toHaveBeenCalledTimes(2)
-    expect(app.audit).toHaveBeenNthCalledWith(1, expect.objectContaining({ resourceId: runs[0]?.runId }))
-    expect(app.audit).toHaveBeenNthCalledWith(2, expect.objectContaining({ resourceId: runs[0]?.runId }))
+    expect(app.audit).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      resource: { type: 'team-run', id: runs[0]?.runId },
+    }))
+    expect(app.audit).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      resource: { type: 'team-run', id: runs[0]?.runId },
+    }))
   })
 
   it('rejects stale, inactive, hidden, workspace-denied, and member starts before runtime', async () => {
     const stale = service()
     await expect(stale.value.startRun(owner, { teamId: 'team-a', expectedTeamRevision: 3, workspaceId: 'w', prompt: 'p', source: 'console', idempotencyKey: 'a' }))
       .rejects.toMatchObject({ code: 'conflict' })
+    expect(stale.audit).toHaveBeenLastCalledWith(expect.objectContaining({
+      resource: { type: 'team-definition', id: 'team-a' }, decision: { allowed: false, reason: 'definition-stale' },
+      correlationId: 'team-run:start:a',
+    }))
     const inactive = service(); inactive.projection.definition = definition({ state: 'needs-charter' })
     await expect(inactive.value.startRun(owner, { teamId: 'team-a', expectedTeamRevision: 4, workspaceId: 'w', prompt: 'p', source: 'console', idempotencyKey: 'b' }))
       .rejects.toMatchObject({ code: 'invalid-state' })
+    expect(inactive.audit).toHaveBeenLastCalledWith(expect.objectContaining({
+      decision: { allowed: false, reason: 'definition-inactive' },
+    }))
     const hidden = service(); hidden.projection.definition = definition({ visibility: 'private', ownerUserId: 'other-a' })
     await expect(hidden.value.startRun(owner, { teamId: 'team-a', expectedTeamRevision: 4, workspaceId: 'w', prompt: 'p', source: 'console', idempotencyKey: 'c' }))
       .rejects.toMatchObject({ code: 'not-found' })
+    expect(hidden.audit).toHaveBeenLastCalledWith(expect.objectContaining({
+      resource: { type: 'team-definition', id: 'team-a' }, decision: { allowed: false, reason: 'definition-hidden' },
+    }))
     const denied = service(); denied.authorizeWorkspace.mockResolvedValue(false)
     await expect(denied.value.startRun(owner, { teamId: 'team-a', expectedTeamRevision: 4, workspaceId: 'w', prompt: 'p', source: 'console', idempotencyKey: 'd' }))
       .rejects.toMatchObject({ code: 'forbidden' })
+    expect(denied.audit).toHaveBeenLastCalledWith(expect.objectContaining({
+      resource: { type: 'team-definition', id: 'team-a' }, decision: { allowed: false, reason: 'workspace-forbidden' },
+      correlationId: 'team-run:start:d',
+    }))
     const memberApp = service()
     await expect(memberApp.value.startRun(member, { teamId: 'team-a', expectedTeamRevision: 4, workspaceId: 'w', prompt: 'p', source: 'console', idempotencyKey: 'e' }))
       .rejects.toBeTruthy()
+    expect(memberApp.audit).toHaveBeenCalledOnce()
+    expect(memberApp.audit).toHaveBeenLastCalledWith(expect.objectContaining({
+      resource: { type: 'team-definition', id: 'team-a' },
+      // oxlint-disable-next-line typescript/no-unsafe-assignment -- Vitest asymmetric matcher.
+      decision: expect.objectContaining({ allowed: false }),
+      correlationId: 'team-run:start:e',
+    }))
     expect(stale.runtimeDriver.startRun).not.toHaveBeenCalled()
   })
 
@@ -267,9 +298,17 @@ describe('enterprise TeamRun control service', () => {
     const deterministic = service(new MemoryProjection(), runtime({ startRun: vi.fn().mockRejectedValue(new EnterpriseTeamRuntimeError('deterministic', 'invalid-runtime-input')) }))
     await expect(deterministic.value.startRun(owner, { teamId: 'team-a', expectedTeamRevision: 4, workspaceId: 'w', prompt: 'p', source: 'console', idempotencyKey: 'a' }))
       .resolves.toMatchObject({ state: 'failed', failure: { code: 'invalid-runtime-input' } })
+    expect(deterministic.audit).toHaveBeenCalledOnce()
+    expect(deterministic.audit).toHaveBeenLastCalledWith(expect.objectContaining({
+      resource: { type: 'team-run', id: 'run-a' }, decision: { allowed: false, reason: 'runtime-deterministic-failure' },
+    }))
     const unknown = service(new MemoryProjection(), runtime({ startRun: vi.fn().mockRejectedValue(new EnterpriseTeamRuntimeError('unknown', 'transport-lost')) }))
     const starting = await unknown.value.startRun(owner, { teamId: 'team-a', expectedTeamRevision: 4, workspaceId: 'w', prompt: 'p', source: 'console', idempotencyKey: 'b' })
     expect(starting.state).toBe('starting')
+    expect(unknown.audit).toHaveBeenCalledOnce()
+    expect(unknown.audit).toHaveBeenLastCalledWith(expect.objectContaining({
+      resource: { type: 'team-run', id: 'run-a' }, decision: { allowed: false, reason: 'runtime-unknown' },
+    }))
     await expect(unknown.value.reconcileRun({ orgId: 'org-a', runId: starting.runId })).resolves.toMatchObject({ state: 'active' })
     expect(unknown.runtimeDriver.reconcileRun).toHaveBeenCalledWith(expect.objectContaining({ operationId: 'team-run:start:run-a' }))
   })
@@ -316,6 +355,11 @@ describe('enterprise TeamDecision and autonomy control service', () => {
       })
       await expect(app.value.respondDecision(actor, { decisionId: projected.decisionId, answer: 'yes', expectedRevision: 1, idempotencyKey: 'answer-a' }))
         .resolves.toMatchObject({ state: 'answered', answer: 'yes' })
+      expect(app.audit).toHaveBeenLastCalledWith(expect.objectContaining({
+        resource: { type: 'team-decision', id: projected.decisionId }, correlationId: 'run-a',
+        // oxlint-disable-next-line typescript/no-unsafe-assignment -- Vitest asymmetric matcher.
+        details: expect.objectContaining({ teamId: 'team-a' }),
+      }))
     }
   })
 
@@ -353,7 +397,10 @@ describe('enterprise TeamDecision and autonomy control service', () => {
       decisionId: 'decision-a', answer: 'A', expectedRevision: 1, idempotencyKey: 'x',
     })).rejects.toMatchObject({ code: 'forbidden' })
     expect(app.audit).toHaveBeenCalledTimes(auditCount + 1)
-    expect(app.audit).toHaveBeenLastCalledWith(expect.objectContaining({ decision: { allowed: false } }))
+    expect(app.audit).toHaveBeenLastCalledWith(expect.objectContaining({
+      // oxlint-disable-next-line typescript/no-unsafe-assignment -- Vitest asymmetric matcher.
+      decision: expect.objectContaining({ allowed: false }),
+    }))
   })
 
   it('requires explicit authorized autonomy writes, validates agent roster and terminal revoke, and never auto-promotes', async () => {
@@ -371,6 +418,11 @@ describe('enterprise TeamDecision and autonomy control service', () => {
     await expect(app.value.saveAutonomyGrant(owner, { teamId: 'team-a', employeeReleaseId: 'release-a', taskType: ' ', capabilityScope: 'ledger.read', level: 'observe', evidenceRefs: [], expectedRevision: 0, idempotencyKey: 'empty' })).rejects.toMatchObject({ code: 'invalid-state' })
     const grant = await app.value.saveAutonomyGrant(owner, { teamId: 'team-a', employeeReleaseId: 'release-a', taskType: 'close', capabilityScope: 'ledger.read', level: 'propose', evidenceRefs: ['b', 'a', 'a'], expectedRevision: 0, idempotencyKey: 'save' })
     expect(grant).toMatchObject({ grantedBy: 'owner-a', evidenceRefs: ['a', 'b'], level: 'propose', state: 'active' })
+    expect(app.audit).toHaveBeenLastCalledWith(expect.objectContaining({
+      resource: { type: 'team-autonomy-grant', id: 'team-a:release-a:close:ledger.read' },
+      // oxlint-disable-next-line typescript/no-unsafe-assignment -- Vitest asymmetric matcher.
+      details: expect.objectContaining({ teamId: 'team-a', teamDefinitionRevision: 4 }),
+    }))
     await expect(app.value.saveAutonomyGrant(owner, { teamId: 'team-a', employeeReleaseId: 'release-a', taskType: 'close', capabilityScope: 'ledger.read', level: 'propose', evidenceRefs: ['b', 'a', 'a'], expectedRevision: 0, idempotencyKey: 'save' })).resolves.toEqual(grant)
     const revoked = await app.value.revokeAutonomyGrant(owner, { teamId: 'team-a', employeeReleaseId: 'release-a', taskType: 'close', capabilityScope: 'ledger.read', expectedRevision: grant.revision, idempotencyKey: 'revoke' })
     expect(revoked.state).toBe('revoked')
