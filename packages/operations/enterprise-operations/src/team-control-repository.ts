@@ -118,11 +118,13 @@ function decode(value: string | undefined, scope: string, key: Buffer | undefine
     const supplied = Buffer.from(signature, 'base64url')
     const expected = createHmac('sha256', key).update(payload).digest()
     if (supplied.length !== expected.length || !timingSafeEqual(supplied, expected)) throw new Error('invalid cursor')
-    const cursor = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')) as Cursor
-    // oxlint-disable-next-line typescript/no-unnecessary-condition -- cursor is parsed from untrusted wire JSON.
-    if (cursor.version !== 1 || cursor.scope !== scope || !Number.isSafeInteger(cursor.createdAt)
-      || !Array.isArray(cursor.ids) || cursor.ids.some(id => typeof id !== 'string' || id === '')) throw new Error('invalid cursor')
-    return cursor
+    const parsed: unknown = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'))
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) throw new Error('invalid cursor')
+    const cursor = parsed as Record<string, unknown>
+    if (cursor['version'] !== 1 || cursor['scope'] !== scope || !Number.isSafeInteger(cursor['createdAt'])
+      || !Array.isArray(cursor['ids'])
+      || cursor['ids'].some(id => typeof id !== 'string' || id === '')) throw new Error('invalid cursor')
+    return cursor as unknown as Cursor
   } catch {
     throw new EnterpriseOperationsError('cursor-invalid', 'team-run')
   }
