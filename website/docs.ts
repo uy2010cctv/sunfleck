@@ -133,7 +133,7 @@ const homeAndGuide = pairedPages([
   {
     source: 'docs/user/guide/human-agent-teams.md',
     route: 'guide/human-agent-teams.md',
-    label: { root: 'Human–Agent 团队', en: 'Human–Agent teams' },
+    label: { root: 'Human–Agent 协作模型（提案）', en: 'Human–Agent operating model (proposal)' },
     sidebar: { root: 'zh-guide', en: 'en-guide' },
     section: { root: '入门', en: 'Guide' },
     order: 3,

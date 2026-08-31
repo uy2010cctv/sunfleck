@@ -1,53 +1,66 @@
-# 运作 Human–Agent 团队
+# Human–Agent 团队协作模型（提案）
 
 [English](human-agent-teams.md) | 中文
 
-本指南定义企业 Human–Agent 团队的工作法。完整的 Team Definition、Team Room 和跨 Run 待处理入口属于拟议产品行为，不表示当前 experimental Agent Teams UI 已经具备它们。在这些界面交付前，请用一个 DSH 根 Session 作为 Run 记录，把决策和证据保留在该 Session 中，并用现有审批、subagent 和工作记录执行同样的步骤。
+本页描述拟议的企业协作模型，不是可执行的快速入门指南。DSH 当前尚未交付这里描述的完整 Team Definition、Human roster、信任授权编辑器、Team Room、跨 Run 待处理队列或企业渠道命令界面。用户不应在当前 Web UI 中期待这些控件。
 
-## 1. 编写团队章程
+## 提案状态
 
-Human 拥有北极星：值得实现的结果、判定成功的方式、明确排除的范围、适用的约束以及停止 Run 的条件。请在给 Agent 分配工作前写清这些内容，避免任务拆解暗中重定义目标。
+本提案保留 DSH 运行时归属，而不是增加另一个 Team 引擎。PostgreSQL 将持久化可复用 Team Definition；现有 experimental `TeamService` 和每个根 Session event log 将拥有某次 TeamRun 的 actor roster、任务 DAG、mailbox、决策、验证和人工接管状态。
 
-建立一份同时包含 Human 和 Agent 的 roster。明确 Human 决策负责人、一名 Agent Lead、Doer，以及高风险任务类型所需的独立 Verifier。为每个 Agent 配置独立凭据身份；不要让 Agent 通过 Human 的浏览器或渠道凭据执行操作。
+当前 experimental [Agent Teams 子系统](../../subsystems/agent-team.zh.md)会在源码检出 profile 中提供仅 Agent roster、任务 DAG 和 mailbox。它不提供拟议的 Human actor 记录、Team Definition 生命周期、有范围的信任授权、决策队列、Verifier 记录或渠道集成。人工组织的 Session 不等价于拟议的 TeamRun 约定。
 
-使用 Agent × 任务类型 × 能力的矩阵设定自治权。从足以完成工作的最低信任级别开始：`observe` 可检查，`propose` 可建议，`execute-reviewed` 可在范围内执行，但结果推进工作流前必须经过复核，`execute-delegated` 可在明示范围内完成预先授权的可逆工作。任何级别下，不可逆决策都由 Human 拥有。
+## 拟议生命周期
 
-## 2. 启动一次 Run
+### 1. 章程与定义
 
-复核精确的 Team Definition 版本、Workspace、源上下文、本次 Run 的北极星、截止时间或停止条件、实际参与的 roster、授权、验证策略和决策策略。缩小本次 Run 不需要的授权，并在开始工作前解决缺少凭据或 Verifier 的问题。
+未来 Team Definition 将记录 Human 拥有的北极星、成功证据、非目标、约束、决策权、停止条件、审查节奏、一名 Agent Lead 以及 Human 和 Agent 角色模板。PostgreSQL 将是该可复用版本的持久化权威。
 
-一个 DSH 根 Session 就是该 Run 的记录。Agent Lead 把北极星拆解为具有依赖关系的任务 DAG，说明每个任务需要的证据，并标出必须由独立 Verifier 复核的任务。任务不会仅因为已有负责人就绪；其依赖、能力授权和输入证据也必须就绪。
+自治权将按 Agent、任务类型和能力设定范围，而不是使用一个全局标签。每个 Agent 将使用独立服务身份和 Credential 引用，而不是 Human 浏览器或渠道凭据。
 
-## 3. 在公开上下文中协作
+### 2. 启动
 
-在已授权的 Team 边界内公开 Run 相关上下文：决策、假设、任务变更、证据、产物和阻塞都应进入 Run 记录。与工作无关的对话、个人记忆、原始凭据，以及 Workspace 授权边界外的数据不应进入共享上下文。
+未来启动流程会在 Agent 工作开始前，把一个精确 Team Definition 版本、Workspace、Run 特定北极星、参与 actor、有效授权、验证策略和决策策略快照进一个 DSH 根 Session。后续定义编辑不会隐式修改活动 Run。
 
-Agent Lead 负责协调，而不是吸收所有任务。它分配 Doer、编排依赖、请求验证并报告偏差。Team 成员使用共享 task 和 mailbox 行为，而不是维护平行的私有任务清单；现有 experimental [Agent Teams 子系统](../../subsystems/agent-team.zh.md)是 Agent roster、任务 DAG 和 mailbox 状态的运行时基础。
+同一 `TeamService` 领域将记录该 Run 的 Human 和 Agent 成员。Human 成员将拥有企业用户身份，但没有 Session；Agent 成员将绑定 Session 和 Employee Release。企业层不会维护第二个 roster。
 
-## 4. 验证后再接受
+### 3. 协调与验证
 
-Doer 报告结论、方法、产物或摘要值、观察结果和剩余不确定性。Verifier 按任务风险所需的独立程度复现或检查结果，并记录接受、拒绝或有边界的疑虑。完成和验证保持为两个不同状态。
+Agent Lead 将把北极星拆解为具有依赖关系的任务 DAG，在策略要求分离时分配 Doer 和独立 Verifier，协调现有 Team mailbox，并组装证据。Human 将保留目标、价值判断、自治权变更、策略例外和不可逆决策。
 
-对于代码或运维工作，证据必须对应声称的结果：源码 diff、定向测试、构建或打包、经认证的行为、持久化业务状态、部署和通知交付是不同事实。不要把其中一项当作另一项的证明。
+Doer 完成与 Verifier 决策将保持为不同运行时 event。证据将区分源码变更、定向测试、构建或打包、经认证行为、持久化业务状态、部署、提供方交付和最终业务结果，而不是把其中一项当作另一项的证明。
 
-## 5. 高效做出 Human 决策
+### 4. Human 决策与人工接管
 
-价值冲突、权限缺失、证据不足或操作不可逆时，Agent 必须升级给 Human。每份请求都包含建议选项、备选方案、后果、截止时间、受影响的下游任务和最小充分证据包。
+决策请求将包含建议、备选方案、后果、截止时间、下游阻塞、授权要求和有边界的证据包。跨 Run 待处理投影只会组合兼容决策，并且会根据所属根 Session 重新验证每项变更。
 
-只有操作语义和授权要求相同时，才批量处理兼容的事项。保留风险、过期时间和依赖顺序；不要让批处理隐藏紧急决策，也不要把多个独立审批转成一次含糊的同意。
+人工接管将是同一 TeamRun 内记录在案的 Human 或 Agent actor 转换。个人微信可以通知 Human 并链接到经认证的 DSH，但不能结算决策或修改 Team 状态。
 
-首个交付阶段只实现 DSH 核心协作闭环，不提供企业渠道命令界面。后续阶段先接入企业微信，再为飞书和钉钉复用其 DSH 适配器协议。在这些渠道中，DSH 仍是唯一业务状态与审计系统；渠道通知只是邀请用户审查 DSH 状态。个人微信只能通知和邀请人工接管，因此请在 DSH 内做决策。
+### 5. 复盘与授权演进
 
-## 6. 结束并复盘 Run
+复盘将对照章程与已记录证据，检查 Human 中断和未解决疑虑，并复核每项范围化授权。重复证据可以支持后续由 Human 审批的授权变更，但 Agent 或自动评分都不会扩大自治权。
 
-只有北极星证据、验证结果、未解决疑虑、已接受产物和 Human 决策都在 Run 记录中可见时，才结束 Run。记录工作停止的原因；除非证据表明失败，中断或暂停的任务不等于失败任务。
+可复用业务知识只会通过受治理的审查路径进入组织或部门记忆。原始对话、个人偏好、凭据和一次性推测将留在共享记忆之外。
 
-复盘时，对照章程与结果，检查 Human 被中断的位置，识别可以转为策略的重复决策，并复核每项自治授权。只有重复证据支持时，才为同一 Agent、任务类型和能力范围提高授权；验证发现偏离时，应缩小或撤销授权。
+## 拟议信任级别
 
-通过受治理的组织或部门记忆工作流提升可复用知识。共享记忆不得包含原始对话内容、个人偏好、凭据或一次性推测。
+该模型使用四个信任级别，每个级别均受 Agent、任务类型和能力限制：
 
-## 继续使用
+- `observe` 读取已授权上下文和证据，但不修改工作或外部系统。
+- `propose` 产生建议、草案、计划或决策请求，但不执行所建议的变更。
+- `execute-reviewed` 在范围内执行，但在所需复核接受结果前不能推进依赖工作。
+- `execute-delegated` 在范围内执行预先授权的可逆工作；不可逆操作和策略例外仍需 Human 审批。
 
-- [使用 Web UI](./index.zh.md)
-- [了解 Agent Teams 运行时状态](../../subsystems/agent-team.zh.md)
-- [配置模型提供方](./providers.zh.md)
+## 渠道与交付提案
+
+首个交付阶段将只包含经认证的 DSH 核心协作闭环。后续阶段将从企业微信开始集成企业渠道，再为飞书和钉钉复用同一 DSH 适配器协议。个人微信将仍仅用于通知和 Human 接管传输。
+
+当前 Channel Kernel 路由决策仍为 `stickyEmployeeId` → 推断意图 → binding 默认值。Kernel 和适配器不持久化权威 selection；未来企业组合必须从 DSH 拥有的 binding 或 Session 投影推导 `stickyEmployeeId`。该集成属于迁移目标，不是当前能力。
+
+未来每项渠道或 outbox 操作都将持久化一个稳定 `operationId`。DSH 不会为同一 id 派发第二个逻辑操作。只有提供方支持幂等键时，才能保证外部去重；不支持的提供方或返回模糊结果的超时会产生可见的未知结果和对账任务，而不是 exactly-once 保证。
+
+## 继续阅读
+
+- [使用当前已交付的 Web UI](./index.zh.md)
+- [查看当前 experimental Agent Teams 运行时](../../subsystems/agent-team.zh.md)
+- [阅读拟议架构决策](../../../.agents/notes/proposed/architecture/2026-08-31-human-agent-team-control-plane.zh.md)

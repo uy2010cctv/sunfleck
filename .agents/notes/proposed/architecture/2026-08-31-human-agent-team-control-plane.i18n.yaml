@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/proposed/architecture/2026-08-31-human-agent-team-control-plane.md
-2026-08-31-human-agent-team-control-plane.md: 8a328f32ecf136d9debd07ffaf0619e7fbd19104
-2026-08-31-human-agent-team-control-plane.zh.md: 1c8ade4bd91c7a8738dd5031cdac747b33465473
+2026-08-31-human-agent-team-control-plane.md: 01f86e0556d315d6a827dfc7007346aef66471e2
+2026-08-31-human-agent-team-control-plane.zh.md: 24adcf6a12fbd33e3163a812c554134c7876e870

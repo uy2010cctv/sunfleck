@@ -102,7 +102,7 @@ The Team surface makes Human authority and Agent execution visible without creat
 - The task DAG is the primary work view. Nodes show owner, Doer, Verifier, dependencies, readiness, evidence state, and the source Session; progress is derived from recorded transitions rather than invented percentages.
 - The decision queue separates proposals, approvals, escalations, and irreversible choices. It groups compatible items for batch review while preserving urgency, dependency order, expiry, and a clear single-item path.
 - Verification pairs each claimed result with method, Verifier, timestamp, observed evidence, and unresolved concern. A Doer's completion claim and a Verifier's acceptance remain distinguishable.
-- Artifacts show their producing task, version or digest, review state, and owning Workspace. The event timeline interleaves Human decisions, Agent actions, approvals, task transitions, verification, artifacts, and channel delivery evidence from DSH records.
+- Artifacts show their producing task, version or digest, review state, and owning Workspace. The event timeline interleaves Human decisions, Agent actions, approvals, task transitions, verification, artifacts, and channel delivery evidence from DSH records; an ambiguous external result remains a visible unknown outcome with a reconciliation action.
 - The Agent Lead may decompose, assign, coordinate, request verification, and recommend a decision within its grants. It cannot approve its own escalation, broaden autonomy, or make an irreversible Human-owned decision.
 
 ### Cross-Run attention
