@@ -481,7 +481,7 @@ describe('enterprise governance UI', () => {
     fireEvent.click(screen.getByRole('tab', { name: '企业记忆' }))
 
     expect(screen.getByRole('heading', { name: '企业记忆' })).toBeDefined()
-    expect(screen.getByText('让 Agent 记住经过审核的公司知识，并按企业或部门范围安全使用。')).toBeDefined()
+    expect(screen.getByText('让 Agent 记住可复用知识，并按企业、部门或当前用户范围安全使用。')).toBeDefined()
     expect(screen.getByText('提交业务知识')).toBeDefined()
     expect(screen.getByText('管理员审核')).toBeDefined()
     expect(screen.getByText('Agent 可使用')).toBeDefined()
@@ -524,6 +524,38 @@ describe('enterprise governance UI', () => {
     expect(screen.getByText('Agent 自动记忆已开启')).toBeDefined()
     expect(screen.getByText('Agent 自动保存 · 已直接生效')).toBeDefined()
     expect(screen.getByText('由 Agent 自动评估并直接生效')).toBeDefined()
+  })
+
+  it('explains enterprise, department, and private user memory as three distinct layers', () => {
+    render(<EnterpriseGovernanceSettingsSection
+      state={state({
+        auth: {
+          authenticated: true,
+          principal: { userId: 'admin-1', orgId: 'org-a', displayName: 'Admin', username: 'admin', roles: ['administrator'] },
+          providers: [],
+        },
+        memories: [{
+          id: 'org-memory', orgId: 'org-a', scope: 'organization', kind: 'decision', status: 'approved',
+          summary: '公司制度', sourceDigest: 'a'.repeat(64), privacyFindings: [], createdBy: 'admin-1',
+          revision: 1, createdAt: 1, updatedAt: 1,
+        }, {
+          id: 'user-memory', orgId: 'org-a', scope: 'user', ownerUserId: 'admin-1', kind: 'business-fact',
+          status: 'approved', summary: '我的报告习惯', sourceDigest: 'b'.repeat(64), privacyFindings: [],
+          createdBy: 'admin-1', revision: 1, createdAt: 1, updatedAt: 1,
+        }],
+      })}
+      loadAdmin={vi.fn()} loginLocal={vi.fn()} logout={vi.fn()} createOrganization={vi.fn()}
+      createAsset={vi.fn()} createUser={vi.fn()} updateUser={vi.fn()} saveDepartment={vi.fn()}
+      createWorkspace={vi.fn()} updateWorkspace={vi.fn()} proposeMemory={vi.fn()} reviewMemory={vi.fn()}
+      savePolicy={vi.fn()} filterAudit={vi.fn()}
+    />)
+    fireEvent.click(screen.getByRole('tab', { name: '企业记忆' }))
+
+    expect(screen.getByText('企业知识')).toBeDefined()
+    expect(screen.getByText('部门知识')).toBeDefined()
+    expect(screen.getByText('我的记忆')).toBeDefined()
+    expect(screen.getByRole('option', { name: '仅当前用户' })).toBeDefined()
+    expect(screen.getByText('仅本人对话可用')).toBeDefined()
   })
 
   it('edits the department tree and reviews the enterprise awareness stream', () => {

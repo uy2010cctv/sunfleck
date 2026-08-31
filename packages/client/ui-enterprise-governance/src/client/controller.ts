@@ -59,8 +59,9 @@ export interface GovernanceWorkspace {
 export interface GovernanceMemory {
   readonly id: string
   readonly orgId: string
-  readonly scope: 'organization' | 'department'
+  readonly scope: 'organization' | 'department' | 'user'
   readonly departmentId?: string
+  readonly ownerUserId?: string
   readonly kind: 'business-fact' | 'process' | 'terminology' | 'decision'
   readonly status: 'proposed' | 'approved' | 'rejected' | 'retired'
   readonly summary: string

@@ -2,7 +2,7 @@
 
 import type { PostgresDatabase } from './types.ts'
 
-export const ENTERPRISE_IDENTITY_POSTGRES_SCHEMA_VERSION = 5
+export const ENTERPRISE_IDENTITY_POSTGRES_SCHEMA_VERSION = 6
 
 const STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS enterprise_meta (
@@ -116,8 +116,9 @@ const STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS enterprise_memories (
     id TEXT PRIMARY KEY,
     org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
-    scope_type TEXT NOT NULL CHECK (scope_type IN ('organization', 'department')),
+    scope_type TEXT NOT NULL,
     department_id TEXT REFERENCES departments(id) ON DELETE CASCADE,
+    owner_user_id TEXT REFERENCES users(id) ON DELETE CASCADE,
     kind TEXT NOT NULL CHECK (kind IN ('business-fact', 'process', 'terminology', 'decision')),
     status TEXT NOT NULL CHECK (status IN ('proposed', 'approved', 'rejected', 'retired')),
     summary TEXT NOT NULL,
@@ -129,8 +130,12 @@ const STATEMENTS = [
     revision BIGINT NOT NULL,
     created_at BIGINT NOT NULL,
     updated_at BIGINT NOT NULL,
-    CHECK ((scope_type = 'organization' AND department_id IS NULL)
-      OR (scope_type = 'department' AND department_id IS NOT NULL))
+    CONSTRAINT enterprise_memories_scope_type_check
+      CHECK (scope_type IN ('organization', 'department', 'user')),
+    CONSTRAINT enterprise_memories_scope_shape_check
+      CHECK ((scope_type = 'organization' AND department_id IS NULL AND owner_user_id IS NULL)
+        OR (scope_type = 'department' AND department_id IS NOT NULL AND owner_user_id IS NULL)
+        OR (scope_type = 'user' AND department_id IS NULL AND owner_user_id IS NOT NULL))
   )`,
   `CREATE INDEX IF NOT EXISTS enterprise_memories_scope_status
     ON enterprise_memories(org_id, scope_type, department_id, status, updated_at DESC, id)`,
@@ -156,31 +161,43 @@ export async function migrateEnterpriseIdentityPostgres(database: PostgresDataba
     )
     return
   }
-  if (Number(version) === 1) {
+  const numericVersion = Number(version)
+  if (!Number.isInteger(numericVersion) || numericVersion < 1
+    || numericVersion > ENTERPRISE_IDENTITY_POSTGRES_SCHEMA_VERSION) {
+    throw new Error(
+      `enterprise identity PostgreSQL schema version ${version} is not supported; expected ${String(ENTERPRISE_IDENTITY_POSTGRES_SCHEMA_VERSION)}`,
+    )
+  }
+  if (numericVersion === ENTERPRISE_IDENTITY_POSTGRES_SCHEMA_VERSION) return
+  if (numericVersion === 1) {
     await database.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS department_revision BIGINT NOT NULL DEFAULT 0')
-    await database.query("UPDATE enterprise_meta SET value = $1 WHERE key = 'schema-version'", [String(ENTERPRISE_IDENTITY_POSTGRES_SCHEMA_VERSION)])
-    return
   }
-  if (Number(version) === 2) {
-    await database.query("UPDATE enterprise_meta SET value = $1 WHERE key = 'schema-version'", [String(ENTERPRISE_IDENTITY_POSTGRES_SCHEMA_VERSION)])
-    return
-  }
-  if (Number(version) === 3) {
-    await database.query("UPDATE enterprise_meta SET value = $1 WHERE key = 'schema-version'", [String(ENTERPRISE_IDENTITY_POSTGRES_SCHEMA_VERSION)])
-    return
-  }
-  if (Number(version) === 4) {
+  if (numericVersion <= 4) {
     await database.query('ALTER TABLE enterprise_session_workspaces ADD COLUMN IF NOT EXISTS owner_user_id TEXT REFERENCES users(id) ON DELETE RESTRICT')
     await database.query(`UPDATE enterprise_session_workspaces binding
       SET owner_user_id = workspace.owner_user_id
       FROM enterprise_workspace_grants workspace
       WHERE workspace.workspace_id = binding.workspace_id AND binding.owner_user_id IS NULL`)
-    await database.query("UPDATE enterprise_meta SET value = $1 WHERE key = 'schema-version'", [String(ENTERPRISE_IDENTITY_POSTGRES_SCHEMA_VERSION)])
-    return
   }
-  if (Number(version) !== ENTERPRISE_IDENTITY_POSTGRES_SCHEMA_VERSION) {
-    throw new Error(
-      `enterprise identity PostgreSQL schema version ${version} is not supported; expected ${String(ENTERPRISE_IDENTITY_POSTGRES_SCHEMA_VERSION)}`,
-    )
+  if (numericVersion <= 5) {
+    await database.query('ALTER TABLE enterprise_memories ADD COLUMN IF NOT EXISTS owner_user_id TEXT REFERENCES users(id) ON DELETE CASCADE')
+    await database.query(`DO $$
+      DECLARE candidate RECORD;
+      BEGIN
+        FOR candidate IN SELECT conname FROM pg_constraint
+          WHERE conrelid = 'enterprise_memories'::regclass AND contype = 'c'
+            AND pg_get_constraintdef(oid) LIKE '%scope_type%'
+        LOOP
+          EXECUTE format('ALTER TABLE enterprise_memories DROP CONSTRAINT %I', candidate.conname);
+        END LOOP;
+      END $$`)
+    await database.query(`ALTER TABLE enterprise_memories
+      ADD CONSTRAINT enterprise_memories_scope_type_check
+        CHECK (scope_type IN ('organization', 'department', 'user')),
+      ADD CONSTRAINT enterprise_memories_scope_shape_check
+        CHECK ((scope_type = 'organization' AND department_id IS NULL AND owner_user_id IS NULL)
+          OR (scope_type = 'department' AND department_id IS NOT NULL AND owner_user_id IS NULL)
+          OR (scope_type = 'user' AND department_id IS NULL AND owner_user_id IS NOT NULL))`)
   }
+  await database.query("UPDATE enterprise_meta SET value = $1 WHERE key = 'schema-version'", [String(ENTERPRISE_IDENTITY_POSTGRES_SCHEMA_VERSION)])
 }

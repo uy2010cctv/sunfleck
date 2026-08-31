@@ -2,7 +2,7 @@
 
 import type { DatabaseSync } from 'node:sqlite'
 
-export const ENTERPRISE_IDENTITY_SCHEMA_VERSION = 5
+export const ENTERPRISE_IDENTITY_SCHEMA_VERSION = 6
 
 /** Create or validate the enterprise identity schema. */
 export function migrateEnterpriseIdentity(database: DatabaseSync): void {
@@ -118,8 +118,9 @@ export function migrateEnterpriseIdentity(database: DatabaseSync): void {
     CREATE TABLE IF NOT EXISTS enterprise_memories (
       id TEXT PRIMARY KEY,
       org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
-      scope_type TEXT NOT NULL CHECK (scope_type IN ('organization', 'department')),
+      scope_type TEXT NOT NULL CHECK (scope_type IN ('organization', 'department', 'user')),
       department_id TEXT REFERENCES departments(id) ON DELETE CASCADE,
+      owner_user_id TEXT REFERENCES users(id) ON DELETE CASCADE,
       kind TEXT NOT NULL CHECK (kind IN ('business-fact', 'process', 'terminology', 'decision')),
       status TEXT NOT NULL CHECK (status IN ('proposed', 'approved', 'rejected', 'retired')),
       summary TEXT NOT NULL,
@@ -131,8 +132,9 @@ export function migrateEnterpriseIdentity(database: DatabaseSync): void {
       revision INTEGER NOT NULL,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL,
-      CHECK ((scope_type = 'organization' AND department_id IS NULL)
-        OR (scope_type = 'department' AND department_id IS NOT NULL))
+      CHECK ((scope_type = 'organization' AND department_id IS NULL AND owner_user_id IS NULL)
+        OR (scope_type = 'department' AND department_id IS NOT NULL AND owner_user_id IS NULL)
+        OR (scope_type = 'user' AND department_id IS NULL AND owner_user_id IS NOT NULL))
     ) STRICT;
     CREATE INDEX IF NOT EXISTS enterprise_memories_scope_status
       ON enterprise_memories(org_id, scope_type, department_id, status, updated_at DESC, id);
@@ -148,24 +150,61 @@ export function migrateEnterpriseIdentity(database: DatabaseSync): void {
   if (version === undefined) {
     database.prepare("INSERT INTO enterprise_meta(key, value) VALUES ('schema-version', ?)")
       .run(String(ENTERPRISE_IDENTITY_SCHEMA_VERSION))
-  } else if (Number(version.value) === 1) {
-    database.exec('ALTER TABLE users ADD COLUMN department_revision INTEGER NOT NULL DEFAULT 0')
-    database.prepare("UPDATE enterprise_meta SET value = ? WHERE key = 'schema-version'")
-      .run(String(ENTERPRISE_IDENTITY_SCHEMA_VERSION))
-  } else if (Number(version.value) === 2 || Number(version.value) === 3) {
-    database.prepare("UPDATE enterprise_meta SET value = ? WHERE key = 'schema-version'")
-      .run(String(ENTERPRISE_IDENTITY_SCHEMA_VERSION))
-  } else if (Number(version.value) === 4) {
+    return
+  }
+  const numericVersion = Number(version.value)
+  if (!Number.isInteger(numericVersion) || numericVersion < 1 || numericVersion > ENTERPRISE_IDENTITY_SCHEMA_VERSION) {
+    throw new Error(
+      `enterprise identity schema version ${version.value} is not supported; expected ${String(ENTERPRISE_IDENTITY_SCHEMA_VERSION)}`,
+    )
+  }
+  if (numericVersion === ENTERPRISE_IDENTITY_SCHEMA_VERSION) return
+  if (numericVersion === 1) database.exec('ALTER TABLE users ADD COLUMN department_revision INTEGER NOT NULL DEFAULT 0')
+  const sessionColumns = database.prepare("PRAGMA table_info('enterprise_session_workspaces')").all() as Array<{ name: string }>
+  if (!sessionColumns.some(column => column.name === 'owner_user_id')) {
     database.exec('ALTER TABLE enterprise_session_workspaces ADD COLUMN owner_user_id TEXT REFERENCES users(id) ON DELETE RESTRICT')
     database.exec(`UPDATE enterprise_session_workspaces
       SET owner_user_id = (SELECT owner_user_id FROM enterprise_workspace_grants workspace
         WHERE workspace.workspace_id = enterprise_session_workspaces.workspace_id)
       WHERE owner_user_id IS NULL`)
-    database.prepare("UPDATE enterprise_meta SET value = ? WHERE key = 'schema-version'")
-      .run(String(ENTERPRISE_IDENTITY_SCHEMA_VERSION))
-  } else if (Number(version.value) !== ENTERPRISE_IDENTITY_SCHEMA_VERSION) {
-    throw new Error(
-      `enterprise identity schema version ${version.value} is not supported; expected ${String(ENTERPRISE_IDENTITY_SCHEMA_VERSION)}`,
-    )
   }
+  const memoryColumns = database.prepare("PRAGMA table_info('enterprise_memories')").all() as Array<{ name: string }>
+  if (!memoryColumns.some(column => column.name === 'owner_user_id')) rebuildMemoryTableV6(database)
+  database.prepare("UPDATE enterprise_meta SET value = ? WHERE key = 'schema-version'")
+    .run(String(ENTERPRISE_IDENTITY_SCHEMA_VERSION))
+}
+
+function rebuildMemoryTableV6(database: DatabaseSync): void {
+  database.exec(`
+    DROP INDEX IF EXISTS enterprise_memories_scope_status;
+    ALTER TABLE enterprise_memories RENAME TO enterprise_memories_v5;
+    CREATE TABLE enterprise_memories (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      scope_type TEXT NOT NULL CHECK (scope_type IN ('organization', 'department', 'user')),
+      department_id TEXT REFERENCES departments(id) ON DELETE CASCADE,
+      owner_user_id TEXT REFERENCES users(id) ON DELETE CASCADE,
+      kind TEXT NOT NULL CHECK (kind IN ('business-fact', 'process', 'terminology', 'decision')),
+      status TEXT NOT NULL CHECK (status IN ('proposed', 'approved', 'rejected', 'retired')),
+      summary TEXT NOT NULL,
+      source_digest TEXT NOT NULL,
+      privacy_findings TEXT NOT NULL,
+      created_by TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+      reviewed_by TEXT REFERENCES users(id) ON DELETE RESTRICT,
+      review_reason TEXT,
+      revision INTEGER NOT NULL,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      CHECK ((scope_type = 'organization' AND department_id IS NULL AND owner_user_id IS NULL)
+        OR (scope_type = 'department' AND department_id IS NOT NULL AND owner_user_id IS NULL)
+        OR (scope_type = 'user' AND department_id IS NULL AND owner_user_id IS NOT NULL))
+    ) STRICT;
+    INSERT INTO enterprise_memories(id, org_id, scope_type, department_id, owner_user_id, kind, status, summary,
+      source_digest, privacy_findings, created_by, reviewed_by, review_reason, revision, created_at, updated_at)
+      SELECT id, org_id, scope_type, department_id, NULL, kind, status, summary, source_digest, privacy_findings,
+        created_by, reviewed_by, review_reason, revision, created_at, updated_at FROM enterprise_memories_v5;
+    DROP TABLE enterprise_memories_v5;
+    CREATE INDEX enterprise_memories_scope_status
+      ON enterprise_memories(org_id, scope_type, department_id, status, updated_at DESC, id);
+  `)
 }

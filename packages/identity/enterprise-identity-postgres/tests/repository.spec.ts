@@ -32,7 +32,7 @@ class RecordingDatabase implements PostgresDatabase {
 }
 
 describe('PgEnterpriseIdentityRepository', () => {
-  it('upgrades v4 Session bindings with an explicit owner column', async () => {
+  it('upgrades v4 Session bindings and three-layer memory ownership', async () => {
     class VersionFourDatabase extends RecordingDatabase {
       override async query<Row extends Record<string, unknown> = Record<string, unknown>>(
         text: string, values: readonly unknown[] = [],
@@ -51,8 +51,10 @@ describe('PgEnterpriseIdentityRepository', () => {
     expect(database.queries.map(query => query.text)).toEqual(expect.arrayContaining([
       expect.stringContaining('ALTER TABLE enterprise_session_workspaces ADD COLUMN IF NOT EXISTS owner_user_id'),
       expect.stringContaining('SET owner_user_id = workspace.owner_user_id'),
+      expect.stringContaining('ALTER TABLE enterprise_memories ADD COLUMN IF NOT EXISTS owner_user_id'),
+      expect.stringContaining("CHECK (scope_type IN ('organization', 'department', 'user'))"),
     ]))
-    expect(database.queries.at(-1)?.values).toEqual(['5'])
+    expect(database.queries.at(-1)?.values).toEqual(['6'])
   })
 
   it('uses parameterized PostgreSQL writes for enterprise users', async () => {

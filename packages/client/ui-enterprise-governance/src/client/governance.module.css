@@ -224,6 +224,11 @@ td span { margin-block-start: 4px; color: var(--dsw-alias-label-secondary); font
 .memoryAutomation { display: grid; gap: 4px; margin-block: 16px 12px; padding: 11px 13px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 10px; background: var(--dsw-alias-bg-layer-2); }
 .memoryAutomation strong { font-size: 11px; font-weight: 500; }
 .memoryAutomation span { color: var(--dsw-alias-label-secondary); font-size: 10px; line-height: 1.5; }
+.memoryScopeGrid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-block: 12px; }
+.memoryScopeGrid article { min-inline-size: 0; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 2px 9px; align-items: center; padding: 12px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 10px; background: var(--dsw-alias-bg-layer-2); }
+.memoryScopeGrid article > span { grid-row: 1 / 3; min-inline-size: 28px; color: var(--dsw-alias-label-primary); font-size: 18px; font-variant-numeric: tabular-nums; text-align: center; }
+.memoryScopeGrid strong { overflow: hidden; font-size: 11px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+.memoryScopeGrid small { overflow: hidden; color: var(--dsw-alias-label-secondary); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
 .memoryFlow { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0; margin: 12px 0 20px; padding: 0; overflow: hidden; border: 1px solid var(--dsw-alias-border-l2); border-radius: 12px; list-style: none; background: var(--dsw-alias-bg-layer-2); }
 .memoryFlow li { position: relative; display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: 2px 9px; min-inline-size: 0; padding: 12px 14px; }
 .memoryFlow li + li { border-inline-start: 1px solid var(--dsw-alias-border-l2); }
@@ -271,6 +276,7 @@ td span { margin-block-start: 4px; color: var(--dsw-alias-label-secondary); font
   .managerChoices { grid-template-columns: minmax(0, 1fr); }
   .memorySummaryField { grid-column: 1; }
   .memoryFlow { grid-template-columns: minmax(0, 1fr); }
+  .memoryScopeGrid { grid-template-columns: minmax(0, 1fr); }
   .memoryFlow li + li { border-inline-start: 0; border-block-start: 1px solid var(--dsw-alias-border-l2); }
   .workspaceRow { grid-template-columns: minmax(0, 1fr); gap: 10px; }
   .workspaceRow > code, .workspaceRow > .formError { grid-column: auto; }

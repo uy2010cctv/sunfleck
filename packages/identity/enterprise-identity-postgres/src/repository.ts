@@ -94,8 +94,9 @@ interface WorkspaceGrantRow extends Record<string, unknown> {
 interface MemoryRow extends Record<string, unknown> {
   readonly id: string
   readonly org_id: string
-  readonly scope_type: 'organization' | 'department'
+  readonly scope_type: 'organization' | 'department' | 'user'
   readonly department_id: string | null
+  readonly owner_user_id: string | null
   readonly kind: EnterpriseMemoryEntry['kind']
   readonly status: EnterpriseMemoryEntry['status']
   readonly summary: string
@@ -504,25 +505,30 @@ export class PgEnterpriseIdentityRepository {
   async proposeMemory(input: ProposeEnterpriseMemoryInput): Promise<EnterpriseMemoryEntry> {
     const summary = input.summary.trim()
     const inspection = inspectEnterpriseMemory(summary)
-    if (!inspection.allowed) {
-      throw new Error(`enterprise memory privacy check failed: ${inspection.findings.join(',')}`)
+    const blockingFindings = inspection.findings.filter(finding =>
+      input.scope !== 'user' || finding !== 'personal-preference')
+    if (blockingFindings.length > 0) {
+      throw new Error(`enterprise memory privacy check failed: ${blockingFindings.join(',')}`)
     }
     if (!input.id.trim() || !summary || !/^[a-f0-9]{64}$/u.test(input.sourceDigest)) {
       throw new Error('enterprise memory id, summary, and SHA-256 source digest are required')
     }
-    if ((input.scope === 'organization' && input.departmentId !== undefined)
-      || (input.scope === 'department' && input.departmentId === undefined)) {
-      throw new Error('enterprise memory scope and department do not match')
+    if ((input.scope === 'organization' && (input.departmentId !== undefined || input.ownerUserId !== undefined))
+      || (input.scope === 'department' && (input.departmentId === undefined || input.ownerUserId !== undefined))
+      || (input.scope === 'user' && (input.ownerUserId === undefined || input.departmentId !== undefined))) {
+      throw new Error('enterprise memory scope, department, and owner do not match')
     }
     return this.transaction(async (database) => {
       await this.assertMemoryReferences(database, input.orgId, input.createdBy, input.departmentId)
+      if (input.ownerUserId !== undefined) await this.assertMemoryReferences(database, input.orgId, input.ownerUserId)
       const at = this.now()
       const result = await database.query<MemoryRow>(`INSERT INTO enterprise_memories(id, org_id, scope_type,
-        department_id, kind, status, summary, source_digest, privacy_findings, created_by, reviewed_by,
-        review_reason, revision, created_at, updated_at)
-        VALUES ($1, $2, $3, $4, $5, 'proposed', $6, $7, $8::jsonb, $9, NULL, NULL, 1, $10, $10) RETURNING *`,
-      [input.id, input.orgId, input.scope, input.departmentId ?? null, input.kind, summary,
-        input.sourceDigest, JSON.stringify(inspection.findings), input.createdBy, at])
+        department_id, owner_user_id, kind, status, summary, source_digest, privacy_findings, created_by,
+        reviewed_by, review_reason, revision, created_at, updated_at)
+        VALUES ($1, $2, $3, $4, $5, $6, 'proposed', $7, $8, $9::jsonb, $10, NULL, NULL, 1, $11, $11)
+        RETURNING *`,
+      [input.id, input.orgId, input.scope, input.departmentId ?? null, input.ownerUserId ?? null, input.kind,
+        summary, input.sourceDigest, JSON.stringify(inspection.findings), input.createdBy, at])
       const row = result.rows[0]
       if (row === undefined) throw new Error('enterprise memory proposal returned no row')
       return this.memoryFromRow(row)
@@ -562,6 +568,7 @@ export class PgEnterpriseIdentityRepository {
   async listMemories(input: {
     orgId: string
     departmentIds?: readonly string[]
+    ownerUserId?: string
     statuses?: readonly EnterpriseMemoryEntry['status'][]
   }): Promise<EnterpriseMemoryEntry[]> {
     const departmentIds = [...new Set(input.departmentIds ?? [])]
@@ -569,8 +576,11 @@ export class PgEnterpriseIdentityRepository {
     if (statuses.length === 0) return []
     const result = await this.database.query<MemoryRow>(`SELECT * FROM enterprise_memories
       WHERE org_id = $1
-        AND (scope_type = 'organization' OR (cardinality($2::text[]) > 0 AND department_id = ANY($2::text[])))
-        AND status = ANY($3::text[]) ORDER BY updated_at DESC, id`, [input.orgId, departmentIds, statuses])
+        AND (scope_type = 'organization'
+          OR (cardinality($2::text[]) > 0 AND department_id = ANY($2::text[]))
+          OR (scope_type = 'user' AND owner_user_id = $3))
+        AND status = ANY($4::text[]) ORDER BY updated_at DESC, id`,
+    [input.orgId, departmentIds, input.ownerUserId ?? null, statuses])
     return result.rows.map(row => this.memoryFromRow(row))
   }
 
@@ -596,6 +606,7 @@ export class PgEnterpriseIdentityRepository {
     return {
       id: row.id, orgId: row.org_id, scope: row.scope_type,
       ...(row.department_id === null ? {} : { departmentId: row.department_id }),
+      ...(row.owner_user_id === null ? {} : { ownerUserId: row.owner_user_id }),
       kind: row.kind, status: row.status, summary: row.summary, sourceDigest: row.source_digest,
       privacyFindings: safeStringArray(row.privacy_findings) as EnterpriseMemoryPrivacyFinding[],
       createdBy: row.created_by,

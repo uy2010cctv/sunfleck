@@ -237,10 +237,28 @@ describe('EnterpriseAuthHttpHandler', () => {
       body: JSON.stringify({ decision: 'approved', reason: '制度核验完成', expectedRevision: 1 }),
     }))
     expect(review.status).toBe(200)
+    const userProposal = await managed.fetch(new Request('https://dsh.example.com/auth/admin/memories', {
+      method: 'POST', headers: mutationHeaders,
+      body: JSON.stringify({
+        id: 'memory-user', scope: 'user', kind: 'business-fact', summary: '报告默认使用中文。',
+      }),
+    }))
+    expect(userProposal.status).toBe(201)
+    await expect(userProposal.json()).resolves.toMatchObject({
+      id: 'memory-user', scope: 'user', ownerUserId: 'admin-1', createdBy: 'admin-1',
+    })
+    const userReview = await managed.fetch(new Request('https://dsh.example.com/auth/admin/memories/memory-user', {
+      method: 'PATCH', headers: mutationHeaders,
+      body: JSON.stringify({ decision: 'approved', reason: 'user confirmed', expectedRevision: 1 }),
+    }))
+    expect(userReview.status).toBe(200)
     const memories = await managed.fetch(new Request('https://dsh.example.com/auth/admin/memories?status=approved', {
       headers: { cookie },
     }))
-    await expect(memories.json()).resolves.toEqual([expect.objectContaining({ id: 'memory-1', status: 'approved' })])
+    await expect(memories.json()).resolves.toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'memory-1', status: 'approved' }),
+      expect.objectContaining({ id: 'memory-user', status: 'approved', ownerUserId: 'admin-1' }),
+    ]))
   })
 
   it('serves user, role, resource-policy, and audit administration only to administrators', async () => {

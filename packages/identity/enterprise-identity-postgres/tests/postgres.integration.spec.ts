@@ -84,4 +84,37 @@ describe.skipIf(url === undefined)('enterprise identity PostgreSQL directory int
     await expect(repository.listMemories({ orgId: 'org-a', statuses: ['approved'] }))
       .resolves.toEqual([expect.objectContaining({ id: 'memory-pg', sourceDigest: 'c'.repeat(64) })])
   })
+
+  it('isolates user memory between users in the same department', async () => {
+    await repository.createUser({ id: 'memory-user-2', orgId: 'org-a', username: 'memory-bob', displayName: 'Bob', disabled: false })
+    await repository.saveDepartment({
+      id: 'dept-memory', orgId: 'org-a', name: 'Memory', parentId: null, sortOrder: 1, expectedRevision: 0,
+    })
+    await repository.setUserDepartments({
+      orgId: 'org-a', userId: 'user-1', departmentIds: ['dept-memory'],
+      primaryDepartmentId: 'dept-memory', expectedRevision: (await repository.findUser('org-a', 'alice'))!.departmentRevision,
+    })
+    await repository.setUserDepartments({
+      orgId: 'org-a', userId: 'memory-user-2', departmentIds: ['dept-memory'],
+      primaryDepartmentId: 'dept-memory', expectedRevision: 0,
+    })
+    const proposed = await repository.proposeMemory({
+      id: 'private-user-memory', orgId: 'org-a', scope: 'user', ownerUserId: 'user-1', kind: 'business-fact',
+      summary: '报告默认使用中文。', sourceDigest: 'd'.repeat(64), createdBy: 'user-1',
+    })
+    await repository.reviewMemory({
+      id: proposed.id, orgId: 'org-a', decision: 'approved', reviewedBy: 'user-1',
+      reason: 'user confirmed', expectedRevision: proposed.revision,
+    })
+
+    await expect(repository.listMemories({
+      orgId: 'org-a', departmentIds: ['dept-memory'], ownerUserId: 'user-1', statuses: ['approved'],
+    })).resolves.toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'memory-pg', scope: 'organization' }),
+      expect.objectContaining({ id: 'private-user-memory', ownerUserId: 'user-1' }),
+    ]))
+    await expect(repository.listMemories({
+      orgId: 'org-a', departmentIds: ['dept-memory'], ownerUserId: 'memory-user-2', statuses: ['approved'],
+    })).resolves.toEqual([expect.objectContaining({ id: 'memory-pg', scope: 'organization' })])
+  })
 })

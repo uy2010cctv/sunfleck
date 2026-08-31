@@ -111,6 +111,44 @@ describe('EnterpriseIdentityRepository', () => {
     })
   })
 
+  it('keeps user memory private from another user in the same department', () => {
+    repository.createUser({
+      id: 'user-2', orgId: 'org-a', username: 'bob', displayName: 'Bob', disabled: false,
+    })
+    repository.saveDepartment({
+      id: 'dept-ops', orgId: 'org-a', parentId: null, name: 'Operations', sortOrder: 0, expectedRevision: 0,
+    })
+    repository.setUserDepartments({
+      orgId: 'org-a', userId: 'user-1', departmentIds: ['dept-ops'],
+      primaryDepartmentId: 'dept-ops', expectedRevision: 0,
+    })
+    repository.setUserDepartments({
+      orgId: 'org-a', userId: 'user-2', departmentIds: ['dept-ops'],
+      primaryDepartmentId: 'dept-ops', expectedRevision: 0,
+    })
+    const memory = repository.proposeMemory({
+      id: 'memory-user-1', orgId: 'org-a', scope: 'user', ownerUserId: 'user-1', kind: 'business-fact',
+      summary: '我偏好使用中文编写工作报告。', sourceDigest: 'a'.repeat(64), createdBy: 'user-1',
+    })
+    repository.reviewMemory({
+      id: memory.id, orgId: 'org-a', decision: 'approved', reviewedBy: 'user-1',
+      reason: 'user confirmed', expectedRevision: memory.revision,
+    })
+
+    expect(repository.listMemories({
+      orgId: 'org-a', departmentIds: ['dept-ops'], ownerUserId: 'user-1', statuses: ['approved'],
+    })).toEqual([expect.objectContaining({
+      id: 'memory-user-1', scope: 'user', ownerUserId: 'user-1', status: 'approved',
+    })])
+    expect(repository.listMemories({
+      orgId: 'org-a', departmentIds: ['dept-ops'], ownerUserId: 'user-2', statuses: ['approved'],
+    })).toEqual([])
+    expect(() => repository.proposeMemory({
+      id: 'shared-preference', orgId: 'org-a', scope: 'organization', kind: 'business-fact',
+      summary: '我偏好使用中文编写工作报告。', sourceDigest: 'b'.repeat(64), createdBy: 'user-1',
+    })).toThrow(/personal-preference/)
+  })
+
   it('persists channel, model, and capability administration records without secret fields', () => {
     repository.putManagedAsset({
       orgId: 'org-a', type: 'channel', id: 'wecom-main', name: '企微主渠道',

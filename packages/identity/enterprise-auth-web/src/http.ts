@@ -376,6 +376,7 @@ export class EnterpriseAuthHttpHandler {
       return json(await this.security.repository.listMemories({
         orgId: principal.orgId, ...(statuses === undefined ? {} : { statuses }),
         departmentIds: (await this.security.repository.listDepartments(principal.orgId)).map(item => item.id),
+        ownerUserId: principal.userId,
       }))
     }
     if (request.method === 'POST' && path.length === 3 && path[2] === 'memories') {
@@ -387,7 +388,7 @@ export class EnterpriseAuthHttpHandler {
       const kind = body['kind']
       const summary = body['summary']
       const providedSourceDigest = body['sourceDigest']
-      if ((scope !== 'organization' && scope !== 'department')
+      if ((scope !== 'organization' && scope !== 'department' && scope !== 'user')
         || (departmentId !== undefined && typeof departmentId !== 'string')
         || !['business-fact', 'process', 'terminology', 'decision'].includes(String(kind))
         || typeof summary !== 'string'
@@ -395,12 +396,13 @@ export class EnterpriseAuthHttpHandler {
         return json({ error: 'bad-request' }, 400)
       }
       const sourceDigest = providedSourceDigest ?? memorySourceDigest(JSON.stringify([
-        scope, departmentId ?? null, kind, summary.trim(),
+        scope, departmentId ?? null, scope === 'user' ? principal.userId : null, kind, summary.trim(),
       ]))
       try {
         return json(await this.security.repository.proposeMemory({
           id, orgId: principal.orgId, scope,
           ...(departmentId === undefined ? {} : { departmentId }),
+          ...(scope === 'user' ? { ownerUserId: principal.userId } : {}),
           kind: kind as 'business-fact' | 'process' | 'terminology' | 'decision',
           summary, sourceDigest, createdBy: principal.userId,
         }), 201)

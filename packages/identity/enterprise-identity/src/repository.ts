@@ -93,8 +93,9 @@ export interface SaveEnterpriseWorkspaceGrantInput extends Omit<EnterpriseWorksp
 export interface EnterpriseMemoryEntry {
   readonly id: string
   readonly orgId: string
-  readonly scope: 'organization' | 'department'
+  readonly scope: 'organization' | 'department' | 'user'
   readonly departmentId?: string
+  readonly ownerUserId?: string
   readonly kind: 'business-fact' | 'process' | 'terminology' | 'decision'
   readonly status: 'proposed' | 'approved' | 'rejected' | 'retired'
   readonly summary: string
@@ -113,6 +114,7 @@ export interface ProposeEnterpriseMemoryInput {
   readonly orgId: string
   readonly scope: EnterpriseMemoryEntry['scope']
   readonly departmentId?: string
+  readonly ownerUserId?: string
   readonly kind: EnterpriseMemoryEntry['kind']
   readonly summary: string
   readonly sourceDigest: string
@@ -209,8 +211,9 @@ interface SqliteWorkspaceGrantRow {
 interface SqliteMemoryRow {
   id: string
   org_id: string
-  scope_type: 'organization' | 'department'
+  scope_type: 'organization' | 'department' | 'user'
   department_id: string | null
+  owner_user_id: string | null
   kind: EnterpriseMemoryEntry['kind']
   status: EnterpriseMemoryEntry['status']
   summary: string
@@ -261,6 +264,7 @@ export interface EnterpriseIdentityStore {
   listMemories(input: {
     orgId: string
     departmentIds?: readonly string[]
+    ownerUserId?: string
     statuses?: readonly EnterpriseMemoryEntry['status'][]
   }): IdentityAwaitable<EnterpriseMemoryEntry[]>
   setPasswordVerifier(userId: string, verifier: string): IdentityAwaitable<void>
@@ -679,24 +683,29 @@ export class EnterpriseIdentityRepository implements EnterpriseIdentityStore {
   proposeMemory(input: ProposeEnterpriseMemoryInput): EnterpriseMemoryEntry {
     const summary = input.summary.trim()
     const inspection = inspectEnterpriseMemory(summary)
-    if (!inspection.allowed) {
-      throw new Error(`enterprise memory privacy check failed: ${inspection.findings.join(',')}`)
+    const blockingFindings = inspection.findings.filter(finding =>
+      input.scope !== 'user' || finding !== 'personal-preference')
+    if (blockingFindings.length > 0) {
+      throw new Error(`enterprise memory privacy check failed: ${blockingFindings.join(',')}`)
     }
     if (!input.id.trim() || !summary || !/^[a-f0-9]{64}$/u.test(input.sourceDigest)) {
       throw new Error('enterprise memory id, summary, and SHA-256 source digest are required')
     }
-    if ((input.scope === 'organization' && input.departmentId !== undefined)
-      || (input.scope === 'department' && input.departmentId === undefined)) {
-      throw new Error('enterprise memory scope and department do not match')
+    if ((input.scope === 'organization' && (input.departmentId !== undefined || input.ownerUserId !== undefined))
+      || (input.scope === 'department' && (input.departmentId === undefined || input.ownerUserId !== undefined))
+      || (input.scope === 'user' && (input.ownerUserId === undefined || input.departmentId !== undefined))) {
+      throw new Error('enterprise memory scope, department, and owner do not match')
     }
     this.database.exec('BEGIN IMMEDIATE')
     try {
       this.assertMemoryReferences(input.orgId, input.createdBy, input.departmentId)
+      if (input.ownerUserId !== undefined) this.assertMemoryReferences(input.orgId, input.ownerUserId)
       const at = this.now()
-      this.database.prepare(`INSERT INTO enterprise_memories(id, org_id, scope_type, department_id, kind, status,
-        summary, source_digest, privacy_findings, created_by, reviewed_by, review_reason, revision, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, 'proposed', ?, ?, ?, ?, NULL, NULL, 1, ?, ?)`)
-        .run(input.id, input.orgId, input.scope, input.departmentId ?? null, input.kind, summary,
+      this.database.prepare(`INSERT INTO enterprise_memories(id, org_id, scope_type, department_id, owner_user_id,
+        kind, status, summary, source_digest, privacy_findings, created_by, reviewed_by, review_reason, revision,
+        created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, 'proposed', ?, ?, ?, ?, NULL, NULL, 1, ?, ?)`)
+        .run(input.id, input.orgId, input.scope, input.departmentId ?? null, input.ownerUserId ?? null, input.kind, summary,
           input.sourceDigest, JSON.stringify(inspection.findings), input.createdBy, at, at)
       const value = this.memory(input.id)
       this.database.exec('COMMIT')
@@ -750,6 +759,7 @@ export class EnterpriseIdentityRepository implements EnterpriseIdentityStore {
   listMemories(input: {
     orgId: string
     departmentIds?: readonly string[]
+    ownerUserId?: string
     statuses?: readonly EnterpriseMemoryEntry['status'][]
   }): EnterpriseMemoryEntry[] {
     const departmentIds = [...new Set(input.departmentIds ?? [])]
@@ -757,12 +767,16 @@ export class EnterpriseIdentityRepository implements EnterpriseIdentityStore {
     if (statuses.length === 0) return []
     const statusSlots = statuses.map(() => '?').join(',')
     const departmentSlots = departmentIds.map(() => '?').join(',')
-    const scope = departmentIds.length === 0
-      ? "scope_type = 'organization'"
-      : `(scope_type = 'organization' OR department_id IN (${departmentSlots}))`
-    const rows = this.database.prepare(`SELECT * FROM enterprise_memories WHERE org_id = ? AND ${scope}
+    const scopeParts = ["scope_type = 'organization'"]
+    if (departmentIds.length > 0) scopeParts.push(`department_id IN (${departmentSlots})`)
+    if (input.ownerUserId !== undefined) scopeParts.push("(scope_type = 'user' AND owner_user_id = ?)")
+    const parameters = [
+      input.orgId, ...departmentIds, ...(input.ownerUserId === undefined ? [] : [input.ownerUserId]), ...statuses,
+    ]
+    const rows = this.database.prepare(`SELECT * FROM enterprise_memories WHERE org_id = ?
+      AND (${scopeParts.join(' OR ')})
       AND status IN (${statusSlots}) ORDER BY updated_at DESC, id`)
-      .all(input.orgId, ...departmentIds, ...statuses) as unknown as SqliteMemoryRow[]
+      .all(...parameters) as unknown as SqliteMemoryRow[]
     return rows.map(row => this.memoryFromRow(row))
   }
 
@@ -792,6 +806,7 @@ export class EnterpriseIdentityRepository implements EnterpriseIdentityStore {
     return {
       id: row.id, orgId: row.org_id, scope: row.scope_type,
       ...(row.department_id === null ? {} : { departmentId: row.department_id }),
+      ...(row.owner_user_id === null ? {} : { ownerUserId: row.owner_user_id }),
       kind: row.kind, status: row.status, summary: row.summary, sourceDigest: row.source_digest,
       privacyFindings: safeJsonArray(row.privacy_findings) as EnterpriseMemoryPrivacyFinding[],
       createdBy: row.created_by,

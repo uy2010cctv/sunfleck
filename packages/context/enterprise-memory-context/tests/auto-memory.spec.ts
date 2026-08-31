@@ -44,6 +44,9 @@ describe('Agent automatic enterprise memory', () => {
       workspaceId: 'workspace-ops', orgId: 'org-a', name: 'Operations', kind: 'department',
       departmentId: 'dept-ops', rootPath: '/managed/ops', sandboxMode: 'workspace-write', expectedRevision: 0,
     })
+    identity.bindSessionWorkspace({
+      sessionId: 'memory-agent', workspaceId: 'workspace-ops', orgId: 'org-a', ownerUserId: 'admin-1',
+    })
     const ctx = new Context()
     await ctx.plugin(SystemPrompt, { includeHarnessIdentity: false, includeRuntimeContext: true, persona: '' })
     await ctx.plugin(ToolRuntime)
@@ -115,6 +118,29 @@ describe('Agent automatic enterprise memory', () => {
     identity.close()
   })
 
+  it('saves user memory for the Session owner and attributes automated review separately', async () => {
+    const { ctx, identity } = await setup()
+    identity.createUser({
+      id: 'member-1', orgId: 'org-a', username: 'member', displayName: 'Member', disabled: false,
+    })
+    identity.bindSessionWorkspace({
+      sessionId: 'member-agent', workspaceId: 'workspace-ops', orgId: 'org-a', ownerUserId: 'member-1',
+    })
+
+    const result = await remember(ctx, {
+      scope: 'user', kind: 'business-fact', summary: '我偏好使用中文编写工作报告。',
+    }, agentAt('/managed/ops', 'member-agent'))
+
+    expect(result.isError).toBe(false)
+    expect(identity.listMemories({ orgId: 'org-a', ownerUserId: 'member-1' })).toEqual([
+      expect.objectContaining({
+        scope: 'user', ownerUserId: 'member-1', createdBy: 'member-1', reviewedBy: 'admin-1', status: 'approved',
+      }),
+    ])
+    expect(identity.listMemories({ orgId: 'org-a', ownerUserId: 'admin-1' })).toEqual([])
+    identity.close()
+  })
+
   it('derives department scope from a personal Workspace owner primary department', async () => {
     const { ctx, identity } = await setup()
     identity.setUserDepartments({
@@ -124,6 +150,9 @@ describe('Agent automatic enterprise memory', () => {
     identity.saveWorkspaceGrant({
       workspaceId: 'workspace-admin', orgId: 'org-a', name: 'Admin', kind: 'personal',
       ownerUserId: 'admin-1', rootPath: '/managed/admin', sandboxMode: 'workspace-write', expectedRevision: 0,
+    })
+    identity.bindSessionWorkspace({
+      sessionId: 'personal-agent', workspaceId: 'workspace-admin', orgId: 'org-a', ownerUserId: 'admin-1',
     })
     const result = await remember(ctx, {
       scope: 'department', kind: 'business-fact', summary: '部门使用统一业务编号。',

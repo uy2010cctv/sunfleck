@@ -641,25 +641,35 @@ function MemorySection({ state, proposeMemory, reviewMemory, t }: Pick<Enterpris
   const [error, setError] = useState<string | null>(null)
   const proposed = state.memories.filter(memory => memory.status === 'proposed')
   const approved = state.memories.filter(memory => memory.status === 'approved')
+  const scopeCounts = {
+    organization: approved.filter(memory => memory.scope === 'organization').length,
+    department: approved.filter(memory => memory.scope === 'department').length,
+    user: approved.filter(memory => memory.scope === 'user').length,
+  }
   const kindLabel = (value: GovernanceMemory['kind']): string => ({
     'business-fact': '业务规则', process: '工作流程', terminology: '公司术语', decision: '已确认决策',
   })[value]
   const departmentName = (id: string | undefined): string => state.departments.find(department => department.id === id)?.name ?? '未找到部门'
   const scopeLabel = (memory: GovernanceMemory): string => memory.scope === 'organization'
     ? '全企业'
-    : departmentName(memory.departmentId)
+    : memory.scope === 'user' ? '仅本人' : departmentName(memory.departmentId)
   useEffect(() => {
     if (departmentId === '' && state.departments[0] !== undefined)
       setDepartmentId(state.departments[0].id)
   }, [departmentId, state.departments])
   return <section className={css.ledgerSection}>
     <header className={css.memoryHeader}>
-      <div><h2>{t('\u4F01\u4E1A\u8BB0\u5FC6')}</h2><p>{t('\u8BA9 Agent \u8BB0\u4F4F\u7ECF\u8FC7\u5BA1\u6838\u7684\u516C\u53F8\u77E5\u8BC6\uFF0C\u5E76\u6309\u4F01\u4E1A\u6216\u90E8\u95E8\u8303\u56F4\u5B89\u5168\u4F7F\u7528\u3002')}</p></div>
+      <div><h2>{t('\u4F01\u4E1A\u8BB0\u5FC6')}</h2><p>{t('\u8BA9 Agent \u8BB0\u4F4F\u53EF\u590D\u7528\u77E5\u8BC6\uFF0C\u5E76\u6309\u4F01\u4E1A\u3001\u90E8\u95E8\u6216\u5F53\u524D\u7528\u6237\u8303\u56F4\u5B89\u5168\u4F7F\u7528\u3002')}</p></div>
       <span>{approved.length}{t('\u6761\u5DF2\u542F\u7528')}</span>
     </header>
     <div className={css.memoryAutomation} role="status">
       <strong>{t('Agent \u81EA\u52A8\u8BB0\u5FC6\u5DF2\u5F00\u542F')}</strong>
       <span>{t('Agent \u4F1A\u81EA\u884C\u8BC4\u4F30\u53EF\u590D\u7528\u7684\u4E1A\u52A1\u77E5\u8BC6\uFF1B\u901A\u8FC7\u9690\u79C1\u4E0E\u8303\u56F4\u68C0\u67E5\u540E\u7ACB\u5373\u751F\u6548\uFF0C\u5E76\u4FDD\u7559\u81EA\u52A8\u6765\u6E90\u548C\u5BA1\u8BA1\u8BB0\u5F55\u3002')}</span>
+    </div>
+    <div className={css.memoryScopeGrid} aria-label={t('\u8BB0\u5FC6\u4F5C\u7528\u8303\u56F4')}>
+      <article><span>{scopeCounts.organization}</span><strong>{t('\u4F01\u4E1A\u77E5\u8BC6')}</strong><small>{t('\u6240\u6709\u5DF2\u6388\u6743\u4F01\u4E1A Agent \u53EF\u7528')}</small></article>
+      <article><span>{scopeCounts.department}</span><strong>{t('\u90E8\u95E8\u77E5\u8BC6')}</strong><small>{t('\u4EC5\u5BF9\u5E94\u90E8\u95E8\u7684 Agent \u53EF\u7528')}</small></article>
+      <article><span>{scopeCounts.user}</span><strong>{t('\u6211\u7684\u8BB0\u5FC6')}</strong><small>{t('\u4EC5\u672C\u4EBA\u5BF9\u8BDD\u53EF\u7528')}</small></article>
     </div>
     <ol className={css.memoryFlow} aria-label={t('\u4F01\u4E1A\u8BB0\u5FC6\u751F\u6548\u6D41\u7A0B')}>
       <li><span>1</span><strong>{t('\u63D0\u4EA4\u4E1A\u52A1\u77E5\u8BC6')}</strong><small>{t('\u586B\u5199\u53EF\u5171\u4EAB\u7684\u89C4\u5219\u3001\u6D41\u7A0B\u3001\u672F\u8BED\u6216\u51B3\u7B56')}</small></li>
@@ -694,6 +704,7 @@ function MemorySection({ state, proposeMemory, reviewMemory, t }: Pick<Enterpris
       <div className={css.memoryFields}>
         <label>{t('\u9002\u7528\u8303\u56F4')}<select aria-label={t('\u9002\u7528\u8303\u56F4')} value={scope} onChange={(event) => { setScope(event.target.value as GovernanceMemory['scope']) }}>
           <option value="organization">{t('\u5168\u4F01\u4E1A Agent')}</option><option value="department">{t('\u6307\u5B9A\u90E8\u95E8 Agent')}</option>
+          <option value="user">{t('\u4EC5\u5F53\u524D\u7528\u6237')}</option>
         </select><small>{t('\u51B3\u5B9A\u54EA\u4E9B\u5BF9\u8BDD\u4F1A\u6536\u5230\u8FD9\u6761\u77E5\u8BC6\u3002')}</small></label>
         <label>{t('\u9002\u7528\u90E8\u95E8')}<select aria-label={t('\u9002\u7528\u90E8\u95E8')} value={departmentId} disabled={scope !== 'department'} onChange={(event) => { setDepartmentId(event.target.value) }}>
           {state.departments.length === 0 && <option value="">{t('\u8BF7\u5148\u521B\u5EFA\u90E8\u95E8')}</option>}
