@@ -261,6 +261,35 @@ describe('enterprise TeamRun control service', () => {
     expect(concurrentAudits.map(event => event.details.outcome).sort()).toEqual(['active', 'runtime-pending'])
   })
 
+  it('maps idempotent existing run states to truthful audit outcomes', async () => {
+    const cases = [
+      ['starting', 'runtime-pending'],
+      ['waiting-human', 'runtime-pending'],
+      ['verifying', 'runtime-pending'],
+      ['failed', 'runtime-failed'],
+      ['cancelled', 'cancelled'],
+      ['completed', 'completed'],
+    ] as const
+    for (const [state, outcome] of cases) {
+      const app = service()
+      const input = {
+        teamId: 'team-a', expectedTeamRevision: 4, workspaceId: 'workspace-a', prompt: 'Close books.',
+        source: 'console' as const, idempotencyKey: `existing-${state}`,
+      }
+      const created = await app.value.startRun(owner, input)
+      app.projection.runs.set(created.runId, { ...created, state })
+      app.audit.mockClear()
+      await expect(app.value.startRun(owner, input)).resolves.toMatchObject({ state })
+      expect(app.audit).toHaveBeenCalledOnce()
+      const event = app.audit.mock.calls[0]?.[0] as {
+        decision: { allowed: boolean }
+        details: { outcome?: string }
+      }
+      expect(event.decision.allowed).toBe(true)
+      expect(event.details.outcome).toBe(outcome)
+    }
+  })
+
   it('rejects stale, inactive, hidden, workspace-denied, and member starts before runtime', async () => {
     const stale = service()
     await expect(stale.value.startRun(owner, { teamId: 'team-a', expectedTeamRevision: 3, workspaceId: 'w', prompt: 'p', source: 'console', idempotencyKey: 'a' }))

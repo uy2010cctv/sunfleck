@@ -253,6 +253,18 @@ export interface EnterpriseTeamAutonomyListInput {
 
 const TERMINAL_RUN_STATES = new Set<EnterpriseTeamRun['state']>(['completed', 'failed', 'cancelled'])
 
+function teamRunAuditOutcome(state: EnterpriseTeamRun['state']): string {
+  switch (state) {
+    case 'starting':
+    case 'waiting-human':
+    case 'verifying': return 'runtime-pending'
+    case 'failed': return 'runtime-failed'
+    case 'active':
+    case 'completed':
+    case 'cancelled': return state
+  }
+}
+
 function authorization(value: boolean | EnterpriseTeamControlAuthorizationDecision): EnterpriseTeamControlAuthorizationDecision {
   return typeof value === 'boolean' ? { allowed: value } : value
 }
@@ -345,7 +357,7 @@ export class EnterpriseTeamControlService {
         authorizationDecision, repeated.runId, {
           teamId: repeated.teamId,
           teamDefinitionRevision: repeated.teamDefinitionRevision,
-          outcome: repeated.state,
+          outcome: teamRunAuditOutcome(repeated.state),
         },
       )
       return repeated
@@ -394,8 +406,7 @@ export class EnterpriseTeamControlService {
       },
     )
     if (!created.created || created.run.state !== 'starting' || created.run.rootSessionId !== undefined) {
-      const settled = created.run.state === 'active' || created.run.state === 'completed'
-      await runAudit(settled ? created.run.state : 'runtime-pending')
+      await runAudit(teamRunAuditOutcome(created.run.state))
       return created.run
     }
     try {
