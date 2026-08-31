@@ -162,6 +162,12 @@ class MemoryPostgresDatabase implements PostgresDatabase {
   }
 
   outboxState(commandId: string): string | undefined { return this.outbox.get(commandId)?.state }
+  outboxLease(commandId: string): { owner: string | null; expiresAt: number | null; admittedAt: number | null } | undefined {
+    const row = this.outbox.get(commandId)
+    return row === undefined ? undefined : {
+      owner: row.lease_owner, expiresAt: row.lease_expires_at, admittedAt: row.start_admitted_at,
+    }
+  }
 
   async transaction<T>(operation: (database: MemoryPostgresDatabase) => Promise<T>): Promise<T> {
     const run = this.tail.then(async () => {
@@ -1624,6 +1630,57 @@ describe('EnterpriseOperationsRepository team definitions', () => {
     await expect(operations.admitOutboxStart({
       orgId: 'org-a', commandId: 'expired-fence', workerId: 'worker-a',
     })).rejects.toMatchObject({ code: 'fencing-lost', resourceType: 'operation-outbox' })
+  })
+
+  it('does not let a stale worker overwrite the current owner after lease reclaim', async () => {
+    let now = 100
+    const database = new MemoryPostgresDatabase()
+    const operations = repository(database, () => now)
+    await operations.createFixedTeam({
+      teamId: 'reclaim-team', orgId: 'org-a', leaderEmployeeReleaseId: 'release-a', members: [],
+      workflowTemplate: {}, approvalPolicy: {}, expectedRevision: 0, idempotencyKey: 'reclaim-team',
+    })
+    await operations.saveTeamDefinition({
+      ...teamDefinition, teamId: 'reclaim-team', departmentId: undefined,
+      visibility: 'organization', allowedUserIds: [], expectedRevision: 1, idempotencyKey: 'reclaim-active',
+    })
+    database.seedOutbox({
+      commandId: 'reclaim-command', orgId: 'org-a', teamId: 'reclaim-team', state: 'pending',
+      teamDefinitionRevision: 2,
+    })
+    const [claimedA] = await operations.claimOutbox({ orgId: 'org-a', workerId: 'worker-a', leaseMs: 10 })
+    now = 111
+    const [claimedB] = await operations.claimOutbox({ orgId: 'org-a', workerId: 'worker-b', leaseMs: 10 })
+    const failedByA: unknown[] = []
+    const workerA = new EnterpriseOperationsWorker({
+      claimOutbox: async () => claimedA === undefined ? undefined : {
+        commandId: claimedA.commandId, attempt: claimedA.attemptCount,
+        command: { kind: 'start-session', sessionId: claimedA.workSessionId,
+          employeeReleaseId: claimedA.employeeReleaseId, teamId: claimedA.teamId },
+      },
+      admit: async (commandId) => { await operations.admitOutboxStart({ orgId: 'org-a', commandId, workerId: 'worker-a' }) },
+      createSession: async () => { throw new Error('stale worker must not start') },
+      complete: async () => { throw new Error('stale worker must not complete') },
+      fail: async (failure) => { failedByA.push(failure) },
+      retryable: () => true,
+      nextAttemptAt: value => value + 1,
+    })
+    await expect(workerA.runOnce(now)).rejects.toMatchObject({ code: 'fencing-lost' })
+    expect(failedByA).toEqual([])
+    expect(database.outboxLease('reclaim-command')).toEqual({ owner: 'worker-b', expiresAt: 121, admittedAt: null })
+    await expect(operations.admitOutboxStart({
+      orgId: 'org-a', commandId: claimedB!.commandId, workerId: 'worker-b',
+    })).resolves.toMatchObject({ leaseOwner: 'worker-b', startAdmittedAt: 111 })
+
+    database.seedOutbox({
+      commandId: 'expired-unclaimed', orgId: 'org-a', teamId: 'reclaim-team', state: 'processing',
+      workerId: 'worker-a', leaseExpiresAt: 110, teamDefinitionRevision: 2,
+    })
+    await expect(operations.admitOutboxStart({
+      orgId: 'org-a', commandId: 'expired-unclaimed', workerId: 'worker-a',
+    })).rejects.toMatchObject({ code: 'fencing-lost' })
+    const reclaimed = await operations.claimOutbox({ orgId: 'org-a', workerId: 'worker-c', leaseMs: 20 })
+    expect(reclaimed).toEqual([expect.objectContaining({ commandId: 'expired-unclaimed', leaseOwner: 'worker-c' })])
   })
 
   it('rejects an outbox command captured from an older active definition revision', async () => {

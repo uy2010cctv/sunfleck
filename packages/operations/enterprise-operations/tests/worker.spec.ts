@@ -95,7 +95,7 @@ describe('EnterpriseOperationsWorker', () => {
     })
     await expect(worker.runOnce(100)).rejects.toMatchObject({ code: 'fencing-lost' })
     await expect(worker.runOnce(101)).resolves.toBe(true)
-    expect(failures).toEqual([expect.objectContaining({ retryable: true })])
+    expect(failures).toEqual([])
   })
 
   it.each(['revision mismatch', 'leader mismatch', 'missing revision'])('dead-letters deterministic %s once', async () => {

@@ -43,12 +43,13 @@ export class EnterpriseOperationsWorker {
         && (error.code === 'admission-rejected'
           || (error.code === 'invalid-state' && error.resourceType === 'team-definition'))
       const retryableFencingFailure = error instanceof EnterpriseOperationsError && error.code === 'fencing-lost'
+      if (retryableFencingFailure) throw error
       await this.options.fail({
         commandId: claimed.commandId,
         attempt: claimed.attempt,
         error,
         nextAttemptAt: this.options.nextAttemptAt(now, claimed.attempt, error),
-        retryable: retryableFencingFailure ? true : deterministicAdmissionFailure ? false : this.options.retryable(error),
+        retryable: deterministicAdmissionFailure ? false : this.options.retryable(error),
       })
       throw error
     }
