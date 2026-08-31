@@ -1,6 +1,6 @@
 /** PostgreSQL schema for work records, approvals, schedules, teams, and outbox. */
 import type { PostgresDatabase } from './types.ts'
-export const ENTERPRISE_OPERATIONS_SCHEMA_VERSION = 11
+export const ENTERPRISE_OPERATIONS_SCHEMA_VERSION = 12
 /** Owner placeholder for legacy fixed teams whose creator was never persisted. */
 export const LEGACY_TEAM_DEFINITION_OWNER_USER_ID = 'system:legacy-fixed-team-migration'
 const statements = [
@@ -62,7 +62,7 @@ const statements = [
   `CREATE TABLE IF NOT EXISTS dsh_enterprise_team_runs (
     run_id TEXT PRIMARY KEY, org_id TEXT NOT NULL, team_id TEXT NOT NULL,
     team_definition_revision BIGINT NOT NULL, workspace_id TEXT NOT NULL, root_session_id TEXT,
-    roster_snapshot_json JSONB NOT NULL, created_by TEXT NOT NULL,
+    roster_snapshot_json JSONB NOT NULL, definition_snapshot_json JSONB NOT NULL, created_by TEXT NOT NULL,
     source TEXT NOT NULL CHECK (source IN ('console','schedule','channel')),
     state TEXT NOT NULL CHECK (state IN ('starting','active','waiting-human','verifying','completed','failed','cancelled')),
     runtime_revision BIGINT NOT NULL, source_event_seq BIGINT, failure_json JSONB,
@@ -74,6 +74,7 @@ const statements = [
     question TEXT NOT NULL, options_json JSONB NOT NULL, recommendation TEXT, context_digest TEXT NOT NULL,
     assignee_user_id TEXT NOT NULL, state TEXT NOT NULL CHECK (state IN ('open','answered','cancelled','expired')),
     answer TEXT, runtime_revision BIGINT NOT NULL, source_event_seq BIGINT,
+    response_operation_id TEXT, response_request_digest TEXT, response_idempotency_key TEXT,
     revision BIGINT NOT NULL, created_at BIGINT NOT NULL, updated_at BIGINT NOT NULL
   )`,
   `CREATE TABLE IF NOT EXISTS dsh_enterprise_team_autonomy_grants (
@@ -226,6 +227,12 @@ export async function migrateEnterpriseOperations(database: PostgresDatabase): P
         await transaction.query(
           "ALTER TABLE dsh_enterprise_operation_outbox ADD CONSTRAINT dsh_enterprise_operation_outbox_state_check CHECK (state IN ('pending','processing','completed','failed','dead-letter'))",
         )
+      }
+      if (version < 12) {
+        await transaction.query('ALTER TABLE dsh_enterprise_team_runs ADD COLUMN IF NOT EXISTS definition_snapshot_json JSONB')
+        await transaction.query('ALTER TABLE dsh_enterprise_team_decisions ADD COLUMN IF NOT EXISTS response_operation_id TEXT')
+        await transaction.query('ALTER TABLE dsh_enterprise_team_decisions ADD COLUMN IF NOT EXISTS response_request_digest TEXT')
+        await transaction.query('ALTER TABLE dsh_enterprise_team_decisions ADD COLUMN IF NOT EXISTS response_idempotency_key TEXT')
       }
       if (version < ENTERPRISE_OPERATIONS_SCHEMA_VERSION) {
         await transaction.query("UPDATE dsh_enterprise_operations_meta SET value = $1 WHERE key = 'schema-version'", [String(ENTERPRISE_OPERATIONS_SCHEMA_VERSION)])

@@ -137,18 +137,15 @@ describe.skipIf(database === undefined)('enterprise operations PostgreSQL', () =
       attentionPolicy: { decisionQueue: 'centralized' }, approvalPolicy: {}, state: 'active',
       expectedRevision: 0, idempotencyKey: 'control-definition',
     })
-    const created = await projections.createTeamRunStarting({
-      orgId: 'control-org', teamId: 'control-team', teamDefinitionRevision: 1,
-      workspaceId: 'workspace-a', rosterSnapshot: [
-        { actor: { kind: 'human', userId: 'owner-a' }, roleId: 'lead' },
-        { actor: { kind: 'agent', employeeReleaseId: 'release-a' }, roleId: 'lead' },
-      ],
-      createdBy: 'owner-a', source: 'console', state: 'starting', runtimeRevision: 0,
+    await projections.createTeamRunStarting({
+      orgId: 'control-org', teamId: 'control-team', expectedTeamRevision: 1,
+      workspaceId: 'workspace-a', createdBy: 'owner-a', source: 'console',
       idempotencyKey: 'start-a', idempotencyFingerprint: 'fingerprint-a',
     }, () => 'run-a')
-    const { runId: _runId, revision: _revision, createdAt: _createdAt, updatedAt: _updatedAt, ...repeat } = created.run
     await expect(projections.createTeamRunStarting({
-      ...repeat, idempotencyKey: 'start-a', idempotencyFingerprint: 'fingerprint-a',
+      orgId: 'control-org', teamId: 'control-team', expectedTeamRevision: 1,
+      workspaceId: 'workspace-a', createdBy: 'owner-a', source: 'console',
+      idempotencyKey: 'start-a', idempotencyFingerprint: 'fingerprint-a',
     }, () => 'run-unused'))
       .resolves.toMatchObject({ created: false, run: { runId: 'run-a' } })
     const active = await projections.projectTeamRun({ orgId: 'control-org', runId: 'run-a', expectedRevision: 1,
@@ -161,16 +158,57 @@ describe.skipIf(database === undefined)('enterprise operations PostgreSQL', () =
       options: ['yes', 'no'], contextDigest: 'digest-a', assigneeUserId: 'member-a', state: 'open',
       runtimeRevision: 2, sourceEventSeq: 5, revision: 1, createdAt: 103, updatedAt: 103,
     })
+    const response = await projections.reserveDecisionResponse({
+      orgId: 'control-org', decisionId: decision.decisionId, expectedRevision: 1,
+      idempotencyKey: 'answer-a', idempotencyFingerprint: 'answer-fingerprint-a',
+    })
     await expect(projections.answerDecision({
       orgId: 'control-org', decisionId: decision.decisionId,
       expectedRevision: 1, answer: 'yes', runtimeRevision: 3, sourceEventSeq: 6,
       idempotencyKey: 'answer-a', idempotencyFingerprint: 'answer-fingerprint-a',
+      operationId: response.operationId,
     }))
       .resolves.toMatchObject({ state: 'answered', answer: 'yes' })
+
+    await projections.projectDecision({
+      decisionId: 'decision-concurrent', orgId: 'control-org', runId: 'run-a', kind: 'approval',
+      question: 'Concurrent?', options: ['yes', 'no'], contextDigest: 'digest-concurrent',
+      assigneeUserId: 'member-a', state: 'open', runtimeRevision: 4,
+      revision: 1, createdAt: 104, updatedAt: 104,
+    })
+    const responseRace = await Promise.allSettled([
+      projections.reserveDecisionResponse({ orgId: 'control-org', decisionId: 'decision-concurrent',
+        expectedRevision: 1, idempotencyKey: 'response-one', idempotencyFingerprint: 'digest-one' }),
+      projections.reserveDecisionResponse({ orgId: 'control-org', decisionId: 'decision-concurrent',
+        expectedRevision: 1, idempotencyKey: 'response-two', idempotencyFingerprint: 'digest-two' }),
+    ])
+    expect(responseRace.filter(result => result.status === 'fulfilled')).toHaveLength(1)
+    expect(responseRace.filter(result => result.status === 'rejected')).toHaveLength(1)
 
     const grant = await projections.saveAutonomyGrant({ orgId: 'control-org', teamId: 'control-team',
       employeeReleaseId: 'release-a', taskType: 'close', capabilityScope: 'ledger.read', level: 'propose',
       grantedBy: 'owner-a', evidenceRefs: ['evidence-a'], expectedRevision: 0, idempotencyKey: 'grant-a' })
+    await projections.saveAutonomyGrant({ orgId: 'control-org', teamId: 'control-team',
+      employeeReleaseId: 'release-a', taskType: 'reconcile', capabilityScope: 'ledger.read', level: 'observe',
+      grantedBy: 'owner-a', evidenceRefs: [], expectedRevision: 0, idempotencyKey: 'grant-b' })
+    const grantRace = await Promise.allSettled([
+      projections.saveAutonomyGrant({ orgId: 'control-org', teamId: 'control-team',
+        employeeReleaseId: 'release-a', taskType: 'race', capabilityScope: 'ledger.read', level: 'observe',
+        grantedBy: 'owner-a', evidenceRefs: [], expectedRevision: 0, idempotencyKey: 'grant-race-one' }),
+      projections.saveAutonomyGrant({ orgId: 'control-org', teamId: 'control-team',
+        employeeReleaseId: 'release-a', taskType: 'race', capabilityScope: 'ledger.read', level: 'propose',
+        grantedBy: 'owner-a', evidenceRefs: [], expectedRevision: 0, idempotencyKey: 'grant-race-two' }),
+    ])
+    expect(grantRace.filter(result => result.status === 'fulfilled')).toHaveLength(1)
+    expect(grantRace.filter(result => result.status === 'rejected')).toHaveLength(1)
+    const grantPage = await projections.listAutonomyGrants({
+      orgId: 'control-org', readScope: { userId: 'owner-a', isAdministrator: false }, limit: 1,
+    })
+    expect(grantPage.nextCursor).toBeTypeOf('string')
+    await expect(projections.listAutonomyGrants({
+      orgId: 'control-org', readScope: { userId: 'owner-a', isAdministrator: false },
+      limit: 1, cursor: grantPage.nextCursor,
+    })).resolves.toMatchObject({ items: [expect.objectContaining({ teamId: 'control-team' })] })
     const revoked = await projections.revokeAutonomyGrant({ orgId: 'control-org', teamId: 'control-team',
       employeeReleaseId: 'release-a', taskType: 'close', capabilityScope: 'ledger.read',
       expectedRevision: grant.revision, idempotencyKey: 'revoke-a' })

@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { describe, expect, it, vi } from 'vitest'
 import type { EnterprisePrincipal } from '@deepseek-ai/dsh-enterprise-governance'
 import {
@@ -40,15 +41,30 @@ function seededRun(): EnterpriseTeamRun {
   }
 }
 
+function startFingerprint(input: {
+  teamId: string
+  expectedTeamRevision: number
+  workspaceId: string
+  prompt: string
+  source: string
+}): string {
+  return createHash('sha256').update(JSON.stringify({
+    teamId: input.teamId, expectedTeamRevision: input.expectedTeamRevision,
+    workspaceId: input.workspaceId, prompt: input.prompt, source: input.source,
+  })).digest('hex')
+}
+
 class MemoryProjection {
   definition = definition()
   runs = new Map<string, EnterpriseTeamRun>()
+  definitionSnapshots = new Map<string, EnterpriseTeamDefinition>()
   startKeys = new Map<string, string>()
   startFingerprints = new Map<string, string>()
   decisions = new Map<string, TeamDecision>()
   grants = new Map<string, EnterpriseTeamAutonomyGrant>()
   grantKeys = new Map<string, EnterpriseTeamAutonomyGrant>()
   decisionResponseKeys = new Map<string, { fingerprint: string; decision: TeamDecision }>()
+  decisionReservations = new Map<string, { key: string; fingerprint: string; operationId: string }>()
   allocations = 0
 
   async getTeamDefinition(orgId: string, teamId: string, scope: { userId: string; isAdministrator: boolean }) {
@@ -58,7 +74,13 @@ class MemoryProjection {
     return structuredClone(this.definition)
   }
   async createTeamRunStarting(
-    input: Omit<EnterpriseTeamRun, 'runId' | 'revision' | 'createdAt' | 'updatedAt'> & {
+    input: {
+      orgId: string
+      teamId: string
+      expectedTeamRevision: number
+      workspaceId: string
+      createdBy: string
+      source: EnterpriseTeamRun['source']
       idempotencyKey: string
       idempotencyFingerprint: string
     },
@@ -68,16 +90,28 @@ class MemoryProjection {
     if (existingId !== undefined) {
       if (this.startFingerprints.get(`${input.orgId}:${input.idempotencyKey}`) !== input.idempotencyFingerprint)
         throw new EnterpriseOperationsError('idempotency-conflict', 'team-run')
-      return { run: this.runs.get(existingId)!, created: false }
+      return {
+        run: this.runs.get(existingId)!, definitionSnapshot: structuredClone(this.definitionSnapshots.get(existingId)!),
+        created: false,
+      }
     }
+    if (this.definition.state !== 'active') throw new EnterpriseOperationsError('invalid-state', 'team-definition', input.teamId)
+    if (this.definition.revision !== input.expectedTeamRevision)
+      throw new EnterpriseOperationsError('conflict', 'team-definition', input.teamId)
     this.allocations += 1
-    const run = { ...input, runId: allocateRunId(), revision: 1, createdAt: 10, updatedAt: 10 }
+    const run: EnterpriseTeamRun = {
+      runId: allocateRunId(), orgId: input.orgId, teamId: input.teamId,
+      teamDefinitionRevision: this.definition.revision, workspaceId: input.workspaceId,
+      rosterSnapshot: structuredClone(this.definition.roster), createdBy: input.createdBy, source: input.source,
+      state: 'starting', runtimeRevision: 0, revision: 1, createdAt: 10, updatedAt: 10,
+    }
     delete (run as { idempotencyKey?: string }).idempotencyKey
     delete (run as { idempotencyFingerprint?: string }).idempotencyFingerprint
     this.runs.set(run.runId, run)
+    this.definitionSnapshots.set(run.runId, structuredClone(this.definition))
     this.startKeys.set(`${input.orgId}:${input.idempotencyKey}`, run.runId)
     this.startFingerprints.set(`${input.orgId}:${input.idempotencyKey}`, input.idempotencyFingerprint ?? '')
-    return { run, created: true }
+    return { run, definitionSnapshot: structuredClone(this.definitionSnapshots.get(run.runId)!), created: true }
   }
   async getTeamRun(orgId: string, runId: string, readScope?: { userId: string; isAdministrator: boolean }) {
     const run = this.runs.get(runId)
@@ -90,7 +124,9 @@ class MemoryProjection {
     if (stored !== undefined && stored !== idempotencyFingerprint)
       throw new EnterpriseOperationsError('idempotency-conflict', 'team-run')
     const runId = this.startKeys.get(`${orgId}:${idempotencyKey}`)
-    return runId === undefined ? undefined : this.runs.get(runId)
+    return runId === undefined ? undefined : {
+      run: this.runs.get(runId)!, definitionSnapshot: structuredClone(this.definitionSnapshots.get(runId)!), created: false,
+    }
   }
   async listTeamRuns({ orgId, readScope }: { orgId: string; readScope: { userId: string; isAdministrator: boolean } }) {
     const visible = await this.getTeamDefinition(orgId, this.definition.teamId, readScope) !== undefined
@@ -99,6 +135,10 @@ class MemoryProjection {
   async projectTeamRun(input: { orgId: string; runId: string; expectedRevision: number; state: EnterpriseTeamRun['state']; rootSessionId?: string; runtimeRevision: number; sourceEventSeq?: number; failure?: EnterpriseTeamRun['failure'] }) {
     const before = this.runs.get(input.runId)
     if (before === undefined || before.orgId !== input.orgId) throw new EnterpriseOperationsError('not-found', 'team-run', input.runId)
+    if (before.runtimeRevision === input.runtimeRevision && before.state === input.state
+      && (input.rootSessionId ?? before.rootSessionId) === before.rootSessionId
+      && (input.sourceEventSeq ?? before.sourceEventSeq) === before.sourceEventSeq
+      && JSON.stringify(input.failure) === JSON.stringify(before.failure)) return before
     if (before.revision !== input.expectedRevision) throw new EnterpriseOperationsError('conflict', 'team-run', input.runId)
     const run = { ...before, ...input, revision: before.revision + 1, updatedAt: before.updatedAt + 1 }
     delete (run as { expectedRevision?: number }).expectedRevision
@@ -127,6 +167,28 @@ class MemoryProjection {
       throw new EnterpriseOperationsError('idempotency-conflict', 'team-decision')
     return remembered.decision
   }
+  async reserveDecisionResponse(input: {
+    orgId: string
+    decisionId: string
+    expectedRevision: number
+    idempotencyKey: string
+    idempotencyFingerprint: string
+  }) {
+    const decision = this.decisions.get(input.decisionId)!
+    const existing = this.decisionReservations.get(input.decisionId)
+    if (existing !== undefined) {
+      if (existing.key !== input.idempotencyKey || existing.fingerprint !== input.idempotencyFingerprint)
+        throw new EnterpriseOperationsError('conflict', 'team-decision', input.decisionId)
+      return { decision, operationId: existing.operationId, completed: decision.state === 'answered' }
+    }
+    if (decision.state !== 'open' || decision.revision !== input.expectedRevision)
+      throw new EnterpriseOperationsError('conflict', 'team-decision', input.decisionId)
+    const operationId = `team-decision:respond:${input.decisionId}:${input.idempotencyKey}`
+    this.decisionReservations.set(input.decisionId, {
+      key: input.idempotencyKey, fingerprint: input.idempotencyFingerprint, operationId,
+    })
+    return { decision, operationId, completed: false }
+  }
   async answerDecision(input: {
     orgId: string
     decisionId: string
@@ -136,8 +198,11 @@ class MemoryProjection {
     sourceEventSeq?: number
     idempotencyKey: string
     idempotencyFingerprint: string
+    operationId: string
   }) {
     const before = this.decisions.get(input.decisionId)!
+    if (this.decisionReservations.get(input.decisionId)?.operationId !== input.operationId)
+      throw new EnterpriseOperationsError('conflict', 'team-decision', input.decisionId)
     if (before.revision !== input.expectedRevision) throw new EnterpriseOperationsError('conflict', 'team-decision', input.decisionId)
     const decision = { ...before, answer: input.answer, state: 'answered' as const, runtimeRevision: input.runtimeRevision,
       ...(input.sourceEventSeq === undefined ? {} : { sourceEventSeq: input.sourceEventSeq }),
@@ -258,12 +323,11 @@ describe('enterprise TeamRun control service', () => {
       details: { outcome?: string }
     })
     expect(concurrentAudits.every(event => event.decision.allowed)).toBe(true)
-    expect(concurrentAudits.map(event => event.details.outcome).sort()).toEqual(['active', 'runtime-pending'])
+    expect(concurrentAudits.map(event => event.details.outcome)).toEqual(['active', 'active'])
   })
 
   it('maps idempotent existing run states to truthful audit outcomes', async () => {
     const cases = [
-      ['starting', 'runtime-pending'],
       ['waiting-human', 'runtime-pending'],
       ['verifying', 'runtime-pending'],
       ['failed', 'runtime-failed'],
@@ -288,6 +352,66 @@ describe('enterprise TeamRun control service', () => {
       expect(event.decision.allowed).toBe(true)
       expect(event.details.outcome).toBe(outcome)
     }
+  })
+
+  it('replays the stable start operation after a crash between reservation and driver call', async () => {
+    const projection = new MemoryProjection()
+    const runtimeDriver = runtime({
+      reconcileRun: vi.fn().mockResolvedValue({ state: 'starting', runtimeRevision: 0 }),
+    })
+    const app = service(projection, runtimeDriver)
+    const input = {
+      teamId: 'team-a', expectedTeamRevision: 4, workspaceId: 'workspace-a', prompt: 'Close books.',
+      source: 'console' as const, idempotencyKey: 'crash-before-driver',
+    }
+    await projection.createTeamRunStarting({
+      orgId: 'org-a', teamId: input.teamId, expectedTeamRevision: input.expectedTeamRevision,
+      workspaceId: input.workspaceId, createdBy: 'owner-a', source: input.source,
+      idempotencyKey: input.idempotencyKey, idempotencyFingerprint: startFingerprint(input),
+    }, () => 'run-crash-before')
+    await expect(app.value.startRun(owner, input)).resolves.toMatchObject({
+      runId: 'run-crash-before', state: 'active',
+    })
+    expect(runtimeDriver.reconcileRun).toHaveBeenCalledWith(expect.objectContaining({
+      operationId: 'team-run:start:run-crash-before',
+    }))
+    expect(runtimeDriver.startRun).toHaveBeenCalledOnce()
+    expect(runtimeDriver.startRun).toHaveBeenCalledWith(expect.objectContaining({
+      operationId: 'team-run:start:run-crash-before',
+      // oxlint-disable-next-line typescript/no-unsafe-assignment -- Vitest asymmetric matcher.
+      definition: expect.objectContaining({ revision: 4, roster: definition().roster }),
+    }))
+  })
+
+  it('reconciles a driver commit after a crash before active projection without starting a second runtime run', async () => {
+    const projection = new MemoryProjection()
+    const runtimeDriver = runtime({
+      reconcileRun: vi.fn().mockResolvedValue({
+        state: 'active', rootSessionId: 'session-reconciled', runtimeRevision: 1, sourceEventSeq: 1,
+      }),
+    })
+    const app = service(projection, runtimeDriver)
+    const input = {
+      teamId: 'team-a', expectedTeamRevision: 4, workspaceId: 'workspace-a', prompt: 'Close books.',
+      source: 'console' as const, idempotencyKey: 'crash-after-driver',
+    }
+    const reservation = await projection.createTeamRunStarting({
+      orgId: 'org-a', teamId: input.teamId, expectedTeamRevision: input.expectedTeamRevision,
+      workspaceId: input.workspaceId, createdBy: 'owner-a', source: input.source,
+      idempotencyKey: input.idempotencyKey, idempotencyFingerprint: startFingerprint(input),
+    }, () => 'run-crash-after')
+    await runtimeDriver.startRun({
+      operationId: 'team-run:start:run-crash-after', runId: reservation.run.runId, orgId: 'org-a',
+      definition: reservation.definitionSnapshot, workspaceId: reservation.run.workspaceId,
+      prompt: input.prompt, actor: owner,
+    })
+    await expect(app.value.startRun(owner, input)).resolves.toMatchObject({
+      runId: 'run-crash-after', state: 'active', rootSessionId: 'session-reconciled',
+    })
+    expect(runtimeDriver.startRun).toHaveBeenCalledOnce()
+    expect(runtimeDriver.reconcileRun).toHaveBeenCalledWith(expect.objectContaining({
+      operationId: 'team-run:start:run-crash-after',
+    }))
   })
 
   it('rejects stale, inactive, hidden, workspace-denied, and member starts before runtime', async () => {
@@ -363,6 +487,10 @@ describe('enterprise TeamRun control service', () => {
     expect(app.runtimeDriver.cancelRun).toHaveBeenCalledTimes(1)
     await expect(app.value.cancelRun(owner, { runId: run.runId, expectedRevision: cancelled.revision, idempotencyKey: 'again' }))
       .rejects.toMatchObject({ code: 'invalid-transition' })
+    expect(app.audit).toHaveBeenLastCalledWith(expect.objectContaining({
+      decision: { allowed: false, reason: 'run-terminal' },
+      resource: { type: 'team-run', id: run.runId },
+    }))
 
     const unknown = service(new MemoryProjection(), runtime({
       cancelRun: vi.fn().mockRejectedValue(new EnterpriseTeamRuntimeError('unknown', 'transport-lost')),
@@ -385,7 +513,9 @@ describe('enterprise TeamRun control service', () => {
 
 describe('enterprise TeamDecision and autonomy control service', () => {
   it('projects decisions only through the Host method and admits assignee, owner, and administrator responses', async () => {
-    for (const actor of [member, owner, admin]) {
+    for (const [actor, reason] of [
+      [member, 'assigned-human'], [owner, 'creator-owner'], [admin, 'administrator'],
+    ] as const) {
       const app = service()
       app.projection.runs.set('run-a', seededRun())
       const projected = await app.value.projectDecision({
@@ -397,6 +527,7 @@ describe('enterprise TeamDecision and autonomy control service', () => {
         .resolves.toMatchObject({ state: 'answered', answer: 'yes' })
       expect(app.audit).toHaveBeenLastCalledWith(expect.objectContaining({
         resource: { type: 'team-decision', id: projected.decisionId }, correlationId: 'run-a',
+        decision: { allowed: true, reason },
         // oxlint-disable-next-line typescript/no-unsafe-assignment -- Vitest asymmetric matcher.
         details: expect.objectContaining({ teamId: 'team-a' }),
       }))
@@ -432,6 +563,13 @@ describe('enterprise TeamDecision and autonomy control service', () => {
     const answered = await app.value.respondDecision(owner, { decisionId: 'decision-a', answer: 'A', expectedRevision: 1, idempotencyKey: 'x' })
     await expect(app.value.respondDecision(owner, { decisionId: 'decision-a', answer: 'A', expectedRevision: 1, idempotencyKey: 'x' })).resolves.toEqual(answered)
     expect(app.runtimeDriver.respondDecision).toHaveBeenCalledTimes(1)
+    await expect(app.value.respondDecision(owner, {
+      decisionId: 'decision-a', answer: 'A', expectedRevision: 1, idempotencyKey: 'different-key',
+    })).rejects.toMatchObject({ code: 'conflict' })
+    expect(app.audit).toHaveBeenLastCalledWith(expect.objectContaining({
+      decision: { allowed: false, reason: 'conflict' },
+      resource: { type: 'team-decision', id: 'decision-a' },
+    }))
     const auditCount = app.audit.mock.calls.length
     await expect(app.value.respondDecision(member, {
       decisionId: 'decision-a', answer: 'A', expectedRevision: 1, idempotencyKey: 'x',
@@ -441,6 +579,53 @@ describe('enterprise TeamDecision and autonomy control service', () => {
       // oxlint-disable-next-line typescript/no-unsafe-assignment -- Vitest asymmetric matcher.
       decision: expect.objectContaining({ allowed: false }),
     }))
+  })
+
+  it('reserves one decision response before the driver and rejects a concurrent different key', async () => {
+    const app = service()
+    app.projection.runs.set('run-a', seededRun())
+    await app.value.projectDecision({
+      decisionId: 'decision-concurrent', orgId: 'org-a', runId: 'run-a', kind: 'approval',
+      question: 'Proceed?', options: ['yes'], contextDigest: 'digest', assigneeUserId: 'member-a',
+      state: 'open', runtimeRevision: 1, revision: 1, createdAt: 1, updatedAt: 1,
+    })
+    const settled = await Promise.allSettled([
+      app.value.respondDecision(member, {
+        decisionId: 'decision-concurrent', answer: 'yes', expectedRevision: 1, idempotencyKey: 'answer-one',
+      }),
+      app.value.respondDecision(member, {
+        decisionId: 'decision-concurrent', answer: 'no', expectedRevision: 1, idempotencyKey: 'answer-two',
+      }),
+    ])
+    expect(settled.filter(result => result.status === 'fulfilled')).toHaveLength(1)
+    expect(settled.filter(result => result.status === 'rejected')).toHaveLength(1)
+    expect(app.runtimeDriver.respondDecision).toHaveBeenCalledOnce()
+  })
+
+  it('replays the same reserved decision operation across driver crash windows', async () => {
+    const app = service()
+    app.projection.runs.set('run-a', seededRun())
+    await app.value.projectDecision({
+      decisionId: 'decision-crash', orgId: 'org-a', runId: 'run-a', kind: 'approval',
+      question: 'Proceed?', options: ['yes'], contextDigest: 'digest', assigneeUserId: 'member-a',
+      state: 'open', runtimeRevision: 1, revision: 1, createdAt: 1, updatedAt: 1,
+    })
+    const request = {
+      decisionId: 'decision-crash', answer: 'yes', expectedRevision: 1, idempotencyKey: 'answer-crash',
+    }
+    const fingerprint = createHash('sha256').update(JSON.stringify({
+      decisionId: request.decisionId, answer: request.answer, expectedRevision: request.expectedRevision,
+    })).digest('hex')
+    const reservation = await app.projection.reserveDecisionResponse({
+      orgId: 'org-a', ...request, idempotencyFingerprint: fingerprint,
+    })
+    await app.runtimeDriver.respondDecision({
+      operationId: reservation.operationId, decision: reservation.decision, answer: request.answer, actor: member,
+    })
+    await expect(app.value.respondDecision(member, request)).resolves.toMatchObject({ state: 'answered' })
+    expect(app.runtimeDriver.respondDecision).toHaveBeenCalledTimes(2)
+    expect(app.runtimeDriver.respondDecision.mock.calls.map(call => call[0].operationId))
+      .toEqual([reservation.operationId, reservation.operationId])
   })
 
   it('requires explicit authorized autonomy writes, validates agent roster and terminal revoke, and never auto-promotes', async () => {
@@ -455,17 +640,59 @@ describe('enterprise TeamDecision and autonomy control service', () => {
       level: 'observe', evidenceRefs: [], expectedRevision: 0, idempotencyKey: 'operator-deny',
     })).rejects.toMatchObject({ code: 'forbidden' })
     await expect(app.value.saveAutonomyGrant(owner, { teamId: 'team-a', employeeReleaseId: 'missing', taskType: 'close', capabilityScope: 'ledger.read', level: 'observe', evidenceRefs: [], expectedRevision: 0, idempotencyKey: 'missing' })).rejects.toMatchObject({ code: 'invalid-state' })
+    expect(app.audit).toHaveBeenLastCalledWith(expect.objectContaining({
+      decision: { allowed: false, reason: 'agent-not-rostered' },
+    }))
     await expect(app.value.saveAutonomyGrant(owner, { teamId: 'team-a', employeeReleaseId: 'release-a', taskType: ' ', capabilityScope: 'ledger.read', level: 'observe', evidenceRefs: [], expectedRevision: 0, idempotencyKey: 'empty' })).rejects.toMatchObject({ code: 'invalid-state' })
+    expect(app.audit).toHaveBeenLastCalledWith(expect.objectContaining({
+      decision: { allowed: false, reason: 'invalid-scope' },
+    }))
     const grant = await app.value.saveAutonomyGrant(owner, { teamId: 'team-a', employeeReleaseId: 'release-a', taskType: 'close', capabilityScope: 'ledger.read', level: 'propose', evidenceRefs: ['b', 'a', 'a'], expectedRevision: 0, idempotencyKey: 'save' })
     expect(grant).toMatchObject({ grantedBy: 'owner-a', evidenceRefs: ['a', 'b'], level: 'propose', state: 'active' })
     expect(app.audit).toHaveBeenLastCalledWith(expect.objectContaining({
       resource: { type: 'team-autonomy-grant', id: 'team-a:release-a:close:ledger.read' },
+      decision: { allowed: true, reason: 'creator-owner' },
       // oxlint-disable-next-line typescript/no-unsafe-assignment -- Vitest asymmetric matcher.
       details: expect.objectContaining({ teamId: 'team-a', teamDefinitionRevision: 4 }),
     }))
     await expect(app.value.saveAutonomyGrant(owner, { teamId: 'team-a', employeeReleaseId: 'release-a', taskType: 'close', capabilityScope: 'ledger.read', level: 'propose', evidenceRefs: ['b', 'a', 'a'], expectedRevision: 0, idempotencyKey: 'save' })).resolves.toEqual(grant)
-    const revoked = await app.value.revokeAutonomyGrant(owner, { teamId: 'team-a', employeeReleaseId: 'release-a', taskType: 'close', capabilityScope: 'ledger.read', expectedRevision: grant.revision, idempotencyKey: 'revoke' })
+    const revoked = await app.value.revokeAutonomyGrant(owner, {
+      teamId: 'team-a', employeeReleaseId: 'release-a', taskType: ' close ', capabilityScope: ' ledger.read ',
+      expectedRevision: grant.revision, idempotencyKey: 'revoke',
+    })
     expect(revoked.state).toBe('revoked')
     await expect(app.value.saveAutonomyGrant(owner, { teamId: 'team-a', employeeReleaseId: 'release-a', taskType: 'close', capabilityScope: 'ledger.read', level: 'execute-reviewed', evidenceRefs: [], expectedRevision: revoked.revision, idempotencyKey: 'resurrect' })).rejects.toMatchObject({ code: 'invalid-transition' })
+  })
+
+  it('audits missing and hidden command resources once without invoking a runtime or write driver', async () => {
+    const app = service()
+    await expect(app.value.cancelRun(owner, {
+      runId: 'missing-run', expectedRevision: 1, idempotencyKey: 'missing-cancel',
+    })).rejects.toMatchObject({ code: 'not-found' })
+    expect(app.audit).toHaveBeenCalledOnce()
+    expect(app.audit).toHaveBeenLastCalledWith(expect.objectContaining({
+      resource: { type: 'team-run', id: 'missing-run' }, decision: { allowed: false, reason: 'not-found' },
+    }))
+    app.audit.mockClear()
+    await expect(app.value.respondDecision(owner, {
+      decisionId: 'missing-decision', answer: 'yes', expectedRevision: 1, idempotencyKey: 'missing-response',
+    })).rejects.toMatchObject({ code: 'not-found' })
+    expect(app.audit).toHaveBeenCalledOnce()
+    expect(app.audit).toHaveBeenLastCalledWith(expect.objectContaining({
+      resource: { type: 'team-decision', id: 'missing-decision' }, decision: { allowed: false, reason: 'not-found' },
+    }))
+    app.audit.mockClear()
+    app.projection.definition = definition({ visibility: 'private', ownerUserId: 'other-a' })
+    await expect(app.value.saveAutonomyGrant(owner, {
+      teamId: 'team-a', employeeReleaseId: 'release-a', taskType: 'close', capabilityScope: 'ledger.read',
+      level: 'observe', evidenceRefs: [], expectedRevision: 0, idempotencyKey: 'hidden-grant',
+    })).rejects.toMatchObject({ code: 'not-found' })
+    expect(app.audit).toHaveBeenCalledOnce()
+    expect(app.audit).toHaveBeenLastCalledWith(expect.objectContaining({
+      resource: { type: 'team-autonomy-grant', id: 'team-a:release-a:close:ledger.read' },
+      decision: { allowed: false, reason: 'not-found' },
+    }))
+    expect(app.runtimeDriver.cancelRun).not.toHaveBeenCalled()
+    expect(app.runtimeDriver.respondDecision).not.toHaveBeenCalled()
   })
 })

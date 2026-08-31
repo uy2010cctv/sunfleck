@@ -42,6 +42,9 @@ function setup(allowStart = true, allowWorkspace = true) {
     getTeamRun: vi.fn().mockImplementation(async () => run), listTeamRuns: vi.fn().mockResolvedValue({ items: [run] }),
     projectDecision: vi.fn(), getDecision: vi.fn().mockResolvedValue(decision),
     getDecisionResponseByKey: vi.fn().mockResolvedValue(undefined),
+    reserveDecisionResponse: vi.fn().mockResolvedValue({
+      decision, operationId: 'team-decision:respond:decision-a:answer', completed: false,
+    }),
     listDecisions: vi.fn().mockResolvedValue({ items: [decision] }),
     answerDecision: vi.fn().mockResolvedValue({ ...decision, state: 'answered', answer: 'yes', revision: 2 }),
     listAutonomyGrants: vi.fn().mockResolvedValue({ items: [] }),
@@ -83,7 +86,7 @@ describe('enterprise team-control Remote namespaces', () => {
     const request = { teamId: 'team-a', expectedTeamRevision: 4, workspaceId: 'workspace-a', prompt: 'Close.', source: 'console' as const, idempotencyKey: 'start-a' }
     await app.requestContext.run(principal, () => app.run.start(request))
     expect(app.teamControl.createTeamRunStarting).toHaveBeenCalledWith(
-      expect.objectContaining({ orgId: 'org-a', createdBy: 'owner-a', runtimeRevision: 0 }),
+      expect.objectContaining({ orgId: 'org-a', createdBy: 'owner-a', expectedTeamRevision: 4 }),
       expect.any(Function),
     )
     expect(request).not.toHaveProperty('orgId')

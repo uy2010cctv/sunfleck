@@ -1,7 +1,11 @@
 import { createHash, createHmac, timingSafeEqual } from 'node:crypto'
 import { EnterpriseOperationsError } from './repository.ts'
 import { migrateEnterpriseOperations } from './schema.ts'
-import type { EnterpriseTeamControlProjectionDriver } from './team-control.ts'
+import type {
+  EnterpriseTeamControlProjectionDriver,
+  EnterpriseTeamDecisionResponseReservation,
+  EnterpriseTeamRunStartReservation,
+} from './team-control.ts'
 import type {
   EnterpriseOperationsRepositoryOptions,
   EnterpriseTeamAutonomyGrant,
@@ -24,6 +28,7 @@ interface TeamRunRow extends Record<string, unknown> {
   workspace_id: string
   root_session_id: string | null
   roster_snapshot_json: unknown
+  definition_snapshot_json: unknown
   created_by: string
   source: EnterpriseTeamRun['source']
   state: EnterpriseTeamRun['state']
@@ -51,6 +56,9 @@ interface DecisionRow extends Record<string, unknown> {
   revision: number | string
   created_at: number | string
   updated_at: number | string
+  response_operation_id: string | null
+  response_request_digest: string | null
+  response_idempotency_key: string | null
 }
 interface GrantRow extends Record<string, unknown> {
   org_id: string
@@ -96,6 +104,9 @@ function canonical(value: unknown): unknown {
     .map(([key, item]) => [key, canonical(item)]))
 }
 function digest(value: unknown): string { return createHash('sha256').update(JSON.stringify(canonical(value))).digest('hex') }
+function canonicalEqual(left: unknown, right: unknown): boolean {
+  return JSON.stringify(canonical(left)) === JSON.stringify(canonical(right))
+}
 function parse(value: unknown): unknown { return typeof value === 'string' ? JSON.parse(value) : value }
 function limit(value: number | undefined): number {
   const resolved = value ?? 50
@@ -173,6 +184,13 @@ export class EnterpriseTeamControlRepository implements EnterpriseTeamControlPro
       : parse(row.allowed_user_ids_json) as readonly string[]
     if (!scope.isAdministrator && row.owner_user_id !== scope.userId && row.visibility !== 'organization'
       && !(row.visibility === 'restricted' && allowed.includes(scope.userId))) return undefined
+    return this.definition(row)
+  }
+
+  private definition(row: DefinitionRow): EnterpriseTeamDefinition {
+    const allowed = row.allowed_user_ids_json === null
+      ? []
+      : parse(row.allowed_user_ids_json) as readonly string[]
     return {
       orgId: row.org_id, teamId: row.team_id, name: row.name, northStar: row.north_star, ownerUserId: row.owner_user_id,
       ...(row.department_id === null ? {} : { departmentId: row.department_id }), visibility: row.visibility,
@@ -191,7 +209,7 @@ export class EnterpriseTeamControlRepository implements EnterpriseTeamControlPro
     orgId: string,
     idempotencyKey: string,
     idempotencyFingerprint?: string,
-  ): Promise<EnterpriseTeamRun | undefined> {
+  ): Promise<EnterpriseTeamRunStartReservation | undefined> {
     await this.initialize()
     const result = await this.database.query<{ result_json: unknown }>(
       "SELECT result_json FROM dsh_enterprise_operations_idempotency WHERE org_id=$1 AND operation='teamRun.start' AND key=$2",
@@ -203,20 +221,37 @@ export class EnterpriseTeamControlRepository implements EnterpriseTeamControlPro
     if (idempotencyFingerprint !== undefined && envelope?.requestDigest !== undefined
       && envelope.requestDigest !== idempotencyFingerprint)
       throw new EnterpriseOperationsError('idempotency-conflict', 'team-run', envelope.result?.runId)
-    return typeof envelope?.result?.runId === 'string' ? this.getTeamRun(orgId, envelope.result.runId) : undefined
+    if (typeof envelope?.result?.runId !== 'string') return undefined
+    const current = await this.database.query<TeamRunRow>(
+      'SELECT * FROM dsh_enterprise_team_runs WHERE org_id=$1 AND run_id=$2', [orgId, envelope.result.runId],
+    )
+    const row = current.rows[0]
+    if (row === undefined) throw new EnterpriseOperationsError('not-found', 'team-run', envelope.result.runId)
+    if (row.definition_snapshot_json === null)
+      throw new EnterpriseOperationsError('invalid-state', 'team-run', envelope.result.runId)
+    return {
+      run: this.run(row), definitionSnapshot: parse(row.definition_snapshot_json) as EnterpriseTeamDefinition, created: false,
+    }
   }
 
   /** @returns the existing or newly inserted starting projection and whether this call inserted it. */
   async createTeamRunStarting(
-    input: Omit<EnterpriseTeamRun, 'runId' | 'revision' | 'createdAt' | 'updatedAt'> & {
+    input: {
+      readonly orgId: string
+      readonly teamId: string
+      readonly expectedTeamRevision: number
+      readonly workspaceId: string
+      readonly createdBy: string
+      readonly source: EnterpriseTeamRun['source']
       readonly idempotencyKey: string
       readonly idempotencyFingerprint: string
     },
     allocateRunId: () => string,
-  ): Promise<{ readonly run: EnterpriseTeamRun; readonly created: boolean }> {
+  ): Promise<EnterpriseTeamRunStartReservation> {
     await this.initialize()
     return this.database.transaction(async (database) => {
       await this.lock(database, `teamRun.start:${input.orgId}:${input.idempotencyKey}`)
+      await this.lock(database, `team:${input.teamId}`)
       const existing = await database.query<{ result_json: unknown }>(
         "SELECT result_json FROM dsh_enterprise_operations_idempotency WHERE org_id=$1 AND operation='teamRun.start' AND key=$2",
         [input.orgId, input.idempotencyKey],
@@ -230,16 +265,36 @@ export class EnterpriseTeamControlRepository implements EnterpriseTeamControlPro
           [input.orgId, envelope.result.runId],
         )
         if (current.rows[0] === undefined) throw new EnterpriseOperationsError('not-found', 'team-run', envelope.result.runId)
-        return { run: this.run(current.rows[0]), created: false }
+        const row = current.rows[0]
+        if (row.definition_snapshot_json === null)
+          throw new EnterpriseOperationsError('invalid-state', 'team-run', envelope.result.runId)
+        return {
+          run: this.run(row), definitionSnapshot: parse(row.definition_snapshot_json) as EnterpriseTeamDefinition,
+          created: false,
+        }
       }
+      const definitions = await database.query<DefinitionRow>(
+        'SELECT * FROM dsh_enterprise_team_definitions WHERE org_id=$1 AND team_id=$2 FOR UPDATE',
+        [input.orgId, input.teamId],
+      )
+      const definitionRow = definitions.rows[0]
+      if (definitionRow === undefined)
+        throw new EnterpriseOperationsError('not-found', 'team-definition', input.teamId)
+      const definition = this.definition(definitionRow)
+      if (definition.state !== 'active')
+        throw new EnterpriseOperationsError('invalid-state', 'team-definition', input.teamId)
+      if (definition.revision !== input.expectedTeamRevision)
+        throw new EnterpriseOperationsError('conflict', 'team-definition', input.teamId)
       const runId = allocateRunId()
       const now = this.now()
       const inserted = await database.query<TeamRunRow>(
         `INSERT INTO dsh_enterprise_team_runs(run_id,org_id,team_id,team_definition_revision,workspace_id,root_session_id,
-          roster_snapshot_json,created_by,source,state,runtime_revision,source_event_seq,failure_json,revision,created_at,updated_at)
-         VALUES($1,$2,$3,$4,$5,NULL,$6::jsonb,$7,$8,'starting',0,NULL,NULL,1,$9,$9) RETURNING *`,
-        [runId, input.orgId, input.teamId, input.teamDefinitionRevision, input.workspaceId,
-          JSON.stringify(canonical(input.rosterSnapshot)), input.createdBy, input.source, now],
+          roster_snapshot_json,definition_snapshot_json,created_by,source,state,runtime_revision,source_event_seq,
+          failure_json,revision,created_at,updated_at)
+         VALUES($1,$2,$3,$4,$5,NULL,$6::jsonb,$7::jsonb,$8,$9,'starting',0,NULL,NULL,1,$10,$10) RETURNING *`,
+        [runId, input.orgId, input.teamId, definition.revision, input.workspaceId,
+          JSON.stringify(canonical(definition.roster)), JSON.stringify(canonical(definition)),
+          input.createdBy, input.source, now],
       )
       const row = inserted.rows[0]
       if (row === undefined) throw new Error('TeamRun insert returned no row')
@@ -250,7 +305,7 @@ export class EnterpriseTeamControlRepository implements EnterpriseTeamControlPro
           requestDigest: input.idempotencyFingerprint, result: { runId },
         })],
       )
-      return { run: this.run(row), created: true }
+      return { run: this.run(row), definitionSnapshot: definition, created: true }
     })
   }
 
@@ -336,8 +391,21 @@ export class EnterpriseTeamControlRepository implements EnterpriseTeamControlPro
       const row = current.rows[0]
       if (row === undefined) throw new EnterpriseOperationsError('not-found', 'team-run', input.runId)
       const before = this.run(row)
-      if (before.revision !== input.expectedRevision) throw new EnterpriseOperationsError('conflict', 'team-run', input.runId)
       if (input.runtimeRevision < before.runtimeRevision) throw new EnterpriseOperationsError('fencing-lost', 'team-run', input.runId)
+      const desiredRootSessionId = input.rootSessionId ?? before.rootSessionId
+      const desiredSourceEventSeq = input.sourceEventSeq ?? before.sourceEventSeq
+      if (input.runtimeRevision === before.runtimeRevision) {
+        const identical = input.state === before.state
+          && desiredRootSessionId === before.rootSessionId
+          && desiredSourceEventSeq === before.sourceEventSeq
+          && canonicalEqual(input.failure, before.failure)
+        if (identical) return before
+        throw new EnterpriseOperationsError('fencing-lost', 'team-run', input.runId)
+      }
+      if (before.revision !== input.expectedRevision) throw new EnterpriseOperationsError('conflict', 'team-run', input.runId)
+      if (before.rootSessionId !== undefined && input.rootSessionId !== undefined
+        && input.rootSessionId !== before.rootSessionId)
+        throw new EnterpriseOperationsError('invalid-state', 'team-run', input.runId)
       if (terminalRun(before.state) && input.state !== before.state)
         throw new EnterpriseOperationsError('invalid-transition', 'team-run', input.runId)
       const result = await database.query<TeamRunRow>(
@@ -358,6 +426,7 @@ export class EnterpriseTeamControlRepository implements EnterpriseTeamControlPro
   async projectDecision(input: TeamDecision): Promise<TeamDecision> {
     await this.initialize()
     return this.database.transaction(async (database) => {
+      await this.lock(database, `teamDecision:${input.orgId}:${input.decisionId}`)
       const current = await database.query<DecisionRow>(
         'SELECT * FROM dsh_enterprise_team_decisions WHERE org_id=$1 AND decision_id=$2 FOR UPDATE',
         [input.orgId, input.decisionId],
@@ -433,6 +502,48 @@ export class EnterpriseTeamControlRepository implements EnterpriseTeamControlPro
     return envelope.result
   }
 
+  /** @returns a durable per-decision response reservation acquired before the runtime call. */
+  async reserveDecisionResponse(input: {
+    orgId: string
+    decisionId: string
+    expectedRevision: number
+    idempotencyKey: string
+    idempotencyFingerprint: string
+  }): Promise<EnterpriseTeamDecisionResponseReservation> {
+    await this.initialize()
+    return this.database.transaction(async (database) => {
+      await this.lock(database, `teamDecision:${input.orgId}:${input.decisionId}`)
+      const current = await database.query<DecisionRow>(
+        'SELECT * FROM dsh_enterprise_team_decisions WHERE org_id=$1 AND decision_id=$2 FOR UPDATE',
+        [input.orgId, input.decisionId],
+      )
+      const row = current.rows[0]
+      if (row === undefined) throw new EnterpriseOperationsError('not-found', 'team-decision', input.decisionId)
+      const decision = this.decision(row)
+      if (row.response_operation_id !== null) {
+        if (row.response_idempotency_key !== input.idempotencyKey
+          || row.response_request_digest !== input.idempotencyFingerprint)
+          throw new EnterpriseOperationsError('conflict', 'team-decision', input.decisionId)
+        return { decision, operationId: row.response_operation_id, completed: decision.state === 'answered' }
+      }
+      if (decision.state !== 'open')
+        throw new EnterpriseOperationsError('invalid-transition', 'team-decision', input.decisionId)
+      if (decision.revision !== input.expectedRevision)
+        throw new EnterpriseOperationsError('conflict', 'team-decision', input.decisionId)
+      const operationId = `team-decision:respond:${input.decisionId}:${input.idempotencyKey}`
+      const reserved = await database.query<DecisionRow>(
+        `UPDATE dsh_enterprise_team_decisions SET response_operation_id=$1,response_request_digest=$2,
+          response_idempotency_key=$3 WHERE org_id=$4 AND decision_id=$5
+          AND response_operation_id IS NULL AND state='open' AND revision=$6 RETURNING *`,
+        [operationId, input.idempotencyFingerprint, input.idempotencyKey,
+          input.orgId, input.decisionId, input.expectedRevision],
+      )
+      if (reserved.rows[0] === undefined)
+        throw new EnterpriseOperationsError('conflict', 'team-decision', input.decisionId)
+      return { decision: this.decision(reserved.rows[0]), operationId, completed: false }
+    })
+  }
+
   /** @returns a signed stable TeamDecision page. */
   async listDecisions(input: {
     orgId: string
@@ -489,6 +600,7 @@ export class EnterpriseTeamControlRepository implements EnterpriseTeamControlPro
     sourceEventSeq?: number
     idempotencyKey: string
     idempotencyFingerprint: string
+    operationId: string
   }): Promise<TeamDecision> {
     await this.initialize()
     return this.database.transaction(async (database) => {
@@ -503,12 +615,23 @@ export class EnterpriseTeamControlRepository implements EnterpriseTeamControlPro
           throw new EnterpriseOperationsError('idempotency-conflict', 'team-decision', input.decisionId)
         return envelope.result
       }
+      const reserved = await database.query<DecisionRow>(
+        'SELECT * FROM dsh_enterprise_team_decisions WHERE org_id=$1 AND decision_id=$2 FOR UPDATE',
+        [input.orgId, input.decisionId],
+      )
+      const reservation = reserved.rows[0]
+      if (reservation === undefined) throw new EnterpriseOperationsError('not-found', 'team-decision', input.decisionId)
+      if (reservation.response_operation_id !== input.operationId
+        || reservation.response_request_digest !== input.idempotencyFingerprint
+        || reservation.response_idempotency_key !== input.idempotencyKey)
+        throw new EnterpriseOperationsError('conflict', 'team-decision', input.decisionId)
       const result = await database.query<DecisionRow>(
         `UPDATE dsh_enterprise_team_decisions SET state='answered',answer=$1,runtime_revision=$2,
           source_event_seq=COALESCE($3,source_event_seq),revision=revision+1,updated_at=$4
-         WHERE org_id=$5 AND decision_id=$6 AND state='open' AND revision=$7 AND runtime_revision<=$2 RETURNING *`,
+         WHERE org_id=$5 AND decision_id=$6 AND state='open' AND revision=$7
+           AND runtime_revision<=$2 AND response_operation_id=$8 RETURNING *`,
         [input.answer, input.runtimeRevision, input.sourceEventSeq ?? null, this.now(),
-          input.orgId, input.decisionId, input.expectedRevision],
+          input.orgId, input.decisionId, input.expectedRevision, input.operationId],
       )
       if (result.rows[0] === undefined) throw new EnterpriseOperationsError('conflict', 'team-decision', input.decisionId)
       const decision = this.decision(result.rows[0])
@@ -549,8 +672,8 @@ export class EnterpriseTeamControlRepository implements EnterpriseTeamControlPro
       values.push(cursor.createdAt, ...cursor.ids)
       where.push(`(autonomy.created_at,autonomy.team_id,autonomy.employee_release_id,
         autonomy.task_type,autonomy.capability_scope)<(
-        $${values.length - 5},$${values.length - 4},$${values.length - 3},
-        $${values.length - 2},$${values.length - 1})`)
+        $${values.length - 4},$${values.length - 3},$${values.length - 2},
+        $${values.length - 1},$${values.length})`)
     }
     values.push(size + 1)
     const result = await this.database.query<GrantRow>(
@@ -583,6 +706,7 @@ export class EnterpriseTeamControlRepository implements EnterpriseTeamControlPro
   ): Promise<EnterpriseTeamAutonomyGrant> {
     await this.initialize()
     return this.database.transaction(async (database) => {
+      await this.lock(database, `teamAutonomy.grant:${input.orgId}:${input.teamId}:${input.employeeReleaseId}:${input.taskType}:${input.capabilityScope}`)
       await this.lock(database, `teamAutonomy.save:${input.orgId}:${input.idempotencyKey}`)
       const remembered = await database.query<{ result_json: unknown }>(
         "SELECT result_json FROM dsh_enterprise_operations_idempotency WHERE org_id=$1 AND operation='teamAutonomy.save' AND key=$2",
