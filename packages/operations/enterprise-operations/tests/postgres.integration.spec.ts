@@ -217,6 +217,85 @@ describe.skipIf(database === undefined)('enterprise operations PostgreSQL', () =
       idempotencyKey: 'resurrect-a' })).rejects.toMatchObject({ code: 'invalid-transition' })
   })
 
+  it('migrates v11 TeamRun snapshots without fabricating a replayable mismatched starting run', async () => {
+    const operations = new EnterpriseOperationsRepository(postgres, { allowUnverifiedReferences: true })
+    await operations.createTeamDefinition({
+      teamId: 'migration-team', orgId: 'migration-org', name: 'Migration', northStar: 'Preserve truth.',
+      ownerUserId: 'owner-a', visibility: 'organization', leaderEmployeeReleaseId: 'release-a',
+      roles: [{ roleId: 'lead', name: 'Lead', responsibility: 'Lead.' }],
+      roster: [
+        { actor: { kind: 'human', userId: 'owner-a' }, roleId: 'lead' },
+        { actor: { kind: 'agent', employeeReleaseId: 'release-a' }, roleId: 'lead' },
+      ],
+      verificationPolicy: { verifierRequired: true, rubricRefs: [], highRiskHumanReviewRequired: true },
+      attentionPolicy: { decisionQueue: 'centralized' }, approvalPolicy: {}, state: 'active',
+      expectedRevision: 0, idempotencyKey: 'migration-definition',
+    })
+    await postgres.query('ALTER TABLE dsh_enterprise_team_runs ALTER COLUMN definition_snapshot_json DROP NOT NULL')
+    await postgres.query("UPDATE dsh_enterprise_operations_meta SET value='11' WHERE key='schema-version'")
+    const roster = JSON.stringify([
+      { actor: { kind: 'human', userId: 'owner-a' }, roleId: 'lead' },
+      { actor: { kind: 'agent', employeeReleaseId: 'release-a' }, roleId: 'lead' },
+    ])
+    for (const [runId, state, revision] of [
+      ['legacy-active', 'active', 1], ['legacy-completed', 'completed', 1],
+      ['legacy-starting-match', 'starting', 1], ['legacy-starting-mismatch', 'starting', 99],
+    ] as const) await postgres.query(
+      `INSERT INTO dsh_enterprise_team_runs(run_id,org_id,team_id,team_definition_revision,workspace_id,
+        roster_snapshot_json,definition_snapshot_json,created_by,source,state,runtime_revision,revision,created_at,updated_at)
+       VALUES($1,'migration-org','migration-team',$2,'workspace-a',$3::jsonb,NULL,'owner-a','console',$4,0,1,1,1)`,
+      [runId, revision, roster, state],
+    )
+    for (const runId of ['legacy-active', 'legacy-completed', 'legacy-starting-match']) await postgres.query(
+      `INSERT INTO dsh_enterprise_operations_idempotency(org_id,operation,key,result_json)
+       VALUES('migration-org','teamRun.start',$1,jsonb_build_object(
+         'requestDigest','legacy-digest','result',jsonb_build_object('runId',$1)))`,
+      [runId],
+    )
+    await migrateEnterpriseOperations(postgres)
+    const rows = await postgres.query<{
+      run_id: string
+      state: string
+      definition_snapshot_json: unknown
+      failure_json: unknown
+    }>(`SELECT run_id,state,definition_snapshot_json,failure_json FROM dsh_enterprise_team_runs
+        WHERE org_id='migration-org' ORDER BY run_id`)
+    expect(rows.rows).toEqual([
+      expect.objectContaining({ run_id: 'legacy-active', state: 'active',
+        // oxlint-disable-next-line typescript/no-unsafe-assignment -- Vitest asymmetric matcher.
+        definition_snapshot_json: expect.anything() }),
+      expect.objectContaining({ run_id: 'legacy-completed', state: 'completed',
+        // oxlint-disable-next-line typescript/no-unsafe-assignment -- Vitest asymmetric matcher.
+        definition_snapshot_json: expect.anything() }),
+      expect.objectContaining({ run_id: 'legacy-starting-match', state: 'starting',
+        // oxlint-disable-next-line typescript/no-unsafe-assignment -- Vitest asymmetric matcher.
+        definition_snapshot_json: expect.objectContaining({ name: 'Migration', revision: 1 }) }),
+      expect.objectContaining({ run_id: 'legacy-starting-mismatch', state: 'failed',
+        // oxlint-disable-next-line typescript/no-unsafe-assignment -- Vitest asymmetric matcher.
+        failure_json: expect.objectContaining({ code: 'legacy-definition-snapshot-unavailable' }) }),
+    ])
+    const nullable = await postgres.query<{ is_nullable: string }>(
+      "SELECT is_nullable FROM information_schema.columns WHERE table_name='dsh_enterprise_team_runs' AND column_name='definition_snapshot_json'",
+    )
+    expect(nullable.rows[0]?.is_nullable).toBe('NO')
+    const projections = new EnterpriseTeamControlRepository(postgres)
+    const activeReservation = await projections.getTeamRunByStartKey(
+      'migration-org', 'legacy-active', 'legacy-digest',
+    )
+    expect(activeReservation?.run.state).toBe('active')
+    expect(activeReservation?.definitionSnapshot).toBeDefined()
+    const completedReservation = await projections.getTeamRunByStartKey(
+      'migration-org', 'legacy-completed', 'legacy-digest',
+    )
+    expect(completedReservation?.run.state).toBe('completed')
+    expect(completedReservation?.definitionSnapshot).toBeDefined()
+    const startingReservation = await projections.getTeamRunByStartKey(
+      'migration-org', 'legacy-starting-match', 'legacy-digest',
+    )
+    expect(startingReservation?.run.state).toBe('starting')
+    expect(startingReservation?.definitionSnapshot.name).toBe('Migration')
+  })
+
   it('serializes a reused idempotency key across concurrent resources', async () => {
     const operations = new EnterpriseOperationsRepository(postgres, { allowUnverifiedReferences: true })
     for (const suffix of ['a', 'b']) {

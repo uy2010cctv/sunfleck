@@ -206,6 +206,7 @@ class MemoryPostgresDatabase implements PostgresDatabase {
 
   private rows(text: string, values: readonly unknown[]): Record<string, unknown>[] {
     if (text.startsWith('CREATE ') || text.startsWith('ALTER ') || text.startsWith('SELECT pg_advisory_xact_lock')) return []
+    if (text.startsWith('UPDATE dsh_enterprise_team_runs')) return []
     if (text.startsWith('SELECT value FROM dsh_enterprise_operations_meta')) {
       const value = this.meta.get('schema-version')
       return value === undefined ? [] : [{ value }]

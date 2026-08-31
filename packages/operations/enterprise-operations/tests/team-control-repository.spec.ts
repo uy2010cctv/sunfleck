@@ -41,6 +41,16 @@ function grantRow(taskType: string, createdAt: number): Record<string, unknown> 
   }
 }
 
+function decisionRow(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    decision_id: 'decision-a', org_id: 'org-a', run_id: 'run-a', kind: 'approval', question: 'Proceed?',
+    options_json: ['yes', 'no'], recommendation: null, context_digest: 'digest', assignee_user_id: 'member-a',
+    state: 'open', answer: null, runtime_revision: 2, source_event_seq: 7, revision: 1,
+    created_at: 10, updated_at: 10, response_operation_id: null, response_request_digest: null,
+    response_idempotency_key: null, ...overrides,
+  }
+}
+
 class TraceDatabase implements PostgresDatabase {
   readonly statements: string[] = []
   readonly values: readonly unknown[][] = []
@@ -59,6 +69,8 @@ class TraceDatabase implements PostgresDatabase {
       || text.includes('UPDATE dsh_enterprise_team_runs')) return { rows: this.rows as Row[], rowCount: this.rows.length }
     if (text.includes('FROM dsh_enterprise_team_autonomy_grants'))
       return { rows: this.rows as Row[], rowCount: this.rows.length }
+    if (text.includes('FROM dsh_enterprise_team_decisions') || text.startsWith('UPDATE dsh_enterprise_team_decisions'))
+      return { rows: this.rows as Row[], rowCount: this.rows.length }
     if (text.includes('FROM dsh_enterprise_team_definitions'))
       return { rows: this.definitionRows as Row[], rowCount: this.definitionRows.length }
     return { rows: [], rowCount: 0 }
@@ -68,6 +80,7 @@ class TraceDatabase implements PostgresDatabase {
 describe('enterprise TeamRun projection schema', () => {
   it('creates runtime-revisioned TeamRun, TeamDecision, and explicit autonomy-grant tables idempotently', async () => {
     const database = new TraceDatabase()
+    database.meta = '11'
     await migrateEnterpriseOperations(database)
     await migrateEnterpriseOperations(database)
     const sql = database.statements.join('\n')
@@ -77,6 +90,8 @@ describe('enterprise TeamRun projection schema', () => {
     expect(sql).toContain('dsh_enterprise_team_autonomy_grants')
     expect(sql).toMatch(/runtime_revision/)
     expect(sql).toMatch(/source_event_seq/)
+    expect(sql).toMatch(/legacy-definition-snapshot-unavailable/)
+    expect(sql).toMatch(/definition_snapshot_json SET NOT NULL/)
     expect(sql).toMatch(/CREATE INDEX IF NOT EXISTS dsh_enterprise_team_runs_created_page_idx/)
     expect(database.meta).toBe('12')
   })
@@ -239,5 +254,41 @@ describe('enterprise TeamRun projection schema', () => {
     expect(database.values.at(-1)).toEqual([
       'org-a', 'viewer-a', false, 20, 'team-a', 'release-a', 'newer', 'ledger.read', 2,
     ])
+  })
+
+  it('requires canonical equality for an equal decision runtime revision and updates a higher revision', async () => {
+    const database = new TraceDatabase()
+    database.meta = '12'
+    database.rows = [decisionRow()]
+    const repository = new EnterpriseTeamControlRepository(database)
+    const identical = {
+      decisionId: 'decision-a', orgId: 'org-a', runId: 'run-a', kind: 'approval' as const,
+      question: 'Proceed?', options: ['yes', 'no'], contextDigest: 'digest', assigneeUserId: 'member-a',
+      state: 'open' as const, runtimeRevision: 2, sourceEventSeq: 7, revision: 1, createdAt: 10, updatedAt: 10,
+    }
+    await expect(repository.projectDecision(identical)).resolves.toMatchObject({ revision: 1 })
+    expect(database.statements.filter(statement => statement.startsWith('UPDATE dsh_enterprise_team_decisions')))
+      .toHaveLength(0)
+    await expect(repository.projectDecision({ ...identical, question: 'Different?' }))
+      .rejects.toMatchObject({ code: 'conflict' })
+    await repository.projectDecision({ ...identical, runtimeRevision: 3, question: 'Updated?' })
+    expect(database.statements.some(statement => statement.startsWith('UPDATE dsh_enterprise_team_decisions'))).toBe(true)
+  })
+
+  it('requires the answer event runtime revision to increase strictly', async () => {
+    const database = new TraceDatabase()
+    database.meta = '12'
+    database.rows = [decisionRow({
+      response_operation_id: 'operation-a', response_request_digest: 'fingerprint-a',
+      response_idempotency_key: 'answer-a',
+    })]
+    const repository = new EnterpriseTeamControlRepository(database)
+    await repository.answerDecision({
+      orgId: 'org-a', decisionId: 'decision-a', expectedRevision: 1, answer: 'yes', runtimeRevision: 2,
+      idempotencyKey: 'answer-a', idempotencyFingerprint: 'fingerprint-a', operationId: 'operation-a',
+    })
+    const sql = database.statements.find(statement => statement.startsWith('UPDATE dsh_enterprise_team_decisions'))!
+    expect(sql).toContain('runtime_revision<$2')
+    expect(sql).not.toContain('runtime_revision<=$2')
   })
 })

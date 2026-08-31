@@ -233,6 +233,37 @@ export async function migrateEnterpriseOperations(database: PostgresDatabase): P
         await transaction.query('ALTER TABLE dsh_enterprise_team_decisions ADD COLUMN IF NOT EXISTS response_operation_id TEXT')
         await transaction.query('ALTER TABLE dsh_enterprise_team_decisions ADD COLUMN IF NOT EXISTS response_request_digest TEXT')
         await transaction.query('ALTER TABLE dsh_enterprise_team_decisions ADD COLUMN IF NOT EXISTS response_idempotency_key TEXT')
+        await transaction.query(
+          `UPDATE dsh_enterprise_team_runs run SET definition_snapshot_json=jsonb_strip_nulls(jsonb_build_object(
+            'teamId',definition.team_id,'orgId',definition.org_id,'name',definition.name,
+            'northStar',definition.north_star,'ownerUserId',definition.owner_user_id,
+            'departmentId',definition.department_id,'visibility',definition.visibility,
+            'allowedUserIds',definition.allowed_user_ids_json,'leaderEmployeeReleaseId',definition.leader_release_id,
+            'roster',definition.roster_json,'roles',definition.roles_json,
+            'verificationPolicy',definition.verification_policy_json,
+            'attentionPolicy',definition.attention_policy_json,'approvalPolicy',definition.approval_policy_json,
+            'revision',definition.revision,'state',definition.state,
+            'createdAt',definition.created_at,'updatedAt',definition.updated_at))
+          FROM dsh_enterprise_team_definitions definition
+          WHERE run.definition_snapshot_json IS NULL AND definition.org_id=run.org_id
+            AND definition.team_id=run.team_id AND definition.revision=run.team_definition_revision
+            AND definition.roster_json=run.roster_snapshot_json`,
+        )
+        await transaction.query(
+          `UPDATE dsh_enterprise_team_runs SET state='failed',revision=revision+1,
+            failure_json=jsonb_build_object('code','legacy-definition-snapshot-unavailable',
+              'message','legacy starting TeamRun cannot be replayed without its exact definition snapshot')
+          WHERE definition_snapshot_json IS NULL AND state='starting'`,
+        )
+        await transaction.query(
+          `UPDATE dsh_enterprise_team_runs SET definition_snapshot_json=jsonb_build_object(
+            'teamId',team_id,'orgId',org_id,'revision',team_definition_revision,
+            'roster',roster_snapshot_json,'state','archived','legacySnapshot',true)
+          WHERE definition_snapshot_json IS NULL`,
+        )
+        await transaction.query(
+          'ALTER TABLE dsh_enterprise_team_runs ALTER COLUMN definition_snapshot_json SET NOT NULL',
+        )
       }
       if (version < ENTERPRISE_OPERATIONS_SCHEMA_VERSION) {
         await transaction.query("UPDATE dsh_enterprise_operations_meta SET value = $1 WHERE key = 'schema-version'", [String(ENTERPRISE_OPERATIONS_SCHEMA_VERSION)])

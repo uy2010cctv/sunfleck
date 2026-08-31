@@ -447,14 +447,27 @@ export class EnterpriseTeamControlRepository implements EnterpriseTeamControlPro
       }
       const before = this.decision(row)
       if (input.runtimeRevision < before.runtimeRevision) return before
+      if (input.runtimeRevision === before.runtimeRevision) {
+        const identical = input.orgId === before.orgId && input.runId === before.runId
+          && input.kind === before.kind && input.question === before.question
+          && canonicalEqual(input.options, before.options)
+          && input.recommendation === before.recommendation
+          && input.contextDigest === before.contextDigest
+          && input.assigneeUserId === before.assigneeUserId
+          && input.state === before.state && input.answer === before.answer
+          && input.sourceEventSeq === before.sourceEventSeq
+        if (identical) return before
+        throw new EnterpriseOperationsError('conflict', 'team-decision', input.decisionId)
+      }
       if (before.state !== 'open' && input.state !== before.state)
         throw new EnterpriseOperationsError('invalid-transition', 'team-decision', input.decisionId)
-      if (input.runtimeRevision === before.runtimeRevision) return before
       const updated = await database.query<DecisionRow>(
-        `UPDATE dsh_enterprise_team_decisions SET state=$1,answer=$2,runtime_revision=$3,source_event_seq=$4,
-          revision=revision+1,updated_at=$5 WHERE org_id=$6 AND decision_id=$7 RETURNING *`,
-        [input.state, input.answer ?? null, input.runtimeRevision, input.sourceEventSeq ?? null,
-          input.updatedAt, input.orgId, input.decisionId],
+        `UPDATE dsh_enterprise_team_decisions SET kind=$1,question=$2,options_json=$3::jsonb,recommendation=$4,
+          context_digest=$5,assignee_user_id=$6,state=$7,answer=$8,runtime_revision=$9,source_event_seq=$10,
+          revision=revision+1,updated_at=$11 WHERE org_id=$12 AND decision_id=$13 RETURNING *`,
+        [input.kind, input.question, JSON.stringify(input.options), input.recommendation ?? null,
+          input.contextDigest, input.assigneeUserId, input.state, input.answer ?? null,
+          input.runtimeRevision, input.sourceEventSeq ?? null, input.updatedAt, input.orgId, input.decisionId],
       )
       if (updated.rows[0] === undefined) throw new EnterpriseOperationsError('conflict', 'team-decision', input.decisionId)
       return this.decision(updated.rows[0])
@@ -629,7 +642,7 @@ export class EnterpriseTeamControlRepository implements EnterpriseTeamControlPro
         `UPDATE dsh_enterprise_team_decisions SET state='answered',answer=$1,runtime_revision=$2,
           source_event_seq=COALESCE($3,source_event_seq),revision=revision+1,updated_at=$4
          WHERE org_id=$5 AND decision_id=$6 AND state='open' AND revision=$7
-           AND runtime_revision<=$2 AND response_operation_id=$8 RETURNING *`,
+           AND runtime_revision<$2 AND response_operation_id=$8 RETURNING *`,
         [input.answer, input.runtimeRevision, input.sourceEventSeq ?? null, this.now(),
           input.orgId, input.decisionId, input.expectedRevision, input.operationId],
       )

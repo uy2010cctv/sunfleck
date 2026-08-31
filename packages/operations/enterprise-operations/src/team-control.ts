@@ -475,20 +475,73 @@ export class EnterpriseTeamControlService {
     }
   }
 
-  /** @param input - Host-only reconciliation address. @returns event-log-derived projection. */
-  async reconcileRun(input: { readonly orgId: string; readonly runId: string }): Promise<EnterpriseTeamRun> {
-    const run = await this.projections.getTeamRun(input.orgId, input.runId)
-    if (run === undefined) throw new EnterpriseOperationsError('not-found', 'team-run', input.runId)
-    if (TERMINAL_RUN_STATES.has(run.state)) return run
+  /**
+   * Reconcile one non-terminal run through the authoritative runtime driver.
+   * @param principal - authenticated Host actor.
+   * @param input - Host-only reconciliation address.
+   * @returns event-log-derived projection.
+   */
+  async reconcileRun(
+    principal: EnterprisePrincipal,
+    input: { readonly orgId: string; readonly runId: string },
+  ): Promise<EnterpriseTeamRun> {
+    const correlationId = `team-run:reconcile:${input.runId}`
+    const auditReconcile = async (
+      decision: EnterpriseTeamControlAuthorizationDecision,
+      outcome?: string,
+      outcomeReason?: string,
+    ): Promise<void> => this.audit(
+      principal, 'enterpriseTeamRun.get', { type: 'team-run', id: input.runId }, decision, correlationId, {
+        ...(outcome === undefined ? {} : { outcome }),
+        ...(outcomeReason === undefined ? {} : { outcomeReason }),
+      },
+    )
+    const run = await this.projections.getTeamRun(input.orgId, input.runId, this.scope(principal))
+    if (run === undefined) {
+      await auditReconcile({ allowed: false, reason: 'not-found' })
+      throw new EnterpriseOperationsError('not-found', 'team-run', input.runId)
+    }
+    const authorizationDecision = await this.decision(principal, 'enterpriseTeamRun.get', input)
+    if (!authorizationDecision.allowed) {
+      await auditReconcile({ allowed: false, reason: authorizationDecision.reason ?? 'insufficient-role' })
+      this.deny('enterpriseTeamRun.get')
+    }
+    if (TERMINAL_RUN_STATES.has(run.state)) {
+      await auditReconcile(authorizationDecision, teamRunAuditOutcome(run.state))
+      return run
+    }
     const operationId = run.state === 'starting'
       ? `team-run:start:${run.runId}`
       : `team-run:reconcile:${run.runId}`
-    const result = await this.runtime.reconcileRun({ operationId, run })
-    return this.projections.projectTeamRun({ orgId: run.orgId, runId: run.runId, expectedRevision: run.revision,
-      state: result.state, runtimeRevision: result.runtimeRevision,
-      ...(result.rootSessionId === undefined ? {} : { rootSessionId: result.rootSessionId }),
-      ...(result.sourceEventSeq === undefined ? {} : { sourceEventSeq: result.sourceEventSeq }),
-      ...(result.failure === undefined ? {} : { failure: result.failure }) })
+    try {
+      const result = await this.runtime.reconcileRun({ operationId, run })
+      const projected = await this.projections.projectTeamRun({
+        orgId: run.orgId, runId: run.runId, expectedRevision: run.revision,
+        state: result.state, runtimeRevision: result.runtimeRevision,
+        ...(result.rootSessionId === undefined ? {} : { rootSessionId: result.rootSessionId }),
+        ...(result.sourceEventSeq === undefined ? {} : { sourceEventSeq: result.sourceEventSeq }),
+        ...(result.failure === undefined ? {} : { failure: result.failure }),
+      })
+      await auditReconcile(authorizationDecision, teamRunAuditOutcome(projected.state))
+      return projected
+    } catch (error) {
+      if (error instanceof EnterpriseOperationsError) {
+        await auditReconcile({ allowed: false, reason: error.code })
+        throw error
+      }
+      if (error instanceof EnterpriseTeamRuntimeError && error.outcome === 'deterministic') {
+        const failed = await this.projections.projectTeamRun({
+          orgId: run.orgId, runId: run.runId, expectedRevision: run.revision,
+          state: 'failed', runtimeRevision: run.runtimeRevision + 1,
+          failure: { code: error.code, message: error.message },
+        })
+        await auditReconcile(authorizationDecision, 'runtime-failed', error.code)
+        return failed
+      }
+      const reason = error instanceof EnterpriseTeamRuntimeError ? error.code : 'runtime-throw'
+      await auditReconcile(authorizationDecision, 'runtime-unknown', reason)
+      return run
+    }
   }
 
   /** @param principal - authenticated Host actor. @param input - run CAS and idempotency fields. @returns cancelled projection. */

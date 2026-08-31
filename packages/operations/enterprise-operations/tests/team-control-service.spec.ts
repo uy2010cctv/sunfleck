@@ -203,6 +203,8 @@ class MemoryProjection {
     const before = this.decisions.get(input.decisionId)!
     if (this.decisionReservations.get(input.decisionId)?.operationId !== input.operationId)
       throw new EnterpriseOperationsError('conflict', 'team-decision', input.decisionId)
+    if (input.runtimeRevision <= before.runtimeRevision)
+      throw new EnterpriseOperationsError('conflict', 'team-decision', input.decisionId)
     if (before.revision !== input.expectedRevision) throw new EnterpriseOperationsError('conflict', 'team-decision', input.decisionId)
     const decision = { ...before, answer: input.answer, state: 'answered' as const, runtimeRevision: input.runtimeRevision,
       ...(input.sourceEventSeq === undefined ? {} : { sourceEventSeq: input.sourceEventSeq }),
@@ -473,8 +475,25 @@ describe('enterprise TeamRun control service', () => {
       // oxlint-disable-next-line typescript/no-unsafe-assignment -- Vitest asymmetric matcher.
       details: expect.objectContaining({ outcome: 'runtime-unknown', outcomeReason: 'transport-lost' }),
     }))
-    await expect(unknown.value.reconcileRun({ orgId: 'org-a', runId: starting.runId })).resolves.toMatchObject({ state: 'active' })
+    await expect(unknown.value.reconcileRun(owner, { orgId: 'org-a', runId: starting.runId })).resolves.toMatchObject({ state: 'active' })
     expect(unknown.runtimeDriver.reconcileRun).toHaveBeenCalledWith(expect.objectContaining({ operationId: 'team-run:start:run-a' }))
+  })
+
+  it('keeps a starting run durable and audits allowed runtime-unknown when reconciliation throws', async () => {
+    const projection = new MemoryProjection()
+    const runtimeDriver = runtime({
+      reconcileRun: vi.fn().mockRejectedValue(new EnterpriseTeamRuntimeError('unknown', 'transport-lost')),
+    })
+    const app = service(projection, runtimeDriver)
+    const run = { ...seededRun(), state: 'starting' as const, rootSessionId: undefined, runtimeRevision: 0, revision: 1 }
+    projection.runs.set(run.runId, run)
+    await expect(app.value.reconcileRun(owner, { orgId: 'org-a', runId: run.runId })).resolves.toEqual(run)
+    expect(app.audit).toHaveBeenCalledOnce()
+    expect(app.audit).toHaveBeenLastCalledWith(expect.objectContaining({
+      resource: { type: 'team-run', id: run.runId }, decision: { allowed: true, reason: 'role' },
+      // oxlint-disable-next-line typescript/no-unsafe-assignment -- Vitest asymmetric matcher.
+      details: expect.objectContaining({ outcome: 'runtime-unknown', outcomeReason: 'transport-lost' }),
+    }))
   })
 
   it('cancels through runtime, rejects terminal cancellation, and preserves unknown cancellation', async () => {
@@ -498,7 +517,9 @@ describe('enterprise TeamRun control service', () => {
     }))
     const active = await unknown.value.startRun(owner, { teamId: 'team-a', expectedTeamRevision: 4, workspaceId: 'w', prompt: 'p', source: 'console', idempotencyKey: 'b' })
     await expect(unknown.value.cancelRun(owner, { runId: active.runId, expectedRevision: active.revision, idempotencyKey: 'unknown' })).resolves.toEqual(active)
-    await expect(unknown.value.reconcileRun({ orgId: 'org-a', runId: active.runId })).resolves.toMatchObject({ state: 'cancelled' })
+    await expect(unknown.value.reconcileRun(owner, {
+      orgId: 'org-a', runId: active.runId,
+    })).resolves.toMatchObject({ state: 'cancelled' })
   })
 
   it('filters run query projections through current definition visibility without changing frozen snapshots', async () => {
@@ -626,6 +647,22 @@ describe('enterprise TeamDecision and autonomy control service', () => {
     expect(app.runtimeDriver.respondDecision).toHaveBeenCalledTimes(2)
     expect(app.runtimeDriver.respondDecision.mock.calls.map(call => call[0].operationId))
       .toEqual([reservation.operationId, reservation.operationId])
+  })
+
+  it('rejects an answer event that does not increase the decision runtime revision', async () => {
+    const app = service(new MemoryProjection(), runtime({
+      respondDecision: vi.fn().mockResolvedValue({ runtimeRevision: 1, sourceEventSeq: 2 }),
+    }))
+    app.projection.runs.set('run-a', seededRun())
+    await app.value.projectDecision({
+      decisionId: 'decision-equal-revision', orgId: 'org-a', runId: 'run-a', kind: 'approval',
+      question: 'Proceed?', options: ['yes'], contextDigest: 'digest', assigneeUserId: 'member-a',
+      state: 'open', runtimeRevision: 1, sourceEventSeq: 1, revision: 1, createdAt: 1, updatedAt: 1,
+    })
+    await expect(app.value.respondDecision(member, {
+      decisionId: 'decision-equal-revision', answer: 'yes', expectedRevision: 1, idempotencyKey: 'equal',
+    })).rejects.toMatchObject({ code: 'conflict' })
+    expect(app.projection.decisions.get('decision-equal-revision')).toMatchObject({ state: 'open', revision: 1 })
   })
 
   it('requires explicit authorized autonomy writes, validates agent roster and terminal revoke, and never auto-promotes', async () => {
