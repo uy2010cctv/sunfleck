@@ -162,6 +162,22 @@ export function classifyApiEndpoint(endpoint: string, input: unknown): ApiClassi
       ...(resourceId === undefined ? {} : { resourceId }),
     }
   }
+  if (['enterpriseTeamRun.list', 'enterpriseTeamRun.get', 'enterpriseTeamRun.start', 'enterpriseTeamRun.cancel'].includes(endpoint)) {
+    const resourceId = stringField(payload, 'teamId', 'runId')
+    const read = endpoint === 'enterpriseTeamRun.list' || endpoint === 'enterpriseTeamRun.get'
+    return { action: read ? 'team.read' : 'team.execute', resourceType: endpoint === 'enterpriseTeamRun.start' ? 'team-definition' : 'team-run',
+      ...(resourceId === undefined ? {} : { resourceId }) }
+  }
+  if (['enterpriseTeamDecision.list', 'enterpriseTeamDecision.respond'].includes(endpoint)) {
+    const resourceId = stringField(payload, 'decisionId', 'runId')
+    return { action: endpoint === 'enterpriseTeamDecision.list' ? 'team.read' : 'team.decision.respond',
+      resourceType: 'team-decision', ...(resourceId === undefined ? {} : { resourceId }) }
+  }
+  if (['enterpriseTeamAutonomy.list', 'enterpriseTeamAutonomy.save', 'enterpriseTeamAutonomy.revoke'].includes(endpoint)) {
+    const resourceId = stringField(payload, 'teamId')
+    return { action: endpoint === 'enterpriseTeamAutonomy.list' ? 'team.read' : 'team.autonomy.manage',
+      resourceType: 'team-definition', ...(resourceId === undefined ? {} : { resourceId }) }
+  }
   const cordisPluginId = stringField(payload, 'pluginId')
   if (endpoint === 'cordisGovernance.departmentManagers') {
     const departmentId = stringField(payload, 'departmentId')

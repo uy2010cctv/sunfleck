@@ -26,6 +26,9 @@ export type EnterpriseAction =
   | 'schedule.read'
   | 'team.manage'
   | 'team.read'
+  | 'team.execute'
+  | 'team.decision.respond'
+  | 'team.autonomy.manage'
   | 'plugin.read'
   | 'plugin.create'
   | 'plugin.review'
@@ -98,7 +101,14 @@ export function authorizeEnterprise(input: EnterpriseAuthorizationInput): Enterp
   if (hasRole(principal, 'operator') && (action === 'operation.manage' || action === 'approval.manage' || action === 'schedule.manage')) {
     return { allowed: true, reason: 'role' }
   }
+  if (hasRole(principal, 'operator') && (action === 'team.execute' || action === 'team.decision.respond')) {
+    return { allowed: true, reason: 'role' }
+  }
   if (hasRole(principal, 'creator') && (action === 'team.manage' || action === 'schedule.manage' || action === 'capability.manage')) {
+    return { allowed: true, reason: 'role' }
+  }
+  if (hasRole(principal, 'creator')
+    && (action === 'team.execute' || action === 'team.decision.respond' || action === 'team.autonomy.manage')) {
     return { allowed: true, reason: 'role' }
   }
 
@@ -114,6 +124,10 @@ export function authorizeEnterprise(input: EnterpriseAuthorizationInput): Enterp
     return { allowed: true, reason: 'creator-owner' }
   }
   if (action === 'workspace.manage' && resource?.creatorUserId === principal.userId) {
+    return { allowed: true, reason: 'creator-owner' }
+  }
+  if ((action === 'team.execute' || action === 'team.decision.respond' || action === 'team.autonomy.manage')
+    && resource?.creatorUserId === principal.userId) {
     return { allowed: true, reason: 'creator-owner' }
   }
 

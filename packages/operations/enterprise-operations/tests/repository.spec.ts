@@ -719,7 +719,7 @@ describe('EnterpriseOperationsRepository', () => {
       idempotencyKey: 'approval-migration-create',
     })
 
-    expect(database.schemaVersion).toBe('10')
+    expect(database.schemaVersion).toBe('11')
   })
 
   it('permits unverified local writes only through explicit configuration', async () => {
@@ -1743,7 +1743,7 @@ describe('EnterpriseOperationsRepository team definitions', () => {
       workerId: 'worker-a', leaseExpiresAt: 200,
     })
     await migrateEnterpriseOperations(database)
-    expect(database.schemaVersion).toBe('10')
+    expect(database.schemaVersion).toBe('11')
     expect(database.outboxState('legacy-null-revision')).toBe('dead-letter')
   })
 

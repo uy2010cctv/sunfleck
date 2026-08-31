@@ -8,7 +8,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-Durable DSH enterprise work records, approvals, schedules, team definitions, outbox, and fixed teams.
+Durable DSH enterprise work records, approvals, schedules, team definitions, TeamRun query projections, explicit autonomy grants, outbox, and fixed teams.
 
 ## Table of Contents
 
@@ -28,6 +28,10 @@ Durable operation projections over native DSH execution:
 - Fixed teams bind a leader, members, Workflow template, and approval policy.
 - Fixed-team and definition writes share one global team-id advisory lock. A legacy save synchronizes a `needs-charter` definition's leader and Agent roster. Once active, compatibility compares the request only with the persisted FixedTeam leader, members, and approval policy; typed role IDs and formal definition policy are not reverse-projected into the legacy record. Active definitions allow exact no-ops and Workflow-only updates, while archived definitions allow only exact no-ops.
 - Team definitions add a typed human-and-Agent roster, named responsibilities, verification policy, centralized decision queue, visibility, ownership, and charter lifecycle without storing TeamRun state.
+- `EnterpriseTeamControlService` starts and cancels runtime-authoritative TeamRuns through an injected `EnterpriseTeamRuntimeDriver`. PostgreSQL stores only revision-fenced TeamRun and TeamDecision query projections; the driver appends the authoritative events to the root Session log and reconciles unknown outcomes with the same stable operation identity.
+- Browser start requests contain only a team revision fence, Workspace, prompt, source, and idempotency key. Host principal injection supplies organization and creator identity, freezes the definition revision and roster snapshot, checks current visibility and Workspace authorization, and audits the operation.
+- TeamDecision creation is Host-only runtime ingestion. Assigned humans, team owners, administrators, and explicitly permitted roles may respond; the driver appends the answer before PostgreSQL projects `answered`.
+- Autonomy grants are explicit human writes over team, immutable employee release, task type, and capability scope. Revocation is terminal, evidence references are canonical, and no runtime path can create, restore, or raise a grant.
 - Active definitions require a complete charter, a rostered human owner, a rostered Agent leader, unique actors and roles, valid role references, and complete verification and attention policies. Restricted visibility requires a non-empty list of trimmed, unique user IDs; organization and private visibility require an empty list.
 - Schema migration and fixed-team creation establish one `needs-charter` definition when none exists, preserve release members, role labels, leader, approval policy, and organization visibility, and use the explicit `system:legacy-fixed-team-migration` owner placeholder. They do not infer a name, north star, responsibility, or policy. `needs-charter` definitions cannot back a team work record, schedule, or schedule fire.
 - PostgreSQL transactions and organization-scoped queries preserve boundaries.
@@ -77,7 +81,7 @@ None; operation state does not assemble provider requests.
 
 ## Known Limitations and Deferred Work
 
-- This package does not implement TeamRun, a team-definition browser editor, Agent runtime coordination, or a real scheduler worker.
+- This package does not implement a concrete Agent Teams runtime adapter, TeamRun UI, channel adapter, team-definition browser editor, or a real scheduler worker.
 - Fixed teams intentionally exclude StaffDeck bidding, blackboards, and market wakeups.
 
 <a id="dev-note"></a>

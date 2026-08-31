@@ -94,6 +94,15 @@ describe('EnterpriseSecurity', () => {
     expect(classifyApiEndpoint('enterpriseOperation.teamDefinitions.save', { teamId: 'team-1' })).toEqual({
       action: 'team.manage', resourceType: 'team-definition', resourceId: 'team-1',
     })
+    expect(classifyApiEndpoint('enterpriseTeamRun.start', { teamId: 'team-1' })).toEqual({
+      action: 'team.execute', resourceType: 'team-definition', resourceId: 'team-1',
+    })
+    expect(classifyApiEndpoint('enterpriseTeamDecision.respond', { decisionId: 'decision-1' })).toEqual({
+      action: 'team.decision.respond', resourceType: 'team-decision', resourceId: 'decision-1',
+    })
+    expect(classifyApiEndpoint('enterpriseTeamAutonomy.save', { teamId: 'team-1' })).toEqual({
+      action: 'team.autonomy.manage', resourceType: 'team-definition', resourceId: 'team-1',
+    })
     expect(classifyApiEndpoint('enterpriseOperation.approvals.get', { approvalId: 'approval-1' })).toEqual({ action: 'approval.read', resourceType: 'approval', resourceId: 'approval-1' })
     expect(classifyApiEndpoint('enterpriseOperation.schedules.transition', { scheduleId: 'schedule-1' })).toEqual({ action: 'schedule.manage', resourceType: 'schedule', resourceId: 'schedule-1' })
     expect(classifyApiEndpoint('enterpriseEmployee.unknown', {})).toBeUndefined()

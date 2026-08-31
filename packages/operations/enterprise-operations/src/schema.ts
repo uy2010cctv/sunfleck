@@ -1,6 +1,6 @@
 /** PostgreSQL schema for work records, approvals, schedules, teams, and outbox. */
 import type { PostgresDatabase } from './types.ts'
-export const ENTERPRISE_OPERATIONS_SCHEMA_VERSION = 10
+export const ENTERPRISE_OPERATIONS_SCHEMA_VERSION = 11
 /** Owner placeholder for legacy fixed teams whose creator was never persisted. */
 export const LEGACY_TEAM_DEFINITION_OWNER_USER_ID = 'system:legacy-fixed-team-migration'
 const statements = [
@@ -59,6 +59,32 @@ const statements = [
     org_id TEXT NOT NULL, operation TEXT NOT NULL, key TEXT NOT NULL,
     result_json JSONB NOT NULL, PRIMARY KEY(org_id, operation, key)
   )`,
+  `CREATE TABLE IF NOT EXISTS dsh_enterprise_team_runs (
+    run_id TEXT PRIMARY KEY, org_id TEXT NOT NULL, team_id TEXT NOT NULL,
+    team_definition_revision BIGINT NOT NULL, workspace_id TEXT NOT NULL, root_session_id TEXT,
+    roster_snapshot_json JSONB NOT NULL, created_by TEXT NOT NULL,
+    source TEXT NOT NULL CHECK (source IN ('console','schedule','channel')),
+    state TEXT NOT NULL CHECK (state IN ('starting','active','waiting-human','verifying','completed','failed','cancelled')),
+    runtime_revision BIGINT NOT NULL, source_event_seq BIGINT, failure_json JSONB,
+    revision BIGINT NOT NULL, created_at BIGINT NOT NULL, updated_at BIGINT NOT NULL
+  )`,
+  `CREATE TABLE IF NOT EXISTS dsh_enterprise_team_decisions (
+    decision_id TEXT PRIMARY KEY, org_id TEXT NOT NULL, run_id TEXT NOT NULL,
+    kind TEXT NOT NULL CHECK (kind IN ('approval','handoff','clarification')),
+    question TEXT NOT NULL, options_json JSONB NOT NULL, recommendation TEXT, context_digest TEXT NOT NULL,
+    assignee_user_id TEXT NOT NULL, state TEXT NOT NULL CHECK (state IN ('open','answered','cancelled','expired')),
+    answer TEXT, runtime_revision BIGINT NOT NULL, source_event_seq BIGINT,
+    revision BIGINT NOT NULL, created_at BIGINT NOT NULL, updated_at BIGINT NOT NULL
+  )`,
+  `CREATE TABLE IF NOT EXISTS dsh_enterprise_team_autonomy_grants (
+    org_id TEXT NOT NULL, team_id TEXT NOT NULL, employee_release_id TEXT NOT NULL,
+    task_type TEXT NOT NULL, capability_scope TEXT NOT NULL,
+    level TEXT NOT NULL CHECK (level IN ('observe','propose','execute-reviewed','execute-delegated')),
+    granted_by TEXT NOT NULL, evidence_refs_json JSONB NOT NULL,
+    state TEXT NOT NULL CHECK (state IN ('active','revoked')),
+    revision BIGINT NOT NULL, created_at BIGINT NOT NULL, updated_at BIGINT NOT NULL,
+    PRIMARY KEY(org_id,team_id,employee_release_id,task_type,capability_scope)
+  )`,
   `CREATE INDEX IF NOT EXISTS dsh_enterprise_work_records_page_idx
     ON dsh_enterprise_work_records(org_id, updated_at DESC, session_id DESC, employee_release_id DESC)`,
   `CREATE INDEX IF NOT EXISTS dsh_enterprise_work_records_filter_idx
@@ -109,6 +135,16 @@ const statements = [
     ON dsh_enterprise_fixed_teams(org_id, created_at DESC, team_id DESC)`,
   `CREATE INDEX IF NOT EXISTS dsh_enterprise_team_definitions_created_page_idx
     ON dsh_enterprise_team_definitions(org_id, created_at DESC, team_id DESC)`,
+  `CREATE INDEX IF NOT EXISTS dsh_enterprise_team_runs_created_page_idx
+    ON dsh_enterprise_team_runs(org_id, created_at DESC, run_id DESC)`,
+  `CREATE INDEX IF NOT EXISTS dsh_enterprise_team_runs_filter_idx
+    ON dsh_enterprise_team_runs(org_id, team_id, state, created_at DESC, run_id DESC)`,
+  `CREATE INDEX IF NOT EXISTS dsh_enterprise_team_decisions_created_page_idx
+    ON dsh_enterprise_team_decisions(org_id, created_at DESC, decision_id DESC)`,
+  `CREATE INDEX IF NOT EXISTS dsh_enterprise_team_decisions_filter_idx
+    ON dsh_enterprise_team_decisions(org_id, run_id, state, assignee_user_id, created_at DESC, decision_id DESC)`,
+  `CREATE INDEX IF NOT EXISTS dsh_enterprise_team_autonomy_created_page_idx
+    ON dsh_enterprise_team_autonomy_grants(org_id, created_at DESC, team_id DESC, employee_release_id DESC, task_type DESC, capability_scope DESC)`,
 ] as const
 export async function migrateEnterpriseOperations(database: PostgresDatabase): Promise<void> {
   await database.transaction(async (transaction) => {

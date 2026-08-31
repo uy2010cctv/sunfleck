@@ -30,7 +30,8 @@ export class EnterpriseOperationsError extends Error {
   constructor(
     readonly code: 'conflict' | 'immutable-source' | 'invalid-transition' | 'not-found'
       | 'cursor-invalid' | 'idempotency-conflict' | 'invalid-state' | 'fencing-lost' | 'admission-rejected',
-    readonly resourceType: 'work-record' | 'approval' | 'schedule' | 'team' | 'team-definition' | 'operation-outbox',
+    readonly resourceType: 'work-record' | 'approval' | 'schedule' | 'team' | 'team-definition' | 'operation-outbox'
+      | 'team-run' | 'team-decision' | 'team-autonomy-grant',
     readonly resourceId?: string,
   ) {
     super(`enterprise operations ${code}`)

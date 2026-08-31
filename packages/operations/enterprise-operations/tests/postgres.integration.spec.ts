@@ -1,7 +1,7 @@
 import { Pool, type PoolClient, type QueryResultRow } from 'pg'
 import { afterAll, beforeEach, describe, expect, it } from 'vitest'
 import {
-  EnterpriseOperationsError, EnterpriseOperationsRepository, migrateEnterpriseOperations,
+  EnterpriseOperationsError, EnterpriseOperationsRepository, EnterpriseTeamControlRepository, migrateEnterpriseOperations,
   type PostgresDatabase, type PostgresQueryResult,
 } from '../src/index.ts'
 
@@ -39,6 +39,7 @@ const postgres = database as PgTestDatabase
 
 async function reset(): Promise<void> {
   await database?.query(`DROP TABLE IF EXISTS
+    dsh_enterprise_team_decisions, dsh_enterprise_team_autonomy_grants, dsh_enterprise_team_runs,
     dsh_enterprise_team_definitions, dsh_enterprise_fixed_team_members, dsh_enterprise_operation_outbox, dsh_enterprise_fixed_teams,
     dsh_enterprise_schedules, dsh_enterprise_approval_requests, dsh_enterprise_work_records,
     dsh_enterprise_operations_idempotency, dsh_enterprise_operations_meta CASCADE`)
@@ -116,6 +117,60 @@ describe.skipIf(database === undefined)('enterprise operations PostgreSQL', () =
       occurrenceKey: 'three', sessionId: 'pg-rollback-session', firedAt: 3, nextRunAt: 4,
     })).rejects.toThrow()
     await expect(operations.getWorkRecord('pg-org', 'pg-rollback-session', 'pg-lead')).resolves.toBeUndefined()
+  })
+
+  it('persists TeamRun and Decision projections plus terminal explicit autonomy grants', async () => {
+    let now = 100
+    const operations = new EnterpriseOperationsRepository(postgres, { allowUnverifiedReferences: true })
+    const projections = new EnterpriseTeamControlRepository(postgres, {
+      now: () => ++now, cursorSigningKey: Buffer.from('team-control-real-postgres-cursor-key'),
+    })
+    await operations.createTeamDefinition({
+      teamId: 'control-team', orgId: 'control-org', name: 'Control team', northStar: 'Execute reviewed work.',
+      ownerUserId: 'owner-a', visibility: 'organization', leaderEmployeeReleaseId: 'release-a',
+      roles: [{ roleId: 'lead', name: 'Lead', responsibility: 'Lead.' }],
+      roster: [
+        { actor: { kind: 'human', userId: 'owner-a' }, roleId: 'lead' },
+        { actor: { kind: 'agent', employeeReleaseId: 'release-a' }, roleId: 'lead' },
+      ],
+      verificationPolicy: { verifierRequired: true, rubricRefs: [], highRiskHumanReviewRequired: true },
+      attentionPolicy: { decisionQueue: 'centralized' }, approvalPolicy: {}, state: 'active',
+      expectedRevision: 0, idempotencyKey: 'control-definition',
+    })
+    const created = await projections.createTeamRunStarting({
+      runId: 'run-a', orgId: 'control-org', teamId: 'control-team', teamDefinitionRevision: 1,
+      workspaceId: 'workspace-a', rosterSnapshot: [
+        { actor: { kind: 'human', userId: 'owner-a' }, roleId: 'lead' },
+        { actor: { kind: 'agent', employeeReleaseId: 'release-a' }, roleId: 'lead' },
+      ],
+      createdBy: 'owner-a', source: 'console', state: 'starting', runtimeRevision: 0,
+      idempotencyKey: 'start-a', idempotencyFingerprint: 'fingerprint-a',
+    })
+    await expect(projections.createTeamRunStarting({ ...created.run, idempotencyKey: 'start-a', idempotencyFingerprint: 'fingerprint-a' }))
+      .resolves.toMatchObject({ created: false, run: { runId: 'run-a' } })
+    const active = await projections.projectTeamRun({ orgId: 'control-org', runId: 'run-a', expectedRevision: 1,
+      state: 'active', rootSessionId: 'session-a', runtimeRevision: 1, sourceEventSeq: 4 })
+    expect(active).toMatchObject({ state: 'active', runtimeRevision: 1, sourceEventSeq: 4 })
+    await expect(projections.getTeamRun('other-org', 'run-a')).resolves.toBeUndefined()
+
+    const decision = await projections.projectDecision({
+      decisionId: 'decision-a', orgId: 'control-org', runId: 'run-a', kind: 'approval', question: 'Proceed?',
+      options: ['yes', 'no'], contextDigest: 'digest-a', assigneeUserId: 'member-a', state: 'open',
+      runtimeRevision: 2, sourceEventSeq: 5, revision: 1, createdAt: 103, updatedAt: 103,
+    })
+    await expect(projections.answerDecision({ orgId: 'control-org', decisionId: decision.decisionId,
+      expectedRevision: 1, answer: 'yes', runtimeRevision: 3, sourceEventSeq: 6, idempotencyKey: 'answer-a' }))
+      .resolves.toMatchObject({ state: 'answered', answer: 'yes' })
+
+    const grant = await projections.saveAutonomyGrant({ orgId: 'control-org', teamId: 'control-team',
+      employeeReleaseId: 'release-a', taskType: 'close', capabilityScope: 'ledger.read', level: 'propose',
+      grantedBy: 'owner-a', evidenceRefs: ['evidence-a'], expectedRevision: 0, idempotencyKey: 'grant-a' })
+    const revoked = await projections.revokeAutonomyGrant({ orgId: 'control-org', teamId: 'control-team',
+      employeeReleaseId: 'release-a', taskType: 'close', capabilityScope: 'ledger.read',
+      expectedRevision: grant.revision, idempotencyKey: 'revoke-a' })
+    expect(revoked.state).toBe('revoked')
+    await expect(projections.saveAutonomyGrant({ ...grant, level: 'execute-reviewed', expectedRevision: revoked.revision,
+      idempotencyKey: 'resurrect-a' })).rejects.toMatchObject({ code: 'invalid-transition' })
   })
 
   it('serializes a reused idempotency key across concurrent resources', async () => {

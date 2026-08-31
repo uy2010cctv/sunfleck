@@ -166,6 +166,80 @@ export interface TeamDefinitionReadScope {
   readonly userId: string
   readonly isAdministrator: boolean
 }
+
+/** Origin that admitted an enterprise TeamRun. */
+export type EnterpriseTeamRunSource = 'console' | 'schedule' | 'channel'
+/** Runtime-derived TeamRun lifecycle projected for enterprise queries. */
+export type EnterpriseTeamRunState =
+  | 'starting' | 'active' | 'waiting-human' | 'verifying' | 'completed' | 'failed' | 'cancelled'
+/** Runtime failure safe to expose through the enterprise projection. */
+export interface EnterpriseTeamRunFailure { readonly code: string; readonly message?: string }
+/** Query projection of a TeamRun whose root Session event log remains authoritative. */
+export interface EnterpriseTeamRun {
+  readonly runId: string
+  readonly orgId: string
+  readonly teamId: string
+  readonly teamDefinitionRevision: number
+  readonly workspaceId: string
+  readonly rootSessionId?: string
+  readonly rosterSnapshot: readonly TeamRosterMember[]
+  readonly createdBy: string
+  readonly source: EnterpriseTeamRunSource
+  readonly state: EnterpriseTeamRunState
+  readonly runtimeRevision: number
+  readonly sourceEventSeq?: number
+  readonly failure?: EnterpriseTeamRunFailure
+  readonly revision: number
+  readonly createdAt: number
+  readonly updatedAt: number
+}
+/** Stable organization-scoped TeamRun page. */
+export interface EnterpriseTeamRunPage { readonly items: readonly EnterpriseTeamRun[]; readonly nextCursor?: string }
+/** Human-facing decision kind emitted by a Team runtime. */
+export type TeamDecisionKind = 'approval' | 'handoff' | 'clarification'
+/** Query projection of a decision emitted into the authoritative root Session log. */
+export interface TeamDecision {
+  readonly decisionId: string
+  readonly orgId: string
+  readonly runId: string
+  readonly kind: TeamDecisionKind
+  readonly question: string
+  readonly options: readonly string[]
+  readonly recommendation?: string
+  readonly contextDigest: string
+  readonly assigneeUserId: string
+  readonly state: 'open' | 'answered' | 'cancelled' | 'expired'
+  readonly answer?: string
+  readonly runtimeRevision: number
+  readonly sourceEventSeq?: number
+  readonly revision: number
+  readonly createdAt: number
+  readonly updatedAt: number
+}
+/** Stable organization-scoped TeamDecision page. */
+export interface TeamDecisionPage { readonly items: readonly TeamDecision[]; readonly nextCursor?: string }
+/** Explicit human-granted autonomy ceiling for one Agent release and capability. */
+export type TeamAutonomyLevel = 'observe' | 'propose' | 'execute-reviewed' | 'execute-delegated'
+/** Durable explicit authorization; runtime code cannot create or raise it. */
+export interface EnterpriseTeamAutonomyGrant {
+  readonly orgId: string
+  readonly teamId: string
+  readonly employeeReleaseId: string
+  readonly taskType: string
+  readonly capabilityScope: string
+  readonly level: TeamAutonomyLevel
+  readonly grantedBy: string
+  readonly evidenceRefs: readonly string[]
+  readonly state: 'active' | 'revoked'
+  readonly revision: number
+  readonly createdAt: number
+  readonly updatedAt: number
+}
+/** Stable organization-scoped autonomy-grant page. */
+export interface EnterpriseTeamAutonomyGrantPage {
+  readonly items: readonly EnterpriseTeamAutonomyGrant[]
+  readonly nextCursor?: string
+}
 export interface PostgresQueryResult<Row extends Record<string, unknown> = Record<string, unknown>> {
   readonly rows: readonly Row[]
   readonly rowCount: number | null

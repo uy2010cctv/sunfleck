@@ -89,6 +89,17 @@ describe('enterprise authorization', () => {
     expect(authorizeEnterprise({ principal: member, action: 'plugin.manage', resource }))
       .toEqual({ allowed: false, reason: 'insufficient-role' })
   })
+
+  it('keeps team execution and autonomy with owners or privileged roles while decisions admit assigned members in service', () => {
+    const operator = { userId: 'operator-a', orgId: 'org-a', roles: ['operator'] as const }
+    const creator = { userId: 'creator-1', orgId: 'org-a', roles: ['creator'] as const }
+    const member = { userId: 'member-1', orgId: 'org-a', roles: ['member'] as const }
+    expect(authorizeEnterprise({ principal: operator, action: 'team.execute', resource }).allowed).toBe(true)
+    expect(authorizeEnterprise({ principal: creator, action: 'team.autonomy.manage', resource }).allowed).toBe(true)
+    expect(authorizeEnterprise({ principal: creator, action: 'team.decision.respond', resource }).allowed).toBe(true)
+    for (const action of ['team.execute', 'team.autonomy.manage', 'team.decision.respond'] as const)
+      expect(authorizeEnterprise({ principal: member, action, resource }).allowed).toBe(false)
+  })
 })
 
 describe('enterprise deployment and audit', () => {

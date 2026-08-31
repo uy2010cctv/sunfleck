@@ -21,6 +21,9 @@ import {
   EnterpriseOperationsAuthorizationError,
   EnterpriseOperationsError,
   EnterpriseOperationsService,
+  EnterpriseTeamControlService,
+  EnterpriseTeamRuntimeError,
+  type EnterpriseTeamRuntimeDriver,
 } from '@deepseek-ai/dsh-enterprise-operations'
 import {
   EnterpriseCordisError,
@@ -89,6 +92,23 @@ import type {
   EnterpriseWorkRecordUpdateRequest,
 } from './contract/operations.ts'
 import type {
+  EnterpriseTeamAutonomyGrant,
+  EnterpriseTeamAutonomyGrantPage,
+  EnterpriseTeamAutonomyListRequest,
+  EnterpriseTeamAutonomyRevokeRequest,
+  EnterpriseTeamAutonomySaveRequest,
+  EnterpriseTeamDecision,
+  EnterpriseTeamDecisionListRequest,
+  EnterpriseTeamDecisionPage,
+  EnterpriseTeamDecisionRespondRequest,
+  EnterpriseTeamRun,
+  EnterpriseTeamRunCancelRequest,
+  EnterpriseTeamRunListRequest,
+  EnterpriseTeamRunLookup,
+  EnterpriseTeamRunPage,
+  EnterpriseTeamRunStartRequest,
+} from './contract/team-control.ts'
+import type {
   CordisDepartmentManagersRequest,
   CordisDepartmentManagersSaveRequest,
   CordisGovernanceDisableRequest,
@@ -120,6 +140,14 @@ declare module '@deepseek-ai/cordis' {
     enterpriseTeamDefinitionController: EnterpriseTeamDefinitionController
     /** Enterprise operations Remote namespace owner. */
     enterpriseOperationController: EnterpriseOperationController
+    /** Enterprise TeamRun Remote namespace owner. */
+    enterpriseTeamRunController: EnterpriseTeamRunController
+    /** Enterprise TeamDecision Remote namespace owner. */
+    enterpriseTeamDecisionController: EnterpriseTeamDecisionController
+    /** Enterprise Team autonomy Remote namespace owner. */
+    enterpriseTeamAutonomyController: EnterpriseTeamAutonomyController
+    /** Optional provider that appends authoritative Team events to root Session logs. */
+    enterpriseTeamRuntimeDriver: EnterpriseTeamRuntimeDriver
     /** Enterprise Cordis Workspace extension Remote namespace owner. */
     cordisWorkspaceController: CordisWorkspaceController
     /** Enterprise Cordis review and publication Remote namespace owner. */
@@ -168,6 +196,33 @@ function operations(ctx: Context): EnterpriseOperationsService {
       const input = event.resourceId === undefined ? {} : { [field]: event.resourceId }
       return ctx.enterpriseSecurity.auditApiAsync(
         event.principal, event.endpoint, input,
+        event.decision.allowed
+          ? { allowed: true, reason: 'role' }
+          : { allowed: false, reason: 'insufficient-role' },
+        event.correlationId,
+      )
+    },
+  })
+}
+
+function teamControl(ctx: Context): EnterpriseTeamControlService {
+  const runtime = ctx.get('enterpriseTeamRuntimeDriver')
+  const unavailable: EnterpriseTeamRuntimeDriver = {
+    startRun: () => Promise.reject(new EnterpriseTeamRuntimeError('deterministic', 'team-runtime-unavailable')),
+    cancelRun: () => Promise.reject(new EnterpriseTeamRuntimeError('deterministic', 'team-runtime-unavailable')),
+    respondDecision: () => Promise.reject(new EnterpriseTeamRuntimeError('deterministic', 'team-runtime-unavailable')),
+    reconcileRun: () => Promise.reject(new EnterpriseTeamRuntimeError('unknown', 'team-runtime-unavailable')),
+  }
+  return new EnterpriseTeamControlService(ctx.enterprisePostgres.teamControl, runtime ?? unavailable, {
+    authorize: (actor, endpoint, input) => ctx.enterpriseSecurity.authorizeApiAsync(actor, endpoint, input),
+    authorizeWorkspace: async (actor, workspaceId) =>
+      (await ctx.enterpriseSecurity.authorizeApiAsync(actor, 'session.create', { workspaceId })).allowed,
+    audit: (event) => {
+      const field = event.endpoint.startsWith('enterpriseTeamDecision') ? 'decisionId'
+        : event.endpoint.startsWith('enterpriseTeamAutonomy') || event.endpoint === 'enterpriseTeamRun.start' ? 'teamId'
+          : 'runId'
+      return ctx.enterpriseSecurity.auditApiAsync(
+        event.principal, event.endpoint, { [field]: event.resourceId },
         event.decision.allowed
           ? { allowed: true, reason: 'role' }
           : { allowed: false, reason: 'insufficient-role' },
@@ -530,6 +585,121 @@ export class EnterpriseTeamDefinitionController extends TypertRemoteService {
   private async run<T>(endpoint: string, resourceId: string, operation: () => Promise<T>): Promise<T> {
     try { return await operation() }
     catch (error) { throw enterpriseFailure(error, endpoint, 'team-definition', resourceId) }
+  }
+}
+
+/** Enterprise TeamRun query and command Remote service. */
+export class EnterpriseTeamRunController extends TypertRemoteService {
+  static inject = ['enterprisePostgres', 'enterpriseSecurity', 'enterpriseRequestContext']
+  /** @param ctx - authenticated enterprise Host context. */
+  constructor(ctx: Context) { super(ctx, 'enterpriseTeamRunController', { namespace: 'enterpriseTeamRun' }) }
+
+  /**
+   * List visible TeamRun projections.
+   * @param request - visible run page filters.
+   * @returns visible TeamRun page.
+   */
+  @Remote('list') async list(request: EnterpriseTeamRunListRequest): Promise<EnterpriseTeamRunPage> {
+    return this.run('enterpriseTeamRun.list', request.teamId ?? 'catalog', () =>
+      teamControl(this.ctx).listRuns(principal(this.ctx), request) as Promise<EnterpriseTeamRunPage>)
+  }
+  /**
+   * Read one visible TeamRun projection.
+   * @param request - TeamRun identity.
+   * @returns visible TeamRun projection.
+   */
+  @Remote('get') async get(request: EnterpriseTeamRunLookup): Promise<EnterpriseTeamRun> {
+    return this.run('enterpriseTeamRun.get', request.runId, () =>
+      teamControl(this.ctx).getRun(principal(this.ctx), request.runId) as Promise<EnterpriseTeamRun>)
+  }
+  /**
+   * Start a runtime-authoritative TeamRun.
+   * @param request - browser-safe definition fence, Workspace, prompt, source, and idempotency.
+   * @returns started or reconcilable TeamRun.
+   */
+  @Remote('start') async start(request: EnterpriseTeamRunStartRequest): Promise<EnterpriseTeamRun> {
+    return this.run('enterpriseTeamRun.start', request.teamId, () =>
+      teamControl(this.ctx).startRun(principal(this.ctx), request) as Promise<EnterpriseTeamRun>)
+  }
+  /**
+   * Cancel a runtime-authoritative TeamRun.
+   * @param request - TeamRun CAS and idempotency fields.
+   * @returns cancelled or reconcilable TeamRun.
+   */
+  @Remote('cancel') async cancel(request: EnterpriseTeamRunCancelRequest): Promise<EnterpriseTeamRun> {
+    return this.run('enterpriseTeamRun.cancel', request.runId, () =>
+      teamControl(this.ctx).cancelRun(principal(this.ctx), request) as Promise<EnterpriseTeamRun>)
+  }
+  private async run<T>(endpoint: string, resourceId: string, operation: () => Promise<T>): Promise<T> {
+    try { return await operation() }
+    catch (error) { throw enterpriseFailure(error, endpoint, 'team-run', resourceId) }
+  }
+}
+
+/** Enterprise TeamDecision query and human-response Remote service. */
+export class EnterpriseTeamDecisionController extends TypertRemoteService {
+  static inject = ['enterprisePostgres', 'enterpriseSecurity', 'enterpriseRequestContext']
+  /** @param ctx - authenticated enterprise Host context. */
+  constructor(ctx: Context) { super(ctx, 'enterpriseTeamDecisionController', { namespace: 'enterpriseTeamDecision' }) }
+  /**
+   * List visible runtime-emitted decisions.
+   * @param request - visible decision filters.
+   * @returns visible decision page.
+   */
+  @Remote('list') async list(request: EnterpriseTeamDecisionListRequest): Promise<EnterpriseTeamDecisionPage> {
+    return this.run('enterpriseTeamDecision.list', request.runId ?? 'catalog', () =>
+      teamControl(this.ctx).listDecisions(principal(this.ctx), request) as Promise<EnterpriseTeamDecisionPage>)
+  }
+  /**
+   * Append and project a permitted human answer.
+   * @param request - answer, CAS, and idempotency fields.
+   * @returns answered decision projection.
+   */
+  @Remote('respond') async respond(request: EnterpriseTeamDecisionRespondRequest): Promise<EnterpriseTeamDecision> {
+    return this.run('enterpriseTeamDecision.respond', request.decisionId, () =>
+      teamControl(this.ctx).respondDecision(principal(this.ctx), request) as Promise<EnterpriseTeamDecision>)
+  }
+  private async run<T>(endpoint: string, resourceId: string, operation: () => Promise<T>): Promise<T> {
+    try { return await operation() }
+    catch (error) { throw enterpriseFailure(error, endpoint, 'team-decision', resourceId) }
+  }
+}
+
+/** Enterprise explicit autonomy-grant Remote service. */
+export class EnterpriseTeamAutonomyController extends TypertRemoteService {
+  static inject = ['enterprisePostgres', 'enterpriseSecurity', 'enterpriseRequestContext']
+  /** @param ctx - authenticated enterprise Host context. */
+  constructor(ctx: Context) { super(ctx, 'enterpriseTeamAutonomyController', { namespace: 'enterpriseTeamAutonomy' }) }
+  /**
+   * List visible explicit autonomy grants.
+   * @param request - visible autonomy-grant filters.
+   * @returns visible grant page.
+   */
+  @Remote('list') async list(request: EnterpriseTeamAutonomyListRequest): Promise<EnterpriseTeamAutonomyGrantPage> {
+    return this.run('enterpriseTeamAutonomy.list', request.teamId ?? 'catalog', () =>
+      teamControl(this.ctx).listAutonomyGrants(principal(this.ctx), request) as Promise<EnterpriseTeamAutonomyGrantPage>)
+  }
+  /**
+   * Save an explicit human-authored autonomy grant.
+   * @param request - explicit human grant and CAS fields.
+   * @returns active grant.
+   */
+  @Remote('save') async save(request: EnterpriseTeamAutonomySaveRequest): Promise<EnterpriseTeamAutonomyGrant> {
+    return this.run('enterpriseTeamAutonomy.save', request.teamId, () =>
+      teamControl(this.ctx).saveAutonomyGrant(principal(this.ctx), request) as Promise<EnterpriseTeamAutonomyGrant>)
+  }
+  /**
+   * Revoke an autonomy grant terminally.
+   * @param request - grant identity, CAS, and idempotency fields.
+   * @returns terminal revoked grant.
+   */
+  @Remote('revoke') async revoke(request: EnterpriseTeamAutonomyRevokeRequest): Promise<EnterpriseTeamAutonomyGrant> {
+    return this.run('enterpriseTeamAutonomy.revoke', request.teamId, () =>
+      teamControl(this.ctx).revokeAutonomyGrant(principal(this.ctx), request) as Promise<EnterpriseTeamAutonomyGrant>)
+  }
+  private async run<T>(endpoint: string, resourceId: string, operation: () => Promise<T>): Promise<T> {
+    try { return await operation() }
+    catch (error) { throw enterpriseFailure(error, endpoint, 'team-autonomy-grant', resourceId) }
   }
 }
 
@@ -896,6 +1066,9 @@ function enterpriseFailure(
         : error.code === 'not-found' ? 'enterprise-not-found'
           : error.code === 'conflict' ? 'enterprise-conflict' : 'enterprise-invalid-state'
     message = error.message
+  } else if (error instanceof EnterpriseTeamRuntimeError) {
+    code = error.outcome === 'unknown' ? 'enterprise-runtime-unknown' : 'enterprise-invalid-state'
+    message = error.message
   } else if (error instanceof EnterpriseCordisError) {
     code = error.code.endsWith('required') || error.code === 'organization-mismatch'
       ? 'enterprise-forbidden'
@@ -917,6 +1090,9 @@ export function apply(ctx: Context): void {
   new EnterpriseTeamController(ctx)
   new EnterpriseTeamDefinitionController(ctx)
   new EnterpriseOperationController(ctx)
+  new EnterpriseTeamRunController(ctx)
+  new EnterpriseTeamDecisionController(ctx)
+  new EnterpriseTeamAutonomyController(ctx)
   new CordisWorkspaceController(ctx)
   new CordisReviewController(ctx)
   new CordisGovernanceController(ctx)

@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-09-01-enterprise-team-definitions.md
-2026-09-01-enterprise-team-definitions.md: 2236ab46d464aeec64589fb1817024e54fb82bd7
-2026-09-01-enterprise-team-definitions.zh.md: c70c10a7a0d96f8a999823b0c472f1b920d2e019
+2026-09-01-enterprise-team-definitions.md: 1725010e0ce583dbc320ccf0b9c827ecfc284269
+2026-09-01-enterprise-team-definitions.zh.md: 18a8f27751da3a07ac27a5e8878a800cbfff7b10

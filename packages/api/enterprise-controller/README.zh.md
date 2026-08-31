@@ -8,7 +8,7 @@ kind: "package-reference"
 
 ## 概述
 
-`@deepseek-ai/dsh-api-enterprise-controller` 拥有企业员工、能力资产、固定团队、类型化团队定义、工作记录、审批和调度的认证 Typert Remote namespace。每项操作都会解析 `EnterprisePrincipal`、执行组织与角色策略、记录审计决策，再委托给 PostgreSQL 控制平面。
+`@deepseek-ai/dsh-api-enterprise-controller` 拥有企业员工、能力资产、固定团队、类型化团队定义、TeamRun、TeamDecision、自主权授权、工作记录、审批和调度的认证 Typert Remote namespace。每项操作都会解析 `EnterprisePrincipal`、执行组织与角色策略、记录审计决策，再委托给企业控制面。
 
 ## 目录
 
@@ -22,7 +22,7 @@ kind: "package-reference"
 <a id="use-this-package"></a>
 ## 使用本包
 
-仅在企业 Profile 中，并在 `enterprisePostgres`、`enterpriseSecurity` 和 `enterpriseRequestContext` 之后挂载本 Controller。Client 通过 API Gateway 使用生成的 `enterpriseEmployee`、`enterpriseAsset`、`enterpriseTeam`、`enterpriseTeamDefinition` 和 `enterpriseOperation` namespace。`enterpriseTeamDefinition` 提供 list、get、revision 防护的 save 和 archive；Host 注入认证组织，浏览器请求不携带组织或 actor 身份。Host service 在返回定义前执行 owner、管理员、private 和 restricted 可见性。本包替代已删除的单体 ApiProxy，但不替代 DSH 的 Workspace、Session、Workflow、Sandbox、Subagent 或 Agent Loop 身份。
+仅在企业 Profile 中，并在 `enterprisePostgres`、`enterpriseSecurity` 和 `enterpriseRequestContext` 之后挂载本 Controller。Client 通过 API Gateway 使用生成的 `enterpriseEmployee`、`enterpriseAsset`、`enterpriseTeam`、`enterpriseTeamDefinition`、`enterpriseTeamRun`、`enterpriseTeamDecision`、`enterpriseTeamAutonomy` 和 `enterpriseOperation` namespace。TeamRun start 和 cancel namespace 使用可选 `enterpriseTeamRuntimeDriver`；没有 provider 时，start 返回稳定 runtime-unavailable 失败。Host 注入组织与 actor 身份，browser 请求不能写 runtime revision 或 event position。本包不替代 DSH 的 Workspace、Session、Workflow、Sandbox、Subagent 或 Agent Loop 身份。
 
 <a id="model-experience"></a>
 ## 模型体验
@@ -41,11 +41,12 @@ kind: "package-reference"
 
 在已发布员工启动普通 DSH Session 之前没有影响。
 
+<a id="known-limitations-and-deferred-work"></a>
 ## 已知限制与延期工作
 
 - 首个企业 Profile 面向单组织和单套 PostgreSQL 部署。
 - 企业实时失效事件不能替代重连后读取权威 Repository。
-- 团队定义 Remote 方法不启动 TeamRun，也不协调 Agent runtime 工作。
+- 本包不提供具体 Agent Teams runtime driver、TeamRun UI 或渠道 adapter。
 
 <a id="dev-note"></a>
 ### 开发备注

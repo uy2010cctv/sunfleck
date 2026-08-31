@@ -47,4 +47,7 @@ export {
   LEGACY_TEAM_DEFINITION_OWNER_USER_ID,
 } from './schema.ts'
 export { assertTeamDefinitionExecutable, validateTeamDefinition } from './team-definition.ts'
+export { EnterpriseTeamControlService, EnterpriseTeamRuntimeError } from './team-control.ts'
+export type * from './team-control.ts'
+export { EnterpriseTeamControlRepository } from './team-control-repository.ts'
 export type * from './types.ts'

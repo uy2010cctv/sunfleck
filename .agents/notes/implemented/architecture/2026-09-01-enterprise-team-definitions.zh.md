@@ -33,7 +33,7 @@ Active Definition 写入会将 leader、带 formal role ID 的非 leader Agent �
 - 在设计执行编排之前，人类与 Agent 成员关系已有唯一类型化表达。
 - 旧记录可见，但不编造章程内容，必须显式补全章程才能转为 active。
 - FixedTeam CRUD 和 UI payload 保持兼容，团队执行需要 active 定义。
-- TeamRun、浏览器编辑和 Agent runtime 协作仍延期，不能由定义的存在推断已交付。
+- 独立的[企业团队控制面](2026-09-01-enterprise-team-control-plane.zh.md)负责 TeamRun 投影与 runtime-driver 接口。浏览器编辑、具体 Agent Teams adapter、渠道与 TeamRun UI 仍延期。
 
 ## 验证
 

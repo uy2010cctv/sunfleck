@@ -33,7 +33,7 @@ Active Definition writes project leader, non-leader Agent members with formal ro
 - Human and Agent membership has one typed representation before execution orchestration is designed.
 - Legacy records remain visible without fabricated charter content and require an explicit charter before they can become active.
 - FixedTeam CRUD and UI payloads remain compatible while team execution requires an active definition.
-- TeamRun, browser editing, and Agent runtime coordination remain deferred and cannot be inferred from the presence of a definition.
+- The separate [enterprise team control plane](2026-09-01-enterprise-team-control-plane.md) owns TeamRun projections and the runtime-driver interface. Browser editing, a concrete Agent Teams adapter, channels, and TeamRun UI remain deferred.
 
 ## Verification
 

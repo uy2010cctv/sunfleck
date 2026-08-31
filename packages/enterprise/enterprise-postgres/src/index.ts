@@ -6,7 +6,11 @@ import z from '@deepseek-ai/schemastery'
 import { migrateEnterpriseIdentityPostgres, PgEnterpriseIdentityRepository } from '@deepseek-ai/dsh-enterprise-identity-postgres'
 import { PostgresSessionStore } from '@deepseek-ai/dsh-session-persistence-postgres'
 import { EnterpriseCatalogRepository, migrateEnterpriseCatalog } from '@deepseek-ai/dsh-enterprise-catalog'
-import { EnterpriseOperationsRepository, migrateEnterpriseOperations } from '@deepseek-ai/dsh-enterprise-operations'
+import {
+  EnterpriseOperationsRepository,
+  EnterpriseTeamControlRepository,
+  migrateEnterpriseOperations,
+} from '@deepseek-ai/dsh-enterprise-operations'
 import { PostgresEnterpriseCordisRepository, migrateEnterpriseCordis } from '@deepseek-ai/dsh-enterprise-cordis'
 import { EnterpriseKnowledgeRepository, migrateKnowledge } from '@deepseek-ai/dsh-knowledge-pgvector'
 import type { PostgresDatabase as IdentityDatabase, PostgresQueryResult as IdentityResult } from '@deepseek-ai/dsh-enterprise-identity-postgres'
@@ -99,6 +103,7 @@ export interface EnterprisePostgresComposition {
   readonly session: PostgresSessionStore
   readonly catalog: EnterpriseCatalogRepository
   readonly operations: EnterpriseOperationsRepository
+  readonly teamControl: EnterpriseTeamControlRepository
   readonly knowledge: EnterpriseKnowledgeRepository
   readonly cordis: PostgresEnterpriseCordisRepository
   readonly close: () => Promise<void>
@@ -171,9 +176,12 @@ export async function createEnterprisePostgresComposition(config: EnterprisePost
         return result.rows[0] !== undefined
       },
     })
+    const teamControl = new EnterpriseTeamControlRepository(database, {
+      cursorSigningKey: deriveCursorKey('dsh-enterprise-team-control-cursor-v1'),
+    })
     const knowledge = new EnterpriseKnowledgeRepository(database)
     const cordis = new PostgresEnterpriseCordisRepository(database)
-    return { database, identity, session, catalog, operations, knowledge, cordis, close: () => database.end() }
+    return { database, identity, session, catalog, operations, teamControl, knowledge, cordis, close: () => database.end() }
   } catch (error) {
     await database.end()
     throw error
