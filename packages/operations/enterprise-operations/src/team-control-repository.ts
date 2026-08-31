@@ -537,7 +537,11 @@ export class EnterpriseTeamControlRepository implements EnterpriseTeamControlPro
         if (row.response_idempotency_key !== input.idempotencyKey
           || row.response_request_digest !== input.idempotencyFingerprint)
           throw new EnterpriseOperationsError('conflict', 'team-decision', input.decisionId)
-        return { decision, operationId: row.response_operation_id, completed: decision.state === 'answered' }
+        if (decision.state === 'answered')
+          return { decision, operationId: row.response_operation_id, completed: true }
+        if (decision.state !== 'open')
+          throw new EnterpriseOperationsError('invalid-transition', 'team-decision', input.decisionId)
+        return { decision, operationId: row.response_operation_id, completed: false }
       }
       if (decision.state !== 'open')
         throw new EnterpriseOperationsError('invalid-transition', 'team-decision', input.decisionId)

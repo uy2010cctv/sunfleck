@@ -499,7 +499,7 @@ export class EnterpriseTeamControlService {
    */
   async reconcileRun(
     principal: EnterprisePrincipal,
-    input: { readonly orgId: string; readonly runId: string },
+    input: { readonly runId: string },
   ): Promise<EnterpriseTeamRun> {
     const correlationId = `team-run:reconcile:${input.runId}`
     const auditReconcile = async (
@@ -512,7 +512,7 @@ export class EnterpriseTeamControlService {
         ...(outcomeReason === undefined ? {} : { outcomeReason }),
       },
     )
-    const run = await this.projections.getTeamRun(input.orgId, input.runId, this.scope(principal))
+    const run = await this.projections.getTeamRun(principal.orgId, input.runId, this.scope(principal))
     if (run === undefined) {
       await auditReconcile({ allowed: false, reason: 'not-found' })
       throw new EnterpriseOperationsError('not-found', 'team-run', input.runId)
