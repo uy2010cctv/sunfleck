@@ -30,6 +30,11 @@ function driver(overrides: Partial<EnterpriseOperationsDriver> = {}): Enterprise
     saveFixedTeam: vi.fn(),
     getFixedTeam: vi.fn(),
     listFixedTeams: vi.fn().mockResolvedValue({ items: [] }),
+    createTeamDefinition: vi.fn(),
+    saveTeamDefinition: vi.fn(),
+    getTeamDefinition: vi.fn(),
+    listTeamDefinitions: vi.fn().mockResolvedValue({ items: [] }),
+    archiveTeamDefinition: vi.fn(),
     ...overrides,
   }
 }
@@ -128,6 +133,40 @@ describe('EnterpriseOperationsService', () => {
     expect(audit).toHaveBeenCalledWith(expect.objectContaining({
       endpoint: 'enterpriseOperation.approvals.transition',
       decision: { allowed: false, reason: 'insufficient-role' },
+    }))
+  })
+
+  it('injects the principal organization and audits team-definition operations', async () => {
+    const operations = driver()
+    const authorize = vi.fn().mockResolvedValue({ allowed: true, reason: 'role' })
+    const audit = vi.fn()
+    const service = new EnterpriseOperationsService(operations, { authorize, audit })
+    const input = {
+      teamId: 'team-a', name: 'Finance', northStar: 'Verified close.', ownerUserId: 'user-a',
+      visibility: 'organization' as const, leaderEmployeeReleaseId: 'release-a',
+      roles: [{ roleId: 'owner', name: 'Owner', responsibility: 'Own.' }],
+      roster: [
+        { actor: { kind: 'human' as const, userId: 'user-a' }, roleId: 'owner' },
+        { actor: { kind: 'agent' as const, employeeReleaseId: 'release-a' }, roleId: 'owner' },
+      ],
+      verificationPolicy: { verifierRequired: true, rubricRefs: [], highRiskHumanReviewRequired: true },
+      attentionPolicy: { decisionQueue: 'centralized' as const }, approvalPolicy: {}, state: 'active' as const,
+      expectedRevision: 0, idempotencyKey: 'save-a',
+    }
+
+    await service.saveTeamDefinition(principal, input)
+    await service.listTeamDefinitions(principal, { limit: 20 })
+    await service.archiveTeamDefinition(principal, {
+      teamId: 'team-a', expectedRevision: 1, idempotencyKey: 'archive-a',
+    })
+
+    expect(operations.saveTeamDefinition).toHaveBeenCalledWith({ ...input, orgId: 'org-a' })
+    expect(operations.listTeamDefinitions).toHaveBeenCalledWith({ orgId: 'org-a', limit: 20 })
+    expect(operations.archiveTeamDefinition).toHaveBeenCalledWith({
+      orgId: 'org-a', teamId: 'team-a', expectedRevision: 1, idempotencyKey: 'archive-a',
+    })
+    expect(audit).toHaveBeenCalledWith(expect.objectContaining({
+      endpoint: 'enterpriseOperation.teamDefinitions.save', resourceType: 'team-definition', resourceId: 'team-a',
     }))
   })
 })

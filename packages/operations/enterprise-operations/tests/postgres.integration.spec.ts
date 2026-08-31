@@ -39,7 +39,7 @@ const postgres = database as PgTestDatabase
 
 async function reset(): Promise<void> {
   await database?.query(`DROP TABLE IF EXISTS
-    dsh_enterprise_fixed_team_members, dsh_enterprise_operation_outbox, dsh_enterprise_fixed_teams,
+    dsh_enterprise_team_definitions, dsh_enterprise_fixed_team_members, dsh_enterprise_operation_outbox, dsh_enterprise_fixed_teams,
     dsh_enterprise_schedules, dsh_enterprise_approval_requests, dsh_enterprise_work_records,
     dsh_enterprise_operations_idempotency, dsh_enterprise_operations_meta CASCADE`)
 }
@@ -116,6 +116,44 @@ describe.skipIf(database === undefined)('enterprise operations PostgreSQL', () =
     const reason: unknown = rejected?.status === 'rejected' ? rejected.reason : undefined
     expect(reason).toBeInstanceOf(EnterpriseOperationsError)
     expect(reason).toMatchObject({ code: 'idempotency-conflict' })
+  })
+
+  it('migrates legacy teams and enforces definition CAS in PostgreSQL', async () => {
+    const operations = new EnterpriseOperationsRepository(postgres, {
+      allowUnverifiedReferences: true,
+      cursorSigningKey: Buffer.from('operations-real-postgres-cursor-key'),
+    })
+    await operations.createFixedTeam({
+      teamId: 'legacy-definition', orgId: 'definition-org', leaderEmployeeReleaseId: 'release-a',
+      members: [{ employeeReleaseId: 'release-a', role: 'analyst' }], workflowTemplate: {},
+      approvalPolicy: { review: true }, expectedRevision: 0, idempotencyKey: 'legacy-definition',
+    })
+    await migrateEnterpriseOperations(postgres)
+    await migrateEnterpriseOperations(postgres)
+    await expect(operations.listTeamDefinitions({ orgId: 'definition-org', limit: 10 })).resolves.toMatchObject({
+      items: [{ teamId: 'legacy-definition', state: 'needs-charter', name: '', northStar: '' }],
+    })
+
+    const input = {
+      teamId: 'active-definition', orgId: 'definition-org', name: 'Finance', northStar: 'Verified close.',
+      ownerUserId: 'owner-a', visibility: 'organization' as const, leaderEmployeeReleaseId: 'release-a',
+      roles: [{ roleId: 'owner', name: 'Owner', responsibility: 'Own.' }],
+      roster: [
+        { actor: { kind: 'human' as const, userId: 'owner-a' }, roleId: 'owner' },
+        { actor: { kind: 'agent' as const, employeeReleaseId: 'release-a' }, roleId: 'owner' },
+      ],
+      verificationPolicy: { verifierRequired: true, rubricRefs: [], highRiskHumanReviewRequired: true },
+      attentionPolicy: { decisionQueue: 'centralized' as const }, approvalPolicy: {}, state: 'active' as const,
+      expectedRevision: 0, idempotencyKey: 'active-definition',
+    }
+    const created = await operations.createTeamDefinition(input)
+    await expect(operations.createTeamDefinition(input)).resolves.toEqual(created)
+    await expect(operations.saveTeamDefinition({
+      ...input, name: 'Finance v2', expectedRevision: 1, idempotencyKey: 'active-definition-save',
+    })).resolves.toMatchObject({ revision: 2, name: 'Finance v2' })
+    await expect(operations.saveTeamDefinition({
+      ...input, expectedRevision: 1, idempotencyKey: 'active-definition-stale',
+    })).rejects.toMatchObject({ code: 'conflict', resourceType: 'team-definition' })
   })
 
   it('pages management queries, applies CAS updates, and uses pagination indexes', async () => {

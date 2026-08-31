@@ -6,8 +6,10 @@ import type {
   ApprovalView,
   BusinessState,
   EnterpriseOperationsRepositoryOptions,
+  EnterpriseTeamDefinition,
   FixedTeamView,
   FixedTeamPage,
+  TeamDefinitionPage,
   PostgresDatabase,
   ScheduleFireView,
   ScheduleTarget,
@@ -20,13 +22,14 @@ import type {
   WorkRecordView,
 } from './types.ts'
 import { migrateEnterpriseOperations } from './schema.ts'
+import { validateTeamDefinition } from './team-definition.ts'
 
 /** Stable operations failure for Host adapters. */
 export class EnterpriseOperationsError extends Error {
   constructor(
     readonly code: 'conflict' | 'immutable-source' | 'invalid-transition' | 'not-found'
       | 'cursor-invalid' | 'idempotency-conflict' | 'invalid-state',
-    readonly resourceType: 'work-record' | 'approval' | 'schedule' | 'team',
+    readonly resourceType: 'work-record' | 'approval' | 'schedule' | 'team' | 'team-definition',
     readonly resourceId?: string,
   ) {
     super(`enterprise operations ${code}`)
@@ -193,6 +196,26 @@ interface TeamRow extends Record<string, unknown> {
   leader_release_id: string
   workflow_template_json: unknown
   approval_policy_json: unknown
+  revision: number | string
+  created_at: number | string
+  updated_at: number | string
+}
+interface TeamDefinitionRow extends Record<string, unknown> {
+  org_id: string
+  team_id: string
+  name: string
+  north_star: string
+  owner_user_id: string
+  department_id: string | null
+  visibility: EnterpriseTeamDefinition['visibility']
+  allowed_user_ids_json: unknown | null
+  leader_release_id: string
+  roster_json: unknown
+  roles_json: unknown
+  verification_policy_json: unknown
+  attention_policy_json: unknown
+  approval_policy_json: unknown
+  state: EnterpriseTeamDefinition['state']
   revision: number | string
   created_at: number | string
   updated_at: number | string
@@ -935,6 +958,158 @@ export class EnterpriseOperationsRepository {
       nextCursor: encodeCursor(scope, Number(last.created_at), [last.team_id], this.cursorSigningKey),
     }) }
   }
+  async createTeamDefinition(input: Omit<EnterpriseTeamDefinition, 'revision' | 'createdAt' | 'updatedAt'> & {
+    expectedRevision: number
+    idempotencyKey: string
+  }): Promise<EnterpriseTeamDefinition> {
+    await this.initialize()
+    return this.database.transaction(async (database) => {
+      await this.lock(database, `team-definition:${input.teamId}`)
+      await this.lockIdempotency(database, input.orgId, 'team-definition-create', input.idempotencyKey)
+      const prior = await this.idempotent<EnterpriseTeamDefinition>(
+        database, input.orgId, 'team-definition-create', input.idempotencyKey, input,
+      )
+      if (prior !== undefined) return prior
+      if (input.expectedRevision !== 0)
+        throw new EnterpriseOperationsError('conflict', 'team-definition', input.teamId)
+      const existing = await database.query<TeamDefinitionRow>(
+        'SELECT * FROM dsh_enterprise_team_definitions WHERE org_id=$1 AND team_id=$2',
+        [input.orgId, input.teamId],
+      )
+      if (existing.rows[0] !== undefined)
+        throw new EnterpriseOperationsError('conflict', 'team-definition', input.teamId)
+      const now = this.now()
+      const candidate: EnterpriseTeamDefinition = { ...input, revision: 1, createdAt: now, updatedAt: now }
+      validateTeamDefinition(candidate)
+      await this.requireTeamDefinitionReleases(database, input.orgId, candidate)
+      const result = await database.query<TeamDefinitionRow>(
+        `INSERT INTO dsh_enterprise_team_definitions(
+          org_id,team_id,name,north_star,owner_user_id,department_id,visibility,allowed_user_ids_json,
+          leader_release_id,roster_json,roles_json,verification_policy_json,attention_policy_json,
+          approval_policy_json,state,revision,created_at,updated_at)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,$10::jsonb,$11::jsonb,$12::jsonb,$13::jsonb,$14::jsonb,$15,1,$16,$16)
+        RETURNING *`,
+        this.teamDefinitionValues(candidate),
+      )
+      const view = this.teamDefinition(required(result.rows[0], 'team definition'))
+      await this.remember(database, input.orgId, 'team-definition-create', input.idempotencyKey, input, view)
+      return view
+    })
+  }
+  async saveTeamDefinition(input: Omit<EnterpriseTeamDefinition, 'revision' | 'createdAt' | 'updatedAt'> & {
+    expectedRevision: number
+    idempotencyKey: string
+  }): Promise<EnterpriseTeamDefinition> {
+    if (input.expectedRevision === 0) return this.createTeamDefinition(input)
+    await this.initialize()
+    return this.database.transaction(async (database) => {
+      await this.lock(database, `team-definition:${input.teamId}`)
+      await this.lockIdempotency(database, input.orgId, 'team-definition-save', input.idempotencyKey)
+      const prior = await this.idempotent<EnterpriseTeamDefinition>(
+        database, input.orgId, 'team-definition-save', input.idempotencyKey, input,
+      )
+      if (prior !== undefined) return prior
+      const current = await database.query<TeamDefinitionRow>(
+        'SELECT * FROM dsh_enterprise_team_definitions WHERE org_id=$1 AND team_id=$2 FOR UPDATE',
+        [input.orgId, input.teamId],
+      )
+      const row = current.rows[0]
+      if (row === undefined) throw new EnterpriseOperationsError('not-found', 'team-definition', input.teamId)
+      if (Number(row.revision) !== input.expectedRevision)
+        throw new EnterpriseOperationsError('conflict', 'team-definition', input.teamId)
+      if (row.state === 'archived' && input.state !== 'archived')
+        throw new EnterpriseOperationsError('invalid-transition', 'team-definition', input.teamId)
+      const candidate: EnterpriseTeamDefinition = {
+        ...input, revision: input.expectedRevision + 1, createdAt: Number(row.created_at), updatedAt: this.now(),
+      }
+      validateTeamDefinition(candidate)
+      await this.requireTeamDefinitionReleases(database, input.orgId, candidate)
+      const updated = await database.query<TeamDefinitionRow>(
+        `UPDATE dsh_enterprise_team_definitions SET
+          name=$1,north_star=$2,owner_user_id=$3,department_id=$4,visibility=$5,allowed_user_ids_json=$6::jsonb,
+          leader_release_id=$7,roster_json=$8::jsonb,roles_json=$9::jsonb,verification_policy_json=$10::jsonb,
+          attention_policy_json=$11::jsonb,approval_policy_json=$12::jsonb,state=$13,updated_at=$14,revision=revision+1
+        WHERE org_id=$15 AND team_id=$16 AND revision=$17 RETURNING *`,
+        [candidate.name, candidate.northStar, candidate.ownerUserId, candidate.departmentId ?? null,
+          candidate.visibility, candidate.allowedUserIds === undefined ? null : JSON.stringify(candidate.allowedUserIds),
+          candidate.leaderEmployeeReleaseId, JSON.stringify(candidate.roster), JSON.stringify(candidate.roles),
+          JSON.stringify(candidate.verificationPolicy), JSON.stringify(candidate.attentionPolicy),
+          JSON.stringify(candidate.approvalPolicy), candidate.state, candidate.updatedAt,
+          candidate.orgId, candidate.teamId, input.expectedRevision],
+      )
+      if (updated.rows[0] === undefined)
+        throw new EnterpriseOperationsError('conflict', 'team-definition', input.teamId)
+      const view = this.teamDefinition(updated.rows[0])
+      await this.remember(database, input.orgId, 'team-definition-save', input.idempotencyKey, input, view)
+      return view
+    })
+  }
+  async archiveTeamDefinition(input: {
+    orgId: string
+    teamId: string
+    expectedRevision: number
+    idempotencyKey: string
+  }): Promise<EnterpriseTeamDefinition> {
+    await this.initialize()
+    return this.database.transaction(async (database) => {
+      await this.lock(database, `team-definition:${input.teamId}`)
+      await this.lockIdempotency(database, input.orgId, 'team-definition-archive', input.idempotencyKey)
+      const prior = await this.idempotent<EnterpriseTeamDefinition>(
+        database, input.orgId, 'team-definition-archive', input.idempotencyKey, input,
+      )
+      if (prior !== undefined) return prior
+      const updated = await database.query<TeamDefinitionRow>(
+        `UPDATE dsh_enterprise_team_definitions SET state='archived',updated_at=$1,revision=revision+1
+          WHERE org_id=$2 AND team_id=$3 AND revision=$4 AND state<>'archived' RETURNING *`,
+        [this.now(), input.orgId, input.teamId, input.expectedRevision],
+      )
+      if (updated.rows[0] === undefined) {
+        const current = await database.query<TeamDefinitionRow>(
+          'SELECT * FROM dsh_enterprise_team_definitions WHERE org_id=$1 AND team_id=$2', [input.orgId, input.teamId],
+        )
+        if (current.rows[0] === undefined)
+          throw new EnterpriseOperationsError('not-found', 'team-definition', input.teamId)
+        throw new EnterpriseOperationsError('conflict', 'team-definition', input.teamId)
+      }
+      const view = this.teamDefinition(updated.rows[0])
+      await this.remember(database, input.orgId, 'team-definition-archive', input.idempotencyKey, input, view)
+      return view
+    })
+  }
+  async getTeamDefinition(orgId: string, teamId: string): Promise<EnterpriseTeamDefinition | undefined> {
+    await this.initialize()
+    const result = await this.database.query<TeamDefinitionRow>(
+      'SELECT * FROM dsh_enterprise_team_definitions WHERE org_id=$1 AND team_id=$2', [orgId, teamId],
+    )
+    return result.rows[0] === undefined ? undefined : this.teamDefinition(result.rows[0])
+  }
+  async listTeamDefinitions(input: { orgId: string; limit?: number; cursor?: string }): Promise<TeamDefinitionPage> {
+    await this.initialize()
+    const limit = listLimit(input.limit)
+    const scope = cursorScope('team-definition', { orgId: input.orgId })
+    const cursor = decodeCursor(input.cursor, scope, this.cursorSigningKey)
+    const values: unknown[] = [input.orgId]
+    const clauses = ['org_id=$1']
+    if (cursor !== undefined) {
+      if (cursor.ids.length !== 1) throw new EnterpriseOperationsError('cursor-invalid', 'team-definition')
+      values.push(cursor.createdAt, cursor.ids[0])
+      clauses.push(`(created_at,team_id)<($${String(values.length - 1)},$${String(values.length)})`)
+    }
+    values.push(limit + 1)
+    const result = await this.database.query<TeamDefinitionRow>(
+      `SELECT * FROM dsh_enterprise_team_definitions WHERE ${clauses.join(' AND ')}
+        ORDER BY created_at DESC,team_id DESC LIMIT $${String(values.length)}`,
+      values,
+    )
+    const page = result.rows.slice(0, limit)
+    const last = page.at(-1)
+    return {
+      items: page.map(row => this.teamDefinition(row)),
+      ...(result.rows.length <= limit || last === undefined ? {} : {
+        nextCursor: encodeCursor(scope, Number(last.created_at), [last.team_id], this.cursorSigningKey),
+      }),
+    }
+  }
   private work(row: WorkRow): WorkRecordView {
     return {
       orgId: row.org_id,
@@ -1012,5 +1187,39 @@ export class EnterpriseOperationsRepository {
       createdAt: Number(row.created_at),
       updatedAt: Number(row.updated_at),
     }
+  }
+  private teamDefinitionValues(definition: EnterpriseTeamDefinition): readonly unknown[] {
+    return [definition.orgId, definition.teamId, definition.name, definition.northStar, definition.ownerUserId,
+      definition.departmentId ?? null, definition.visibility,
+      definition.allowedUserIds === undefined ? null : JSON.stringify(definition.allowedUserIds),
+      definition.leaderEmployeeReleaseId, JSON.stringify(definition.roster), JSON.stringify(definition.roles),
+      JSON.stringify(definition.verificationPolicy), JSON.stringify(definition.attentionPolicy),
+      JSON.stringify(definition.approvalPolicy), definition.state, definition.createdAt]
+  }
+  private teamDefinition(row: TeamDefinitionRow): EnterpriseTeamDefinition {
+    const definition: EnterpriseTeamDefinition = {
+      orgId: row.org_id, teamId: row.team_id, name: row.name, northStar: row.north_star,
+      ownerUserId: row.owner_user_id, ...(row.department_id === null ? {} : { departmentId: row.department_id }),
+      visibility: row.visibility,
+      ...(row.allowed_user_ids_json === null ? {} : { allowedUserIds: parse(row.allowed_user_ids_json) as readonly string[] }),
+      leaderEmployeeReleaseId: row.leader_release_id,
+      roster: parse(row.roster_json) as EnterpriseTeamDefinition['roster'],
+      roles: parse(row.roles_json) as EnterpriseTeamDefinition['roles'],
+      verificationPolicy: record(row.verification_policy_json), attentionPolicy: record(row.attention_policy_json),
+      approvalPolicy: record(row.approval_policy_json), state: row.state, revision: Number(row.revision),
+      createdAt: Number(row.created_at), updatedAt: Number(row.updated_at),
+    }
+    validateTeamDefinition(definition)
+    return definition
+  }
+  private async requireTeamDefinitionReleases(
+    database: PostgresDatabase,
+    orgId: string,
+    definition: EnterpriseTeamDefinition,
+  ): Promise<void> {
+    const releases = new Set([definition.leaderEmployeeReleaseId])
+    for (const member of definition.roster)
+      if (member.actor.kind === 'agent') releases.add(member.actor.employeeReleaseId)
+    await Promise.all([...releases].map(releaseId => this.requireRelease(database, orgId, releaseId)))
   }
 }

@@ -63,6 +63,12 @@ import type {
   EnterpriseTeamLookup,
   EnterpriseTeamPage,
   EnterpriseTeamSaveRequest,
+  EnterpriseTeamDefinition,
+  EnterpriseTeamDefinitionArchiveRequest,
+  EnterpriseTeamDefinitionListRequest,
+  EnterpriseTeamDefinitionLookup,
+  EnterpriseTeamDefinitionPage,
+  EnterpriseTeamDefinitionSaveRequest,
 } from './contract/teams.ts'
 import type {
   EnterpriseApproval,
@@ -110,6 +116,8 @@ declare module '@deepseek-ai/cordis' {
     enterpriseAssetController: EnterpriseAssetController
     /** Enterprise fixed-team Remote namespace owner. */
     enterpriseTeamController: EnterpriseTeamController
+    /** Enterprise team-definition Remote namespace owner. */
+    enterpriseTeamDefinitionController: EnterpriseTeamDefinitionController
     /** Enterprise operations Remote namespace owner. */
     enterpriseOperationController: EnterpriseOperationController
     /** Enterprise Cordis Workspace extension Remote namespace owner. */
@@ -156,7 +164,7 @@ function operations(ctx: Context): EnterpriseOperationsService {
       const field = event.resourceType === 'work-record' ? 'sessionId'
         : event.resourceType === 'approval' ? 'approvalId'
           : event.resourceType === 'schedule' ? 'scheduleId'
-            : event.resourceType === 'fixed-team' ? 'teamId' : 'commandId'
+            : event.resourceType === 'fixed-team' || event.resourceType === 'team-definition' ? 'teamId' : 'commandId'
       const input = event.resourceId === undefined ? {} : { [field]: event.resourceId }
       return ctx.enterpriseSecurity.auditApiAsync(
         event.principal, event.endpoint, input,
@@ -237,6 +245,7 @@ export async function optimizeEmployeePromptWithLlm(
   return { prompt: optimized }
 }
 
+/** Enterprise employee Draft and Release Remote service. */
 export class EnterpriseEmployeeController extends TypertRemoteService {
   static inject = ['enterprisePostgres', 'enterpriseSecurity', 'enterpriseRequestContext', 'agentPresets', 'llm']
   /** @param ctx - authenticated enterprise Host context. */
@@ -274,7 +283,11 @@ export class EnterpriseEmployeeController extends TypertRemoteService {
     })
   }
 
-  /** Improve one unsaved responsibility prompt through a caller-selected configured model. */
+  /**
+   * Improve one unsaved responsibility prompt through a caller-selected configured model.
+   * @param request - prompt and configured model route.
+   * @returns optimized unsaved prompt text.
+   */
   @Remote('optimizePrompt')
   async optimizePrompt(
     request: EnterpriseEmployeeOptimizePromptRequest,
@@ -461,6 +474,67 @@ export class EnterpriseTeamController extends TypertRemoteService {
   ): Promise<T> {
     try { return await operation() }
     catch (error) { throw enterpriseFailure(error, endpoint, resourceType, resourceId) }
+  }
+}
+
+/** Enterprise team-definition Remote service. */
+export class EnterpriseTeamDefinitionController extends TypertRemoteService {
+  static inject = ['enterprisePostgres', 'enterpriseSecurity', 'enterpriseRequestContext']
+  /** @param ctx - authenticated enterprise Host context. */
+  constructor(ctx: Context) {
+    super(ctx, 'enterpriseTeamDefinitionController', { namespace: 'enterpriseTeamDefinition' })
+  }
+
+  /**
+   * List definitions visible to the authenticated organization.
+   * @param request - page cursor and size.
+   * @returns visible definition page.
+   */
+  @Remote('list')
+  async list(request: EnterpriseTeamDefinitionListRequest): Promise<EnterpriseTeamDefinitionPage> {
+    return this.run('enterpriseTeamDefinition.list', 'catalog', () =>
+      operations(this.ctx).listTeamDefinitions(principal(this.ctx), request) as Promise<EnterpriseTeamDefinitionPage>)
+  }
+
+  /**
+   * Read one definition from the authenticated organization.
+   * @param request - team identity.
+   * @returns current definition.
+   */
+  @Remote('get')
+  async get(request: EnterpriseTeamDefinitionLookup): Promise<EnterpriseTeamDefinition> {
+    return this.run('enterpriseTeamDefinition.get', request.teamId, async () => {
+      const value = await operations(this.ctx).getTeamDefinition(principal(this.ctx), request)
+      if (value === undefined) throw new EnterpriseOperationsError('not-found', 'team-definition', request.teamId)
+      return value as EnterpriseTeamDefinition
+    })
+  }
+
+  /**
+   * Create or CAS-save one definition in the authenticated organization.
+   * @param request - definition and write guards; revision zero creates it.
+   * @returns saved definition.
+   */
+  @Remote('save')
+  async save(request: EnterpriseTeamDefinitionSaveRequest): Promise<EnterpriseTeamDefinition> {
+    return this.run('enterpriseTeamDefinition.save', request.teamId, () =>
+      operations(this.ctx).saveTeamDefinition(principal(this.ctx), request) as Promise<EnterpriseTeamDefinition>)
+  }
+
+  /**
+   * Archive one definition; archived definitions cannot be reactivated.
+   * @param request - team identity and write guards.
+   * @returns archived definition.
+   */
+  @Remote('archive')
+  async archive(request: EnterpriseTeamDefinitionArchiveRequest): Promise<EnterpriseTeamDefinition> {
+    return this.run('enterpriseTeamDefinition.archive', request.teamId, () =>
+      operations(this.ctx).archiveTeamDefinition(principal(this.ctx), request) as Promise<EnterpriseTeamDefinition>)
+  }
+
+  private async run<T>(endpoint: string, resourceId: string, operation: () => Promise<T>): Promise<T> {
+    try { return await operation() }
+    catch (error) { throw enterpriseFailure(error, endpoint, 'team-definition', resourceId) }
   }
 }
 
@@ -844,6 +918,7 @@ export function apply(ctx: Context): void {
   new EnterpriseEmployeeController(ctx)
   new EnterpriseAssetController(ctx)
   new EnterpriseTeamController(ctx)
+  new EnterpriseTeamDefinitionController(ctx)
   new EnterpriseOperationController(ctx)
   new CordisWorkspaceController(ctx)
   new CordisReviewController(ctx)

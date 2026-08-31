@@ -96,6 +96,69 @@ export interface FixedTeamView {
   readonly createdAt: number
   readonly updatedAt: number
 }
+
+/** A person or immutable Agent release assigned to an enterprise team. */
+export type TeamActorRef =
+  | { readonly kind: 'human'; readonly userId: string }
+  | { readonly kind: 'agent'; readonly employeeReleaseId: string }
+
+/** A responsibility named by a team charter. */
+export interface TeamRoleDefinition {
+  readonly roleId: string
+  readonly name: string
+  readonly responsibility: string
+}
+
+/** One actor's chartered role. */
+export interface TeamRosterMember {
+  readonly actor: TeamActorRef
+  readonly roleId: string
+}
+
+/** Evidence and human-review requirements applied to team results. */
+export interface TeamVerificationPolicy {
+  readonly verifierRequired?: boolean
+  readonly rubricRefs?: readonly string[]
+  readonly highRiskHumanReviewRequired?: boolean
+}
+
+/** Decision concentration and optional concurrency bounds for a team. */
+export interface TeamAttentionPolicy {
+  readonly decisionQueue?: 'centralized'
+  readonly openDecisionLimit?: number
+  readonly workInProgressLimit?: number
+}
+
+/** Definition lifecycle; archived definitions cannot return to another state. */
+export type TeamDefinitionState = 'needs-charter' | 'active' | 'archived'
+
+/** Durable charter and roster, separate from team execution state. */
+export interface EnterpriseTeamDefinition {
+  readonly teamId: string
+  readonly orgId: string
+  readonly name: string
+  readonly northStar: string
+  readonly ownerUserId: string
+  readonly departmentId?: string
+  readonly visibility: 'organization' | 'private' | 'restricted'
+  readonly allowedUserIds?: readonly string[]
+  readonly leaderEmployeeReleaseId: string
+  readonly roster: readonly TeamRosterMember[]
+  readonly roles: readonly TeamRoleDefinition[]
+  readonly verificationPolicy: TeamVerificationPolicy
+  readonly attentionPolicy: TeamAttentionPolicy
+  readonly approvalPolicy: Readonly<Record<string, unknown>>
+  readonly revision: number
+  readonly state: TeamDefinitionState
+  readonly createdAt: number
+  readonly updatedAt: number
+}
+
+/** Stable keyset page of organization-scoped team definitions. */
+export interface TeamDefinitionPage {
+  readonly items: readonly EnterpriseTeamDefinition[]
+  readonly nextCursor?: string
+}
 export interface PostgresQueryResult<Row extends Record<string, unknown> = Record<string, unknown>> {
   readonly rows: readonly Row[]
   readonly rowCount: number | null

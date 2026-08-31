@@ -8,7 +8,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-`@deepseek-ai/dsh-api-enterprise-controller` owns the authenticated Typert Remote namespaces for enterprise employees, capability assets, fixed teams, work records, approvals, and schedules. Every operation resolves an `EnterprisePrincipal`, applies organization and role policy, records an audit decision, and delegates to the PostgreSQL control plane.
+`@deepseek-ai/dsh-api-enterprise-controller` owns the authenticated Typert Remote namespaces for enterprise employees, capability assets, fixed teams, typed team definitions, work records, approvals, and schedules. Every operation resolves an `EnterprisePrincipal`, applies organization and role policy, records an audit decision, and delegates to the PostgreSQL control plane.
 
 ## Table of Contents
 
@@ -22,22 +22,30 @@ English | [中文](README.zh.md)
 <a id="use-this-package"></a>
 ## Use this package
 
-Mount the controller only in the enterprise profile after `enterprisePostgres`, `enterpriseSecurity`, and `enterpriseRequestContext`. Clients consume its generated `enterpriseEmployee`, `enterpriseAsset`, `enterpriseTeam`, and `enterpriseOperation` namespaces through API Gateway. The package replaces the deleted monolithic ApiProxy but does not replace DSH Workspace, Session, Workflow, Sandbox, Subagent, or Agent Loop identities.
+Mount the controller only in the enterprise profile after `enterprisePostgres`, `enterpriseSecurity`, and `enterpriseRequestContext`. Clients consume its generated `enterpriseEmployee`, `enterpriseAsset`, `enterpriseTeam`, `enterpriseTeamDefinition`, and `enterpriseOperation` namespaces through API Gateway. `enterpriseTeamDefinition` exposes list, get, revision-fenced save, and archive; Host code injects the authenticated organization, while browser requests carry neither organization nor actor identity. The package replaces the deleted monolithic ApiProxy but does not replace DSH Workspace, Session, Workflow, Sandbox, Subagent, or Agent Loop identities.
 
 <a id="model-experience"></a>
 ## Model Experience
 
+### Enterprise control APIs
+
+#### What the model sees
+
 None. These APIs manage control-plane metadata and do not directly assemble model prompts or execute an Agent turn.
+
+#### Token effect
+
+Zero tokens. `enterpriseTeamDefinition` Remote calls do not enter model history.
 
 #### KV Cache effect
 
 None until a released employee starts an ordinary DSH Session.
 
-<a id="known-limitations-and-deferred-work"></a>
 ## Known Limitations and Deferred Work
 
 - The first enterprise profile targets one organization and one PostgreSQL deployment.
 - Live enterprise invalidation events are not a substitute for reading the authoritative repository after reconnect.
+- Team-definition Remote methods do not start TeamRun or coordinate Agent runtime work.
 
 <a id="dev-note"></a>
 ### Dev Note

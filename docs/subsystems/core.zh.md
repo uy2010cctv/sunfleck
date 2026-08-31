@@ -521,6 +521,13 @@ async read(id: string): Promise<string>
 async copy(from: string, id: string, name?: string): Promise<void>
 
 /**
+ * Compile a published enterprise employee identity into one user-authored preset.
+ * @param id - target preset identity.
+ * @param input - published employee fields to compile.
+ */
+async configureEmployee(id: string, input: EmployeePresetDefinition): Promise<void>
+
+/**
  * Copy one preset through the Remote API.
  * @param from - the source preset id.
  * @param id - the new preset id.
@@ -839,7 +846,7 @@ Source: [`packages/api/enterprise-controller/src/index.ts`](../../packages/api/e
 
 ### `ctx.enterpriseEmployeeController` — `EnterpriseEmployeeController`
 
-Employee Draft/Release Remote service.
+Enterprise employee Draft and Release Remote service.
 
 ```ts cordis-catalog
 /**
@@ -855,6 +862,13 @@ Employee Draft/Release Remote service.
  * @returns current mutable Draft.
  */
 @Remote('getDraft') async getDraft(request: EnterpriseEmployeeLookup): Promise<EnterpriseEmployeeDraft>
+
+/**
+ * Improve one unsaved responsibility prompt through a caller-selected configured model.
+ * @param request - prompt and configured model route.
+ * @returns optimized unsaved prompt text.
+ */
+@Remote('optimizePrompt') async optimizePrompt( request: EnterpriseEmployeeOptimizePromptRequest, ): Promise<EnterpriseEmployeeOptimizePromptResult>
 
 /**
  * Execute one authenticated enterprise operation.
@@ -1008,6 +1022,44 @@ Fixed team Remote service.
  * @returns saved team.
  */
 @Remote('save') async save(request: EnterpriseTeamSaveRequest): Promise<EnterpriseTeam>
+```
+
+Source: [`packages/api/enterprise-controller/src/index.ts`](../../packages/api/enterprise-controller/src/index.ts)
+
+<a id="ctxenterpriseteamdefinitioncontroller--enterpriseteamdefinitioncontroller"></a>
+
+### `ctx.enterpriseTeamDefinitionController` — `EnterpriseTeamDefinitionController`
+
+Enterprise team-definition Remote service.
+
+```ts cordis-catalog
+/**
+ * List definitions visible to the authenticated organization.
+ * @param request - page cursor and size.
+ * @returns visible definition page.
+ */
+@Remote('list') async list(request: EnterpriseTeamDefinitionListRequest): Promise<EnterpriseTeamDefinitionPage>
+
+/**
+ * Read one definition from the authenticated organization.
+ * @param request - team identity.
+ * @returns current definition.
+ */
+@Remote('get') async get(request: EnterpriseTeamDefinitionLookup): Promise<EnterpriseTeamDefinition>
+
+/**
+ * Create or CAS-save one definition in the authenticated organization.
+ * @param request - definition and write guards; revision zero creates it.
+ * @returns saved definition.
+ */
+@Remote('save') async save(request: EnterpriseTeamDefinitionSaveRequest): Promise<EnterpriseTeamDefinition>
+
+/**
+ * Archive one definition; archived definitions cannot be reactivated.
+ * @param request - team identity and write guards.
+ * @returns archived definition.
+ */
+@Remote('archive') async archive(request: EnterpriseTeamDefinitionArchiveRequest): Promise<EnterpriseTeamDefinition>
 ```
 
 Source: [`packages/api/enterprise-controller/src/index.ts`](../../packages/api/enterprise-controller/src/index.ts)

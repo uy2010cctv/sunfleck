@@ -35,6 +35,16 @@ export type {
   EnterpriseFixedTeamSaveInput,
   EnterpriseFixedTeamLookup,
   EnterpriseFixedTeamListInput,
+  EnterpriseTeamDefinitionCreateInput,
+  EnterpriseTeamDefinitionSaveInput,
+  EnterpriseTeamDefinitionLookup,
+  EnterpriseTeamDefinitionListInput,
+  EnterpriseTeamDefinitionArchiveInput,
 } from './service.ts'
-export { migrateEnterpriseOperations, ENTERPRISE_OPERATIONS_SCHEMA_VERSION } from './schema.ts'
+export {
+  migrateEnterpriseOperations,
+  ENTERPRISE_OPERATIONS_SCHEMA_VERSION,
+  LEGACY_TEAM_DEFINITION_OWNER_USER_ID,
+} from './schema.ts'
+export { assertTeamDefinitionExecutable, validateTeamDefinition } from './team-definition.ts'
 export type * from './types.ts'

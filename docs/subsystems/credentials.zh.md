@@ -386,6 +386,30 @@ async authorizeApiAsync(principal: EnterprisePrincipal, endpoint: string, input:
 async *filterWorkspaceFollow( principal: EnterprisePrincipal, frames: AsyncIterable<unknown>, ): AsyncIterable<unknown>
 
 /**
+ * Project a Session list to rows created by the authenticated user.
+ * @param principal - authenticated viewer.
+ * @param value - Host Session-list payload.
+ * @returns list payload containing only owned Sessions.
+ */
+async filterSessionList(principal: EnterprisePrincipal, value: unknown): Promise<unknown>
+
+/**
+ * Project Host-wide queue, job, and projection frames to the current user's Sessions.
+ * @param principal - authenticated viewer.
+ * @param frames - Host Session-control stream.
+ * @returns stream containing only owned Session state.
+ */
+async *filterSessionControl( principal: EnterprisePrincipal, frames: AsyncIterable<unknown>, ): AsyncIterable<unknown>
+
+/**
+ * Decide whether one ordinary Session belongs to the authenticated user.
+ * @param principal - authenticated viewer.
+ * @param sessionId - Session to test.
+ * @returns whether the Session owner matches the viewer.
+ */
+async sessionOwnedBy(principal: EnterprisePrincipal, sessionId: string): Promise<boolean>
+
+/**
  * Persist the ownership grant for a Workspace created through the native API.
  * @param principal - authenticated creator.
  * @param result - native Workspace create result.

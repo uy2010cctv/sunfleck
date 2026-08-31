@@ -153,6 +153,15 @@ export function classifyApiEndpoint(endpoint: string, input: unknown): ApiClassi
     const resourceId = stringField(payload, 'teamId')
     return { action: endpoint === 'enterpriseTeam.list' || endpoint === 'enterpriseTeam.get' ? 'team.read' : 'team.manage', resourceType: 'fixed-team', ...(resourceId === undefined ? {} : { resourceId }) }
   }
+  if (['enterpriseTeamDefinition.list', 'enterpriseTeamDefinition.get', 'enterpriseTeamDefinition.save',
+    'enterpriseTeamDefinition.archive'].includes(endpoint)) {
+    const resourceId = stringField(payload, 'teamId')
+    const read = endpoint === 'enterpriseTeamDefinition.list' || endpoint === 'enterpriseTeamDefinition.get'
+    return {
+      action: read ? 'team.read' : 'team.manage', resourceType: 'team-definition',
+      ...(resourceId === undefined ? {} : { resourceId }),
+    }
+  }
   const cordisPluginId = stringField(payload, 'pluginId')
   if (endpoint === 'cordisGovernance.departmentManagers') {
     const departmentId = stringField(payload, 'departmentId')
@@ -197,7 +206,10 @@ export function classifyApiEndpoint(endpoint: string, input: unknown): ApiClassi
     'enterpriseOperation.approvals.list', 'enterpriseOperation.approvals.get', 'enterpriseOperation.approvals.create', 'enterpriseOperation.approvals.transition', 'enterpriseOperation.approvals.cancel',
     'enterpriseOperation.schedules.list', 'enterpriseOperation.schedules.get', 'enterpriseOperation.schedules.create', 'enterpriseOperation.schedules.save', 'enterpriseOperation.schedules.transition', 'enterpriseOperation.schedules.fire',
     'enterpriseOperation.outbox.claim', 'enterpriseOperation.outbox.complete', 'enterpriseOperation.outbox.fail',
-    'enterpriseOperation.teams.list', 'enterpriseOperation.teams.get', 'enterpriseOperation.teams.create', 'enterpriseOperation.teams.save'].includes(endpoint)) {
+    'enterpriseOperation.teams.list', 'enterpriseOperation.teams.get', 'enterpriseOperation.teams.create', 'enterpriseOperation.teams.save',
+    'enterpriseOperation.teamDefinitions.list', 'enterpriseOperation.teamDefinitions.get',
+    'enterpriseOperation.teamDefinitions.create', 'enterpriseOperation.teamDefinitions.save',
+    'enterpriseOperation.teamDefinitions.archive'].includes(endpoint)) {
     const operation = endpoint.slice('enterpriseOperation.'.length)
     if (operation.startsWith('workRecords.') && (operation.endsWith('.get') || operation.endsWith('.list'))) {
       return { action: 'operation.read', resourceType: 'work-record', ...sessionId === undefined ? {} : { resourceId: sessionId } }
@@ -217,6 +229,14 @@ export function classifyApiEndpoint(endpoint: string, input: unknown): ApiClassi
       const resourceId = stringField(payload, 'teamId')
       const read = operation === 'teams.get' || operation === 'teams.list'
       return { action: read ? 'team.read' : 'team.manage', resourceType: 'fixed-team', ...(resourceId === undefined ? {} : { resourceId }) }
+    }
+    if (operation.startsWith('teamDefinitions.')) {
+      const resourceId = stringField(payload, 'teamId')
+      const read = operation === 'teamDefinitions.get' || operation === 'teamDefinitions.list'
+      return {
+        action: read ? 'team.read' : 'team.manage', resourceType: 'team-definition',
+        ...(resourceId === undefined ? {} : { resourceId }),
+      }
     }
   }
   return undefined
@@ -544,7 +564,12 @@ export class EnterpriseSecurity {
     }
   }
 
-  /** Project a Session list to rows created by the authenticated user. */
+  /**
+   * Project a Session list to rows created by the authenticated user.
+   * @param principal - authenticated viewer.
+   * @param value - Host Session-list payload.
+   * @returns list payload containing only owned Sessions.
+   */
   async filterSessionList(principal: EnterprisePrincipal, value: unknown): Promise<unknown> {
     if (!record(value)) return { items: [] }
     const items = Array.isArray(value['items']) ? value['items'] : []
@@ -556,7 +581,12 @@ export class EnterpriseSecurity {
     return { ...value, items: visible }
   }
 
-  /** Project Host-wide queue, job, and projection frames to the current user's Sessions. */
+  /**
+   * Project Host-wide queue, job, and projection frames to the current user's Sessions.
+   * @param principal - authenticated viewer.
+   * @param frames - Host Session-control stream.
+   * @returns stream containing only owned Session state.
+   */
   async *filterSessionControl(
     principal: EnterprisePrincipal,
     frames: AsyncIterable<unknown>,
@@ -587,7 +617,12 @@ export class EnterpriseSecurity {
     }
   }
 
-  /** Decide whether one ordinary Session belongs to the authenticated user. */
+  /**
+   * Decide whether one ordinary Session belongs to the authenticated user.
+   * @param principal - authenticated viewer.
+   * @param sessionId - Session to test.
+   * @returns whether the Session owner matches the viewer.
+   */
   async sessionOwnedBy(principal: EnterprisePrincipal, sessionId: string): Promise<boolean> {
     return await this.repository.sessionOwnerUserId(sessionId) === principal.userId
   }

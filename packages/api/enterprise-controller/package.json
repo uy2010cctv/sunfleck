@@ -1,6 +1,6 @@
 {
   "name": "@deepseek-ai/dsh-api-enterprise-controller",
-  "description": "Enterprise employee, asset, team, and operations Remote controllers",
+  "description": "Enterprise employee, asset, team-definition, and operations Remote controllers",
   "version": "0.1.2-alpha.1",
   "publishConfig": { "access": "public" },
   "repository": {

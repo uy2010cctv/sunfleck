@@ -13,6 +13,7 @@ import type {
   ApprovalView,
   BusinessState,
   FixedTeamView,
+  EnterpriseTeamDefinition,
   OutboxCommandView,
   ScheduleFireView,
   SchedulePage,
@@ -45,6 +46,11 @@ export interface EnterpriseOperationsDriver {
   readonly saveFixedTeam: EnterpriseOperationsRepository['saveFixedTeam']
   readonly getFixedTeam: EnterpriseOperationsRepository['getFixedTeam']
   readonly listFixedTeams: EnterpriseOperationsRepository['listFixedTeams']
+  readonly createTeamDefinition: EnterpriseOperationsRepository['createTeamDefinition']
+  readonly saveTeamDefinition: EnterpriseOperationsRepository['saveTeamDefinition']
+  readonly getTeamDefinition: EnterpriseOperationsRepository['getTeamDefinition']
+  readonly listTeamDefinitions: EnterpriseOperationsRepository['listTeamDefinitions']
+  readonly archiveTeamDefinition: EnterpriseOperationsRepository['archiveTeamDefinition']
 }
 
 type DriverInput<Name extends keyof EnterpriseOperationsDriver> = Parameters<EnterpriseOperationsDriver[Name]>[0]
@@ -88,6 +94,16 @@ export type EnterpriseFixedTeamCreateInput = WithoutOrganization<DriverInput<'cr
 export type EnterpriseFixedTeamSaveInput = WithoutOrganization<DriverInput<'saveFixedTeam'>>
 export interface EnterpriseFixedTeamLookup { readonly orgId?: string; readonly teamId: string }
 export type EnterpriseFixedTeamListInput = WithoutOrganization<DriverInput<'listFixedTeams'>>
+/** Host input for explicit team-definition creation. */
+export type EnterpriseTeamDefinitionCreateInput = WithoutOrganization<DriverInput<'createTeamDefinition'>>
+/** Host input for revision-fenced team-definition save. */
+export type EnterpriseTeamDefinitionSaveInput = WithoutOrganization<DriverInput<'saveTeamDefinition'>>
+/** Host-scoped team-definition identity. */
+export interface EnterpriseTeamDefinitionLookup { readonly orgId?: string; readonly teamId: string }
+/** Host input for a signed team-definition page. */
+export type EnterpriseTeamDefinitionListInput = WithoutOrganization<DriverInput<'listTeamDefinitions'>>
+/** Host input for terminal team-definition archival. */
+export type EnterpriseTeamDefinitionArchiveInput = WithoutOrganization<DriverInput<'archiveTeamDefinition'>>
 
 export type EnterpriseOperationsEndpoint =
   | 'enterpriseOperation.workRecords.upsert'
@@ -110,6 +126,11 @@ export type EnterpriseOperationsEndpoint =
   | 'enterpriseOperation.teams.save'
   | 'enterpriseOperation.teams.get'
   | 'enterpriseOperation.teams.list'
+  | 'enterpriseOperation.teamDefinitions.create'
+  | 'enterpriseOperation.teamDefinitions.save'
+  | 'enterpriseOperation.teamDefinitions.get'
+  | 'enterpriseOperation.teamDefinitions.list'
+  | 'enterpriseOperation.teamDefinitions.archive'
 
 export interface EnterpriseOperationsAuthorizationDecision {
   readonly allowed: boolean
@@ -170,6 +191,10 @@ function resource(endpoint: EnterpriseOperationsEndpoint, input: unknown): { res
   if (endpoint.startsWith('enterpriseOperation.outbox.')) {
     const id = typeof payload.commandId === 'string' ? payload.commandId : undefined
     return { resourceType: 'operation-outbox', ...(id === undefined ? {} : { resourceId: id }) }
+  }
+  if (endpoint.startsWith('enterpriseOperation.teamDefinitions.')) {
+    const id = typeof payload.teamId === 'string' ? payload.teamId : undefined
+    return { resourceType: 'team-definition', ...(id === undefined ? {} : { resourceId: id }) }
   }
   const id = typeof payload.teamId === 'string' ? payload.teamId : undefined
   return { resourceType: 'fixed-team', ...(id === undefined ? {} : { resourceId: id }) }
@@ -348,6 +373,71 @@ export class EnterpriseOperationsService {
   }
   async listFixedTeams(principal: EnterprisePrincipal, input: EnterpriseFixedTeamListInput = {}): ReturnType<EnterpriseOperationsDriver['listFixedTeams']> {
     return this.driver.listFixedTeams(await this.authorize(principal, 'enterpriseOperation.teams.list', input))
+  }
+
+  /**
+   * @param principal - authenticated actor.
+   * @param input - definition and write guards.
+   * @returns created definition.
+   */
+  async createTeamDefinition(
+    principal: EnterprisePrincipal,
+    input: EnterpriseTeamDefinitionCreateInput,
+  ): Promise<EnterpriseTeamDefinition> {
+    return this.driver.createTeamDefinition(
+      await this.authorize(principal, 'enterpriseOperation.teamDefinitions.create', input),
+    )
+  }
+  /**
+   * @param principal - authenticated actor.
+   * @param input - definition and write guards.
+   * @returns saved definition.
+   */
+  async saveTeamDefinition(
+    principal: EnterprisePrincipal,
+    input: EnterpriseTeamDefinitionSaveInput,
+  ): Promise<EnterpriseTeamDefinition> {
+    return this.driver.saveTeamDefinition(
+      await this.authorize(principal, 'enterpriseOperation.teamDefinitions.save', input),
+    )
+  }
+  /**
+   * @param principal - authenticated viewer.
+   * @param input - team identity.
+   * @returns visible definition when present.
+   */
+  async getTeamDefinition(
+    principal: EnterprisePrincipal,
+    input: EnterpriseTeamDefinitionLookup,
+  ): Promise<EnterpriseTeamDefinition | undefined> {
+    const scoped = await this.authorize(principal, 'enterpriseOperation.teamDefinitions.get', input)
+    return this.driver.getTeamDefinition(scoped.orgId, scoped.teamId)
+  }
+  /**
+   * @param principal - authenticated viewer.
+   * @param input - page options.
+   * @returns visible definition page.
+   */
+  async listTeamDefinitions(
+    principal: EnterprisePrincipal,
+    input: EnterpriseTeamDefinitionListInput = {},
+  ): ReturnType<EnterpriseOperationsDriver['listTeamDefinitions']> {
+    return this.driver.listTeamDefinitions(
+      await this.authorize(principal, 'enterpriseOperation.teamDefinitions.list', input),
+    )
+  }
+  /**
+   * @param principal - authenticated actor.
+   * @param input - identity and write guards.
+   * @returns archived definition.
+   */
+  async archiveTeamDefinition(
+    principal: EnterprisePrincipal,
+    input: EnterpriseTeamDefinitionArchiveInput,
+  ): Promise<EnterpriseTeamDefinition> {
+    return this.driver.archiveTeamDefinition(
+      await this.authorize(principal, 'enterpriseOperation.teamDefinitions.archive', input),
+    )
   }
 
 }

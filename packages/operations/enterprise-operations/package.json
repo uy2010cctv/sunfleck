@@ -1,6 +1,6 @@
 {
   "name": "@deepseek-ai/dsh-enterprise-operations",
-  "description": "Durable DSH enterprise work records, approvals, schedules, outbox, and fixed teams",
+  "description": "Durable DSH enterprise work records, approvals, schedules, team definitions, outbox, and fixed teams",
   "version": "0.1.1-rc.2",
   "publishConfig": {
     "access": "public"

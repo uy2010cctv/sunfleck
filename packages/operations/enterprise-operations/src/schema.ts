@@ -1,6 +1,8 @@
 /** PostgreSQL schema for work records, approvals, schedules, teams, and outbox. */
 import type { PostgresDatabase } from './types.ts'
-export const ENTERPRISE_OPERATIONS_SCHEMA_VERSION = 6
+export const ENTERPRISE_OPERATIONS_SCHEMA_VERSION = 7
+/** Owner placeholder for legacy fixed teams whose creator was never persisted. */
+export const LEGACY_TEAM_DEFINITION_OWNER_USER_ID = 'system:legacy-fixed-team-migration'
 const statements = [
   'CREATE TABLE IF NOT EXISTS dsh_enterprise_operations_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)',
   `CREATE TABLE IF NOT EXISTS dsh_enterprise_work_records (
@@ -32,6 +34,17 @@ const statements = [
   `CREATE TABLE IF NOT EXISTS dsh_enterprise_fixed_team_members (
     team_id TEXT NOT NULL REFERENCES dsh_enterprise_fixed_teams(team_id) ON DELETE CASCADE,
     employee_release_id TEXT NOT NULL, role TEXT NOT NULL, PRIMARY KEY(team_id, employee_release_id)
+  )`,
+  `CREATE TABLE IF NOT EXISTS dsh_enterprise_team_definitions (
+    org_id TEXT NOT NULL, team_id TEXT NOT NULL, name TEXT NOT NULL, north_star TEXT NOT NULL,
+    owner_user_id TEXT NOT NULL, department_id TEXT,
+    visibility TEXT NOT NULL CHECK (visibility IN ('organization', 'private', 'restricted')),
+    allowed_user_ids_json JSONB, leader_release_id TEXT NOT NULL,
+    roster_json JSONB NOT NULL, roles_json JSONB NOT NULL, verification_policy_json JSONB NOT NULL,
+    attention_policy_json JSONB NOT NULL, approval_policy_json JSONB NOT NULL,
+    state TEXT NOT NULL CHECK (state IN ('needs-charter', 'active', 'archived')),
+    revision BIGINT NOT NULL, created_at BIGINT NOT NULL, updated_at BIGINT NOT NULL,
+    PRIMARY KEY(org_id, team_id)
   )`,
   `CREATE TABLE IF NOT EXISTS dsh_enterprise_operation_outbox (
     command_id TEXT PRIMARY KEY, org_id TEXT NOT NULL, schedule_id TEXT NOT NULL,
@@ -93,11 +106,31 @@ const statements = [
     ON dsh_enterprise_schedules(org_id, state, created_at DESC, schedule_id DESC)`,
   `CREATE INDEX IF NOT EXISTS dsh_enterprise_fixed_teams_created_page_idx
     ON dsh_enterprise_fixed_teams(org_id, created_at DESC, team_id DESC)`,
+  `CREATE INDEX IF NOT EXISTS dsh_enterprise_team_definitions_created_page_idx
+    ON dsh_enterprise_team_definitions(org_id, created_at DESC, team_id DESC)`,
 ] as const
 export async function migrateEnterpriseOperations(database: PostgresDatabase): Promise<void> {
   await database.transaction(async (transaction) => {
     await transaction.query('SELECT pg_advisory_xact_lock($1)', [0x4453484f])
     for (const statement of statements) await transaction.query(statement)
+    await transaction.query(
+      `INSERT INTO dsh_enterprise_team_definitions(
+        org_id,team_id,name,north_star,owner_user_id,department_id,visibility,allowed_user_ids_json,
+        leader_release_id,roster_json,roles_json,verification_policy_json,attention_policy_json,
+        approval_policy_json,state,revision,created_at,updated_at)
+      SELECT fixed.org_id,fixed.team_id,'','',$1,NULL,'organization',NULL,fixed.leader_release_id,
+        COALESCE((SELECT jsonb_agg(jsonb_build_object(
+          'actor',jsonb_build_object('kind','agent','employeeReleaseId',member.employee_release_id),
+          'roleId',member.role) ORDER BY member.employee_release_id)
+          FROM dsh_enterprise_fixed_team_members member WHERE member.team_id=fixed.team_id),'[]'::jsonb),
+        COALESCE((SELECT jsonb_agg(jsonb_build_object(
+          'roleId',role.role,'name',role.role,'responsibility','') ORDER BY role.role)
+          FROM (SELECT DISTINCT member.role FROM dsh_enterprise_fixed_team_members member
+            WHERE member.team_id=fixed.team_id) role),'[]'::jsonb),
+        '{}'::jsonb,'{}'::jsonb,fixed.approval_policy_json,'needs-charter',1,fixed.created_at,fixed.updated_at
+      FROM dsh_enterprise_fixed_teams fixed ON CONFLICT (org_id,team_id) DO NOTHING`,
+      [LEGACY_TEAM_DEFINITION_OWNER_USER_ID],
+    )
     const current = await transaction.query<{ value: string }>(
       "SELECT value FROM dsh_enterprise_operations_meta WHERE key = 'schema-version'",
     )

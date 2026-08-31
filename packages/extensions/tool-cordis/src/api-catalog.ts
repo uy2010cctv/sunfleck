@@ -195,6 +195,11 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         throws: ['when the source is unknown, the id is unusable or already taken, or the deployment configures no writable root.'],
       },
       {
+        signature: 'async configureEmployee(id: string, input: EmployeePresetDefinition): Promise<void>',
+        description: 'Compile a published enterprise employee identity into one user-authored preset.',
+        parameters: [{ name: 'id', description: 'target preset identity.' }, { name: 'input', description: 'published employee fields to compile.' }],
+      },
+      {
         signature: '@Remote(\'copy\') async remoteExportCopy(from: string, id: string, name?: string): Promise<void>',
         description: 'Copy one preset through the Remote API.',
         parameters: [{ name: 'from', description: 'the source preset id.' }, { name: 'id', description: 'the new preset id.' }, { name: 'name', description: 'the copy\'s optional display name.' }],
@@ -1102,8 +1107,8 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
   },
   {
     key: 'enterpriseEmployeeController',
-    summary: 'Employee Draft/Release Remote service.',
-    description: 'Employee Draft/Release Remote service.',
+    summary: 'Enterprise employee Draft and Release Remote service.',
+    description: 'Enterprise employee Draft and Release Remote service.',
     methods: [
       {
         signature: '@Remote(\'list\') async list(request: EnterpriseEmployeeListRequest): Promise<EnterpriseEmployeePage>',
@@ -1116,6 +1121,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         description: 'Execute one authenticated enterprise operation.',
         parameters: [{ name: 'request', description: 'employee identity.' }],
         returns: 'current mutable Draft.',
+      },
+      {
+        signature: '@Remote(\'optimizePrompt\') async optimizePrompt( request: EnterpriseEmployeeOptimizePromptRequest, ): Promise<EnterpriseEmployeeOptimizePromptResult>',
+        description: 'Improve one unsaved responsibility prompt through a caller-selected configured model.',
+        parameters: [{ name: 'request', description: 'prompt and configured model route.' }],
+        returns: 'optimized unsaved prompt text.',
       },
       {
         signature: '@Remote(\'saveDraft\') async saveDraft(request: EnterpriseEmployeeSaveRequest): Promise<EnterpriseEmployeeDraft>',
@@ -1339,6 +1350,24 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'a principal-scoped Workspace stream.',
       },
       {
+        signature: 'async filterSessionList(principal: EnterprisePrincipal, value: unknown): Promise<unknown>',
+        description: 'Project a Session list to rows created by the authenticated user.',
+        parameters: [{ name: 'principal', description: 'authenticated viewer.' }, { name: 'value', description: 'Host Session-list payload.' }],
+        returns: 'list payload containing only owned Sessions.',
+      },
+      {
+        signature: 'async *filterSessionControl( principal: EnterprisePrincipal, frames: AsyncIterable<unknown>, ): AsyncIterable<unknown>',
+        description: 'Project Host-wide queue, job, and projection frames to the current user\'s Sessions.',
+        parameters: [{ name: 'principal', description: 'authenticated viewer.' }, { name: 'frames', description: 'Host Session-control stream.' }],
+        returns: 'stream containing only owned Session state.',
+      },
+      {
+        signature: 'async sessionOwnedBy(principal: EnterprisePrincipal, sessionId: string): Promise<boolean>',
+        description: 'Decide whether one ordinary Session belongs to the authenticated user.',
+        parameters: [{ name: 'principal', description: 'authenticated viewer.' }, { name: 'sessionId', description: 'Session to test.' }],
+        returns: 'whether the Session owner matches the viewer.',
+      },
+      {
         signature: 'async recordWorkspaceCreated(principal: EnterprisePrincipal, result: unknown): Promise<void>',
         description: 'Persist the ownership grant for a Workspace created through the native API.',
         parameters: [{ name: 'principal', description: 'authenticated creator.' }, { name: 'result', description: 'native Workspace create result.' }],
@@ -1394,6 +1423,37 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         description: 'Execute one authenticated enterprise operation.',
         parameters: [{ name: 'request', description: 'team composition and CAS revision.' }],
         returns: 'saved team.',
+      },
+    ],
+  },
+  {
+    key: 'enterpriseTeamDefinitionController',
+    summary: 'Enterprise team-definition Remote service.',
+    description: 'Enterprise team-definition Remote service.',
+    methods: [
+      {
+        signature: '@Remote(\'list\') async list(request: EnterpriseTeamDefinitionListRequest): Promise<EnterpriseTeamDefinitionPage>',
+        description: 'List definitions visible to the authenticated organization.',
+        parameters: [{ name: 'request', description: 'page cursor and size.' }],
+        returns: 'visible definition page.',
+      },
+      {
+        signature: '@Remote(\'get\') async get(request: EnterpriseTeamDefinitionLookup): Promise<EnterpriseTeamDefinition>',
+        description: 'Read one definition from the authenticated organization.',
+        parameters: [{ name: 'request', description: 'team identity.' }],
+        returns: 'current definition.',
+      },
+      {
+        signature: '@Remote(\'save\') async save(request: EnterpriseTeamDefinitionSaveRequest): Promise<EnterpriseTeamDefinition>',
+        description: 'Create or CAS-save one definition in the authenticated organization.',
+        parameters: [{ name: 'request', description: 'definition and write guards; revision zero creates it.' }],
+        returns: 'saved definition.',
+      },
+      {
+        signature: '@Remote(\'archive\') async archive(request: EnterpriseTeamDefinitionArchiveRequest): Promise<EnterpriseTeamDefinition>',
+        description: 'Archive one definition; archived definitions cannot be reactivated.',
+        parameters: [{ name: 'request', description: 'team identity and write guards.' }],
+        returns: 'archived definition.',
       },
     ],
   },
@@ -3383,6 +3443,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'the existing or newly durable workspace.',
       },
       {
+        signature: 'async ensure(id: WorkspaceId, path: string, title: string): Promise<Workspace>',
+        description: 'Ensure a deployment-managed Workspace keeps its externally assigned identity. This repairs a registration that was removed while its enterprise grant and directory remained durable.',
+        parameters: [{ name: 'id', description: 'stable Workspace identity owned by the provisioning control plane.' }, { name: 'path', description: 'existing directory the Workspace must own.' }, { name: 'title', description: 'user-visible title used when the record must be recreated.' }],
+        returns: 'the matching existing or restored Workspace.',
+      },
+      {
         signature: 'get(id: WorkspaceId): Workspace | undefined',
         description: 'Look up a workspace by id.',
         parameters: [{ name: 'id', description: 'Workspace id.' }],
@@ -4697,6 +4763,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface EmployeeMetadata {\n    readonly position?: string;\n    readonly department?: string;\n    readonly capabilities?: readonly string[];\n}',
   },
   {
+    name: 'EmployeePresetDefinition',
+    declaration: 'export interface EmployeePresetDefinition {\n    readonly name: string;\n    readonly description?: string;\n    readonly position?: string;\n    readonly department?: string;\n    readonly capabilities?: readonly string[];\n    readonly prompt: string;\n}',
+  },
+  {
     name: 'EncodedImageAttachment',
     declaration: 'export interface EncodedImageAttachment {\n    mediaType: ImageMediaType;\n    data: string;\n    name?: string;\n}',
   },
@@ -4793,6 +4863,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface EnterpriseEmployeeLookup {\n    readonly presetId: string;\n}',
   },
   {
+    name: 'EnterpriseEmployeeOptimizePromptRequest',
+    declaration: 'export interface EnterpriseEmployeeOptimizePromptRequest {\n    readonly provider: string;\n    readonly model: string;\n    readonly prompt: string;\n}',
+  },
+  {
+    name: 'EnterpriseEmployeeOptimizePromptResult',
+    declaration: 'export interface EnterpriseEmployeeOptimizePromptResult {\n    readonly prompt: string;\n}',
+  },
+  {
     name: 'EnterpriseEmployeePage',
     declaration: 'export interface EnterpriseEmployeePage {\n    items: readonly EnterpriseEmployeeDraft[];\n    nextCursor?: string;\n}',
   },
@@ -4851,6 +4929,22 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'EnterpriseTeam',
     declaration: 'export interface EnterpriseTeam {\n    teamId: string;\n    orgId: string;\n    leaderEmployeeReleaseId: string;\n    members: readonly EnterpriseTeamMember[];\n    workflowTemplate: Readonly<Record<string, JsonValue>>;\n    approvalPolicy: Readonly<Record<string, JsonValue>>;\n    revision: number;\n    createdAt: number;\n    updatedAt: number;\n}',
+  },
+  {
+    name: 'EnterpriseTeamDefinitionArchiveRequest',
+    declaration: 'export interface EnterpriseTeamDefinitionArchiveRequest {\n    readonly teamId: string;\n    readonly expectedRevision: number;\n    readonly idempotencyKey: string;\n}',
+  },
+  {
+    name: 'EnterpriseTeamDefinitionListRequest',
+    declaration: 'export interface EnterpriseTeamDefinitionListRequest {\n    readonly limit?: number;\n    readonly cursor?: string;\n}',
+  },
+  {
+    name: 'EnterpriseTeamDefinitionPage',
+    declaration: 'export interface EnterpriseTeamDefinitionPage {\n    readonly items: readonly EnterpriseTeamDefinition[];\n    readonly nextCursor?: string;\n}',
+  },
+  {
+    name: 'EnterpriseTeamDefinitionSaveRequest',
+    declaration: 'export interface EnterpriseTeamDefinitionSaveRequest extends Omit<EnterpriseTeamDefinition, \'orgId\' | \'revision\' | \'createdAt\' | \'updatedAt\'> {\n    readonly expectedRevision: number;\n    readonly idempotencyKey: string;\n}',
   },
   {
     name: 'EnterpriseTeamListRequest',

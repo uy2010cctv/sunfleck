@@ -263,6 +263,16 @@ Durable workspace registry. Startup waits for `sessionPersistence`, builds one c
 async create(path: string, title?: string): Promise<Workspace>
 
 /**
+ * Ensure a deployment-managed Workspace keeps its externally assigned identity.
+ * This repairs a registration that was removed while its enterprise grant and directory remained durable.
+ * @param id - stable Workspace identity owned by the provisioning control plane.
+ * @param path - existing directory the Workspace must own.
+ * @param title - user-visible title used when the record must be recreated.
+ * @returns the matching existing or restored Workspace.
+ */
+async ensure(id: WorkspaceId, path: string, title: string): Promise<Workspace>
+
+/**
  * Look up a workspace by id.
  * @param id - Workspace id.
  * @returns the workspace, or `undefined` when unknown.

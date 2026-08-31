@@ -28,4 +28,73 @@ export interface EnterpriseTeamSaveRequest {
   readonly expectedRevision: number
   readonly idempotencyKey: string
 }
+
+/** A person or immutable Agent release assigned to a team. */
+export type TeamActorRef =
+  | { readonly kind: 'human'; readonly userId: string }
+  | { readonly kind: 'agent'; readonly employeeReleaseId: string }
+/** Named responsibility in a team charter. */
+export interface TeamRoleDefinition {
+  readonly roleId: string
+  readonly name: string
+  readonly responsibility: string
+}
+/** One actor's chartered role. */
+export interface TeamRosterMember { readonly actor: TeamActorRef; readonly roleId: string }
+/** Evidence and human-review requirements for team results. */
+export interface TeamVerificationPolicy {
+  readonly verifierRequired?: boolean
+  readonly rubricRefs?: readonly string[]
+  readonly highRiskHumanReviewRequired?: boolean
+}
+/** Central decision queue and optional concurrency bounds. */
+export interface TeamAttentionPolicy {
+  readonly decisionQueue?: 'centralized'
+  readonly openDecisionLimit?: number
+  readonly workInProgressLimit?: number
+}
+/** Team charter lifecycle. */
+export type TeamDefinitionState = 'needs-charter' | 'active' | 'archived'
+/** Durable team charter; runtime and TeamRun state are stored separately. */
+export interface EnterpriseTeamDefinition {
+  readonly teamId: string
+  readonly orgId: string
+  readonly name: string
+  readonly northStar: string
+  readonly ownerUserId: string
+  readonly departmentId?: string
+  readonly visibility: 'organization' | 'private' | 'restricted'
+  readonly allowedUserIds?: readonly string[]
+  readonly leaderEmployeeReleaseId: string
+  readonly roster: readonly TeamRosterMember[]
+  readonly roles: readonly TeamRoleDefinition[]
+  readonly verificationPolicy: TeamVerificationPolicy
+  readonly attentionPolicy: TeamAttentionPolicy
+  readonly approvalPolicy: Readonly<Record<string, JsonValue>>
+  readonly revision: number
+  readonly state: TeamDefinitionState
+  readonly createdAt: number
+  readonly updatedAt: number
+}
+/** Stable page of visible team definitions. */
+export interface EnterpriseTeamDefinitionPage {
+  readonly items: readonly EnterpriseTeamDefinition[]
+  readonly nextCursor?: string
+}
+/** Browser page request; Host supplies organization and actor identity. */
+export interface EnterpriseTeamDefinitionListRequest { readonly limit?: number; readonly cursor?: string }
+/** Browser lookup request; Host supplies organization and actor identity. */
+export interface EnterpriseTeamDefinitionLookup { readonly teamId: string }
+/** Browser definition write; Host supplies organization and actor identity. */
+export interface EnterpriseTeamDefinitionSaveRequest
+  extends Omit<EnterpriseTeamDefinition, 'orgId' | 'revision' | 'createdAt' | 'updatedAt'> {
+  readonly expectedRevision: number
+  readonly idempotencyKey: string
+}
+/** Browser terminal archive write; Host supplies organization and actor identity. */
+export interface EnterpriseTeamDefinitionArchiveRequest {
+  readonly teamId: string
+  readonly expectedRevision: number
+  readonly idempotencyKey: string
+}
 import type { JsonValue } from '@deepseek-ai/dsh-session/types'
