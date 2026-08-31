@@ -557,11 +557,7 @@ export class AgentPresets extends TypertRemoteService {
     this.standing.delete(id)
   }
 
-  /**
-   * Compile a published enterprise employee identity into one user-authored preset.
-   * @param id - target preset identity.
-   * @param input - published employee fields to compile.
-   */
+  /** Compile a published enterprise employee identity into one user-authored preset. */
   async configureEmployee(id: string, input: EmployeePresetDefinition): Promise<void> {
     await configureEmployeeComposition(this.resolvedRoots, await this.resolve(id), input)
     this.standing.delete(id)

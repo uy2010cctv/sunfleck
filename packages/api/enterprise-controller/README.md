@@ -22,7 +22,7 @@ English | [中文](README.zh.md)
 <a id="use-this-package"></a>
 ## Use this package
 
-Mount the controller only in the enterprise profile after `enterprisePostgres`, `enterpriseSecurity`, and `enterpriseRequestContext`. Clients consume its generated `enterpriseEmployee`, `enterpriseAsset`, `enterpriseTeam`, `enterpriseTeamDefinition`, and `enterpriseOperation` namespaces through API Gateway. `enterpriseTeamDefinition` exposes list, get, revision-fenced save, and archive; Host code injects the authenticated organization, while browser requests carry neither organization nor actor identity. The package replaces the deleted monolithic ApiProxy but does not replace DSH Workspace, Session, Workflow, Sandbox, Subagent, or Agent Loop identities.
+Mount the controller only in the enterprise profile after `enterprisePostgres`, `enterpriseSecurity`, and `enterpriseRequestContext`. Clients consume its generated `enterpriseEmployee`, `enterpriseAsset`, `enterpriseTeam`, `enterpriseTeamDefinition`, and `enterpriseOperation` namespaces through API Gateway. `enterpriseTeamDefinition` exposes list, get, revision-fenced save, and archive; Host code injects the authenticated organization, while browser requests carry neither organization nor actor identity. The Host service applies owner, administrator, private, and restricted visibility before returning definitions. The package replaces the deleted monolithic ApiProxy but does not replace DSH Workspace, Session, Workflow, Sandbox, Subagent, or Agent Loop identities.
 
 <a id="model-experience"></a>
 ## Model Experience

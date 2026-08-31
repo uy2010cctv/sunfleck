@@ -3,9 +3,9 @@ import { EnterpriseRequestContext } from '@deepseek-ai/dsh-enterprise-auth-web'
 import { EnterpriseOperationsError } from '@deepseek-ai/dsh-enterprise-operations'
 import { TypertRemoteFailure } from '@deepseek-ai/dsh-typert-protocol'
 import { describe, expect, it, vi } from 'vitest'
-import { EnterpriseTeamDefinitionController } from '../src/index.ts'
+import { EnterpriseTeamDefinitionController, type EnterpriseTeamDefinition } from '../src/index.ts'
 
-const saved = {
+const saved: EnterpriseTeamDefinition = {
   teamId: 'team-a', orgId: 'org-a', name: 'Finance', northStar: 'Verified close.', ownerUserId: 'creator-a',
   visibility: 'organization' as const, leaderEmployeeReleaseId: 'release-a',
   roles: [{ roleId: 'owner', name: 'Owner', responsibility: 'Own.' }],
@@ -18,12 +18,12 @@ const saved = {
   revision: 1, createdAt: 1, updatedAt: 1,
 }
 
-function setup(allowed = true) {
+function setup(allowed = true, definition: EnterpriseTeamDefinition = saved) {
   const driver = {
-    saveTeamDefinition: vi.fn().mockResolvedValue(saved),
-    getTeamDefinition: vi.fn().mockResolvedValue(saved),
-    listTeamDefinitions: vi.fn().mockResolvedValue({ items: [saved] }),
-    archiveTeamDefinition: vi.fn().mockResolvedValue({ ...saved, state: 'archived', revision: 2 }),
+    saveTeamDefinition: vi.fn().mockResolvedValue(definition),
+    getTeamDefinition: vi.fn().mockResolvedValue(definition),
+    listTeamDefinitions: vi.fn().mockResolvedValue({ items: [definition] }),
+    archiveTeamDefinition: vi.fn().mockResolvedValue({ ...definition, state: 'archived', revision: 2 }),
   }
   const authorizeApiAsync = vi.fn().mockResolvedValue({
     allowed, reason: allowed ? 'role' : 'insufficient-role',
@@ -95,5 +95,38 @@ describe('enterprise team-definition Remote controller', () => {
       code: 'enterprise-conflict', message: 'enterprise operations conflict',
       details: { endpoint: 'enterpriseTeamDefinition.save', resourceType: 'team-definition', resourceId: 'team-a' },
     })
+  })
+
+  it('denies list, get, and archive when team RBAC rejects the authenticated principal', async () => {
+    const app = setup(false)
+    const failures = await app.requestContext.run(principal, () => Promise.all([
+      app.controller.list({}).catch(error => error),
+      app.controller.get({ teamId: 'team-a' }).catch(error => error),
+      app.controller.archive({ teamId: 'team-a', expectedRevision: 1, idempotencyKey: 'archive-denied' })
+        .catch(error => error),
+    ]))
+    for (const failure of failures) {
+      expect(failure).toBeInstanceOf(TypertRemoteFailure)
+      expect((failure as TypertRemoteFailure).failure).toMatchObject({ code: 'enterprise-forbidden' })
+    }
+    expect(app.driver.listTeamDefinitions).not.toHaveBeenCalled()
+    expect(app.driver.getTeamDefinition).not.toHaveBeenCalled()
+    expect(app.driver.archiveTeamDefinition).not.toHaveBeenCalled()
+  })
+
+  it('does not reveal a private definition to another authorized team reader', async () => {
+    const app = setup(true, { ...saved, ownerUserId: 'other-a', visibility: 'private' })
+    const failure = await app.requestContext.run(principal, () => app.controller.get({ teamId: 'team-a' }))
+      .catch(error => error)
+    expect(failure).toBeInstanceOf(TypertRemoteFailure)
+    expect((failure as TypertRemoteFailure).failure).toMatchObject({ code: 'enterprise-not-found' })
+  })
+
+  it('fails closed without an authenticated request principal', async () => {
+    const app = setup()
+    const failure = await app.controller.list({}).catch(error => error)
+    expect(failure).toBeInstanceOf(TypertRemoteFailure)
+    expect((failure as TypertRemoteFailure).failure).toMatchObject({ code: 'enterprise-forbidden' })
+    expect(app.driver.listTeamDefinitions).not.toHaveBeenCalled()
   })
 })

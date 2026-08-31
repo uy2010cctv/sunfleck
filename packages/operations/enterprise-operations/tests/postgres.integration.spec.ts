@@ -44,6 +44,29 @@ async function reset(): Promise<void> {
     dsh_enterprise_operations_idempotency, dsh_enterprise_operations_meta CASCADE`)
 }
 
+async function activateFixedTeam(
+  operations: EnterpriseOperationsRepository,
+  orgId: string,
+  teamId: string,
+  leaderEmployeeReleaseId: string,
+): Promise<void> {
+  await operations.saveTeamDefinition({
+    teamId, orgId, name: `Active ${teamId}`, northStar: 'Execute only from a reviewed charter.',
+    ownerUserId: 'owner-a', visibility: 'organization', leaderEmployeeReleaseId,
+    roles: [
+      { roleId: 'owner', name: 'Owner', responsibility: 'Own the decision.' },
+      { roleId: 'leader', name: 'Leader', responsibility: 'Lead execution.' },
+    ],
+    roster: [
+      { actor: { kind: 'human', userId: 'owner-a' }, roleId: 'owner' },
+      { actor: { kind: 'agent', employeeReleaseId: leaderEmployeeReleaseId }, roleId: 'leader' },
+    ],
+    verificationPolicy: { verifierRequired: true, rubricRefs: [], highRiskHumanReviewRequired: true },
+    attentionPolicy: { decisionQueue: 'centralized' }, approvalPolicy: {}, state: 'active',
+    expectedRevision: 1, idempotencyKey: `activate-${teamId}`,
+  })
+}
+
 describe.skipIf(database === undefined)('enterprise operations PostgreSQL', () => {
   beforeEach(reset)
   afterAll(async () => { await reset(); await pool?.end() })
@@ -66,6 +89,7 @@ describe.skipIf(database === undefined)('enterprise operations PostgreSQL', () =
       teamId: 'pg-team', orgId: 'pg-org', leaderEmployeeReleaseId: 'pg-lead', members: [],
       workflowTemplate: {}, approvalPolicy: {}, expectedRevision: 0, idempotencyKey: 'pg-team-create',
     })
+    await activateFixedTeam(operations, 'pg-org', 'pg-team', 'pg-lead')
     await operations.createSchedule({
       scheduleId: 'pg-schedule', orgId: 'pg-org', target: { kind: 'team', teamId: 'pg-team' }, timezone: 'UTC',
       rule: '0 * * * *', input: {}, nextRunAt: 1, expectedRevision: 0, idempotencyKey: 'pg-schedule-create',
@@ -101,6 +125,7 @@ describe.skipIf(database === undefined)('enterprise operations PostgreSQL', () =
         teamId: `team-${suffix}`, orgId: 'race-org', leaderEmployeeReleaseId: `lead-${suffix}`, members: [],
         workflowTemplate: {}, approvalPolicy: {}, expectedRevision: 0, idempotencyKey: `team-${suffix}`,
       })
+      await activateFixedTeam(operations, 'race-org', `team-${suffix}`, `lead-${suffix}`)
       await operations.createSchedule({
         scheduleId: `schedule-${suffix}`, orgId: 'race-org', target: { kind: 'team', teamId: `team-${suffix}` }, timezone: 'UTC',
         rule: '* * * * *', input: {}, nextRunAt: 1, expectedRevision: 0, idempotencyKey: `schedule-${suffix}`,
@@ -123,11 +148,12 @@ describe.skipIf(database === undefined)('enterprise operations PostgreSQL', () =
       allowUnverifiedReferences: true,
       cursorSigningKey: Buffer.from('operations-real-postgres-cursor-key'),
     })
-    await operations.createFixedTeam({
-      teamId: 'legacy-definition', orgId: 'definition-org', leaderEmployeeReleaseId: 'release-a',
-      members: [{ employeeReleaseId: 'release-a', role: 'analyst' }], workflowTemplate: {},
-      approvalPolicy: { review: true }, expectedRevision: 0, idempotencyKey: 'legacy-definition',
-    })
+    await migrateEnterpriseOperations(postgres)
+    await postgres.query(`INSERT INTO dsh_enterprise_fixed_teams(
+      team_id,org_id,leader_release_id,workflow_template_json,approval_policy_json,revision,created_at,updated_at)
+      VALUES ('legacy-definition','definition-org','release-a','{}'::jsonb,'{"review":true}'::jsonb,1,1,1)`)
+    await postgres.query(`INSERT INTO dsh_enterprise_fixed_team_members(team_id,employee_release_id,role)
+      VALUES ('legacy-definition','release-a','analyst')`)
     await migrateEnterpriseOperations(postgres)
     await migrateEnterpriseOperations(postgres)
     await expect(operations.listTeamDefinitions({ orgId: 'definition-org', limit: 10 })).resolves.toMatchObject({

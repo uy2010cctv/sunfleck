@@ -21,8 +21,8 @@ import type {
   WorkRecordPage,
   WorkRecordView,
 } from './types.ts'
-import { migrateEnterpriseOperations } from './schema.ts'
-import { validateTeamDefinition } from './team-definition.ts'
+import { LEGACY_TEAM_DEFINITION_OWNER_USER_ID, migrateEnterpriseOperations } from './schema.ts'
+import { assertTeamDefinitionExecutable, validateTeamDefinition } from './team-definition.ts'
 
 /** Stable operations failure for Host adapters. */
 export class EnterpriseOperationsError extends Error {
@@ -274,6 +274,12 @@ export class EnterpriseOperationsRepository {
     ])
     const team = result.rows[0]
     if (team === undefined || team.org_id !== orgId) throw new Error(`fixed team ${teamId} was not found in organization ${orgId}`)
+    const definitions = await database.query<TeamDefinitionRow>(
+      'SELECT * FROM dsh_enterprise_team_definitions WHERE org_id=$1 AND team_id=$2', [orgId, teamId],
+    )
+    if (definitions.rows[0] === undefined)
+      throw new EnterpriseOperationsError('invalid-state', 'team-definition', teamId)
+    assertTeamDefinitionExecutable(this.teamDefinition(definitions.rows[0]))
     return team
   }
   private async idempotent<T>(
@@ -865,6 +871,7 @@ export class EnterpriseOperationsRepository {
           member.employeeReleaseId,
           member.role,
         ])
+      await this.ensureFixedTeamDefinition(database, input, now)
       const view = this.team(required(result.rows[0], 'fixed team'), input.members)
       await this.remember(database, input.orgId, 'team-create', input.idempotencyKey, input, view)
       return view
@@ -972,6 +979,8 @@ export class EnterpriseOperationsRepository {
       if (prior !== undefined) return prior
       if (input.expectedRevision !== 0)
         throw new EnterpriseOperationsError('conflict', 'team-definition', input.teamId)
+      if (input.state === 'archived')
+        throw new EnterpriseOperationsError('invalid-transition', 'team-definition', input.teamId)
       const existing = await database.query<TeamDefinitionRow>(
         'SELECT * FROM dsh_enterprise_team_definitions WHERE org_id=$1 AND team_id=$2',
         [input.orgId, input.teamId],
@@ -1017,7 +1026,7 @@ export class EnterpriseOperationsRepository {
       if (row === undefined) throw new EnterpriseOperationsError('not-found', 'team-definition', input.teamId)
       if (Number(row.revision) !== input.expectedRevision)
         throw new EnterpriseOperationsError('conflict', 'team-definition', input.teamId)
-      if (row.state === 'archived' && input.state !== 'archived')
+      if (row.state === 'archived' || input.state === 'archived')
         throw new EnterpriseOperationsError('invalid-transition', 'team-definition', input.teamId)
       const candidate: EnterpriseTeamDefinition = {
         ...input, revision: input.expectedRevision + 1, createdAt: Number(row.created_at), updatedAt: this.now(),
@@ -1221,5 +1230,38 @@ export class EnterpriseOperationsRepository {
     for (const member of definition.roster)
       if (member.actor.kind === 'agent') releases.add(member.actor.employeeReleaseId)
     await Promise.all([...releases].map(releaseId => this.requireRelease(database, orgId, releaseId)))
+  }
+  private async ensureFixedTeamDefinition(
+    database: PostgresDatabase,
+    input: {
+      teamId: string
+      orgId: string
+      leaderEmployeeReleaseId: string
+      members: readonly { employeeReleaseId: string; role: string }[]
+      approvalPolicy: Readonly<Record<string, unknown>>
+    },
+    now: number,
+  ): Promise<void> {
+    const roles = [...new Set(input.members.map(member => member.role))].sort()
+      .map(role => ({ roleId: role, name: role, responsibility: '' }))
+    const definition: EnterpriseTeamDefinition = {
+      teamId: input.teamId, orgId: input.orgId, name: '', northStar: '',
+      ownerUserId: LEGACY_TEAM_DEFINITION_OWNER_USER_ID, visibility: 'organization',
+      leaderEmployeeReleaseId: input.leaderEmployeeReleaseId,
+      roster: input.members.map(member => ({
+        actor: { kind: 'agent', employeeReleaseId: member.employeeReleaseId }, roleId: member.role,
+      })),
+      roles, verificationPolicy: {}, attentionPolicy: {}, approvalPolicy: input.approvalPolicy,
+      state: 'needs-charter', revision: 1, createdAt: now, updatedAt: now,
+    }
+    await database.query(
+      `INSERT INTO dsh_enterprise_team_definitions(
+        org_id,team_id,name,north_star,owner_user_id,department_id,visibility,allowed_user_ids_json,
+        leader_release_id,roster_json,roles_json,verification_policy_json,attention_policy_json,
+        approval_policy_json,state,revision,created_at,updated_at)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,$10::jsonb,$11::jsonb,$12::jsonb,$13::jsonb,$14::jsonb,$15,1,$16,$16)
+      ON CONFLICT (org_id,team_id) DO NOTHING`,
+      this.teamDefinitionValues(definition),
+    )
   }
 }

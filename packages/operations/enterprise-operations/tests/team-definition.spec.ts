@@ -53,6 +53,11 @@ describe('enterprise team definition validation', () => {
       { actor: { kind: 'agent' as const, employeeReleaseId: 'release-a' }, roleId: 'analyst' },
     ] }],
     ['allowed users on organization visibility', { visibility: 'organization', allowedUserIds: ['owner-a'] }],
+    ['restricted visibility without allowed users', { visibility: 'restricted', allowedUserIds: undefined }],
+    ['restricted visibility with an empty allowlist', { visibility: 'restricted', allowedUserIds: [] }],
+    ['restricted visibility with a blank allowed user', { visibility: 'restricted', allowedUserIds: [' '] }],
+    ['restricted visibility with an untrimmed allowed user', { visibility: 'restricted', allowedUserIds: [' owner-a'] }],
+    ['restricted visibility with duplicate allowed users', { visibility: 'restricted', allowedUserIds: ['owner-a', 'owner-a'] }],
     ['missing verification field', { verificationPolicy: { verifierRequired: true } }],
     ['missing attention queue', { attentionPolicy: { openDecisionLimit: 5 } }],
     ['invalid work limit', { attentionPolicy: { decisionQueue: 'centralized', workInProgressLimit: 0 } }],
@@ -69,5 +74,11 @@ describe('enterprise team definition validation', () => {
     })
     expect(() => validateTeamDefinition(migrated)).not.toThrow()
     expect(() => assertTeamDefinitionExecutable(migrated)).toThrow(EnterpriseOperationsError)
+  })
+
+  it('allows active organization and private visibility only with an empty allowlist', () => {
+    expect(() => validateTeamDefinition(definition({ visibility: 'organization', allowedUserIds: undefined }))).not.toThrow()
+    expect(() => validateTeamDefinition(definition({ visibility: 'organization', allowedUserIds: [] }))).not.toThrow()
+    expect(() => validateTeamDefinition(definition({ visibility: 'private', allowedUserIds: [] }))).not.toThrow()
   })
 })

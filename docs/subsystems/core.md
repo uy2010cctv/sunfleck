@@ -511,13 +511,6 @@ async read(id: string): Promise<string>
 async copy(from: string, id: string, name?: string): Promise<void>
 
 /**
- * Compile a published enterprise employee identity into one user-authored preset.
- * @param id - target preset identity.
- * @param input - published employee fields to compile.
- */
-async configureEmployee(id: string, input: EmployeePresetDefinition): Promise<void>
-
-/**
  * Copy one preset through the Remote API.
  * @param from - the source preset id.
  * @param id - the new preset id.
@@ -836,7 +829,7 @@ Source: [`packages/api/enterprise-controller/src/index.ts`](../../packages/api/e
 
 ### `ctx.enterpriseEmployeeController` — `EnterpriseEmployeeController`
 
-Enterprise employee Draft and Release Remote service.
+Employee Draft/Release Remote service.
 
 ```ts cordis-catalog
 /**
@@ -852,13 +845,6 @@ Enterprise employee Draft and Release Remote service.
  * @returns current mutable Draft.
  */
 @Remote('getDraft') async getDraft(request: EnterpriseEmployeeLookup): Promise<EnterpriseEmployeeDraft>
-
-/**
- * Improve one unsaved responsibility prompt through a caller-selected configured model.
- * @param request - prompt and configured model route.
- * @returns optimized unsaved prompt text.
- */
-@Remote('optimizePrompt') async optimizePrompt( request: EnterpriseEmployeeOptimizePromptRequest, ): Promise<EnterpriseEmployeeOptimizePromptResult>
 
 /**
  * Execute one authenticated enterprise operation.
@@ -1038,14 +1024,14 @@ Enterprise team-definition Remote service.
 @Remote('get') async get(request: EnterpriseTeamDefinitionLookup): Promise<EnterpriseTeamDefinition>
 
 /**
- * Create or CAS-save one definition in the authenticated organization.
- * @param request - definition and write guards; revision zero creates it.
+ * Create or CAS-save one non-archived definition in the authenticated organization.
+ * @param request - definition and write guards; revision zero creates it and archive state is rejected.
  * @returns saved definition.
  */
 @Remote('save') async save(request: EnterpriseTeamDefinitionSaveRequest): Promise<EnterpriseTeamDefinition>
 
 /**
- * Archive one definition; archived definitions cannot be reactivated.
+ * Archive one definition; only this operation enters the terminal archived state.
  * @param request - team identity and write guards.
  * @returns archived definition.
  */

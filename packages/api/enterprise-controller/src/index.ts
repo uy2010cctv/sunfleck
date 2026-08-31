@@ -245,7 +245,6 @@ export async function optimizeEmployeePromptWithLlm(
   return { prompt: optimized }
 }
 
-/** Enterprise employee Draft and Release Remote service. */
 export class EnterpriseEmployeeController extends TypertRemoteService {
   static inject = ['enterprisePostgres', 'enterpriseSecurity', 'enterpriseRequestContext', 'agentPresets', 'llm']
   /** @param ctx - authenticated enterprise Host context. */
@@ -283,11 +282,7 @@ export class EnterpriseEmployeeController extends TypertRemoteService {
     })
   }
 
-  /**
-   * Improve one unsaved responsibility prompt through a caller-selected configured model.
-   * @param request - prompt and configured model route.
-   * @returns optimized unsaved prompt text.
-   */
+  /** Improve one unsaved responsibility prompt through a caller-selected configured model. */
   @Remote('optimizePrompt')
   async optimizePrompt(
     request: EnterpriseEmployeeOptimizePromptRequest,
@@ -511,8 +506,8 @@ export class EnterpriseTeamDefinitionController extends TypertRemoteService {
   }
 
   /**
-   * Create or CAS-save one definition in the authenticated organization.
-   * @param request - definition and write guards; revision zero creates it.
+   * Create or CAS-save one non-archived definition in the authenticated organization.
+   * @param request - definition and write guards; revision zero creates it and archive state is rejected.
    * @returns saved definition.
    */
   @Remote('save')
@@ -522,7 +517,7 @@ export class EnterpriseTeamDefinitionController extends TypertRemoteService {
   }
 
   /**
-   * Archive one definition; archived definitions cannot be reactivated.
+   * Archive one definition; only this operation enters the terminal archived state.
    * @param request - team identity and write guards.
    * @returns archived definition.
    */
@@ -884,6 +879,8 @@ function enterpriseFailure(
   let code = 'internal'
   let message = 'enterprise repository operation failed'
   if (error instanceof EnterpriseOperationsAuthorizationError) {
+    code = 'enterprise-forbidden'; message = 'enterprise request is forbidden'
+  } else if (error instanceof Error && error.message === 'authenticated enterprise principal is required') {
     code = 'enterprise-forbidden'; message = 'enterprise request is forbidden'
   } else if (error instanceof EmployeeDraftRevisionConflictError || error instanceof ApprovalRevisionConflictError) {
     code = 'enterprise-conflict'; message = 'enterprise resource revision changed'

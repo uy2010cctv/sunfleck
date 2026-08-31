@@ -22,7 +22,7 @@ kind: "package-reference"
 <a id="use-this-package"></a>
 ## 使用本包
 
-仅在企业 Profile 中，并在 `enterprisePostgres`、`enterpriseSecurity` 和 `enterpriseRequestContext` 之后挂载本 Controller。Client 通过 API Gateway 使用生成的 `enterpriseEmployee`、`enterpriseAsset`、`enterpriseTeam`、`enterpriseTeamDefinition` 和 `enterpriseOperation` namespace。`enterpriseTeamDefinition` 提供 list、get、revision 防护的 save 和 archive；Host 注入认证组织，浏览器请求不携带组织或 actor 身份。本包替代已删除的单体 ApiProxy，但不替代 DSH 的 Workspace、Session、Workflow、Sandbox、Subagent 或 Agent Loop 身份。
+仅在企业 Profile 中，并在 `enterprisePostgres`、`enterpriseSecurity` 和 `enterpriseRequestContext` 之后挂载本 Controller。Client 通过 API Gateway 使用生成的 `enterpriseEmployee`、`enterpriseAsset`、`enterpriseTeam`、`enterpriseTeamDefinition` 和 `enterpriseOperation` namespace。`enterpriseTeamDefinition` 提供 list、get、revision 防护的 save 和 archive；Host 注入认证组织，浏览器请求不携带组织或 actor 身份。Host service 在返回定义前执行 owner、管理员、private 和 restricted 可见性。本包替代已删除的单体 ApiProxy，但不替代 DSH 的 Workspace、Session、Workflow、Sandbox、Subagent 或 Agent Loop 身份。
 
 <a id="model-experience"></a>
 ## 模型体验

@@ -564,12 +564,7 @@ export class EnterpriseSecurity {
     }
   }
 
-  /**
-   * Project a Session list to rows created by the authenticated user.
-   * @param principal - authenticated viewer.
-   * @param value - Host Session-list payload.
-   * @returns list payload containing only owned Sessions.
-   */
+  /** Project a Session list to rows created by the authenticated user. */
   async filterSessionList(principal: EnterprisePrincipal, value: unknown): Promise<unknown> {
     if (!record(value)) return { items: [] }
     const items = Array.isArray(value['items']) ? value['items'] : []
@@ -581,12 +576,7 @@ export class EnterpriseSecurity {
     return { ...value, items: visible }
   }
 
-  /**
-   * Project Host-wide queue, job, and projection frames to the current user's Sessions.
-   * @param principal - authenticated viewer.
-   * @param frames - Host Session-control stream.
-   * @returns stream containing only owned Session state.
-   */
+  /** Project Host-wide queue, job, and projection frames to the current user's Sessions. */
   async *filterSessionControl(
     principal: EnterprisePrincipal,
     frames: AsyncIterable<unknown>,
@@ -617,12 +607,7 @@ export class EnterpriseSecurity {
     }
   }
 
-  /**
-   * Decide whether one ordinary Session belongs to the authenticated user.
-   * @param principal - authenticated viewer.
-   * @param sessionId - Session to test.
-   * @returns whether the Session owner matches the viewer.
-   */
+  /** Decide whether one ordinary Session belongs to the authenticated user. */
   async sessionOwnedBy(principal: EnterprisePrincipal, sessionId: string): Promise<boolean> {
     return await this.repository.sessionOwnerUserId(sessionId) === principal.userId
   }

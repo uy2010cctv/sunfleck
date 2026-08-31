@@ -200,6 +200,14 @@ function resource(endpoint: EnterpriseOperationsEndpoint, input: unknown): { res
   return { resourceType: 'fixed-team', ...(id === undefined ? {} : { resourceId: id }) }
 }
 
+function teamDefinitionVisible(principal: EnterprisePrincipal, definition: EnterpriseTeamDefinition): boolean {
+  if (definition.orgId !== principal.orgId) return false
+  if (principal.roles.includes('administrator') || definition.ownerUserId === principal.userId) return true
+  if (definition.visibility === 'organization') return true
+  if (definition.visibility === 'private') return false
+  return definition.allowedUserIds?.includes(principal.userId) ?? false
+}
+
 /**
  * Typed Host facade. Every method requires a principal and performs a
  * mandatory authorization + audit decision before reaching the driver.
@@ -411,7 +419,8 @@ export class EnterpriseOperationsService {
     input: EnterpriseTeamDefinitionLookup,
   ): Promise<EnterpriseTeamDefinition | undefined> {
     const scoped = await this.authorize(principal, 'enterpriseOperation.teamDefinitions.get', input)
-    return this.driver.getTeamDefinition(scoped.orgId, scoped.teamId)
+    const definition = await this.driver.getTeamDefinition(scoped.orgId, scoped.teamId)
+    return definition !== undefined && teamDefinitionVisible(principal, definition) ? definition : undefined
   }
   /**
    * @param principal - authenticated viewer.
@@ -422,9 +431,10 @@ export class EnterpriseOperationsService {
     principal: EnterprisePrincipal,
     input: EnterpriseTeamDefinitionListInput = {},
   ): ReturnType<EnterpriseOperationsDriver['listTeamDefinitions']> {
-    return this.driver.listTeamDefinitions(
+    const page = await this.driver.listTeamDefinitions(
       await this.authorize(principal, 'enterpriseOperation.teamDefinitions.list', input),
     )
+    return { ...page, items: page.items.filter(definition => teamDefinitionVisible(principal, definition)) }
   }
   /**
    * @param principal - authenticated actor.

@@ -19,10 +19,20 @@ function positiveLimit(value: number | undefined, teamId: string): void {
  * @param definition - Candidate durable team definition.
  */
 export function validateTeamDefinition(definition: EnterpriseTeamDefinition): void {
-  if (definition.allowedUserIds !== undefined && definition.visibility !== 'restricted') invalid(definition.teamId)
+  const allowedUserIds = definition.allowedUserIds ?? []
+  if (definition.visibility !== 'restricted' && allowedUserIds.length > 0) invalid(definition.teamId)
   positiveLimit(definition.attentionPolicy.openDecisionLimit, definition.teamId)
   positiveLimit(definition.attentionPolicy.workInProgressLimit, definition.teamId)
   if (definition.state !== 'active') return
+
+  if (definition.visibility === 'restricted') {
+    const unique = new Set<string>()
+    if (allowedUserIds.length === 0) invalid(definition.teamId)
+    for (const userId of allowedUserIds) {
+      if (userId.trim() === '' || userId !== userId.trim() || unique.has(userId)) invalid(definition.teamId)
+      unique.add(userId)
+    }
+  }
 
   if (definition.name.trim() === '' || definition.northStar.trim() === ''
     || definition.ownerUserId.trim() === '' || definition.leaderEmployeeReleaseId.trim() === '') invalid(definition.teamId)

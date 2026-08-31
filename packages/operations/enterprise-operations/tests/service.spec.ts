@@ -3,10 +3,26 @@ import type { EnterprisePrincipal } from '@deepseek-ai/dsh-enterprise-governance
 import {
   EnterpriseOperationsAuthorizationError,
   EnterpriseOperationsService,
+  type EnterpriseTeamDefinition,
   type EnterpriseOperationsDriver,
 } from '../src/index.ts'
 
 const principal: EnterprisePrincipal = { userId: 'user-a', orgId: 'org-a', roles: ['operator'] }
+
+function definition(overrides: Partial<EnterpriseTeamDefinition> = {}): EnterpriseTeamDefinition {
+  return {
+    teamId: 'team-a', orgId: 'org-a', name: 'Finance', northStar: 'Verified close.', ownerUserId: 'owner-a',
+    visibility: 'organization', leaderEmployeeReleaseId: 'release-a',
+    roles: [{ roleId: 'owner', name: 'Owner', responsibility: 'Own.' }],
+    roster: [
+      { actor: { kind: 'human', userId: 'owner-a' }, roleId: 'owner' },
+      { actor: { kind: 'agent', employeeReleaseId: 'release-a' }, roleId: 'owner' },
+    ],
+    verificationPolicy: { verifierRequired: true, rubricRefs: [], highRiskHumanReviewRequired: true },
+    attentionPolicy: { decisionQueue: 'centralized' }, approvalPolicy: {}, state: 'active',
+    revision: 1, createdAt: 1, updatedAt: 1, ...overrides,
+  }
+}
 
 function driver(overrides: Partial<EnterpriseOperationsDriver> = {}): EnterpriseOperationsDriver {
   return {
@@ -168,5 +184,44 @@ describe('EnterpriseOperationsService', () => {
     expect(audit).toHaveBeenCalledWith(expect.objectContaining({
       endpoint: 'enterpriseOperation.teamDefinitions.save', resourceType: 'team-definition', resourceId: 'team-a',
     }))
+  })
+
+  it('filters organization, private, and restricted definitions for the authenticated viewer', async () => {
+    const visibleOrganization = definition({ teamId: 'organization' })
+    const hiddenPrivate = definition({ teamId: 'private', visibility: 'private' })
+    const visibleRestricted = definition({
+      teamId: 'restricted-visible', visibility: 'restricted', allowedUserIds: ['viewer-a'],
+    })
+    const hiddenRestricted = definition({
+      teamId: 'restricted-hidden', visibility: 'restricted', allowedUserIds: ['other-a'],
+    })
+    const page = { items: [visibleOrganization, hiddenPrivate, visibleRestricted, hiddenRestricted], nextCursor: 'next' }
+    const operations = driver({ listTeamDefinitions: vi.fn().mockResolvedValue(page) })
+    const service = new EnterpriseOperationsService(operations, {
+      authorize: vi.fn().mockResolvedValue(true), audit: vi.fn(),
+    })
+    const viewer: EnterprisePrincipal = { userId: 'viewer-a', orgId: 'org-a', roles: ['member'] }
+
+    await expect(service.listTeamDefinitions(viewer, {})).resolves.toEqual({
+      items: [visibleOrganization, visibleRestricted], nextCursor: 'next',
+    })
+    await expect(service.listTeamDefinitions({
+      userId: 'admin-a', orgId: 'org-a', roles: ['administrator'],
+    }, {})).resolves.toEqual(page)
+  })
+
+  it('allows owners and administrators to read private definitions and hides them from other readers', async () => {
+    const privateDefinition = definition({ visibility: 'private' })
+    const operations = driver({ getTeamDefinition: vi.fn().mockResolvedValue(privateDefinition) })
+    const service = new EnterpriseOperationsService(operations, {
+      authorize: vi.fn().mockResolvedValue(true), audit: vi.fn(),
+    })
+    const owner: EnterprisePrincipal = { userId: 'owner-a', orgId: 'org-a', roles: ['member'] }
+    const member: EnterprisePrincipal = { userId: 'member-a', orgId: 'org-a', roles: ['member'] }
+    const administrator: EnterprisePrincipal = { userId: 'admin-a', orgId: 'org-a', roles: ['administrator'] }
+
+    await expect(service.getTeamDefinition(owner, { teamId: 'team-a' })).resolves.toEqual(privateDefinition)
+    await expect(service.getTeamDefinition(administrator, { teamId: 'team-a' })).resolves.toEqual(privateDefinition)
+    await expect(service.getTeamDefinition(member, { teamId: 'team-a' })).resolves.toBeUndefined()
   })
 })

@@ -740,6 +740,10 @@ describe('EnterpriseOperationsRepository', () => {
       leaderEmployeeReleaseId: 'release-lead',
       members: [{ employeeReleaseId: 'release-worker', role: 'researcher' }],
     })
+    await expect(operations.getTeamDefinition('org-a', 'team-a')).resolves.toMatchObject({
+      teamId: 'team-a', state: 'needs-charter', name: '', northStar: '',
+      leaderEmployeeReleaseId: 'release-lead',
+    })
   })
 
   it('fires a team schedule through the organization-owned team leader', async () => {
@@ -754,6 +758,35 @@ describe('EnterpriseOperationsRepository', () => {
       expectedRevision: 0,
       idempotencyKey: 'team-scheduled-create',
     })
+    await expect(operations.createSchedule({
+      scheduleId: 'schedule-team-blocked',
+      orgId: 'org-a',
+      target: { kind: 'team', teamId: 'team-scheduled' },
+      timezone: 'UTC',
+      rule: '0 9 * * *',
+      input: {},
+      nextRunAt: 100,
+      expectedRevision: 0,
+      idempotencyKey: 'schedule-team-blocked',
+    })).rejects.toMatchObject({ code: 'invalid-state', resourceType: 'team-definition' })
+    const activeDefinition = {
+      teamId: 'team-scheduled', orgId: 'org-a', name: 'Scheduled research', northStar: 'Deliver reviewed research.',
+      ownerUserId: 'owner-a', visibility: 'organization', leaderEmployeeReleaseId: 'release-lead',
+      roles: [
+        { roleId: 'owner', name: 'Owner', responsibility: 'Own delivery.' },
+        { roleId: 'researcher', name: 'Researcher', responsibility: 'Research.' },
+      ],
+      roster: [
+        { actor: { kind: 'human', userId: 'owner-a' }, roleId: 'owner' },
+        { actor: { kind: 'agent', employeeReleaseId: 'release-lead' }, roleId: 'owner' },
+        { actor: { kind: 'agent', employeeReleaseId: 'release-worker' }, roleId: 'researcher' },
+      ],
+      verificationPolicy: { verifierRequired: true, rubricRefs: [], highRiskHumanReviewRequired: true },
+      attentionPolicy: { decisionQueue: 'centralized' }, approvalPolicy: {}, state: 'active',
+    } as const
+    await operations.saveTeamDefinition({
+      ...activeDefinition, expectedRevision: 1, idempotencyKey: 'team-scheduled-charter',
+    })
     await operations.createSchedule({
       scheduleId: 'schedule-team',
       orgId: 'org-a',
@@ -764,6 +797,19 @@ describe('EnterpriseOperationsRepository', () => {
       nextRunAt: 100,
       expectedRevision: 0,
       idempotencyKey: 'schedule-team-create',
+    })
+
+    await operations.saveTeamDefinition({
+      ...activeDefinition, state: 'needs-charter', expectedRevision: 2,
+      idempotencyKey: 'team-scheduled-charter-invalidated',
+    })
+    await expect(operations.fireSchedule({
+      scheduleId: 'schedule-team', orgId: 'org-a', expectedRevision: 1,
+      idempotencyKey: 'schedule-team-fire-blocked', occurrenceKey: 'blocked-occurrence',
+      sessionId: 'session-team-blocked', firedAt: 100, nextRunAt: 200,
+    })).rejects.toMatchObject({ code: 'invalid-state', resourceType: 'team-definition' })
+    await operations.saveTeamDefinition({
+      ...activeDefinition, expectedRevision: 3, idempotencyKey: 'team-scheduled-charter-reactivated',
     })
 
     const fired = await operations.fireSchedule({
@@ -994,6 +1040,9 @@ describe('EnterpriseOperationsRepository team definitions', () => {
     await expect(operations.saveTeamDefinition({
       ...teamDefinition, name: 'stale', expectedRevision: 1, idempotencyKey: 'definition-stale',
     })).rejects.toMatchObject({ code: 'conflict', resourceType: 'team-definition' })
+    await expect(operations.saveTeamDefinition({
+      ...teamDefinition, state: 'archived', expectedRevision: saved.revision, idempotencyKey: 'definition-direct-archive',
+    })).rejects.toMatchObject({ code: 'invalid-transition', resourceType: 'team-definition' })
     const archived = await operations.archiveTeamDefinition({
       orgId: 'org-a', teamId: teamDefinition.teamId, expectedRevision: saved.revision,
       idempotencyKey: 'definition-archive',
@@ -1003,19 +1052,63 @@ describe('EnterpriseOperationsRepository team definitions', () => {
       orgId: 'org-a', teamId: teamDefinition.teamId, expectedRevision: saved.revision,
       idempotencyKey: 'definition-archive',
     })).resolves.toEqual(archived)
+    await expect(operations.archiveTeamDefinition({
+      orgId: 'org-a', teamId: teamDefinition.teamId, expectedRevision: archived.revision,
+      idempotencyKey: 'definition-archive',
+    })).rejects.toMatchObject({ code: 'idempotency-conflict' })
+    await expect(operations.archiveTeamDefinition({
+      orgId: 'org-a', teamId: teamDefinition.teamId, expectedRevision: archived.revision,
+      idempotencyKey: 'definition-archive-new-key',
+    })).rejects.toMatchObject({ code: 'conflict', resourceType: 'team-definition' })
     await expect(operations.saveTeamDefinition({
       ...teamDefinition, expectedRevision: archived.revision, idempotencyKey: 'definition-reactivate',
     })).rejects.toMatchObject({ code: 'invalid-transition', resourceType: 'team-definition' })
+    await expect(operations.saveTeamDefinition({
+      ...teamDefinition, name: 'edit archived', state: 'archived', expectedRevision: archived.revision,
+      idempotencyKey: 'definition-edit-archived',
+    })).rejects.toMatchObject({ code: 'invalid-transition', resourceType: 'team-definition' })
+  })
+
+  it('rejects direct creation in the archived terminal state', async () => {
+    const operations = repository()
+    await expect(operations.createTeamDefinition({
+      ...teamDefinition, teamId: 'direct-archived', state: 'archived', idempotencyKey: 'direct-archived',
+    })).rejects.toMatchObject({ code: 'invalid-transition', resourceType: 'team-definition' })
+  })
+
+  it('pages definitions with bounded limits and rejects a cursor from another organization scope', async () => {
+    let now = 20
+    const operations = repository(new MemoryPostgresDatabase(), () => ++now)
+    for (const suffix of ['a', 'b', 'c']) {
+      await operations.createTeamDefinition({
+        ...teamDefinition, teamId: `paged-${suffix}`, idempotencyKey: `paged-${suffix}`,
+      })
+    }
+    const first = await operations.listTeamDefinitions({ orgId: 'org-a', limit: 1 })
+    expect(first.items.map(item => item.teamId)).toEqual(['paged-c'])
+    expect(first.nextCursor).toBeTypeOf('string')
+    const second = await operations.listTeamDefinitions({ orgId: 'org-a', limit: 1, cursor: first.nextCursor })
+    expect(second.items.map(item => item.teamId)).toEqual(['paged-b'])
+    await expect(operations.listTeamDefinitions({
+      orgId: 'org-b', limit: 1, cursor: first.nextCursor,
+    })).rejects.toMatchObject({ code: 'cursor-invalid' })
+    await expect(operations.listTeamDefinitions({ orgId: 'org-a', limit: 0 })).rejects.toThrow('1 to 100')
+    await expect(operations.listTeamDefinitions({ orgId: 'org-a', limit: 101 })).rejects.toThrow('1 to 100')
+    await expect(operations.listTeamDefinitions({ orgId: 'org-a', limit: 1.5 })).rejects.toThrow('1 to 100')
   })
 
   it('migrates each fixed team once as a non-executable needs-charter definition', async () => {
     const database = new MemoryPostgresDatabase()
     const operations = repository(database, () => 10)
-    await operations.createFixedTeam({
-      teamId: 'legacy-team', orgId: 'org-a', leaderEmployeeReleaseId: 'release-a',
-      members: [{ employeeReleaseId: 'release-a', role: 'analyst' }],
-      workflowTemplate: {}, approvalPolicy: { review: true }, expectedRevision: 0, idempotencyKey: 'legacy-team',
-    })
+    await database.query(
+      'INSERT INTO dsh_enterprise_fixed_teams(team_id,org_id,leader_release_id,workflow_template_json,' +
+        'approval_policy_json,revision,created_at,updated_at) VALUES ($1,$2,$3,$4::jsonb,$5::jsonb,1,$6,$6) RETURNING *',
+      ['legacy-team', 'org-a', 'release-a', '{}', '{"review":true}', 10],
+    )
+    await database.query(
+      'INSERT INTO dsh_enterprise_fixed_team_members(team_id,employee_release_id,role) VALUES ($1,$2,$3)',
+      ['legacy-team', 'release-a', 'analyst'],
+    )
 
     await migrateEnterpriseOperations(database)
     await migrateEnterpriseOperations(database)

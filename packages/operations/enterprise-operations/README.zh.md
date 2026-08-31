@@ -27,14 +27,14 @@ kind: "package-reference"
 - 员工和固定团队调度每次 occurrence 只创建一条幂等的启动 Session Outbox 命令；即使重试使用另一个请求幂等键，也会返回原命令。
 - 固定团队绑定负责人、成员、Workflow 模板和审批策略。
 - 团队定义增加类型化的人类与 Agent 名册、角色职责、验证策略、集中决策队列、可见性、所有权和章程生命周期，但不存储 TeamRun 状态。
-- Active 定义必须有完整章程、已入队的人类 owner、已入队的 Agent leader、唯一 actor 与 role、有效角色引用，以及完整的验证与注意力策略。`needs-charter` 定义永远不可执行。
-- Schema 迁移为每个旧固定团队创建一条 `needs-charter` 定义，保留发布版成员、角色标签、leader、审批策略和组织可见性，并使用显式的 `system:legacy-fixed-team-migration` owner 占位。迁移不推断名称、north star、职责或策略。
+- Active 定义必须有完整章程、已入队的人类 owner、已入队的 Agent leader、唯一 actor 与 role、有效角色引用，以及完整的验证与注意力策略。Restricted 可见性要求非空且每项已 trim、唯一的用户 ID 列表；organization 和 private 可见性要求空列表。
+- Schema 迁移与固定团队创建会在定义不存在时建立一条 `needs-charter` 定义，保留发布版成员、角色标签、leader、审批策略和组织可见性，并使用显式的 `system:legacy-fixed-team-migration` owner 占位。它们不推断名称、north star、职责或策略。`needs-charter` 定义不能支撑团队工作记录、调度或调度触发。
 - PostgreSQL 事务和组织范围查询保持边界。
 - 工作记录、审批、调度、固定团队和团队定义提供稳定的 keyset 分页。Cursor 是 canonical base64url 载荷加 scope-bound HMAC-SHA256 签名；更换组织或过滤条件会使 cursor 失效。Limit 只允许 1 至 100 的整数。
 - Cursor v2 使用不可变的 `created_at` 和稳定 ID 进行 seek；`updatedAt` 仅作展示元数据。因此，分页之间更新记录不会把它移到 cursor 前方并导致遗漏。
 - 工作记录可按业务状态、来源和固定团队过滤；审批可按类型、状态和申请人过滤；调度可按状态过滤。
 - 固定团队和调度支持 compare-and-swap 更新。团队更新会在校验所有发布版的组织归属后整体替换成员集合。已归档调度为终态，不可编辑或恢复。
-- 团队定义写入使用 compare-and-swap revision 和绑定请求的幂等键。已归档定义不能恢复为 active 或章程编辑状态。
+- 团队定义写入使用 compare-and-swap revision 和绑定请求的幂等键。只有 archive 操作可进入 `archived`；之后的所有 save 都被拒绝，而完全相同的 archive 重试返回已记录的幂等结果。
 - Pending 审批可取消。Repository 记录 actor 和 reason；`EnterpriseOperationsService` 仅允许申请人本人或管理员取消。
 - 原生引用在缺失解析器时会快速失败。测试和本地开发可显式设置 `allowUnverifiedReferences`；生产组合必须省略该开关。
 - 幂等键会绑定 SHA-256 请求摘要，使用不同输入重复该键会被拒绝。只有 active 调度可执行；Outbox 命令负责创建新的调度 Session。
@@ -42,7 +42,7 @@ kind: "package-reference"
 
 ## Host API 服务合同
 
-`EnterpriseOperationsService` 是 Host/API 层的 driver-neutral 门面。它接收 `EnterprisePrincipal`，并在调用底层 driver 前强制执行组织范围检查、`authorize` 回调和 `audit` 回调；未授权请求不会触达数据库 driver。所有方法使用 `enterpriseOperation.*` 类型化端点，且将组织 ID 从 principal 注入 driver，调用方不能借由请求体切换组织。生产组合应将 `authorize` 连接到统一的 `EnterpriseSecurity.authorizeApi`，将 `audit` 连接到统一审计仓储。生产 PostgreSQL 组合会从部署密钥派生相互隔离的 Catalog 和 Operations cursor key，并直接在源表中解析员工发布版和原生 Session header。Session 解析还必须找到 `resource_type = 'session'` 且组织匹配的 `resource_policies` 记录；缺失 policy 或跨组织 policy 都失败关闭。取消审批先执行中央授权决策，中央允许后才读取 driver 并检查申请人关系，最终只写一条 allowed 或 denied 审计。带过滤条件的调度列表返回 cursor page；无过滤的 Service 重载保留旧的数组结果。原生引用 resolver 接收 Repository 当前的事务连接并必须通过它查询；这避免了 `poolMax = 1` 时重新进入连接池导致的死锁。
+`EnterpriseOperationsService` 是 Host/API 层的 driver-neutral 门面。它接收 `EnterprisePrincipal`，并在调用底层 driver 前强制执行组织范围检查、`authorize` 回调和 `audit` 回调；未授权请求不会触达数据库 driver。所有方法使用 `enterpriseOperation.*` 类型化端点，且将组织 ID 从 principal 注入 driver，调用方不能借由请求体切换组织。团队定义读取还会在 Host service 中执行已存储的可见性：管理员和 owner 可读取其定义，restricted 用户可读取 allowlist 内的定义，其他 reader 只能看到 organization-visible 定义。Repository 保持 principal-neutral 并仅限组织范围。生产组合应将 `authorize` 连接到统一的 `EnterpriseSecurity.authorizeApi`，将 `audit` 连接到统一审计仓储。生产 PostgreSQL 组合会从部署密钥派生相互隔离的 Catalog 和 Operations cursor key，并直接在源表中解析员工发布版和原生 Session header。Session 解析还必须找到 `resource_type = 'session'` 且组织匹配的 `resource_policies` 记录；缺失 policy 或跨组织 policy 都失败关闭。取消审批先执行中央授权决策，中央允许后才读取 driver 并检查申请人关系，最终只写一条 allowed 或 denied 审计。带过滤条件的调度列表返回 cursor page；无过滤的 Service 重载保留旧的数组结果。原生引用 resolver 接收 Repository 当前的事务连接并必须通过它查询；这避免了 `poolMax = 1` 时重新进入连接池导致的死锁。
 
 ```ts
 const service = new EnterpriseOperationsService(repository, {
