@@ -78,7 +78,8 @@ function sortedFixedMembers(members: readonly { employeeReleaseId: string; role:
     || left.role.localeCompare(right.role))
 }
 function teamLockKey(orgId: string, teamId: string): string {
-  return `team:${orgId}:${teamId}`
+  void orgId
+  return `team:${teamId}`
 }
 function canonicalDefinitionInput<T extends {
   readonly visibility: EnterpriseTeamDefinition['visibility']
@@ -254,6 +255,7 @@ interface OutboxRow extends Record<string, unknown> {
   last_error: string | null
   completed_at: number | string | null
   start_admitted_at: number | string | null
+  team_definition_revision: number | string | null
   created_at: number | string
 }
 
@@ -389,8 +391,12 @@ export class EnterpriseOperationsRepository {
         [input.orgId, input.sessionId, input.employeeReleaseId],
       )
       const current = result.rows[0]
-      if (input.teamId !== undefined && current?.team_id !== input.teamId)
-        await this.teamTarget(database, input.orgId, input.teamId)
+      if (input.teamId !== undefined && current?.team_id !== input.teamId) {
+        const target = await this.teamTarget(database, input.orgId, input.teamId)
+        const eligible = target.definition.roster.some(member => member.actor.kind === 'agent'
+          && member.actor.employeeReleaseId === input.employeeReleaseId)
+        if (!eligible) throw new EnterpriseOperationsError('invalid-state', 'team-definition', input.teamId)
+      }
       const now = this.now()
       if (current === undefined) {
         if (input.expectedRevision !== 0) throw new Error(`work record ${input.sessionId} revision conflict`)
@@ -808,7 +814,7 @@ export class EnterpriseOperationsRepository {
       )
       const outbox = await database.query(
         'INSERT INTO dsh_enterprise_operation_outbox(command_id,org_id,schedule_id,occurrence_key,work_session_id,' +
-          "employee_release_id,team_id,payload_json,state,attempt_count,created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,'pending',0,$9) RETURNING *",
+          "employee_release_id,team_id,team_definition_revision,payload_json,state,attempt_count,created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,'pending',0,$10) RETURNING *",
         [
           randomUUID(),
           input.orgId,
@@ -817,6 +823,7 @@ export class EnterpriseOperationsRepository {
           input.sessionId,
           employeeReleaseId,
           teamId ?? null,
+          team?.definition.revision ?? null,
           JSON.stringify({ input: parse(schedule.input_json) }),
           input.firedAt,
         ],
@@ -876,7 +883,13 @@ export class EnterpriseOperationsRepository {
       if (row === undefined || row.state !== 'processing' || row.lease_owner !== input.workerId
         || row.lease_expires_at === null || Number(row.lease_expires_at) < now)
         throw new EnterpriseOperationsError('invalid-state', 'operation-outbox', input.commandId)
-      if (row.team_id !== null) await this.teamTarget(database, input.orgId, row.team_id)
+      if (row.team_id !== null) {
+        const target = await this.teamTarget(database, input.orgId, row.team_id)
+        if (row.team_definition_revision === null
+          || Number(row.team_definition_revision) !== target.definition.revision
+          || row.employee_release_id !== target.definition.leaderEmployeeReleaseId)
+          throw new EnterpriseOperationsError('invalid-state', 'team-definition', row.team_id)
+      }
       const admitted = await database.query<OutboxRow>(
         `UPDATE dsh_enterprise_operation_outbox SET start_admitted_at=$1
           WHERE command_id=$2 AND org_id=$3 AND state='processing' AND lease_owner=$4 AND lease_expires_at >= $1 RETURNING *`,
@@ -931,6 +944,11 @@ export class EnterpriseOperationsRepository {
       const prior = await this.idempotent<FixedTeamView>(database, input.orgId, 'team-create', input.idempotencyKey, input)
       if (prior !== undefined) return prior
       if (input.expectedRevision !== 0) throw new Error(`fixed team ${input.teamId} revision conflict`)
+      const existingFixed = await database.query<TeamRow>(
+        'SELECT * FROM dsh_enterprise_fixed_teams WHERE team_id = $1 FOR UPDATE', [input.teamId],
+      )
+      if (existingFixed.rows[0] !== undefined)
+        throw new EnterpriseOperationsError('conflict', 'team', input.teamId)
       await Promise.all([
         this.requireRelease(database, input.orgId, input.leaderEmployeeReleaseId),
         ...input.members.map(member => this.requireRelease(database, input.orgId, member.employeeReleaseId)),
@@ -1112,8 +1130,8 @@ export class EnterpriseOperationsRepository {
       if (input.state === 'archived')
         throw new EnterpriseOperationsError('invalid-transition', 'team-definition', input.teamId)
       const existing = await database.query<TeamDefinitionRow>(
-        'SELECT * FROM dsh_enterprise_team_definitions WHERE org_id=$1 AND team_id=$2',
-        [input.orgId, input.teamId],
+        'SELECT * FROM dsh_enterprise_team_definitions WHERE team_id=$1 FOR UPDATE',
+        [input.teamId],
       )
       if (existing.rows[0] !== undefined)
         throw new EnterpriseOperationsError('conflict', 'team-definition', input.teamId)
@@ -1132,6 +1150,7 @@ export class EnterpriseOperationsRepository {
         this.teamDefinitionValues(candidate),
       )
       const view = this.teamDefinition(required(result.rows[0], 'team definition'))
+      if (view.state === 'active') await this.projectActiveDefinitionToFixedTeam(database, view)
       await this.remember(database, input.orgId, 'team-definition-create', input.idempotencyKey, input, view)
       return view
     })
@@ -1183,6 +1202,7 @@ export class EnterpriseOperationsRepository {
       if (updated.rows[0] === undefined)
         throw new EnterpriseOperationsError('conflict', 'team-definition', input.teamId)
       const view = this.teamDefinition(updated.rows[0])
+      if (view.state === 'active') await this.projectActiveDefinitionToFixedTeam(database, view)
       await this.remember(database, input.orgId, 'team-definition-save', input.idempotencyKey, input, view)
       return view
     })
@@ -1329,6 +1349,7 @@ export class EnterpriseOperationsRepository {
       ...(row.last_error === null ? {} : { lastError: row.last_error }),
       ...(row.completed_at === null ? {} : { completedAt: Number(row.completed_at) }),
       ...(row.start_admitted_at === null ? {} : { startAdmittedAt: Number(row.start_admitted_at) }),
+      ...(row.team_definition_revision === null ? {} : { teamDefinitionRevision: Number(row.team_definition_revision) }),
       createdAt: Number(row.created_at),
     }
   }
@@ -1392,6 +1413,50 @@ export class EnterpriseOperationsRepository {
     if (definition.departmentId !== undefined)
       await this.requireDepartment(database, orgId, definition.departmentId)
   }
+  private async projectActiveDefinitionToFixedTeam(
+    database: PostgresDatabase,
+    definition: EnterpriseTeamDefinition,
+  ): Promise<void> {
+    const members = definition.roster.flatMap(member => member.actor.kind === 'agent'
+      && member.actor.employeeReleaseId !== definition.leaderEmployeeReleaseId
+      ? [{ employeeReleaseId: member.actor.employeeReleaseId, role: member.roleId }] : [])
+    const current = await database.query<TeamRow>(
+      'SELECT * FROM dsh_enterprise_fixed_teams WHERE team_id=$1 FOR UPDATE', [definition.teamId],
+    )
+    const row = current.rows[0]
+    if (row === undefined) {
+      await database.query<TeamRow>(
+        `INSERT INTO dsh_enterprise_fixed_teams(team_id,org_id,leader_release_id,workflow_template_json,
+          approval_policy_json,revision,created_at,updated_at) VALUES ($1,$2,$3,'{}'::jsonb,$4::jsonb,1,$5,$5) RETURNING *`,
+        [definition.teamId, definition.orgId, definition.leaderEmployeeReleaseId,
+          JSON.stringify(definition.approvalPolicy), definition.updatedAt],
+      )
+    } else {
+      const currentMembers = await database.query<{ employee_release_id: string; role: string }>(
+        'SELECT employee_release_id, role FROM dsh_enterprise_fixed_team_members WHERE team_id = $1 ORDER BY employee_release_id',
+        [definition.teamId],
+      )
+      const existingMembers = currentMembers.rows.map(member => ({
+        employeeReleaseId: member.employee_release_id, role: member.role,
+      }))
+      if (row.org_id !== definition.orgId)
+        throw new EnterpriseOperationsError('conflict', 'team-definition', definition.teamId)
+      if (row.leader_release_id === definition.leaderEmployeeReleaseId
+        && canonicalEqual(sortedFixedMembers(existingMembers), sortedFixedMembers(members))
+        && canonicalEqual(record(row.approval_policy_json), definition.approvalPolicy)) return
+      await database.query<TeamRow>(
+        `UPDATE dsh_enterprise_fixed_teams SET leader_release_id=$1,approval_policy_json=$2::jsonb,
+          updated_at=$3,revision=revision+1 WHERE team_id=$4 AND org_id=$5 RETURNING *`,
+        [definition.leaderEmployeeReleaseId, JSON.stringify(definition.approvalPolicy),
+          definition.updatedAt, definition.teamId, definition.orgId],
+      )
+      await database.query('DELETE FROM dsh_enterprise_fixed_team_members WHERE team_id = $1', [definition.teamId])
+    }
+    for (const member of members) await database.query(
+      'INSERT INTO dsh_enterprise_fixed_team_members(team_id,employee_release_id,role) VALUES ($1,$2,$3)',
+      [definition.teamId, member.employeeReleaseId, member.role],
+    )
+  }
   private async ensureFixedTeamDefinition(
     database: PostgresDatabase,
     input: {
@@ -1404,8 +1469,8 @@ export class EnterpriseOperationsRepository {
     now: number,
   ): Promise<void> {
     const existing = await database.query<TeamDefinitionRow>(
-      'SELECT * FROM dsh_enterprise_team_definitions WHERE org_id=$1 AND team_id=$2 FOR UPDATE',
-      [input.orgId, input.teamId],
+      'SELECT * FROM dsh_enterprise_team_definitions WHERE team_id=$1 FOR UPDATE',
+      [input.teamId],
     )
     if (existing.rows[0] !== undefined)
       throw new EnterpriseOperationsError('conflict', 'team-definition', input.teamId)

@@ -1,6 +1,6 @@
 /** PostgreSQL schema for work records, approvals, schedules, teams, and outbox. */
 import type { PostgresDatabase } from './types.ts'
-export const ENTERPRISE_OPERATIONS_SCHEMA_VERSION = 8
+export const ENTERPRISE_OPERATIONS_SCHEMA_VERSION = 9
 /** Owner placeholder for legacy fixed teams whose creator was never persisted. */
 export const LEGACY_TEAM_DEFINITION_OWNER_USER_ID = 'system:legacy-fixed-team-migration'
 const statements = [
@@ -51,7 +51,8 @@ const statements = [
     occurrence_key TEXT NOT NULL, work_session_id TEXT NOT NULL, employee_release_id TEXT NOT NULL, team_id TEXT,
     payload_json JSONB NOT NULL, state TEXT NOT NULL CHECK (state IN ('pending', 'processing', 'completed', 'failed')),
     attempt_count INTEGER NOT NULL DEFAULT 0, lease_owner TEXT, lease_expires_at BIGINT,
-    last_error TEXT, completed_at BIGINT, start_admitted_at BIGINT, created_at BIGINT NOT NULL,
+    last_error TEXT, completed_at BIGINT, start_admitted_at BIGINT, team_definition_revision BIGINT,
+    created_at BIGINT NOT NULL,
     UNIQUE(org_id, schedule_id, occurrence_key)
   )`,
   `CREATE TABLE IF NOT EXISTS dsh_enterprise_operations_idempotency (
@@ -175,6 +176,9 @@ export async function migrateEnterpriseOperations(database: PostgresDatabase): P
       }
       if (version < 8) {
         await transaction.query('ALTER TABLE dsh_enterprise_operation_outbox ADD COLUMN IF NOT EXISTS start_admitted_at BIGINT')
+      }
+      if (version < 9) {
+        await transaction.query('ALTER TABLE dsh_enterprise_operation_outbox ADD COLUMN IF NOT EXISTS team_definition_revision BIGINT')
       }
       if (version < ENTERPRISE_OPERATIONS_SCHEMA_VERSION) {
         await transaction.query("UPDATE dsh_enterprise_operations_meta SET value = $1 WHERE key = 'schema-version'", [String(ENTERPRISE_OPERATIONS_SCHEMA_VERSION)])

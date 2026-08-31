@@ -20,6 +20,8 @@ PostgreSQL 表只存储章程、名册、策略、可见性、revision 和生命
 
 生成的 `enterpriseTeamDefinition` Remote namespace 提供 list、get、save 和 archive。浏览器请求包含写入防护和定义字段，但不包含组织或 actor 字段；Host request context 提供 principal，现有 `team.read` 与 `team.manage` 策略及审计链路保护每项操作。Host 只派生 user id 和管理员状态；PostgreSQL 在 keyset 分页前执行 organization、private、owner 和 restricted 可见性，并将该 scope 绑定到 cursor。Active 写入在组织内解析每个人类和可选部门，并在幂等摘要与存储前 canonicalize restricted allowlist。
 
+Active Definition 写入会将 leader、带 formal role ID 的非 leader Agent 成员和 approval policy 投影到 FixedTeam，同时保留 Workflow template。新 team work 必须指定 active 名册中的 Agent release。每条 team outbox command 记录 active Definition revision；admission 拒绝过期 revision 或非当前 leader 的 release。全局 team-id 锁与现有全局主键一致，并将跨组织冲突稳定表达为 conflict。
+
 ## 考虑过的替代方案
 
 **扩展固定团队记录。** 拒绝，因为当前工作台和调度依赖其较小的兼容记录，而旧记录没有可如实填充的章程内容。

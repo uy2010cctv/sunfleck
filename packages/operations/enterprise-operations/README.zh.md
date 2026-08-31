@@ -38,6 +38,7 @@ kind: "package-reference"
 - 固定团队和调度支持 compare-and-swap 更新。团队更新会在校验所有发布版的组织归属后整体替换成员集合。已归档调度为终态，不可编辑或恢复。
 - 团队定义写入使用 compare-and-swap revision 和绑定请求的幂等键。只有 archive 操作可进入 `archived`；之后的所有 save 都被拒绝，而完全相同的 archive 重试返回已记录的幂等结果。
 - Restricted allowlist 在校验、摘要和存储前统一 trim、去重并排序。Active save 会在同一组织内解析 owner、所有人类名册成员、所有 allowlist 用户和可选部门。
+- Active save 会将 Definition leader、非 leader Agent 名册成员及 role ID、approval policy 投影到 FixedTeam，同时保留其 Workflow template。新 team work 只接受当前名册中的 Agent release；调度命令记录 Definition revision，仅当 revision 和 leader 仍匹配时才能 admit。
 - Pending 审批可取消。Repository 记录 actor 和 reason；`EnterpriseOperationsService` 仅允许申请人本人或管理员取消。
 - 原生引用在缺失解析器时会快速失败。测试和本地开发可显式设置 `allowUnverifiedReferences`；生产组合必须省略该开关。
 - 幂等键会绑定 SHA-256 请求摘要，使用不同输入重复该键会被拒绝。只有 active 调度可执行；Outbox 命令负责创建新的调度 Session。

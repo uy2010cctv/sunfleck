@@ -84,6 +84,7 @@ export interface OutboxCommandView {
   readonly lastError?: string
   readonly completedAt?: number
   readonly startAdmittedAt?: number
+  readonly teamDefinitionRevision?: number
   readonly createdAt: number
 }
 export interface FixedTeamView {

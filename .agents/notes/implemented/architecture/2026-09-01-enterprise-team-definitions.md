@@ -20,6 +20,8 @@ Migration and fixed-team creation insert a `needs-charter` definition when one i
 
 The generated `enterpriseTeamDefinition` Remote namespace exposes list, get, save, and archive. Browser requests contain write guards and definition fields but no organization or acting-user field; Host request context supplies the principal, and the existing `team.read` and `team.manage` policy plus audit path protects every operation. Host code derives only user id and administrator status; PostgreSQL applies organization, private, owner, and restricted visibility before keyset pagination and binds that scope into the cursor. Active writes resolve every human and optional department in the organization, and canonicalize restricted allowlists before idempotency hashing and storage.
 
+Active Definition writes project leader, non-leader Agent members with formal role IDs, and approval policy into FixedTeam while preserving its Workflow template. New team work must name an Agent release in the active roster. Each team outbox command records the active Definition revision; admission rejects stale revisions or a release that is not the current leader. The global team-id lock matches the existing global primary key and makes cross-organization collisions stable conflicts.
+
 ## Alternatives considered
 
 **Extend the fixed-team row.** Rejected because the current workbench and schedules depend on its smaller compatibility record, while legacy rows have no truthful charter content.

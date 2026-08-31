@@ -80,9 +80,9 @@ describe.skipIf(database === undefined)('enterprise operations PostgreSQL', () =
       state TEXT NOT NULL, created_at BIGINT NOT NULL, UNIQUE(org_id, schedule_id, occurrence_key))`)
     await migrateEnterpriseOperations(postgres)
     const columns = await postgres.query<{ column_name: string }>(
-      "SELECT column_name FROM information_schema.columns WHERE table_name = 'dsh_enterprise_operation_outbox' AND column_name IN ('team_id','start_admitted_at') ORDER BY column_name",
+      "SELECT column_name FROM information_schema.columns WHERE table_name = 'dsh_enterprise_operation_outbox' AND column_name IN ('team_id','start_admitted_at','team_definition_revision') ORDER BY column_name",
     )
-    expect(columns.rows.map(row => row.column_name)).toEqual(['start_admitted_at', 'team_id'])
+    expect(columns.rows.map(row => row.column_name)).toEqual(['start_admitted_at', 'team_definition_revision', 'team_id'])
 
     const operations = new EnterpriseOperationsRepository(postgres, { allowUnverifiedReferences: true })
     await operations.createFixedTeam({
@@ -212,6 +212,63 @@ describe.skipIf(database === undefined)('enterprise operations PostgreSQL', () =
     expect(first.items.map(item => item.teamId)).toEqual(['visible-new'])
     expect(second.items.map(item => item.teamId)).toEqual(['visible-old'])
     expect(second.nextCursor).toBeUndefined()
+  })
+
+  it('serializes admission against archive and exposes only committed admission markers', async () => {
+    const operations = new EnterpriseOperationsRepository(postgres, { allowUnverifiedReferences: true })
+    await operations.createFixedTeam({
+      teamId: 'pg-admission-team', orgId: 'pg-admission-org', leaderEmployeeReleaseId: 'release-a', members: [],
+      workflowTemplate: {}, approvalPolicy: {}, expectedRevision: 0, idempotencyKey: 'pg-admission-team',
+    })
+    await activateFixedTeam(operations, 'pg-admission-org', 'pg-admission-team', 'release-a')
+    await postgres.query(`INSERT INTO dsh_enterprise_operation_outbox(
+      command_id,org_id,schedule_id,occurrence_key,work_session_id,employee_release_id,team_id,
+      team_definition_revision,payload_json,state,attempt_count,lease_owner,lease_expires_at,created_at)
+      VALUES ('pg-admission-command','pg-admission-org','seeded','one','session-one','release-a',
+        'pg-admission-team',2,'{}'::jsonb,'processing',1,'worker-a',9999999999999,1)`)
+    const settled = await Promise.allSettled([
+      operations.admitOutboxStart({
+        orgId: 'pg-admission-org', commandId: 'pg-admission-command', workerId: 'worker-a',
+      }),
+      operations.archiveTeamDefinition({
+        orgId: 'pg-admission-org', teamId: 'pg-admission-team', expectedRevision: 2,
+        idempotencyKey: 'pg-admission-archive',
+      }),
+    ])
+    expect(settled.filter(result => result.status === 'fulfilled')).toHaveLength(1)
+    const marker = await postgres.query<{ start_admitted_at: string | null }>(
+      "SELECT start_admitted_at FROM dsh_enterprise_operation_outbox WHERE command_id='pg-admission-command'",
+    )
+    const admissionWon = settled[0]?.status === 'fulfilled'
+    expect(marker.rows[0]?.start_admitted_at === null).toBe(!admissionWon)
+  })
+
+  it('serializes FixedTeam and Definition writes with one global team lock', async () => {
+    const operations = new EnterpriseOperationsRepository(postgres, { allowUnverifiedReferences: true })
+    await operations.createFixedTeam({
+      teamId: 'pg-shared-lock', orgId: 'pg-lock-org', leaderEmployeeReleaseId: 'release-a', members: [],
+      workflowTemplate: {}, approvalPolicy: {}, expectedRevision: 0, idempotencyKey: 'pg-shared-lock',
+    })
+    const definition = {
+      teamId: 'pg-shared-lock', orgId: 'pg-lock-org', name: 'Lock team', northStar: 'Serialize writes.',
+      ownerUserId: 'owner-a', visibility: 'organization' as const, allowedUserIds: [],
+      leaderEmployeeReleaseId: 'release-a', roles: [{ roleId: 'lead', name: 'Lead', responsibility: 'Lead.' }],
+      roster: [
+        { actor: { kind: 'human' as const, userId: 'owner-a' }, roleId: 'lead' },
+        { actor: { kind: 'agent' as const, employeeReleaseId: 'release-a' }, roleId: 'lead' },
+      ],
+      verificationPolicy: { verifierRequired: true, rubricRefs: [], highRiskHumanReviewRequired: true },
+      attentionPolicy: { decisionQueue: 'centralized' as const }, approvalPolicy: {}, state: 'active' as const,
+    }
+    const settled = await Promise.allSettled([
+      operations.saveTeamDefinition({ ...definition, expectedRevision: 1, idempotencyKey: 'pg-lock-activate' }),
+      operations.saveFixedTeam({
+        teamId: 'pg-shared-lock', orgId: 'pg-lock-org', leaderEmployeeReleaseId: 'release-b', members: [],
+        workflowTemplate: {}, approvalPolicy: {}, expectedRevision: 1, idempotencyKey: 'pg-lock-legacy',
+      }),
+    ])
+    expect(settled.filter(result => result.status === 'fulfilled')).toHaveLength(1)
+    expect(settled.filter(result => result.status === 'rejected')).toHaveLength(1)
   })
 
   it('pages management queries, applies CAS updates, and uses pagination indexes', async () => {
