@@ -159,6 +159,11 @@ export interface TeamDefinitionPage {
   readonly items: readonly EnterpriseTeamDefinition[]
   readonly nextCursor?: string
 }
+/** Minimal Host-derived identity used only to constrain team-definition reads. */
+export interface TeamDefinitionReadScope {
+  readonly userId: string
+  readonly isAdministrator: boolean
+}
 export interface PostgresQueryResult<Row extends Record<string, unknown> = Record<string, unknown>> {
   readonly rows: readonly Row[]
   readonly rowCount: number | null
@@ -174,6 +179,8 @@ export interface EnterpriseOperationsRepositoryOptions {
   readonly cursorSigningKey?: Buffer | string
   readonly resolveSession?: (database: PostgresDatabase, orgId: string, sessionId: string) => boolean | Promise<boolean>
   readonly resolveRelease?: (database: PostgresDatabase, orgId: string, employeeReleaseId: string) => boolean | Promise<boolean>
+  readonly resolveUser?: (database: PostgresDatabase, orgId: string, userId: string) => boolean | Promise<boolean>
+  readonly resolveDepartment?: (database: PostgresDatabase, orgId: string, departmentId: string) => boolean | Promise<boolean>
   /** Explicit test/development escape hatch; production composition must omit it. */
   readonly allowUnverifiedReferences?: boolean
 }

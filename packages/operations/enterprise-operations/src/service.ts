@@ -101,7 +101,9 @@ export type EnterpriseTeamDefinitionSaveInput = WithoutOrganization<DriverInput<
 /** Host-scoped team-definition identity. */
 export interface EnterpriseTeamDefinitionLookup { readonly orgId?: string; readonly teamId: string }
 /** Host input for a signed team-definition page. */
-export type EnterpriseTeamDefinitionListInput = WithoutOrganization<DriverInput<'listTeamDefinitions'>>
+export type EnterpriseTeamDefinitionListInput = Omit<DriverInput<'listTeamDefinitions'>, 'orgId' | 'readScope'> & {
+  readonly orgId?: string
+}
 /** Host input for terminal team-definition archival. */
 export type EnterpriseTeamDefinitionArchiveInput = WithoutOrganization<DriverInput<'archiveTeamDefinition'>>
 
@@ -198,14 +200,6 @@ function resource(endpoint: EnterpriseOperationsEndpoint, input: unknown): { res
   }
   const id = typeof payload.teamId === 'string' ? payload.teamId : undefined
   return { resourceType: 'fixed-team', ...(id === undefined ? {} : { resourceId: id }) }
-}
-
-function teamDefinitionVisible(principal: EnterprisePrincipal, definition: EnterpriseTeamDefinition): boolean {
-  if (definition.orgId !== principal.orgId) return false
-  if (principal.roles.includes('administrator') || definition.ownerUserId === principal.userId) return true
-  if (definition.visibility === 'organization') return true
-  if (definition.visibility === 'private') return false
-  return definition.allowedUserIds?.includes(principal.userId) ?? false
 }
 
 /**
@@ -419,8 +413,9 @@ export class EnterpriseOperationsService {
     input: EnterpriseTeamDefinitionLookup,
   ): Promise<EnterpriseTeamDefinition | undefined> {
     const scoped = await this.authorize(principal, 'enterpriseOperation.teamDefinitions.get', input)
-    const definition = await this.driver.getTeamDefinition(scoped.orgId, scoped.teamId)
-    return definition !== undefined && teamDefinitionVisible(principal, definition) ? definition : undefined
+    return this.driver.getTeamDefinition(scoped.orgId, scoped.teamId, {
+      userId: principal.userId, isAdministrator: principal.roles.includes('administrator'),
+    })
   }
   /**
    * @param principal - authenticated viewer.
@@ -431,10 +426,11 @@ export class EnterpriseOperationsService {
     principal: EnterprisePrincipal,
     input: EnterpriseTeamDefinitionListInput = {},
   ): ReturnType<EnterpriseOperationsDriver['listTeamDefinitions']> {
-    const page = await this.driver.listTeamDefinitions(
-      await this.authorize(principal, 'enterpriseOperation.teamDefinitions.list', input),
-    )
-    return { ...page, items: page.items.filter(definition => teamDefinitionVisible(principal, definition)) }
+    const scoped = await this.authorize(principal, 'enterpriseOperation.teamDefinitions.list', input)
+    return this.driver.listTeamDefinitions({
+      ...scoped,
+      readScope: { userId: principal.userId, isAdministrator: principal.roles.includes('administrator') },
+    })
   }
   /**
    * @param principal - authenticated actor.

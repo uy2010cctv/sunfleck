@@ -177,7 +177,9 @@ describe('EnterpriseOperationsService', () => {
     })
 
     expect(operations.saveTeamDefinition).toHaveBeenCalledWith({ ...input, orgId: 'org-a' })
-    expect(operations.listTeamDefinitions).toHaveBeenCalledWith({ orgId: 'org-a', limit: 20 })
+    expect(operations.listTeamDefinitions).toHaveBeenCalledWith({
+      orgId: 'org-a', readScope: { userId: 'user-a', isAdministrator: false }, limit: 20,
+    })
     expect(operations.archiveTeamDefinition).toHaveBeenCalledWith({
       orgId: 'org-a', teamId: 'team-a', expectedRevision: 1, idempotencyKey: 'archive-a',
     })
@@ -196,7 +198,11 @@ describe('EnterpriseOperationsService', () => {
       teamId: 'restricted-hidden', visibility: 'restricted', allowedUserIds: ['other-a'],
     })
     const page = { items: [visibleOrganization, hiddenPrivate, visibleRestricted, hiddenRestricted], nextCursor: 'next' }
-    const operations = driver({ listTeamDefinitions: vi.fn().mockResolvedValue(page) })
+    const operations = driver({
+      listTeamDefinitions: vi.fn().mockImplementation(async ({ readScope }) => readScope.isAdministrator ? page : ({
+        items: [visibleOrganization, visibleRestricted], nextCursor: 'next',
+      })),
+    })
     const service = new EnterpriseOperationsService(operations, {
       authorize: vi.fn().mockResolvedValue(true), audit: vi.fn(),
     })
@@ -212,7 +218,10 @@ describe('EnterpriseOperationsService', () => {
 
   it('allows owners and administrators to read private definitions and hides them from other readers', async () => {
     const privateDefinition = definition({ visibility: 'private' })
-    const operations = driver({ getTeamDefinition: vi.fn().mockResolvedValue(privateDefinition) })
+    const operations = driver({
+      getTeamDefinition: vi.fn().mockImplementation(async (_orgId, _teamId, readScope) =>
+        readScope.isAdministrator || readScope.userId === 'owner-a' ? privateDefinition : undefined),
+    })
     const service = new EnterpriseOperationsService(operations, {
       authorize: vi.fn().mockResolvedValue(true), audit: vi.fn(),
     })

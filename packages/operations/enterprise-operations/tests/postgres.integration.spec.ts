@@ -156,7 +156,9 @@ describe.skipIf(database === undefined)('enterprise operations PostgreSQL', () =
       VALUES ('legacy-definition','release-a','analyst')`)
     await migrateEnterpriseOperations(postgres)
     await migrateEnterpriseOperations(postgres)
-    await expect(operations.listTeamDefinitions({ orgId: 'definition-org', limit: 10 })).resolves.toMatchObject({
+    await expect(operations.listTeamDefinitions({
+      orgId: 'definition-org', readScope: { userId: 'admin-a', isAdministrator: true }, limit: 10,
+    })).resolves.toMatchObject({
       items: [{ teamId: 'legacy-definition', state: 'needs-charter', name: '', northStar: '' }],
     })
 
@@ -180,6 +182,36 @@ describe.skipIf(database === undefined)('enterprise operations PostgreSQL', () =
     await expect(operations.saveTeamDefinition({
       ...input, expectedRevision: 1, idempotencyKey: 'active-definition-stale',
     })).rejects.toMatchObject({ code: 'conflict', resourceType: 'team-definition' })
+  })
+
+  it('filters definition visibility in PostgreSQL before cursor pagination', async () => {
+    let now = 100
+    const operations = new EnterpriseOperationsRepository(postgres, {
+      allowUnverifiedReferences: true, now: () => ++now,
+      cursorSigningKey: Buffer.from('operations-real-postgres-cursor-key'),
+    })
+    const base = {
+      orgId: 'visibility-org', name: '', northStar: '', ownerUserId: 'owner-a',
+      leaderEmployeeReleaseId: 'release-a', roster: [], roles: [], verificationPolicy: {}, attentionPolicy: {},
+      approvalPolicy: {}, state: 'needs-charter' as const, expectedRevision: 0,
+    }
+    await operations.createTeamDefinition({
+      ...base, teamId: 'visible-old', visibility: 'organization', allowedUserIds: [], idempotencyKey: 'visible-old',
+    })
+    await operations.createTeamDefinition({
+      ...base, teamId: 'hidden-middle', visibility: 'private', allowedUserIds: [], idempotencyKey: 'hidden-middle',
+    })
+    await operations.createTeamDefinition({
+      ...base, teamId: 'visible-new', visibility: 'restricted', allowedUserIds: ['viewer-a'], idempotencyKey: 'visible-new',
+    })
+    const readScope = { userId: 'viewer-a', isAdministrator: false }
+    const first = await operations.listTeamDefinitions({ orgId: 'visibility-org', readScope, limit: 1 })
+    const second = await operations.listTeamDefinitions({
+      orgId: 'visibility-org', readScope, limit: 1, cursor: first.nextCursor,
+    })
+    expect(first.items.map(item => item.teamId)).toEqual(['visible-new'])
+    expect(second.items.map(item => item.teamId)).toEqual(['visible-old'])
+    expect(second.nextCursor).toBeUndefined()
   })
 
   it('pages management queries, applies CAS updates, and uses pagination indexes', async () => {

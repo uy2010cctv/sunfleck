@@ -149,6 +149,18 @@ export async function createEnterprisePostgresComposition(config: EnterprisePost
         )
         return result.rows[0] !== undefined
       },
+      resolveUser: async (transaction, orgId, userId) => {
+        const result = await transaction.query(
+          'SELECT 1 FROM users WHERE id = $1 AND org_id = $2', [userId, orgId],
+        )
+        return result.rows[0] !== undefined
+      },
+      resolveDepartment: async (transaction, orgId, departmentId) => {
+        const result = await transaction.query(
+          'SELECT 1 FROM departments WHERE id = $1 AND org_id = $2', [departmentId, orgId],
+        )
+        return result.rows[0] !== undefined
+      },
       resolveSession: async (transaction, orgId, sessionId) => {
         const result = await transaction.query(
           `SELECT 1 FROM dsh_session_headers AS session

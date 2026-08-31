@@ -14,11 +14,11 @@ Status: implemented
 
 定义使用 `needs-charter`、`active` 和终态 `archived`。Active 校验要求非空名称与 north star、已入队的人类 owner、已入队的 Agent leader、唯一 role 与 actor、有效 role 引用、完整的验证与注意力字段，以及 restricted 可见性所需的非空、已 trim、唯一 allowlist。Organization 和 private 定义不携带 allowlist。只有 archive 可进入终态，之后的每次 save 都被拒绝。
 
-PostgreSQL 表只存储章程、名册、策略、可见性、revision 和生命周期字段。TeamRun 与其他 runtime 状态不属于此表。写入使用组织范围查询、compare-and-swap revision 和绑定请求摘要的幂等；列表使用现有签名的组织绑定 keyset cursor。
+PostgreSQL 表只存储章程、名册、策略、可见性、revision 和生命周期字段。TeamRun 与其他 runtime 状态不属于此表。FixedTeam 和定义写入及团队执行共用同一组织/团队 advisory lock。Needs-charter 旧 save 同步 Agent 投影，active 和 archived 定义拒绝旧变更。Worker Session start 在 active 复验与外部 start 提交点全程持有该锁。
 
 迁移和固定团队创建会在定义缺失时插入一条 `needs-charter` 定义。它们保留 team id、组织可见性、不可变 leader release、成员 release 引用、角色标签、审批策略和时间戳。无已记录 owner 时，bootstrap 使用 `system:legacy-fixed-team-migration`，并保持名称、north star、职责、验证策略和注意力策略为空。重复迁移保持幂等，团队工作记录和调度入口在启动工作前调用执行 validator。
 
-生成的 `enterpriseTeamDefinition` Remote namespace 提供 list、get、save 和 archive。浏览器请求包含写入防护和定义字段，但不包含组织或 actor 字段；Host request context 提供 principal，现有 `team.read` 与 `team.manage` 策略及审计链路保护每项操作。Host service 依据已存储的 organization、private 或 restricted 可见性过滤 list 和 get 结果，不向 repository API 增加 principal 字段。旧 `enterpriseTeam` namespace 和固定团队 repository 继续为当前工作台提供能力。
+生成的 `enterpriseTeamDefinition` Remote namespace 提供 list、get、save 和 archive。浏览器请求包含写入防护和定义字段，但不包含组织或 actor 字段；Host request context 提供 principal，现有 `team.read` 与 `team.manage` 策略及审计链路保护每项操作。Host 只派生 user id 和管理员状态；PostgreSQL 在 keyset 分页前执行 organization、private、owner 和 restricted 可见性，并将该 scope 绑定到 cursor。Active 写入在组织内解析每个人类和可选部门，并在幂等摘要与存储前 canonicalize restricted allowlist。
 
 ## 考虑过的替代方案
 

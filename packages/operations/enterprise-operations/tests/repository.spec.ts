@@ -220,16 +220,28 @@ class MemoryPostgresDatabase implements PostgresDatabase {
     }
     if (text.startsWith('SELECT ') && text.includes('FROM dsh_enterprise_team_definitions')) {
       if (text.includes('ORDER BY created_at')) {
+        const administrator = Boolean(values[1]); const userId = String(values[2])
         let rows = [...this.teamDefinitions.values()].filter(row => row.org_id === String(values[0]))
+          .filter(row => administrator || row.visibility === 'organization' || row.owner_user_id === userId
+            || (row.visibility === 'restricted' && Array.isArray(row.allowed_user_ids_json)
+              && row.allowed_user_ids_json.includes(userId)))
         if (text.includes('(created_at,team_id)<')) {
-          const createdAt = Number(values[1]); const teamId = String(values[2])
+          const createdAt = Number(values[3]); const teamId = String(values[4])
           rows = rows.filter(row => row.created_at < createdAt || (row.created_at === createdAt && row.team_id < teamId))
         }
         return rows.sort((left, right) => right.created_at - left.created_at || right.team_id.localeCompare(left.team_id))
           .slice(0, Number(values.at(-1))).map(clone)
       }
       const row = this.teamDefinitions.get(`${String(values[0])}:${String(values[1])}`)
-      return row === undefined ? [] : [clone(row)]
+      if (row === undefined) return []
+      if (values[2] !== undefined) {
+        const administrator = Boolean(values[2]); const userId = String(values[3])
+        const visible = administrator || row.visibility === 'organization' || row.owner_user_id === userId
+          || (row.visibility === 'restricted' && Array.isArray(row.allowed_user_ids_json)
+            && row.allowed_user_ids_json.includes(userId))
+        if (!visible) return []
+      }
+      return [clone(row)]
     }
     if (text.startsWith('INSERT INTO dsh_enterprise_team_definitions')) {
       const row: TeamDefinitionRow = {
@@ -253,6 +265,13 @@ class MemoryPostgresDatabase implements PostgresDatabase {
       row.roster_json = parse(values[7]); row.roles_json = parse(values[8]); row.verification_policy_json = parse(values[9])
       row.attention_policy_json = parse(values[10]); row.approval_policy_json = parse(values[11]); row.state = String(values[12])
       row.updated_at = Number(values[13]); row.revision += 1
+      return [clone(row)]
+    }
+    if (text.startsWith('UPDATE dsh_enterprise_team_definitions SET leader_release_id=')) {
+      const row = this.teamDefinitions.get(`${String(values[5])}:${String(values[6])}`)
+      if (row === undefined || row.state !== 'needs-charter') return []
+      row.leader_release_id = String(values[0]); row.roster_json = parse(values[1]); row.roles_json = parse(values[2])
+      row.approval_policy_json = parse(values[3]); row.updated_at = Number(values[4]); row.revision += 1
       return [clone(row)]
     }
     if (text.startsWith('UPDATE dsh_enterprise_team_definitions SET state=')) {
@@ -546,6 +565,10 @@ const references = {
     orgId === 'org-a' && !sessionId.startsWith('missing'),
   resolveRelease: async (_database: PostgresDatabase, orgId: string, releaseId: string) =>
     orgId === 'org-a' && !releaseId.startsWith('missing'),
+  resolveUser: async (_database: PostgresDatabase, orgId: string, userId: string) =>
+    orgId === 'org-a' && !userId.startsWith('missing'),
+  resolveDepartment: async (_database: PostgresDatabase, orgId: string, departmentId: string) =>
+    orgId === 'org-a' && !departmentId.startsWith('missing'),
 }
 
 function repository(database = new MemoryPostgresDatabase(), now?: () => number): EnterpriseOperationsRepository {
@@ -740,7 +763,7 @@ describe('EnterpriseOperationsRepository', () => {
       leaderEmployeeReleaseId: 'release-lead',
       members: [{ employeeReleaseId: 'release-worker', role: 'researcher' }],
     })
-    await expect(operations.getTeamDefinition('org-a', 'team-a')).resolves.toMatchObject({
+    await expect(operations.getTeamDefinition('org-a', 'team-a', adminReadScope)).resolves.toMatchObject({
       teamId: 'team-a', state: 'needs-charter', name: '', northStar: '',
       leaderEmployeeReleaseId: 'release-lead',
     })
@@ -771,14 +794,14 @@ describe('EnterpriseOperationsRepository', () => {
     })).rejects.toMatchObject({ code: 'invalid-state', resourceType: 'team-definition' })
     const activeDefinition = {
       teamId: 'team-scheduled', orgId: 'org-a', name: 'Scheduled research', northStar: 'Deliver reviewed research.',
-      ownerUserId: 'owner-a', visibility: 'organization', leaderEmployeeReleaseId: 'release-lead',
+      ownerUserId: 'owner-a', visibility: 'organization', leaderEmployeeReleaseId: 'release-chartered-lead',
       roles: [
         { roleId: 'owner', name: 'Owner', responsibility: 'Own delivery.' },
         { roleId: 'researcher', name: 'Researcher', responsibility: 'Research.' },
       ],
       roster: [
         { actor: { kind: 'human', userId: 'owner-a' }, roleId: 'owner' },
-        { actor: { kind: 'agent', employeeReleaseId: 'release-lead' }, roleId: 'owner' },
+        { actor: { kind: 'agent', employeeReleaseId: 'release-chartered-lead' }, roleId: 'owner' },
         { actor: { kind: 'agent', employeeReleaseId: 'release-worker' }, roleId: 'researcher' },
       ],
       verificationPolicy: { verifierRequired: true, rubricRefs: [], highRiskHumanReviewRequired: true },
@@ -808,6 +831,10 @@ describe('EnterpriseOperationsRepository', () => {
       idempotencyKey: 'schedule-team-fire-blocked', occurrenceKey: 'blocked-occurrence',
       sessionId: 'session-team-blocked', firedAt: 100, nextRunAt: 200,
     })).rejects.toMatchObject({ code: 'invalid-state', resourceType: 'team-definition' })
+    await expect(operations.revalidateTeamCommand('org-a', {
+      kind: 'start-session', sessionId: 'session-team-blocked', employeeReleaseId: 'release-chartered-lead',
+      teamId: 'team-scheduled',
+    })).rejects.toMatchObject({ code: 'invalid-state', resourceType: 'team-definition' })
     await operations.saveTeamDefinition({
       ...activeDefinition, expectedRevision: 3, idempotencyKey: 'team-scheduled-charter-reactivated',
     })
@@ -823,8 +850,8 @@ describe('EnterpriseOperationsRepository', () => {
       nextRunAt: 200,
     })
 
-    expect(fired.workRecord).toMatchObject({ teamId: 'team-scheduled', employeeReleaseId: 'release-lead' })
-    expect(fired.command).toMatchObject({ teamId: 'team-scheduled', employeeReleaseId: 'release-lead' })
+    expect(fired.workRecord).toMatchObject({ teamId: 'team-scheduled', employeeReleaseId: 'release-chartered-lead' })
+    expect(fired.command).toMatchObject({ teamId: 'team-scheduled', employeeReleaseId: 'release-chartered-lead' })
   })
 
   it('creates a scheduled session without requiring that new session to exist', async () => {
@@ -1019,6 +1046,7 @@ const teamDefinition = {
   attentionPolicy: { decisionQueue: 'centralized' as const, openDecisionLimit: 5 },
   approvalPolicy: {}, state: 'active' as const, expectedRevision: 0, idempotencyKey: 'definition-create',
 }
+const adminReadScope = { userId: 'admin-a', isAdministrator: true } as const
 
 describe('EnterpriseOperationsRepository team definitions', () => {
   it('creates, reads, lists, saves, and archives definitions with CAS and idempotency', async () => {
@@ -1029,10 +1057,10 @@ describe('EnterpriseOperationsRepository team definitions', () => {
     await expect(operations.createTeamDefinition({
       ...teamDefinition, idempotencyKey: 'definition-duplicate',
     })).rejects.toMatchObject({ code: 'conflict', resourceType: 'team-definition' })
-    await expect(operations.getTeamDefinition('org-a', teamDefinition.teamId)).resolves.toEqual(created)
-    await expect(operations.getTeamDefinition('org-b', teamDefinition.teamId)).resolves.toBeUndefined()
-    await expect(operations.listTeamDefinitions({ orgId: 'org-a', limit: 10 })).resolves.toEqual({ items: [created] })
-    await expect(operations.listTeamDefinitions({ orgId: 'org-b', limit: 10 })).resolves.toEqual({ items: [] })
+    await expect(operations.getTeamDefinition('org-a', teamDefinition.teamId, adminReadScope)).resolves.toEqual(created)
+    await expect(operations.getTeamDefinition('org-b', teamDefinition.teamId, adminReadScope)).resolves.toBeUndefined()
+    await expect(operations.listTeamDefinitions({ orgId: 'org-a', readScope: adminReadScope, limit: 10 })).resolves.toEqual({ items: [created] })
+    await expect(operations.listTeamDefinitions({ orgId: 'org-b', readScope: adminReadScope, limit: 10 })).resolves.toEqual({ items: [] })
 
     const saved = await operations.saveTeamDefinition({
       ...teamDefinition, name: 'Finance close v2', expectedRevision: 1, idempotencyKey: 'definition-save',
@@ -1084,17 +1112,17 @@ describe('EnterpriseOperationsRepository team definitions', () => {
         ...teamDefinition, teamId: `paged-${suffix}`, idempotencyKey: `paged-${suffix}`,
       })
     }
-    const first = await operations.listTeamDefinitions({ orgId: 'org-a', limit: 1 })
+    const first = await operations.listTeamDefinitions({ orgId: 'org-a', readScope: adminReadScope, limit: 1 })
     expect(first.items.map(item => item.teamId)).toEqual(['paged-c'])
     expect(first.nextCursor).toBeTypeOf('string')
-    const second = await operations.listTeamDefinitions({ orgId: 'org-a', limit: 1, cursor: first.nextCursor })
+    const second = await operations.listTeamDefinitions({ orgId: 'org-a', readScope: adminReadScope, limit: 1, cursor: first.nextCursor })
     expect(second.items.map(item => item.teamId)).toEqual(['paged-b'])
     await expect(operations.listTeamDefinitions({
-      orgId: 'org-b', limit: 1, cursor: first.nextCursor,
+      orgId: 'org-b', readScope: adminReadScope, limit: 1, cursor: first.nextCursor,
     })).rejects.toMatchObject({ code: 'cursor-invalid' })
-    await expect(operations.listTeamDefinitions({ orgId: 'org-a', limit: 0 })).rejects.toThrow('1 to 100')
-    await expect(operations.listTeamDefinitions({ orgId: 'org-a', limit: 101 })).rejects.toThrow('1 to 100')
-    await expect(operations.listTeamDefinitions({ orgId: 'org-a', limit: 1.5 })).rejects.toThrow('1 to 100')
+    await expect(operations.listTeamDefinitions({ orgId: 'org-a', readScope: adminReadScope, limit: 0 })).rejects.toThrow('1 to 100')
+    await expect(operations.listTeamDefinitions({ orgId: 'org-a', readScope: adminReadScope, limit: 101 })).rejects.toThrow('1 to 100')
+    await expect(operations.listTeamDefinitions({ orgId: 'org-a', readScope: adminReadScope, limit: 1.5 })).rejects.toThrow('1 to 100')
   })
 
   it('migrates each fixed team once as a non-executable needs-charter definition', async () => {
@@ -1113,7 +1141,7 @@ describe('EnterpriseOperationsRepository team definitions', () => {
     await migrateEnterpriseOperations(database)
     await migrateEnterpriseOperations(database)
 
-    const page = await operations.listTeamDefinitions({ orgId: 'org-a', limit: 10 })
+    const page = await operations.listTeamDefinitions({ orgId: 'org-a', readScope: adminReadScope, limit: 10 })
     expect(page.items).toHaveLength(1)
     expect(page.items[0]).toMatchObject({
       teamId: 'legacy-team', state: 'needs-charter', name: '', northStar: '',
@@ -1132,5 +1160,187 @@ describe('EnterpriseOperationsRepository team definitions', () => {
       expectedRevision: 0, idempotencyKey: 'fixed-compatible',
     })
     await expect(operations.getFixedTeam('org-a', 'fixed-compatible')).resolves.toEqual(fixed)
+  })
+
+  it('synchronizes needs-charter definitions on legacy save and rejects drift after activation', async () => {
+    const operations = repository()
+    await operations.createFixedTeam({
+      teamId: 'sync-team', orgId: 'org-a', leaderEmployeeReleaseId: 'release-old-lead',
+      members: [{ employeeReleaseId: 'release-old', role: 'old' }], workflowTemplate: {}, approvalPolicy: {},
+      expectedRevision: 0, idempotencyKey: 'sync-create',
+    })
+    await operations.saveFixedTeam({
+      teamId: 'sync-team', orgId: 'org-a', leaderEmployeeReleaseId: 'release-new-lead',
+      members: [{ employeeReleaseId: 'release-new', role: 'reviewer' }], workflowTemplate: {}, approvalPolicy: {},
+      expectedRevision: 1, idempotencyKey: 'sync-save',
+    })
+    await expect(operations.getTeamDefinition('org-a', 'sync-team', adminReadScope)).resolves.toMatchObject({
+      state: 'needs-charter', leaderEmployeeReleaseId: 'release-new-lead', revision: 2,
+      roster: [{ actor: { kind: 'agent', employeeReleaseId: 'release-new' }, roleId: 'reviewer' }],
+      roles: [{ roleId: 'reviewer', name: 'reviewer', responsibility: '' }],
+    })
+    const active = {
+      ...teamDefinition, teamId: 'sync-team', departmentId: undefined, visibility: 'organization' as const,
+      allowedUserIds: [], leaderEmployeeReleaseId: 'release-new-lead',
+      roster: [
+        { actor: { kind: 'human' as const, userId: 'owner-a' }, roleId: 'owner' },
+        { actor: { kind: 'agent' as const, employeeReleaseId: 'release-new-lead' }, roleId: 'owner' },
+      ],
+      roles: [{ roleId: 'owner', name: 'Owner', responsibility: 'Own.' }],
+      expectedRevision: 2, idempotencyKey: 'sync-activate',
+    }
+    await operations.saveTeamDefinition(active)
+    await expect(operations.saveFixedTeam({
+      teamId: 'sync-team', orgId: 'org-a', leaderEmployeeReleaseId: 'release-drift',
+      members: [], workflowTemplate: {}, approvalPolicy: {}, expectedRevision: 2, idempotencyKey: 'sync-drift',
+    })).rejects.toMatchObject({ code: 'invalid-state', resourceType: 'team-definition' })
+    await expect(operations.getFixedTeam('org-a', 'sync-team')).resolves.toMatchObject({
+      revision: 2, leaderEmployeeReleaseId: 'release-new-lead',
+    })
+    const archived = await operations.archiveTeamDefinition({
+      orgId: 'org-a', teamId: 'sync-team', expectedRevision: 3, idempotencyKey: 'sync-archive',
+    })
+    expect(archived.state).toBe('archived')
+    await expect(operations.saveFixedTeam({
+      teamId: 'sync-team', orgId: 'org-a', leaderEmployeeReleaseId: 'release-drift',
+      members: [], workflowTemplate: {}, approvalPolicy: {}, expectedRevision: 2, idempotencyKey: 'sync-drift-archived',
+    })).rejects.toMatchObject({ code: 'invalid-state', resourceType: 'team-definition' })
+  })
+
+  it('atomically rejects fixed-team creation when a definition already owns the identity', async () => {
+    const operations = repository()
+    await operations.createTeamDefinition({
+      ...teamDefinition, teamId: 'definition-first', state: 'needs-charter', name: '', northStar: '',
+      verificationPolicy: {}, attentionPolicy: {}, expectedRevision: 0, idempotencyKey: 'definition-first',
+    })
+    await expect(operations.createFixedTeam({
+      teamId: 'definition-first', orgId: 'org-a', leaderEmployeeReleaseId: 'release-a', members: [],
+      workflowTemplate: {}, approvalPolicy: {}, expectedRevision: 0, idempotencyKey: 'fixed-conflict',
+    })).rejects.toMatchObject({ code: 'conflict', resourceType: 'team-definition' })
+    await expect(operations.getFixedTeam('org-a', 'definition-first')).resolves.toBeUndefined()
+  })
+
+  it('canonicalizes allowed users before validation, storage, and idempotency hashing', async () => {
+    const operations = repository()
+    const input = {
+      ...teamDefinition, teamId: 'canonical-users', allowedUserIds: [' user-b ', 'user-a', 'user-a'],
+      idempotencyKey: 'canonical-users',
+    }
+    const created = await operations.createTeamDefinition(input)
+    expect(created.allowedUserIds).toEqual(['user-a', 'user-b'])
+    await expect(operations.createTeamDefinition({
+      ...input, allowedUserIds: ['user-b', 'user-a'],
+    })).resolves.toEqual(created)
+  })
+
+  it('resolves every active human, allowlisted user, and department in the organization', async () => {
+    const users: string[] = []
+    const departments: string[] = []
+    const operations = new EnterpriseOperationsRepository(new MemoryPostgresDatabase(), {
+      ...references,
+      cursorSigningKey: Buffer.from('operations-cursor-signing-key-32b!'),
+      resolveUser: async (_database, orgId, userId) => { users.push(`${orgId}:${userId}`); return !userId.startsWith('missing') },
+      resolveDepartment: async (_database, orgId, departmentId) => { departments.push(`${orgId}:${departmentId}`); return true },
+    })
+    await operations.createTeamDefinition({
+      ...teamDefinition, teamId: 'identity-refs', ownerUserId: 'owner-a',
+      roster: [
+        ...teamDefinition.roster,
+        { actor: { kind: 'human', userId: 'reviewer-a' }, roleId: 'owner' },
+      ],
+      allowedUserIds: ['allowed-a'], idempotencyKey: 'identity-refs',
+    })
+    expect(users.sort()).toEqual(['org-a:allowed-a', 'org-a:owner-a', 'org-a:reviewer-a'])
+    expect(departments).toEqual(['org-a:finance'])
+    await expect(operations.createTeamDefinition({
+      ...teamDefinition, teamId: 'missing-identity', ownerUserId: 'missing-owner',
+      roster: [
+        { actor: { kind: 'human', userId: 'missing-owner' }, roleId: 'owner' },
+        { actor: { kind: 'agent', employeeReleaseId: 'release-a' }, roleId: 'analyst' },
+      ],
+      idempotencyKey: 'missing-identity',
+    })).rejects.toThrow('native enterprise user missing-owner was not found')
+    const missingDepartment = new EnterpriseOperationsRepository(new MemoryPostgresDatabase(), {
+      ...references,
+      cursorSigningKey: Buffer.from('operations-cursor-signing-key-32b!'),
+      resolveDepartment: async () => false,
+    })
+    await expect(missingDepartment.createTeamDefinition({
+      ...teamDefinition, teamId: 'missing-department', departmentId: 'dept-other-org',
+      idempotencyKey: 'missing-department',
+    })).rejects.toThrow('native enterprise department dept-other-org was not found')
+  })
+
+  it('queries only visible definitions before applying keyset pagination', async () => {
+    let now = 40
+    const operations = repository(new MemoryPostgresDatabase(), () => ++now)
+    await operations.createTeamDefinition({ ...teamDefinition, teamId: 'visible-old', visibility: 'organization', allowedUserIds: [], idempotencyKey: 'visible-old' })
+    await operations.createTeamDefinition({ ...teamDefinition, teamId: 'hidden-newer', visibility: 'private', allowedUserIds: [], idempotencyKey: 'hidden-newer' })
+    await operations.createTeamDefinition({ ...teamDefinition, teamId: 'visible-newest', visibility: 'restricted', allowedUserIds: ['viewer-a'], idempotencyKey: 'visible-newest' })
+    const scope = { userId: 'viewer-a', isAdministrator: false }
+    const first = await operations.listTeamDefinitions({ orgId: 'org-a', readScope: scope, limit: 1 })
+    expect(first.items.map(item => item.teamId)).toEqual(['visible-newest'])
+    const second = await operations.listTeamDefinitions({ orgId: 'org-a', readScope: scope, limit: 1, cursor: first.nextCursor })
+    expect(second.items.map(item => item.teamId)).toEqual(['visible-old'])
+    expect(second.nextCursor).toBeUndefined()
+    await expect(operations.listTeamDefinitions({
+      orgId: 'org-a', readScope: adminReadScope, limit: 1, cursor: first.nextCursor,
+    })).rejects.toMatchObject({ code: 'cursor-invalid' })
+    await expect(operations.getTeamDefinition('org-a', 'hidden-newer', scope)).resolves.toBeUndefined()
+  })
+
+  it('allows an existing team work record to settle after its definition is archived', async () => {
+    const operations = repository()
+    await operations.createFixedTeam({
+      teamId: 'settle-team', orgId: 'org-a', leaderEmployeeReleaseId: 'release-a', members: [],
+      workflowTemplate: {}, approvalPolicy: {}, expectedRevision: 0, idempotencyKey: 'settle-team',
+    })
+    await operations.saveTeamDefinition({
+      ...teamDefinition, teamId: 'settle-team', departmentId: undefined, visibility: 'organization', allowedUserIds: [],
+      expectedRevision: 1, idempotencyKey: 'settle-team-active',
+    })
+    const active = await operations.upsertWorkRecord({
+      ...work, teamId: 'settle-team', idempotencyKey: 'settle-work',
+    })
+    await operations.archiveTeamDefinition({
+      orgId: 'org-a', teamId: 'settle-team', expectedRevision: 2, idempotencyKey: 'settle-archive',
+    })
+    await expect(operations.upsertWorkRecord({
+      ...work, teamId: 'settle-team', businessState: 'completed', expectedRevision: active.revision,
+      idempotencyKey: 'settle-completed',
+    })).resolves.toMatchObject({ businessState: 'completed', revision: 2 })
+  })
+
+  it('holds the definition lock through the worker session-start commit point', async () => {
+    const operations = repository()
+    await operations.createFixedTeam({
+      teamId: 'serialized-team', orgId: 'org-a', leaderEmployeeReleaseId: 'release-a', members: [],
+      workflowTemplate: {}, approvalPolicy: {}, expectedRevision: 0, idempotencyKey: 'serialized-team',
+    })
+    await operations.saveTeamDefinition({
+      ...teamDefinition, teamId: 'serialized-team', departmentId: undefined,
+      visibility: 'organization', allowedUserIds: [], expectedRevision: 1, idempotencyKey: 'serialized-active',
+    })
+    let releaseStart!: () => void
+    let signalStart!: () => void
+    const startGate = new Promise<void>((resolve) => { releaseStart = resolve })
+    const startBegan = new Promise<void>((resolve) => { signalStart = resolve })
+    const events: string[] = []
+    const command = {
+      kind: 'start-session' as const, sessionId: 'serialized-session', employeeReleaseId: 'release-a',
+      teamId: 'serialized-team',
+    }
+    const starting = operations.withActiveTeamCommand('org-a', command, async () => {
+      events.push('start-begin'); signalStart(); await startGate; events.push('start-end')
+    })
+    await startBegan
+    const archiving = operations.archiveTeamDefinition({
+      orgId: 'org-a', teamId: 'serialized-team', expectedRevision: 2, idempotencyKey: 'serialized-archive',
+    }).then(() => { events.push('archived') })
+    await Promise.resolve()
+    expect(events).toEqual(['start-begin'])
+    releaseStart()
+    await Promise.all([starting, archiving])
+    expect(events).toEqual(['start-begin', 'start-end', 'archived'])
   })
 })

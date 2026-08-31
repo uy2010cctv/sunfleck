@@ -19,10 +19,16 @@ const saved: EnterpriseTeamDefinition = {
 }
 
 function setup(allowed = true, definition: EnterpriseTeamDefinition = saved) {
+  const visible = (readScope: { userId: string; isAdministrator: boolean }) =>
+    readScope.isAdministrator || definition.visibility === 'organization' || definition.ownerUserId === readScope.userId
+      || (definition.visibility === 'restricted' && (definition.allowedUserIds?.includes(readScope.userId) ?? false))
   const driver = {
     saveTeamDefinition: vi.fn().mockResolvedValue(definition),
-    getTeamDefinition: vi.fn().mockResolvedValue(definition),
-    listTeamDefinitions: vi.fn().mockResolvedValue({ items: [definition] }),
+    getTeamDefinition: vi.fn().mockImplementation(async (_orgId, _teamId, readScope) =>
+      visible(readScope) ? definition : undefined),
+    listTeamDefinitions: vi.fn().mockImplementation(async ({ readScope }) => ({
+      items: visible(readScope) ? [definition] : [],
+    })),
     archiveTeamDefinition: vi.fn().mockResolvedValue({ ...definition, state: 'archived', revision: 2 }),
   }
   const authorizeApiAsync = vi.fn().mockResolvedValue({

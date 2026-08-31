@@ -18,6 +18,7 @@ describe('EnterpriseOperationsWorker', () => {
       createSession: async () => {
         events.push('create')
       },
+      withActiveCommand: async (_command, start) => { events.push('revalidate'); await start() },
       complete: async (commandId) => {
         events.push(`complete:${commandId}`)
       },
@@ -28,7 +29,7 @@ describe('EnterpriseOperationsWorker', () => {
     })
 
     await expect(worker.runOnce(100)).resolves.toBe(true)
-    expect(events).toEqual(['claim', 'create', 'complete:command-a'])
+    expect(events).toEqual(['claim', 'revalidate', 'create', 'complete:command-a'])
   })
 
   it('records failure with caller-controlled exponential backoff', async () => {
@@ -38,6 +39,7 @@ describe('EnterpriseOperationsWorker', () => {
       createSession: async () => {
         throw new Error('session unavailable')
       },
+      withActiveCommand: async (_command, start) => { await start() },
       complete: async () => {
         throw new Error('unexpected completion')
       },
@@ -49,5 +51,20 @@ describe('EnterpriseOperationsWorker', () => {
 
     await expect(worker.runOnce(100)).rejects.toThrow('session unavailable')
     expect(failures).toEqual([expect.objectContaining({ commandId: 'command-a', nextAttemptAt: 4_100 })])
+  })
+
+  it('revalidates a team command before session creation and releases the claim through failure handling', async () => {
+    const events: string[] = []
+    const worker = new EnterpriseOperationsWorker({
+      claimOutbox: async () => ({ ...claimed, command: { ...claimed.command, teamId: 'team-a' } }),
+      withActiveCommand: async () => { events.push('revalidate'); throw new Error('team definition is inactive') },
+      createSession: async () => { events.push('create') },
+      complete: async () => { events.push('complete') },
+      fail: async (failure) => { events.push(`fail:${failure.nextAttemptAt}`) },
+      nextAttemptAt: now => now + 500,
+    })
+
+    await expect(worker.runOnce(100)).rejects.toThrow('team definition is inactive')
+    expect(events).toEqual(['revalidate', 'fail:600'])
   })
 })
