@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto'
 import { describe, expect, it, vi } from 'vitest'
 import type { EnterprisePrincipal } from '@deepseek-ai/dsh-enterprise-governance'
 import {
@@ -41,18 +40,7 @@ function seededRun(): EnterpriseTeamRun {
   }
 }
 
-function startFingerprint(input: {
-  teamId: string
-  expectedTeamRevision: number
-  workspaceId: string
-  prompt: string
-  source: string
-}): string {
-  return createHash('sha256').update(JSON.stringify({
-    teamId: input.teamId, expectedTeamRevision: input.expectedTeamRevision,
-    workspaceId: input.workspaceId, prompt: input.prompt, source: input.source,
-  })).digest('hex')
-}
+const START_FINGERPRINT = 'f44df0a935710228fbb1db4af3eb40b3a2ca232583c6e25614a7fac46a642409'
 
 class MemoryProjection {
   definition = definition()
@@ -369,7 +357,7 @@ describe('enterprise TeamRun control service', () => {
     await projection.createTeamRunStarting({
       orgId: 'org-a', teamId: input.teamId, expectedTeamRevision: input.expectedTeamRevision,
       workspaceId: input.workspaceId, createdBy: 'owner-a', source: input.source,
-      idempotencyKey: input.idempotencyKey, idempotencyFingerprint: startFingerprint(input),
+      idempotencyKey: input.idempotencyKey, idempotencyFingerprint: START_FINGERPRINT,
     }, () => 'run-crash-before')
     await expect(app.value.startRun(owner, input)).resolves.toMatchObject({
       runId: 'run-crash-before', state: 'active',
@@ -400,7 +388,7 @@ describe('enterprise TeamRun control service', () => {
     const reservation = await projection.createTeamRunStarting({
       orgId: 'org-a', teamId: input.teamId, expectedTeamRevision: input.expectedTeamRevision,
       workspaceId: input.workspaceId, createdBy: 'owner-a', source: input.source,
-      idempotencyKey: input.idempotencyKey, idempotencyFingerprint: startFingerprint(input),
+      idempotencyKey: input.idempotencyKey, idempotencyFingerprint: START_FINGERPRINT,
     }, () => 'run-crash-after')
     await runtimeDriver.startRun({
       operationId: 'team-run:start:run-crash-after', runId: reservation.run.runId, orgId: 'org-a',
@@ -413,6 +401,34 @@ describe('enterprise TeamRun control service', () => {
     expect(runtimeDriver.startRun).toHaveBeenCalledOnce()
     expect(runtimeDriver.reconcileRun).toHaveBeenCalledWith(expect.objectContaining({
       operationId: 'team-run:start:run-crash-after',
+    }))
+  })
+
+  it('keeps an existing starting reservation durable when start reconciliation is unknown', async () => {
+    const projection = new MemoryProjection()
+    const runtimeDriver = runtime({
+      reconcileRun: vi.fn().mockRejectedValue(new EnterpriseTeamRuntimeError('unknown', 'reconcile-transport-lost')),
+    })
+    const app = service(projection, runtimeDriver)
+    const input = {
+      teamId: 'team-a', expectedTeamRevision: 4, workspaceId: 'workspace-a', prompt: 'Close books.',
+      source: 'console' as const, idempotencyKey: 'reconcile-unknown',
+    }
+    const reservation = await projection.createTeamRunStarting({
+      orgId: 'org-a', teamId: input.teamId, expectedTeamRevision: input.expectedTeamRevision,
+      workspaceId: input.workspaceId, createdBy: 'owner-a', source: input.source,
+      idempotencyKey: input.idempotencyKey, idempotencyFingerprint: START_FINGERPRINT,
+    }, () => 'run-reconcile-unknown')
+    await expect(app.value.startRun(owner, input)).resolves.toEqual(reservation.run)
+    expect(runtimeDriver.startRun).not.toHaveBeenCalled()
+    expect(app.audit).toHaveBeenCalledOnce()
+    expect(app.audit).toHaveBeenLastCalledWith(expect.objectContaining({
+      resource: { type: 'team-run', id: 'run-reconcile-unknown' },
+      decision: { allowed: true, reason: 'role' },
+      // oxlint-disable-next-line typescript/no-unsafe-assignment -- Vitest asymmetric matcher.
+      details: expect.objectContaining({
+        outcome: 'runtime-unknown', outcomeReason: 'reconcile-transport-lost',
+      }),
     }))
   })
 
@@ -634,9 +650,7 @@ describe('enterprise TeamDecision and autonomy control service', () => {
     const request = {
       decisionId: 'decision-crash', answer: 'yes', expectedRevision: 1, idempotencyKey: 'answer-crash',
     }
-    const fingerprint = createHash('sha256').update(JSON.stringify({
-      decisionId: request.decisionId, answer: request.answer, expectedRevision: request.expectedRevision,
-    })).digest('hex')
+    const fingerprint = '0bacdd1a3877ed08ceec562e5af36175d4051387108282d01a1b5b787e37ab0c'
     const reservation = await app.projection.reserveDecisionResponse({
       orgId: 'org-a', ...request, idempotencyFingerprint: fingerprint,
     })

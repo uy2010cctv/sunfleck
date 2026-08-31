@@ -430,9 +430,25 @@ export class EnterpriseTeamControlService {
       return reserved.run
     }
     if (!reserved.created) {
-      const reconciled = await this.runtime.reconcileRun({
-        operationId: `team-run:start:${reserved.run.runId}`, run: reserved.run,
-      })
+      let reconciled: EnterpriseTeamRuntimeReconciliation
+      try {
+        reconciled = await this.runtime.reconcileRun({
+          operationId: `team-run:start:${reserved.run.runId}`, run: reserved.run,
+        })
+      } catch (error) {
+        if (error instanceof EnterpriseTeamRuntimeError && error.outcome === 'deterministic') {
+          const failed = await this.projections.projectTeamRun({
+            orgId: reserved.run.orgId, runId: reserved.run.runId, expectedRevision: reserved.run.revision,
+            state: 'failed', runtimeRevision: reserved.run.runtimeRevision + 1,
+            failure: { code: error.code, message: error.message },
+          })
+          await runAudit('runtime-failed', error.code)
+          return failed
+        }
+        const reason = error instanceof EnterpriseTeamRuntimeError ? error.code : 'runtime-throw'
+        await runAudit('runtime-unknown', reason)
+        return reserved.run
+      }
       if (reconciled.state !== 'starting') {
         const projected = await this.projections.projectTeamRun({
           orgId: reserved.run.orgId, runId: reserved.run.runId, expectedRevision: reserved.run.revision,
