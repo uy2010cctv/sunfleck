@@ -24,6 +24,8 @@ Enterprise-only prompt context for approved organization, department, and privat
 
 Memory values are rendered as quoted factual context with stable ids and an explicit privacy/access policy. When `autoSave` is enabled, `remember_business_knowledge` attributes creation to the Session owner and automated review to the configured governance actor. Repository scope, privacy, deduplication, and lifecycle checks remain authoritative.
 
+Prompt assembly performs scope ACL filtering first, then selects a bounded task-relevant pack with deterministic local lexical matching. Empty task context falls back to the newest approved entries.
+
 <a id="dev-note"></a>
 ### Dev Note
 

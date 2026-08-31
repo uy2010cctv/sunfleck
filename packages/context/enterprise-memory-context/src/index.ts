@@ -12,6 +12,7 @@ import {
 import type {} from '@deepseek-ai/dsh-system-prompt'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import z from '@deepseek-ai/schemastery'
+import { selectRelevantMemory } from './retrieval.ts'
 
 export interface Config {
   readonly maxEntries?: number
@@ -253,13 +254,19 @@ export function apply(ctx: Context, config: Config): void {
     const ownerUserId = context.agent === undefined
       ? undefined
       : await identity.sessionOwnerUserId(String(context.agent.id))
-    const entries = (await identity.listMemories({
+    const entries = await identity.listMemories({
       orgId: grant.orgId, departmentIds,
       ...(ownerUserId === undefined ? {} : { ownerUserId }),
       statuses: ['approved'],
-    })).slice(0, maxEntries)
-    if (entries.length === 0) return result
-    result.contexts.push({ name: 'enterprise:memory', text: renderEnterpriseMemory(entries, maxChars) })
+    })
+    const latestUser = (context.agent?.session.events ?? []).toReversed()
+      .find(event => event.type === 'user/message' && event.data.source.kind === 'user')
+    const query = latestUser?.type === 'user/message'
+      ? latestUser.data.content.flatMap(block => block.type === 'text' ? [block.text] : []).join('\n')
+      : ''
+    const selected = selectRelevantMemory(entries, query, maxEntries)
+    if (selected.length === 0) return result
+    result.contexts.push({ name: 'enterprise:memory', text: renderEnterpriseMemory(selected, maxChars) })
     return result
   })
 }

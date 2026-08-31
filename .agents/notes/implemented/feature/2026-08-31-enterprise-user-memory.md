@@ -12,4 +12,6 @@ Automatic writes attribute `createdBy` to the Session owner and `reviewedBy` to 
 
 Prompt assembly orders organization, department, then user memory and injects only approved summaries with stable ids. PostgreSQL and SQLite schema v6 add `owner_user_id`; previous organization and department rows migrate with a null owner without changing their meaning.
 
+After scope ACL filtering, the Prompt context selects a bounded task-relevant pack using normalized Latin tokens and Chinese character/bigram overlap, with deterministic scope and freshness tie-breakers. When no user task text exists it falls back to newest approved entries. This lexical stage is local and does not weaken the future pgvector seam.
+
 The governance memory page presents the three layers separately. Administrator queries include only the current administrator's private memory bodies, not other users' private records.
