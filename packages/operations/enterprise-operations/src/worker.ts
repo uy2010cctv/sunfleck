@@ -16,10 +16,7 @@ export interface OperationCommandFailure {
 
 export interface EnterpriseOperationsWorkerOptions {
   readonly claimOutbox: (now: number) => Promise<ClaimedOperationCommand | undefined>
-  readonly withActiveCommand: (
-    command: ScheduleFireView['command'],
-    start: () => Promise<void>,
-  ) => Promise<void>
+  readonly admit: (commandId: string, command: ScheduleFireView['command']) => Promise<void>
   readonly createSession: (command: ScheduleFireView['command']) => Promise<void>
   readonly complete: (commandId: string) => Promise<void>
   readonly fail: (failure: OperationCommandFailure) => Promise<void>
@@ -34,7 +31,8 @@ export class EnterpriseOperationsWorker {
     const claimed = await this.options.claimOutbox(now)
     if (claimed === undefined) return false
     try {
-      await this.options.withActiveCommand(claimed.command, () => this.options.createSession(claimed.command))
+      await this.options.admit(claimed.commandId, claimed.command)
+      await this.options.createSession(claimed.command)
       await this.options.complete(claimed.commandId)
       return true
     } catch (error) {

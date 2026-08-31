@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import {
   ApprovalRevisionConflictError,
   EnterpriseOperationsRepository,
+  EnterpriseOperationsWorker,
   migrateEnterpriseOperations,
   type PostgresDatabase,
   type PostgresQueryResult,
@@ -99,6 +100,12 @@ interface OutboxRow {
   team_id: string | null
   payload_json: unknown
   state: string
+  attempt_count: number
+  lease_owner: string | null
+  lease_expires_at: number | null
+  last_error: string | null
+  completed_at: number | null
+  start_admitted_at: number | null
   created_at: number
 }
 
@@ -127,6 +134,28 @@ class MemoryPostgresDatabase implements PostgresDatabase {
   setScheduleState(scheduleId: string, state: string): void {
     const row = this.schedules.get(scheduleId)
     if (row !== undefined) row.state = state
+  }
+
+  seedOutbox(input: {
+    commandId: string
+    orgId: string
+    teamId: string
+    state: 'pending' | 'processing'
+    workerId?: string
+    leaseExpiresAt?: number
+  }): void {
+    this.outbox.set(input.commandId, {
+      command_id: input.commandId, org_id: input.orgId, schedule_id: 'seeded', occurrence_key: input.commandId,
+      work_session_id: `session-${input.commandId}`, employee_release_id: 'release-a', team_id: input.teamId,
+      payload_json: {}, state: input.state, attempt_count: 1, lease_owner: input.workerId ?? null,
+      lease_expires_at: input.leaseExpiresAt ?? null, last_error: null, completed_at: null,
+      start_admitted_at: null, created_at: 1,
+    })
+  }
+
+  expireOutbox(commandId: string, at: number): void {
+    const row = this.outbox.get(commandId)
+    if (row !== undefined) row.lease_expires_at = at
   }
 
   async transaction<T>(operation: (database: MemoryPostgresDatabase) => Promise<T>): Promise<T> {
@@ -178,7 +207,7 @@ class MemoryPostgresDatabase implements PostgresDatabase {
       this.meta.set('schema-version', String(values[0]))
       return []
     }
-    if (text.startsWith('UPDATE dsh_enterprise_operation_outbox SET state')) return []
+    if (text.startsWith('UPDATE dsh_enterprise_operation_outbox SET state') && !text.includes('RETURNING')) return []
     if (text.startsWith('UPDATE dsh_enterprise_operations_idempotency SET result_json')) {
       for (const [key, value] of this.idempotency) {
         if (typeof value === 'object' && value !== null && 'result' in value) continue
@@ -439,6 +468,15 @@ class MemoryPostgresDatabase implements PostgresDatabase {
       return [clone(row)]
     }
     if (text.startsWith('SELECT ') && text.includes('FROM dsh_enterprise_operation_outbox')) {
+      if (text.includes('start_admitted_at IS NOT NULL')) {
+        return [...this.outbox.values()].some(row => row.org_id === String(values[0]) && row.team_id === String(values[1])
+          && row.state === 'processing' && row.start_admitted_at !== null
+          && row.lease_expires_at !== null && row.lease_expires_at >= Number(values[2])) ? [{ '?column?': 1 }] : []
+      }
+      if (text.includes('command_id=$1')) {
+        const row = this.outbox.get(String(values[0]))
+        return row === undefined || row.org_id !== String(values[1]) ? [] : [clone(row)]
+      }
       const row = [...this.outbox.values()].find(
         candidate =>
           candidate.schedule_id === String(values[0]) &&
@@ -462,9 +500,23 @@ class MemoryPostgresDatabase implements PostgresDatabase {
         team_id: values[6] === null ? null : String(values[6]),
         payload_json: parse(values[7]),
         state: 'pending',
+        attempt_count: 0,
+        lease_owner: null,
+        lease_expires_at: null,
+        last_error: null,
+        completed_at: null,
+        start_admitted_at: null,
         created_at: Number(values[8]),
       }
       this.outbox.set(row.command_id, row)
+      return [clone(row)]
+    }
+    if (text.startsWith('UPDATE dsh_enterprise_operation_outbox SET start_admitted_at')) {
+      const row = this.outbox.get(String(values[1]))
+      if (row === undefined || row.org_id !== String(values[2]) || row.state !== 'processing'
+        || row.lease_owner !== String(values[3]) || row.lease_expires_at === null
+        || row.lease_expires_at < Number(values[0])) return []
+      row.start_admitted_at = Number(values[0])
       return [clone(row)]
     }
     if (text.startsWith('SELECT ') && text.includes('FROM dsh_enterprise_fixed_teams')) {
@@ -495,6 +547,12 @@ class MemoryPostgresDatabase implements PostgresDatabase {
       if (row === undefined || row.org_id !== String(values[5]) || row.revision !== Number(values[6])) return []
       row.leader_release_id = String(values[0]); row.workflow_template_json = parse(values[1])
       row.approval_policy_json = parse(values[2]); row.updated_at = Number(values[3]); row.revision += 1
+      return [clone(row)]
+    }
+    if (text.startsWith('UPDATE dsh_enterprise_fixed_teams SET workflow_template_json')) {
+      const row = this.teams.get(String(values[2]))
+      if (row === undefined || row.org_id !== String(values[3]) || row.revision !== Number(values[4])) return []
+      row.workflow_template_json = parse(values[0]); row.updated_at = Number(values[1]); row.revision += 1
       return [clone(row)]
     }
     if (text.startsWith('DELETE FROM dsh_enterprise_fixed_team_members')) {
@@ -600,7 +658,7 @@ describe('EnterpriseOperationsRepository', () => {
       idempotencyKey: 'approval-migration-create',
     })
 
-    expect(database.schemaVersion).toBe('7')
+    expect(database.schemaVersion).toBe('8')
   })
 
   it('permits unverified local writes only through explicit configuration', async () => {
@@ -1185,25 +1243,55 @@ describe('EnterpriseOperationsRepository team definitions', () => {
       roster: [
         { actor: { kind: 'human' as const, userId: 'owner-a' }, roleId: 'owner' },
         { actor: { kind: 'agent' as const, employeeReleaseId: 'release-new-lead' }, roleId: 'owner' },
+        { actor: { kind: 'agent' as const, employeeReleaseId: 'release-new' }, roleId: 'reviewer' },
       ],
-      roles: [{ roleId: 'owner', name: 'Owner', responsibility: 'Own.' }],
+      roles: [
+        { roleId: 'owner', name: 'Owner', responsibility: 'Own.' },
+        { roleId: 'reviewer', name: 'Reviewer', responsibility: 'Review.' },
+      ],
       expectedRevision: 2, idempotencyKey: 'sync-activate',
     }
     await operations.saveTeamDefinition(active)
+    const noOp = await operations.saveFixedTeam({
+      teamId: 'sync-team', orgId: 'org-a', leaderEmployeeReleaseId: 'release-new-lead',
+      members: [{ employeeReleaseId: 'release-new', role: 'reviewer' }], workflowTemplate: {}, approvalPolicy: {},
+      expectedRevision: 2, idempotencyKey: 'sync-active-noop',
+    })
+    expect(noOp.revision).toBe(2)
+    const workflowOnly = await operations.saveFixedTeam({
+      teamId: 'sync-team', orgId: 'org-a', leaderEmployeeReleaseId: 'release-new-lead',
+      members: [{ employeeReleaseId: 'release-new', role: 'reviewer' }],
+      workflowTemplate: { version: 2 }, approvalPolicy: {}, expectedRevision: 2,
+      idempotencyKey: 'sync-active-workflow',
+    })
+    expect(workflowOnly).toMatchObject({ revision: 3, workflowTemplate: { version: 2 } })
     await expect(operations.saveFixedTeam({
       teamId: 'sync-team', orgId: 'org-a', leaderEmployeeReleaseId: 'release-drift',
-      members: [], workflowTemplate: {}, approvalPolicy: {}, expectedRevision: 2, idempotencyKey: 'sync-drift',
+      members: [], workflowTemplate: { version: 2 }, approvalPolicy: {}, expectedRevision: 3, idempotencyKey: 'sync-drift',
     })).rejects.toMatchObject({ code: 'invalid-state', resourceType: 'team-definition' })
     await expect(operations.getFixedTeam('org-a', 'sync-team')).resolves.toMatchObject({
-      revision: 2, leaderEmployeeReleaseId: 'release-new-lead',
+      revision: 3, leaderEmployeeReleaseId: 'release-new-lead', workflowTemplate: { version: 2 },
     })
     const archived = await operations.archiveTeamDefinition({
       orgId: 'org-a', teamId: 'sync-team', expectedRevision: 3, idempotencyKey: 'sync-archive',
     })
     expect(archived.state).toBe('archived')
+    const archivedNoOp = await operations.saveFixedTeam({
+      teamId: 'sync-team', orgId: 'org-a', leaderEmployeeReleaseId: 'release-new-lead',
+      members: [{ employeeReleaseId: 'release-new', role: 'reviewer' }],
+      workflowTemplate: { version: 2 }, approvalPolicy: {}, expectedRevision: 3,
+      idempotencyKey: 'sync-archived-noop',
+    })
+    expect(archivedNoOp.revision).toBe(3)
+    await expect(operations.saveFixedTeam({
+      teamId: 'sync-team', orgId: 'org-a', leaderEmployeeReleaseId: 'release-new-lead',
+      members: [{ employeeReleaseId: 'release-new', role: 'reviewer' }],
+      workflowTemplate: { version: 2 }, approvalPolicy: {}, expectedRevision: 3,
+      idempotencyKey: 'sync-archived-noop',
+    })).resolves.toEqual(archivedNoOp)
     await expect(operations.saveFixedTeam({
       teamId: 'sync-team', orgId: 'org-a', leaderEmployeeReleaseId: 'release-drift',
-      members: [], workflowTemplate: {}, approvalPolicy: {}, expectedRevision: 2, idempotencyKey: 'sync-drift-archived',
+      members: [], workflowTemplate: { version: 2 }, approvalPolicy: {}, expectedRevision: 3, idempotencyKey: 'sync-drift-archived',
     })).rejects.toMatchObject({ code: 'invalid-state', resourceType: 'team-definition' })
   })
 
@@ -1311,36 +1399,76 @@ describe('EnterpriseOperationsRepository team definitions', () => {
     })).resolves.toMatchObject({ businessState: 'completed', revision: 2 })
   })
 
-  it('holds the definition lock through the worker session-start commit point', async () => {
-    const operations = repository()
+  it('admits start in a short transaction and fences archive only until the lease expires', async () => {
+    let now = 100
+    const database = new MemoryPostgresDatabase()
+    const operations = repository(database, () => now)
     await operations.createFixedTeam({
-      teamId: 'serialized-team', orgId: 'org-a', leaderEmployeeReleaseId: 'release-a', members: [],
-      workflowTemplate: {}, approvalPolicy: {}, expectedRevision: 0, idempotencyKey: 'serialized-team',
+      teamId: 'admission-team', orgId: 'org-a', leaderEmployeeReleaseId: 'release-a', members: [],
+      workflowTemplate: {}, approvalPolicy: {}, expectedRevision: 0, idempotencyKey: 'admission-team',
     })
     await operations.saveTeamDefinition({
-      ...teamDefinition, teamId: 'serialized-team', departmentId: undefined,
-      visibility: 'organization', allowedUserIds: [], expectedRevision: 1, idempotencyKey: 'serialized-active',
+      ...teamDefinition, teamId: 'admission-team', departmentId: undefined,
+      visibility: 'organization', allowedUserIds: [], expectedRevision: 1, idempotencyKey: 'admission-active',
     })
-    let releaseStart!: () => void
-    let signalStart!: () => void
-    const startGate = new Promise<void>((resolve) => { releaseStart = resolve })
-    const startBegan = new Promise<void>((resolve) => { signalStart = resolve })
-    const events: string[] = []
-    const command = {
-      kind: 'start-session' as const, sessionId: 'serialized-session', employeeReleaseId: 'release-a',
-      teamId: 'serialized-team',
-    }
-    const starting = operations.withActiveTeamCommand('org-a', command, async () => {
-      events.push('start-begin'); signalStart(); await startGate; events.push('start-end')
+    database.seedOutbox({
+      commandId: 'admission-command', orgId: 'org-a', teamId: 'admission-team',
+      state: 'processing', workerId: 'worker-a', leaseExpiresAt: 200,
     })
-    await startBegan
-    const archiving = operations.archiveTeamDefinition({
-      orgId: 'org-a', teamId: 'serialized-team', expectedRevision: 2, idempotencyKey: 'serialized-archive',
-    }).then(() => { events.push('archived') })
-    await Promise.resolve()
-    expect(events).toEqual(['start-begin'])
-    releaseStart()
-    await Promise.all([starting, archiving])
-    expect(events).toEqual(['start-begin', 'start-end', 'archived'])
+    let admittedAt: number | undefined
+    const worker = new EnterpriseOperationsWorker({
+      claimOutbox: async () => ({
+        commandId: 'admission-command', attempt: 1,
+        command: { kind: 'start-session', sessionId: 'session-admission', employeeReleaseId: 'release-a', teamId: 'admission-team' },
+      }),
+      admit: async () => {
+        admittedAt = (await operations.admitOutboxStart({
+          orgId: 'org-a', commandId: 'admission-command', workerId: 'worker-a',
+        })).startAdmittedAt
+      },
+      createSession: async () => { await database.query('SELECT pg_advisory_xact_lock($1)', [1]) },
+      complete: async () => undefined,
+      fail: async () => { throw new Error('unexpected admission failure') },
+      nextAttemptAt: value => value,
+    })
+    await expect(worker.runOnce(100)).resolves.toBe(true)
+    expect(admittedAt).toBe(100)
+    await expect(operations.saveTeamDefinition({
+      ...teamDefinition, teamId: 'admission-team', departmentId: undefined,
+      visibility: 'organization', allowedUserIds: [], name: 'Blocked edit', expectedRevision: 2,
+      idempotencyKey: 'admission-save-live',
+    })).rejects.toMatchObject({ code: 'conflict', resourceType: 'team-definition' })
+    await expect(operations.archiveTeamDefinition({
+      orgId: 'org-a', teamId: 'admission-team', expectedRevision: 2, idempotencyKey: 'admission-archive-live',
+    })).rejects.toMatchObject({ code: 'conflict', resourceType: 'team-definition' })
+    now = 201
+    database.expireOutbox('admission-command', 200)
+    await expect(operations.archiveTeamDefinition({
+      orgId: 'org-a', teamId: 'admission-team', expectedRevision: 2, idempotencyKey: 'admission-archive-expired',
+    })).resolves.toMatchObject({ state: 'archived' })
+  })
+
+  it('allows pending commands to be archived and rejects their later worker admission', async () => {
+    const database = new MemoryPostgresDatabase()
+    const operations = repository(database, () => 100)
+    await operations.createFixedTeam({
+      teamId: 'pending-team', orgId: 'org-a', leaderEmployeeReleaseId: 'release-a', members: [],
+      workflowTemplate: {}, approvalPolicy: {}, expectedRevision: 0, idempotencyKey: 'pending-team',
+    })
+    await operations.saveTeamDefinition({
+      ...teamDefinition, teamId: 'pending-team', departmentId: undefined,
+      visibility: 'organization', allowedUserIds: [], expectedRevision: 1, idempotencyKey: 'pending-active',
+    })
+    database.seedOutbox({ commandId: 'pending-command', orgId: 'org-a', teamId: 'pending-team', state: 'pending' })
+    await operations.archiveTeamDefinition({
+      orgId: 'org-a', teamId: 'pending-team', expectedRevision: 2, idempotencyKey: 'pending-archive',
+    })
+    database.seedOutbox({
+      commandId: 'pending-command', orgId: 'org-a', teamId: 'pending-team',
+      state: 'processing', workerId: 'worker-a', leaseExpiresAt: 200,
+    })
+    await expect(operations.admitOutboxStart({
+      orgId: 'org-a', commandId: 'pending-command', workerId: 'worker-a',
+    })).rejects.toMatchObject({ code: 'invalid-state', resourceType: 'team-definition' })
   })
 })

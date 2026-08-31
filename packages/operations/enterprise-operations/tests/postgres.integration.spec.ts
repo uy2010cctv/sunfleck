@@ -80,9 +80,9 @@ describe.skipIf(database === undefined)('enterprise operations PostgreSQL', () =
       state TEXT NOT NULL, created_at BIGINT NOT NULL, UNIQUE(org_id, schedule_id, occurrence_key))`)
     await migrateEnterpriseOperations(postgres)
     const columns = await postgres.query<{ column_name: string }>(
-      "SELECT column_name FROM information_schema.columns WHERE table_name = 'dsh_enterprise_operation_outbox' AND column_name = 'team_id'",
+      "SELECT column_name FROM information_schema.columns WHERE table_name = 'dsh_enterprise_operation_outbox' AND column_name IN ('team_id','start_admitted_at') ORDER BY column_name",
     )
-    expect(columns.rows).toHaveLength(1)
+    expect(columns.rows.map(row => row.column_name)).toEqual(['start_admitted_at', 'team_id'])
 
     const operations = new EnterpriseOperationsRepository(postgres, { allowUnverifiedReferences: true })
     await operations.createFixedTeam({

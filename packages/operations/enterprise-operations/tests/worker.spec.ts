@@ -18,7 +18,7 @@ describe('EnterpriseOperationsWorker', () => {
       createSession: async () => {
         events.push('create')
       },
-      withActiveCommand: async (_command, start) => { events.push('revalidate'); await start() },
+      admit: async () => { events.push('revalidate') },
       complete: async (commandId) => {
         events.push(`complete:${commandId}`)
       },
@@ -39,7 +39,7 @@ describe('EnterpriseOperationsWorker', () => {
       createSession: async () => {
         throw new Error('session unavailable')
       },
-      withActiveCommand: async (_command, start) => { await start() },
+      admit: async () => undefined,
       complete: async () => {
         throw new Error('unexpected completion')
       },
@@ -57,7 +57,7 @@ describe('EnterpriseOperationsWorker', () => {
     const events: string[] = []
     const worker = new EnterpriseOperationsWorker({
       claimOutbox: async () => ({ ...claimed, command: { ...claimed.command, teamId: 'team-a' } }),
-      withActiveCommand: async () => { events.push('revalidate'); throw new Error('team definition is inactive') },
+      admit: async () => { events.push('revalidate'); throw new Error('team definition is inactive') },
       createSession: async () => { events.push('create') },
       complete: async () => { events.push('complete') },
       fail: async (failure) => { events.push(`fail:${failure.nextAttemptAt}`) },

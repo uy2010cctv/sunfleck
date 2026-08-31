@@ -83,6 +83,7 @@ export interface OutboxCommandView {
   readonly leaseExpiresAt?: number
   readonly lastError?: string
   readonly completedAt?: number
+  readonly startAdmittedAt?: number
   readonly createdAt: number
 }
 export interface FixedTeamView {

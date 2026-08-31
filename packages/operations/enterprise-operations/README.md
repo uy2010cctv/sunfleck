@@ -41,7 +41,7 @@ Durable operation projections over native DSH execution:
 - Pending approvals may be cancelled. The repository records the actor and reason; `EnterpriseOperationsService` permits cancellation only for the requester or an administrator.
 - Native references fail closed when their resolver is missing. Tests and local development may explicitly set `allowUnverifiedReferences`; production composition must omit it.
 - Idempotency keys bind a SHA-256 request digest, and reuse with different input is rejected. Only active schedules can fire; the Outbox command creates the new scheduled Session.
-- `EnterpriseOperationsWorker` claims one Outbox command and invokes the Session creator through `withActiveCommand`. Team commands hold the shared definition lock and revalidate active state through the Session-start commit point; rejection calls the failure handler with caller-supplied retry timing instead of leaving a processing lease behind.
+- `EnterpriseOperationsWorker` admits a claimed Outbox command before invoking the external Session creator. Admission uses a short transaction and the shared team lock to revalidate active state, the processing owner, and its unexpired lease, then records `startAdmittedAt` and releases the connection. Definition save/archive rejects live admitted leases; pending or expired commands do not block. Start or admission failure calls the failure handler with caller-supplied retry timing and clears the admission through the normal outbox failure transition.
 
 ## Host API service contract
 

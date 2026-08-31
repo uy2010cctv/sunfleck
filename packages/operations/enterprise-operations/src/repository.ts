@@ -30,7 +30,7 @@ export class EnterpriseOperationsError extends Error {
   constructor(
     readonly code: 'conflict' | 'immutable-source' | 'invalid-transition' | 'not-found'
       | 'cursor-invalid' | 'idempotency-conflict' | 'invalid-state',
-    readonly resourceType: 'work-record' | 'approval' | 'schedule' | 'team' | 'team-definition',
+    readonly resourceType: 'work-record' | 'approval' | 'schedule' | 'team' | 'team-definition' | 'operation-outbox',
     readonly resourceId?: string,
   ) {
     super(`enterprise operations ${code}`)
@@ -69,6 +69,13 @@ function requestDigest(value: unknown): string {
   return createHash('sha256')
     .update(JSON.stringify(canonical(value)))
     .digest('hex')
+}
+function canonicalEqual(left: unknown, right: unknown): boolean {
+  return JSON.stringify(canonical(left)) === JSON.stringify(canonical(right))
+}
+function sortedFixedMembers(members: readonly { employeeReleaseId: string; role: string }[]) {
+  return [...members].sort((left, right) => left.employeeReleaseId.localeCompare(right.employeeReleaseId)
+    || left.role.localeCompare(right.role))
 }
 function teamLockKey(orgId: string, teamId: string): string {
   return `team:${orgId}:${teamId}`
@@ -246,6 +253,7 @@ interface OutboxRow extends Record<string, unknown> {
   lease_expires_at: number | string | null
   last_error: string | null
   completed_at: number | string | null
+  start_admitted_at: number | string | null
   created_at: number | string
 }
 
@@ -332,6 +340,19 @@ export class EnterpriseOperationsRepository {
   }
   private async lockIdempotency(database: PostgresDatabase, orgId: string, operation: string, key: string): Promise<void> {
     await this.lock(database, `idempotency:${orgId}:${operation}:${key}`)
+  }
+  private async assertNoLiveTeamAdmission(
+    database: PostgresDatabase,
+    orgId: string,
+    teamId: string,
+  ): Promise<void> {
+    const result = await database.query(
+      `SELECT 1 FROM dsh_enterprise_operation_outbox WHERE org_id=$1 AND team_id=$2
+        AND state='processing' AND start_admitted_at IS NOT NULL AND lease_expires_at >= $3 LIMIT 1`,
+      [orgId, teamId, this.now()],
+    )
+    if (result.rows[0] !== undefined)
+      throw new EnterpriseOperationsError('conflict', 'team-definition', teamId)
   }
   private async remember(
     database: PostgresDatabase,
@@ -822,20 +843,6 @@ export class EnterpriseOperationsRepository {
     await this.initialize()
     await this.database.transaction(async (database) => { await this.teamTarget(database, orgId, teamId) })
   }
-  /** Hold the team-definition lock through the external start commit point. */
-  async withActiveTeamCommand<T>(
-    orgId: string,
-    command: ScheduleFireView['command'],
-    start: () => Promise<T>,
-  ): Promise<T> {
-    const teamId = command.teamId
-    if (teamId === undefined) return start()
-    await this.initialize()
-    return this.database.transaction(async (database) => {
-      await this.teamTarget(database, orgId, teamId)
-      return start()
-    })
-  }
   /** Claim pending or expired outbox commands using a worker lease (fencing token). */
   async claimOutbox(input: { orgId: string; workerId: string; leaseMs: number; limit?: number }): Promise<readonly OutboxCommandView[]> {
     await this.initialize()
@@ -849,12 +856,35 @@ export class EnterpriseOperationsRepository {
       const claimed: OutboxCommandView[] = []
       for (const row of rows.rows) {
         const result = await database.query<OutboxRow>(
-          "UPDATE dsh_enterprise_operation_outbox SET state = 'processing', lease_owner = $1, lease_expires_at = $2, attempt_count = attempt_count + 1, last_error = NULL WHERE command_id = $3 RETURNING *",
+          "UPDATE dsh_enterprise_operation_outbox SET state = 'processing', lease_owner = $1, lease_expires_at = $2, attempt_count = attempt_count + 1, last_error = NULL, start_admitted_at = NULL WHERE command_id = $3 RETURNING *",
           [input.workerId, now + input.leaseMs, row.command_id],
         )
         if (result.rows[0] !== undefined) claimed.push(this.outbox(result.rows[0]))
       }
       return claimed
+    })
+  }
+  async admitOutboxStart(input: { orgId: string; commandId: string; workerId: string }): Promise<OutboxCommandView> {
+    await this.initialize()
+    return this.database.transaction(async (database) => {
+      const current = await database.query<OutboxRow>(
+        'SELECT * FROM dsh_enterprise_operation_outbox WHERE command_id=$1 AND org_id=$2 FOR UPDATE',
+        [input.commandId, input.orgId],
+      )
+      const row = current.rows[0]
+      const now = this.now()
+      if (row === undefined || row.state !== 'processing' || row.lease_owner !== input.workerId
+        || row.lease_expires_at === null || Number(row.lease_expires_at) < now)
+        throw new EnterpriseOperationsError('invalid-state', 'operation-outbox', input.commandId)
+      if (row.team_id !== null) await this.teamTarget(database, input.orgId, row.team_id)
+      const admitted = await database.query<OutboxRow>(
+        `UPDATE dsh_enterprise_operation_outbox SET start_admitted_at=$1
+          WHERE command_id=$2 AND org_id=$3 AND state='processing' AND lease_owner=$4 AND lease_expires_at >= $1 RETURNING *`,
+        [now, input.commandId, input.orgId, input.workerId],
+      )
+      if (admitted.rows[0] === undefined)
+        throw new EnterpriseOperationsError('invalid-state', 'operation-outbox', input.commandId)
+      return this.outbox(admitted.rows[0])
     })
   }
   async completeOutbox(input: { orgId: string; commandId: string; workerId: string }): Promise<OutboxCommandView> {
@@ -878,7 +908,7 @@ export class EnterpriseOperationsRepository {
     return this.database.transaction(async (database) => {
       const state: OutboxState = input.retryable ? 'pending' : 'failed'
       const result = await database.query<OutboxRow>(
-        "UPDATE dsh_enterprise_operation_outbox SET state = $1, lease_owner = NULL, lease_expires_at = NULL, last_error = $2 WHERE command_id = $3 AND org_id = $4 AND state = 'processing' AND lease_owner = $5 RETURNING *",
+        "UPDATE dsh_enterprise_operation_outbox SET state = $1, lease_owner = NULL, lease_expires_at = NULL, start_admitted_at = NULL, last_error = $2 WHERE command_id = $3 AND org_id = $4 AND state = 'processing' AND lease_owner = $5 RETURNING *",
         [state, input.error.slice(0, 2000), input.commandId, input.orgId, input.workerId],
       )
       return this.outbox(required(result.rows[0], 'outbox command'))
@@ -958,8 +988,42 @@ export class EnterpriseOperationsRepository {
         [input.orgId, input.teamId],
       )
       const definition = definitions.rows[0]
-      if (definition === undefined || definition.state !== 'needs-charter')
+      if (definition === undefined)
         throw new EnterpriseOperationsError('invalid-state', 'team-definition', input.teamId)
+      const currentMembers = await database.query<{ employee_release_id: string; role: string }>(
+        'SELECT employee_release_id, role FROM dsh_enterprise_fixed_team_members WHERE team_id = $1 ORDER BY employee_release_id',
+        [input.teamId],
+      )
+      const before = this.team(row, currentMembers.rows.map(member => ({
+        employeeReleaseId: member.employee_release_id, role: member.role,
+      })))
+      if (definition.state !== 'needs-charter') {
+        const fixedExecutionMatches = input.leaderEmployeeReleaseId === before.leaderEmployeeReleaseId
+          && canonicalEqual(sortedFixedMembers(input.members), sortedFixedMembers(before.members))
+          && canonicalEqual(input.approvalPolicy, before.approvalPolicy)
+        const parsedDefinition = this.teamDefinition(definition)
+        const definitionMembers = parsedDefinition.roster.flatMap(member =>
+          member.actor.kind === 'agent' && member.actor.employeeReleaseId !== parsedDefinition.leaderEmployeeReleaseId
+            ? [{ employeeReleaseId: member.actor.employeeReleaseId, role: member.roleId }] : [])
+        const definitionExecutionMatches = input.leaderEmployeeReleaseId === parsedDefinition.leaderEmployeeReleaseId
+          && canonicalEqual(sortedFixedMembers(input.members), sortedFixedMembers(definitionMembers))
+          && canonicalEqual(input.approvalPolicy, parsedDefinition.approvalPolicy)
+        if (!fixedExecutionMatches || !definitionExecutionMatches
+          || (definition.state === 'archived' && !canonicalEqual(input.workflowTemplate, before.workflowTemplate)))
+          throw new EnterpriseOperationsError('invalid-state', 'team-definition', input.teamId)
+        if (canonicalEqual(input.workflowTemplate, before.workflowTemplate)) {
+          await this.remember(database, input.orgId, 'team-save', input.idempotencyKey, input, before)
+          return before
+        }
+        const workflowOnly = await database.query<TeamRow>(
+          'UPDATE dsh_enterprise_fixed_teams SET workflow_template_json=$1::jsonb,updated_at=$2,revision=revision+1 ' +
+            'WHERE team_id=$3 AND org_id=$4 AND revision=$5 RETURNING *',
+          [JSON.stringify(input.workflowTemplate), this.now(), input.teamId, input.orgId, input.expectedRevision],
+        )
+        const view = this.team(required(workflowOnly.rows[0], 'fixed team'), before.members)
+        await this.remember(database, input.orgId, 'team-save', input.idempotencyKey, input, view)
+        return view
+      }
       await Promise.all([
         this.requireRelease(database, input.orgId, input.leaderEmployeeReleaseId),
         ...input.members.map(member => this.requireRelease(database, input.orgId, member.employeeReleaseId)),
@@ -1103,6 +1167,7 @@ export class EnterpriseOperationsRepository {
         throw new EnterpriseOperationsError('conflict', 'team-definition', input.teamId)
       if (row.state === 'archived' || input.state === 'archived')
         throw new EnterpriseOperationsError('invalid-transition', 'team-definition', input.teamId)
+      await this.assertNoLiveTeamAdmission(database, input.orgId, input.teamId)
       const candidate: EnterpriseTeamDefinition = {
         ...input, revision: input.expectedRevision + 1, createdAt: Number(row.created_at), updatedAt: this.now(),
       }
@@ -1143,6 +1208,7 @@ export class EnterpriseOperationsRepository {
         database, input.orgId, 'team-definition-archive', input.idempotencyKey, input,
       )
       if (prior !== undefined) return prior
+      await this.assertNoLiveTeamAdmission(database, input.orgId, input.teamId)
       const updated = await database.query<TeamDefinitionRow>(
         `UPDATE dsh_enterprise_team_definitions SET state='archived',updated_at=$1,revision=revision+1
           WHERE org_id=$2 AND team_id=$3 AND revision=$4 AND state<>'archived' RETURNING *`,
@@ -1269,6 +1335,7 @@ export class EnterpriseOperationsRepository {
       ...(row.lease_expires_at === null ? {} : { leaseExpiresAt: Number(row.lease_expires_at) }),
       ...(row.last_error === null ? {} : { lastError: row.last_error }),
       ...(row.completed_at === null ? {} : { completedAt: Number(row.completed_at) }),
+      ...(row.start_admitted_at === null ? {} : { startAdmittedAt: Number(row.start_admitted_at) }),
       createdAt: Number(row.created_at),
     }
   }
