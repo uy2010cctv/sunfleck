@@ -193,11 +193,12 @@ function runtime(overrides: Partial<EnterpriseTeamRuntimeDriver> = {}) {
 }
 
 function service(projection = new MemoryProjection(), runtimeDriver = runtime()) {
-  const authorize = vi.fn().mockImplementation(async (principal: EnterprisePrincipal, endpoint: string) => ({
-    allowed: principal.roles.includes('administrator') || principal.roles.includes('operator')
+  const authorize = vi.fn().mockImplementation(async (principal: EnterprisePrincipal, endpoint: string) => {
+    const allowed = principal.roles.includes('administrator') || principal.roles.includes('operator')
       || principal.roles.includes('creator') || principal.userId === 'owner-a'
-      || endpoint.endsWith('.list') || endpoint.endsWith('.get'),
-  }))
+      || endpoint.endsWith('.list') || endpoint.endsWith('.get')
+    return { allowed, reason: allowed ? 'role' : 'insufficient-role' }
+  })
   const authorizeWorkspace = vi.fn().mockResolvedValue(true)
   const audit = vi.fn()
   return { projection, runtimeDriver, authorize, authorizeWorkspace, audit, value: new EnterpriseTeamControlService(
@@ -252,6 +253,12 @@ describe('enterprise TeamRun control service', () => {
     expect(app.audit).toHaveBeenNthCalledWith(2, expect.objectContaining({
       resource: { type: 'team-run', id: runs[0]?.runId },
     }))
+    const concurrentAudits = app.audit.mock.calls.map(call => call[0] as {
+      decision: { allowed: boolean }
+      details: { outcome?: string }
+    })
+    expect(concurrentAudits.every(event => event.decision.allowed)).toBe(true)
+    expect(concurrentAudits.map(event => event.details.outcome).sort()).toEqual(['active', 'runtime-pending'])
   })
 
   it('rejects stale, inactive, hidden, workspace-denied, and member starts before runtime', async () => {
@@ -300,14 +307,18 @@ describe('enterprise TeamRun control service', () => {
       .resolves.toMatchObject({ state: 'failed', failure: { code: 'invalid-runtime-input' } })
     expect(deterministic.audit).toHaveBeenCalledOnce()
     expect(deterministic.audit).toHaveBeenLastCalledWith(expect.objectContaining({
-      resource: { type: 'team-run', id: 'run-a' }, decision: { allowed: false, reason: 'runtime-deterministic-failure' },
+      resource: { type: 'team-run', id: 'run-a' }, decision: { allowed: true, reason: 'role' },
+      // oxlint-disable-next-line typescript/no-unsafe-assignment -- Vitest asymmetric matcher.
+      details: expect.objectContaining({ outcome: 'runtime-failed', outcomeReason: 'invalid-runtime-input' }),
     }))
     const unknown = service(new MemoryProjection(), runtime({ startRun: vi.fn().mockRejectedValue(new EnterpriseTeamRuntimeError('unknown', 'transport-lost')) }))
     const starting = await unknown.value.startRun(owner, { teamId: 'team-a', expectedTeamRevision: 4, workspaceId: 'w', prompt: 'p', source: 'console', idempotencyKey: 'b' })
     expect(starting.state).toBe('starting')
     expect(unknown.audit).toHaveBeenCalledOnce()
     expect(unknown.audit).toHaveBeenLastCalledWith(expect.objectContaining({
-      resource: { type: 'team-run', id: 'run-a' }, decision: { allowed: false, reason: 'runtime-unknown' },
+      resource: { type: 'team-run', id: 'run-a' }, decision: { allowed: true, reason: 'role' },
+      // oxlint-disable-next-line typescript/no-unsafe-assignment -- Vitest asymmetric matcher.
+      details: expect.objectContaining({ outcome: 'runtime-unknown', outcomeReason: 'transport-lost' }),
     }))
     await expect(unknown.value.reconcileRun({ orgId: 'org-a', runId: starting.runId })).resolves.toMatchObject({ state: 'active' })
     expect(unknown.runtimeDriver.reconcileRun).toHaveBeenCalledWith(expect.objectContaining({ operationId: 'team-run:start:run-a' }))

@@ -46,6 +46,11 @@ export interface EnterpriseApiAuditResource {
   readonly id: string
   readonly details?: Readonly<Record<string, unknown>>
 }
+/** Authorization decision accepted by Host-resolved audit adapters. */
+export interface EnterpriseApiAuditDecision {
+  readonly allowed: boolean
+  readonly reason: string
+}
 
 function payloadOf(input: unknown): Record<string, unknown> {
   if (typeof input !== 'object' || input === null || Array.isArray(input)) return {}
@@ -753,7 +758,7 @@ export class EnterpriseSecurity {
     principal: EnterprisePrincipal,
     endpoint: string,
     input: unknown,
-    decision: EnterpriseAuthorizationDecision,
+    decision: EnterpriseApiAuditDecision,
     correlationId: string,
   ): Promise<void> {
     const classification = classifyApiEndpoint(endpoint, input) ?? {
@@ -777,7 +782,7 @@ export class EnterpriseSecurity {
     principal: EnterprisePrincipal,
     endpoint: string,
     input: unknown,
-    decision: EnterpriseAuthorizationDecision,
+    decision: EnterpriseApiAuditDecision,
     correlationId: string,
     resource: EnterpriseApiAuditResource,
   ): Promise<void> {
@@ -788,7 +793,7 @@ export class EnterpriseSecurity {
   private async appendApiAudit(
     principal: EnterprisePrincipal,
     endpoint: string,
-    decision: EnterpriseAuthorizationDecision,
+    decision: EnterpriseApiAuditDecision,
     correlationId: string,
     action: EnterpriseAction,
     resource: EnterpriseApiAuditResource,

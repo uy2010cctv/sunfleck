@@ -196,9 +196,10 @@ function operations(ctx: Context): EnterpriseOperationsService {
       const input = event.resourceId === undefined ? {} : { [field]: event.resourceId }
       return ctx.enterpriseSecurity.auditApiAsync(
         event.principal, event.endpoint, input,
-        event.decision.allowed
-          ? { allowed: true, reason: 'role' }
-          : { allowed: false, reason: 'insufficient-role' },
+        {
+          allowed: event.decision.allowed,
+          reason: event.decision.reason ?? (event.decision.allowed ? 'role' : 'insufficient-role'),
+        },
         event.correlationId,
       )
     },
@@ -227,9 +228,10 @@ function teamControl(ctx: Context): EnterpriseTeamControlService {
             : { runId: event.resource.id }
       return ctx.enterpriseSecurity.auditApiResourceAsync(
         event.principal, event.endpoint, input,
-        event.decision.allowed
-          ? { allowed: true, reason: 'role' }
-          : { allowed: false, reason: 'insufficient-role' },
+        {
+          allowed: event.decision.allowed,
+          reason: event.decision.reason ?? (event.decision.allowed ? 'role' : 'insufficient-role'),
+        },
         event.correlationId,
         { ...event.resource, details: event.details },
       )

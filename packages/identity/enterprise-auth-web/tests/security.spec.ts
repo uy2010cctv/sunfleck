@@ -358,6 +358,18 @@ describe('EnterpriseSecurity', () => {
     ])
   })
 
+  it('preserves a Host-resolved admission reason instead of rewriting it as insufficient-role', async () => {
+    const member = security.loginLocal('org-a', 'member', 'enterprise-password')!.principal
+    await security.auditApiResourceAsync(
+      member, 'enterpriseTeamRun.start', { teamId: 'team-a' },
+      { allowed: false, reason: 'workspace-forbidden' }, 'team-run:start:key-a',
+      { type: 'team-definition', id: 'team-a', details: { outcomeReason: 'workspace-forbidden' } },
+    )
+    expect(repository.listAudit({ orgId: 'org-a', limit: 10 })[0]).toMatchObject({
+      decision: 'denied', reason: 'workspace-forbidden', correlationId: 'team-run:start:key-a',
+    })
+  })
+
   it('revokes logout sessions and expires them at the configured boundary', () => {
     const login = security.loginLocal('org-a', 'admin', 'enterprise-password')!
     security.logout(login.cookie)

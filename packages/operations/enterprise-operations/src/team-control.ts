@@ -345,6 +345,7 @@ export class EnterpriseTeamControlService {
         authorizationDecision, repeated.runId, {
           teamId: repeated.teamId,
           teamDefinitionRevision: repeated.teamDefinitionRevision,
+          outcome: repeated.state,
         },
       )
       return repeated
@@ -383,22 +384,18 @@ export class EnterpriseTeamControlService {
       await deniedDefinition('definition-hidden')
       throw new EnterpriseOperationsError('not-found', 'team-run', created.run.runId)
     }
-    const runAudit = async (
-      decision: EnterpriseTeamControlAuthorizationDecision,
-      reason?: string,
-    ): Promise<void> => this.audit(
+    const runAudit = async (outcome: string, outcomeReason?: string): Promise<void> => this.audit(
       principal, 'enterpriseTeamRun.start', { type: 'team-run', id: created.run.runId },
-      decision, created.run.runId, {
+      authorizationDecision, created.run.runId, {
         teamId: created.run.teamId,
         teamDefinitionRevision: created.run.teamDefinitionRevision,
-        ...(reason === undefined ? {} : { outcomeReason: reason }),
+        outcome,
+        ...(outcomeReason === undefined ? {} : { outcomeReason }),
       },
     )
     if (!created.created || created.run.state !== 'starting' || created.run.rootSessionId !== undefined) {
       const settled = created.run.state === 'active' || created.run.state === 'completed'
-      await runAudit(settled
-        ? { allowed: true, ...(authorizationDecision.reason === undefined ? {} : { reason: authorizationDecision.reason }) }
-        : { allowed: false, reason: 'runtime-pending' }, settled ? undefined : 'runtime-pending')
+      await runAudit(settled ? created.run.state : 'runtime-pending')
       return created.run
     }
     try {
@@ -410,21 +407,21 @@ export class EnterpriseTeamControlService {
         runtimeRevision: result.runtimeRevision,
         ...(result.sourceEventSeq === undefined ? {} : { sourceEventSeq: result.sourceEventSeq }),
       })
-      await runAudit(authorizationDecision)
+      await runAudit('active')
       return active
     } catch (error) {
       if (error instanceof EnterpriseTeamRuntimeError && error.outcome === 'deterministic') {
         const failed = await this.projections.projectTeamRun({ orgId: principal.orgId, runId: created.run.runId,
           expectedRevision: created.run.revision, state: 'failed', runtimeRevision: created.run.runtimeRevision,
           failure: { code: error.code, message: error.message } })
-        await runAudit({ allowed: false, reason: 'runtime-deterministic-failure' }, error.code)
+        await runAudit('runtime-failed', error.code)
         return failed
       }
       if (error instanceof EnterpriseTeamRuntimeError && error.outcome === 'unknown') {
-        await runAudit({ allowed: false, reason: 'runtime-unknown' }, error.code)
+        await runAudit('runtime-unknown', error.code)
         return created.run
       }
-      await runAudit({ allowed: false, reason: 'runtime-failure' }, 'runtime-failure')
+      await runAudit('runtime-failed', 'runtime-failure')
       throw error
     }
   }

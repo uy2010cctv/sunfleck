@@ -26,7 +26,7 @@ const starting: EnterpriseTeamRun = {
   state: 'starting', runtimeRevision: 0, revision: 1, createdAt: 1, updatedAt: 1,
 }
 
-function setup(allowStart = true) {
+function setup(allowStart = true, allowWorkspace = true) {
   let run: EnterpriseTeamRun = starting
   const decision = {
     decisionId: 'decision-a', orgId: 'org-a', runId: 'run-a', kind: 'approval' as const,
@@ -57,7 +57,8 @@ function setup(allowStart = true) {
     reconcileRun: vi.fn(),
   }
   const authorizeApiAsync = vi.fn().mockImplementation(async (_principal, endpoint: string) => {
-    const allowed = (endpoint === 'enterpriseTeamRun.start' && allowStart) || endpoint === 'session.create'
+    const allowed = (endpoint === 'enterpriseTeamRun.start' && allowStart)
+      || (endpoint === 'session.create' && allowWorkspace)
       || endpoint === 'enterpriseTeamDecision.respond' || endpoint === 'enterpriseTeamAutonomy.save'
       || endpoint.endsWith('.list') || endpoint.endsWith('.get')
     return { allowed, reason: allowed ? 'role' : 'insufficient-role' }
@@ -89,8 +90,10 @@ describe('enterprise team-control Remote namespaces', () => {
     expect(request).not.toHaveProperty('createdBy')
     expect(request).not.toHaveProperty('runtimeRevision')
     expect(app.auditApiResourceAsync).toHaveBeenCalledWith(
-      principal, 'enterpriseTeamRun.start', { runId: 'run-a' }, expect.objectContaining({ allowed: true }), 'run-a',
-      { type: 'team-run', id: 'run-a', details: { teamId: 'team-a', teamDefinitionRevision: 4 } },
+      principal, 'enterpriseTeamRun.start', { runId: 'run-a' }, { allowed: true, reason: 'role' }, 'run-a',
+      { type: 'team-run', id: 'run-a', details: {
+        teamId: 'team-a', teamDefinitionRevision: 4, outcome: 'active',
+      } },
     )
   })
 
@@ -154,6 +157,25 @@ describe('enterprise team-control Remote namespaces', () => {
         // oxlint-disable-next-line typescript/no-unsafe-assignment -- Vitest asymmetric matcher.
         details: expect.objectContaining({ teamId: 'team-a', teamDefinitionRevision: 4 }),
       },
+    )
+  })
+
+  it('preserves the workspace admission reason in the structured denied audit', async () => {
+    const app = setup(true, false)
+    const principal = { orgId: 'org-a', userId: 'owner-a', roles: ['creator'] as const }
+    const failure = await app.requestContext.run(principal, () => app.run.start({
+      teamId: 'team-a', expectedTeamRevision: 4, workspaceId: 'workspace-denied', prompt: 'Close.',
+      source: 'console', idempotencyKey: 'workspace-denied',
+    })).catch((error: unknown) => error)
+    expect((failure as TypertRemoteFailure).failure.code).toBe('enterprise-forbidden')
+    expect(app.auditApiResourceAsync).toHaveBeenCalledWith(
+      principal, 'enterpriseTeamRun.start', { teamId: 'team-a' },
+      { allowed: false, reason: 'workspace-forbidden' }, 'team-run:start:workspace-denied',
+      { type: 'team-definition', id: 'team-a',
+        // oxlint-disable-next-line typescript/no-unsafe-assignment -- Vitest asymmetric matcher.
+        details: expect.objectContaining({
+          outcomeReason: 'workspace-forbidden',
+        }) },
     )
   })
 })
