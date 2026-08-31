@@ -101,14 +101,13 @@ export function authorizeEnterprise(input: EnterpriseAuthorizationInput): Enterp
   if (hasRole(principal, 'operator') && (action === 'operation.manage' || action === 'approval.manage' || action === 'schedule.manage')) {
     return { allowed: true, reason: 'role' }
   }
-  if (hasRole(principal, 'operator') && (action === 'team.execute' || action === 'team.decision.respond')) {
+  if (hasRole(principal, 'operator') && action === 'team.execute') {
     return { allowed: true, reason: 'role' }
   }
   if (hasRole(principal, 'creator') && (action === 'team.manage' || action === 'schedule.manage' || action === 'capability.manage')) {
     return { allowed: true, reason: 'role' }
   }
-  if (hasRole(principal, 'creator')
-    && (action === 'team.execute' || action === 'team.decision.respond' || action === 'team.autonomy.manage')) {
+  if (hasRole(principal, 'creator') && action === 'team.execute') {
     return { allowed: true, reason: 'role' }
   }
 
@@ -126,7 +125,7 @@ export function authorizeEnterprise(input: EnterpriseAuthorizationInput): Enterp
   if (action === 'workspace.manage' && resource?.creatorUserId === principal.userId) {
     return { allowed: true, reason: 'creator-owner' }
   }
-  if ((action === 'team.execute' || action === 'team.decision.respond' || action === 'team.autonomy.manage')
+  if (action === 'team.execute'
     && resource?.creatorUserId === principal.userId) {
     return { allowed: true, reason: 'creator-owner' }
   }

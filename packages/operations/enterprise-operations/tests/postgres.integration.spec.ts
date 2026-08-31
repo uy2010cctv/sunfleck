@@ -138,15 +138,18 @@ describe.skipIf(database === undefined)('enterprise operations PostgreSQL', () =
       expectedRevision: 0, idempotencyKey: 'control-definition',
     })
     const created = await projections.createTeamRunStarting({
-      runId: 'run-a', orgId: 'control-org', teamId: 'control-team', teamDefinitionRevision: 1,
+      orgId: 'control-org', teamId: 'control-team', teamDefinitionRevision: 1,
       workspaceId: 'workspace-a', rosterSnapshot: [
         { actor: { kind: 'human', userId: 'owner-a' }, roleId: 'lead' },
         { actor: { kind: 'agent', employeeReleaseId: 'release-a' }, roleId: 'lead' },
       ],
       createdBy: 'owner-a', source: 'console', state: 'starting', runtimeRevision: 0,
       idempotencyKey: 'start-a', idempotencyFingerprint: 'fingerprint-a',
-    })
-    await expect(projections.createTeamRunStarting({ ...created.run, idempotencyKey: 'start-a', idempotencyFingerprint: 'fingerprint-a' }))
+    }, () => 'run-a')
+    const { runId: _runId, revision: _revision, createdAt: _createdAt, updatedAt: _updatedAt, ...repeat } = created.run
+    await expect(projections.createTeamRunStarting({
+      ...repeat, idempotencyKey: 'start-a', idempotencyFingerprint: 'fingerprint-a',
+    }, () => 'run-unused'))
       .resolves.toMatchObject({ created: false, run: { runId: 'run-a' } })
     const active = await projections.projectTeamRun({ orgId: 'control-org', runId: 'run-a', expectedRevision: 1,
       state: 'active', rootSessionId: 'session-a', runtimeRevision: 1, sourceEventSeq: 4 })
@@ -158,8 +161,11 @@ describe.skipIf(database === undefined)('enterprise operations PostgreSQL', () =
       options: ['yes', 'no'], contextDigest: 'digest-a', assigneeUserId: 'member-a', state: 'open',
       runtimeRevision: 2, sourceEventSeq: 5, revision: 1, createdAt: 103, updatedAt: 103,
     })
-    await expect(projections.answerDecision({ orgId: 'control-org', decisionId: decision.decisionId,
-      expectedRevision: 1, answer: 'yes', runtimeRevision: 3, sourceEventSeq: 6, idempotencyKey: 'answer-a' }))
+    await expect(projections.answerDecision({
+      orgId: 'control-org', decisionId: decision.decisionId,
+      expectedRevision: 1, answer: 'yes', runtimeRevision: 3, sourceEventSeq: 6,
+      idempotencyKey: 'answer-a', idempotencyFingerprint: 'answer-fingerprint-a',
+    }))
       .resolves.toMatchObject({ state: 'answered', answer: 'yes' })
 
     const grant = await projections.saveAutonomyGrant({ orgId: 'control-org', teamId: 'control-team',

@@ -7,6 +7,17 @@ import {
   type PostgresQueryResult,
 } from '../src/index.ts'
 
+const viewer = { userId: 'viewer-a', isAdministrator: false }
+
+function runRow(runId: string, createdAt: number): Record<string, unknown> {
+  return {
+    run_id: runId, org_id: 'org-a', team_id: 'team-a', team_definition_revision: 4,
+    workspace_id: 'workspace-a', root_session_id: 'session-a', roster_snapshot_json: [],
+    created_by: 'owner-a', source: 'console', state: 'active', runtime_revision: 2,
+    source_event_seq: 7, failure_json: null, revision: 2, created_at: createdAt, updated_at: createdAt,
+  }
+}
+
 class TraceDatabase implements PostgresDatabase {
   readonly statements: string[] = []
   readonly values: readonly unknown[][] = []
@@ -47,9 +58,9 @@ describe('enterprise TeamRun projection schema', () => {
     const repository = new EnterpriseTeamControlRepository(database, {
       cursorSigningKey: '0123456789abcdef0123456789abcdef',
     })
-    await expect(repository.listTeamRuns({ orgId: 'org-a', limit: 0 })).rejects.toThrow(/1 to 100/)
-    await expect(repository.listDecisions({ orgId: 'org-a', limit: 101 })).rejects.toThrow(/1 to 100/)
-    await expect(repository.listAutonomyGrants({ orgId: 'org-a', limit: 1.5 })).rejects.toThrow(/1 to 100/)
+    await expect(repository.listTeamRuns({ orgId: 'org-a', readScope: viewer, limit: 0 })).rejects.toThrow(/1 to 100/)
+    await expect(repository.listDecisions({ orgId: 'org-a', readScope: viewer, limit: 101 })).rejects.toThrow(/1 to 100/)
+    await expect(repository.listAutonomyGrants({ orgId: 'org-a', readScope: viewer, limit: 1.5 })).rejects.toThrow(/1 to 100/)
   })
 
   it('maps organization-scoped run projections without accepting browser runtime fields', async () => {
@@ -71,5 +82,64 @@ describe('enterprise TeamRun projection schema', () => {
       revision: 2, createdAt: 10, updatedAt: 11,
     })
     expect(database.values.at(-1)).toEqual(['org-a', 'run-a'])
+  })
+
+  it('signs stable projection cursors and binds them to organization, viewer, and filters', async () => {
+    const database = new TraceDatabase()
+    database.meta = '11'
+    database.rows = [runRow('run-b', 20), runRow('run-a', 10)]
+    const repository = new EnterpriseTeamControlRepository(database, {
+      cursorSigningKey: '0123456789abcdef0123456789abcdef',
+    })
+    const first = await repository.listTeamRuns({
+      orgId: 'org-a', readScope: viewer, state: 'active', limit: 1,
+    })
+    expect(first.items.map(item => item.runId)).toEqual(['run-b'])
+    expect(first.nextCursor).toBeTypeOf('string')
+    database.rows = [runRow('run-a', 10)]
+    await expect(repository.listTeamRuns({
+      orgId: 'org-a', readScope: viewer, state: 'active', limit: 1, cursor: first.nextCursor,
+    })).resolves.toMatchObject({ items: [{ runId: 'run-a' }] })
+    const cursor = first.nextCursor!
+    const tampered = `${cursor.slice(0, -1)}${cursor.endsWith('a') ? 'b' : 'a'}`
+    await expect(repository.listTeamRuns({
+      orgId: 'org-a', readScope: viewer, state: 'active', limit: 1, cursor: tampered,
+    })).rejects.toMatchObject({ code: 'cursor-invalid' })
+    for (const changed of [
+      { orgId: 'org-b', readScope: viewer, state: 'active' as const },
+      { orgId: 'org-a', readScope: { userId: 'viewer-b', isAdministrator: false }, state: 'active' as const },
+      { orgId: 'org-a', readScope: viewer, state: 'failed' as const },
+    ]) {
+      await expect(repository.listTeamRuns({ ...changed, limit: 1, cursor }))
+        .rejects.toMatchObject({ code: 'cursor-invalid' })
+    }
+  })
+
+  it('pushes run, decision, and grant visibility into SQL before limit with minimal read scope', async () => {
+    const database = new TraceDatabase()
+    database.meta = '11'
+    const repository = new EnterpriseTeamControlRepository(database, {
+      cursorSigningKey: '0123456789abcdef0123456789abcdef',
+    })
+    await repository.listTeamRuns({ orgId: 'org-a', readScope: viewer, limit: 10 })
+    await repository.listDecisions({ orgId: 'org-a', readScope: viewer, limit: 10 })
+    await repository.listAutonomyGrants({ orgId: 'org-a', readScope: viewer, limit: 10 })
+    const projectionSql = database.statements.filter(statement =>
+      statement.startsWith('SELECT run.*') || statement.startsWith('SELECT decision.*')
+      || statement.startsWith('SELECT autonomy.*'))
+    expect(projectionSql).toHaveLength(3)
+    for (const sql of projectionSql) {
+      expect(sql).toContain('JOIN dsh_enterprise_team_definitions definition')
+      expect(sql.indexOf('definition.visibility')).toBeLessThan(sql.indexOf('LIMIT'))
+    }
+    expect(database.values.slice(-3)).toEqual([
+      ['org-a', 'viewer-a', false, 11],
+      ['org-a', 'viewer-a', false, 11],
+      ['org-a', 'viewer-a', false, 11],
+    ])
+    database.rows = [runRow('run-visible', 30)]
+    await repository.getTeamRun('org-a', 'run-visible', viewer)
+    expect(database.statements.at(-1)).toContain('JOIN dsh_enterprise_team_definitions definition')
+    expect(database.values.at(-1)).toEqual(['org-a', 'run-visible', 'viewer-a', false])
   })
 })

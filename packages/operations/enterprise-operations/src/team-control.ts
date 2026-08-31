@@ -8,6 +8,7 @@ import type {
   EnterpriseTeamRun,
   EnterpriseTeamRunFailure,
   EnterpriseTeamRunPage,
+  TeamDefinitionReadScope,
   TeamDecision,
   TeamDecisionPage,
 } from './types.ts'
@@ -79,10 +80,11 @@ export interface EnterpriseTeamControlProjectionDriver {
     scope: { userId: string; isAdministrator: boolean },
   ): Promise<EnterpriseTeamDefinition | undefined>
   createTeamRunStarting(
-    input: Omit<EnterpriseTeamRun, 'revision' | 'createdAt' | 'updatedAt'> & {
+    input: Omit<EnterpriseTeamRun, 'runId' | 'revision' | 'createdAt' | 'updatedAt'> & {
       readonly idempotencyKey: string
-      readonly idempotencyFingerprint?: string
+      readonly idempotencyFingerprint: string
     },
+    allocateRunId: () => string,
   ): Promise<{ readonly run: EnterpriseTeamRun; readonly created: boolean }>
   getTeamRunByStartKey(
     orgId: string,
@@ -99,18 +101,25 @@ export interface EnterpriseTeamControlProjectionDriver {
     readonly sourceEventSeq?: number
     readonly failure?: EnterpriseTeamRunFailure
   }): Promise<EnterpriseTeamRun>
-  getTeamRun(orgId: string, runId: string): Promise<EnterpriseTeamRun | undefined>
+  getTeamRun(orgId: string, runId: string, readScope?: TeamDefinitionReadScope): Promise<EnterpriseTeamRun | undefined>
   listTeamRuns(input: {
     readonly orgId: string
+    readonly readScope: TeamDefinitionReadScope
     readonly teamId?: string
     readonly state?: EnterpriseTeamRun['state']
     readonly limit?: number
     readonly cursor?: string
   }): Promise<EnterpriseTeamRunPage>
   projectDecision(input: TeamDecision): Promise<TeamDecision>
-  getDecision(orgId: string, decisionId: string): Promise<TeamDecision | undefined>
+  getDecision(orgId: string, decisionId: string, readScope?: TeamDefinitionReadScope): Promise<TeamDecision | undefined>
+  getDecisionResponseByKey(
+    orgId: string,
+    idempotencyKey: string,
+    idempotencyFingerprint: string,
+  ): Promise<TeamDecision | undefined>
   listDecisions(input: {
     readonly orgId: string
+    readonly readScope: TeamDefinitionReadScope
     readonly runId?: string
     readonly state?: TeamDecision['state']
     readonly assigneeUserId?: string
@@ -125,9 +134,11 @@ export interface EnterpriseTeamControlProjectionDriver {
     readonly runtimeRevision: number
     readonly sourceEventSeq?: number
     readonly idempotencyKey: string
+    readonly idempotencyFingerprint: string
   }): Promise<TeamDecision>
   listAutonomyGrants(input: {
     readonly orgId: string
+    readonly readScope: TeamDefinitionReadScope
     readonly teamId?: string
     readonly employeeReleaseId?: string
     readonly state?: EnterpriseTeamAutonomyGrant['state']
@@ -267,7 +278,7 @@ export class EnterpriseTeamControlService {
   }
 
   private deny(endpoint: EnterpriseTeamControlEndpoint): never {
-    throw new EnterpriseOperationsError('admission-rejected', endpoint.startsWith('enterpriseTeamDecision') ? 'team-decision'
+    throw new EnterpriseOperationsError('forbidden', endpoint.startsWith('enterpriseTeamDecision') ? 'team-decision'
       : endpoint.startsWith('enterpriseTeamAutonomy') ? 'team-autonomy-grant' : 'team-run')
   }
 
@@ -287,20 +298,26 @@ export class EnterpriseTeamControlService {
 
   /** @param principal - authenticated Host actor. @param input - browser-safe start fields. @returns runtime-backed run projection. */
   async startRun(principal: EnterprisePrincipal, input: EnterpriseTeamRunStartInput): Promise<EnterpriseTeamRun> {
-    const runId = this.runId()
-    await this.requireAuthorized(principal, 'enterpriseTeamRun.start', input, 'team-run', input.teamId, runId)
+    const authorizationDecision = await this.decision(principal, 'enterpriseTeamRun.start', input)
+    if (!authorizationDecision.allowed) {
+      await this.audit(principal, 'enterpriseTeamRun.start', 'team-run', input.teamId, authorizationDecision)
+      this.deny('enterpriseTeamRun.start')
+    }
     const idempotencyFingerprint = createHash('sha256').update(JSON.stringify({
       teamId: input.teamId, expectedTeamRevision: input.expectedTeamRevision, workspaceId: input.workspaceId,
       prompt: input.prompt, source: input.source,
     })).digest('hex')
-    const repeated = await this.projections.getTeamRunByStartKey(principal.orgId, input.idempotencyKey, idempotencyFingerprint)
+    const repeated = await this.projections.getTeamRunByStartKey(
+      principal.orgId, input.idempotencyKey, idempotencyFingerprint,
+    )
     if (repeated !== undefined) {
       if (repeated.createdBy !== principal.userId
         || await this.projections.getTeamDefinition(principal.orgId, repeated.teamId, this.scope(principal)) === undefined)
         throw new EnterpriseOperationsError('not-found', 'team-run', repeated.runId)
-      if (repeated.teamId !== input.teamId || repeated.workspaceId !== input.workspaceId
-        || repeated.source !== input.source || repeated.teamDefinitionRevision !== input.expectedTeamRevision)
-        throw new EnterpriseOperationsError('idempotency-conflict', 'team-run', repeated.runId)
+      await this.audit(
+        principal, 'enterpriseTeamRun.start', 'team-run', repeated.runId,
+        authorizationDecision, repeated.runId,
+      )
       return repeated
     }
     const definition = await this.definition(principal, input.teamId)
@@ -308,13 +325,19 @@ export class EnterpriseTeamControlService {
       throw new EnterpriseOperationsError('conflict', 'team-definition', input.teamId)
     if (definition.state !== 'active') throw new EnterpriseOperationsError('invalid-state', 'team-definition', input.teamId)
     if (!(await this.options.authorizeWorkspace(principal, input.workspaceId)))
-      throw new EnterpriseOperationsError('admission-rejected', 'team-run', input.teamId)
+      throw new EnterpriseOperationsError('forbidden', 'team-run', input.teamId)
     const created = await this.projections.createTeamRunStarting({
-      runId, orgId: principal.orgId, teamId: definition.teamId, teamDefinitionRevision: definition.revision,
+      orgId: principal.orgId, teamId: definition.teamId, teamDefinitionRevision: definition.revision,
       workspaceId: input.workspaceId, rosterSnapshot: structuredClone(definition.roster), createdBy: principal.userId,
       source: input.source, state: 'starting', runtimeRevision: 0, idempotencyKey: input.idempotencyKey,
       idempotencyFingerprint,
-    })
+    }, this.runId)
+    if (created.run.createdBy !== principal.userId)
+      throw new EnterpriseOperationsError('not-found', 'team-run', created.run.runId)
+    await this.audit(
+      principal, 'enterpriseTeamRun.start', 'team-run', created.run.runId,
+      authorizationDecision, created.run.runId,
+    )
     if (!created.created || created.run.state !== 'starting' || created.run.rootSessionId !== undefined) return created.run
     try {
       const result = await this.runtime.startRun({ operationId: `team-run:start:${created.run.runId}`, runId: created.run.runId,
@@ -354,7 +377,7 @@ export class EnterpriseTeamControlService {
 
   /** @param principal - authenticated Host actor. @param input - run CAS and idempotency fields. @returns cancelled projection. */
   async cancelRun(principal: EnterprisePrincipal, input: EnterpriseTeamRunCancelInput): Promise<EnterpriseTeamRun> {
-    const run = await this.projections.getTeamRun(principal.orgId, input.runId)
+    const run = await this.projections.getTeamRun(principal.orgId, input.runId, this.scope(principal))
     if (run === undefined) throw new EnterpriseOperationsError('not-found', 'team-run', input.runId)
     await this.requireAuthorized(principal, 'enterpriseTeamRun.cancel', input, 'team-run', run.runId, run.runId)
     if (run.state === 'cancelled' && input.expectedRevision === run.revision - 1) return run
@@ -376,19 +399,14 @@ export class EnterpriseTeamControlService {
   /** @param principal - authenticated viewer. @param input - visible page filters. @returns visible run page. */
   async listRuns(principal: EnterprisePrincipal, input: EnterpriseTeamRunListInput = {}): Promise<EnterpriseTeamRunPage> {
     await this.requireAuthorized(principal, 'enterpriseTeamRun.list', input, 'team-run', input.teamId ?? 'catalog')
-    const page = await this.projections.listTeamRuns({ orgId: principal.orgId, ...input })
-    const visible = await Promise.all(page.items.map(async run =>
-      await this.projections.getTeamDefinition(principal.orgId, run.teamId, this.scope(principal)) === undefined ? undefined : run))
-    return { items: visible.filter((run): run is EnterpriseTeamRun => run !== undefined),
-      ...(page.nextCursor === undefined ? {} : { nextCursor: page.nextCursor }) }
+    return this.projections.listTeamRuns({ orgId: principal.orgId, readScope: this.scope(principal), ...input })
   }
 
   /** @param principal - authenticated viewer. @param runId - run identity. @returns visible run. */
   async getRun(principal: EnterprisePrincipal, runId: string): Promise<EnterpriseTeamRun> {
     await this.requireAuthorized(principal, 'enterpriseTeamRun.get', { runId }, 'team-run', runId)
-    const run = await this.projections.getTeamRun(principal.orgId, runId)
-    if (run === undefined || await this.projections.getTeamDefinition(principal.orgId, run.teamId, this.scope(principal)) === undefined)
-      throw new EnterpriseOperationsError('not-found', 'team-run', runId)
+    const run = await this.projections.getTeamRun(principal.orgId, runId, this.scope(principal))
+    if (run === undefined) throw new EnterpriseOperationsError('not-found', 'team-run', runId)
     return run
   }
 
@@ -398,44 +416,51 @@ export class EnterpriseTeamControlService {
   /** @param principal - authenticated viewer. @param input - visible decision filters. @returns decision page. */
   async listDecisions(principal: EnterprisePrincipal, input: EnterpriseTeamDecisionListInput = {}): Promise<TeamDecisionPage> {
     await this.requireAuthorized(principal, 'enterpriseTeamDecision.list', input, 'team-decision', input.runId ?? 'catalog')
-    const page = await this.projections.listDecisions({ orgId: principal.orgId, ...input })
-    const visible = await Promise.all(page.items.map(async (decision) => {
-      const run = await this.projections.getTeamRun(principal.orgId, decision.runId)
-      return run === undefined || await this.projections.getTeamDefinition(principal.orgId, run.teamId, this.scope(principal)) === undefined
-        ? undefined : decision
-    }))
-    return { items: visible.filter((decision): decision is TeamDecision => decision !== undefined),
-      ...(page.nextCursor === undefined ? {} : { nextCursor: page.nextCursor }) }
+    return this.projections.listDecisions({ orgId: principal.orgId, readScope: this.scope(principal), ...input })
   }
 
   /** @param principal - assigned human, team owner, or administrator. @param input - answer CAS. @returns answered projection. */
   async respondDecision(principal: EnterprisePrincipal, input: EnterpriseTeamDecisionRespondInput): Promise<TeamDecision> {
-    const decision = await this.projections.getDecision(principal.orgId, input.decisionId)
+    const readScope = this.scope(principal)
+    const decision = await this.projections.getDecision(principal.orgId, input.decisionId, readScope)
     if (decision === undefined) throw new EnterpriseOperationsError('not-found', 'team-decision', input.decisionId)
-    if (decision.state === 'answered' && decision.answer === input.answer) return decision
-    if (decision.state !== 'open') throw new EnterpriseOperationsError('invalid-transition', 'team-decision', input.decisionId)
-    if (decision.revision !== input.expectedRevision) throw new EnterpriseOperationsError('conflict', 'team-decision', input.decisionId)
     const run = await this.projections.getTeamRun(principal.orgId, decision.runId)
     const definition = run === undefined ? undefined : await this.projections.getTeamDefinition(
       principal.orgId, run.teamId, this.scope(principal),
     )
     const central = await this.decision(principal, 'enterpriseTeamDecision.respond', input)
-    const allowed = central.allowed || principal.roles.includes('administrator') || principal.userId === decision.assigneeUserId
+    const allowed = (principal.roles.includes('administrator') && central.allowed)
+      || principal.userId === decision.assigneeUserId
       || principal.userId === definition?.ownerUserId
     await this.audit(principal, 'enterpriseTeamDecision.respond', 'team-decision', decision.decisionId, { allowed }, decision.runId)
     if (!allowed) this.deny('enterpriseTeamDecision.respond')
+    const idempotencyFingerprint = createHash('sha256').update(JSON.stringify({
+      decisionId: input.decisionId, answer: input.answer, expectedRevision: input.expectedRevision,
+    })).digest('hex')
+    const repeated = await this.projections.getDecisionResponseByKey(
+      principal.orgId, input.idempotencyKey, idempotencyFingerprint,
+    )
+    if (repeated !== undefined) return repeated
+    if (decision.state !== 'open') throw new EnterpriseOperationsError('invalid-transition', 'team-decision', input.decisionId)
+    if (decision.revision !== input.expectedRevision) throw new EnterpriseOperationsError('conflict', 'team-decision', input.decisionId)
     const result = await this.runtime.respondDecision({ operationId: `team-decision:respond:${decision.decisionId}:${input.idempotencyKey}`,
       decision, answer: input.answer, actor: principal })
     return this.projections.answerDecision({ orgId: principal.orgId, decisionId: decision.decisionId,
       expectedRevision: decision.revision, answer: input.answer, runtimeRevision: result.runtimeRevision,
-      ...(result.sourceEventSeq === undefined ? {} : { sourceEventSeq: result.sourceEventSeq }), idempotencyKey: input.idempotencyKey })
+      ...(result.sourceEventSeq === undefined ? {} : { sourceEventSeq: result.sourceEventSeq }),
+      idempotencyKey: input.idempotencyKey, idempotencyFingerprint,
+    })
   }
 
-  private async requireAutonomyManager(principal: EnterprisePrincipal, teamId: string, endpoint: EnterpriseTeamControlEndpoint,
-    input: unknown): Promise<EnterpriseTeamDefinition> {
+  private async requireAutonomyManager(
+    principal: EnterprisePrincipal,
+    teamId: string,
+    endpoint: EnterpriseTeamControlEndpoint,
+  ): Promise<EnterpriseTeamDefinition> {
     const definition = await this.definition(principal, teamId)
-    const central = await this.decision(principal, endpoint, input)
-    const allowed = central.allowed || principal.roles.includes('administrator') || definition.ownerUserId === principal.userId
+    const central = await this.decision(principal, endpoint, { teamId })
+    const allowed = (principal.roles.includes('administrator') && central.allowed)
+      || definition.ownerUserId === principal.userId
     await this.audit(principal, endpoint, 'team-autonomy-grant', teamId, { allowed })
     if (!allowed) this.deny(endpoint)
     return definition
@@ -447,16 +472,14 @@ export class EnterpriseTeamControlService {
     input: EnterpriseTeamAutonomyListInput = {},
   ): Promise<EnterpriseTeamAutonomyGrantPage> {
     await this.requireAuthorized(principal, 'enterpriseTeamAutonomy.list', input, 'team-autonomy-grant', input.teamId ?? 'catalog')
-    const page = await this.projections.listAutonomyGrants({ orgId: principal.orgId, ...input })
-    const visible = await Promise.all(page.items.map(async grant =>
-      await this.projections.getTeamDefinition(principal.orgId, grant.teamId, this.scope(principal)) === undefined ? undefined : grant))
-    return { items: visible.filter((grant): grant is EnterpriseTeamAutonomyGrant => grant !== undefined),
-      ...(page.nextCursor === undefined ? {} : { nextCursor: page.nextCursor }) }
+    return this.projections.listAutonomyGrants({
+      orgId: principal.orgId, readScope: this.scope(principal), ...input,
+    })
   }
 
   /** @param principal - explicit human grantor. @param input - grant fields and CAS. @returns active grant. */
   async saveAutonomyGrant(principal: EnterprisePrincipal, input: EnterpriseTeamAutonomySaveInput): Promise<EnterpriseTeamAutonomyGrant> {
-    const definition = await this.requireAutonomyManager(principal, input.teamId, 'enterpriseTeamAutonomy.save', input)
+    const definition = await this.requireAutonomyManager(principal, input.teamId, 'enterpriseTeamAutonomy.save')
     const taskType = input.taskType.trim(); const capabilityScope = input.capabilityScope.trim()
     if (taskType === '' || capabilityScope === '' || !definition.roster.some(member =>
       member.actor.kind === 'agent' && member.actor.employeeReleaseId === input.employeeReleaseId))
@@ -472,7 +495,7 @@ export class EnterpriseTeamControlService {
     principal: EnterprisePrincipal,
     input: EnterpriseTeamAutonomyRevokeInput,
   ): Promise<EnterpriseTeamAutonomyGrant> {
-    await this.requireAutonomyManager(principal, input.teamId, 'enterpriseTeamAutonomy.revoke', input)
+    await this.requireAutonomyManager(principal, input.teamId, 'enterpriseTeamAutonomy.revoke')
     return this.projections.revokeAutonomyGrant({ orgId: principal.orgId, ...input })
   }
 }

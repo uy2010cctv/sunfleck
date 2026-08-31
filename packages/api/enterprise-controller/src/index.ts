@@ -1061,10 +1061,11 @@ function enterpriseFailure(
           : error.code === 'not-found' ? 'enterprise-not-found' : 'enterprise-invalid-state'
     message = error.message
   } else if (error instanceof EnterpriseOperationsError) {
-    code = error.code === 'idempotency-conflict' ? 'enterprise-idempotency-conflict'
-      : error.code === 'cursor-invalid' ? 'enterprise-invalid-cursor'
-        : error.code === 'not-found' ? 'enterprise-not-found'
-          : error.code === 'conflict' ? 'enterprise-conflict' : 'enterprise-invalid-state'
+    code = error.code === 'forbidden' ? 'enterprise-forbidden'
+      : error.code === 'idempotency-conflict' ? 'enterprise-idempotency-conflict'
+        : error.code === 'cursor-invalid' ? 'enterprise-invalid-cursor'
+          : error.code === 'not-found' ? 'enterprise-not-found'
+            : error.code === 'conflict' ? 'enterprise-conflict' : 'enterprise-invalid-state'
     message = error.message
   } else if (error instanceof EnterpriseTeamRuntimeError) {
     code = error.outcome === 'unknown' ? 'enterprise-runtime-unknown' : 'enterprise-invalid-state'

@@ -1,5 +1,6 @@
 import { Context } from '@deepseek-ai/cordis'
 import { EnterpriseRequestContext } from '@deepseek-ai/dsh-enterprise-auth-web'
+import { TypertRemoteFailure } from '@deepseek-ai/dsh-typert-protocol'
 import { describe, expect, it, vi } from 'vitest'
 import {
   EnterpriseTeamAutonomyController,
@@ -25,7 +26,7 @@ const starting: EnterpriseTeamRun = {
   state: 'starting', runtimeRevision: 0, revision: 1, createdAt: 1, updatedAt: 1,
 }
 
-function setup() {
+function setup(allowStart = true) {
   let run: EnterpriseTeamRun = starting
   const decision = {
     decisionId: 'decision-a', orgId: 'org-a', runId: 'run-a', kind: 'approval' as const,
@@ -40,6 +41,7 @@ function setup() {
       run = { ...run, ...input, revision: run.revision + 1 }),
     getTeamRun: vi.fn().mockImplementation(async () => run), listTeamRuns: vi.fn().mockResolvedValue({ items: [run] }),
     projectDecision: vi.fn(), getDecision: vi.fn().mockResolvedValue(decision),
+    getDecisionResponseByKey: vi.fn().mockResolvedValue(undefined),
     listDecisions: vi.fn().mockResolvedValue({ items: [decision] }),
     answerDecision: vi.fn().mockResolvedValue({ ...decision, state: 'answered', answer: 'yes', revision: 2 }),
     listAutonomyGrants: vi.fn().mockResolvedValue({ items: [] }),
@@ -55,7 +57,7 @@ function setup() {
     reconcileRun: vi.fn(),
   }
   const authorizeApiAsync = vi.fn().mockImplementation(async (_principal, endpoint: string) => ({
-    allowed: endpoint === 'enterpriseTeamRun.start' || endpoint === 'session.create'
+    allowed: (endpoint === 'enterpriseTeamRun.start' && allowStart) || endpoint === 'session.create'
       || endpoint === 'enterpriseTeamDecision.respond' || endpoint === 'enterpriseTeamAutonomy.save'
       || endpoint.endsWith('.list') || endpoint.endsWith('.get'),
     reason: 'role',
@@ -77,9 +79,10 @@ describe('enterprise team-control Remote namespaces', () => {
     const principal = { orgId: 'org-a', userId: 'owner-a', roles: ['creator'] as const }
     const request = { teamId: 'team-a', expectedTeamRevision: 4, workspaceId: 'workspace-a', prompt: 'Close.', source: 'console' as const, idempotencyKey: 'start-a' }
     await app.requestContext.run(principal, () => app.run.start(request))
-    expect(app.teamControl.createTeamRunStarting).toHaveBeenCalledWith(expect.objectContaining({
-      orgId: 'org-a', createdBy: 'owner-a', runtimeRevision: 0,
-    }))
+    expect(app.teamControl.createTeamRunStarting).toHaveBeenCalledWith(
+      expect.objectContaining({ orgId: 'org-a', createdBy: 'owner-a', runtimeRevision: 0 }),
+      expect.any(Function),
+    )
     expect(request).not.toHaveProperty('orgId')
     expect(request).not.toHaveProperty('createdBy')
     expect(request).not.toHaveProperty('runtimeRevision')
@@ -93,5 +96,41 @@ describe('enterprise team-control Remote namespaces', () => {
     expect(typeof app.run.cancel).toBe('function'); expect(typeof app.decision.respond).toBe('function')
     expect(typeof app.decision.list).toBe('function'); expect(typeof app.autonomy.save).toBe('function')
     expect(typeof app.autonomy.revoke).toBe('function'); expect(typeof app.autonomy.list).toBe('function')
+  })
+
+  it('maps control-plane authorization denial to the stable enterprise-forbidden failure', async () => {
+    const app = setup(false)
+    const principal = { orgId: 'org-a', userId: 'member-a', roles: ['member'] as const }
+    const failure = await app.requestContext.run(principal, () => app.run.start({
+      teamId: 'team-a', expectedTeamRevision: 4, workspaceId: 'workspace-a', prompt: 'Close.',
+      source: 'console', idempotencyKey: 'denied-a',
+    })).catch((error: unknown) => error)
+    expect(failure).toBeInstanceOf(TypertRemoteFailure)
+    expect((failure as TypertRemoteFailure).failure.code).toBe('enterprise-forbidden')
+    expect(app.teamControl.createTeamRunStarting).not.toHaveBeenCalled()
+    expect(app.auditApiAsync).toHaveBeenCalledWith(
+      principal, 'enterpriseTeamRun.start', { teamId: 'team-a' },
+      { allowed: false, reason: 'insufficient-role' }, 'team-a',
+    )
+  })
+
+  it('maps decision and autonomy service denials to enterprise-forbidden', async () => {
+    const app = setup()
+    const principal = { orgId: 'org-a', userId: 'outsider-a', roles: ['member'] as const }
+    const failures = await app.requestContext.run(principal, async () => Promise.all([
+      app.decision.respond({
+        decisionId: 'decision-a', answer: 'yes', expectedRevision: 1, idempotencyKey: 'denied-answer',
+      }).catch((error: unknown) => error),
+      app.autonomy.save({
+        teamId: 'team-a', employeeReleaseId: 'release-a', taskType: 'close', capabilityScope: 'ledger.read',
+        level: 'observe', evidenceRefs: [], expectedRevision: 0, idempotencyKey: 'denied-grant',
+      }).catch((error: unknown) => error),
+    ]))
+    for (const failure of failures) {
+      expect(failure).toBeInstanceOf(TypertRemoteFailure)
+      expect((failure as TypertRemoteFailure).failure.code).toBe('enterprise-forbidden')
+    }
+    expect(app.runtime.respondDecision).not.toHaveBeenCalled()
+    expect(app.teamControl.saveAutonomyGrant).not.toHaveBeenCalled()
   })
 })

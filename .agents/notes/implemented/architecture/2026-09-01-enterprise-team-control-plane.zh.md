@@ -12,11 +12,11 @@ Status: implemented
 
 `EnterpriseTeamControlService` 负责 TeamRun、TeamDecision 和显式自主权授权的稳定 Host 流程。浏览器请求不包含组织、actor、root Session、runtime revision 或 event sequence 字段。Host request context 提供 principal，中央 RBAC 检查 `team.execute`、`team.decision.respond` 和 `team.autonomy.manage`，Workspace admission 复用 Session 创建授权。
 
-`EnterpriseTeamRuntimeDriver` 是唯一 runtime 依赖。Start、cancel、decision response 和 reconciliation 都接收稳定 operation ID。Driver 负责将权威事实追加到 root Session event log。PostgreSQL `team_runs` 和 `team_decisions` 记录只以 runtime revision 和 source event sequence 作为查询投影；driver 未知结果保持可 reconcile，不对外宣称原子提交。
+`EnterpriseTeamRuntimeDriver` 是唯一 runtime 依赖。Start、cancel、decision response 和 reconciliation 都接收稳定 operation ID。Driver 负责将权威事实追加到 root Session event log。PostgreSQL `team_runs` 和 `team_decisions` 记录只以 runtime revision 和 source event sequence 作为查询投影；driver 未知结果保持可 reconcile，不对外宣称原子提交。Start 幂等在审计和 run id 分配前解析；repository lock 只为胜出的 insert 调用 allocator，成功或重复请求的审计都记录已持久化 run id。
 
-Start 固定 active 定义 revision 和不可变名册。后续定义修改不改变已有 run。Runtime 产生的 decision 只能通过 Host 投影方法进入 PostgreSQL；browser 不能创建。只有被指派人类、团队 owner、管理员或显式授权角色可回答，且 driver 先追加答案，投影再进入 `answered`。
+Start 固定 active 定义 revision 和不可变名册。后续定义修改不改变已有 run。Runtime 产生的 decision 只能通过 Host 投影方法进入 PostgreSQL；browser 不能创建。只有被指派人类、团队 owner 或管理员可回答，且 driver 先追加答案，投影再进入 `answered`。自主权写入仅允许团队 owner 和管理员。
 
-自主权授权是人类创建的记录，以 team、不可变 employee release、task type 和 capability scope 为键。只有已入名册的 Agent release 可获授权。Evidence reference 会 canonicalize，撤销为终态，runtime 代码不存在 grant write 方法，因此不能根据成功记录自动提升自主权。
+自主权授权是人类创建的记录，以 team、不可变 employee release、task type 和 capability scope 为键。只有已入名册的 Agent release 可获授权。Evidence reference 会 canonicalize，撤销为终态，runtime 代码不存在 grant write 方法，因此不能根据成功记录自动提升自主权。Run、decision 与 grant 查询会 join 当前 definition，并在 limit 前应用最小 viewer/admin 可见性 scope；签名 cursor 将该 scope 与组织、filter 绑定。
 
 具体 Agent Teams adapter、UI 与渠道集成不属于该控制面。
 

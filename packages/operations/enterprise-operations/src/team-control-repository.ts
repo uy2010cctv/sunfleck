@@ -11,6 +11,7 @@ import type {
   EnterpriseTeamRunFailure,
   EnterpriseTeamRunPage,
   PostgresDatabase,
+  TeamDefinitionReadScope,
   TeamDecision,
   TeamDecisionPage,
 } from './types.ts'
@@ -118,6 +119,7 @@ function decode(value: string | undefined, scope: string, key: Buffer | undefine
     const expected = createHmac('sha256', key).update(payload).digest()
     if (supplied.length !== expected.length || !timingSafeEqual(supplied, expected)) throw new Error('invalid cursor')
     const cursor = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')) as Cursor
+    // oxlint-disable-next-line typescript/no-unnecessary-condition -- cursor is parsed from untrusted wire JSON.
     if (cursor.version !== 1 || cursor.scope !== scope || !Number.isSafeInteger(cursor.createdAt)
       || !Array.isArray(cursor.ids) || cursor.ids.some(id => typeof id !== 'string' || id === '')) throw new Error('invalid cursor')
     return cursor
@@ -132,6 +134,11 @@ function encode(scope: string, createdAt: number, ids: readonly string[], key: B
 }
 function terminalRun(state: EnterpriseTeamRun['state']): boolean {
   return state === 'completed' || state === 'failed' || state === 'cancelled'
+}
+function visibleDefinition(alias: string, viewer: number, administrator: number): string {
+  return `($${administrator}::boolean OR ${alias}.owner_user_id=$${viewer}
+    OR ${alias}.visibility='organization'
+    OR (${alias}.visibility='restricted' AND COALESCE(${alias}.allowed_user_ids_json,'[]'::jsonb) ? $${viewer}))`
 }
 
 /** PostgreSQL query projections for enterprise TeamRun, TeamDecision, and autonomy grants. */
@@ -199,10 +206,11 @@ export class EnterpriseTeamControlRepository implements EnterpriseTeamControlPro
 
   /** @returns the existing or newly inserted starting projection and whether this call inserted it. */
   async createTeamRunStarting(
-    input: Omit<EnterpriseTeamRun, 'revision' | 'createdAt' | 'updatedAt'> & {
+    input: Omit<EnterpriseTeamRun, 'runId' | 'revision' | 'createdAt' | 'updatedAt'> & {
       readonly idempotencyKey: string
-      readonly idempotencyFingerprint?: string
+      readonly idempotencyFingerprint: string
     },
+    allocateRunId: () => string,
   ): Promise<{ readonly run: EnterpriseTeamRun; readonly created: boolean }> {
     await this.initialize()
     return this.database.transaction(async (database) => {
@@ -213,7 +221,7 @@ export class EnterpriseTeamControlRepository implements EnterpriseTeamControlPro
       )
       if (existing.rows[0] !== undefined) {
         const envelope = parse(existing.rows[0].result_json) as { requestDigest: string; result: { runId: string } }
-        if (envelope.requestDigest !== (input.idempotencyFingerprint ?? digest(input)))
+        if (envelope.requestDigest !== input.idempotencyFingerprint)
           throw new EnterpriseOperationsError('idempotency-conflict', 'team-run', envelope.result.runId)
         const current = await database.query<TeamRunRow>(
           'SELECT * FROM dsh_enterprise_team_runs WHERE org_id=$1 AND run_id=$2',
@@ -222,12 +230,13 @@ export class EnterpriseTeamControlRepository implements EnterpriseTeamControlPro
         if (current.rows[0] === undefined) throw new EnterpriseOperationsError('not-found', 'team-run', envelope.result.runId)
         return { run: this.run(current.rows[0]), created: false }
       }
+      const runId = allocateRunId()
       const now = this.now()
       const inserted = await database.query<TeamRunRow>(
         `INSERT INTO dsh_enterprise_team_runs(run_id,org_id,team_id,team_definition_revision,workspace_id,root_session_id,
           roster_snapshot_json,created_by,source,state,runtime_revision,source_event_seq,failure_json,revision,created_at,updated_at)
          VALUES($1,$2,$3,$4,$5,NULL,$6::jsonb,$7,$8,'starting',0,NULL,NULL,1,$9,$9) RETURNING *`,
-        [input.runId, input.orgId, input.teamId, input.teamDefinitionRevision, input.workspaceId,
+        [runId, input.orgId, input.teamId, input.teamDefinitionRevision, input.workspaceId,
           JSON.stringify(canonical(input.rosterSnapshot)), input.createdBy, input.source, now],
       )
       const row = inserted.rows[0]
@@ -236,7 +245,7 @@ export class EnterpriseTeamControlRepository implements EnterpriseTeamControlPro
         `INSERT INTO dsh_enterprise_operations_idempotency(org_id,operation,key,result_json)
          VALUES($1,'teamRun.start',$2,$3::jsonb)`,
         [input.orgId, input.idempotencyKey, JSON.stringify({
-          requestDigest: input.idempotencyFingerprint ?? digest(input), result: { runId: input.runId },
+          requestDigest: input.idempotencyFingerprint, result: { runId },
         })],
       )
       return { run: this.run(row), created: true }
@@ -244,37 +253,56 @@ export class EnterpriseTeamControlRepository implements EnterpriseTeamControlPro
   }
 
   /** @returns one organization-scoped TeamRun projection. */
-  async getTeamRun(orgId: string, runId: string): Promise<EnterpriseTeamRun | undefined> {
+  async getTeamRun(
+    orgId: string,
+    runId: string,
+    readScope?: TeamDefinitionReadScope,
+  ): Promise<EnterpriseTeamRun | undefined> {
     await this.initialize()
-    const result = await this.database.query<TeamRunRow>(
-      'SELECT * FROM dsh_enterprise_team_runs WHERE org_id=$1 AND run_id=$2', [orgId, runId],
-    )
+    const result = readScope === undefined
+      ? await this.database.query<TeamRunRow>(
+        'SELECT * FROM dsh_enterprise_team_runs WHERE org_id=$1 AND run_id=$2', [orgId, runId],
+      )
+      : await this.database.query<TeamRunRow>(
+        `SELECT run.* FROM dsh_enterprise_team_runs run
+         JOIN dsh_enterprise_team_definitions definition
+           ON definition.org_id=run.org_id AND definition.team_id=run.team_id
+         WHERE run.org_id=$1 AND run.run_id=$2 AND ${visibleDefinition('definition', 3, 4)}`,
+        [orgId, runId, readScope.userId, readScope.isAdministrator],
+      )
     return result.rows[0] === undefined ? undefined : this.run(result.rows[0])
   }
 
   /** @returns a signed stable TeamRun page. */
   async listTeamRuns(input: {
     orgId: string
+    readScope: TeamDefinitionReadScope
     teamId?: string
     state?: EnterpriseTeamRun['state']
     limit?: number
     cursor?: string
   }): Promise<EnterpriseTeamRunPage> {
     const size = limit(input.limit); await this.initialize()
-    const scope = digest({ kind: 'team-run', orgId: input.orgId, teamId: input.teamId, state: input.state })
+    const scope = digest({
+      kind: 'team-run', orgId: input.orgId, readScope: input.readScope,
+      teamId: input.teamId, state: input.state,
+    })
     const cursor = decode(input.cursor, scope, this.cursorSigningKey)
-    const values: unknown[] = [input.orgId]
-    const where = ['org_id=$1']
-    if (input.teamId !== undefined) { values.push(input.teamId); where.push(`team_id=$${values.length}`) }
-    if (input.state !== undefined) { values.push(input.state); where.push(`state=$${values.length}`) }
+    const values: unknown[] = [input.orgId, input.readScope.userId, input.readScope.isAdministrator]
+    const where = ['run.org_id=$1', visibleDefinition('definition', 2, 3)]
+    if (input.teamId !== undefined) { values.push(input.teamId); where.push(`run.team_id=$${values.length}`) }
+    if (input.state !== undefined) { values.push(input.state); where.push(`run.state=$${values.length}`) }
     if (cursor !== undefined) {
       values.push(cursor.createdAt, cursor.ids[0])
-      where.push(`(created_at,run_id)<($${values.length - 1},$${values.length})`)
+      where.push(`(run.created_at,run.run_id)<($${values.length - 1},$${values.length})`)
     }
     values.push(size + 1)
     const result = await this.database.query<TeamRunRow>(
-      `SELECT * FROM dsh_enterprise_team_runs WHERE ${where.join(' AND ')}
-       ORDER BY created_at DESC,run_id DESC LIMIT $${values.length}`,
+      `SELECT run.* FROM dsh_enterprise_team_runs run
+       JOIN dsh_enterprise_team_definitions definition
+         ON definition.org_id=run.org_id AND definition.team_id=run.team_id
+       WHERE ${where.join(' AND ')}
+       ORDER BY run.created_at DESC,run.run_id DESC LIMIT $${values.length}`,
       values,
     )
     const rows = result.rows.slice(0, size); const last = rows.at(-1)
@@ -363,17 +391,50 @@ export class EnterpriseTeamControlRepository implements EnterpriseTeamControlPro
   }
 
   /** @returns one organization-scoped decision projection. */
-  async getDecision(orgId: string, decisionId: string): Promise<TeamDecision | undefined> {
+  async getDecision(
+    orgId: string,
+    decisionId: string,
+    readScope?: TeamDefinitionReadScope,
+  ): Promise<TeamDecision | undefined> {
     await this.initialize()
-    const result = await this.database.query<DecisionRow>(
-      'SELECT * FROM dsh_enterprise_team_decisions WHERE org_id=$1 AND decision_id=$2', [orgId, decisionId],
-    )
+    const result = readScope === undefined
+      ? await this.database.query<DecisionRow>(
+        'SELECT * FROM dsh_enterprise_team_decisions WHERE org_id=$1 AND decision_id=$2', [orgId, decisionId],
+      )
+      : await this.database.query<DecisionRow>(
+        `SELECT decision.* FROM dsh_enterprise_team_decisions decision
+         JOIN dsh_enterprise_team_runs run ON run.org_id=decision.org_id AND run.run_id=decision.run_id
+         JOIN dsh_enterprise_team_definitions definition
+           ON definition.org_id=run.org_id AND definition.team_id=run.team_id
+         WHERE decision.org_id=$1 AND decision.decision_id=$2
+           AND (decision.assignee_user_id=$3 OR ${visibleDefinition('definition', 3, 4)})`,
+        [orgId, decisionId, readScope.userId, readScope.isAdministrator],
+      )
     return result.rows[0] === undefined ? undefined : this.decision(result.rows[0])
+  }
+
+  /** @returns an idempotently answered decision after validating the original browser request digest. */
+  async getDecisionResponseByKey(
+    orgId: string,
+    idempotencyKey: string,
+    idempotencyFingerprint: string,
+  ): Promise<TeamDecision | undefined> {
+    await this.initialize()
+    const result = await this.database.query<{ result_json: unknown }>(
+      "SELECT result_json FROM dsh_enterprise_operations_idempotency WHERE org_id=$1 AND operation='teamDecision.respond' AND key=$2",
+      [orgId, idempotencyKey],
+    )
+    if (result.rows[0] === undefined) return undefined
+    const envelope = parse(result.rows[0].result_json) as { requestDigest: string; result: TeamDecision }
+    if (envelope.requestDigest !== idempotencyFingerprint)
+      throw new EnterpriseOperationsError('idempotency-conflict', 'team-decision', envelope.result.decisionId)
+    return envelope.result
   }
 
   /** @returns a signed stable TeamDecision page. */
   async listDecisions(input: {
     orgId: string
+    readScope: TeamDefinitionReadScope
     runId?: string
     state?: TeamDecision['state']
     assigneeUserId?: string
@@ -382,21 +443,29 @@ export class EnterpriseTeamControlRepository implements EnterpriseTeamControlPro
   }): Promise<TeamDecisionPage> {
     const size = limit(input.limit); await this.initialize()
     const scope = digest({
-      kind: 'decision', orgId: input.orgId, runId: input.runId,
+      kind: 'decision', orgId: input.orgId, readScope: input.readScope, runId: input.runId,
       state: input.state, assigneeUserId: input.assigneeUserId,
     })
     const cursor = decode(input.cursor, scope, this.cursorSigningKey)
-    const values: unknown[] = [input.orgId]; const where = ['org_id=$1']
+    const values: unknown[] = [input.orgId, input.readScope.userId, input.readScope.isAdministrator]
+    const where = [
+      'decision.org_id=$1',
+      `(decision.assignee_user_id=$2 OR ${visibleDefinition('definition', 2, 3)})`,
+    ]
     for (const [column, value] of [['run_id', input.runId], ['state', input.state], ['assignee_user_id', input.assigneeUserId]] as const)
-      if (value !== undefined) { values.push(value); where.push(`${column}=$${values.length}`) }
+      if (value !== undefined) { values.push(value); where.push(`decision.${column}=$${values.length}`) }
     if (cursor !== undefined) {
       values.push(cursor.createdAt, cursor.ids[0])
-      where.push(`(created_at,decision_id)<($${values.length - 1},$${values.length})`)
+      where.push(`(decision.created_at,decision.decision_id)<($${values.length - 1},$${values.length})`)
     }
     values.push(size + 1)
     const result = await this.database.query<DecisionRow>(
-      `SELECT * FROM dsh_enterprise_team_decisions WHERE ${where.join(' AND ')}
-       ORDER BY created_at DESC,decision_id DESC LIMIT $${values.length}`,
+      `SELECT decision.* FROM dsh_enterprise_team_decisions decision
+       JOIN dsh_enterprise_team_runs run ON run.org_id=decision.org_id AND run.run_id=decision.run_id
+       JOIN dsh_enterprise_team_definitions definition
+         ON definition.org_id=run.org_id AND definition.team_id=run.team_id
+       WHERE ${where.join(' AND ')}
+       ORDER BY decision.created_at DESC,decision.decision_id DESC LIMIT $${values.length}`,
       values,
     )
     const rows = result.rows.slice(0, size); const last = rows.at(-1)
@@ -417,6 +486,7 @@ export class EnterpriseTeamControlRepository implements EnterpriseTeamControlPro
     runtimeRevision: number
     sourceEventSeq?: number
     idempotencyKey: string
+    idempotencyFingerprint: string
   }): Promise<TeamDecision> {
     await this.initialize()
     return this.database.transaction(async (database) => {
@@ -427,7 +497,7 @@ export class EnterpriseTeamControlRepository implements EnterpriseTeamControlPro
       )
       if (remembered.rows[0] !== undefined) {
         const envelope = parse(remembered.rows[0].result_json) as { requestDigest: string; result: TeamDecision }
-        if (envelope.requestDigest !== digest(input))
+        if (envelope.requestDigest !== input.idempotencyFingerprint)
           throw new EnterpriseOperationsError('idempotency-conflict', 'team-decision', input.decisionId)
         return envelope.result
       }
@@ -443,7 +513,9 @@ export class EnterpriseTeamControlRepository implements EnterpriseTeamControlPro
       await database.query(
         `INSERT INTO dsh_enterprise_operations_idempotency(org_id,operation,key,result_json)
          VALUES($1,'teamDecision.respond',$2,$3::jsonb)`,
-        [input.orgId, input.idempotencyKey, JSON.stringify({ requestDigest: digest(input), result: decision })])
+        [input.orgId, input.idempotencyKey, JSON.stringify({
+          requestDigest: input.idempotencyFingerprint, result: decision,
+        })])
       return decision
     })
   }
@@ -451,6 +523,7 @@ export class EnterpriseTeamControlRepository implements EnterpriseTeamControlPro
   /** @returns a signed stable autonomy-grant page. */
   async listAutonomyGrants(input: {
     orgId: string
+    readScope: TeamDefinitionReadScope
     teamId?: string
     employeeReleaseId?: string
     state?: EnterpriseTeamAutonomyGrant['state']
@@ -459,26 +532,32 @@ export class EnterpriseTeamControlRepository implements EnterpriseTeamControlPro
   }): Promise<EnterpriseTeamAutonomyGrantPage> {
     const size = limit(input.limit); await this.initialize()
     const scope = digest({
-      kind: 'autonomy', orgId: input.orgId, teamId: input.teamId,
+      kind: 'autonomy', orgId: input.orgId, readScope: input.readScope, teamId: input.teamId,
       employeeReleaseId: input.employeeReleaseId, state: input.state,
     })
     const cursor = decode(input.cursor, scope, this.cursorSigningKey)
-    const values: unknown[] = [input.orgId]; const where = ['org_id=$1']
+    const values: unknown[] = [input.orgId, input.readScope.userId, input.readScope.isAdministrator]
+    const where = ['autonomy.org_id=$1', visibleDefinition('definition', 2, 3)]
     const filters = [
       ['team_id', input.teamId], ['employee_release_id', input.employeeReleaseId], ['state', input.state],
     ] as const
     for (const [column, value] of filters)
-      if (value !== undefined) { values.push(value); where.push(`${column}=$${values.length}`) }
+      if (value !== undefined) { values.push(value); where.push(`autonomy.${column}=$${values.length}`) }
     if (cursor !== undefined) {
       values.push(cursor.createdAt, ...cursor.ids)
-      where.push(`(created_at,team_id,employee_release_id,task_type,capability_scope)<(
+      where.push(`(autonomy.created_at,autonomy.team_id,autonomy.employee_release_id,
+        autonomy.task_type,autonomy.capability_scope)<(
         $${values.length - 5},$${values.length - 4},$${values.length - 3},
         $${values.length - 2},$${values.length - 1})`)
     }
     values.push(size + 1)
     const result = await this.database.query<GrantRow>(
-      `SELECT * FROM dsh_enterprise_team_autonomy_grants WHERE ${where.join(' AND ')}
-       ORDER BY created_at DESC,team_id DESC,employee_release_id DESC,task_type DESC,capability_scope DESC
+      `SELECT autonomy.* FROM dsh_enterprise_team_autonomy_grants autonomy
+       JOIN dsh_enterprise_team_definitions definition
+         ON definition.org_id=autonomy.org_id AND definition.team_id=autonomy.team_id
+       WHERE ${where.join(' AND ')}
+       ORDER BY autonomy.created_at DESC,autonomy.team_id DESC,autonomy.employee_release_id DESC,
+         autonomy.task_type DESC,autonomy.capability_scope DESC
        LIMIT $${values.length}`,
       values,
     )

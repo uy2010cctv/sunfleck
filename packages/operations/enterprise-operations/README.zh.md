@@ -30,7 +30,7 @@ kind: "package-reference"
 - 团队定义增加类型化的人类与 Agent 名册、角色职责、验证策略、集中决策队列、可见性、所有权和章程生命周期，但不存储 TeamRun 状态。
 - `EnterpriseTeamControlService` 通过注入的 `EnterpriseTeamRuntimeDriver` 启动和取消以 runtime 为权威的 TeamRun。PostgreSQL 仅存储带 revision fence 的 TeamRun 和 TeamDecision 查询投影；driver 将权威事件追加到 root Session log，并用同一稳定 operation identity 对未知结果做 reconcile。
 - Browser 启动请求只包含 team revision fence、Workspace、prompt、source 和幂等键。Host principal 注入组织与创建人，固定定义 revision 和 roster snapshot，检查当前可见性与 Workspace 授权，并写审计。
-- TeamDecision 只能由 Host runtime ingest 创建。被指派人类、团队 owner、管理员与显式授权角色可响应；driver 先追加答案，PostgreSQL 再投影 `answered`。
+- TeamDecision 只能由 Host runtime ingest 创建。仅被指派人类、团队 owner 或管理员可响应；driver 先追加答案，PostgreSQL 再投影 `answered`。自主权授权仅允许团队 owner 或管理员保存和撤销。
 - 自主权授权是人类针对 team、不可变 employee release、task type 与 capability scope 的显式写入。撤销为终态，evidence reference 会 canonicalize，runtime 路径不能创建、恢复或提升授权。
 - Active 定义必须有完整章程、已入队的人类 owner、已入队的 Agent leader、唯一 actor 与 role、有效角色引用，以及完整的验证与注意力策略。Restricted 可见性要求非空且每项已 trim、唯一的用户 ID 列表；organization 和 private 可见性要求空列表。
 - Schema 迁移与固定团队创建会在定义不存在时建立一条 `needs-charter` 定义，保留发布版成员、角色标签、leader、审批策略和组织可见性，并使用显式的 `system:legacy-fixed-team-migration` owner 占位。它们不推断名称、north star、职责或策略。`needs-charter` 定义不能支撑团队工作记录、调度或调度触发。
