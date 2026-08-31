@@ -1001,14 +1001,7 @@ export class EnterpriseOperationsRepository {
         const fixedExecutionMatches = input.leaderEmployeeReleaseId === before.leaderEmployeeReleaseId
           && canonicalEqual(sortedFixedMembers(input.members), sortedFixedMembers(before.members))
           && canonicalEqual(input.approvalPolicy, before.approvalPolicy)
-        const parsedDefinition = this.teamDefinition(definition)
-        const definitionMembers = parsedDefinition.roster.flatMap(member =>
-          member.actor.kind === 'agent' && member.actor.employeeReleaseId !== parsedDefinition.leaderEmployeeReleaseId
-            ? [{ employeeReleaseId: member.actor.employeeReleaseId, role: member.roleId }] : [])
-        const definitionExecutionMatches = input.leaderEmployeeReleaseId === parsedDefinition.leaderEmployeeReleaseId
-          && canonicalEqual(sortedFixedMembers(input.members), sortedFixedMembers(definitionMembers))
-          && canonicalEqual(input.approvalPolicy, parsedDefinition.approvalPolicy)
-        if (!fixedExecutionMatches || !definitionExecutionMatches
+        if (!fixedExecutionMatches
           || (definition.state === 'archived' && !canonicalEqual(input.workflowTemplate, before.workflowTemplate)))
           throw new EnterpriseOperationsError('invalid-state', 'team-definition', input.teamId)
         if (canonicalEqual(input.workflowTemplate, before.workflowTemplate)) {

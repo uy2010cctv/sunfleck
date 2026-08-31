@@ -26,7 +26,7 @@ kind: "package-reference"
 - 审批请求使用乐观 revision 和可审计状态迁移。
 - 员工和固定团队调度每次 occurrence 只创建一条幂等的启动 Session Outbox 命令；即使重试使用另一个请求幂等键，也会返回原命令。
 - 固定团队绑定负责人、成员、Workflow 模板和审批策略。
-- 固定团队与定义写入共用同一个组织/团队 advisory lock。旧 save 会同步 `needs-charter` 定义的 leader 和 Agent 名册，但不能修改 active 或 archived 团队的执行成员。
+- 固定团队与定义写入共用同一个组织/团队 advisory lock。旧 save 会同步 `needs-charter` 定义的 leader 和 Agent 名册。进入 active 后，兼容判定只比较 request 与已持久 FixedTeam 的 leader、members 和 approval policy；typed role ID 与 formal definition policy 不反向投影到旧记录。Active 定义允许精确 no-op 和仅 Workflow 更新，archived 定义只允许精确 no-op。
 - 团队定义增加类型化的人类与 Agent 名册、角色职责、验证策略、集中决策队列、可见性、所有权和章程生命周期，但不存储 TeamRun 状态。
 - Active 定义必须有完整章程、已入队的人类 owner、已入队的 Agent leader、唯一 actor 与 role、有效角色引用，以及完整的验证与注意力策略。Restricted 可见性要求非空且每项已 trim、唯一的用户 ID 列表；organization 和 private 可见性要求空列表。
 - Schema 迁移与固定团队创建会在定义不存在时建立一条 `needs-charter` 定义，保留发布版成员、角色标签、leader、审批策略和组织可见性，并使用显式的 `system:legacy-fixed-team-migration` owner 占位。它们不推断名称、north star、职责或策略。`needs-charter` 定义不能支撑团队工作记录、调度或调度触发。

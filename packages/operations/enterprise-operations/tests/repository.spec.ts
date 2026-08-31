@@ -1229,39 +1229,51 @@ describe('EnterpriseOperationsRepository team definitions', () => {
     })
     await operations.saveFixedTeam({
       teamId: 'sync-team', orgId: 'org-a', leaderEmployeeReleaseId: 'release-new-lead',
-      members: [{ employeeReleaseId: 'release-new', role: 'reviewer' }], workflowTemplate: {}, approvalPolicy: {},
+      members: [
+        { employeeReleaseId: 'release-new-lead', role: 'legacy-lead' },
+        { employeeReleaseId: 'release-new', role: 'legacy-review' },
+      ], workflowTemplate: {}, approvalPolicy: { legacy: true },
       expectedRevision: 1, idempotencyKey: 'sync-save',
     })
     await expect(operations.getTeamDefinition('org-a', 'sync-team', adminReadScope)).resolves.toMatchObject({
       state: 'needs-charter', leaderEmployeeReleaseId: 'release-new-lead', revision: 2,
-      roster: [{ actor: { kind: 'agent', employeeReleaseId: 'release-new' }, roleId: 'reviewer' }],
-      roles: [{ roleId: 'reviewer', name: 'reviewer', responsibility: '' }],
+      roster: [
+        { actor: { kind: 'agent', employeeReleaseId: 'release-new-lead' }, roleId: 'legacy-lead' },
+        { actor: { kind: 'agent', employeeReleaseId: 'release-new' }, roleId: 'legacy-review' },
+      ],
     })
     const active = {
       ...teamDefinition, teamId: 'sync-team', departmentId: undefined, visibility: 'organization' as const,
       allowedUserIds: [], leaderEmployeeReleaseId: 'release-new-lead',
       roster: [
         { actor: { kind: 'human' as const, userId: 'owner-a' }, roleId: 'owner' },
-        { actor: { kind: 'agent' as const, employeeReleaseId: 'release-new-lead' }, roleId: 'owner' },
-        { actor: { kind: 'agent' as const, employeeReleaseId: 'release-new' }, roleId: 'reviewer' },
+        { actor: { kind: 'agent' as const, employeeReleaseId: 'release-new-lead' }, roleId: 'formal-lead' },
+        { actor: { kind: 'agent' as const, employeeReleaseId: 'release-new' }, roleId: 'formal-review' },
       ],
       roles: [
         { roleId: 'owner', name: 'Owner', responsibility: 'Own.' },
-        { roleId: 'reviewer', name: 'Reviewer', responsibility: 'Review.' },
+        { roleId: 'formal-lead', name: 'Formal lead', responsibility: 'Lead.' },
+        { roleId: 'formal-review', name: 'Formal reviewer', responsibility: 'Review.' },
       ],
+      approvalPolicy: { formal: true },
       expectedRevision: 2, idempotencyKey: 'sync-activate',
     }
     await operations.saveTeamDefinition(active)
     const noOp = await operations.saveFixedTeam({
       teamId: 'sync-team', orgId: 'org-a', leaderEmployeeReleaseId: 'release-new-lead',
-      members: [{ employeeReleaseId: 'release-new', role: 'reviewer' }], workflowTemplate: {}, approvalPolicy: {},
+      members: [
+        { employeeReleaseId: 'release-new-lead', role: 'legacy-lead' },
+        { employeeReleaseId: 'release-new', role: 'legacy-review' },
+      ], workflowTemplate: {}, approvalPolicy: { legacy: true },
       expectedRevision: 2, idempotencyKey: 'sync-active-noop',
     })
     expect(noOp.revision).toBe(2)
     const workflowOnly = await operations.saveFixedTeam({
       teamId: 'sync-team', orgId: 'org-a', leaderEmployeeReleaseId: 'release-new-lead',
-      members: [{ employeeReleaseId: 'release-new', role: 'reviewer' }],
-      workflowTemplate: { version: 2 }, approvalPolicy: {}, expectedRevision: 2,
+      members: [
+        { employeeReleaseId: 'release-new-lead', role: 'legacy-lead' },
+        { employeeReleaseId: 'release-new', role: 'legacy-review' },
+      ], workflowTemplate: { version: 2 }, approvalPolicy: { legacy: true }, expectedRevision: 2,
       idempotencyKey: 'sync-active-workflow',
     })
     expect(workflowOnly).toMatchObject({ revision: 3, workflowTemplate: { version: 2 } })
@@ -1278,15 +1290,19 @@ describe('EnterpriseOperationsRepository team definitions', () => {
     expect(archived.state).toBe('archived')
     const archivedNoOp = await operations.saveFixedTeam({
       teamId: 'sync-team', orgId: 'org-a', leaderEmployeeReleaseId: 'release-new-lead',
-      members: [{ employeeReleaseId: 'release-new', role: 'reviewer' }],
-      workflowTemplate: { version: 2 }, approvalPolicy: {}, expectedRevision: 3,
+      members: [
+        { employeeReleaseId: 'release-new-lead', role: 'legacy-lead' },
+        { employeeReleaseId: 'release-new', role: 'legacy-review' },
+      ], workflowTemplate: { version: 2 }, approvalPolicy: { legacy: true }, expectedRevision: 3,
       idempotencyKey: 'sync-archived-noop',
     })
     expect(archivedNoOp.revision).toBe(3)
     await expect(operations.saveFixedTeam({
       teamId: 'sync-team', orgId: 'org-a', leaderEmployeeReleaseId: 'release-new-lead',
-      members: [{ employeeReleaseId: 'release-new', role: 'reviewer' }],
-      workflowTemplate: { version: 2 }, approvalPolicy: {}, expectedRevision: 3,
+      members: [
+        { employeeReleaseId: 'release-new-lead', role: 'legacy-lead' },
+        { employeeReleaseId: 'release-new', role: 'legacy-review' },
+      ], workflowTemplate: { version: 2 }, approvalPolicy: { legacy: true }, expectedRevision: 3,
       idempotencyKey: 'sync-archived-noop',
     })).resolves.toEqual(archivedNoOp)
     await expect(operations.saveFixedTeam({

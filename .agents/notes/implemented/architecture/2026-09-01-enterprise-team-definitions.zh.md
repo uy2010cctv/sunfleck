@@ -14,7 +14,7 @@ Status: implemented
 
 定义使用 `needs-charter`、`active` 和终态 `archived`。Active 校验要求非空名称与 north star、已入队的人类 owner、已入队的 Agent leader、唯一 role 与 actor、有效 role 引用、完整的验证与注意力字段，以及 restricted 可见性所需的非空、已 trim、唯一 allowlist。Organization 和 private 定义不携带 allowlist。只有 archive 可进入终态，之后的每次 save 都被拒绝。
 
-PostgreSQL 表只存储章程、名册、策略、可见性、revision 和生命周期字段。TeamRun 与其他 runtime 状态不属于此表。FixedTeam 和定义写入及团队 admission 共用同一组织/团队 advisory lock。Needs-charter 旧 save 同步 Agent 投影；active 定义允许精确 no-op 和仅 Workflow 变更，archived 定义只允许精确 no-op。Worker admission 用短事务复验 processing lease 与 active 定义，记录持久 start marker，再在外部 Session callback 前释放连接。
+PostgreSQL 表只存储章程、名册、策略、可见性、revision 和生命周期字段。TeamRun 与其他 runtime 状态不属于此表。FixedTeam 和定义写入及团队 admission 共用同一组织/团队 advisory lock。Needs-charter 旧 save 同步 Agent 投影。Active 与 archived 兼容判定只比较已持久 FixedTeam execution fields，不反向投影 formal roles 或 typed approval policy；active 允许仅 Workflow 变更，archived 只允许精确 no-op。Worker admission 用短事务复验 processing lease 与 active 定义，记录持久 start marker，再在外部 Session callback 前释放连接。
 
 迁移和固定团队创建会在定义缺失时插入一条 `needs-charter` 定义。它们保留 team id、组织可见性、不可变 leader release、成员 release 引用、角色标签、审批策略和时间戳。无已记录 owner 时，bootstrap 使用 `system:legacy-fixed-team-migration`，并保持名称、north star、职责、验证策略和注意力策略为空。重复迁移保持幂等，团队工作记录和调度入口在启动工作前调用执行 validator。
 
