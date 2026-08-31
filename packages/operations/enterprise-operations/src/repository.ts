@@ -391,7 +391,8 @@ export class EnterpriseOperationsRepository {
         [input.orgId, input.sessionId, input.employeeReleaseId],
       )
       const current = result.rows[0]
-      if (input.teamId !== undefined && current?.team_id !== input.teamId) {
+      const entersActive = input.businessState === 'active' && current?.business_state !== 'active'
+      if (input.teamId !== undefined && (current?.team_id !== input.teamId || entersActive)) {
         const target = await this.teamTarget(database, input.orgId, input.teamId)
         const eligible = target.definition.roster.some(member => member.actor.kind === 'agent'
           && member.actor.employeeReleaseId === input.employeeReleaseId)
@@ -843,13 +844,6 @@ export class EnterpriseOperationsRepository {
       return view
     })
   }
-  /** Revalidate a claimed team command under the same lock used by definition writes. */
-  async revalidateTeamCommand(orgId: string, command: ScheduleFireView['command']): Promise<void> {
-    const teamId = command.teamId
-    if (teamId === undefined) return
-    await this.initialize()
-    await this.database.transaction(async (database) => { await this.teamTarget(database, orgId, teamId) })
-  }
   /** Claim pending or expired outbox commands using a worker lease (fencing token). */
   async claimOutbox(input: { orgId: string; workerId: string; leaseMs: number; limit?: number }): Promise<readonly OutboxCommandView[]> {
     await this.initialize()
@@ -919,7 +913,7 @@ export class EnterpriseOperationsRepository {
   }): Promise<OutboxCommandView> {
     await this.initialize()
     return this.database.transaction(async (database) => {
-      const state: OutboxState = input.retryable ? 'pending' : 'failed'
+      const state: OutboxState = input.retryable ? 'pending' : 'dead-letter'
       const result = await database.query<OutboxRow>(
         "UPDATE dsh_enterprise_operation_outbox SET state = $1, lease_owner = NULL, lease_expires_at = NULL, start_admitted_at = NULL, last_error = $2 WHERE command_id = $3 AND org_id = $4 AND state = 'processing' AND lease_owner = $5 RETURNING *",
         [state, input.error.slice(0, 2000), input.commandId, input.orgId, input.workerId],

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { EnterpriseOperationsWorker, type ClaimedOperationCommand } from '../src/index.ts'
+import { EnterpriseOperationsError, EnterpriseOperationsWorker, type ClaimedOperationCommand } from '../src/index.ts'
 
 const claimed: ClaimedOperationCommand = {
   commandId: 'command-a',
@@ -25,6 +25,7 @@ describe('EnterpriseOperationsWorker', () => {
       fail: async () => {
         throw new Error('unexpected failure callback')
       },
+      retryable: () => true,
       nextAttemptAt: () => 0,
     })
 
@@ -46,25 +47,35 @@ describe('EnterpriseOperationsWorker', () => {
       fail: async (failure) => {
         failures.push(failure)
       },
+      retryable: () => true,
       nextAttemptAt: (now, attempt) => now + 1_000 * 2 ** attempt,
     })
 
     await expect(worker.runOnce(100)).rejects.toThrow('session unavailable')
-    expect(failures).toEqual([expect.objectContaining({ commandId: 'command-a', nextAttemptAt: 4_100 })])
+    expect(failures).toEqual([expect.objectContaining({
+      commandId: 'command-a', nextAttemptAt: 4_100, retryable: true,
+    })])
   })
 
   it('revalidates a team command before session creation and releases the claim through failure handling', async () => {
     const events: string[] = []
+    let claims = 0
     const worker = new EnterpriseOperationsWorker({
-      claimOutbox: async () => ({ ...claimed, command: { ...claimed.command, teamId: 'team-a' } }),
-      admit: async () => { events.push('revalidate'); throw new Error('team definition is inactive') },
+      claimOutbox: async () => ++claims === 1
+        ? ({ ...claimed, command: { ...claimed.command, teamId: 'team-a' } }) : undefined,
+      admit: async () => {
+        events.push('revalidate')
+        throw new EnterpriseOperationsError('invalid-state', 'team-definition', 'team-a')
+      },
       createSession: async () => { events.push('create') },
       complete: async () => { events.push('complete') },
-      fail: async (failure) => { events.push(`fail:${failure.nextAttemptAt}`) },
+      fail: async (failure) => { events.push(`fail:${failure.nextAttemptAt}:${String(failure.retryable)}`) },
+      retryable: () => true,
       nextAttemptAt: now => now + 500,
     })
 
-    await expect(worker.runOnce(100)).rejects.toThrow('team definition is inactive')
-    expect(events).toEqual(['revalidate', 'fail:600'])
+    await expect(worker.runOnce(100)).rejects.toMatchObject({ code: 'invalid-state' })
+    expect(events).toEqual(['revalidate', 'fail:600:false'])
+    await expect(worker.runOnce(101)).resolves.toBe(false)
   })
 })

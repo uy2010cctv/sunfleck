@@ -1,6 +1,6 @@
 /** PostgreSQL schema for work records, approvals, schedules, teams, and outbox. */
 import type { PostgresDatabase } from './types.ts'
-export const ENTERPRISE_OPERATIONS_SCHEMA_VERSION = 9
+export const ENTERPRISE_OPERATIONS_SCHEMA_VERSION = 10
 /** Owner placeholder for legacy fixed teams whose creator was never persisted. */
 export const LEGACY_TEAM_DEFINITION_OWNER_USER_ID = 'system:legacy-fixed-team-migration'
 const statements = [
@@ -49,7 +49,7 @@ const statements = [
   `CREATE TABLE IF NOT EXISTS dsh_enterprise_operation_outbox (
     command_id TEXT PRIMARY KEY, org_id TEXT NOT NULL, schedule_id TEXT NOT NULL,
     occurrence_key TEXT NOT NULL, work_session_id TEXT NOT NULL, employee_release_id TEXT NOT NULL, team_id TEXT,
-    payload_json JSONB NOT NULL, state TEXT NOT NULL CHECK (state IN ('pending', 'processing', 'completed', 'failed')),
+    payload_json JSONB NOT NULL, state TEXT NOT NULL CHECK (state IN ('pending', 'processing', 'completed', 'failed', 'dead-letter')),
     attempt_count INTEGER NOT NULL DEFAULT 0, lease_owner TEXT, lease_expires_at BIGINT,
     last_error TEXT, completed_at BIGINT, start_admitted_at BIGINT, team_definition_revision BIGINT,
     created_at BIGINT NOT NULL,
@@ -179,6 +179,17 @@ export async function migrateEnterpriseOperations(database: PostgresDatabase): P
       }
       if (version < 9) {
         await transaction.query('ALTER TABLE dsh_enterprise_operation_outbox ADD COLUMN IF NOT EXISTS team_definition_revision BIGINT')
+      }
+      if (version < 10) {
+        await transaction.query('ALTER TABLE dsh_enterprise_operation_outbox DROP CONSTRAINT IF EXISTS dsh_enterprise_operation_outbox_state_check')
+        await transaction.query(
+          `UPDATE dsh_enterprise_operation_outbox SET state='dead-letter',lease_owner=NULL,lease_expires_at=NULL,
+            start_admitted_at=NULL,last_error='legacy team command has no definition revision'
+            WHERE team_id IS NOT NULL AND team_definition_revision IS NULL AND state IN ('pending','processing','failed')`,
+        )
+        await transaction.query(
+          "ALTER TABLE dsh_enterprise_operation_outbox ADD CONSTRAINT dsh_enterprise_operation_outbox_state_check CHECK (state IN ('pending','processing','completed','failed','dead-letter'))",
+        )
       }
       if (version < ENTERPRISE_OPERATIONS_SCHEMA_VERSION) {
         await transaction.query("UPDATE dsh_enterprise_operations_meta SET value = $1 WHERE key = 'schema-version'", [String(ENTERPRISE_OPERATIONS_SCHEMA_VERSION)])

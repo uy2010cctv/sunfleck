@@ -67,7 +67,7 @@ export interface ScheduleFireView {
     readonly teamId?: string
   }
 }
-export type OutboxState = 'pending' | 'processing' | 'completed' | 'failed'
+export type OutboxState = 'pending' | 'processing' | 'completed' | 'failed' | 'dead-letter'
 export interface OutboxCommandView {
   readonly commandId: string
   readonly orgId: string

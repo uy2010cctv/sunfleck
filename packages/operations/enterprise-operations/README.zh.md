@@ -26,7 +26,7 @@ kind: "package-reference"
 - 审批请求使用乐观 revision 和可审计状态迁移。
 - 员工和固定团队调度每次 occurrence 只创建一条幂等的启动 Session Outbox 命令；即使重试使用另一个请求幂等键，也会返回原命令。
 - 固定团队绑定负责人、成员、Workflow 模板和审批策略。
-- 固定团队与定义写入共用同一个组织/团队 advisory lock。旧 save 会同步 `needs-charter` 定义的 leader 和 Agent 名册。进入 active 后，兼容判定只比较 request 与已持久 FixedTeam 的 leader、members 和 approval policy；typed role ID 与 formal definition policy 不反向投影到旧记录。Active 定义允许精确 no-op 和仅 Workflow 更新，archived 定义只允许精确 no-op。
+- 固定团队与定义写入共用同一个全局 team-id advisory lock。旧 save 会同步 `needs-charter` 定义的 leader 和 Agent 名册。进入 active 后，兼容判定只比较 request 与已持久 FixedTeam 的 leader、members 和 approval policy；typed role ID 与 formal definition policy 不反向投影到旧记录。Active 定义允许精确 no-op 和仅 Workflow 更新，archived 定义只允许精确 no-op。
 - 团队定义增加类型化的人类与 Agent 名册、角色职责、验证策略、集中决策队列、可见性、所有权和章程生命周期，但不存储 TeamRun 状态。
 - Active 定义必须有完整章程、已入队的人类 owner、已入队的 Agent leader、唯一 actor 与 role、有效角色引用，以及完整的验证与注意力策略。Restricted 可见性要求非空且每项已 trim、唯一的用户 ID 列表；organization 和 private 可见性要求空列表。
 - Schema 迁移与固定团队创建会在定义不存在时建立一条 `needs-charter` 定义，保留发布版成员、角色标签、leader、审批策略和组织可见性，并使用显式的 `system:legacy-fixed-team-migration` owner 占位。它们不推断名称、north star、职责或策略。`needs-charter` 定义不能支撑团队工作记录、调度或调度触发。
@@ -39,6 +39,7 @@ kind: "package-reference"
 - 团队定义写入使用 compare-and-swap revision 和绑定请求的幂等键。只有 archive 操作可进入 `archived`；之后的所有 save 都被拒绝，而完全相同的 archive 重试返回已记录的幂等结果。
 - Restricted allowlist 在校验、摘要和存储前统一 trim、去重并排序。Active save 会在同一组织内解析 owner、所有人类名册成员、所有 allowlist 用户和可选部门。
 - Active save 会将 Definition leader、非 leader Agent 名册成员及 role ID、approval policy 投影到 FixedTeam，同时保留其 Workflow template。新 team work 只接受当前名册中的 Agent release；调度命令记录 Definition revision，仅当 revision 和 leader 仍匹配时才能 admit。
+- WorkRecord 每次进入 `active` 都复验当前 Definition 与 Agent 名册；已运行工作仍可更新为终态或 waiting。确定性 admission 失败进入 `dead-letter` 且不再被 claim，可重试失败返回正常 claim 路径。迁移会将没有已记录 Definition revision 的旧 team command 转为 dead-letter。
 - Pending 审批可取消。Repository 记录 actor 和 reason；`EnterpriseOperationsService` 仅允许申请人本人或管理员取消。
 - 原生引用在缺失解析器时会快速失败。测试和本地开发可显式设置 `allowUnverifiedReferences`；生产组合必须省略该开关。
 - 幂等键会绑定 SHA-256 请求摘要，使用不同输入重复该键会被拒绝。只有 active 调度可执行；Outbox 命令负责创建新的调度 Session。

@@ -271,6 +271,28 @@ describe.skipIf(database === undefined)('enterprise operations PostgreSQL', () =
     expect(settled.filter(result => result.status === 'rejected')).toHaveLength(1)
   })
 
+  it('migrates v9 team commands without captured definition revisions to dead-letter', async () => {
+    await migrateEnterpriseOperations(postgres)
+    await postgres.query("UPDATE dsh_enterprise_operations_meta SET value='9' WHERE key='schema-version'")
+    await postgres.query(`INSERT INTO dsh_enterprise_operation_outbox(
+      command_id,org_id,schedule_id,occurrence_key,work_session_id,employee_release_id,team_id,
+      team_definition_revision,payload_json,state,attempt_count,lease_owner,lease_expires_at,start_admitted_at,created_at)
+      VALUES ('legacy-null','legacy-org','legacy-schedule','one','legacy-session','release-a','legacy-team',
+        NULL,'{}'::jsonb,'processing',1,'worker-a',9999999999999,1,1)`)
+    await migrateEnterpriseOperations(postgres)
+    const row = await postgres.query<{
+      state: string
+      lease_owner: string | null
+      lease_expires_at: string | null
+      start_admitted_at: string | null
+      last_error: string | null
+    }>("SELECT state,lease_owner,lease_expires_at,start_admitted_at,last_error FROM dsh_enterprise_operation_outbox WHERE command_id='legacy-null'")
+    expect(row.rows[0]).toEqual({
+      state: 'dead-letter', lease_owner: null, lease_expires_at: null, start_admitted_at: null,
+      last_error: 'legacy team command has no definition revision',
+    })
+  })
+
   it('pages management queries, applies CAS updates, and uses pagination indexes', async () => {
     const operations = new EnterpriseOperationsRepository(postgres, {
       allowUnverifiedReferences: true,
