@@ -12,7 +12,7 @@ Primary users are operators and administrators inside one enterprise intranet. T
 
 ## Product Purpose
 
-DeepSeek Harness Enterprise turns the existing DSH agent runtime into an enterprise digital-employee workbench. It makes agent definitions legible as employees, sessions legible as work records, and goals, jobs, schedules, subagents, workflows, approvals, and event logs legible as an operational system. Success means an operator can understand who is working, on what, with which capabilities and permissions, and with what evidence, without leaving the DSH runtime.
+DeepSeek Harness Enterprise turns the existing DSH agent runtime into an enterprise digital-employee workbench. It makes agent definitions legible as employees, sessions legible as work records, and goals, jobs, schedules, subagents, workflows, approvals, event logs, and human–Agent teams legible as one operational system. Success means an operator can understand who is working, on what, with which capabilities and permissions, and with what evidence, without leaving the DSH runtime.
 
 ## Positioning
 
@@ -30,6 +30,7 @@ The enterprise layer is a projection and control plane over the real DSH runtime
 ## Capabilities and Constraints
 
 - `AgentPreset` is the canonical digital-employee definition.
+- `Employee Release` is the immutable published employee reference selected for enterprise execution.
 - `Workspace` is the canonical business-space boundary.
 - `Session` is the canonical work-record identity.
 - `SessionEvent` is the canonical audit and replay record.
@@ -65,23 +66,27 @@ The enterprise layer is a projection and control plane over the real DSH runtime
 4. Preserve DSH composability: enterprise capabilities arrive as plugins, services, events, and Preset metadata.
 5. Treat intranet reachability as transport, never as authentication or authorization.
 6. Treat organizational memory as reviewed business evidence, never as a profile assembled from employee conversations.
+7. Humans own goals, value judgments, and irreversible decisions; Agents decompose, execute, verify, and report within explicit grants.
+8. Share context with the whole Team inside its Workspace and authorization boundary, while keeping unrelated conversations, personal memory, and credentials outside that boundary.
+9. Present Humans and Agents in one roster. Every Agent uses its own service identity and Credential references rather than inheriting a Human's browser or channel credential.
+10. A Human defines the North Star and decision policy; one accountable Agent Lead turns them into a task DAG, coordinates Doers, assigns independent Verifiers where risk requires separation, and escalates decisions instead of guessing.
+11. Grant autonomy incrementally by Agent, task type, and capability scope. No Agent may extend its own grant or transfer it to another actor.
+12. Optimize for Human attention: collect reviewable evidence, group compatible decisions, preserve urgency and dependency order, and interrupt immediately only when risk or an expiring decision requires it.
 
 ## Channel Plane
 
-The channel plane is a separate Channel Kernel around, not inside, the Agent runtime. A provider adapter owns transport login, webhook/desktop ingress, provider acknowledgements, and provider-specific outbound calls. The kernel normalizes those facts and owns only routing and reliability policy:
+DSH is the only state and audit authority for Team definitions, Sessions, tasks, approvals, roster state, decisions, and execution evidence. A channel is an adapter around DSH: it authenticates a transport account, normalizes an inbound intent, submits that intent to DSH authorization and command handling, and delivers a projection or notification. Provider delivery records do not become a parallel task, approval, or Team ledger.
 
-- Initial provider targets are personal WeChat and Enterprise WeChat Bot adapters.
-- One channel binding may publish multiple Agent Presets as digital employees and names one optional default.
-- `/员工` and `/employees` list bound employees; `/切换 <employee>` and `/switch <employee>` change the explicit employee.
-- Sticky Employee wins over inferred intent until an explicit switch; intent wins over the channel default.
-- A canonical enterprise user may merge several channel-account aliases; an unbound alias remains channel-local.
-- Inbound idempotency is scoped by channel, platform account, and provider message id.
-- Outbound delivery uses a durable dispatcher with capped exponential retry and provider acknowledgement evidence.
+- The first enterprise channel target is Enterprise WeChat. Feishu and DingTalk adapters follow the same DSH-owned command and audit model.
+- Personal WeChat is limited to notifications and invitations to take over in DSH. It cannot create, edit, assign, complete, or approve a task; change a Team or roster; or mutate any other work state.
+- A canonical enterprise user may bind several channel-account aliases, but channel identity never substitutes for the authenticated DSH principal required by an action.
+- One channel binding may expose permitted Agent Presets and route a message to a DSH Session. Employee selection and continuation remain DSH commands with Session events, not adapter-local sticky state.
+- Inbound idempotency is scoped by channel, platform account, and provider message id; accepted state changes are idempotent DSH operations with attributable Session events.
+- Outbound delivery uses a durable dispatcher with capped exponential retry and provider acknowledgement evidence. Delivery success proves only provider acceptance, not task completion, approval, Human receipt, or business outcome.
 - Token expiry and stale inbound heartbeats become operator-visible health states.
-- A disconnected Session resumes, a missing Session may be recreated, and corrupt history is quarantined rather than overwritten.
-- Channel audit records direction, actor, employee, provider identifiers, content length, and content hash without copying raw message bodies or credentials.
+- Channel audit records direction, canonical actor when resolved, provider identifiers, content length, and content hash without copying raw message bodies or credentials.
 
-`@deepseek-ai/dsh-channel-kernel` implements the provider-neutral decision contracts. Real WeChat/WeCom credentials, connection lifecycles, durable inbox/outbox storage, and SDK calls remain separate adapters and are not claimed complete by the kernel package.
+`@deepseek-ai/dsh-channel-kernel` implements provider-neutral routing and delivery decisions. Real provider credentials, connection lifecycles, durable inbox/outbox storage, and SDK calls remain separate adapters and are not claimed complete by the kernel package.
 
 ## Enterprise Governance Plane
 

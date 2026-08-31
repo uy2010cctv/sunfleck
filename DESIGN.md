@@ -15,6 +15,7 @@ Employee Operations Deck. The interface treats digital employees as finite opera
 - App shell: Workbench with a persistent DSH sidebar action and a frame-level enterprise surface.
 - Employee discovery: StaffDeck-inspired roster gallery with dominant search, release tabs, explicit conversation actions, and capability evidence.
 - Operations: dense but quiet work-record list, exception-first status, and direct return to the source Session.
+- Team operations: reusable Team Definitions, a deliberate launch review, one evidence-first Team Room, and a cross-Run Human attention queue.
 - Conversation: existing DSH conversation and details columns remain unchanged.
 
 ## Theme
@@ -75,6 +76,42 @@ Employee Operations Deck. The interface treats digital employees as finite opera
 - Empty extension scopes use the existing evidence-panel empty state. Desktop navigation stays compact at the top of its rail; mobile navigation becomes two columns and extension scope tabs scroll inside their own row without page-level horizontal overflow.
 - Stop and rollback remain secondary actions. Department approval requires a visible reason; organization publication is explicit and never presented as an automatic consequence of department approval.
 
+## Human–Agent team surfaces
+
+The Team surface makes Human authority and Agent execution visible without creating a second runtime. A Team Definition is a reusable operating template; a Team Run is one execution rooted in a DSH Session. Every surface links state, evidence, and actions back to that Run's authoritative Session events.
+
+### Team Definition
+
+- The definition opens with a Human-authored charter: North Star, desired outcome, explicit non-goals, constraints, decision rights, stop conditions, and review cadence.
+- One roster contains Human and Agent rows. Human rows show decision responsibility and availability; Agent rows show role, Agent Lead or member status, release, model route, Credential identity, capabilities, and current trust grants.
+- Each trust grant is visibly scoped by Agent, task type, capability, and one of `observe`, `propose`, `execute-reviewed`, or `execute-delegated`. Broad labels such as “autonomous” never replace the scope.
+- The definition selects one accountable Agent Lead. Doer and Verifier assignments remain separate for task classes whose risk policy requires independent verification.
+- Saving a definition creates a reusable version, not a Run, task, approval, or Session. Editing a definition never changes an active Run silently.
+
+### Launch panel
+
+- Launch begins from an exact Team Definition version and asks the Human to confirm the Run-specific North Star, Workspace, source context, deadline or stop condition, participating roster, capability grants, verification policy, and decision policy.
+- The summary highlights missing Agent credentials, unpublished Employee Releases, unavailable Humans, overlapping write scopes, absent Verifiers, and grants broader than the selected task types before the primary action is enabled.
+- Launch creates one DSH root Session and shows its work-record identity. It does not imply that any task has completed or that any external channel received a notification.
+- The panel lets the Human narrow grants for this Run but never widens them beyond enterprise policy or the selected definition without a separately attributable authorization.
+
+### Team Room
+
+- The North Star stays pinned with owner, success evidence, non-goals, and stop conditions. A material change is a Human decision recorded in the Run, not an unannounced prompt edit.
+- The shared roster shows Humans and Agents together with role, presence, current assignment, trust scope, blocked state, and direct entry to the relevant DSH conversation. Agent credentials remain independent and secret values are never displayed.
+- The task DAG is the primary work view. Nodes show owner, Doer, Verifier, dependencies, readiness, evidence state, and the source Session; progress is derived from recorded transitions rather than invented percentages.
+- The decision queue separates proposals, approvals, escalations, and irreversible choices. It groups compatible items for batch review while preserving urgency, dependency order, expiry, and a clear single-item path.
+- Verification pairs each claimed result with method, Verifier, timestamp, observed evidence, and unresolved concern. A Doer's completion claim and a Verifier's acceptance remain distinguishable.
+- Artifacts show their producing task, version or digest, review state, and owning Workspace. The event timeline interleaves Human decisions, Agent actions, approvals, task transitions, verification, artifacts, and channel delivery evidence from DSH records.
+- The Agent Lead may decompose, assign, coordinate, request verification, and recommend a decision within its grants. It cannot approve its own escalation, broaden autonomy, or make an irreversible Human-owned decision.
+
+### Cross-Run attention
+
+- `待我处理` / `Needs my attention` is a persistent entry outside any one Team Room. It aggregates only items the authenticated Human may decide across active and paused Runs.
+- The default order is risk and expiry first, then blocked downstream work and age. Filters cover organization, department, Team, decision type, and urgency without hiding the count of filtered urgent items.
+- Batch decisions are available only when every selected item has the same action semantics, authorization requirement, and visible consequence. The confirmation states the affected Runs and records one attributable decision per item.
+- Opening an item preserves return context, shows the smallest sufficient evidence packet, and links to the full Team Room timeline. Resolving it updates the DSH Run and advances to the next compatible item without losing the queue position.
+
 ## Employee card
 
 - Avatar: DiceBear Lorelei rendered from an opaque persisted seed. New employees receive a random seed; names, emails, and other personal data never become avatar seeds. Existing records without a seed fall back to their stable Preset id.
@@ -95,7 +132,7 @@ Employee Operations Deck. The interface treats digital employees as finite opera
 - Schedules, capability assets, and teams open with a purpose statement and one primary action; raw ids and JSON are never the first interaction.
 - Schedule creation requires a published employee and asks for task name, employee, instructions, human frequency, time, and timezone. DSH derives the immutable schedule id and cron rule.
 - Capability assets are independently creatable. The user names the capability, selects its type, explains its purpose, and enters reusable content; DSH derives the asset id and structured content envelope.
-- Team creation requires at least two published employees. The user chooses one accountable lead and one or more members; DSH derives the team id and fixed-team contract.
+- Team Definition creation requires a Human North Star owner and at least one published Agent. The user chooses one accountable Agent Lead, adds Human and Agent members to the shared roster, and scopes autonomy by Agent, task type, and capability.
 - Missing prerequisites use an actionable empty state that links back to Digital employees. A generic empty-record message is not acceptable on these pages.
 - Employee editing uses a two-column identity layout on desktop: a persistent avatar/profile preview supports a linear form divided into profile, responsibilities/runtime, and access/capabilities. Mobile stacks the preview above the same DOM-order form. Save/publish actions stay visible in one sticky footer; validation remains adjacent to the form rather than dominating the page.
 - Employee department is selected from the authenticated organization directory. Free-text department entry is not permitted because the employee profile must use the same department names that govern shared Workspaces and visibility.
@@ -106,6 +143,7 @@ Employee Operations Deck. The interface treats digital employees as finite opera
 - Desktop: grouped operations rail and a three-column employee gallery; narrower operational pages retain their evidence-row layouts.
 - Tablet: summary rail becomes a horizontal strip; roster and records stack.
 - Mobile: single-column gallery, contained horizontal navigation, visible actions on every card, no page-level horizontal scroll.
+- Team Room keeps the North Star and attention count above a tabbed task, decision, verification, artifact, and timeline sequence on tablet and mobile; the DOM order matches that reading order at every width.
 - Existing DSH sidebar auto-collapse remains authoritative.
 
 ## Accessibility
@@ -114,6 +152,7 @@ Employee Operations Deck. The interface treats digital employees as finite opera
 - Visible focus on every interactive element.
 - `aria-live` for load failures and refreshed operational counts.
 - Status icon plus text; color is supplementary.
+- Task DAG relationships have an equivalent keyboard-readable dependency list, and batched decisions announce selection count, consequence, and partial failure.
 - Chinese and English locale dictionaries ship together.
 
 ## What surfaces must share
@@ -127,7 +166,7 @@ Employee Operations Deck. The interface treats digital employees as finite opera
 
 - Roster density may change with viewport.
 - Work-record presentation may use list or table depending on available width.
-- Future team and approval surfaces may add domain-specific columns while retaining the same state vocabulary.
+- Team and approval surfaces may add domain-specific columns while retaining the same state vocabulary and Human authority cues.
 
 ## Exports
 
