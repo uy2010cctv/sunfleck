@@ -190,6 +190,83 @@ describe('EnterpriseSecurity', () => {
     ])
   })
 
+  it('keeps department Workspace Sessions private to their creating user', async () => {
+    repository.saveDepartment({
+      id: 'dept-ops', orgId: 'org-a', parentId: null, name: 'Operations', sortOrder: 0, expectedRevision: 0,
+    })
+    repository.setUserDepartments({
+      orgId: 'org-a', userId: 'member-1', departmentIds: ['dept-ops'],
+      primaryDepartmentId: 'dept-ops', expectedRevision: 0,
+    })
+    repository.setUserDepartments({
+      orgId: 'org-a', userId: 'admin-1', departmentIds: ['dept-ops'],
+      primaryDepartmentId: 'dept-ops', expectedRevision: 0,
+    })
+    repository.saveWorkspaceGrant({
+      workspaceId: 'dept-ops-shared', orgId: 'org-a', name: 'Operations shared', kind: 'department',
+      departmentId: 'dept-ops', rootPath: '/managed/departments/ops', sandboxMode: 'read-only', expectedRevision: 0,
+    })
+    repository.bindSessionWorkspace({
+      sessionId: 'session-member', workspaceId: 'dept-ops-shared', orgId: 'org-a', ownerUserId: 'member-1',
+    })
+    repository.bindSessionWorkspace({
+      sessionId: 'session-admin', workspaceId: 'dept-ops-shared', orgId: 'org-a', ownerUserId: 'admin-1',
+    })
+
+    const member = security.loginLocal('org-a', 'member', 'enterprise-password')!.principal
+    const source = (async function* () {
+      yield {
+        type: 'baseline',
+        value: {
+          items: [{
+            workspaceId: 'dept-ops-shared', title: 'Operations shared', path: '/managed/departments/ops',
+            sessionIds: ['session-member', 'session-admin'],
+          }],
+          archivedSessionIds: ['session-member', 'session-admin'],
+        },
+      }
+    })()
+    const frames: unknown[] = []
+    for await (const frame of security.filterWorkspaceFollow(member, source)) frames.push(frame)
+
+    expect(frames).toEqual([{
+      type: 'baseline',
+      value: {
+        items: [expect.objectContaining({
+          workspaceId: 'dept-ops-shared', sessionIds: ['session-member'], deletable: false,
+        })],
+        archivedSessionIds: ['session-member'],
+      },
+    }])
+
+    const sessionSecurity = security as EnterpriseSecurity & {
+      filterSessionList(principal: typeof member, value: unknown): Promise<unknown>
+      filterSessionControl(principal: typeof member, frames: AsyncIterable<unknown>): AsyncIterable<unknown>
+    }
+    await expect(sessionSecurity.filterSessionList(member, {
+      items: [{ sessionId: 'session-member' }, { sessionId: 'session-admin' }],
+    })).resolves.toEqual({ items: [{ sessionId: 'session-member' }] })
+
+    const controlFrames: unknown[] = []
+    for await (const frame of sessionSecurity.filterSessionControl(member, (async function* () {
+      yield {
+        type: 'baseline', value: {
+          queues: { 'session-member': [], 'session-admin': [] },
+          jobs: { 'session-member': [], 'session-admin': [] },
+          projections: { 'session-member': { asOfSeq: 0 }, 'session-admin': { asOfSeq: 0 } },
+        },
+      }
+      yield { type: 'queue', sessionId: 'session-admin', items: [] }
+      yield { type: 'queue', sessionId: 'session-member', items: [] }
+    })())) controlFrames.push(frame)
+    expect(controlFrames).toEqual([{
+      type: 'baseline', value: {
+        queues: { 'session-member': [] }, jobs: { 'session-member': [] },
+        projections: { 'session-member': { asOfSeq: 0 } },
+      },
+    }, { type: 'queue', sessionId: 'session-member', items: [] }])
+  })
+
   it('allows creation but deletes only a later personal Workspace owned by the caller', async () => {
     repository.saveWorkspaceGrant({
       workspaceId: 'member-default', orgId: 'org-a', name: 'Member personal', kind: 'personal',

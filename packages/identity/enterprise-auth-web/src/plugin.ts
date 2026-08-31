@@ -162,15 +162,9 @@ export async function apply(ctx: Context, config: EnterpriseAuthWebConfig): Prom
         }
         if (resourceType === 'session') {
           const grant = await repository.sessionWorkspaceGrant(resourceId)
-          if (grant === undefined) return null
-          if (grant.kind === 'personal') {
-            if (grant.ownerUserId === undefined) return null
-            return { orgId: grant.orgId, creatorUserId: grant.ownerUserId, visibility: 'private' }
-          }
-          const allowedUserIds = (await repository.listUsers(grant.orgId))
-            .filter(user => grant.departmentId !== undefined && user.departmentIds.includes(grant.departmentId))
-            .map(user => user.id)
-          return { orgId: grant.orgId, visibility: 'restricted', allowedUserIds }
+          const ownerUserId = await repository.sessionOwnerUserId(resourceId)
+          if (grant === undefined || ownerUserId === undefined) return null
+          return { orgId: grant.orgId, creatorUserId: ownerUserId, visibility: 'private' }
         }
         return undefined
       },

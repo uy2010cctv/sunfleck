@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { EnterpriseIdentityRepository, sessionTokenHash } from '@deepseek-ai/dsh-enterprise-identity'
 import {
   PgEnterpriseIdentityRepository,
+  migrateEnterpriseIdentityPostgres,
   migrateSqliteEnterpriseIdentityToPostgres,
   type PostgresDatabase,
   type PostgresQueryResult,
@@ -31,6 +32,29 @@ class RecordingDatabase implements PostgresDatabase {
 }
 
 describe('PgEnterpriseIdentityRepository', () => {
+  it('upgrades v4 Session bindings with an explicit owner column', async () => {
+    class VersionFourDatabase extends RecordingDatabase {
+      override async query<Row extends Record<string, unknown> = Record<string, unknown>>(
+        text: string, values: readonly unknown[] = [],
+      ): Promise<PostgresQueryResult<Row>> {
+        if (text.includes("SELECT value FROM enterprise_meta WHERE key = 'schema-version'")) {
+          this.queries.push({ text, values })
+          return { rows: [{ value: '4' }] as Row[], rowCount: 1 }
+        }
+        return super.query(text, values)
+      }
+    }
+    const database = new VersionFourDatabase()
+
+    await migrateEnterpriseIdentityPostgres(database)
+
+    expect(database.queries.map(query => query.text)).toEqual(expect.arrayContaining([
+      expect.stringContaining('ALTER TABLE enterprise_session_workspaces ADD COLUMN IF NOT EXISTS owner_user_id'),
+      expect.stringContaining('SET owner_user_id = workspace.owner_user_id'),
+    ]))
+    expect(database.queries.at(-1)?.values).toEqual(['5'])
+  })
+
   it('uses parameterized PostgreSQL writes for enterprise users', async () => {
     const database = new RecordingDatabase()
     const repository = new PgEnterpriseIdentityRepository(database)

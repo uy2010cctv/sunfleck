@@ -2,7 +2,7 @@
 
 import type { PostgresDatabase } from './types.ts'
 
-export const ENTERPRISE_IDENTITY_POSTGRES_SCHEMA_VERSION = 4
+export const ENTERPRISE_IDENTITY_POSTGRES_SCHEMA_VERSION = 5
 
 const STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS enterprise_meta (
@@ -137,7 +137,8 @@ const STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS enterprise_session_workspaces (
     session_id TEXT PRIMARY KEY,
     workspace_id TEXT NOT NULL REFERENCES enterprise_workspace_grants(workspace_id) ON DELETE RESTRICT,
-    org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE
+    org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+    owner_user_id TEXT REFERENCES users(id) ON DELETE RESTRICT
   )`,
 ] as const
 
@@ -165,6 +166,15 @@ export async function migrateEnterpriseIdentityPostgres(database: PostgresDataba
     return
   }
   if (Number(version) === 3) {
+    await database.query("UPDATE enterprise_meta SET value = $1 WHERE key = 'schema-version'", [String(ENTERPRISE_IDENTITY_POSTGRES_SCHEMA_VERSION)])
+    return
+  }
+  if (Number(version) === 4) {
+    await database.query('ALTER TABLE enterprise_session_workspaces ADD COLUMN IF NOT EXISTS owner_user_id TEXT REFERENCES users(id) ON DELETE RESTRICT')
+    await database.query(`UPDATE enterprise_session_workspaces binding
+      SET owner_user_id = workspace.owner_user_id
+      FROM enterprise_workspace_grants workspace
+      WHERE workspace.workspace_id = binding.workspace_id AND binding.owner_user_id IS NULL`)
     await database.query("UPDATE enterprise_meta SET value = $1 WHERE key = 'schema-version'", [String(ENTERPRISE_IDENTITY_POSTGRES_SCHEMA_VERSION)])
     return
   }

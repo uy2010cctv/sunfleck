@@ -2,7 +2,7 @@
 
 import type { DatabaseSync } from 'node:sqlite'
 
-export const ENTERPRISE_IDENTITY_SCHEMA_VERSION = 4
+export const ENTERPRISE_IDENTITY_SCHEMA_VERSION = 5
 
 /** Create or validate the enterprise identity schema. */
 export function migrateEnterpriseIdentity(database: DatabaseSync): void {
@@ -139,7 +139,8 @@ export function migrateEnterpriseIdentity(database: DatabaseSync): void {
     CREATE TABLE IF NOT EXISTS enterprise_session_workspaces (
       session_id TEXT PRIMARY KEY,
       workspace_id TEXT NOT NULL REFERENCES enterprise_workspace_grants(workspace_id) ON DELETE RESTRICT,
-      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      owner_user_id TEXT REFERENCES users(id) ON DELETE RESTRICT
     ) STRICT;
   `)
   const version = database.prepare("SELECT value FROM enterprise_meta WHERE key = 'schema-version'")
@@ -152,6 +153,14 @@ export function migrateEnterpriseIdentity(database: DatabaseSync): void {
     database.prepare("UPDATE enterprise_meta SET value = ? WHERE key = 'schema-version'")
       .run(String(ENTERPRISE_IDENTITY_SCHEMA_VERSION))
   } else if (Number(version.value) === 2 || Number(version.value) === 3) {
+    database.prepare("UPDATE enterprise_meta SET value = ? WHERE key = 'schema-version'")
+      .run(String(ENTERPRISE_IDENTITY_SCHEMA_VERSION))
+  } else if (Number(version.value) === 4) {
+    database.exec('ALTER TABLE enterprise_session_workspaces ADD COLUMN owner_user_id TEXT REFERENCES users(id) ON DELETE RESTRICT')
+    database.exec(`UPDATE enterprise_session_workspaces
+      SET owner_user_id = (SELECT owner_user_id FROM enterprise_workspace_grants workspace
+        WHERE workspace.workspace_id = enterprise_session_workspaces.workspace_id)
+      WHERE owner_user_id IS NULL`)
     database.prepare("UPDATE enterprise_meta SET value = ? WHERE key = 'schema-version'")
       .run(String(ENTERPRISE_IDENTITY_SCHEMA_VERSION))
   } else if (Number(version.value) !== ENTERPRISE_IDENTITY_SCHEMA_VERSION) {

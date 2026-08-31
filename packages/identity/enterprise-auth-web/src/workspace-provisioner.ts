@@ -33,7 +33,11 @@ export async function backfillSessionWorkspaceBindings(
     const workspace = registry.get?.(grant.workspaceId)
     if (workspace === undefined) continue
     for (const sessionId of workspace.sessionIds ?? []) {
-      await repository.bindSessionWorkspace({ sessionId, workspaceId: grant.workspaceId, orgId })
+      if (grant.ownerUserId !== undefined) {
+        await repository.bindSessionWorkspace({
+          sessionId, workspaceId: grant.workspaceId, orgId, ownerUserId: grant.ownerUserId,
+        })
+      }
     }
   }
 }

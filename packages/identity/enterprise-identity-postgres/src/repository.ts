@@ -449,7 +449,12 @@ export class PgEnterpriseIdentityRepository {
     }
   }
 
-  async bindSessionWorkspace(input: { sessionId: string; workspaceId: string; orgId: string }): Promise<void> {
+  async bindSessionWorkspace(input: {
+    sessionId: string
+    workspaceId: string
+    orgId: string
+    ownerUserId: string
+  }): Promise<void> {
     await this.transaction(async (database) => {
       const grant = await database.query<{ org_id: string }>(
         'SELECT org_id FROM enterprise_workspace_grants WHERE workspace_id = $1', [input.workspaceId],
@@ -457,20 +462,26 @@ export class PgEnterpriseIdentityRepository {
       if (grant.rows[0]?.org_id !== input.orgId) {
         throw new Error('enterprise session workspace is outside organization or missing')
       }
-      const existing = await database.query<{ workspace_id: string; org_id: string }>(
-        'SELECT workspace_id, org_id FROM enterprise_session_workspaces WHERE session_id = $1 FOR UPDATE',
+      const owner = await database.query<{ org_id: string }>('SELECT org_id FROM users WHERE id = $1', [input.ownerUserId])
+      if (owner.rows[0]?.org_id !== input.orgId) {
+        throw new Error('enterprise session owner is outside organization or missing')
+      }
+      const existing = await database.query<{ workspace_id: string; org_id: string; owner_user_id: string | null }>(
+        'SELECT workspace_id, org_id, owner_user_id FROM enterprise_session_workspaces WHERE session_id = $1 FOR UPDATE',
         [input.sessionId],
       )
       const row = existing.rows[0]
       if (row !== undefined) {
-        if (row.workspace_id !== input.workspaceId || row.org_id !== input.orgId) {
-          throw new Error('enterprise session is already bound to another workspace')
+        if (row.workspace_id !== input.workspaceId || row.org_id !== input.orgId
+          || row.owner_user_id !== input.ownerUserId) {
+          throw new Error('enterprise session is already bound to another workspace or owner')
         }
         return
       }
       await database.query(
-        'INSERT INTO enterprise_session_workspaces(session_id, workspace_id, org_id) VALUES ($1, $2, $3)',
-        [input.sessionId, input.workspaceId, input.orgId],
+        `INSERT INTO enterprise_session_workspaces(session_id, workspace_id, org_id, owner_user_id)
+          VALUES ($1, $2, $3, $4)`,
+        [input.sessionId, input.workspaceId, input.orgId, input.ownerUserId],
       )
     })
   }
@@ -481,6 +492,13 @@ export class PgEnterpriseIdentityRepository {
       JOIN enterprise_workspace_grants workspace ON workspace.workspace_id = binding.workspace_id
       WHERE binding.session_id = $1`, [sessionId])
     return result.rows[0] === undefined ? undefined : this.workspaceGrantFromRow(result.rows[0])
+  }
+
+  async sessionOwnerUserId(sessionId: string): Promise<string | undefined> {
+    const result = await this.database.query<{ owner_user_id: string | null }>(
+      'SELECT owner_user_id FROM enterprise_session_workspaces WHERE session_id = $1', [sessionId],
+    )
+    return result.rows[0]?.owner_user_id ?? undefined
   }
 
   async proposeMemory(input: ProposeEnterpriseMemoryInput): Promise<EnterpriseMemoryEntry> {

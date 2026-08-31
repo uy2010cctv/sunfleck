@@ -44,6 +44,14 @@ class SessionFixture extends Service {
     this.created.push(request.workspaceId)
     return { sessionId: 'session-created' }
   }
+
+  @Remote list() {
+    return { items: [{ sessionId: 'session-member' }, { sessionId: 'session-other' }] }
+  }
+
+  @Remote({ mode: 'stream' }) async *control(): AsyncIterable<unknown> {
+    yield { type: 'baseline', value: { queues: {}, jobs: {}, projections: {} } }
+  }
 }
 
 const roots: Context[] = []
@@ -107,6 +115,25 @@ describe('enterprise Workspace gateway enforcement', () => {
       harness.principal, 'session-created', 'workspace-1',
     )
   })
+
+  it('projects Session list and control results through the authenticated user boundary', async () => {
+    const harness = await setup({ allowed: true })
+    const listed = await harness.gateway.dispatchRpc(
+      'session/list', { args: {} }, new AbortController().signal,
+    )
+    expect(listed).toEqual({ ok: true, value: { items: [{ sessionId: 'session-member' }] } })
+    expect(harness.security.filterSessionList).toHaveBeenCalledWith(
+      harness.principal, { items: [{ sessionId: 'session-member' }, { sessionId: 'session-other' }] },
+    )
+
+    const stream = await harness.gateway.openWireStream(
+      'session/control', { args: {} }, new AbortController().signal,
+    )
+    const frames: unknown[] = []
+    for await (const frame of stream) frames.push(frame)
+    expect(frames).toEqual([{ type: 'projected-control' }])
+    expect(harness.security.filterSessionControl).toHaveBeenCalledOnce()
+  })
 })
 
 async function setup(decision: { allowed: boolean }) {
@@ -122,6 +149,10 @@ async function setup(decision: { allowed: boolean }) {
     recordWorkspaceCreated: vi.fn(async () => {}),
     bindSessionWorkspaceAsync: vi.fn(async () => {}),
     filterWorkspaceFollow: vi.fn(async function* () { yield { type: 'projected' } }),
+    filterSessionList: vi.fn(async (_principal, value: unknown) => ({
+      ...(record(value) ? value : {}), items: [{ sessionId: 'session-member' }],
+    })),
+    filterSessionControl: vi.fn(async function* () { yield { type: 'projected-control' } }),
   }
   ctx.provide('enterpriseSecurity' as never, security as never)
   ctx.provide('enterpriseRequestContext' as never, {
@@ -185,6 +216,14 @@ function descriptors(): InvocationDescriptor[] {
       id: '@fixture/enterprise-workspace#session/create', service: 'sessionFixture', namespace: 'session',
       method: 'create', invocation: { kind: 'direct' },
       parameters: request(z.object({ workspaceId: z.string() })), result,
+    },
+    {
+      id: '@fixture/enterprise-workspace#session/list', service: 'sessionFixture', namespace: 'session',
+      method: 'list', invocation: { kind: 'direct' }, parameters: [], result,
+    },
+    {
+      id: '@fixture/enterprise-workspace#session/control', service: 'sessionFixture', namespace: 'session',
+      method: 'control', mode: 'stream', invocation: { kind: 'direct' }, parameters: [], result,
     },
   ]
 }

@@ -248,8 +248,14 @@ export interface EnterpriseIdentityStore {
   workspaceGrantByRootPath(rootPath: string): IdentityAwaitable<EnterpriseWorkspaceGrant | undefined>
   listWorkspaceGrants(input: { orgId: string; userId: string }): IdentityAwaitable<EnterpriseWorkspaceGrant[]>
   listOrganizationWorkspaceGrants(orgId: string): IdentityAwaitable<EnterpriseWorkspaceGrant[]>
-  bindSessionWorkspace(input: { sessionId: string; workspaceId: string; orgId: string }): IdentityAwaitable<void>
+  bindSessionWorkspace(input: {
+    sessionId: string
+    workspaceId: string
+    orgId: string
+    ownerUserId: string
+  }): IdentityAwaitable<void>
   sessionWorkspaceGrant(sessionId: string): IdentityAwaitable<EnterpriseWorkspaceGrant | undefined>
+  sessionOwnerUserId(sessionId: string): IdentityAwaitable<string | undefined>
   proposeMemory(input: ProposeEnterpriseMemoryInput): IdentityAwaitable<EnterpriseMemoryEntry>
   reviewMemory(input: ReviewEnterpriseMemoryInput): IdentityAwaitable<EnterpriseMemoryEntry>
   listMemories(input: {
@@ -635,21 +641,26 @@ export class EnterpriseIdentityRepository implements EnterpriseIdentityStore {
     }
   }
 
-  bindSessionWorkspace(input: { sessionId: string; workspaceId: string; orgId: string }): void {
+  bindSessionWorkspace(input: { sessionId: string; workspaceId: string; orgId: string; ownerUserId: string }): void {
     const grant = this.workspaceGrant(input.workspaceId)
     if (grant === undefined || grant.orgId !== input.orgId) {
       throw new Error('enterprise session workspace is outside organization or missing')
     }
-    const existing = this.database.prepare('SELECT workspace_id, org_id FROM enterprise_session_workspaces WHERE session_id = ?')
-      .get(input.sessionId) as { workspace_id: string; org_id: string } | undefined
+    const owner = this.database.prepare('SELECT org_id FROM users WHERE id = ?').get(input.ownerUserId) as { org_id: string } | undefined
+    if (owner?.org_id !== input.orgId) throw new Error('enterprise session owner is outside organization or missing')
+    const existing = this.database.prepare(
+      'SELECT workspace_id, org_id, owner_user_id FROM enterprise_session_workspaces WHERE session_id = ?',
+    ).get(input.sessionId) as { workspace_id: string; org_id: string; owner_user_id: string | null } | undefined
     if (existing !== undefined) {
-      if (existing.workspace_id !== input.workspaceId || existing.org_id !== input.orgId) {
-        throw new Error('enterprise session is already bound to another workspace')
+      if (existing.workspace_id !== input.workspaceId || existing.org_id !== input.orgId
+        || existing.owner_user_id !== input.ownerUserId) {
+        throw new Error('enterprise session is already bound to another workspace or owner')
       }
       return
     }
-    this.database.prepare('INSERT INTO enterprise_session_workspaces(session_id, workspace_id, org_id) VALUES (?, ?, ?)')
-      .run(input.sessionId, input.workspaceId, input.orgId)
+    this.database.prepare(
+      'INSERT INTO enterprise_session_workspaces(session_id, workspace_id, org_id, owner_user_id) VALUES (?, ?, ?, ?)',
+    ).run(input.sessionId, input.workspaceId, input.orgId, input.ownerUserId)
   }
 
   sessionWorkspaceGrant(sessionId: string): EnterpriseWorkspaceGrant | undefined {
@@ -657,6 +668,12 @@ export class EnterpriseIdentityRepository implements EnterpriseIdentityStore {
       JOIN enterprise_workspace_grants workspace ON workspace.workspace_id = binding.workspace_id
       WHERE binding.session_id = ?`).get(sessionId) as SqliteWorkspaceGrantRow | undefined
     return row === undefined ? undefined : this.workspaceGrantFromRow(row)
+  }
+
+  sessionOwnerUserId(sessionId: string): string | undefined {
+    const row = this.database.prepare('SELECT owner_user_id FROM enterprise_session_workspaces WHERE session_id = ?')
+      .get(sessionId) as { owner_user_id: string | null } | undefined
+    return row?.owner_user_id ?? undefined
   }
 
   proposeMemory(input: ProposeEnterpriseMemoryInput): EnterpriseMemoryEntry {

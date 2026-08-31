@@ -132,6 +132,7 @@ interface RemoteEventClient {
   readonly id: RemoteEventClientId
   readonly queue: RemoteEventQueue
   readonly deliveries: Map<RemoteEventId, PendingRemoteEvent>
+  readonly enterprise?: EnterpriseWorkspaceInvocation
 }
 
 interface PendingRemoteEvent {
@@ -464,9 +465,13 @@ export class TypertGatewayService extends Service implements TypertGateway {
     }
     const enterprise = await this.authorizeEnterpriseWorkspace(endpoint, payload)
     const stream = await this.stream(remoteRequest(endpoint, payload, signal))
-    return enterprise?.endpoint === 'workspace.follow'
-      ? enterprise.security.filterWorkspaceFollow(enterprise.principal, stream)
-      : stream
+    if (enterprise?.endpoint === 'workspace.follow') {
+      return enterprise.security.filterWorkspaceFollow(enterprise.principal, stream)
+    }
+    if (enterprise?.endpoint === 'session.control') {
+      return enterprise.security.filterSessionControl(enterprise.principal, stream)
+    }
+    return stream
   }
 
   private async *openRemoteEvents(
@@ -504,6 +509,7 @@ export class TypertGatewayService extends Service implements TypertGateway {
       id: clientId,
       queue: new RemoteEventQueue(),
       deliveries: new Map(),
+      ...this.enterpriseEventClient(),
     }
     this.remoteEventClients.set(clientId, client)
     for (const pending of this.pendingRemoteEvents.values()) this.deliverRemoteEvent(pending, client)
@@ -525,21 +531,51 @@ export class TypertGatewayService extends Service implements TypertGateway {
         return
       }
       if ('context' in dispatch) this.startRemoteEvent(dispatch)
-      else this.broadcastRemoteEvent(dispatch)
+      else await this.broadcastRemoteEvent(dispatch)
     }
     if (!signal.aborted) {
       throw new Error('typert gateway: forwarded Remote event source ended unexpectedly')
     }
   }
 
-  private broadcastRemoteEvent(frame: TypertRemoteEventFrame): void {
+  private async broadcastRemoteEvent(frame: TypertRemoteEventFrame): Promise<void> {
     assertRemoteEventFrame(frame)
     const wire: RemoteEventEmitFrame = {
       type: 'emit',
       event: frame.event,
       args: frame.args,
     }
-    for (const client of this.remoteEventClients.values()) client.queue.push(wire)
+    for (const client of this.remoteEventClients.values()) {
+      if (await this.remoteEventVisible(client, wire)) client.queue.push(wire)
+    }
+  }
+
+  private enterpriseEventClient(): Pick<RemoteEventClient, 'enterprise'> {
+    const { security, requestContext } = optionalEnterpriseServices(this.ctx)
+    if (security === undefined && requestContext === undefined) return {}
+    if (security === undefined || requestContext === undefined) {
+      throw new TypertGatewayError(
+        'service-unavailable', REMOTE_EVENT_STREAM_ENDPOINT, 'enterprise event security is unavailable',
+      )
+    }
+    const principal = requestContext.current()
+    if (principal === undefined) {
+      throw new TypertGatewayError(
+        'service-unavailable', REMOTE_EVENT_STREAM_ENDPOINT, 'authenticated enterprise principal is required',
+      )
+    }
+    return { enterprise: { endpoint: REMOTE_EVENT_STREAM_ENDPOINT, principal, security } }
+  }
+
+  private async remoteEventVisible(client: RemoteEventClient, frame: RemoteEventEmitFrame): Promise<boolean> {
+    const enterprise = client.enterprise
+    if (enterprise === undefined
+      || (frame.event !== 'api-session/added' && frame.event !== 'api-session/removed')) return true
+    const first = frame.args[0]
+    const sessionId = frame.event === 'api-session/removed'
+      ? typeof first === 'string' ? first : undefined
+      : stringProperty(first, 'sessionId')
+    return sessionId !== undefined && await enterprise.security.sessionOwnedBy(enterprise.principal, sessionId)
   }
 
   private startRemoteEvent(source: TypertRemoteEventInvocation): void {
@@ -678,7 +714,7 @@ export class TypertGatewayService extends Service implements TypertGateway {
   private async invokeRpc(endpoint: string, payload: unknown, signal: AbortSignal): Promise<ConnectionRpcResult> {
     try {
       const enterprise = await this.authorizeEnterpriseWorkspace(endpoint, payload)
-      const value = await this.invoke(remoteRequest(endpoint, payload, signal))
+      let value = await this.invoke(remoteRequest(endpoint, payload, signal))
       if (enterprise?.endpoint === 'workspace.create') {
         await enterprise.security.recordWorkspaceCreated(enterprise.principal, value)
       }
@@ -695,6 +731,9 @@ export class TypertGatewayService extends Service implements TypertGateway {
         }
         await enterprise.security.bindSessionWorkspaceAsync(enterprise.principal, sessionId, workspaceId)
       }
+      if (enterprise?.endpoint === 'session.list') {
+        value = await enterprise.security.filterSessionList(enterprise.principal, value)
+      }
       // A void or explicitly absent business result carries no `value` field;
       // JSON has no `undefined`, and the envelope's optional slot is the one
       // representation of absence that both args and results already use.
@@ -708,7 +747,7 @@ export class TypertGatewayService extends Service implements TypertGateway {
     wireEndpoint: string,
     payload: unknown,
   ): Promise<EnterpriseWorkspaceInvocation | undefined> {
-    if (!wireEndpoint.startsWith('workspace/') && wireEndpoint !== 'session/create') return undefined
+    if (!wireEndpoint.startsWith('workspace/') && !wireEndpoint.startsWith('session/')) return undefined
     const { security, requestContext } = optionalEnterpriseServices(this.ctx)
     if (security === undefined && requestContext === undefined) return undefined
     if (security === undefined || requestContext === undefined) {

@@ -72,7 +72,8 @@ function syncValue<T>(value: T | Promise<T>, operation: string): T {
 
 const SESSION_READ = new Set([
   'host.describe', 'host.listDirectory', 'events.mux', 'events.host',
-  'session.list', 'session.search', 'session.history', 'session.models', 'session.attachment',
+  'session.list', 'session.search', 'session.history', 'session.page', 'session.follow', 'session.control',
+  'session.models', 'session.attachment',
   'session.modelCatalog',
   'skill.list', 'subagent.list', 'subagent.history', 'workspace.list', 'downloads.sessionLog',
   // Legacy aliases kept for direct callers; the wire RPC registry uses the
@@ -469,19 +470,28 @@ export class EnterpriseSecurity {
       if (frame['type'] === 'baseline') {
         const value = record(frame['value']) ? frame['value'] : {}
         const items = Array.isArray(value['items']) ? value['items'] : []
-        const projected = items.flatMap((item) => {
+        const projected: Record<string, unknown>[] = []
+        for (const item of items) {
           const workspace = workspaceRecord(item)
-          if (workspace === undefined || !visible.has(workspace.workspaceId)) return []
+          if (workspace === undefined || !visible.has(workspace.workspaceId)) continue
           emitted.add(workspace.workspaceId)
-          return [{ ...workspace.value, deletable: deletable.has(workspace.workspaceId) }]
-        })
+          projected.push({
+            ...workspace.value,
+            sessionIds: await this.visibleSessionIds(
+              principal,
+              Array.isArray(workspace.value['sessionIds']) ? workspace.value['sessionIds'] : [],
+              visible,
+            ),
+            deletable: deletable.has(workspace.workspaceId),
+          })
+        }
         yield {
           ...frame,
           value: {
             ...value,
             items: projected,
-            archivedSessionIds: await this.visibleArchivedSessionIds(
-              Array.isArray(value['archivedSessionIds']) ? value['archivedSessionIds'] : [], visible,
+            archivedSessionIds: await this.visibleSessionIds(
+              principal, Array.isArray(value['archivedSessionIds']) ? value['archivedSessionIds'] : [], visible,
             ),
           },
         }
@@ -496,7 +506,18 @@ export class EnterpriseSecurity {
         visible.set(workspace.workspaceId, grant)
         const currentDeletable = this.deletableWorkspaceIds(principal, [...visible.values()])
         emitted.add(workspace.workspaceId)
-        yield { ...frame, workspace: { ...workspace.value, deletable: currentDeletable.has(workspace.workspaceId) } }
+        yield {
+          ...frame,
+          workspace: {
+            ...workspace.value,
+            sessionIds: await this.visibleSessionIds(
+              principal,
+              Array.isArray(workspace.value['sessionIds']) ? workspace.value['sessionIds'] : [],
+              visible,
+            ),
+            deletable: currentDeletable.has(workspace.workspaceId),
+          },
+        }
         continue
       }
       if (frame['type'] === 'remove') {
@@ -515,12 +536,60 @@ export class EnterpriseSecurity {
       if (frame['type'] === 'archived') {
         yield {
           ...frame,
-          archivedSessionIds: await this.visibleArchivedSessionIds(
-            Array.isArray(frame['archivedSessionIds']) ? frame['archivedSessionIds'] : [], visible,
+          archivedSessionIds: await this.visibleSessionIds(
+            principal, Array.isArray(frame['archivedSessionIds']) ? frame['archivedSessionIds'] : [], visible,
           ),
         }
       }
     }
+  }
+
+  /** Project a Session list to rows created by the authenticated user. */
+  async filterSessionList(principal: EnterprisePrincipal, value: unknown): Promise<unknown> {
+    if (!record(value)) return { items: [] }
+    const items = Array.isArray(value['items']) ? value['items'] : []
+    const visible: unknown[] = []
+    for (const item of items) {
+      if (!record(item) || typeof item['sessionId'] !== 'string') continue
+      if (await this.sessionOwnedBy(principal, item['sessionId'])) visible.push(item)
+    }
+    return { ...value, items: visible }
+  }
+
+  /** Project Host-wide queue, job, and projection frames to the current user's Sessions. */
+  async *filterSessionControl(
+    principal: EnterprisePrincipal,
+    frames: AsyncIterable<unknown>,
+  ): AsyncIterable<unknown> {
+    for await (const frame of frames) {
+      if (!record(frame) || typeof frame['type'] !== 'string') continue
+      if (frame['type'] === 'baseline') {
+        const value = record(frame['value']) ? frame['value'] : {}
+        const queues = record(value['queues']) ? value['queues'] : {}
+        const jobs = record(value['jobs']) ? value['jobs'] : {}
+        const projections = record(value['projections']) ? value['projections'] : {}
+        const sessionIds = new Set([...Object.keys(queues), ...Object.keys(jobs), ...Object.keys(projections)])
+        const visible = new Set<string>()
+        for (const sessionId of sessionIds) {
+          if (await this.sessionOwnedBy(principal, sessionId)) visible.add(sessionId)
+        }
+        const project = (source: Record<string, unknown>): Record<string, unknown> => Object.fromEntries(
+          Object.entries(source).filter(([sessionId]) => visible.has(sessionId)),
+        )
+        yield {
+          ...frame,
+          value: { ...value, queues: project(queues), jobs: project(jobs), projections: project(projections) },
+        }
+        continue
+      }
+      const sessionId = frame['sessionId']
+      if (typeof sessionId === 'string' && await this.sessionOwnedBy(principal, sessionId)) yield frame
+    }
+  }
+
+  /** Decide whether one ordinary Session belongs to the authenticated user. */
+  async sessionOwnedBy(principal: EnterprisePrincipal, sessionId: string): Promise<boolean> {
+    return await this.repository.sessionOwnerUserId(sessionId) === principal.userId
   }
 
   /**
@@ -563,7 +632,8 @@ export class EnterpriseSecurity {
     return new Set(personal.slice(1).map(grant => grant.workspaceId))
   }
 
-  private async visibleArchivedSessionIds(
+  private async visibleSessionIds(
+    principal: EnterprisePrincipal,
     sessionIds: readonly unknown[],
     visibleWorkspaces: ReadonlyMap<string, EnterpriseWorkspaceGrant>,
   ): Promise<string[]> {
@@ -571,7 +641,10 @@ export class EnterpriseSecurity {
     for (const sessionId of sessionIds) {
       if (typeof sessionId !== 'string') continue
       const grant = await this.repository.sessionWorkspaceGrant(sessionId)
-      if (grant !== undefined && visibleWorkspaces.has(grant.workspaceId)) visible.push(sessionId)
+      if (grant !== undefined && visibleWorkspaces.has(grant.workspaceId)
+        && await this.sessionOwnedBy(principal, sessionId)) {
+        visible.push(sessionId)
+      }
     }
     return visible
   }
@@ -603,7 +676,9 @@ export class EnterpriseSecurity {
   ): Promise<void> {
     const decision = await this.authorizeApiAsync(principal, 'session.create', { workspaceId })
     if (!decision.allowed) throw new Error('enterprise session workspace binding is forbidden')
-    await this.repository.bindSessionWorkspace({ sessionId, workspaceId, orgId: principal.orgId })
+    await this.repository.bindSessionWorkspace({
+      sessionId, workspaceId, orgId: principal.orgId, ownerUserId: principal.userId,
+    })
   }
 
   /**

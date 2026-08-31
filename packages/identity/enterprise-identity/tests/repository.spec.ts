@@ -194,8 +194,11 @@ describe('EnterpriseIdentityRepository', () => {
     expect(repository.listWorkspaceGrants({ orgId: 'org-a', userId: 'user-1' }).map(item => item.workspaceId))
       .toEqual(['workspace-alice', 'workspace-ops'])
     expect(repository.listWorkspaceGrants({ orgId: 'org-a', userId: 'user-2' })).toEqual([])
-    repository.bindSessionWorkspace({ sessionId: 'session-1', workspaceId: 'workspace-alice', orgId: 'org-a' })
+    repository.bindSessionWorkspace({
+      sessionId: 'session-1', workspaceId: 'workspace-alice', orgId: 'org-a', ownerUserId: 'user-1',
+    })
     expect(repository.sessionWorkspaceGrant('session-1')).toMatchObject({ workspaceId: 'workspace-alice' })
+    expect(repository.sessionOwnerUserId('session-1')).toBe('user-1')
     expect(() => repository.saveWorkspaceGrant({
       workspaceId: 'bad', orgId: 'org-a', name: 'Bad', kind: 'personal', departmentId: 'dept-ops',
       rootPath: '/managed/bad', sandboxMode: 'workspace-write', expectedRevision: 0,

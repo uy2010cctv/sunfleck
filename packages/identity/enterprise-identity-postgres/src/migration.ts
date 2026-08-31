@@ -128,7 +128,7 @@ function readSnapshot(sqliteFilename: string): MigrationSnapshot {
       memories: rows(database, `SELECT id, org_id, scope_type, department_id, kind, status, summary, source_digest,
         privacy_findings, created_by, reviewed_by, review_reason, revision, created_at, updated_at
         FROM enterprise_memories ORDER BY id`),
-      sessionWorkspaces: rows(database, `SELECT session_id, workspace_id, org_id
+      sessionWorkspaces: rows(database, `SELECT session_id, workspace_id, org_id, owner_user_id
         FROM enterprise_session_workspaces ORDER BY session_id`),
     }
   } finally {
@@ -377,8 +377,9 @@ async function importSnapshot(target: PostgresDatabase, snapshot: MigrationSnaps
   }
   for (const row of snapshot.sessionWorkspaces) {
     await target.query(
-      'INSERT INTO enterprise_session_workspaces(session_id, workspace_id, org_id) VALUES ($1, $2, $3)',
-      [string(row, 'session_id'), string(row, 'workspace_id'), string(row, 'org_id')],
+      `INSERT INTO enterprise_session_workspaces(session_id, workspace_id, org_id, owner_user_id)
+        VALUES ($1, $2, $3, $4)`,
+      [string(row, 'session_id'), string(row, 'workspace_id'), string(row, 'org_id'), nullableString(row, 'owner_user_id')],
     )
   }
 }
@@ -416,7 +417,7 @@ async function readPostgresSnapshot(target: PostgresDatabase): Promise<Migration
     memories: await select(`SELECT id, org_id, scope_type, department_id, kind, status, summary, source_digest,
       privacy_findings, created_by, reviewed_by, review_reason, revision, created_at, updated_at
       FROM enterprise_memories ORDER BY id`),
-    sessionWorkspaces: await select(`SELECT session_id, workspace_id, org_id
+    sessionWorkspaces: await select(`SELECT session_id, workspace_id, org_id, owner_user_id
       FROM enterprise_session_workspaces ORDER BY session_id`),
   }
 }

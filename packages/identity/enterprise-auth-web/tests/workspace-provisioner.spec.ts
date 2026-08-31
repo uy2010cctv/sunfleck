@@ -136,7 +136,7 @@ describe('EnterpriseWorkspaceProvisioner', () => {
     expect(ensured).toEqual([{ id: grant.workspaceId, path: grant.rootPath, title: grant.name }])
   })
 
-  it('backfills enterprise bindings for Sessions already accounted by managed Workspaces', async () => {
+  it('does not guess an owner for legacy department Workspace Sessions', async () => {
     repository.saveDepartment({ id: 'dept-ops', orgId: 'org-a', name: '运营部', parentId: null, sortOrder: 0, expectedRevision: 0 })
     repository.saveWorkspaceGrant({
       workspaceId: 'workspace-ops', orgId: 'org-a', name: '运营部 · 共享工作区', kind: 'department',
@@ -151,6 +151,6 @@ describe('EnterpriseWorkspaceProvisioner', () => {
       }),
     }, 'org-a')
 
-    expect(repository.sessionWorkspaceGrant('session-existing')).toMatchObject({ workspaceId: 'workspace-ops' })
+    expect(repository.sessionWorkspaceGrant('session-existing')).toBeUndefined()
   })
 })
