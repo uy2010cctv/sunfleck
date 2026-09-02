@@ -30,7 +30,7 @@ import type {
 import css from './EnterpriseWorkbench.module.css'
 import {
   CHANNEL_BINDING_BROADCAST_CHANNEL, CHANNEL_BINDING_PROFILES,
-  channelBindingCallbackUri, officialChannelAuthorizationUrl,
+  channelBindingCallbackUri, officialChannelAuthorizationUrl, officialChannelBindingState,
 } from './channelBindingProfiles.ts'
 
 export interface EnterpriseWorkbenchInjected {
@@ -755,7 +755,7 @@ function ChannelsPage({ page, api, busy, onDirty, onClean, t }: {
   const attemptGeneration = useRef(0)
   const activeBinding = useRef<{
     generation: number
-    attemptId: string
+    attemptId: string | null
     channelId: string
     popup: Window
     broadcast: BroadcastChannel | null
@@ -772,7 +772,7 @@ function ChannelsPage({ page, api, busy, onDirty, onClean, t }: {
     const active = activeBinding.current
     if (active === null || typeof value !== 'object' || value === null) return
     const data = value as { type?: unknown; attemptId?: unknown; channelId?: unknown }
-    if (data.attemptId !== active.attemptId) return
+    if (active.attemptId === null || data.attemptId !== active.attemptId) return
     if (data.type === 'dsh-channel-binding-complete' && data.channelId === active.channelId) {
       releaseActive(active)
       setBinding(null)
@@ -896,7 +896,14 @@ function ChannelsPage({ page, api, busy, onDirty, onClean, t }: {
   }
   const beginBinding = async (channel: EnterpriseChannelConfiguration): Promise<void> => {
     const generation = ++attemptGeneration.current
-    const attemptId = randomUUID()
+    const localAttemptId = randomUUID()
+    if (typeof BroadcastChannel !== 'function') {
+      setBinding({
+        generation, attemptId: localAttemptId, channelId: channel.channelId,
+        phase: 'error', message: t('channel.binding.broadcastUnsupported'),
+      })
+      return
+    }
     const previous = activeBinding.current
     if (previous !== null) {
       releaseActive(previous)
@@ -905,45 +912,49 @@ function ChannelsPage({ page, api, busy, onDirty, onClean, t }: {
     const popup = window.open('', 'dsh-channel-binding', 'popup,width=560,height=720,resizable=yes,scrollbars=yes')
     if (popup === null) {
       setBinding({
-        generation, attemptId, channelId: channel.channelId,
+        generation, attemptId: localAttemptId, channelId: channel.channelId,
         phase: 'error', message: t('channel.binding.popupBlocked'),
       })
       return
     }
-    const broadcast = typeof BroadcastChannel === 'function'
-      ? new BroadcastChannel(CHANNEL_BINDING_BROADCAST_CHANNEL)
-      : null
-    const active = { generation, attemptId, channelId: channel.channelId, popup, broadcast }
-    activeBinding.current = active
-    if (broadcast !== null) {
-      broadcast.onmessage = (event) => { acceptBindingSignal(event.data) }
+    const broadcast = new BroadcastChannel(CHANNEL_BINDING_BROADCAST_CHANNEL)
+    const active: NonNullable<typeof activeBinding.current> = {
+      generation, attemptId: null, channelId: channel.channelId, popup, broadcast,
     }
-    setBinding({ generation, attemptId, channelId: channel.channelId, phase: 'opening' })
+    activeBinding.current = active
+    broadcast.onmessage = (event) => { acceptBindingSignal(event.data) }
+    setBinding({ generation, attemptId: localAttemptId, channelId: channel.channelId, phase: 'opening' })
     try {
       const session = await api.beginChannelBinding(
         channel,
-        channelBindingCallbackUri(window.location, attemptId),
+        channelBindingCallbackUri(window.location),
       )
       if (!isActiveAttempt(generation, popup)) return
       if (popup.closed) {
         releaseActive(active)
         setBinding({
-          generation, attemptId, channelId: channel.channelId,
+          generation, attemptId: localAttemptId, channelId: channel.channelId,
           phase: 'error', message: t('channel.binding.popupClosed'),
         })
         return
       }
       const authorization = officialChannelAuthorizationUrl(channel.provider, session.authorizationUrl)
       if (authorization === null) throw new Error('invalid provider authorization URL')
+      const signedState = officialChannelBindingState(authorization)
+      if (signedState === null) throw new Error('invalid provider authorization state')
+      active.attemptId = signedState
       popup.opener = null
       popup.location.href = authorization.href
-      setBinding({ generation, attemptId, channelId: channel.channelId, phase: 'waiting', expiresAt: session.expiresAt })
+      setBinding({
+        generation, attemptId: signedState, channelId: channel.channelId,
+        phase: 'waiting', expiresAt: session.expiresAt,
+      })
     } catch {
       if (!isActiveAttempt(generation, popup)) return
       popup.close()
       releaseActive(active)
       setBinding({
-        generation, attemptId, channelId: channel.channelId,
+        generation, attemptId: localAttemptId, channelId: channel.channelId,
         phase: 'error', message: t('channel.binding.beginFailed'),
       })
     }

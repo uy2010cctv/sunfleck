@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import { EnterpriseTrigger } from '../src/client/EnterpriseTrigger.tsx'
@@ -8,7 +8,9 @@ import {
 } from '../src/client/EnterpriseWorkbench.tsx'
 import { zh } from '../src/client/locales.ts'
 import type { EnterpriseView, EnterpriseWorkbenchState } from '../src/client/store.ts'
-import { officialChannelAuthorizationUrl } from '../src/client/channelBindingProfiles.ts'
+import {
+  officialChannelAuthorizationUrl, officialChannelBindingState,
+} from '../src/client/channelBindingProfiles.ts'
 import {
   CHANNEL_BINDING_BROADCAST_CHANNEL, completeChannelBindingCallback,
 } from '../src/client/index.ts'
@@ -32,6 +34,13 @@ class FakeBroadcastChannel {
   close(): void { this.closed = true }
   static reset(): void { FakeBroadcastChannel.channels.splice(0) }
 }
+
+const SIGNED_STATE_A = `${'a'.repeat(43)}.${'b'.repeat(43)}`
+const SIGNED_STATE_B = `${'c'.repeat(43)}.${'d'.repeat(43)}`
+
+beforeEach(() => {
+  vi.stubGlobal('BroadcastChannel', FakeBroadcastChannel)
+})
 
 afterEach(() => {
   cleanup()
@@ -327,13 +336,13 @@ describe('EnterpriseWorkbench', () => {
     expect(open).toHaveBeenCalledWith('', 'dsh-channel-binding', expect.any(String))
     expect(beginChannelBinding).toHaveBeenCalledWith(
       expect.objectContaining({ channelId: 'finance-wecom' }),
-      expect.stringMatching(/\?dsh_channel_binding=[0-9a-f-]{36}$/u),
+      expect.stringMatching(/\?dsh_channel_binding=1$/u),
     )
     expect(popup.location.href).toBe('about:blank')
-    resolveBinding({ authorizationUrl: 'https://login.work.weixin.qq.com/wwlogin/sso/login?state=official' })
-    await waitFor(() => { expect(popup.location.href).toBe('https://login.work.weixin.qq.com/wwlogin/sso/login?state=official') })
+    resolveBinding({ authorizationUrl: `https://login.work.weixin.qq.com/wwlogin/sso/login?state=${SIGNED_STATE_A}` })
+    await waitFor(() => { expect(popup.location.href).toContain(`state=${SIGNED_STATE_A}`) })
     expect(navigationOrder).toEqual([
-      'opener:null', 'href:https://login.work.weixin.qq.com/wwlogin/sso/login?state=official',
+      'opener:null', `href:https://login.work.weixin.qq.com/wwlogin/sso/login?state=${SIGNED_STATE_A}`,
     ])
   })
 
@@ -364,12 +373,36 @@ describe('EnterpriseWorkbench', () => {
     expect(screen.getByRole('alert').textContent).toContain('未能启动官方绑定')
   })
 
+  it('fails closed before popup or begin when BroadcastChannel is unavailable', () => {
+    vi.stubGlobal('BroadcastChannel', undefined)
+    const beginChannelBinding = vi.fn()
+    const open = vi.spyOn(window, 'open')
+    const channel = {
+      orgId: 'org-a', channelId: 'finance-wecom', name: '财务企业微信', provider: 'wecom', tenantId: 'corp', accountId: 'agent',
+      credentialRef: 'WECOM', credentialStatus: 'configured', inboundEnabled: true, allowedIntents: [], transportStatus: 'unverified',
+      state: 'active', bindingStatus: 'unbound', createdBy: 'admin', revision: 3, createdAt: 1, updatedAt: 1,
+    }
+    render(<EnterpriseWorkbench {...workbenchProps({ state: {
+      mode: 'enterprise', page: 'channels', channels: { phase: 'ready', error: null, items: [channel] } as never,
+    }, beginChannelBinding } as never)} />)
+
+    fireEvent.click(screen.getByRole('button', { name: '扫码绑定企业微信' }))
+
+    expect(open).not.toHaveBeenCalled()
+    expect(beginChannelBinding).not.toHaveBeenCalled()
+    expect(screen.getByRole('alert').textContent).toContain('当前浏览器不支持安全绑定')
+  })
+
   it('centralizes each exact official authorization host and path', () => {
     expect(officialChannelAuthorizationUrl('wecom', 'https://login.work.weixin.qq.com/wwlogin/sso/login?state=1')?.pathname).toBe('/wwlogin/sso/login')
     expect(officialChannelAuthorizationUrl('feishu', 'https://accounts.feishu.cn/open-apis/authen/v1/authorize?state=1')?.pathname).toBe('/open-apis/authen/v1/authorize')
     expect(officialChannelAuthorizationUrl('dingtalk', 'https://login.dingtalk.com/oauth2/auth?state=1')?.pathname).toBe('/oauth2/auth')
     expect(officialChannelAuthorizationUrl('wechat', 'https://open.weixin.qq.com/connect/qrconnect?state=1')?.pathname).toBe('/connect/qrconnect')
     expect(officialChannelAuthorizationUrl('wecom', 'https://user@login.work.weixin.qq.com/wwlogin/sso/login')).toBeNull()
+    const official = officialChannelAuthorizationUrl('wecom',
+      `https://login.work.weixin.qq.com/wwlogin/sso/login?state=${SIGNED_STATE_A}`)
+    expect(officialChannelBindingState(official as URL)).toBe(SIGNED_STATE_A)
+    expect(officialChannelBindingState(new URL('https://login.work.weixin.qq.com/wwlogin/sso/login?state=short'))).toBeNull()
   })
 
   it('fences out-of-order begin results and disables every bind action while one attempt is opening', async () => {
@@ -404,16 +437,16 @@ describe('EnterpriseWorkbench', () => {
     expect(popups[0]?.close).toHaveBeenCalledTimes(1)
 
     resolveSecond({
-      authorizationUrl: 'https://accounts.feishu.cn/open-apis/authen/v1/authorize?state=second',
+      authorizationUrl: `https://accounts.feishu.cn/open-apis/authen/v1/authorize?state=${SIGNED_STATE_B}`,
       expiresAt: Date.now() + 60_000,
     })
-    await waitFor(() => { expect(popups[1]?.location.href).toContain('state=second') })
+    await waitFor(() => { expect(popups[1]?.location.href).toContain(`state=${SIGNED_STATE_B}`) })
     resolveFirst({
-      authorizationUrl: 'https://accounts.feishu.cn/open-apis/authen/v1/authorize?state=first',
+      authorizationUrl: `https://accounts.feishu.cn/open-apis/authen/v1/authorize?state=${SIGNED_STATE_A}`,
       expiresAt: Date.now() + 60_000,
     })
     await act(async () => {})
-    expect(popups[1]?.location.href).toContain('state=second')
+    expect(popups[1]?.location.href).toContain(`state=${SIGNED_STATE_B}`)
     expect(popups[1]?.close).not.toHaveBeenCalled()
   })
 
@@ -424,7 +457,7 @@ describe('EnterpriseWorkbench', () => {
     const beginChannelBinding = vi.fn((_channel: unknown, redirect: string) => {
       redirectUri = redirect
       return Promise.resolve({
-        authorizationUrl: 'https://accounts.feishu.cn/open-apis/authen/v1/authorize?state=official',
+        authorizationUrl: `https://accounts.feishu.cn/open-apis/authen/v1/authorize?state=${SIGNED_STATE_A}`,
         expiresAt: Date.now() + 60_000,
       })
     })
@@ -440,8 +473,8 @@ describe('EnterpriseWorkbench', () => {
     }, beginChannelBinding, refreshChannels } as never)} />)
 
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: '扫码绑定飞书' })) })
-    const attemptId = new URL(redirectUri).searchParams.get('dsh_channel_binding') as string
-    expect(attemptId).toMatch(/^[0-9a-f-]{36}$/u)
+    expect(new URL(redirectUri).searchParams.get('dsh_channel_binding')).toBe('1')
+    const attemptId = SIGNED_STATE_A
     expect(popup.opener).toBeNull()
     const sender = new FakeBroadcastChannel(CHANNEL_BINDING_BROADCAST_CHANNEL)
     sender.postMessage({ type: 'dsh-channel-binding-complete', attemptId: 'wrong-attempt', channelId: 'finance-feishu' })
@@ -455,7 +488,7 @@ describe('EnterpriseWorkbench', () => {
     } }) } as never, {
       location: {
         origin: window.location.origin, pathname: window.location.pathname,
-        search: `?dsh_channel_binding=${attemptId}&code=provider-code&state=signed-state`,
+        search: `?dsh_channel_binding=1&code=provider-code&state=${SIGNED_STATE_A}`,
       },
       history: { replaceState: vi.fn() }, opener: null, close: callbackClose,
     })
@@ -471,7 +504,7 @@ describe('EnterpriseWorkbench', () => {
     const beginChannelBinding = vi.fn((_channel: unknown, redirect: string) => {
       redirectUri = redirect
       return Promise.resolve({
-        authorizationUrl: 'https://accounts.feishu.cn/open-apis/authen/v1/authorize?state=official',
+        authorizationUrl: `https://accounts.feishu.cn/open-apis/authen/v1/authorize?state=${SIGNED_STATE_A}`,
         expiresAt: Date.now() + 60_000,
       })
     })
@@ -486,12 +519,12 @@ describe('EnterpriseWorkbench', () => {
       mode: 'enterprise', page: 'channels', channels: { phase: 'ready', error: null, items: [channel] } as never,
     }, beginChannelBinding } as never)} />)
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: '扫码绑定飞书' })) })
-    const attemptId = new URL(redirectUri).searchParams.get('dsh_channel_binding') as string
+    expect(new URL(redirectUri).searchParams.get('dsh_channel_binding')).toBe('1')
 
     await completeChannelBindingCallback({ completeBinding: () => Promise.reject(new Error('failed')) }, {
       location: {
         origin: window.location.origin, pathname: window.location.pathname,
-        search: `?dsh_channel_binding=${attemptId}&code=provider-code&state=signed-state`,
+        search: `?dsh_channel_binding=1&code=provider-code&state=${SIGNED_STATE_A}`,
       },
       history: { replaceState: vi.fn() }, opener: null, close: vi.fn(),
     })
@@ -506,7 +539,7 @@ describe('EnterpriseWorkbench', () => {
     let resolveRefresh!: (value: boolean) => void
     const refreshChannels = vi.fn(() => new Promise<boolean>((resolve) => { resolveRefresh = resolve }))
     const beginChannelBinding = vi.fn(() => Promise.resolve({
-      authorizationUrl: 'https://accounts.feishu.cn/open-apis/authen/v1/authorize?state=official',
+      authorizationUrl: `https://accounts.feishu.cn/open-apis/authen/v1/authorize?state=${SIGNED_STATE_A}`,
       expiresAt: Date.now() + 60_000,
     }))
     const popup = { closed: false, close: vi.fn(), opener: window, location: { href: 'about:blank' } }
@@ -541,7 +574,7 @@ describe('EnterpriseWorkbench', () => {
     vi.useFakeTimers()
     const refreshChannels = vi.fn(() => Promise.resolve(true))
     const beginChannelBinding = vi.fn(() => Promise.resolve({
-      authorizationUrl: 'https://accounts.feishu.cn/open-apis/authen/v1/authorize?state=official',
+      authorizationUrl: `https://accounts.feishu.cn/open-apis/authen/v1/authorize?state=${SIGNED_STATE_A}`,
       expiresAt: Date.now() + 60_000,
     }))
     const popup = { closed: false, close: vi.fn(), opener: window, location: { href: 'about:blank' } }
@@ -591,7 +624,7 @@ describe('EnterpriseWorkbench', () => {
     const beginChannelBinding = vi.fn((_channel: unknown, redirect: string) => {
       redirects.push(redirect)
       return Promise.resolve({
-        authorizationUrl: 'https://login.work.weixin.qq.com/wwlogin/sso/login?state=official',
+        authorizationUrl: `https://login.work.weixin.qq.com/wwlogin/sso/login?state=${SIGNED_STATE_A}`,
         expiresAt: Date.now() + 60_000,
       })
     })
@@ -620,9 +653,9 @@ describe('EnterpriseWorkbench', () => {
     bindButton.focus()
     expect(document.activeElement).toBe(bindButton)
     fireEvent.click(bindButton)
-    await waitFor(() => { expect(popup.location.href).toBe('https://login.work.weixin.qq.com/wwlogin/sso/login?state=official') })
-    const attemptId = new URL(redirects[0] as string)
-      .searchParams.get('dsh_channel_binding') as string
+    await waitFor(() => { expect(popup.location.href).toContain(`state=${SIGNED_STATE_A}`) })
+    expect(new URL(redirects[0] as string).searchParams.get('dsh_channel_binding')).toBe('1')
+    const attemptId = SIGNED_STATE_A
     window.dispatchEvent(new MessageEvent('message', {
       origin: 'https://evil.example', source: popup as never,
       data: { type: 'dsh-channel-binding-complete', attemptId, channelId: 'finance-wecom' },
@@ -651,8 +684,8 @@ describe('EnterpriseWorkbench', () => {
 
     fireEvent.click(bindButton)
     await waitFor(() => { expect(screen.getByRole('status').textContent).toContain('已打开官方授权') })
-    const retryAttemptId = new URL(redirects[1] as string)
-      .searchParams.get('dsh_channel_binding') as string
+    expect(new URL(redirects[1] as string).searchParams.get('dsh_channel_binding')).toBe('1')
+    const retryAttemptId = SIGNED_STATE_A
     window.dispatchEvent(new MessageEvent('message', {
       origin: window.location.origin, source: {} as never,
       data: { type: 'dsh-channel-binding-failed', attemptId: retryAttemptId },
@@ -674,7 +707,7 @@ describe('EnterpriseWorkbench', () => {
     vi.useFakeTimers()
     const refreshChannels = vi.fn(() => Promise.resolve(true))
     const beginChannelBinding = vi.fn(() => Promise.resolve({
-      authorizationUrl: 'https://login.work.weixin.qq.com/wwlogin/sso/login?state=official', expiresAt: Date.now() + 100,
+      authorizationUrl: `https://login.work.weixin.qq.com/wwlogin/sso/login?state=${SIGNED_STATE_A}`, expiresAt: Date.now() + 100,
     }))
     const popup = { location: { href: 'about:blank' }, close: vi.fn(), closed: false }
     vi.spyOn(window, 'open').mockReturnValue(popup as never)
