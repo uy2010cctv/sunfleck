@@ -49,5 +49,6 @@ describe('enterprise workbench responsive shell', () => {
     const css = readFileSync(WORKBENCH, 'utf8')
     expect(css).toMatch(/@media\s*\(max-width:\s*39\.99rem\)[\s\S]*\.connectionPath\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)/su)
     expect(css).toMatch(/@media\s*\(max-width:\s*39\.99rem\)[\s\S]*\.channelActions\s*\{[^}]*flex-direction:\s*column/su)
+    expect(css.match(/@media\s*\(max-width:\s*39\.99rem\)[\s\S]*?\.channelActions\s*\{/gu)).toHaveLength(1)
   })
 })

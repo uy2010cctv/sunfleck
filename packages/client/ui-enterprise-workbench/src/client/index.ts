@@ -65,11 +65,13 @@ export async function completeChannelBindingCallback(
     return true
   }
   if (!boundedCallbackValue(code, CALLBACK_CODE_LIMIT) || !boundedCallbackValue(state, CALLBACK_STATE_LIMIT)) return fail()
+  const idempotencyKey = `channel-binding-complete:${state}`
+  browser.history.replaceState(null, '', canonicalPath)
   try {
     const response = await remote.completeBinding({
       code, state,
       redirectUri: channelBindingCallbackUri(browser.location),
-      idempotencyKey: `channel-binding-complete:${state}`,
+      idempotencyKey,
     })
     const wrapped = response as typeof response | { readonly result: typeof response }
     const result = 'result' in wrapped ? wrapped.result : wrapped
@@ -78,7 +80,6 @@ export async function completeChannelBindingCallback(
     browser.opener?.postMessage({
       type: 'dsh-channel-binding-complete', channelId: channel.channelId,
     }, browser.location.origin)
-    browser.history.replaceState(null, '', canonicalPath)
     browser.close()
     return true
   } catch {
