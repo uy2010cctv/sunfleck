@@ -106,6 +106,12 @@ describe('EnterpriseSecurity', () => {
     expect(classifyApiEndpoint('enterpriseChannel.save', { channelId: 'finance-wecom' })).toEqual({
       action: 'channel.manage', resourceType: 'channel', resourceId: 'finance-wecom',
     })
+    expect(classifyApiEndpoint('enterpriseChannel.beginBinding', { channelId: 'finance-wecom' })).toEqual({
+      action: 'channel.manage', resourceType: 'channel', resourceId: 'finance-wecom',
+    })
+    expect(classifyApiEndpoint('enterpriseChannel.completeBinding', { state: 'opaque' })).toEqual({
+      action: 'channel.manage', resourceType: 'channel',
+    })
     expect(classifyApiEndpoint('enterpriseOperation.approvals.get', { approvalId: 'approval-1' })).toEqual({ action: 'approval.read', resourceType: 'approval', resourceId: 'approval-1' })
     expect(classifyApiEndpoint('enterpriseOperation.schedules.transition', { scheduleId: 'schedule-1' })).toEqual({ action: 'schedule.manage', resourceType: 'schedule', resourceId: 'schedule-1' })
     expect(classifyApiEndpoint('enterpriseEmployee.unknown', {})).toBeUndefined()

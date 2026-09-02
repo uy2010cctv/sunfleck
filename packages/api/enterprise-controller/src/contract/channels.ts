@@ -20,6 +20,12 @@ export interface EnterpriseChannelConfiguration {
   readonly allowedIntents: readonly EnterpriseChannelIntent[]
   readonly transportStatus: 'unverified'
   readonly state: EnterpriseChannelState
+  readonly bindingStatus: 'unbound' | 'verified'
+  readonly boundProviderIdentityId?: string
+  readonly boundProviderIdentityName?: string
+  readonly verifiedTenantId?: string
+  readonly bindingVerifiedBy?: string
+  readonly bindingVerifiedAt?: number
   readonly createdBy: string
   readonly revision: number
   readonly createdAt: number
@@ -50,5 +56,30 @@ export interface EnterpriseChannelSaveRequest {
 export interface EnterpriseChannelArchiveRequest {
   readonly channelId: string
   readonly expectedRevision: number
+  readonly idempotencyKey: string
+}
+
+/** Process-bound, secret-free entry point for one official provider authorization. */
+export interface EnterpriseChannelBindingSession {
+  readonly bindingId: string
+  readonly channelId: string
+  readonly provider: EnterpriseChannelProvider
+  readonly authorizationUrl: string
+  readonly officialDocumentationUrl: string
+  readonly expiresAt: number
+}
+
+/** Revision-fenced request to begin an official provider authorization. */
+export interface EnterpriseChannelBeginBindingRequest {
+  readonly channelId: string
+  readonly expectedRevision: number
+  readonly redirectUri: string
+}
+
+/** One-time provider callback completion request. */
+export interface EnterpriseChannelCompleteBindingRequest {
+  readonly code: string
+  readonly state: string
+  readonly redirectUri: string
   readonly idempotencyKey: string
 }

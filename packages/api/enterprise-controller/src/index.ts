@@ -1,5 +1,5 @@
 /** Authenticated enterprise Typert Remote controllers. */
-import { randomUUID } from 'node:crypto'
+import { createHmac, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto'
 import { Context } from '@deepseek-ai/cordis'
 import { Remote, TypertRemoteFailure, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 import type { EnterprisePrincipal } from '@deepseek-ai/dsh-enterprise-governance'
@@ -7,7 +7,13 @@ import type {} from '@deepseek-ai/dsh-enterprise-auth-web'
 import type {} from '@deepseek-ai/dsh-enterprise-postgres'
 import type { EmployeePresetDefinition } from '@deepseek-ai/dsh-agent-presets'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
-import { channelIntentPolicy } from '@deepseek-ai/dsh-channel-kernel'
+import {
+  channelAuthorizationUrl,
+  channelBindingProfile,
+  channelIntentPolicy,
+  exchangeChannelAuthorizationCode,
+  type ChannelAuthorizationFetch,
+} from '@deepseek-ai/dsh-channel-kernel'
 import {
   BlockAssembler,
   createUserMessage,
@@ -113,6 +119,9 @@ import type {
 } from './contract/team-control.ts'
 import type {
   EnterpriseChannelArchiveRequest,
+  EnterpriseChannelBeginBindingRequest,
+  EnterpriseChannelBindingSession,
+  EnterpriseChannelCompleteBindingRequest,
   EnterpriseChannelConfiguration,
   EnterpriseChannelIntent,
   EnterpriseChannelListRequest,
@@ -496,12 +505,91 @@ export class EnterpriseAssetController extends TypertRemoteService {
 
 const CHANNEL_INTENTS = ['notify', 'handoff', 'team-start', 'decision-response', 'status'] as const
 
+const CHANNEL_BINDING_TTL_MS = 10 * 60_000
+const MAX_PENDING_CHANNEL_BINDINGS = 256
+const CHANNEL_BINDING_HMAC_KEY = randomBytes(32)
+
+interface PendingChannelBinding {
+  readonly bindingId: string
+  readonly orgId: string
+  readonly actorUserId: string
+  readonly channelId: string
+  readonly provider: StoredChannelConfiguration['provider']
+  readonly tenantId?: string
+  readonly accountId: string
+  readonly credentialRef: string
+  readonly expectedRevision: number
+  readonly redirectUri: string
+  readonly nonce: string
+  readonly expiresAt: number
+}
+
+/** Runtime seams for deterministic channel-binding tests and Host fetch injection. */
+export interface EnterpriseChannelControllerOptions {
+  readonly now?: () => number
+  readonly fetch?: ChannelAuthorizationFetch
+}
+
+function channelBindingSignature(nonce: string): string {
+  return createHmac('sha256', CHANNEL_BINDING_HMAC_KEY).update(nonce).digest('base64url')
+}
+
+function validChannelBindingState(state: string): boolean {
+  const separator = state.indexOf('.')
+  if (separator <= 0 || separator !== state.lastIndexOf('.')) return false
+  const nonce = state.slice(0, separator)
+  const supplied = Buffer.from(state.slice(separator + 1), 'base64url')
+  const expected = Buffer.from(channelBindingSignature(nonce), 'base64url')
+  return supplied.length === expected.length && timingSafeEqual(supplied, expected)
+}
+
+function canonicalRedirectFromAuthorizationUrl(authorizationUrl: string): string {
+  const redirectUri = new URL(authorizationUrl).searchParams.get('redirect_uri')
+  if (redirectUri === null) throw new Error('provider authorization URL omitted redirect URI')
+  return redirectUri
+}
+
+function bindingAuthorizationUrl(
+  value: Pick<StoredChannelConfiguration, 'provider' | 'tenantId' | 'accountId'>,
+  callbackUrl: string,
+  state: string,
+  channelId: string,
+): string {
+  try {
+    return channelAuthorizationUrl({
+      provider: value.provider, accountId: value.accountId, callbackUrl, state,
+      ...(value.tenantId === undefined ? {} : { tenantId: value.tenantId }),
+    })
+  } catch {
+    throw new EnterpriseOperationsError('invalid-state', 'channel', channelId)
+  }
+}
+
+function sameChannelIdentity(value: StoredChannelConfiguration, pending: PendingChannelBinding): boolean {
+  return value.channelId === pending.channelId
+    && value.provider === pending.provider
+    && value.tenantId === pending.tenantId
+    && value.accountId === pending.accountId
+    && value.credentialRef === pending.credentialRef
+}
+
 /** Enterprise channel-configuration Remote service. */
 export class EnterpriseChannelController extends TypertRemoteService {
   static inject = ['enterprisePostgres', 'enterpriseSecurity', 'enterpriseRequestContext', 'credentials']
 
-  /** @param ctx - authenticated enterprise Host context with the Credential seam. */
-  constructor(ctx: Context) { super(ctx, 'enterpriseChannelController', { namespace: 'enterpriseChannel' }) }
+  private readonly pendingBindings = new Map<string, PendingChannelBinding>()
+  private readonly now: () => number
+  private readonly fetch: ChannelAuthorizationFetch
+
+  /**
+   * @param ctx - authenticated enterprise Host context with the Credential seam.
+   * @param options - optional Host fetch and clock seams.
+   */
+  constructor(ctx: Context, options: EnterpriseChannelControllerOptions = {}) {
+    super(ctx, 'enterpriseChannelController', { namespace: 'enterpriseChannel' })
+    this.now = options.now ?? Date.now
+    this.fetch = options.fetch ?? globalThis.fetch
+  }
 
   /**
    * List channel configurations visible to the authenticated organization administrator.
@@ -562,6 +650,115 @@ export class EnterpriseChannelController extends TypertRemoteService {
   async archive(request: EnterpriseChannelArchiveRequest): Promise<EnterpriseChannelConfiguration> {
     return this.run('enterpriseChannel.archive', request.channelId, async () =>
       this.present(await operations(this.ctx).archiveChannelConfiguration(principal(this.ctx), request)))
+  }
+
+  /**
+   * Begin a ten-minute process-bound official provider authorization session.
+   * @param request - channel identity, exact revision, and registered callback URI.
+   * @returns signed secret-free authorization session metadata.
+   */
+  @Remote('beginBinding')
+  async beginBinding(request: EnterpriseChannelBeginBindingRequest): Promise<EnterpriseChannelBindingSession> {
+    return catalogCall(this.ctx, 'enterpriseChannel.beginBinding', request, 'channel', request.channelId, async (actor) => {
+      const value = await operations(this.ctx).getChannelConfiguration(actor, request)
+      if (value === undefined) throw new EnterpriseOperationsError('not-found', 'channel', request.channelId)
+      if (value.revision !== request.expectedRevision) {
+        throw new EnterpriseOperationsError('conflict', 'channel', request.channelId)
+      }
+      if (value.state === 'archived' || value.credentialRef === undefined) {
+        throw new EnterpriseOperationsError('invalid-state', 'channel', request.channelId)
+      }
+      if (!(await this.ctx.credentials.describe(credentialRef(value.credentialRef))).configured) {
+        throw new EnterpriseOperationsError('invalid-state', 'channel', request.channelId)
+      }
+      this.prunePendingBindings()
+      const nonce = randomBytes(32).toString('base64url')
+      const state = `${nonce}.${channelBindingSignature(nonce)}`
+      const authorizationUrl = bindingAuthorizationUrl(value, request.redirectUri, state, request.channelId)
+      const redirectUri = canonicalRedirectFromAuthorizationUrl(authorizationUrl)
+      const expiresAt = this.now() + CHANNEL_BINDING_TTL_MS
+      const pending: PendingChannelBinding = {
+        bindingId: state, orgId: actor.orgId, actorUserId: actor.userId, channelId: value.channelId,
+        provider: value.provider, accountId: value.accountId,
+        ...(value.tenantId === undefined ? {} : { tenantId: value.tenantId }),
+        credentialRef: value.credentialRef, expectedRevision: value.revision, redirectUri, nonce, expiresAt,
+      }
+      if (this.pendingBindings.size >= MAX_PENDING_CHANNEL_BINDINGS) {
+        const oldest = this.pendingBindings.keys().next().value
+        if (oldest !== undefined) this.pendingBindings.delete(oldest)
+      }
+      this.pendingBindings.set(state, pending)
+      return {
+        bindingId: pending.bindingId, channelId: pending.channelId, provider: pending.provider,
+        authorizationUrl, officialDocumentationUrl: channelBindingProfile(pending.provider).officialDocsUrl,
+        expiresAt,
+      }
+    })
+  }
+
+  /**
+   * Consume a pending callback, exchange its code, and persist secret-free identity evidence.
+   * @param request - provider callback values and write idempotency key.
+   * @returns the verified secret-free channel configuration.
+   */
+  @Remote('completeBinding')
+  async completeBinding(request: EnterpriseChannelCompleteBindingRequest): Promise<EnterpriseChannelConfiguration> {
+    return catalogCall(this.ctx, 'enterpriseChannel.completeBinding', {}, 'channel', 'binding', async (actor) => {
+      this.prunePendingBindings()
+      if (!validChannelBindingState(request.state)) {
+        throw new EnterpriseOperationsError('invalid-state', 'channel', 'binding')
+      }
+      const pending = this.pendingBindings.get(request.state)
+      if (pending === undefined || this.now() >= pending.expiresAt) {
+        if (pending !== undefined) this.pendingBindings.delete(request.state)
+        throw new EnterpriseOperationsError('invalid-state', 'channel', 'binding')
+      }
+      if (pending.orgId !== actor.orgId || pending.actorUserId !== actor.userId) {
+        throw new EnterpriseOperationsAuthorizationError(
+          'insufficient-role', 'enterpriseChannel.completeBinding' as never,
+        )
+      }
+      const callbackAuthorizationUrl = bindingAuthorizationUrl(
+        pending, request.redirectUri, request.state, pending.channelId,
+      )
+      if (canonicalRedirectFromAuthorizationUrl(callbackAuthorizationUrl) !== pending.redirectUri) {
+        throw new EnterpriseOperationsError('invalid-state', 'channel', pending.channelId)
+      }
+      const current = await operations(this.ctx).getChannelConfiguration(actor, { channelId: pending.channelId })
+      if (current === undefined) throw new EnterpriseOperationsError('not-found', 'channel', pending.channelId)
+      if (current.revision !== pending.expectedRevision) {
+        throw new EnterpriseOperationsError('conflict', 'channel', pending.channelId)
+      }
+      if (current.state === 'archived' || !sameChannelIdentity(current, pending)) {
+        throw new EnterpriseOperationsError('invalid-state', 'channel', pending.channelId)
+      }
+
+      this.pendingBindings.delete(request.state)
+      let appSecret: string | undefined
+      try {
+        appSecret = (await this.ctx.credentials.resolve(credentialRef(pending.credentialRef)))?.value
+        if (appSecret === undefined) throw new EnterpriseOperationsError('invalid-state', 'channel', pending.channelId)
+        const identity = await exchangeChannelAuthorizationCode({
+          provider: pending.provider, accountId: pending.accountId,
+          ...(pending.tenantId === undefined ? {} : { tenantId: pending.tenantId }),
+          appSecret, code: request.code, callbackUrl: pending.redirectUri,
+        }, this.fetch)
+        const verified = await operations(this.ctx).verifyChannelBinding(actor, {
+          channelId: pending.channelId, expectedRevision: pending.expectedRevision,
+          idempotencyKey: request.idempotencyKey, ...identity,
+        })
+        return await this.present(verified)
+      } finally {
+        appSecret = undefined
+      }
+    })
+  }
+
+  private prunePendingBindings(): void {
+    const now = this.now()
+    for (const [state, pending] of this.pendingBindings) {
+      if (now >= pending.expiresAt) this.pendingBindings.delete(state)
+    }
   }
 
   private async present(value: StoredChannelConfiguration): Promise<EnterpriseChannelConfiguration> {
