@@ -715,11 +715,12 @@ const CHANNEL_PROVIDER_INTENTS = {
   wechat: ['notify', 'handoff', 'status'],
 } as const
 
-function ChannelsPage({ page, api, busy, onDirty, t }: {
+function ChannelsPage({ page, api, busy, onDirty, onClean, t }: {
   page: EnterprisePageState<EnterpriseChannelConfiguration>
   api: EnterpriseWorkbenchInjected
   busy: boolean
   onDirty: () => void
+  onClean: () => void
   t: Translate
 }) {
   type FormState = {
@@ -761,7 +762,7 @@ function ChannelsPage({ page, api, busy, onDirty, t }: {
     <ManagementHeader id="channel-page-title" title={t('channel.title')} description={t('channel.description')} count={page.items.length} action={<button type="button" className={css.primaryButton} onClick={() => { setForm(emptyForm) }}><IconPlusOutline16 size={16}/>{t('channel.new')}</button>}/>
     <div className={css.channelPrinciple}><IconApiOutline14 size={16}/><div><strong>{t('channel.truthTitle')}</strong><span>{t('channel.truthBody')}</span></div></div>
     {form !== null && <form className={css.channelForm} onSubmit={(event) => { event.preventDefault(); void save('draft') }}>
-      <header><div><h3>{form.expectedRevision === 0 ? t('channel.createTitle') : t('channel.editTitle')}</h3><p>{t('channel.formHelp')}</p></div><button type="button" className={css.secondaryButton} onClick={() => { setForm(null) }}>{t('cancel')}</button></header>
+      <header><div><h3>{form.expectedRevision === 0 ? t('channel.createTitle') : t('channel.editTitle')}</h3><p>{t('channel.formHelp')}</p></div><button type="button" className={css.secondaryButton} onClick={() => { setForm(null); onClean() }}>{t('cancel')}</button></header>
       <div className={css.formGrid}>
         <label>{t('channel.name')}<input required value={form.name} onChange={(event) => { patch({ name: event.target.value }) }}/></label>
         <label>{t('channel.id')}<input required pattern="[a-z0-9][a-z0-9-]*" disabled={form.expectedRevision > 0} value={form.channelId} onChange={(event) => { patch({ channelId: event.target.value }) }}/></label>
@@ -998,7 +999,7 @@ export function EnterpriseWorkbench(props: EnterpriseWorkbenchProps) {
             <TeamsPage embedded page={state.teams} releases={state.releases} api={api} busy={mutationBusy} onDirty={() => { setLocalFormDirty(true) }} t={props.t} />
           </LegacyTeamsDisclosure>
         </>}
-        {page === 'channels' && <ChannelsPage page={channels} api={api} busy={mutationBusy} onDirty={() => { setLocalFormDirty(true) }} t={props.t}/>}
+        {page === 'channels' && <ChannelsPage page={channels} api={api} busy={mutationBusy} onDirty={() => { setLocalFormDirty(true) }} onClean={() => { setLocalFormDirty(false) }} t={props.t}/>}
         {page === 'extensions' && <ExtensionsPage state={state} workspaces={workspaces} api={api} busy={mutationBusy} t={props.t} />}
       </main>
     </div>}
