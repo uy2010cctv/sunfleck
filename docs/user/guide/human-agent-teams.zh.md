@@ -34,7 +34,7 @@ Doer 完成与 Verifier 决策将保持为不同运行时 event。证据将区�
 
 runtime 决策请求携带问题、选项、建议、assignee、context digest、revision 与根 Session event 位置。打开**待我处理**可以回答分配给你的决策；每次回答都会根据所属根 Session 重新验证，之后才更新 PostgreSQL 投影。
 
-人工接管将是同一 TeamRun 内记录在案的 Human 或 Agent actor 转换。个人微信可以通知 Human 并链接到经认证的 DSH，但不能结算决策或修改 Team 状态。
+人工接管将是同一 TeamRun 内记录在案的 Human 或 Agent actor 转换。个人微信可以绑定进入经认证 DSH 接管所使用的身份，但网站应用授权不提供官方个人聊天消息 API，也不能结算决策或修改 Team 状态。
 
 ### 5. 复盘与授权演进
 
@@ -55,7 +55,22 @@ runtime 决策请求携带问题、选项、建议、assignee、context digest�
 
 在企业工作台打开**渠道设置**，可以创建、编辑、启用、暂停或归档企业微信、飞书、钉钉和个人微信配置。每条记录包含提供方/账号身份、可选租户、Host 管理的 Credential 引用、默认数字员工 Release 路由、入站策略、生命周期状态与 revision。本页不会要求或显示密钥值。
 
-个人微信始终仅出站。企业渠道可以启用入站命令，但仍须经过身份绑定和 DSH 授权才能接受具体意图。配置已保存或已启用不代表投递成功：提供方适配器记录回执或健康证据前，传输状态保持**待验证**。
+对满足前置条件的已保存渠道，**扫描官方二维码**会打开由提供方托管的 OAuth/二维码页面，而不是在 DSH 中渲染或代理提供方二维码。DSH 签发有效期 10 分钟的 state，绑定单个 Host 进程、组织、actor、渠道、提供方、准确 revision、固定回调 URI、nonce 与过期时间。Host 通过 Credential 引用解析 App Secret，交换一次性 code，只保存已验证的提供方身份、显示名称、租户证据、验证 actor 和时间。access token、refresh token、授权 code、提供方原始载荷和 App Secret 均不会持久化或显示。用户拒绝、过期或 Host 重启后都需要重新扫码。
+
+扫码前需在对应提供方完成应用配置：
+
+- [企业微信 Web 登录](https://developer.work.weixin.qq.com/document/path/98152)及其[身份 API](https://developer.work.weixin.qq.com/document/path/96442)需要 CorpID、AgentID 和 OAuth 可信回调域名。
+- [飞书扫码 SDK/OAuth](https://open.feishu.cn/document/common-capabilities/sso/web-application-sso/qr-sdk-documentation)及其[用户 token 交换](https://open.feishu.cn/document/authentication-management/access-token/get-user-access-token)需要 App ID、App Secret 和已登记的重定向 URL。
+- [钉钉官方登录 OAuth](https://open.dingtalk.com/document/isvapp/tutorial-enabling-login-to-third-party-websites.md)及其[用户 token 交换](https://open.dingtalk.com/document/isvapp/obtain-user-token.md)需要 Client ID、Client Secret 和钉钉「登录与分享」回调。
+- [个人微信网站应用扫码登录](https://developers.weixin.qq.com/doc/oplatform/developers/dev/auth/web.html)需要已审核的网站应用、AppID、AppSecret、`snsapi_login` 和已登记的授权作用域。
+
+生产环境必须使用一个固定、公网可访问、已登记的 HTTPS 回调。localhost HTTP 仅用于开发，提供方控制台可能不接受。
+
+扫码成功只证明身份绑定和经认证的接管。企业渠道后续可以启用入站命令，但每个意图仍需通过 DSH 授权。个人微信网站应用授权不提供官方个人聊天消息 API，也不会把个人微信变成投递渠道。配置已保存、已启用或身份已验证都不代表投递成功：提供方适配器记录回执或健康证据前，传输状态保持**待验证**。
+
+渠道体验在只把本地 AGPL-3.0 StaffDeck checkout 作为产品先例评审后独立设计。DSH 采纳了异常优先的配置提醒、分离的生命周期/配置/身份/路由/传输证据、提供方定制说明、扫码过期/重试以及中性的「待验证」状态等产品思路；没有复制 StaffDeck 的源码、样式、资产、协议实现或文案。StaffDeck 的个人微信 iLink 属于非公开/实验性传输，不在本官方二维码绑定范围内。
+
+工作台不会伪造真实会话/投递日志、管理员角色、独立身份绑定码或传输健康。这些能力必须来自 DSH 适配器与持久 inbox/outbox 证据、受治理的身份/角色、提供方回执、心跳或对账记录。
 
 当前 Channel Kernel 路由决策仍为 `stickyEmployeeId` → 推断意图 → binding 默认值。Kernel 和适配器不持久化权威 selection；未来企业组合必须从 DSH 拥有的 binding 或 Session 投影推导 `stickyEmployeeId`。该集成属于迁移目标，不是当前能力。
 

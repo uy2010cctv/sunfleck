@@ -34,7 +34,7 @@ A Doer completion and a Verifier decision would remain separate runtime events. 
 
 Runtime decision requests carry their question, options, recommendation, assignee, context digest, revision, and root Session event position. Open **Needs my attention** to answer assigned decisions; every response is revalidated against the owning root Session before its PostgreSQL projection changes.
 
-A handoff would be a recorded Human or Agent actor transition inside the same TeamRun. Personal WeChat could notify a Human and link to authenticated DSH, but it could not settle the decision or mutate Team state.
+A handoff would be a recorded Human or Agent actor transition inside the same TeamRun. Personal Weixin may bind the identity used to enter an authenticated DSH handoff, but website-app authorization has no official personal-chat messaging API and cannot settle a decision or mutate Team state.
 
 ### 5. Review and grant evolution
 
@@ -55,7 +55,22 @@ The model uses four trust levels, each constrained by Agent, task type, and capa
 
 Open **Channels** in the enterprise workbench to create, edit, activate, pause, or archive Enterprise WeChat, Feishu, DingTalk, and personal WeChat configurations. Each record stores provider/account identity, an optional tenant, a Host-managed Credential reference, a default employee Release route, inbound policy, lifecycle state, and revision. The page never asks for or displays the secret value.
 
-Personal WeChat is always outbound-only. Enterprise providers may enable inbound commands, but identity binding and DSH authorization still decide whether an individual intent is accepted. Saved or active configuration does not prove delivery: transport remains **unverified** until provider adapters record receipts or health evidence.
+For an eligible saved channel, **Scan official QR code** opens the provider-hosted OAuth/QR page rather than rendering or proxying a provider QR inside DSH. DSH signs a 10-minute state tied to one Host process, the organization, actor, channel, provider, exact revision, fixed callback URI, nonce, and expiry. The Host resolves the App Secret from the Credential reference, exchanges the one-time code, and stores only the verified provider identity, display name, tenant evidence, verifying actor, and time. It never persists or shows an access token, refresh token, authorization code, raw provider payload, or App Secret. Rejection, expiry, or a Host restart requires a new scan.
+
+Configure the corresponding provider application before scanning:
+
+- [WeCom Web login](https://developer.work.weixin.qq.com/document/path/98152) and its [identity API](https://developer.work.weixin.qq.com/document/path/96442) require CorpID, AgentID, and an OAuth trusted callback domain.
+- [Feishu QR SDK/OAuth](https://open.feishu.cn/document/common-capabilities/sso/web-application-sso/qr-sdk-documentation) and its [user-token exchange](https://open.feishu.cn/document/authentication-management/access-token/get-user-access-token) require App ID, App Secret, and a registered redirect URL.
+- [DingTalk official login OAuth](https://open.dingtalk.com/document/isvapp/tutorial-enabling-login-to-third-party-websites.md) and its [user-token exchange](https://open.dingtalk.com/document/isvapp/obtain-user-token.md) require Client ID, Client Secret, and a DingTalk Login & Share callback.
+- [Personal Weixin website-app QR login](https://developers.weixin.qq.com/doc/oplatform/developers/dev/auth/web.html) requires an approved Website App, AppID, AppSecret, `snsapi_login`, and a registered authorization domain.
+
+Use one fixed public, registered HTTPS callback in production. A localhost HTTP callback is supported only for development and may not be accepted by provider consoles.
+
+Successful QR completion verifies only identity binding and authenticated handoff. Enterprise providers may later enable inbound commands, but DSH authorization must still accept each intent. Personal Weixin website-app authorization provides no official personal-chat messaging API and does not turn personal WeChat into a delivery channel. Saved, active, or identity-verified configuration does not prove delivery: transport remains **unverified** until provider adapters record receipts or health evidence.
+
+The channel experience was designed independently after reviewing the local AGPL-3.0 StaffDeck checkout as product prior art. DSH adopted the product ideas of exception-first setup attention, separate lifecycle/configuration/identity/route/transport evidence, provider-specific guidance, QR expiry/retry, and neutral unverified status; it copied no StaffDeck source, styles, assets, protocol, or prose. StaffDeck's personal-WeChat iLink is a non-public/experimental transport and remains outside this official QR-binding scope.
+
+The workbench does not fabricate real conversation or delivery logs, manager roles, separate identity bind codes, or transport health. Those require DSH adapter and durable inbox/outbox evidence, governed identities and roles, provider receipts, heartbeat, or reconciliation records.
 
 The current Channel Kernel routing decision remains `stickyEmployeeId` → inferred intent → binding default. The Kernel and adapter do not persist an authoritative selection; future enterprise composition must derive `stickyEmployeeId` from a DSH-owned binding or Session projection. That integration is a migration target, not a current capability.
 
