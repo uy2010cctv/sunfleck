@@ -715,7 +715,7 @@ function TeamAttentionPage({ page, runs, definitions, api, busy, t }: { page: En
 
 const CHANNEL_PROVIDERS = ['wecom', 'feishu', 'dingtalk', 'wechat'] as const
 const CHANNEL_BINDING_RECONCILE_MS = 1_500
-type ChannelRecoveryTarget = 'configuration' | 'binding' | 'transport'
+type ChannelRecoveryTarget = 'configuration' | 'binding'
 const CHANNEL_PROVIDER_INTENTS = {
   wecom: ['notify', 'handoff', 'team-start', 'decision-response', 'status'],
   feishu: ['notify', 'handoff', 'team-start', 'decision-response', 'status'],
@@ -979,11 +979,9 @@ function ChannelsPage({ page, api, busy, onDirty, onClean, t }: {
     }
     const missing = missingPrerequisites(channel)
     if (missing.length > 0) return [{ channel, reason: missing.join(' · '), target: 'configuration' }]
+    if (bindingBusy) return []
     if (channel.state === 'active' && channel.bindingStatus !== 'verified') {
       return [{ channel, reason: t('channel.attention.unbound'), target: 'binding' }]
-    }
-    if (channel.state === 'active') {
-      return [{ channel, reason: t('channel.attention.transport'), target: 'transport' }]
     }
     return []
   })
@@ -994,8 +992,7 @@ function ChannelsPage({ page, api, busy, onDirty, onClean, t }: {
     action?.focus()
   }
   const derivedStatusKeys = (channel: EnterpriseChannelConfiguration): EnterpriseWorkbenchKey[] => {
-    if (channel.state === 'archived') return ['channel.status.archived']
-    if (channel.state === 'paused') return ['channel.status.paused']
+    if (channel.state === 'archived' || channel.state === 'paused') return []
     if (missingPrerequisites(channel).length > 0) return ['channel.status.pendingConfiguration']
     const statuses: EnterpriseWorkbenchKey[] = [channel.bindingStatus === 'verified'
       ? 'channel.status.identityVerified' : 'channel.status.readyToScan']
@@ -1023,7 +1020,7 @@ function ChannelsPage({ page, api, busy, onDirty, onClean, t }: {
       <div className={css.channelFormActions}><button type="submit" className={css.secondaryButton} disabled={busy}>{t('channel.saveDraft')}</button><button type="button" className={css.primaryButton} disabled={busy || form.credentialRef.trim() === '' || (form.provider !== 'wechat' && form.tenantId.trim() === '')} onClick={() => { void save('active') }}>{t('channel.activate')}</button></div>
     </form>}
     {attention.length > 0 && <section className={css.channelAttention} aria-label={t('channel.attentionAria')}>
-      {attention.map(item => <button type="button" key={item.channel.channelId} aria-label={t('channel.attention.open', { name: item.channel.name, reason: item.reason })} onClick={() => { focusRecoveryAction(item.channel.channelId, item.target) }} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); focusRecoveryAction(item.channel.channelId, item.target) } }}>
+      {attention.map(item => <button type="button" key={item.channel.channelId} aria-label={t('channel.attention.open', { name: item.channel.name, reason: item.reason })} onClick={() => { focusRecoveryAction(item.channel.channelId, item.target) }} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); focusRecoveryAction(item.channel.channelId, item.target) } else if (event.key === ' ') event.preventDefault() }} onKeyUp={(event) => { if (event.key === ' ') { event.preventDefault(); focusRecoveryAction(item.channel.channelId, item.target) } }}>
         <IconWarningOutline16 size={16}/><strong>{item.channel.name}</strong><span>{item.reason}</span>
       </button>)}
     </section>}
@@ -1042,7 +1039,7 @@ function ChannelsPage({ page, api, busy, onDirty, onClean, t }: {
             <a href={profile.officialDocsUrl} target="_blank" rel="noopener noreferrer">{t('channel.binding.docs')}</a>
             {profile.identityOnly && <strong>{t('channel.binding.wechatBoundary')}</strong>}
           </div>
-          <div className={css.channelTransportGuide} id={`channel-transport-${channel.channelId}`}><strong>{t('channel.transport.separate')}</strong><p>{t(`channel.transport.guidance.${channel.provider}`)}</p><a href={`#channel-transport-${channel.channelId}`} data-recovery-target="transport" ref={(node) => { setRecoveryAction(channel.channelId, 'transport', node) }}>{t('channel.transport.requirements')}</a></div>
+          <div className={css.channelTransportGuide}><strong>{t('channel.transport.separate')}</strong><p>{t(`channel.transport.guidance.${channel.provider}`)}</p></div>
           {channelBinding !== null && <div className={css.channelBindingBanner} role={channelBinding.phase === 'error' || channelBinding.phase === 'expired' ? 'alert' : 'status'} data-phase={channelBinding.phase}>
             <span>{channelBinding.message ?? t(`channel.binding.phase.${channelBinding.phase}`)}</span>
             {recoverableBinding && <button type="button" className={css.textButton} data-recovery-target="binding" ref={(node) => { setRecoveryAction(channel.channelId, 'binding', node) }} disabled={!eligible || bindingBusy} onClick={() => { if (eligible && !bindingBusy) void beginBinding(channel) }}>{t('channel.binding.retry')}</button>}

@@ -872,8 +872,6 @@
 .channelTransportGuide { min-inline-size: 0; display: grid; grid-template-columns: minmax(9rem, auto) minmax(0, 1fr); align-items: baseline; gap: var(--dse-space-xs); padding: var(--dse-space-xs); border-radius: var(--dse-radius-control); background: var(--dse-color-surface); }
 .channelTransportGuide strong { color: var(--dse-color-ink); font-size: 0.6875rem; }
 .channelTransportGuide p { margin: 0; color: var(--dse-color-muted); font-size: 0.75rem; line-height: 1.5; overflow-wrap: anywhere; }
-.channelTransportGuide a { grid-column: 2; justify-self: start; color: var(--dse-color-accent); font-size: 0.6875rem; font-weight: 650; text-underline-offset: 3px; }
-.channelTransportGuide a:focus-visible { outline: 2px solid var(--dse-color-focus); outline-offset: 2px; }
 .channelBindingBanner { display: flex; align-items: center; justify-content: space-between; gap: var(--dse-space-xs); padding: var(--dse-space-xs); border-radius: var(--dse-radius-control); background: var(--dse-color-accent-soft); color: var(--dse-color-ink); font-size: 0.75rem; }
 .channelBindingBanner[data-phase='error'], .channelBindingBanner[data-phase='expired'] { background: color-mix(in srgb, var(--dse-color-error) 10%, var(--dse-color-surface)); }
 .textButton { padding: 0; border: 0; background: transparent; cursor: pointer; }
@@ -986,7 +984,6 @@
   .channelIdentity { align-items: start; }
   .channelStatuses { grid-column: 1 / -1; justify-content: flex-start; }
   .channelTransportGuide { grid-template-columns: minmax(0, 1fr); }
-  .channelTransportGuide a { grid-column: 1; }
   .connectionPath { grid-template-columns: minmax(0, 1fr); gap: var(--dse-space-3xs); }
   .connectionPath > i { inline-size: 1px; block-size: var(--dse-space-xs); margin-inline-start: var(--dse-space-md); }
   .connectionPath > i::after { margin-block-start: auto; margin-inline-start: -2px; transform: translateY(1px) rotate(135deg); }
