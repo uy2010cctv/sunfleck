@@ -715,6 +715,7 @@ function TeamAttentionPage({ page, runs, definitions, api, busy, t }: { page: En
 
 const CHANNEL_PROVIDERS = ['wecom', 'feishu', 'dingtalk', 'wechat'] as const
 const CHANNEL_BINDING_RECONCILE_MS = 1_500
+type ChannelRecoveryTarget = 'configuration' | 'binding' | 'transport'
 const CHANNEL_PROVIDER_INTENTS = {
   wecom: ['notify', 'handoff', 'team-start', 'decision-response', 'status'],
   feishu: ['notify', 'handoff', 'team-start', 'decision-response', 'status'],
@@ -753,7 +754,7 @@ function ChannelsPage({ page, api, busy, onDirty, onClean, t }: {
     refreshComplete?: boolean
   } | null>(null)
   const attemptGeneration = useRef(0)
-  const bindingActionRefs = useRef(new Map<string, HTMLButtonElement>())
+  const recoveryActionRefs = useRef(new Map<string, HTMLElement>())
   const activeBinding = useRef<{
     generation: number
     attemptId: string | null
@@ -963,25 +964,31 @@ function ChannelsPage({ page, api, busy, onDirty, onClean, t }: {
     }
   }
   const bindingBusy = binding?.phase === 'opening' || binding?.phase === 'waiting' || binding?.phase === 'checking'
-  const attention = page.items.flatMap((channel) => {
+  const recoveryKey = (channelId: string, target: ChannelRecoveryTarget): string => `${channelId}:${target}`
+  const setRecoveryAction = (channelId: string, target: ChannelRecoveryTarget, action: HTMLElement | null): void => {
+    const key = recoveryKey(channelId, target)
+    if (action === null) recoveryActionRefs.current.delete(key)
+    else recoveryActionRefs.current.set(key, action)
+  }
+  const attention = page.items.flatMap<{ channel: EnterpriseChannelConfiguration; reason: string; target: ChannelRecoveryTarget }>((channel) => {
     if (channel.state === 'archived') return []
     const channelBinding = binding?.channelId === channel.channelId ? binding : null
     if (channelBinding?.phase === 'error' || channelBinding?.phase === 'expired') {
       const detail = channelBinding.message ?? t(`channel.binding.phase.${channelBinding.phase}`)
-      return [{ channel, reason: t('channel.attention.binding', { reason: detail }) }]
+      return [{ channel, reason: t('channel.attention.binding', { reason: detail }), target: 'binding' }]
     }
     const missing = missingPrerequisites(channel)
-    if (missing.length > 0) return [{ channel, reason: missing.join(' · ') }]
+    if (missing.length > 0) return [{ channel, reason: missing.join(' · '), target: 'configuration' }]
     if (channel.state === 'active' && channel.bindingStatus !== 'verified') {
-      return [{ channel, reason: t('channel.attention.unbound') }]
+      return [{ channel, reason: t('channel.attention.unbound'), target: 'binding' }]
     }
     if (channel.state === 'active') {
-      return [{ channel, reason: t('channel.attention.transport') }]
+      return [{ channel, reason: t('channel.attention.transport'), target: 'transport' }]
     }
     return []
   })
-  const focusBindingAction = (channelId: string): void => {
-    const action = bindingActionRefs.current.get(channelId)
+  const focusRecoveryAction = (channelId: string, target: ChannelRecoveryTarget): void => {
+    const action = recoveryActionRefs.current.get(recoveryKey(channelId, target))
     const row = action?.closest('article')
     if (typeof row?.scrollIntoView === 'function') row.scrollIntoView({ block: 'center' })
     action?.focus()
@@ -1016,7 +1023,7 @@ function ChannelsPage({ page, api, busy, onDirty, onClean, t }: {
       <div className={css.channelFormActions}><button type="submit" className={css.secondaryButton} disabled={busy}>{t('channel.saveDraft')}</button><button type="button" className={css.primaryButton} disabled={busy || form.credentialRef.trim() === '' || (form.provider !== 'wechat' && form.tenantId.trim() === '')} onClick={() => { void save('active') }}>{t('channel.activate')}</button></div>
     </form>}
     {attention.length > 0 && <section className={css.channelAttention} aria-label={t('channel.attentionAria')}>
-      {attention.map(item => <button type="button" key={item.channel.channelId} aria-label={t('channel.attention.open', { name: item.channel.name, reason: item.reason })} onClick={() => { focusBindingAction(item.channel.channelId) }}>
+      {attention.map(item => <button type="button" key={item.channel.channelId} aria-label={t('channel.attention.open', { name: item.channel.name, reason: item.reason })} onClick={() => { focusRecoveryAction(item.channel.channelId, item.target) }}>
         <IconWarningOutline16 size={16}/><strong>{item.channel.name}</strong><span>{item.reason}</span>
       </button>)}
     </section>}
@@ -1035,10 +1042,10 @@ function ChannelsPage({ page, api, busy, onDirty, onClean, t }: {
             <a href={profile.officialDocsUrl} target="_blank" rel="noopener noreferrer">{t('channel.binding.docs')}</a>
             {profile.identityOnly && <strong>{t('channel.binding.wechatBoundary')}</strong>}
           </div>
-          <div className={css.channelTransportGuide}><strong>{t('channel.transport.separate')}</strong><p>{t(`channel.transport.guidance.${channel.provider}`)}</p></div>
+          <div className={css.channelTransportGuide} id={`channel-transport-${channel.channelId}`}><strong>{t('channel.transport.separate')}</strong><p>{t(`channel.transport.guidance.${channel.provider}`)}</p><a href={`#channel-transport-${channel.channelId}`} data-recovery-target="transport" ref={(node) => { setRecoveryAction(channel.channelId, 'transport', node) }}>{t('channel.transport.requirements')}</a></div>
           {channelBinding !== null && <div className={css.channelBindingBanner} role={channelBinding.phase === 'error' || channelBinding.phase === 'expired' ? 'alert' : 'status'} data-phase={channelBinding.phase}>
             <span>{channelBinding.message ?? t(`channel.binding.phase.${channelBinding.phase}`)}</span>
-            {recoverableBinding && <button type="button" className={css.textButton} ref={(node) => { if (node === null) bindingActionRefs.current.delete(channel.channelId); else bindingActionRefs.current.set(channel.channelId, node) }} disabled={channel.state === 'archived' || bindingBusy} aria-disabled={!eligible || bindingBusy} onClick={() => { if (eligible && !bindingBusy) void beginBinding(channel) }}>{t('channel.binding.retry')}</button>}
+            {recoverableBinding && <button type="button" className={css.textButton} data-recovery-target="binding" ref={(node) => { setRecoveryAction(channel.channelId, 'binding', node) }} disabled={!eligible || bindingBusy} onClick={() => { if (eligible && !bindingBusy) void beginBinding(channel) }}>{t('channel.binding.retry')}</button>}
           </div>}
           <div className={css.connectionPath} role="group" aria-label={t('channel.factsAria', { name: channel.name })}>
             <span><small>{t('channel.truth.configuration')}</small><strong data-status={configurationReady ? 'configured' : 'missing'}>{configurationReady ? t('channel.binding.ready') : t('channel.binding.missing')}</strong><em className={css.channelPrerequisiteDetail}>{prerequisiteDetail(channel)}</em></span><i aria-hidden="true"/><span><small>{t('channel.truth.identity')}</small><strong data-status={channel.bindingStatus === 'verified' ? 'configured' : 'missing'}>{channel.bindingStatus === 'verified' ? t('channel.binding.verified') : t('channel.binding.unbound')}</strong><em className={css.channelPrerequisiteDetail}>{channelBinding === null ? t(profile.qrKey) : channelBinding.message ?? t(`channel.binding.phase.${channelBinding.phase}`)}</em></span><i aria-hidden="true"/><span><small>{t('channel.truth.route')}</small><strong>{channel.defaultEmployeeReleaseId ?? t('channel.routeWorkbench')}</strong></span><i aria-hidden="true"/><span><small>{t('channel.truth.transport')}</small><strong>{t('channel.transportUnverified')}</strong><em className={css.channelPrerequisiteDetail}>{t('channel.transportUnverifiedDetail')}</em></span>
@@ -1050,7 +1057,7 @@ function ChannelsPage({ page, api, busy, onDirty, onClean, t }: {
             <span>{t('channel.binding.actorEvidence', { actor: channel.bindingVerifiedBy ?? t('channel.binding.notRecorded'), time: channel.bindingVerifiedAt === undefined ? t('channel.binding.notRecorded') : formatDate(channel.bindingVerifiedAt) })}</span>
           </div>}
           <div className={css.channelIntentRow}><span>{t('channel.allowedIntents')}</span><div>{channel.allowedIntents.map(intent => <span key={intent}>{t(`channel.intent.${intent}`)}</span>)}</div>{!channel.inboundEnabled && <em>{t('channel.outboundOnly')}</em>}</div>
-          <div className={css.channelActions}><span>{t('channel.revision', { revision: channel.revision })}</span><button type="button" className={css.primaryButton} ref={recoverableBinding ? undefined : (node) => { if (node === null) bindingActionRefs.current.delete(channel.channelId); else bindingActionRefs.current.set(channel.channelId, node) }} disabled={channel.state === 'archived' || bindingBusy} aria-disabled={!eligible || bindingBusy} onClick={() => { if (eligible && !bindingBusy) void beginBinding(channel) }}>{channel.bindingStatus === 'verified' ? t('channel.binding.rebind') : t(profile.actionKey)}</button><button type="button" className={css.secondaryButton} disabled={channel.state === 'archived'} onClick={() => { edit(channel) }}><IconEditOutline16 size={16}/>{t('channel.edit')}</button>{channel.state === 'active' && <button type="button" className={css.secondaryButton} aria-label={t('channel.pauseAria', { name: channel.name })} disabled={busy} onClick={() => { void api.saveChannelConfiguration({ channelId: channel.channelId, name: channel.name, provider: channel.provider, ...(channel.tenantId === undefined ? {} : { tenantId: channel.tenantId }), accountId: channel.accountId, ...(channel.credentialRef === undefined ? {} : { credentialRef: channel.credentialRef }), ...(channel.defaultEmployeeReleaseId === undefined ? {} : { defaultEmployeeReleaseId: channel.defaultEmployeeReleaseId }), inboundEnabled: channel.inboundEnabled, state: 'paused', expectedRevision: channel.revision }) }}>{t('channel.pause')}</button>}{channel.state === 'paused' && <button type="button" className={css.primaryButton} disabled={busy || channel.credentialStatus !== 'configured'} onClick={() => { void api.saveChannelConfiguration({ channelId: channel.channelId, name: channel.name, provider: channel.provider, ...(channel.tenantId === undefined ? {} : { tenantId: channel.tenantId }), accountId: channel.accountId, ...(channel.credentialRef === undefined ? {} : { credentialRef: channel.credentialRef }), ...(channel.defaultEmployeeReleaseId === undefined ? {} : { defaultEmployeeReleaseId: channel.defaultEmployeeReleaseId }), inboundEnabled: channel.inboundEnabled, state: 'active', expectedRevision: channel.revision }) }}>{t('channel.resume')}</button>}<button type="button" className={css.secondaryButton} aria-label={t('channel.archiveAria', { name: channel.name })} disabled={busy || channel.state === 'archived'} onClick={() => { void api.archiveChannelConfiguration(channel) }}>{t('channel.archive')}</button></div>
+          <div className={css.channelActions}><span>{t('channel.revision', { revision: channel.revision })}</span><button type="button" className={css.primaryButton} data-recovery-target="binding" ref={recoverableBinding ? undefined : (node) => { setRecoveryAction(channel.channelId, 'binding', node) }} disabled={!eligible || bindingBusy} onClick={() => { if (eligible && !bindingBusy) void beginBinding(channel) }}>{channel.bindingStatus === 'verified' ? t('channel.binding.rebind') : t(profile.actionKey)}</button><button type="button" className={css.secondaryButton} data-recovery-target="configuration" ref={(node) => { setRecoveryAction(channel.channelId, 'configuration', node) }} disabled={channel.state === 'archived'} onClick={() => { edit(channel) }}><IconEditOutline16 size={16}/>{t('channel.edit')}</button>{channel.state === 'active' && <button type="button" className={css.secondaryButton} aria-label={t('channel.pauseAria', { name: channel.name })} disabled={busy} onClick={() => { void api.saveChannelConfiguration({ channelId: channel.channelId, name: channel.name, provider: channel.provider, ...(channel.tenantId === undefined ? {} : { tenantId: channel.tenantId }), accountId: channel.accountId, ...(channel.credentialRef === undefined ? {} : { credentialRef: channel.credentialRef }), ...(channel.defaultEmployeeReleaseId === undefined ? {} : { defaultEmployeeReleaseId: channel.defaultEmployeeReleaseId }), inboundEnabled: channel.inboundEnabled, state: 'paused', expectedRevision: channel.revision }) }}>{t('channel.pause')}</button>}{channel.state === 'paused' && <button type="button" className={css.primaryButton} disabled={busy || channel.credentialStatus !== 'configured'} onClick={() => { void api.saveChannelConfiguration({ channelId: channel.channelId, name: channel.name, provider: channel.provider, ...(channel.tenantId === undefined ? {} : { tenantId: channel.tenantId }), accountId: channel.accountId, ...(channel.credentialRef === undefined ? {} : { credentialRef: channel.credentialRef }), ...(channel.defaultEmployeeReleaseId === undefined ? {} : { defaultEmployeeReleaseId: channel.defaultEmployeeReleaseId }), inboundEnabled: channel.inboundEnabled, state: 'active', expectedRevision: channel.revision }) }}>{t('channel.resume')}</button>}<button type="button" className={css.secondaryButton} aria-label={t('channel.archiveAria', { name: channel.name })} disabled={busy || channel.state === 'archived'} onClick={() => { void api.archiveChannelConfiguration(channel) }}>{t('channel.archive')}</button></div>
         </article>
       })}</div>
     </PageBoundary>
