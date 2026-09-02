@@ -204,7 +204,7 @@ describe('EnterpriseWorkbench', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '新建渠道' }))
     fireEvent.change(screen.getByLabelText('渠道提供方'), { target: { value: 'wechat' } })
-    expect((screen.getByLabelText('允许渠道发起命令') as HTMLInputElement).disabled).toBe(true)
+    expect(screen.getByLabelText<HTMLInputElement>('允许渠道发起命令').disabled).toBe(true)
     fireEvent.change(screen.getByLabelText('渠道名称'), { target: { value: '个人微信提醒' } })
     fireEvent.change(screen.getByLabelText('渠道 ID'), { target: { value: 'personal-wechat' } })
     fireEvent.change(screen.getByLabelText('账号 ID'), { target: { value: 'owner-a' } })
@@ -220,6 +220,124 @@ describe('EnterpriseWorkbench', () => {
     }))
     fireEvent.click(screen.getByRole('button', { name: '归档财务企业微信' }))
     expect(archiveChannelConfiguration).toHaveBeenCalledWith(expect.objectContaining({ channelId: 'finance-wecom' }))
+  })
+
+  it('shows provider guidance, official docs, and disables binding until prerequisites are saved', () => {
+    const beginChannelBinding = vi.fn()
+    render(<EnterpriseWorkbench {...workbenchProps({
+      state: {
+        mode: 'enterprise', page: 'channels', channels: { phase: 'ready', error: null, items: [
+          {
+            orgId: 'org-a', channelId: 'wecom', name: '企业微信', provider: 'wecom', tenantId: 'corp', accountId: 'agent',
+            credentialRef: 'WECOM', credentialStatus: 'configured', inboundEnabled: true, allowedIntents: [],
+            transportStatus: 'unverified', state: 'draft', bindingStatus: 'unbound', createdBy: 'admin', revision: 1, createdAt: 1, updatedAt: 1,
+          },
+          {
+            orgId: 'org-a', channelId: 'feishu', name: '飞书', provider: 'feishu', accountId: 'app', credentialRef: 'FEISHU',
+            credentialStatus: 'configured', inboundEnabled: true, allowedIntents: [], transportStatus: 'unverified', state: 'paused',
+            bindingStatus: 'unbound', createdBy: 'admin', revision: 1, createdAt: 1, updatedAt: 1,
+          },
+          {
+            orgId: 'org-a', channelId: 'dingtalk', name: '钉钉', provider: 'dingtalk', accountId: 'client',
+            credentialStatus: 'missing', inboundEnabled: true, allowedIntents: [], transportStatus: 'unverified', state: 'active',
+            bindingStatus: 'unbound', createdBy: 'admin', revision: 1, createdAt: 1, updatedAt: 1,
+          },
+          {
+            orgId: 'org-a', channelId: 'wechat', name: '个人微信', provider: 'wechat', accountId: 'website-app',
+            credentialRef: 'WECHAT', credentialStatus: 'configured', inboundEnabled: false, allowedIntents: ['notify', 'handoff'],
+            transportStatus: 'unverified', state: 'archived', bindingStatus: 'unbound', createdBy: 'admin', revision: 1, createdAt: 1, updatedAt: 1,
+          },
+        ] } as never,
+      }, beginChannelBinding,
+    } as never)} />)
+
+    for (const copy of [
+      'CorpID + AgentID + OAuth 可信回调域名', '安全设置中配置 App ID + 重定向 URL',
+      'Client ID +「钉钉登录与分享」回调', '已审核网站应用 + snsapi_login',
+    ]) expect(screen.getByText(copy)).toBeDefined()
+    const links = screen.getAllByRole('link', { name: '查看官方配置文档' })
+    expect(links).toHaveLength(4)
+    expect(links.map(link => link.getAttribute('href'))).toEqual([
+      'https://developer.work.weixin.qq.com/document/path/98152',
+      'https://open.feishu.cn/document/common-capabilities/sso/web-application-sso/qr-sdk-documentation',
+      'https://open.dingtalk.com/document/isvapp/tutorial-enabling-login-to-third-party-websites.md',
+      'https://developers.weixin.qq.com/doc/oplatform/developers/dev/auth/web.html',
+    ])
+    for (const link of links) {
+      expect(link.getAttribute('target')).toBe('_blank')
+      expect(link.getAttribute('rel')).toBe('noopener noreferrer')
+    }
+    expect(screen.getByRole('button', { name: '扫码绑定企业微信' }).hasAttribute('disabled')).toBe(false)
+    expect(screen.getByRole('button', { name: '扫码绑定钉钉' }).hasAttribute('disabled')).toBe(true)
+    expect(screen.getByRole('button', { name: '扫码绑定个人微信' }).hasAttribute('disabled')).toBe(true)
+  })
+
+  it('opens a blank popup synchronously, then assigns the returned official authorization URL', async () => {
+    let resolveBinding!: (value: { authorizationUrl: string }) => void
+    const beginChannelBinding = vi.fn(() => new Promise((resolve) => { resolveBinding = resolve }))
+    const popup = { location: { href: 'about:blank' }, close: vi.fn() }
+    const open = vi.spyOn(window, 'open').mockReturnValue(popup as never)
+    render(<EnterpriseWorkbench {...workbenchProps({
+      state: { mode: 'enterprise', page: 'channels', channels: { phase: 'ready', error: null, items: [{
+        orgId: 'org-a', channelId: 'finance-wecom', name: '财务企业微信', provider: 'wecom', tenantId: 'corp', accountId: 'agent',
+        credentialRef: 'WECOM', credentialStatus: 'configured', inboundEnabled: true, allowedIntents: [], transportStatus: 'unverified',
+        state: 'active', bindingStatus: 'unbound', createdBy: 'admin', revision: 3, createdAt: 1, updatedAt: 1,
+      }] } as never }, beginChannelBinding,
+    } as never)} />)
+
+    fireEvent.click(screen.getByRole('button', { name: '扫码绑定企业微信' }))
+    expect(open).toHaveBeenCalledWith('', 'dsh-channel-binding', expect.any(String))
+    expect(beginChannelBinding).toHaveBeenCalledWith(expect.objectContaining({ channelId: 'finance-wecom' }), expect.stringMatching(/\?dsh_channel_binding=1$/u))
+    expect(popup.location.href).toBe('about:blank')
+    resolveBinding({ authorizationUrl: 'https://login.work.weixin.qq.com/official' })
+    await waitFor(() => { expect(popup.location.href).toBe('https://login.work.weixin.qq.com/official') })
+  })
+
+  it('shows actionable popup blocked and begin-binding failure states', async () => {
+    const beginChannelBinding = vi.fn(() => Promise.reject(new Error('remote failed')))
+    const popup = { location: { href: 'about:blank' }, close: vi.fn() }
+    vi.spyOn(window, 'open').mockReturnValueOnce(null).mockReturnValueOnce(popup as never)
+    const channel = {
+      orgId: 'org-a', channelId: 'finance-wecom', name: '财务企业微信', provider: 'wecom', tenantId: 'corp', accountId: 'agent',
+      credentialRef: 'WECOM', credentialStatus: 'configured', inboundEnabled: true, allowedIntents: [], transportStatus: 'unverified',
+      state: 'active', bindingStatus: 'unbound', createdBy: 'admin', revision: 3, createdAt: 1, updatedAt: 1,
+    }
+    render(<EnterpriseWorkbench {...workbenchProps({ state: {
+      mode: 'enterprise', page: 'channels', channels: { phase: 'ready', error: null, items: [channel] } as never,
+    }, beginChannelBinding } as never)} />)
+
+    fireEvent.click(screen.getByRole('button', { name: '扫码绑定企业微信' }))
+    expect(screen.getByRole('alert').textContent).toContain('浏览器阻止了绑定窗口')
+    fireEvent.click(screen.getByRole('button', { name: '扫码绑定企业微信' }))
+    await waitFor(() => { expect(popup.close).toHaveBeenCalledTimes(1) })
+    expect(screen.getByRole('alert').textContent).toContain('未能启动官方绑定')
+  })
+
+  it('shows verified identity evidence and refreshes only for a trusted popup completion message', async () => {
+    const refreshChannels = vi.fn(() => Promise.resolve(true))
+    const channel = {
+      orgId: 'org-a', channelId: 'finance-wecom', name: '财务企业微信', provider: 'wecom', tenantId: 'corp', accountId: 'agent',
+      credentialRef: 'WECOM', credentialStatus: 'configured', inboundEnabled: true, allowedIntents: [], transportStatus: 'unverified',
+      state: 'active', bindingStatus: 'verified', boundProviderIdentityId: 'user-42', boundProviderIdentityName: '王小明',
+      verifiedTenantId: 'corp-verified', bindingVerifiedBy: 'admin-a', bindingVerifiedAt: Date.UTC(2026, 8, 2, 1, 2),
+      createdBy: 'admin', revision: 3, createdAt: 1, updatedAt: 1,
+    }
+    render(<EnterpriseWorkbench {...workbenchProps({ state: {
+      mode: 'enterprise', page: 'channels', channels: { phase: 'ready', error: null, items: [channel] } as never,
+    }, refreshChannels } as never)} />)
+
+    expect(screen.getByText('王小明')).toBeDefined()
+    expect(screen.getByText(/corp-verified/u)).toBeDefined()
+    expect(screen.getByText(/admin-a/u)).toBeDefined()
+    expect(screen.getByRole('button', { name: '重新绑定' })).toBeDefined()
+    window.dispatchEvent(new MessageEvent('message', {
+      origin: 'https://evil.example', data: { type: 'dsh-channel-binding-complete', channelId: 'finance-wecom' },
+    }))
+    expect(refreshChannels).not.toHaveBeenCalled()
+    window.dispatchEvent(new MessageEvent('message', {
+      origin: window.location.origin, data: { type: 'dsh-channel-binding-complete', channelId: 'finance-wecom' },
+    }))
+    await waitFor(() => { expect(refreshChannels).toHaveBeenCalledTimes(1) })
   })
 
   it('clears the local dirty guard when a new channel form is cancelled', () => {

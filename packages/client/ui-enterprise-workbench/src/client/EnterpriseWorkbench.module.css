@@ -847,13 +847,26 @@
 .channelIdentity p { margin-block-start: 2px; color: var(--dse-color-muted); font-family: var(--dse-font-mono); font-size: 0.6875rem; overflow-wrap: anywhere; }
 .channelState { padding: 3px var(--dse-space-2xs); border-radius: 999px; background: var(--dse-color-accent-soft); color: var(--dse-color-accent); font-size: 0.6875rem; font-weight: 650; }
 .connectionPath { display: grid; grid-template-columns: minmax(7rem, 1fr) 2rem minmax(7rem, 1fr) 2rem minmax(7rem, 1fr) 2rem minmax(7rem, 1fr); align-items: center; }
-.connectionPath > span { min-inline-size: 0; min-block-size: 66px; display: grid; align-content: center; gap: var(--dse-space-3xs); padding: var(--dse-space-xs); border: 1px solid var(--dse-color-border); border-radius: var(--dse-radius-control); background: var(--dse-color-surface-raised); }
+.connectionPath > span { min-inline-size: 0; min-block-size: 66px; display: grid; align-content: center; gap: var(--dse-space-3xs); padding: var(--dse-space-xs); border-block-start: 1px solid var(--dse-color-border); }
 .connectionPath small { color: var(--dse-color-muted); font-size: 0.625rem; text-transform: uppercase; letter-spacing: 0.04em; }
 .connectionPath strong { min-inline-size: 0; font-size: 0.75rem; overflow-wrap: anywhere; }
 .connectionPath strong[data-status='configured'] { color: var(--dse-color-success); }
 .connectionPath strong[data-status='missing'] { color: var(--dse-color-error); }
+.channelPrerequisiteDetail { color: var(--dse-color-muted); font-size: 0.625rem; font-style: normal; }
 .connectionPath > i { block-size: 1px; background: var(--dse-color-border); }
 .connectionPath > i::after { content: ''; display: block; inline-size: 5px; block-size: 5px; margin-inline-start: auto; border-block-start: 1px solid var(--dse-color-muted); border-inline-end: 1px solid var(--dse-color-muted); transform: translate(-1px, -2px) rotate(45deg); }
+.channelBindingGuide { min-inline-size: 0; display: flex; align-items: baseline; flex-wrap: wrap; gap: var(--dse-space-2xs) var(--dse-space-sm); color: var(--dse-color-muted); font-size: 0.75rem; }
+.channelBindingGuide p { min-inline-size: 0; margin: 0; overflow-wrap: anywhere; }
+.channelBindingGuide a, .textButton { color: var(--dse-color-accent); font-weight: 650; text-underline-offset: 3px; }
+.channelBindingGuide a:focus-visible, .textButton:focus-visible { outline: 2px solid var(--dse-color-focus); outline-offset: 2px; }
+.channelBindingGuide strong { inline-size: 100%; color: var(--dse-color-warning); font-size: 0.75rem; }
+.channelBindingBanner { display: flex; align-items: center; justify-content: space-between; gap: var(--dse-space-xs); padding: var(--dse-space-xs); border-radius: var(--dse-radius-control); background: var(--dse-color-accent-soft); color: var(--dse-color-ink); font-size: 0.75rem; }
+.channelBindingBanner[data-phase='error'], .channelBindingBanner[data-phase='expired'] { background: color-mix(in srgb, var(--dse-color-error) 10%, var(--dse-color-surface)); }
+.textButton { padding: 0; border: 0; background: transparent; cursor: pointer; }
+.textButton:disabled { color: var(--dse-color-muted); cursor: not-allowed; }
+.channelBindingEvidence { min-inline-size: 0; display: flex; align-items: baseline; flex-wrap: wrap; gap: var(--dse-space-3xs) var(--dse-space-sm); color: var(--dse-color-muted); font-size: 0.6875rem; }
+.channelBindingEvidence strong { color: var(--dse-color-success); font-size: 0.8125rem; overflow-wrap: anywhere; }
+.channelBindingEvidence span { overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
 .channelIntentRow { display: flex; align-items: center; flex-wrap: wrap; gap: var(--dse-space-xs); color: var(--dse-color-muted); font-size: 0.6875rem; }
 .channelIntentRow > div { display: flex; flex-wrap: wrap; gap: var(--dse-space-3xs); }
 .channelIntentRow em { margin-inline-start: auto; color: var(--dse-color-muted); font-style: normal; font-weight: 650; }
@@ -905,7 +918,7 @@
   .extensionRow > .inlineActions { grid-column: 1 / -1; }
   .extensionReviewActions { grid-template-columns: minmax(12rem, 1fr) auto auto auto; }
   .channelRow { grid-template-columns: minmax(0, 1fr) auto; }
-  .channelIdentity, .connectionPath, .channelIntentRow { grid-column: 1 / -1; }
+  .channelIdentity, .channelBindingGuide, .channelBindingBanner, .connectionPath, .channelBindingEvidence, .channelIntentRow { grid-column: 1 / -1; }
   .channelActions { grid-column: 2; }
 }
 
@@ -956,6 +969,9 @@
   .connectionPath { grid-template-columns: minmax(0, 1fr); gap: var(--dse-space-3xs); }
   .connectionPath > i { inline-size: 1px; block-size: var(--dse-space-xs); margin-inline-start: var(--dse-space-md); }
   .connectionPath > i::after { margin-block-start: auto; margin-inline-start: -2px; transform: translateY(1px) rotate(135deg); }
+  .channelBindingBanner, .channelActions { align-items: stretch; flex-direction: column; }
+  .channelActions > span { margin-inline-end: 0; }
+  .channelActions button { inline-size: 100%; }
   .channelActions { align-items: stretch; }
   .channelActions > span { flex-basis: 100%; }
   .channelActions button { flex: 1; }

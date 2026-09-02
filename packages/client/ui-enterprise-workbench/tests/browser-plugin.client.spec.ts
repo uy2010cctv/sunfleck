@@ -1,9 +1,12 @@
 import { Context } from '@deepseek-ai/cordis'
-import { describe, expect, it } from 'vitest'
+// @vitest-environment jsdom
+import { describe, expect, it, vi } from 'vitest'
 import { SlotRegistry } from '@deepseek-ai/dsh-client-ui-renderer/client'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
 import { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
-import { apply, inject } from '../src/client/index.ts'
+import {
+  apply, channelBindingCallbackUri, completeChannelBindingCallback, inject,
+} from '../src/client/index.ts'
 import { apply as applyNode } from '../src/index.ts'
 import { en, NS, zh } from '../src/client/locales.ts'
 
@@ -76,6 +79,86 @@ async function bench(declareSlots = true) {
 }
 
 describe('enterprise workbench browser plugin', () => {
+  it('completes a marked callback with the canonical redirect, redacts it, notifies its opener, and closes', async () => {
+    const requests: unknown[] = []
+    const completeBinding = vi.fn((request: unknown) => {
+      requests.push(request)
+      return Promise.resolve({ result: { ok: true, value: {
+        channelId: 'finance-wecom',
+      } } })
+    })
+    const replaceState = vi.fn()
+    const postMessage = vi.fn()
+    const close = vi.fn()
+    const handled = await completeChannelBindingCallback({ completeBinding } as never, {
+      location: {
+        origin: 'https://dsh.example', pathname: '/workbench',
+        search: '?dsh_channel_binding=1&code=secret-code&state=opaque-state',
+      },
+      history: { replaceState }, opener: { postMessage }, close,
+    })
+
+    expect(handled).toBe(true)
+    expect(completeBinding).toHaveBeenCalledWith(expect.objectContaining({
+      code: 'secret-code', state: 'opaque-state',
+      redirectUri: 'https://dsh.example/workbench?dsh_channel_binding=1',
+    }))
+    const completeRequest = requests[0] as { idempotencyKey: string }
+    expect(completeRequest.idempotencyKey).toMatch(/^channel-binding-complete:/u)
+    expect(postMessage).toHaveBeenCalledWith({
+      type: 'dsh-channel-binding-complete', channelId: 'finance-wecom',
+    }, 'https://dsh.example')
+    expect(replaceState).toHaveBeenCalledWith(null, '', '/workbench?dsh_channel_binding=1')
+    expect(close).toHaveBeenCalledTimes(1)
+  })
+
+  it('ignores ordinary pages without the callback marker', async () => {
+    const completeBinding = vi.fn()
+    const handled = await completeChannelBindingCallback({ completeBinding }, {
+      location: { origin: 'https://dsh.example', pathname: '/workbench', search: '?code=x&state=y' },
+      history: { replaceState: vi.fn() }, opener: null, close: vi.fn(),
+    })
+    expect(handled).toBe(false)
+    expect(completeBinding).not.toHaveBeenCalled()
+  })
+
+  it('rejects empty or oversized callback values without calling the Remote', async () => {
+    const completeBinding = vi.fn()
+    const replaceState = vi.fn()
+    await completeChannelBindingCallback({ completeBinding }, {
+      location: {
+        origin: 'https://dsh.example', pathname: '/workbench',
+        search: `?dsh_channel_binding=1&code=${'x'.repeat(4097)}&state=`,
+      },
+      history: { replaceState }, opener: null, close: vi.fn(),
+    })
+    expect(completeBinding).not.toHaveBeenCalled()
+    expect(replaceState).toHaveBeenCalledWith(null, '', '/workbench?dsh_channel_binding=1&binding_error=1')
+  })
+
+  it('redacts failed callback secrets, reports a generic failure, and keeps the window open', async () => {
+    const completeBinding = vi.fn(() => Promise.reject(new Error('exchange included secret-code')))
+    const replaceState = vi.fn()
+    const postMessage = vi.fn()
+    const close = vi.fn()
+    await completeChannelBindingCallback({ completeBinding }, {
+      location: {
+        origin: 'https://dsh.example', pathname: '/workbench',
+        search: '?dsh_channel_binding=1&code=secret-code&state=opaque-state',
+      },
+      history: { replaceState }, opener: { postMessage }, close,
+    })
+
+    expect(replaceState).toHaveBeenCalledWith(null, '', '/workbench?dsh_channel_binding=1&binding_error=1')
+    expect(postMessage).toHaveBeenCalledWith({ type: 'dsh-channel-binding-failed' }, 'https://dsh.example')
+    expect(close).not.toHaveBeenCalled()
+  })
+
+  it('builds the exact marker-only callback URI', () => {
+    expect(channelBindingCallbackUri({ origin: 'https://dsh.example', pathname: '/workbench' }))
+      .toBe('https://dsh.example/workbench?dsh_channel_binding=1')
+  })
+
   it('declares its runtime dependencies', () => {
     expect(inject).toEqual([
       'slots', 'locale', 'connection', 'sessions', 'workspaces', 'remote',
