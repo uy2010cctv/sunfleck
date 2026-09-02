@@ -128,7 +128,19 @@ describe.skipIf(database === undefined)('enterprise operations PostgreSQL', () =
       inboundEnabled: true, state: 'active', actorUserId: 'admin-a', expectedRevision: 0,
       idempotencyKey: 'channel-create-a',
     })
-    expect(created).toMatchObject({ state: 'active', revision: 1 })
+    expect(created).toMatchObject({ state: 'active', bindingStatus: 'unbound', revision: 1 })
+    const verified = await operations.verifyChannelBinding({
+      orgId: 'channel-org', channelId: created.channelId, expectedRevision: created.revision,
+      actorUserId: 'admin-a', idempotencyKey: 'channel-verify-a', providerIdentityId: 'finance-service',
+      providerIdentityName: 'Finance Service', verifiedTenantId: 'corp-a',
+    })
+    expect(verified).toMatchObject({
+      bindingStatus: 'verified', boundProviderIdentityId: 'finance-service', revision: 2,
+    })
+    await expect(operations.verifyChannelBinding({
+      orgId: 'channel-org', channelId: created.channelId, expectedRevision: created.revision,
+      actorUserId: 'admin-a', idempotencyKey: 'channel-verify-stale', providerIdentityId: 'stale-service',
+    })).rejects.toMatchObject({ code: 'conflict' })
     await expect(operations.getChannelConfiguration('other-org', created.channelId)).resolves.toBeUndefined()
     await expect(operations.saveChannelConfiguration({
       orgId: 'channel-org', channelId: created.channelId, name: created.name, provider: created.provider,
@@ -136,6 +148,42 @@ describe.skipIf(database === undefined)('enterprise operations PostgreSQL', () =
       inboundEnabled: created.inboundEnabled, state: 'paused', actorUserId: 'admin-a', expectedRevision: 0,
       idempotencyKey: 'channel-stale-a',
     })).rejects.toMatchObject({ code: 'conflict' })
+  })
+
+  it('migrates v13 channel configurations to nullable binding evidence', async () => {
+    await migrateEnterpriseOperations(postgres)
+    await postgres.query("UPDATE dsh_enterprise_operations_meta SET value='13' WHERE key='schema-version'")
+    await postgres.query('ALTER TABLE dsh_enterprise_channel_configurations DROP COLUMN binding_status')
+    await postgres.query('ALTER TABLE dsh_enterprise_channel_configurations DROP COLUMN bound_provider_identity_id')
+    await postgres.query('ALTER TABLE dsh_enterprise_channel_configurations DROP COLUMN bound_provider_identity_name')
+    await postgres.query('ALTER TABLE dsh_enterprise_channel_configurations DROP COLUMN verified_tenant_id')
+    await postgres.query('ALTER TABLE dsh_enterprise_channel_configurations DROP COLUMN binding_verified_by')
+    await postgres.query('ALTER TABLE dsh_enterprise_channel_configurations DROP COLUMN binding_verified_at')
+    await postgres.query(`INSERT INTO dsh_enterprise_channel_configurations(
+      org_id,channel_id,name,provider,tenant_id,account_id,credential_ref,default_employee_release_id,
+      inbound_enabled,state,created_by,revision,created_at,updated_at)
+      VALUES ('legacy-org','legacy-channel','Legacy','wecom','legacy-tenant','legacy-account',NULL,NULL,
+        FALSE,'draft','legacy-admin',1,1,1)`)
+
+    await migrateEnterpriseOperations(postgres)
+
+    const columns = await postgres.query<{ column_name: string; is_nullable: string; column_default: string | null }>(
+      `SELECT column_name,is_nullable,column_default FROM information_schema.columns
+        WHERE table_name='dsh_enterprise_channel_configurations' AND column_name IN
+          ('binding_status','bound_provider_identity_id','bound_provider_identity_name','verified_tenant_id',
+           'binding_verified_by','binding_verified_at') ORDER BY column_name`,
+    )
+    expect(columns.rows.map(row => row.column_name)).toEqual([
+      'binding_status', 'binding_verified_at', 'binding_verified_by', 'bound_provider_identity_id',
+      'bound_provider_identity_name', 'verified_tenant_id',
+    ])
+    expect(columns.rows.find(row => row.column_name === 'binding_status')).toMatchObject({
+      is_nullable: 'NO', column_default: "'unbound'::text",
+    })
+    expect(columns.rows.filter(row => row.column_name !== 'binding_status').every(row => row.is_nullable === 'YES')).toBe(true)
+    await expect(postgres.query<{ binding_status: string }>(
+      "SELECT binding_status FROM dsh_enterprise_channel_configurations WHERE org_id='legacy-org' AND channel_id='legacy-channel'",
+    )).resolves.toMatchObject({ rows: [{ binding_status: 'unbound' }] })
   })
 
   it('persists TeamRun and Decision projections plus terminal explicit autonomy grants', async () => {

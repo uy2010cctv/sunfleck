@@ -43,6 +43,7 @@ export type {
   EnterpriseChannelSaveInput,
   EnterpriseChannelLookup,
   EnterpriseChannelArchiveInput,
+  EnterpriseChannelBindingVerificationInput,
 } from './service.ts'
 export {
   migrateEnterpriseOperations,
