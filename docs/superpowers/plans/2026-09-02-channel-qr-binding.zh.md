@@ -76,8 +76,9 @@
 - 修改：`docs/user/guide/human-agent-teams.zh.md`
 
 - [x] 记录官方来源链接及身份与投递边界。
-- [x] 运行完整定向矩阵：18 个文件、257 项测试全部通过；4,829 个文件的 package path 全部可解析；tsconfig 别名为最新；本次两组翻译配对一致。可选 PostgreSQL 文件已运行，但由于未设置 `DSH_TEST_POSTGRES_URL`，12 项测试全部跳过。
-- [ ] 关闭剩余发布门禁。typecheck 与生产构建被两处二维码功能测试类型错误阻断（`channel-controller.spec.ts:387` 和 `channel-kernel.spec.ts:91`）。全库翻译配对存在两处无关的既有配对缺口。完整 doc-sync 为 20 通过 / 12 失败，失败源于本文档专项范围外的分支级 TypeScript、JSDoc/catalog、翻译配对、换行、子系统、Agent Note 与 package README 存量问题。
+- [x] 完成本功能范围的发布门禁：定向矩阵的 18 个文件、257 项测试全部通过；`66953f09` 修正严格 fixture 类型后，typecheck 与生产构建通过；4,829 个文件的 package path 全部可解析；tsconfig 别名为最新；本次两组翻译配对一致。
+- [ ] 运行可选的真实 PostgreSQL 验收。integration 文件已调用，但由于未设置 `DSH_TEST_POSTGRES_URL`，12 项测试全部跳过。
+- [ ] 使全量 lint、全库翻译配对与 doc-sync 全部通过。它们仍有与本功能无关的全库 JSDoc/catalog、翻译配对、换行、子系统、Agent Note 和 package README 存量问题。
 - [x] 保留任务 4 已执行的唯一一次 Impeccable detector；任务 5 不重复运行。
 - [ ] 使用已认证管理员浏览器验收，但不输入或暴露 App Secret。在可用的平台应用与密钥提供前，真实提供方二维码流程仍未执行。
 
@@ -92,7 +93,7 @@
 - 修改：`packages/client/ui-enterprise-workbench/src/client/locales.ts`
 - 修改：`packages/client/ui-enterprise-workbench/tests/workbench.client.spec.tsx`
 
-- [x] 为前置条件缺失、扫码过期/失败和已有记录的传输失败增加异常优先提醒条；`unverified` 传输属予中性证据，不作为事故提醒。
+- [x] 为前置条件缺失、扫码过期/失败和已有记录的传输失败增加异常优先提醒条；`unverified` 传输属于中性证据，不作为事故提醒。
 - [x] 始终分开显示四项真相：配置、二维码身份、默认 Employee/Team 路由和实际传输证据。
 - [x] 增加不要求密钥值的提供方传输配置说明：企业微信智能机器人/应用可见范围、飞书最小机器人消息权限、钉钉 Stream 机器人/登录与分享回调、个人微信官方网站应用仅身份边界。
 - [x] 使用明确区分待配置、可扫码、身份已验证、已暂停、已归档和传输待验证的状态/动作语言。

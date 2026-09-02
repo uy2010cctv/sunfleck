@@ -76,8 +76,9 @@ English | [中文](2026-09-02-channel-qr-binding.zh.md)
 - Modify: `docs/user/guide/human-agent-teams.zh.md`
 
 - [x] Record official-source links and the identity-versus-delivery boundary.
-- [x] Run the complete focused matrix: 18 files and 257 tests pass; package paths resolve across 4,829 files; tsconfig aliases are current; the two changed translation pairs are consistent. The optional PostgreSQL file was run and skipped all 12 tests because `DSH_TEST_POSTGRES_URL` is absent.
-- [ ] Close the remaining release gates. Typecheck and production build stop on two QR-feature test type errors (`channel-controller.spec.ts:387` and `channel-kernel.spec.ts:91`). Corpus translation pairing has two unrelated pre-existing pair gaps. Full doc-sync is 20 passed / 12 failed on branch-wide TypeScript, JSDoc/catalog, pairing, wrapping, subsystem, Agent Note, and package README debt outside this documentation-only task.
+- [x] Complete the feature-owned release gates: the focused matrix passes 257 tests across 18 files; typecheck and the production build pass after the strict fixture fixes in `66953f09`; package paths resolve across 4,829 files; tsconfig aliases are current; and the two changed translation pairs are consistent.
+- [ ] Run the optional real PostgreSQL acceptance. The integration file was invoked but skipped all 12 tests because `DSH_TEST_POSTGRES_URL` is absent.
+- [ ] Make full lint, corpus translation pairing, and doc-sync clean. They retain known unrelated repository-wide JSDoc/catalog, pairing, wrapping, subsystem, Agent Note, and package README debt outside this feature.
 - [x] Preserve the single Impeccable detector run completed during Task 4; do not rerun it in Task 5.
 - [ ] Browser-test the authenticated administrator flow without entering or exposing App Secrets. Real-provider QR remains unexecuted until platform applications and secrets are available.
 
