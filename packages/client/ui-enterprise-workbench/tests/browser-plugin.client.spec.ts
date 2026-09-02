@@ -5,7 +5,8 @@ import { SlotRegistry } from '@deepseek-ai/dsh-client-ui-renderer/client'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
 import { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
 import {
-  apply, channelBindingCallbackUri, completeChannelBindingCallback, inject,
+  apply, CHANNEL_BINDING_BROADCAST_CHANNEL, channelBindingCallbackUri,
+  completeChannelBindingCallback, inject,
 } from '../src/client/index.ts'
 import { apply as applyNode } from '../src/index.ts'
 import { en, NS, zh } from '../src/client/locales.ts'
@@ -106,7 +107,7 @@ describe('enterprise workbench browser plugin', () => {
     const completeRequest = requests[0] as { idempotencyKey: string }
     expect(completeRequest.idempotencyKey).toMatch(/^channel-binding-complete:/u)
     expect(postMessage).toHaveBeenCalledWith({
-      type: 'dsh-channel-binding-complete', channelId: 'finance-wecom',
+      type: 'dsh-channel-binding-complete', attemptId: '1', channelId: 'finance-wecom',
     }, 'https://dsh.example')
     expect(replaceState).toHaveBeenCalledWith(null, '', '/workbench?dsh_channel_binding=1')
     expect(close).toHaveBeenCalledTimes(1)
@@ -132,6 +133,37 @@ describe('enterprise workbench browser plugin', () => {
     expect(order).toEqual(['redact', 'remote'])
     resolveComplete({ result: { ok: true, value: { channelId: 'finance-wecom' } } })
     await pending
+  })
+
+  it('publishes opener-independent success and failure with the exact callback attempt and closes each channel', async () => {
+    const posts: unknown[] = []
+    const closed: string[] = []
+    class FakeBroadcastChannel {
+      constructor(readonly name: string) {}
+      postMessage(message: unknown): void { posts.push(message) }
+      close(): void { closed.push(this.name) }
+    }
+    vi.stubGlobal('BroadcastChannel', FakeBroadcastChannel)
+    const browser = (attemptId: string) => ({
+      location: {
+        origin: 'https://dsh.example', pathname: '/workbench',
+        search: `?dsh_channel_binding=${attemptId}&code=secret-code&state=opaque-state`,
+      },
+      history: { replaceState: vi.fn() }, opener: null, close: vi.fn(),
+    })
+
+    await completeChannelBindingCallback({ completeBinding: () => Promise.resolve({ result: {
+      ok: true, value: { channelId: 'finance-wecom' },
+    } }) } as never, browser('attempt-success'))
+    await completeChannelBindingCallback({ completeBinding: () => Promise.reject(new Error('failed')) },
+      browser('attempt-failure'))
+
+    expect(posts).toEqual([
+      { type: 'dsh-channel-binding-complete', attemptId: 'attempt-success', channelId: 'finance-wecom' },
+      { type: 'dsh-channel-binding-failed', attemptId: 'attempt-failure' },
+    ])
+    expect(closed).toEqual([CHANNEL_BINDING_BROADCAST_CHANNEL, CHANNEL_BINDING_BROADCAST_CHANNEL])
+    vi.unstubAllGlobals()
   })
 
   it('ignores ordinary pages without the callback marker', async () => {
@@ -172,7 +204,9 @@ describe('enterprise workbench browser plugin', () => {
     })
 
     expect(replaceState).toHaveBeenCalledWith(null, '', '/workbench?dsh_channel_binding=1&binding_error=1')
-    expect(postMessage).toHaveBeenCalledWith({ type: 'dsh-channel-binding-failed' }, 'https://dsh.example')
+    expect(postMessage).toHaveBeenCalledWith({
+      type: 'dsh-channel-binding-failed', attemptId: '1',
+    }, 'https://dsh.example')
     expect(close).not.toHaveBeenCalled()
   })
 
@@ -201,8 +235,8 @@ describe('enterprise workbench browser plugin', () => {
   })
 
   it('builds the exact marker-only callback URI', () => {
-    expect(channelBindingCallbackUri({ origin: 'https://dsh.example', pathname: '/workbench' }))
-      .toBe('https://dsh.example/workbench?dsh_channel_binding=1')
+    expect(channelBindingCallbackUri({ origin: 'https://dsh.example', pathname: '/workbench' }, 'attempt-123'))
+      .toBe('https://dsh.example/workbench?dsh_channel_binding=attempt-123')
   })
 
   it('declares its runtime dependencies', () => {

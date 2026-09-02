@@ -28,7 +28,10 @@ import type {
   EnterpriseWorkRecord, WorkRecordState,
 } from './store.ts'
 import css from './EnterpriseWorkbench.module.css'
-import { CHANNEL_BINDING_PROFILES, officialChannelAuthorizationUrl } from './channelBindingProfiles.ts'
+import {
+  CHANNEL_BINDING_BROADCAST_CHANNEL, CHANNEL_BINDING_PROFILES,
+  channelBindingCallbackUri, officialChannelAuthorizationUrl,
+} from './channelBindingProfiles.ts'
 
 export interface EnterpriseWorkbenchInjected {
   hooks: { enterprise: SnapshotStore<EnterpriseWorkbenchState> }
@@ -711,6 +714,7 @@ function TeamAttentionPage({ page, runs, definitions, api, busy, t }: { page: En
 }
 
 const CHANNEL_PROVIDERS = ['wecom', 'feishu', 'dingtalk', 'wechat'] as const
+const CHANNEL_BINDING_RECONCILE_MS = 1_500
 const CHANNEL_PROVIDER_INTENTS = {
   wecom: ['notify', 'handoff', 'team-start', 'decision-response', 'status'],
   feishu: ['notify', 'handoff', 'team-start', 'decision-response', 'status'],
@@ -740,51 +744,75 @@ function ChannelsPage({ page, api, busy, onDirty, onClean, t }: {
   const emptyForm: FormState = { channelId: '', name: '', provider: 'wecom', tenantId: '', accountId: '', credentialRef: '', defaultEmployeeReleaseId: '', inboundEnabled: true, expectedRevision: 0 }
   const [form, setForm] = useState<FormState | null>(null)
   const [binding, setBinding] = useState<{
-    attemptId: number
+    generation: number
+    attemptId: string
     channelId: string
-    phase: 'opening' | 'waiting' | 'error' | 'expired'
+    phase: 'opening' | 'waiting' | 'checking' | 'error' | 'expired'
     message?: string
     expiresAt?: number
+    refreshComplete?: boolean
   } | null>(null)
   const attemptGeneration = useRef(0)
-  const activeBinding = useRef<{ attemptId: number; channelId: string; popup: Window } | null>(null)
-  const isActiveAttempt = (attemptId: number, popup: Window): boolean => {
+  const activeBinding = useRef<{
+    generation: number
+    attemptId: string
+    channelId: string
+    popup: Window
+    broadcast: BroadcastChannel | null
+  } | null>(null)
+  const isActiveAttempt = (generation: number, popup: Window): boolean => {
     const active = activeBinding.current
-    return active !== null && active.attemptId === attemptId && active.popup === popup
+    return active !== null && active.generation === generation && active.popup === popup
+  }
+  const releaseActive = (active: NonNullable<typeof activeBinding.current>): void => {
+    active.broadcast?.close()
+    if (activeBinding.current === active) activeBinding.current = null
+  }
+  const acceptBindingSignal = (value: unknown): void => {
+    const active = activeBinding.current
+    if (active === null || typeof value !== 'object' || value === null) return
+    const data = value as { type?: unknown; attemptId?: unknown; channelId?: unknown }
+    if (data.attemptId !== active.attemptId) return
+    if (data.type === 'dsh-channel-binding-complete' && data.channelId === active.channelId) {
+      releaseActive(active)
+      setBinding(null)
+      void api.refreshChannels()
+    } else if (data.type === 'dsh-channel-binding-failed'
+      && (data.channelId === undefined || data.channelId === active.channelId)) {
+      releaseActive(active)
+      setBinding({
+        generation: active.generation, attemptId: active.attemptId, channelId: active.channelId,
+        phase: 'error', message: t('channel.binding.callbackFailed'),
+      })
+    }
   }
   useEffect(() => {
     const onMessage = (event: MessageEvent): void => {
       const active = activeBinding.current
       if (event.origin !== window.location.origin) return
       if (active === null || event.source !== active.popup) return
-      if (typeof event.data !== 'object' || event.data === null) return
-      const data = event.data as { type?: unknown; channelId?: unknown }
-      if (data.type === 'dsh-channel-binding-complete' && data.channelId === active.channelId) {
-        activeBinding.current = null
-        setBinding(null)
-        void api.refreshChannels()
-      } else if (data.type === 'dsh-channel-binding-failed'
-        && (data.channelId === undefined || data.channelId === active.channelId)) {
-        activeBinding.current = null
-        setBinding({
-          attemptId: active.attemptId, channelId: active.channelId,
-          phase: 'error', message: t('channel.binding.callbackFailed'),
-        })
-      }
+      acceptBindingSignal(event.data)
     }
     window.addEventListener('message', onMessage)
     return () => { window.removeEventListener('message', onMessage) }
   }, [api, t])
+  useEffect(() => () => {
+    const active = activeBinding.current
+    if (active !== null) releaseActive(active)
+  }, [])
   useEffect(() => {
     if (binding?.phase !== 'waiting' || binding.expiresAt === undefined) return
     const remaining = binding.expiresAt - Date.now()
     const expire = (): void => {
       const active = activeBinding.current
-      if (active === null || active.attemptId !== binding.attemptId) return
-      activeBinding.current = null
+      if (active === null || active.generation !== binding.generation) return
+      releaseActive(active)
       if (!active.popup.closed) active.popup.close()
-      setBinding(current => current?.attemptId === binding.attemptId
-        ? { attemptId: binding.attemptId, channelId: binding.channelId, phase: 'expired' }
+      setBinding(current => current?.generation === binding.generation
+        ? {
+          generation: binding.generation, attemptId: binding.attemptId,
+          channelId: binding.channelId, phase: 'expired',
+        }
         : current)
     }
     if (remaining <= 0) {
@@ -798,17 +826,38 @@ function ChannelsPage({ page, api, busy, onDirty, onClean, t }: {
     if (binding?.phase !== 'waiting') return
     const poll = window.setInterval(() => {
       const active = activeBinding.current
-      if (active === null || active.attemptId !== binding.attemptId || !active.popup.closed) return
-      activeBinding.current = null
-      void api.refreshChannels()
-      const channel = page.items.find(item => item.channelId === binding.channelId)
-      setBinding(channel?.bindingStatus === 'verified' ? null : {
-        attemptId: binding.attemptId, channelId: binding.channelId,
-        phase: 'error', message: t('channel.binding.popupClosed'),
+      if (active === null || active.generation !== binding.generation || !active.popup.closed) return
+      releaseActive(active)
+      setBinding({
+        generation: binding.generation, attemptId: binding.attemptId,
+        channelId: binding.channelId, phase: 'checking', refreshComplete: false,
       })
+      const markRefreshComplete = (): void => {
+        setBinding(current => current?.generation === binding.generation && current.phase === 'checking'
+          ? { ...current, refreshComplete: true }
+          : current)
+      }
+      void api.refreshChannels().then(markRefreshComplete, markRefreshComplete)
     }, 250)
     return () => { window.clearInterval(poll) }
-  }, [api, binding, page.items, t])
+  }, [api, binding])
+  useEffect(() => {
+    if (binding === null) return
+    const channel = page.items.find(item => item.channelId === binding.channelId)
+    const popupClosedError = binding.phase === 'error' && binding.message === t('channel.binding.popupClosed')
+    if ((binding.phase === 'checking' || popupClosedError) && channel?.bindingStatus === 'verified') {
+      setBinding(null)
+      return
+    }
+    if (binding.phase !== 'checking') return
+    if (binding.refreshComplete !== true) return
+    const reconcile = window.setTimeout(() => {
+      setBinding(current => current?.generation === binding.generation && current.phase === 'checking'
+        ? { ...current, phase: 'error', message: t('channel.binding.popupClosed') }
+        : current)
+    }, CHANNEL_BINDING_RECONCILE_MS)
+    return () => { window.clearTimeout(reconcile) }
+  }, [binding, page.items, t])
   const edit = (channel: EnterpriseChannelConfiguration): void => {
     setForm({
       channelId: channel.channelId, name: channel.name, provider: channel.provider,
@@ -846,41 +895,60 @@ function ChannelsPage({ page, api, busy, onDirty, onClean, t }: {
     return missing.length === 0 ? t('channel.credentialConfigured') : missing.join(' · ')
   }
   const beginBinding = async (channel: EnterpriseChannelConfiguration): Promise<void> => {
-    const attemptId = ++attemptGeneration.current
+    const generation = ++attemptGeneration.current
+    const attemptId = randomUUID()
     const previous = activeBinding.current
-    activeBinding.current = null
-    if (previous !== null && !previous.popup.closed) previous.popup.close()
+    if (previous !== null) {
+      releaseActive(previous)
+      if (!previous.popup.closed) previous.popup.close()
+    }
     const popup = window.open('', 'dsh-channel-binding', 'popup,width=560,height=720,resizable=yes,scrollbars=yes')
     if (popup === null) {
-      setBinding({ attemptId, channelId: channel.channelId, phase: 'error', message: t('channel.binding.popupBlocked') })
+      setBinding({
+        generation, attemptId, channelId: channel.channelId,
+        phase: 'error', message: t('channel.binding.popupBlocked'),
+      })
       return
     }
-    activeBinding.current = { attemptId, channelId: channel.channelId, popup }
-    setBinding({ attemptId, channelId: channel.channelId, phase: 'opening' })
+    const broadcast = typeof BroadcastChannel === 'function'
+      ? new BroadcastChannel(CHANNEL_BINDING_BROADCAST_CHANNEL)
+      : null
+    const active = { generation, attemptId, channelId: channel.channelId, popup, broadcast }
+    activeBinding.current = active
+    if (broadcast !== null) {
+      broadcast.onmessage = (event) => { acceptBindingSignal(event.data) }
+    }
+    setBinding({ generation, attemptId, channelId: channel.channelId, phase: 'opening' })
     try {
       const session = await api.beginChannelBinding(
         channel,
-        `${window.location.origin}${window.location.pathname}?dsh_channel_binding=1`,
+        channelBindingCallbackUri(window.location, attemptId),
       )
-      if (!isActiveAttempt(attemptId, popup)) return
+      if (!isActiveAttempt(generation, popup)) return
       if (popup.closed) {
-        activeBinding.current = null
-        setBinding({ attemptId, channelId: channel.channelId, phase: 'error', message: t('channel.binding.popupClosed') })
+        releaseActive(active)
+        setBinding({
+          generation, attemptId, channelId: channel.channelId,
+          phase: 'error', message: t('channel.binding.popupClosed'),
+        })
         return
       }
       const authorization = officialChannelAuthorizationUrl(channel.provider, session.authorizationUrl)
       if (authorization === null) throw new Error('invalid provider authorization URL')
       popup.opener = null
       popup.location.href = authorization.href
-      setBinding({ attemptId, channelId: channel.channelId, phase: 'waiting', expiresAt: session.expiresAt })
+      setBinding({ generation, attemptId, channelId: channel.channelId, phase: 'waiting', expiresAt: session.expiresAt })
     } catch {
-      if (!isActiveAttempt(attemptId, popup)) return
+      if (!isActiveAttempt(generation, popup)) return
       popup.close()
-      activeBinding.current = null
-      setBinding({ attemptId, channelId: channel.channelId, phase: 'error', message: t('channel.binding.beginFailed') })
+      releaseActive(active)
+      setBinding({
+        generation, attemptId, channelId: channel.channelId,
+        phase: 'error', message: t('channel.binding.beginFailed'),
+      })
     }
   }
-  const bindingBusy = binding?.phase === 'opening' || binding?.phase === 'waiting'
+  const bindingBusy = binding?.phase === 'opening' || binding?.phase === 'waiting' || binding?.phase === 'checking'
   return <section className={css.channelPage} aria-labelledby="channel-page-title">
     <ManagementHeader id="channel-page-title" title={t('channel.title')} description={t('channel.description')} count={page.items.length} action={<button type="button" className={css.primaryButton} onClick={() => { setForm(emptyForm) }}><IconPlusOutline16 size={16}/>{t('channel.new')}</button>}/>
     <div className={css.channelPrinciple}><IconApiOutline14 size={16}/><div><strong>{t('channel.truthTitle')}</strong><span>{t('channel.truthBody')}</span></div></div>

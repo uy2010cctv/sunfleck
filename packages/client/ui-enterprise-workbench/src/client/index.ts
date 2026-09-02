@@ -14,6 +14,10 @@ import { EnterpriseWorkbench } from './EnterpriseWorkbench.tsx'
 import type { EnterpriseWorkbenchInjected } from './EnterpriseWorkbench.tsx'
 import { en, NS, zh, type EnterpriseWorkbenchKey } from './locales.ts'
 import { EnterpriseWorkbenchController, type EnterpriseWorkbenchState } from './store.ts'
+import {
+  CHANNEL_BINDING_BROADCAST_CHANNEL, CHANNEL_BINDING_CALLBACK_PARAM,
+  channelBindingCallbackUri,
+} from './channelBindingProfiles.ts'
 import './tokens.css'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
@@ -29,20 +33,15 @@ interface EnterpriseTriggerInjected {
   toggle: () => void
 }
 
-const CALLBACK_MARKER = 'dsh_channel_binding'
 const CALLBACK_CODE_LIMIT = 4096
 const CALLBACK_STATE_LIMIT = 87
+const CALLBACK_ATTEMPT_LIMIT = 128
 
 interface BindingCallbackWindow {
   readonly location: Pick<Location, 'origin' | 'pathname' | 'search'>
   readonly history: Pick<History, 'replaceState'>
   readonly opener: { postMessage: (message: unknown, targetOrigin: string) => void } | null
   readonly close: () => void
-}
-
-/** Canonical callback registered with providers; provider secrets never appear in it. */
-export function channelBindingCallbackUri(location: Pick<Location, 'origin' | 'pathname'>): string {
-  return `${location.origin}${location.pathname}?${CALLBACK_MARKER}=1`
 }
 
 function boundedCallbackValue(value: string | null, limit: number): value is string {
@@ -55,13 +54,22 @@ export async function completeChannelBindingCallback(
   browser: BindingCallbackWindow,
 ): Promise<boolean> {
   const query = new URLSearchParams(browser.location.search)
-  if (query.get(CALLBACK_MARKER) !== '1') return false
-  const canonicalPath = `${browser.location.pathname}?${CALLBACK_MARKER}=1`
+  const attemptId = query.get(CHANNEL_BINDING_CALLBACK_PARAM)
+  if (!boundedCallbackValue(attemptId, CALLBACK_ATTEMPT_LIMIT)) return false
+  const canonicalPath = `${browser.location.pathname}?${CHANNEL_BINDING_CALLBACK_PARAM}=${encodeURIComponent(attemptId)}`
   const code = query.get('code')
   const state = query.get('state')
+  const publish = (message: Readonly<Record<string, string>>): void => {
+    if (typeof BroadcastChannel === 'function') {
+      const channel = new BroadcastChannel(CHANNEL_BINDING_BROADCAST_CHANNEL)
+      try { channel.postMessage(message) } finally { channel.close() }
+    }
+  }
   const fail = (): true => {
     browser.history.replaceState(null, '', `${canonicalPath}&binding_error=1`)
-    browser.opener?.postMessage({ type: 'dsh-channel-binding-failed' }, browser.location.origin)
+    const message = { type: 'dsh-channel-binding-failed', attemptId }
+    publish(message)
+    browser.opener?.postMessage(message, browser.location.origin)
     return true
   }
   if (!boundedCallbackValue(code, CALLBACK_CODE_LIMIT) || !boundedCallbackValue(state, CALLBACK_STATE_LIMIT)) return fail()
@@ -70,22 +78,26 @@ export async function completeChannelBindingCallback(
   try {
     const response = await remote.completeBinding({
       code, state,
-      redirectUri: channelBindingCallbackUri(browser.location),
+      redirectUri: channelBindingCallbackUri(browser.location, attemptId),
       idempotencyKey,
     })
     const wrapped = response as typeof response | { readonly result: typeof response }
     const result = 'result' in wrapped ? wrapped.result : wrapped
     if (!result.ok) throw new Error(result.error.message)
     const channel: EnterpriseChannelConfiguration = result.value
-    browser.opener?.postMessage({
-      type: 'dsh-channel-binding-complete', channelId: channel.channelId,
-    }, browser.location.origin)
+    const message = {
+      type: 'dsh-channel-binding-complete', attemptId, channelId: channel.channelId,
+    }
+    publish(message)
+    browser.opener?.postMessage(message, browser.location.origin)
     browser.close()
     return true
   } catch {
     return fail()
   }
 }
+
+export { CHANNEL_BINDING_BROADCAST_CHANNEL, channelBindingCallbackUri }
 
 /** Required browser services. */
 export const inject = [
