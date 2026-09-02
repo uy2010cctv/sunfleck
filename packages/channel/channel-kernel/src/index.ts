@@ -8,6 +8,334 @@ export type ChannelKind = 'wecom-bot'
 /** Provider families sharing the DSH-owned channel envelope. */
 export type ChannelProvider = 'wecom' | 'feishu' | 'dingtalk' | 'wechat'
 
+/** Field names collected by Channel Settings before official authorization. */
+export type ChannelBindingField = 'tenantId' | 'accountId' | 'appSecret' | 'callbackUrl'
+
+/** Product boundary proven by an official provider authorization flow. */
+export type ChannelBindingBoundary = 'identity-only-delivery-separate' | 'identity-and-handoff-only-no-chat-delivery'
+
+/** Provider-owned authorization entry point and the UI mode used to present it. */
+export interface ChannelBindingAuthorization {
+  /** HTTPS host owned by the provider. */
+  readonly host: string
+  /** Whether Channel Settings redirects or presents the provider's QR connection flow. */
+  readonly mode: 'redirect' | 'qr-connect'
+}
+
+/** Static, credential-free metadata used to render an official channel binding form. */
+export interface ChannelBindingProfile {
+  /** Provider documentation for the supported authorization flow. */
+  readonly officialDocsUrl: string
+  /** Provider authorization host and presentation mode. */
+  readonly authorization: ChannelBindingAuthorization
+  /** Configuration fields required before authorization and code exchange finish. */
+  readonly requiredFields: readonly ChannelBindingField[]
+  /** Translation keys for provider-specific setup guidance. */
+  readonly prerequisiteCopyKeys: readonly string[]
+  /** Capability boundary that authorization proves; it is not a delivery receipt. */
+  readonly boundary: ChannelBindingBoundary
+}
+
+const CHANNEL_BINDING_PROFILES: Readonly<Record<ChannelProvider, ChannelBindingProfile>> = {
+  wecom: {
+    officialDocsUrl: 'https://developer.work.weixin.qq.com/document/path/98152',
+    authorization: { host: 'login.work.weixin.qq.com', mode: 'redirect' },
+    requiredFields: ['tenantId', 'accountId', 'appSecret', 'callbackUrl'],
+    prerequisiteCopyKeys: [
+      'channel.binding.wecom.corpId',
+      'channel.binding.wecom.agentId',
+      'channel.binding.wecom.appSecret',
+    ],
+    boundary: 'identity-only-delivery-separate',
+  },
+  feishu: {
+    officialDocsUrl: 'https://open.feishu.cn/document/common-capabilities/sso/web-application-sso/qr-sdk-documentation',
+    authorization: { host: 'accounts.feishu.cn', mode: 'redirect' },
+    requiredFields: ['accountId', 'appSecret', 'callbackUrl'],
+    prerequisiteCopyKeys: ['channel.binding.feishu.appId', 'channel.binding.feishu.appSecret'],
+    boundary: 'identity-only-delivery-separate',
+  },
+  dingtalk: {
+    officialDocsUrl: 'https://open.dingtalk.com/document/isvapp/tutorial-enabling-login-to-third-party-websites.md',
+    authorization: { host: 'login.dingtalk.com', mode: 'redirect' },
+    requiredFields: ['accountId', 'appSecret', 'callbackUrl'],
+    prerequisiteCopyKeys: ['channel.binding.dingtalk.clientId', 'channel.binding.dingtalk.clientSecret'],
+    boundary: 'identity-only-delivery-separate',
+  },
+  wechat: {
+    officialDocsUrl: 'https://developers.weixin.qq.com/doc/oplatform/developers/dev/auth/web.html',
+    authorization: { host: 'open.weixin.qq.com', mode: 'qr-connect' },
+    requiredFields: ['accountId', 'appSecret', 'callbackUrl'],
+    prerequisiteCopyKeys: ['channel.binding.wechat.appId', 'channel.binding.wechat.appSecret'],
+    boundary: 'identity-and-handoff-only-no-chat-delivery',
+  },
+}
+
+/** Return credential-free official authorization metadata for one provider. */
+export function channelBindingProfile(provider: ChannelProvider): ChannelBindingProfile {
+  return CHANNEL_BINDING_PROFILES[provider]
+}
+
+/** Input used to construct an official provider authorization URL. */
+export interface ChannelAuthorizationUrlInput {
+  /** Channel provider being bound. */
+  readonly provider: ChannelProvider
+  /** Enterprise tenant id; required for WeCom and enables DingTalk corpid scope. */
+  readonly tenantId?: string
+  /** Provider application or agent id. */
+  readonly accountId?: string
+  /** Exact callback registered with the provider. */
+  readonly callbackUrl: string
+  /** Non-empty, caller-signed anti-CSRF state. */
+  readonly state: string
+}
+
+function requiredAuthorizationValue(value: string | undefined, field: string): string {
+  const normalized = value?.trim() ?? ''
+  if (normalized === '') throw new Error(`${field} is required`)
+  return normalized
+}
+
+function validatedCallbackUrl(callbackUrl: string): string {
+  let parsed: URL
+  try {
+    parsed = new URL(callbackUrl)
+  } catch {
+    throw new Error('a valid HTTPS callback URL is required')
+  }
+  const loopbackHttp = parsed.protocol === 'http:' && (parsed.hostname === '127.0.0.1' || parsed.hostname === 'localhost')
+  if (parsed.protocol !== 'https:' && !loopbackHttp) throw new Error('HTTPS callback is required outside loopback development')
+  return callbackUrl
+}
+
+/** Build the exact provider-owned OAuth URL without logging or persisting configuration. */
+export function channelAuthorizationUrl(input: ChannelAuthorizationUrlInput): string {
+  const accountId = requiredAuthorizationValue(input.accountId, 'accountId')
+  const callbackUrl = validatedCallbackUrl(input.callbackUrl)
+  const state = requiredAuthorizationValue(input.state, 'state')
+  const parameters = new URLSearchParams()
+
+  switch (input.provider) {
+    case 'wecom': {
+      parameters.set('login_type', 'CorpApp')
+      parameters.set('appid', requiredAuthorizationValue(input.tenantId, 'tenantId'))
+      parameters.set('agentid', accountId)
+      parameters.set('redirect_uri', callbackUrl)
+      parameters.set('state', state)
+      return `https://login.work.weixin.qq.com/wwlogin/sso/login?${parameters}`
+    }
+    case 'feishu':
+      parameters.set('client_id', accountId)
+      parameters.set('redirect_uri', callbackUrl)
+      parameters.set('state', state)
+      return `https://accounts.feishu.cn/open-apis/authen/v1/authorize?${parameters}`
+    case 'dingtalk':
+      parameters.set('client_id', accountId)
+      parameters.set('redirect_uri', callbackUrl)
+      parameters.set('response_type', 'code')
+      parameters.set('scope', input.tenantId === undefined ? 'openid' : 'openid corpid')
+      parameters.set('state', state)
+      parameters.set('prompt', 'consent')
+      return `https://login.dingtalk.com/oauth2/auth?${parameters}`
+    case 'wechat':
+      parameters.set('appid', accountId)
+      parameters.set('redirect_uri', callbackUrl)
+      parameters.set('response_type', 'code')
+      parameters.set('scope', 'snsapi_login')
+      parameters.set('state', state)
+      return `https://open.weixin.qq.com/connect/qrconnect?${parameters}#wechat_redirect`
+  }
+}
+
+/** Ephemeral credentials and authorization code supplied for one exchange operation. */
+export interface ChannelAuthorizationCodeInput {
+  /** Channel provider that issued the code. */
+  readonly provider: ChannelProvider
+  /** Enterprise tenant id, required by WeCom. */
+  readonly tenantId?: string
+  /** Provider application or agent id. */
+  readonly accountId: string
+  /** Application secret, used only during this call and never returned. */
+  readonly appSecret: string
+  /** One-time authorization code. */
+  readonly code: string
+  /** Exact callback used during authorization. */
+  readonly callbackUrl: string
+  /** Per-request timeout in milliseconds; defaults to ten seconds. */
+  readonly timeoutMs?: number
+}
+
+/** Verified identity projection that intentionally excludes provider tokens. */
+export interface ChannelAuthorizationIdentity {
+  /** Provider-scoped stable user identity. */
+  readonly providerIdentityId: string
+  /** Provider display name when the official identity API supplies it. */
+  readonly providerIdentityName?: string
+  /** Tenant id only when verified by provider context or response. */
+  readonly verifiedTenantId?: string
+}
+
+/** Minimal injected fetch contract used to isolate provider network I/O in tests. */
+export type ChannelAuthorizationFetch = (input: string | URL, init?: RequestInit) => Promise<Response>
+
+const MAX_AUTHORIZATION_RESPONSE_BYTES = 64 * 1024
+
+async function boundedJson(response: Response, provider: ChannelProvider): Promise<Record<string, unknown>> {
+  if (!response.ok) throw new Error(`${provider} authorization request failed with HTTP ${response.status}`)
+  const declaredLength = Number(response.headers.get('content-length'))
+  if (Number.isFinite(declaredLength) && declaredLength > MAX_AUTHORIZATION_RESPONSE_BYTES) {
+    throw new Error(`${provider} authorization response is too large`)
+  }
+  const reader = response.body?.getReader()
+  const chunks: Uint8Array[] = []
+  let receivedBytes = 0
+  if (reader !== undefined) {
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      receivedBytes += value.byteLength
+      if (receivedBytes > MAX_AUTHORIZATION_RESPONSE_BYTES) {
+        await reader.cancel()
+        throw new Error(`${provider} authorization response is too large`)
+      }
+      chunks.push(value)
+    }
+  }
+  const bytes = new Uint8Array(receivedBytes)
+  let offset = 0
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset)
+    offset += chunk.byteLength
+  }
+  const body = new TextDecoder().decode(bytes)
+  let value: unknown
+  try {
+    value = JSON.parse(body)
+  } catch {
+    throw new Error(`${provider} authorization response is not valid JSON`)
+  }
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new Error(`${provider} authorization response must be an object`)
+  }
+  const record = value as Record<string, unknown>
+  const errorCode = typeof record.errcode === 'number' ? record.errcode : record.code
+  if ((typeof errorCode === 'number' && errorCode !== 0) || (typeof errorCode === 'string' && errorCode !== '0')) {
+    throw new Error(`${provider} authorization failed with provider code ${String(errorCode)}`)
+  }
+  return record
+}
+
+function recordValue(value: unknown): Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : {}
+}
+
+function requiredResponseString(value: unknown, provider: ChannelProvider, field: string): string {
+  if (typeof value !== 'string' || value.trim() === '') throw new Error(`${provider} authorization response omitted ${field}`)
+  return value
+}
+
+function optionalResponseString(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim() !== '' ? value : undefined
+}
+
+function authorizationSignal(timeoutMs: number | undefined): AbortSignal {
+  const timeout = timeoutMs ?? 10_000
+  if (!Number.isSafeInteger(timeout) || timeout <= 0) throw new RangeError('timeoutMs must be a positive integer')
+  return AbortSignal.timeout(timeout)
+}
+
+function identityResult(
+  providerIdentityId: string,
+  providerIdentityName?: string,
+  verifiedTenantId?: string,
+): ChannelAuthorizationIdentity {
+  return {
+    providerIdentityId,
+    ...(providerIdentityName === undefined ? {} : { providerIdentityName }),
+    ...(verifiedTenantId === undefined ? {} : { verifiedTenantId }),
+  }
+}
+
+/**
+ * Exchange a one-time code through official provider APIs and return identity only.
+ * Access and refresh tokens remain local temporaries and are never returned or retained.
+ */
+export async function exchangeChannelAuthorizationCode(
+  input: ChannelAuthorizationCodeInput,
+  fetchImpl: ChannelAuthorizationFetch,
+): Promise<ChannelAuthorizationIdentity> {
+  const accountId = requiredAuthorizationValue(input.accountId, 'accountId')
+  const appSecret = requiredAuthorizationValue(input.appSecret, 'appSecret')
+  const code = requiredAuthorizationValue(input.code, 'code')
+  const callbackUrl = validatedCallbackUrl(input.callbackUrl)
+  const request = (url: string | URL, init?: RequestInit) => fetchImpl(url, {
+    ...init,
+    signal: authorizationSignal(input.timeoutMs),
+  })
+
+  switch (input.provider) {
+    case 'wecom': {
+      const tenantId = requiredAuthorizationValue(input.tenantId, 'tenantId')
+      const tokenUrl = new URL('https://qyapi.weixin.qq.com/cgi-bin/gettoken')
+      tokenUrl.search = new URLSearchParams({ corpid: tenantId, corpsecret: appSecret }).toString()
+      const tokenBody = await boundedJson(await request(tokenUrl), 'wecom')
+      const accessToken = requiredResponseString(tokenBody.access_token, 'wecom', 'access_token')
+      const identityUrl = new URL('https://qyapi.weixin.qq.com/cgi-bin/auth/getuserinfo')
+      identityUrl.search = new URLSearchParams({ access_token: accessToken, code }).toString()
+      const identity = await boundedJson(await request(identityUrl), 'wecom')
+      const identityId = requiredResponseString(identity.userid ?? identity.openid, 'wecom', 'userid or openid')
+      return identityResult(identityId, undefined, tenantId)
+    }
+    case 'feishu': {
+      const tokenBody = await boundedJson(await request('https://open.feishu.cn/open-apis/authen/v2/oauth/token', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ grant_type: 'authorization_code', client_id: accountId, client_secret: appSecret, code, redirect_uri: callbackUrl }),
+      }), 'feishu')
+      const tokenData = recordValue(tokenBody.data)
+      const accessToken = requiredResponseString(tokenBody.access_token ?? tokenData.access_token, 'feishu', 'access_token')
+      const identityBody = await boundedJson(await request('https://open.feishu.cn/open-apis/authen/v1/user_info', {
+        headers: { authorization: `Bearer ${accessToken}` },
+      }), 'feishu')
+      const identity = Object.keys(recordValue(identityBody.data)).length === 0 ? identityBody : recordValue(identityBody.data)
+      return identityResult(
+        requiredResponseString(identity.open_id, 'feishu', 'open_id'),
+        optionalResponseString(identity.name),
+        optionalResponseString(identity.tenant_key),
+      )
+    }
+    case 'dingtalk': {
+      const tokenBody = await boundedJson(await request('https://api.dingtalk.com/v1.0/oauth2/userAccessToken', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ clientId: accountId, clientSecret: appSecret, code, grantType: 'authorization_code' }),
+      }), 'dingtalk')
+      const accessToken = requiredResponseString(tokenBody.accessToken, 'dingtalk', 'accessToken')
+      const identity = await boundedJson(await request('https://api.dingtalk.com/v1.0/contact/users/me', {
+        headers: { 'x-acs-dingtalk-access-token': accessToken },
+      }), 'dingtalk')
+      return identityResult(
+        requiredResponseString(identity.openId ?? identity.unionId, 'dingtalk', 'openId or unionId'),
+        optionalResponseString(identity.nick),
+        optionalResponseString(identity.corpId),
+      )
+    }
+    case 'wechat': {
+      const tokenUrl = new URL('https://api.weixin.qq.com/sns/oauth2/access_token')
+      tokenUrl.search = new URLSearchParams({ appid: accountId, secret: appSecret, code, grant_type: 'authorization_code' }).toString()
+      const tokenBody = await boundedJson(await request(tokenUrl), 'wechat')
+      const accessToken = requiredResponseString(tokenBody.access_token, 'wechat', 'access_token')
+      const openId = requiredResponseString(tokenBody.openid, 'wechat', 'openid')
+      const identityUrl = new URL('https://api.weixin.qq.com/sns/userinfo')
+      identityUrl.search = new URLSearchParams({ access_token: accessToken, openid: openId, lang: 'zh_CN' }).toString()
+      const identity = await boundedJson(await request(identityUrl), 'wechat')
+      const identityId = requiredResponseString(identity.openid, 'wechat', 'openid')
+      if (identityId !== openId) throw new Error('wechat identity response does not match authorized openid')
+      return identityResult(identityId, optionalResponseString(identity.nickname))
+    }
+  }
+}
+
 /** Provider-neutral intent carried by one channel message. */
 export type ChannelEnvelopeIntent = 'notify' | 'handoff' | 'team-start' | 'decision-response' | 'status'
 

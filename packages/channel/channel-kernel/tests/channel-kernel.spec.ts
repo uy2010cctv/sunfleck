@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import {
   channelActorKey,
+  channelAuthorizationUrl,
   channelAuditEvent,
+  channelBindingProfile,
   channelHealth,
   channelEnvelopeIdempotencyKey,
   channelIntentPolicy,
@@ -13,6 +15,7 @@ import {
   resolveChannelActor,
   routeInbound,
   sessionRecoveryAction,
+  exchangeChannelAuthorizationCode,
 } from '../src/index.ts'
 
 const binding = {
@@ -21,6 +24,112 @@ const binding = {
   employeeIds: ['sales', 'support'],
   defaultEmployeeId: 'sales',
 }
+
+describe('official channel authorization binding', () => {
+  it('describes provider prerequisites and keeps personal WeChat at the identity boundary', () => {
+    expect(channelBindingProfile('wecom')).toMatchObject({
+      officialDocsUrl: 'https://developer.work.weixin.qq.com/document/path/98152',
+      authorization: { host: 'login.work.weixin.qq.com', mode: 'redirect' },
+      requiredFields: ['tenantId', 'accountId', 'appSecret', 'callbackUrl'],
+      prerequisiteCopyKeys: ['channel.binding.wecom.corpId', 'channel.binding.wecom.agentId', 'channel.binding.wecom.appSecret'],
+      boundary: 'identity-only-delivery-separate',
+    })
+    expect(channelBindingProfile('feishu').authorization.host).toBe('accounts.feishu.cn')
+    expect(channelBindingProfile('dingtalk').officialDocsUrl).toBe('https://open.dingtalk.com/document/isvapp/tutorial-enabling-login-to-third-party-websites.md')
+    expect(channelBindingProfile('wechat')).toMatchObject({
+      authorization: { host: 'open.weixin.qq.com', mode: 'qr-connect' },
+      boundary: 'identity-and-handoff-only-no-chat-delivery',
+    })
+  })
+
+  it('builds exact official authorization URLs for all four providers', () => {
+    const callbackUrl = 'https://dsh.example.com/settings/channels/callback?source=设置页'
+    const state = 'signed.state-value'
+    expect(channelAuthorizationUrl({ provider: 'wecom', tenantId: 'corp 1', accountId: 'agent/2', callbackUrl, state }))
+      .toBe('https://login.work.weixin.qq.com/wwlogin/sso/login?login_type=CorpApp&appid=corp+1&agentid=agent%2F2&redirect_uri=https%3A%2F%2Fdsh.example.com%2Fsettings%2Fchannels%2Fcallback%3Fsource%3D%E8%AE%BE%E7%BD%AE%E9%A1%B5&state=signed.state-value')
+    expect(channelAuthorizationUrl({ provider: 'feishu', accountId: 'cli 1', callbackUrl, state }))
+      .toBe('https://accounts.feishu.cn/open-apis/authen/v1/authorize?client_id=cli+1&redirect_uri=https%3A%2F%2Fdsh.example.com%2Fsettings%2Fchannels%2Fcallback%3Fsource%3D%E8%AE%BE%E7%BD%AE%E9%A1%B5&state=signed.state-value')
+    expect(channelAuthorizationUrl({ provider: 'dingtalk', accountId: 'ding-1', tenantId: 'corp-1', callbackUrl, state }))
+      .toBe('https://login.dingtalk.com/oauth2/auth?client_id=ding-1&redirect_uri=https%3A%2F%2Fdsh.example.com%2Fsettings%2Fchannels%2Fcallback%3Fsource%3D%E8%AE%BE%E7%BD%AE%E9%A1%B5&response_type=code&scope=openid+corpid&state=signed.state-value&prompt=consent')
+    expect(channelAuthorizationUrl({ provider: 'wechat', accountId: 'wx-app', callbackUrl, state }))
+      .toBe('https://open.weixin.qq.com/connect/qrconnect?appid=wx-app&redirect_uri=https%3A%2F%2Fdsh.example.com%2Fsettings%2Fchannels%2Fcallback%3Fsource%3D%E8%AE%BE%E7%BD%AE%E9%A1%B5&response_type=code&scope=snsapi_login&state=signed.state-value#wechat_redirect')
+  })
+
+  it('accepts loopback HTTP callbacks but rejects unsafe callbacks and missing provider fields', () => {
+    expect(channelAuthorizationUrl({ provider: 'feishu', accountId: 'app', callbackUrl: 'http://127.0.0.1:3081/callback', state: 'signed' }))
+      .toContain('redirect_uri=http%3A%2F%2F127.0.0.1%3A3081%2Fcallback')
+    expect(() => channelAuthorizationUrl({ provider: 'feishu', accountId: 'app', callbackUrl: 'http://example.com/callback', state: 'signed' }))
+      .toThrow(/HTTPS callback/u)
+    expect(() => channelAuthorizationUrl({ provider: 'wecom', accountId: 'agent', callbackUrl: 'https://example.com/callback', state: 'signed' }))
+      .toThrow(/tenantId/u)
+    expect(() => channelAuthorizationUrl({ provider: 'wechat', accountId: 'app', callbackUrl: 'https://example.com/callback', state: ' ' }))
+      .toThrow(/state/u)
+  })
+
+  it('exchanges WeCom code through app token and identity APIs without returning credentials', async () => {
+    const requests: Array<{ url: string; init?: RequestInit }> = []
+    const fetchImpl = async (input: string | URL, init?: RequestInit): Promise<Response> => {
+      const url = input.toString()
+      requests.push({ url, init })
+      if (url.includes('/gettoken')) return new Response(JSON.stringify({ errcode: 0, access_token: 'secret-token' }))
+      return new Response(JSON.stringify({ errcode: 0, userid: 'zhangsan' }))
+    }
+    const result = await exchangeChannelAuthorizationCode({
+      provider: 'wecom', tenantId: 'corp-1', accountId: 'agent-1', appSecret: 'app-secret',
+      code: 'one-time-code', callbackUrl: 'https://dsh.example.com/callback',
+    }, fetchImpl)
+    expect(result).toEqual({ providerIdentityId: 'zhangsan', verifiedTenantId: 'corp-1' })
+    expect(requests[0]?.url).toContain('corpsecret=app-secret')
+    expect(requests[1]?.url).toContain('access_token=secret-token')
+    expect(requests.every(request => request.init?.signal instanceof AbortSignal)).toBe(true)
+    expect(JSON.stringify(result)).not.toContain('secret')
+    expect(JSON.stringify(result)).not.toContain('token')
+  })
+
+  it.each([
+    {
+      provider: 'feishu' as const,
+      token: { code: 0, data: { access_token: 'feishu-token' } },
+      identity: { code: 0, data: { open_id: 'ou_1', name: '飞书用户', tenant_key: 'tenant-1' } },
+      expected: { providerIdentityId: 'ou_1', providerIdentityName: '飞书用户', verifiedTenantId: 'tenant-1' },
+    },
+    {
+      provider: 'dingtalk' as const,
+      token: { accessToken: 'ding-token' },
+      identity: { openId: 'ding-user', nick: '钉钉用户', corpId: 'corp-2' },
+      expected: { providerIdentityId: 'ding-user', providerIdentityName: '钉钉用户', verifiedTenantId: 'corp-2' },
+    },
+    {
+      provider: 'wechat' as const,
+      token: { access_token: 'wechat-token', openid: 'wx-user' },
+      identity: { openid: 'wx-user', nickname: '微信用户' },
+      expected: { providerIdentityId: 'wx-user', providerIdentityName: '微信用户' },
+    },
+  ])('exchanges $provider code and returns identity only', async ({ provider, token, identity, expected }) => {
+    let call = 0
+    const fetchImpl = async (): Promise<Response> => new Response(JSON.stringify(call++ === 0 ? token : identity))
+    const result = await exchangeChannelAuthorizationCode({
+      provider, accountId: 'app-1', appSecret: 'app-secret', code: 'code-1',
+      callbackUrl: 'https://dsh.example.com/callback',
+    }, fetchImpl)
+    expect(result).toEqual(expected)
+    expect(Object.keys(result)).not.toContain('accessToken')
+    expect(Object.keys(result)).not.toContain('refreshToken')
+  })
+
+  it('rejects HTTP, provider JSON errors, and oversized authorization responses', async () => {
+    const input = {
+      provider: 'feishu' as const, accountId: 'app-1', appSecret: 'secret', code: 'code-1',
+      callbackUrl: 'https://dsh.example.com/callback',
+    }
+    await expect(exchangeChannelAuthorizationCode(input, async () => new Response('upstream', { status: 502 })))
+      .rejects.toThrow(/502/u)
+    await expect(exchangeChannelAuthorizationCode(input, async () => new Response(JSON.stringify({ code: 10003, msg: 'invalid code' }))))
+      .rejects.toThrow(/10003/u)
+    await expect(exchangeChannelAuthorizationCode(input, async () => new Response('x'.repeat(70_000))))
+      .rejects.toThrow(/too large/u)
+  })
+})
 
 describe('channel command and routing', () => {
   it('parses employee discovery and explicit switch commands', () => {
