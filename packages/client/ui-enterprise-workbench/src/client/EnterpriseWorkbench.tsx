@@ -1,6 +1,6 @@
 /* oxlint-disable @stylistic/max-len */
 /** Enterprise digital-employee roster and operations overlay. */
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import {
   IconApiOutline14, IconCheckOutline16, IconChecklistOutline14, IconCloseOutline16,
   IconContextInjectionOutline16, IconCordisPluginOutline14, IconEditOutline16, IconPlayOutline16,
@@ -571,7 +571,7 @@ function TeamEmployeeChoice({ release, type, checked, disabled, change, t }: {
   </label>
 }
 
-function TeamsPage({ page, releases, api, busy, onDirty, t }: { page: EnterprisePageState<EnterpriseTeam>; releases: readonly EnterpriseEmployeeRelease[]; api: EnterpriseWorkbenchInjected; busy: boolean; onDirty: () => void; t: Translate }) {
+function TeamsPage({ page, releases, api, busy, onDirty, t, embedded = false }: { page: EnterprisePageState<EnterpriseTeam>; releases: readonly EnterpriseEmployeeRelease[]; api: EnterpriseWorkbenchInjected; busy: boolean; onDirty: () => void; t: Translate; embedded?: boolean }) {
   const [creating, setCreating] = useState(false)
   const [name, setName] = useState('')
   const [leader, setLeader] = useState('')
@@ -579,9 +579,11 @@ function TeamsPage({ page, releases, api, busy, onDirty, t }: { page: Enterprise
   const latestReleases = latestEmployeeReleases(releases)
   const canCreate = latestReleases.length >= 2
   const goEmployees = <button type="button" className={css.primaryButton} onClick={() => { api.setPage('employees') }}>{t('prerequisite.goEmployees')}</button>
-  return <section className={css.managementPage} aria-labelledby="teams-page-title">
-    <ManagementHeader id="teams-page-title" title={t('nav.teams')} description={t('team.description')} count={page.items.length}
+  return <section className={css.managementPage} aria-label={embedded ? t('team.legacyTitle') : undefined} aria-labelledby={embedded ? undefined : 'teams-page-title'}>
+    {!embedded && <ManagementHeader id="teams-page-title" title={t('team.legacyTitle')} description={t('team.legacyDescription')} count={page.items.length}
       action={page.items.length === 0 ? undefined : canCreate ? <button type="button" className={css.primaryButton} onClick={() => { setCreating(true) }}><IconPlusOutline16 size={16}/>{t('team.create')}</button> : goEmployees}/>
+    }
+    {embedded && page.items.length > 0 && <div className={css.legacyActions}>{canCreate ? <button type="button" className={css.secondaryButton} onClick={() => { setCreating(true) }}><IconPlusOutline16 size={16}/>{t('team.create')}</button> : goEmployees}</div>}
     {!canCreate && <ActionableEmpty title={t('team.prerequisiteTitle')} description={t('team.prerequisiteBody')} action={goEmployees}/>}
     {canCreate && creating && <form className={css.guidedForm} onSubmit={(event) => {
       event.preventDefault()
@@ -603,6 +605,21 @@ function TeamsPage({ page, releases, api, busy, onDirty, t }: { page: Enterprise
   </section>
 }
 
+function LegacyTeamsDisclosure({ initiallyOpen, count, t, children }: { initiallyOpen: boolean; count: number; t: Translate; children: ReactNode }) {
+  const [open, setOpen] = useState(initiallyOpen)
+  return <details className={css.legacyTeams} open={open} onToggle={(event) => { setOpen(event.currentTarget.open) }}>
+    <summary><span><strong>{t('team.legacyTitle')}</strong><small>{t('team.legacyDescription')}</small></span><span>{count}</span></summary>
+    {children}
+  </details>
+}
+
+function teamRunDot(state: EnterpriseTeamRun['state']): 'done' | 'error' | 'ongoing' | 'warning' {
+  if (state === 'completed') return 'done'
+  if (state === 'failed' || state === 'cancelled') return 'error'
+  if (state === 'waiting-human' || state === 'verifying') return 'warning'
+  return 'ongoing'
+}
+
 function TeamControlPanel({ definitions, runs, decisions, autonomy, workspaces, api, busy, t }: {
   definitions: EnterprisePageState<EnterpriseTeamDefinition>
   runs: EnterprisePageState<EnterpriseTeamRun>
@@ -620,41 +637,72 @@ function TeamControlPanel({ definitions, runs, decisions, autonomy, workspaces, 
   const selected = activeDefinitions.find(item => item.teamId === teamId)
   const visibleRuns = runs.items.filter(run => teamId === '' || run.teamId === teamId)
   const openDecisionCount = decisions.items.filter(item => item.state === 'open').length
-  return <div className={css.teamControl}>
-    <section className={css.teamCharters} aria-labelledby="team-charters-title">
-      <div className={css.sectionHead}><h3 id="team-charters-title">{t('team.charters')}</h3><span>{definitions.items.length}</span></div>
-      {definitions.items.length === 0
-        ? <p className={css.quietText}>{t('team.chartersEmpty')}</p>
-        : <div className={css.rows}>{definitions.items.map(item => <div className={css.row} key={item.teamId}><div><strong>{item.name || item.teamId}</strong><span>{item.northStar || t('team.charterRequired')} · {t(`team.state.${item.state}`)}</span><small>{t('team.rosterSummary', { humans: item.roster.filter(member => member.actor.kind === 'human').length, agents: item.roster.filter(member => member.actor.kind === 'agent').length })}</small></div>{item.state === 'active' && <button type="button" className={css.secondaryButton} onClick={() => { setTeamId(item.teamId) }}>{t('team.launch')}</button>}</div>)}</div>}
-    </section>
-    <form className={css.teamLaunch} onSubmit={(event) => {
-      event.preventDefault()
-      if (selected === undefined) return
-      void api.startTeamRun({ teamId: selected.teamId, expectedTeamRevision: selected.revision, workspaceId, prompt })
-    }}>
-      <div><h3>{t('team.launchTitle')}</h3><p>{t('team.launchHelp')}</p></div>
-      <label>{t('team.definition')}<select required value={teamId} onChange={(event) => { setTeamId(event.target.value) }}><option value="">{t('team.definitionPlaceholder')}</option>{activeDefinitions.map(item => <option key={item.teamId} value={item.teamId}>{item.name}</option>)}</select></label>
-      <label>{t('team.workspace')}<select required value={workspaceId} onChange={(event) => { setWorkspaceId(event.target.value) }}><option value="">{t('team.workspacePlaceholder')}</option>{workspaces.items.map(workspace => <option key={workspace.workspaceId} value={workspace.workspaceId}>{workspace.title}</option>)}</select></label>
-      <label className={css.fullField}>{t('team.objective')}<textarea required rows={4} value={prompt} onChange={(event) => { setPrompt(event.target.value) }} placeholder={t('team.objectivePlaceholder')}/></label>
-      {selected !== undefined && <div className={css.launchEvidence}><strong>{selected.northStar}</strong><span>{t('team.releaseFence', { revision: selected.revision })}</span><span>{t('team.verificationSummary', { count: selected.verificationPolicy.rubricRefs?.length ?? 0 })}</span></div>}
-      <button className={css.primaryButton} type="submit" disabled={busy || selected === undefined || workspaceId === '' || prompt.trim() === ''}>{t('team.startRun')}</button>
-    </form>
+  const liveRunCount = runs.items.filter(run => !['completed', 'failed', 'cancelled'].includes(run.state)).length
+  return <section className={css.teamControl} aria-labelledby="team-command-title">
+    <header className={css.teamCommandHeader}>
+      <div><h2 id="team-command-title">{t('team.commandTitle')}</h2><p>{t('team.commandDescription')}</p></div>
+      <div className={css.teamCommandPulse} aria-label={t('team.commandSummary', { charters: activeDefinitions.length, runs: liveRunCount, decisions: openDecisionCount })}>
+        <span><strong>{activeDefinitions.length}</strong>{t('team.commandCharters')}</span>
+        <span><strong>{liveRunCount}</strong>{t('team.commandRuns')}</span>
+        <button type="button" data-urgent={openDecisionCount > 0} onClick={() => { api.setPage('attention') }}><strong>{openDecisionCount}</strong>{t('team.commandDecisions')}</button>
+      </div>
+    </header>
+    <div className={css.teamCommandGrid}>
+      <section className={css.teamCharters} aria-labelledby="team-charters-title">
+        <div className={css.sectionHead}><div><h3 id="team-charters-title">{t('team.charters')}</h3><p>{t('team.chartersHelp')}</p></div><span>{definitions.items.length}</span></div>
+        {definitions.items.length === 0
+          ? <p className={css.quietText}>{t('team.chartersEmpty')}</p>
+          : <div className={css.charterList}>{definitions.items.map((item) => {
+            const isSelected = teamId === item.teamId
+            const humanCount = item.roster.filter(member => member.actor.kind === 'human').length
+            const agentCount = item.roster.filter(member => member.actor.kind === 'agent').length
+            return <button type="button" className={css.charterRow} data-state={item.state} data-selected={isSelected} aria-pressed={isSelected} aria-label={t('team.selectCharterAria', { name: item.name || item.teamId })} disabled={item.state !== 'active'} key={item.teamId} onClick={() => { setTeamId(item.teamId) }}>
+              <span className={css.charterIdentity}><strong>{item.name || item.teamId}</strong><small>{t(`team.state.${item.state}`)} · {t('team.releaseFence', { revision: item.revision })}</small></span>
+              <span className={css.charterNorthStar}><small>{t('team.northStar')}</small><span>{item.northStar || t('team.charterRequired')}</span></span>
+              <span className={css.charterRoster}>{t('team.rosterSummary', { humans: humanCount, agents: agentCount })}</span>
+              {item.state === 'active' && <span className={css.charterAction}>{isSelected ? t('team.selected') : t('team.launch')}</span>}
+            </button>
+          })}</div>}
+      </section>
+      <form className={css.teamLaunch} onSubmit={(event) => {
+        event.preventDefault()
+        if (selected === undefined) return
+        void api.startTeamRun({ teamId: selected.teamId, expectedTeamRevision: selected.revision, workspaceId, prompt })
+      }}>
+        <div className={css.launchHeading}><div><h3>{t('team.launchTitle')}</h3><p>{t('team.launchHelp')}</p></div><span>{selected === undefined ? t('team.launchWaiting') : t('team.launchReady')}</span></div>
+        {selected === undefined
+          ? <div className={css.launchEmpty}><strong>{t('team.launchEmptyTitle')}</strong><span>{t('team.launchEmptyBody')}</span></div>
+          : <div className={css.launchNorthStar}><small>{t('team.northStar')}</small><strong>{selected.northStar}</strong><div><span>{t('team.releaseFence', { revision: selected.revision })}</span><span>{t('team.rosterCount', { count: selected.roster.length })}</span><span>{t('team.verificationSummary', { count: selected.verificationPolicy.rubricRefs?.length ?? 0 })}</span></div></div>}
+        <label>{t('team.workspace')}<select required value={workspaceId} onChange={(event) => { setWorkspaceId(event.target.value) }}><option value="">{t('team.workspacePlaceholder')}</option>{workspaces.items.map(workspace => <option key={workspace.workspaceId} value={workspace.workspaceId}>{workspace.title}</option>)}</select></label>
+        <label className={css.fullField}>{t('team.objective')}<textarea required rows={4} value={prompt} onChange={(event) => { setPrompt(event.target.value) }} placeholder={t('team.objectivePlaceholder')}/></label>
+        <button className={css.primaryButton} type="submit" disabled={busy || selected === undefined || workspaceId === '' || prompt.trim() === ''}>{t('team.startRun')}</button>
+      </form>
+    </div>
     <section className={css.teamRooms} aria-labelledby="team-runs-title">
-      <div className={css.sectionHead}><h3 id="team-runs-title">{t('team.rooms')}</h3><span>{visibleRuns.length}</span></div>
-      {visibleRuns.length === 0 ? <p className={css.quietText}>{t('team.roomsEmpty')}</p> : <div className={css.rows}>{visibleRuns.map((run) => {
+      <div className={css.sectionHead}><div><h3 id="team-runs-title">{t('team.rooms')}</h3><p>{t('team.roomsHelp')}</p></div><span>{visibleRuns.length}</span></div>
+      {visibleRuns.length === 0 ? <p className={css.quietText}>{t('team.roomsEmpty')}</p> : <div className={css.teamRunSpine}>{visibleRuns.map((run) => {
         const definition = definitions.items.find(item => item.teamId === run.teamId)
         const runDecisions = decisions.items.filter(item => item.runId === run.runId && item.state === 'open').length
         const grants = autonomy.items.filter(item => item.teamId === run.teamId && item.state === 'active').length
-        return <div className={css.teamRoomRow} key={run.runId}><div><strong>{definition?.name ?? run.teamId}</strong><span>{definition?.northStar ?? run.runId}</span><small>{t(`team.runState.${run.state}`)} · {t('team.roomEvidence', { members: run.rosterSnapshot.length, decisions: runDecisions, grants })}</small></div><div className={css.inlineActions}>{run.rootSessionId !== undefined && <button type="button" className={css.primaryButton} onClick={() => { api.openRecord(run.rootSessionId as SessionId) }}>{t('team.openRoom')}</button>}{!['completed', 'failed', 'cancelled'].includes(run.state) && <button type="button" className={css.secondaryButton} disabled={busy} onClick={() => { void api.cancelTeamRun(run) }}>{t('team.cancelRun')}</button>}</div></div>
+        return <article className={css.teamRoomRow} data-state={run.state} key={run.runId}><span className={css.teamRunDot}><StateDot state={teamRunDot(run.state)}/></span><div className={css.teamRunMain}><div className={css.teamRunTitle}><strong>{definition?.name ?? run.teamId}</strong><span>{t(`team.runState.${run.state}`)}</span>{runDecisions > 0 && <button type="button" onClick={() => { api.setPage('attention') }}>{t('team.decisionBadge', { count: runDecisions })}</button>}</div><p>{definition?.northStar ?? run.runId}</p><small>{t('team.roomEvidence', { members: run.rosterSnapshot.length, decisions: runDecisions, grants })} · {formatDate(run.updatedAt)}</small></div><div className={css.inlineActions}>{run.rootSessionId !== undefined && <button type="button" className={css.primaryButton} onClick={() => { api.openRecord(run.rootSessionId as SessionId) }}>{t('team.openRoom')}</button>}{!['completed', 'failed', 'cancelled'].includes(run.state) && <button type="button" className={css.secondaryButton} disabled={busy} onClick={() => { void api.cancelTeamRun(run) }}>{t('team.cancelRun')}</button>}</div></article>
       })}</div>}
       {openDecisionCount > 0 && <button type="button" className={css.attentionLink} onClick={() => { api.setPage('attention') }}>{t('team.openAttention', { count: openDecisionCount })}</button>}
     </section>
-  </div>
+  </section>
 }
 
-function TeamAttentionPage({ page, api, busy, t }: { page: EnterprisePageState<EnterpriseTeamDecision>; api: EnterpriseWorkbenchInjected; busy: boolean; t: Translate }) {
+function TeamAttentionPage({ page, runs, definitions, api, busy, t }: { page: EnterprisePageState<EnterpriseTeamDecision>; runs: EnterprisePageState<EnterpriseTeamRun>; definitions: EnterprisePageState<EnterpriseTeamDefinition>; api: EnterpriseWorkbenchInjected; busy: boolean; t: Translate }) {
   const open = page.items.filter(item => item.state === 'open')
-  return <section aria-labelledby="attention-page-title"><ManagementHeader id="attention-page-title" title={t('nav.attention')} description={t('attention.description')} count={open.length}/><PageBoundary page={{ ...page, items: open }} t={t} empty={<ActionableEmpty title={t('attention.emptyTitle')} description={t('attention.emptyBody')}/>}><div className={css.decisionQueue}>{open.map(item => <article className={css.decisionRow} key={item.decisionId}><div><strong>{item.question}</strong><span>{t(`attention.kind.${item.kind}`)} · {item.assigneeUserId}</span>{item.recommendation !== undefined && <p>{t('attention.recommendation', { value: item.recommendation })}</p>}</div><div className={css.decisionOptions}>{item.options.map(option => <button type="button" className={css.primaryButton} disabled={busy} key={option} onClick={() => { void api.respondTeamDecision(item, option) }}>{option}</button>)}</div></article>)}</div></PageBoundary></section>
+  return <section className={css.attentionPage} aria-labelledby="attention-page-title"><ManagementHeader id="attention-page-title" title={t('nav.attention')} description={t('attention.description')} count={open.length}/><PageBoundary page={{ ...page, items: open }} t={t} empty={<ActionableEmpty title={t('attention.emptyTitle')} description={t('attention.emptyBody')}/>}><div className={css.decisionQueue}>{open.map((item) => {
+    const run = runs.items.find(candidate => candidate.runId === item.runId)
+    const definition = run === undefined ? undefined : definitions.items.find(candidate => candidate.teamId === run.teamId)
+    const titleId = `decision-${item.decisionId}`
+    return <article className={css.decisionRow} data-kind={item.kind} key={item.decisionId} aria-labelledby={titleId}>
+      <div className={css.decisionMeta}><span>{t(`attention.kind.${item.kind}`)}</span><span>{t('attention.fromTeam', { name: definition?.name ?? run?.teamId ?? item.runId })}</span><time>{formatDate(item.updatedAt)}</time></div>
+      <div className={css.decisionBody}><h3 id={titleId}>{item.question}</h3><span>{t('attention.evidenceBound')}</span>{item.recommendation !== undefined && <p><small>{t('attention.agentRecommendation')}</small><strong>{item.recommendation}</strong></p>}</div>
+      <div className={css.decisionActions}>{run?.rootSessionId !== undefined && <button type="button" className={css.secondaryButton} onClick={() => { api.openRecord(run.rootSessionId as SessionId) }}>{t('attention.openRoom')}</button>}<div className={css.decisionOptions}>{item.options.map(option => <button type="button" className={option === item.recommendation ? css.primaryButton : css.secondaryButton} disabled={busy} key={option} onClick={() => { void api.respondTeamDecision(item, option) }}>{option}</button>)}</div></div>
+    </article>
+  })}</div></PageBoundary></section>
 }
 
 const EXTENSION_SECTION = {
@@ -841,5 +889,27 @@ export function EnterpriseWorkbench(props: EnterpriseWorkbenchProps) {
   }
   return <section ref={dialogRef} className={css.workbench} role="dialog" aria-modal="true" aria-label={props.t('title')} onKeyDown={onKeyDown}><header className={css.header}><div><h1>{props.t('title')}</h1><p>{props.t('subtitle')}</p></div><div className={css.headerActions}><button type="button" className={css.iconButton} aria-label={props.t('refresh')} onClick={() => { void props.refresh() }}><IconRefreshOutline16 size={16} /></button><button ref={closeRef} type="button" className={css.iconButton} aria-label={props.t('close')} onClick={requestClose}><IconCloseOutline16 size={16} /></button></div></header>
     {state.mutationError !== null && <div className={css.mutationError} role="alert" aria-label={props.t('mutation.errorAria')}><IconWarningOutline16 size={18} /><span>{state.mutationPhase === 'conflict' ? props.t('mutation.conflict') : state.mutationError}</span>{state.mutationPhase === 'conflict' ? <button type="button" onClick={() => { void props.resolveMutationConflict() }}>{props.t('mutation.reload')}</button> : <button type="button" onClick={() => { void props.retryMutation() }}>{props.t('mutation.retry')}</button>}<button type="button" onClick={props.dismissMutationError}>{props.t('mutation.dismiss')}</button></div>}
-    {state.phase === 'loading' && state.mode === null && <div className={css.loading} role="status"><span className={css.skeleton} />{props.t('loading')}</div>}{state.phase === 'error' && <div className={css.error} role="alert"><IconWarningOutline16 size={18} /><span>{state.error}</span><button type="button" onClick={() => { void props.refresh() }}>{props.t('retry')}</button></div>}{state.phase !== 'error' && state.mode === 'fallback' && <main className={css.body}><FallbackPage state={state} start={props.startEmployee} open={props.openRecord} t={props.t} /></main>}{state.phase !== 'error' && state.mode === 'enterprise' && <div className={css.shell}><nav className={css.nav} aria-label={props.t('nav.aria')}>{NAV_GROUPS.map(group => <div className={css.navGroup} key={group.label}><span>{props.t(group.label)}</span>{group.items.map(([id, key]) => <button type="button" key={id} aria-current={page === id ? 'page' : undefined} onClick={() => { requestPage(id) }}>{props.t(key)}</button>)}</div>)}</nav><main className={css.main}>{partial && <div className={css.notice} role="status">{props.t('partial')}</div>}{page === 'employees' && <EmployeesPage state={state} api={api} guardDirty={guardDirty} t={props.t} />}{page === 'work-records' && <WorkRecordsPage page={state.workRecords} update={props.updateWorkRecord} busy={mutationBusy} t={props.t} />}{page === 'approvals' && <ApprovalsPage page={state.approvals} api={api} busy={mutationBusy} t={props.t} />}{page === 'attention' && <TeamAttentionPage page={teamDecisions} api={api} busy={mutationBusy} t={props.t} />}{page === 'schedules' && <SchedulesPage page={state.schedules} releases={state.releases} api={api} busy={mutationBusy} onDirty={() => { setLocalFormDirty(true) }} t={props.t} />}{page === 'assets' && <AssetsPage page={state.assets} cordisCount={cordisExtensionCount(state)} api={api} busy={mutationBusy} onDirty={() => { setLocalFormDirty(true) }} openExtensions={() => { requestPage('extensions') }} t={props.t} />}{page === 'teams' && <><TeamsPage page={state.teams} releases={state.releases} api={api} busy={mutationBusy} onDirty={() => { setLocalFormDirty(true) }} t={props.t} /><TeamControlPanel definitions={teamDefinitions} runs={teamRuns} decisions={teamDecisions} autonomy={teamAutonomy} workspaces={workspaces} api={api} busy={mutationBusy} t={props.t}/></>}{page === 'extensions' && <ExtensionsPage state={state} workspaces={workspaces} api={api} busy={mutationBusy} t={props.t} />}</main></div>}</section>
+    {state.phase === 'loading' && state.mode === null && <div className={css.loading} role="status"><span className={css.skeleton} />{props.t('loading')}</div>}
+    {state.phase === 'error' && <div className={css.error} role="alert"><IconWarningOutline16 size={18} /><span>{state.error}</span><button type="button" onClick={() => { void props.refresh() }}>{props.t('retry')}</button></div>}
+    {state.phase !== 'error' && state.mode === 'fallback' && <main className={css.body}><FallbackPage state={state} start={props.startEmployee} open={props.openRecord} t={props.t} /></main>}
+    {state.phase !== 'error' && state.mode === 'enterprise' && <div className={css.shell}>
+      <nav className={css.nav} aria-label={props.t('nav.aria')}>{NAV_GROUPS.map(group => <div className={css.navGroup} key={group.label}><span>{props.t(group.label)}</span>{group.items.map(([id, key]) => <button type="button" key={id} aria-current={page === id ? 'page' : undefined} onClick={() => { requestPage(id) }}>{props.t(key)}</button>)}</div>)}</nav>
+      <main className={css.main}>
+        {partial && <div className={css.notice} role="status">{props.t('partial')}</div>}
+        {page === 'employees' && <EmployeesPage state={state} api={api} guardDirty={guardDirty} t={props.t} />}
+        {page === 'work-records' && <WorkRecordsPage page={state.workRecords} update={props.updateWorkRecord} busy={mutationBusy} t={props.t} />}
+        {page === 'approvals' && <ApprovalsPage page={state.approvals} api={api} busy={mutationBusy} t={props.t} />}
+        {page === 'attention' && <TeamAttentionPage page={teamDecisions} runs={teamRuns} definitions={teamDefinitions} api={api} busy={mutationBusy} t={props.t} />}
+        {page === 'schedules' && <SchedulesPage page={state.schedules} releases={state.releases} api={api} busy={mutationBusy} onDirty={() => { setLocalFormDirty(true) }} t={props.t} />}
+        {page === 'assets' && <AssetsPage page={state.assets} cordisCount={cordisExtensionCount(state)} api={api} busy={mutationBusy} onDirty={() => { setLocalFormDirty(true) }} openExtensions={() => { requestPage('extensions') }} t={props.t} />}
+        {page === 'teams' && <>
+          <TeamControlPanel definitions={teamDefinitions} runs={teamRuns} decisions={teamDecisions} autonomy={teamAutonomy} workspaces={workspaces} api={api} busy={mutationBusy} t={props.t}/>
+          <LegacyTeamsDisclosure initiallyOpen={teamDefinitions.items.length === 0} count={state.teams.items.length} t={props.t}>
+            <TeamsPage embedded page={state.teams} releases={state.releases} api={api} busy={mutationBusy} onDirty={() => { setLocalFormDirty(true) }} t={props.t} />
+          </LegacyTeamsDisclosure>
+        </>}
+        {page === 'extensions' && <ExtensionsPage state={state} workspaces={workspaces} api={api} busy={mutationBusy} t={props.t} />}
+      </main>
+    </div>}
+  </section>
 }

@@ -212,9 +212,14 @@ describe('EnterpriseWorkbench', () => {
         teamAutonomy: { phase: 'ready', items: [], error: null },
       }, startTeamRun, openRecord, respondTeamDecision,
     } as never)
-    const { rerender } = render(<EnterpriseWorkbench {...props}/>)
-    expect(screen.getByText('让采购交付可验证')).toBeDefined()
-    fireEvent.click(screen.getByRole('button', { name: '准备启动' }))
+    const { container, rerender } = render(<EnterpriseWorkbench {...props}/>)
+    expect(screen.getByRole('heading', { name: '团队协作指挥台' })).toBeDefined()
+    expect(container.querySelector('details')?.open).toBe(false)
+    expect(screen.getByRole('button', { name: '选择采购交付组章程' }).getAttribute('aria-pressed')).toBe('false')
+    expect(screen.getAllByText('让采购交付可验证').length).toBeGreaterThan(0)
+    fireEvent.click(screen.getByRole('button', { name: '选择采购交付组章程' }))
+    expect(screen.getByRole('button', { name: '选择采购交付组章程' }).getAttribute('aria-pressed')).toBe('true')
+    expect(screen.getAllByText('北极星').length).toBe(2)
     fireEvent.change(screen.getByLabelText('业务空间'), { target: { value: 'workspace-1' } })
     fireEvent.change(screen.getByLabelText('本次工作目标'), { target: { value: '交付供应商核验报告' } })
     fireEvent.click(screen.getByRole('button', { name: '启动团队工作' }))
@@ -225,10 +230,18 @@ describe('EnterpriseWorkbench', () => {
     expect(openRecord).toHaveBeenCalledWith('session-team')
 
     rerender(<EnterpriseWorkbench {...workbenchProps({
-      state: { mode: 'enterprise', page: 'attention', teamDecisions: { phase: 'ready', items: [decision], error: null } as never },
-      respondTeamDecision,
+      state: {
+        mode: 'enterprise', page: 'attention',
+        teamDefinitions: { phase: 'ready', items: [definition], error: null } as never,
+        teamRuns: { phase: 'ready', items: [run], error: null } as never,
+        teamDecisions: { phase: 'ready', items: [decision], error: null } as never,
+      },
+      respondTeamDecision, openRecord,
     } as never)}/>)
     expect(screen.getByText('是否发布采购结论？')).toBeDefined()
+    expect(screen.getByText('来自 采购交付组')).toBeDefined()
+    fireEvent.click(screen.getByRole('button', { name: '进入关联 Team Room' }))
+    expect(openRecord).toHaveBeenLastCalledWith('session-team')
     fireEvent.click(screen.getByRole('button', { name: '批准' }))
     expect(respondTeamDecision).toHaveBeenCalledWith(expect.objectContaining({ decisionId: 'decision-a' }), '批准')
   })
