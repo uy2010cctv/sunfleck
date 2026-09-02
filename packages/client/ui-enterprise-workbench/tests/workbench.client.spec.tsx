@@ -125,6 +125,14 @@ function workbenchProps(overrides: Partial<EnterpriseWorkbenchProps> & {
   } as EnterpriseWorkbenchProps
 }
 
+function activeFeishuChannel(channelId: string, name: string) {
+  return {
+    orgId: 'org-a', channelId, name, provider: 'feishu', accountId: `${channelId}-app`, credentialRef: 'FEISHU',
+    credentialStatus: 'configured', inboundEnabled: true, allowedIntents: [], transportStatus: 'unverified', state: 'active',
+    bindingStatus: 'unbound', createdBy: 'admin', revision: 1, createdAt: 1, updatedAt: 1,
+  } as const
+}
+
 describe('EnterpriseTrigger', () => {
   it('renders the labelled row when wide and the accessible icon control on the rail', () => {
     const toggle = vi.fn()
@@ -234,7 +242,7 @@ describe('EnterpriseWorkbench', () => {
     expect(screen.getByRole('heading', { name: '渠道设置' })).toBeDefined()
     expect(screen.getByRole('heading', { name: '财务企业微信' })).toBeDefined()
     expect(screen.getByText('凭证已配置')).toBeDefined()
-    expect(screen.getAllByText('传输证据待补充').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('适配器证据待补充').length).toBeGreaterThan(0)
     expect(container.querySelector('input[type="password"]')).toBeNull()
 
     fireEvent.click(screen.getByRole('button', { name: '新建渠道' }))
@@ -310,7 +318,7 @@ describe('EnterpriseWorkbench', () => {
     expect(screen.getByRole('button', { name: '扫码绑定个人微信' }).hasAttribute('disabled')).toBe(true)
   })
 
-  it('targets the enabled configuration, binding, and transport recovery control for each attention condition', () => {
+  it('targets enabled configuration and binding recovery controls without treating pending adapter evidence as attention', () => {
     const channel = (overrides: Record<string, unknown>) => ({
       orgId: 'org-a', provider: 'feishu', tenantId: 'tenant', accountId: 'app', credentialRef: 'CREDENTIAL',
       credentialStatus: 'configured', inboundEnabled: true, allowedIntents: [], transportStatus: 'unverified',
@@ -331,7 +339,7 @@ describe('EnterpriseWorkbench', () => {
     const attention = screen.getByRole('region', { name: '渠道待处理项' })
     expect(within(attention).getByText('账号 ID 缺失 · 企业 / 租户 ID 缺失 · 凭证缺失')).toBeDefined()
     expect(within(attention).getByText('已启用渠道的官方二维码身份未绑定')).toBeDefined()
-    expect(within(attention).getByText('适配器证据尚未记录；当前不能判断传输结果')).toBeDefined()
+    expect(attention.textContent).not.toContain('待证据')
     expect(attention.textContent).not.toContain('草稿未绑定')
     expect(attention.textContent).not.toContain('暂停待证据')
     expect(attention.textContent).not.toContain('归档缺少配置')
@@ -352,10 +360,8 @@ describe('EnterpriseWorkbench', () => {
     expect(bind.hasAttribute('disabled')).toBe(false)
 
     const evidenceRow = screen.getByRole('article', { name: '待证据' })
-    const transport = within(evidenceRow).getByRole('link', { name: '查看传输接入要求' })
-    fireEvent.click(within(attention).getByRole('button', { name: /待证据/u }))
-    expect(document.activeElement).toBe(transport)
-    expect(document.activeElement).not.toBe(within(evidenceRow).getByRole('button', { name: '重新绑定' }))
+    expect(within(evidenceRow).queryByRole('link', { name: '查看传输接入要求' })).toBeNull()
+    expect(within(evidenceRow).getAllByText('适配器证据待补充').length).toBeGreaterThan(0)
   })
 
   it('keeps attention items as native keyboard buttons for Enter and Space activation', () => {
@@ -373,14 +379,52 @@ describe('EnterpriseWorkbench', () => {
     const focus = vi.spyOn(edit, 'focus')
     expect(attention.tagName).toBe('BUTTON')
     expect(attention.getAttribute('type')).toBe('button')
-    for (const [index, key] of ['Enter', ' '].entries()) {
-      attention.focus()
-      expect(fireEvent.keyDown(attention, { key, code: key === ' ' ? 'Space' : 'Enter' })).toBe(false)
-      expect(document.activeElement).toBe(edit)
-      expect(focus).toHaveBeenCalledTimes(index + 1)
-      expect(fireEvent.keyUp(attention, { key, code: key === ' ' ? 'Space' : 'Enter' })).toBe(true)
-      expect(focus).toHaveBeenCalledTimes(index + 1)
-    }
+    attention.focus()
+    expect(fireEvent.keyDown(attention, { key: 'Enter', code: 'Enter' })).toBe(false)
+    expect(document.activeElement).toBe(edit)
+    expect(focus).toHaveBeenCalledTimes(1)
+    expect(fireEvent.keyUp(attention, { key: 'Enter', code: 'Enter' })).toBe(true)
+    expect(focus).toHaveBeenCalledTimes(1)
+
+    attention.focus()
+    expect(fireEvent.keyDown(attention, { key: ' ', code: 'Space' })).toBe(false)
+    expect(document.activeElement).toBe(attention)
+    expect(focus).toHaveBeenCalledTimes(1)
+    expect(fireEvent.keyUp(attention, { key: ' ', code: 'Space' })).toBe(false)
+    expect(document.activeElement).toBe(edit)
+    expect(focus).toHaveBeenCalledTimes(2)
+  })
+
+  it('suppresses bind attention while an official binding is opening, waiting, or checking', async () => {
+    vi.useFakeTimers()
+    let resolveBinding!: (value: { authorizationUrl: string; expiresAt: number }) => void
+    const beginChannelBinding = vi.fn(() => new Promise<{ authorizationUrl: string; expiresAt: number }>((resolve) => {
+      resolveBinding = resolve
+    }))
+    const refreshChannels = vi.fn(() => new Promise<boolean>(() => {}))
+    const popup = { closed: false, close: vi.fn(), opener: window, location: { href: 'about:blank' } }
+    vi.spyOn(window, 'open').mockReturnValue(popup as never)
+    render(<EnterpriseWorkbench {...workbenchProps({ state: {
+      mode: 'enterprise', page: 'channels', channels: { phase: 'ready', error: null,
+        items: [activeFeishuChannel('first', '首个飞书'), activeFeishuChannel('second', '第二个飞书')] } as never,
+    }, beginChannelBinding, refreshChannels } as never)} />)
+
+    fireEvent.click(screen.getAllByRole('button', { name: '扫码绑定飞书' })[0] as HTMLElement)
+    expect(screen.getByRole('status').textContent).toContain('正在准备官方授权')
+    expect(screen.queryByRole('region', { name: '渠道待处理项' })).toBeNull()
+
+    resolveBinding({
+      authorizationUrl: `https://accounts.feishu.cn/open-apis/authen/v1/authorize?state=${SIGNED_STATE_A}`,
+      expiresAt: Date.now() + 60_000,
+    })
+    await act(async () => {})
+    expect(screen.getByRole('status').textContent).toContain('已打开官方授权')
+    expect(screen.queryByRole('region', { name: '渠道待处理项' })).toBeNull()
+
+    popup.closed = true
+    act(() => { vi.advanceTimersByTime(250) })
+    expect(screen.getByRole('status').textContent).toContain('正在同步绑定结果')
+    expect(screen.queryByRole('region', { name: '渠道待处理项' })).toBeNull()
   })
 
   it('renders English attention, readiness status, and provider transport guidance', () => {
@@ -400,10 +444,10 @@ describe('EnterpriseWorkbench', () => {
 
     expect(screen.getByRole('region', { name: 'Channel attention' }).textContent).toContain('Account ID missing · Enterprise / tenant ID missing · Credential missing')
     expect(screen.getByText('Pending configuration')).toBeDefined()
-    expect(screen.getAllByText('Transport evidence pending').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('Adapter evidence pending').length).toBeGreaterThan(0)
     expect(screen.getByText(/Create an Intelligent Bot or app in the admin console/u)).toBeDefined()
     expect(screen.getByText(/Minimum transport permissions: read P2P messages/u)).toBeDefined()
-    expect(screen.getAllByRole('link', { name: 'View transport integration requirements' })).toHaveLength(2)
+    expect(screen.getByRole('region', { name: 'Channel attention' }).textContent).not.toContain('Finance Feishu')
   })
 
   it('keeps configuration, official identity, DSH route, and transport evidence independent', () => {
@@ -422,7 +466,7 @@ describe('EnterpriseWorkbench', () => {
     }
     expect(within(rail).getByText('release-finance-v3')).toBeDefined()
     expect(within(rail).getByText('身份已验证')).toBeDefined()
-    expect(within(rail).getByText('传输证据待补充')).toBeDefined()
+    expect(within(rail).getByText('适配器证据待补充')).toBeDefined()
   })
 
   it('separates provider transport setup from OAuth identity guidance', () => {
@@ -439,8 +483,8 @@ describe('EnterpriseWorkbench', () => {
     for (const copy of [
       '在管理后台创建智能机器人或应用，配置 Agent / 应用可见范围与回调可信域名；仍需 Bot / 传输 Credential 引用。',
       '传输最小权限：读取单聊消息、接收群 @ 事件、以机器人身份发送；联系人、邮件、HR 仅在业务需要时申请。',
-      '创建 Stream 模式机器人 / 应用，配置「登录与分享」回调，并引用 Client ID / Secret Credential。',
-      '已审核网站应用 OAuth 仅验证身份与交接；DSH 不实现 StaffDeck iLink，也不声称可发送个人聊天消息。',
+      '创建 Stream 模式机器人 / 监听器，并引用 Client ID / Secret Credential。',
+      '已审核网站应用 OAuth 仅验证身份与交接；DSH 不实现非公开 iLink / 个人聊天协议，也不声称可发送个人聊天消息。',
     ]) expect(screen.getByText(copy)).toBeDefined()
     expect(screen.getAllByText('传输配置，与 OAuth 身份分离')).toHaveLength(4)
   })
@@ -461,9 +505,11 @@ describe('EnterpriseWorkbench', () => {
       ] } as never,
     } } as never)} />)
 
-    for (const status of ['待补全配置', '可扫码', '身份已验证', '已暂停', '已归档', '传输证据待补充']) {
+    for (const status of ['待补全配置', '可扫码', '身份已验证', '适配器证据待补充']) {
       expect(screen.getAllByText(status).length).toBeGreaterThan(0)
     }
+    expect(screen.getAllByText('已暂停')).toHaveLength(1)
+    expect(screen.getAllByText('已归档')).toHaveLength(1)
     const archivedRow = screen.getByRole('article', { name: '归档' })
     expect(within(archivedRow).getAllByRole('button').every(button => button.hasAttribute('disabled'))).toBe(true)
   })
@@ -576,13 +622,8 @@ describe('EnterpriseWorkbench', () => {
       { closed: false, close: vi.fn(), opener: window, location: { href: 'about:blank' } },
     ]
     vi.spyOn(window, 'open').mockReturnValueOnce(popups[0] as never).mockReturnValueOnce(popups[1] as never)
-    const channel = (channelId: string, name: string) => ({
-      orgId: 'org-a', channelId, name, provider: 'feishu', accountId: `${channelId}-app`, credentialRef: 'FEISHU',
-      credentialStatus: 'configured', inboundEnabled: true, allowedIntents: [], transportStatus: 'unverified', state: 'active',
-      bindingStatus: 'unbound', createdBy: 'admin', revision: 1, createdAt: 1, updatedAt: 1,
-    })
     render(<EnterpriseWorkbench {...workbenchProps({ state: {
-      mode: 'enterprise', page: 'channels', channels: { phase: 'ready', error: null, items: [channel('first', '首个飞书'), channel('second', '第二个飞书')] } as never,
+      mode: 'enterprise', page: 'channels', channels: { phase: 'ready', error: null, items: [activeFeishuChannel('first', '首个飞书'), activeFeishuChannel('second', '第二个飞书')] } as never,
     }, beginChannelBinding } as never)} />)
 
     const buttons = screen.getAllByRole('button', { name: '扫码绑定飞书' })
