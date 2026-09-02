@@ -162,7 +162,7 @@ export class EnterpriseTeamRuntimeAdapter implements EnterpriseTeamRuntimeDriver
         operationId: input.operationId,
         actor: { userId: input.actor.userId, displayName: actorUser.displayName },
         leader: {
-          sessionId: root.id,
+          sessionId: runtimeRoot.id,
           roleId: this.leaderRole(input.definition),
           release: leader.durable,
         },

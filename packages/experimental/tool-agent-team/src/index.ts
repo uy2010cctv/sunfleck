@@ -291,7 +291,9 @@ function install(agent: Agent, ctx: Context, config: Required<Config>): () => vo
       parameters: {},
       output: jsonOutput(MEMBER_LIST_VALUE_SCHEMA),
       execute(_args, exec) {
-        return ctx.agentTeams.listMembers(callingAgent(exec.agent, 'list_agents')).map(modelMemberView)
+        return Promise.resolve(
+          ctx.agentTeams.listMembers(callingAgent(exec.agent, 'list_agents')).map(modelMemberView),
+        )
       },
     })))
 
