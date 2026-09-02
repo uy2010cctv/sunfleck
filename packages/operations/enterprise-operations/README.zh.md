@@ -54,9 +54,22 @@ kind: "package-reference"
 `EnterpriseOperationsService` 是 Host/API 层的 driver-neutral 门面。它接收 `EnterprisePrincipal`，并在调用底层 driver 前强制执行组织范围检查、`authorize` 回调和 `audit` 回调；未授权请求不会触达数据库 driver。所有方法使用 `enterpriseOperation.*` 类型化端点，且将组织 ID 从 principal 注入 driver，调用方不能借由请求体切换组织。团队定义读取只向 repository 传递 Host 派生的 user id 和管理员标志；PostgreSQL 在分页前执行已存储的可见性，repository 不持有包含角色的 principal。生产组合应将 `authorize` 连接到统一的 `EnterpriseSecurity.authorizeApi`，将 `audit` 连接到统一审计仓储。生产 PostgreSQL 组合会从部署密钥派生相互隔离的 Catalog 和 Operations cursor key，并直接在源表中解析员工发布版、用户、部门和原生 Session header。Session 解析还必须找到 `resource_type = 'session'` 且组织匹配的 `resource_policies` 记录；缺失 policy 或跨组织 policy 都失败关闭。取消审批先执行中央授权决策，中央允许后才读取 driver 并检查申请人关系，最终只写一条 allowed 或 denied 审计。带过滤条件的调度列表返回 cursor page；无过滤的 Service 重载保留旧的数组结果。原生引用 resolver 接收 Repository 当前的事务连接并必须通过它查询；这避免了 `poolMax = 1` 时重新进入连接池导致的死锁。
 
 ```ts
+import type { EnterprisePrincipal } from '@deepseek-ai/dsh-enterprise-governance'
+import {
+  EnterpriseOperationsService,
+  type EnterpriseOperationsAudit,
+  type EnterpriseOperationsAuthorize,
+  type EnterpriseOperationsDriver,
+} from '@deepseek-ai/dsh-enterprise-operations'
+
+declare const repository: EnterpriseOperationsDriver
+declare const principal: EnterprisePrincipal
+declare const authorize: EnterpriseOperationsAuthorize
+declare const audit: EnterpriseOperationsAudit
+
 const service = new EnterpriseOperationsService(repository, {
-  authorize: (principal, endpoint, input) => security.authorizeApi(principal, endpoint, input),
-  audit: event => auditRepository.append(event),
+  authorize,
+  audit,
 })
 const records = await service.listWorkRecords(principal, { businessState: 'waiting-approval' })
 ```

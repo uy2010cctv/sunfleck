@@ -54,9 +54,22 @@ Durable operation projections over native DSH execution:
 `EnterpriseOperationsService` is the driver-neutral Host/API facade. It accepts an `EnterprisePrincipal` and requires `authorize` and `audit` callbacks. Organization scope is checked before authorization, and denied requests never reach the driver. Each method uses a typed `enterpriseOperation.*` endpoint and injects the principal's organization ID into the driver, so request payloads cannot switch organizations. Team-definition reads pass only a Host-derived user id and administrator flag to the repository; PostgreSQL applies stored visibility before pagination, while the repository remains free of role-bearing principals. Production composition should connect `authorize` to the central `EnterpriseSecurity.authorizeApi` policy and `audit` to the durable audit repository. The production PostgreSQL composition derives separate Catalog and Operations cursor keys from deployment secret material and resolves employee releases, users, departments, and native Session headers directly from their source tables. Session resolution additionally requires a matching `resource_policies` row for `resource_type = 'session'` and the caller's organization. Missing or cross-organization policies fail closed. Cancellation runs the central authorization decision before any driver read, then resolves ownership only when central policy allows; one final allowed or denied audit is emitted. Filtered schedule listing returns a cursor page; the no-filter service overload retains the legacy array result. Native reference resolvers receive the repository's active transaction connection and must query through it; this avoids pool re-entry deadlocks when `poolMax` is one.
 
 ```ts
+import type { EnterprisePrincipal } from '@deepseek-ai/dsh-enterprise-governance'
+import {
+  EnterpriseOperationsService,
+  type EnterpriseOperationsAudit,
+  type EnterpriseOperationsAuthorize,
+  type EnterpriseOperationsDriver,
+} from '@deepseek-ai/dsh-enterprise-operations'
+
+declare const repository: EnterpriseOperationsDriver
+declare const principal: EnterprisePrincipal
+declare const authorize: EnterpriseOperationsAuthorize
+declare const audit: EnterpriseOperationsAudit
+
 const service = new EnterpriseOperationsService(repository, {
-  authorize: (principal, endpoint, input) => security.authorizeApi(principal, endpoint, input),
-  audit: event => auditRepository.append(event),
+  authorize,
+  audit,
 })
 const records = await service.listWorkRecords(principal, { businessState: 'waiting-approval' })
 ```

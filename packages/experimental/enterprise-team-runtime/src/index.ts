@@ -43,7 +43,7 @@ export const inject = [
   'sessions',
   'subagents',
   'workspaceRegistry',
-] as const
+]
 
 interface ResolvedRelease {
   readonly durable: TeamReleaseSnapshot
