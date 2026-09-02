@@ -28,7 +28,7 @@ import type {
   EnterpriseWorkRecord, WorkRecordState,
 } from './store.ts'
 import css from './EnterpriseWorkbench.module.css'
-import { CHANNEL_BINDING_PROFILES } from './channelBindingProfiles.ts'
+import { CHANNEL_BINDING_PROFILES, officialChannelAuthorizationUrl } from './channelBindingProfiles.ts'
 
 export interface EnterpriseWorkbenchInjected {
   hooks: { enterprise: SnapshotStore<EnterpriseWorkbenchState> }
@@ -740,27 +740,36 @@ function ChannelsPage({ page, api, busy, onDirty, onClean, t }: {
   const emptyForm: FormState = { channelId: '', name: '', provider: 'wecom', tenantId: '', accountId: '', credentialRef: '', defaultEmployeeReleaseId: '', inboundEnabled: true, expectedRevision: 0 }
   const [form, setForm] = useState<FormState | null>(null)
   const [binding, setBinding] = useState<{
+    attemptId: number
     channelId: string
     phase: 'opening' | 'waiting' | 'error' | 'expired'
     message?: string
     expiresAt?: number
   } | null>(null)
-  const bindingPopup = useRef<Window | null>(null)
+  const attemptGeneration = useRef(0)
+  const activeBinding = useRef<{ attemptId: number; channelId: string; popup: Window } | null>(null)
+  const isActiveAttempt = (attemptId: number, popup: Window): boolean => {
+    const active = activeBinding.current
+    return active !== null && active.attemptId === attemptId && active.popup === popup
+  }
   useEffect(() => {
     const onMessage = (event: MessageEvent): void => {
+      const active = activeBinding.current
       if (event.origin !== window.location.origin) return
-      if (bindingPopup.current === null || event.source !== bindingPopup.current) return
+      if (active === null || event.source !== active.popup) return
       if (typeof event.data !== 'object' || event.data === null) return
       const data = event.data as { type?: unknown; channelId?: unknown }
-      if (data.type === 'dsh-channel-binding-complete' && typeof data.channelId === 'string') {
-        bindingPopup.current = null
+      if (data.type === 'dsh-channel-binding-complete' && data.channelId === active.channelId) {
+        activeBinding.current = null
         setBinding(null)
         void api.refreshChannels()
-      } else if (data.type === 'dsh-channel-binding-failed') {
-        bindingPopup.current = null
-        setBinding(current => ({
-          channelId: current?.channelId ?? '', phase: 'error', message: t('channel.binding.callbackFailed'),
-        }))
+      } else if (data.type === 'dsh-channel-binding-failed'
+        && (data.channelId === undefined || data.channelId === active.channelId)) {
+        activeBinding.current = null
+        setBinding({
+          attemptId: active.attemptId, channelId: active.channelId,
+          phase: 'error', message: t('channel.binding.callbackFailed'),
+        })
       }
     }
     window.addEventListener('message', onMessage)
@@ -769,17 +778,37 @@ function ChannelsPage({ page, api, busy, onDirty, onClean, t }: {
   useEffect(() => {
     if (binding?.phase !== 'waiting' || binding.expiresAt === undefined) return
     const remaining = binding.expiresAt - Date.now()
+    const expire = (): void => {
+      const active = activeBinding.current
+      if (active === null || active.attemptId !== binding.attemptId) return
+      activeBinding.current = null
+      if (!active.popup.closed) active.popup.close()
+      setBinding(current => current?.attemptId === binding.attemptId
+        ? { attemptId: binding.attemptId, channelId: binding.channelId, phase: 'expired' }
+        : current)
+    }
     if (remaining <= 0) {
-      setBinding({ channelId: binding.channelId, phase: 'expired' })
+      expire()
       return
     }
-    const timer = window.setTimeout(() => {
-      setBinding(current => current?.channelId === binding.channelId
-        ? { channelId: binding.channelId, phase: 'expired' }
-        : current)
-    }, Math.min(remaining, 2_147_483_647))
+    const timer = window.setTimeout(expire, Math.min(remaining, 2_147_483_647))
     return () => { window.clearTimeout(timer) }
   }, [binding])
+  useEffect(() => {
+    if (binding?.phase !== 'waiting') return
+    const poll = window.setInterval(() => {
+      const active = activeBinding.current
+      if (active === null || active.attemptId !== binding.attemptId || !active.popup.closed) return
+      activeBinding.current = null
+      void api.refreshChannels()
+      const channel = page.items.find(item => item.channelId === binding.channelId)
+      setBinding(channel?.bindingStatus === 'verified' ? null : {
+        attemptId: binding.attemptId, channelId: binding.channelId,
+        phase: 'error', message: t('channel.binding.popupClosed'),
+      })
+    }, 250)
+    return () => { window.clearInterval(poll) }
+  }, [api, binding, page.items, t])
   const edit = (channel: EnterpriseChannelConfiguration): void => {
     setForm({
       channelId: channel.channelId, name: channel.name, provider: channel.provider,
@@ -806,32 +835,52 @@ function ChannelsPage({ page, api, busy, onDirty, onClean, t }: {
     && channel.credentialStatus === 'configured'
     && channel.accountId.trim() !== ''
     && (channel.provider !== 'wecom' || (channel.tenantId?.trim() ?? '') !== '')
+  const prerequisiteDetail = (channel: EnterpriseChannelConfiguration): string => {
+    const missing: string[] = []
+    if (channel.accountId.trim() === '') missing.push(t('channel.binding.accountMissing'))
+    if (channel.provider === 'wecom' && (channel.tenantId?.trim() ?? '') === '') {
+      missing.push(t('channel.binding.tenantMissing'))
+    }
+    if (channel.credentialStatus !== 'configured') missing.push(t('channel.credentialMissing'))
+    if (channel.state === 'archived') missing.push(t('channel.binding.archived'))
+    return missing.length === 0 ? t('channel.credentialConfigured') : missing.join(' · ')
+  }
   const beginBinding = async (channel: EnterpriseChannelConfiguration): Promise<void> => {
+    const attemptId = ++attemptGeneration.current
+    const previous = activeBinding.current
+    activeBinding.current = null
+    if (previous !== null && !previous.popup.closed) previous.popup.close()
     const popup = window.open('', 'dsh-channel-binding', 'popup,width=560,height=720,resizable=yes,scrollbars=yes')
     if (popup === null) {
-      setBinding({ channelId: channel.channelId, phase: 'error', message: t('channel.binding.popupBlocked') })
+      setBinding({ attemptId, channelId: channel.channelId, phase: 'error', message: t('channel.binding.popupBlocked') })
       return
     }
-    bindingPopup.current = popup
-    setBinding({ channelId: channel.channelId, phase: 'opening' })
+    activeBinding.current = { attemptId, channelId: channel.channelId, popup }
+    setBinding({ attemptId, channelId: channel.channelId, phase: 'opening' })
     try {
       const session = await api.beginChannelBinding(
         channel,
         `${window.location.origin}${window.location.pathname}?dsh_channel_binding=1`,
       )
+      if (!isActiveAttempt(attemptId, popup)) return
       if (popup.closed) {
-        setBinding({ channelId: channel.channelId, phase: 'error', message: t('channel.binding.popupClosed') })
-        bindingPopup.current = null
+        activeBinding.current = null
+        setBinding({ attemptId, channelId: channel.channelId, phase: 'error', message: t('channel.binding.popupClosed') })
         return
       }
-      popup.location.href = session.authorizationUrl
-      setBinding({ channelId: channel.channelId, phase: 'waiting', expiresAt: session.expiresAt })
+      const authorization = officialChannelAuthorizationUrl(channel.provider, session.authorizationUrl)
+      if (authorization === null) throw new Error('invalid provider authorization URL')
+      popup.opener = null
+      popup.location.href = authorization.href
+      setBinding({ attemptId, channelId: channel.channelId, phase: 'waiting', expiresAt: session.expiresAt })
     } catch {
+      if (!isActiveAttempt(attemptId, popup)) return
       popup.close()
-      bindingPopup.current = null
-      setBinding({ channelId: channel.channelId, phase: 'error', message: t('channel.binding.beginFailed') })
+      activeBinding.current = null
+      setBinding({ attemptId, channelId: channel.channelId, phase: 'error', message: t('channel.binding.beginFailed') })
     }
   }
+  const bindingBusy = binding?.phase === 'opening' || binding?.phase === 'waiting'
   return <section className={css.channelPage} aria-labelledby="channel-page-title">
     <ManagementHeader id="channel-page-title" title={t('channel.title')} description={t('channel.description')} count={page.items.length} action={<button type="button" className={css.primaryButton} onClick={() => { setForm(emptyForm) }}><IconPlusOutline16 size={16}/>{t('channel.new')}</button>}/>
     <div className={css.channelPrinciple}><IconApiOutline14 size={16}/><div><strong>{t('channel.truthTitle')}</strong><span>{t('channel.truthBody')}</span></div></div>
@@ -868,7 +917,7 @@ function ChannelsPage({ page, api, busy, onDirty, onClean, t }: {
             {(channelBinding.phase === 'error' || channelBinding.phase === 'expired') && <button type="button" className={css.textButton} disabled={!eligible} onClick={() => { void beginBinding(channel) }}>{t('channel.binding.retry')}</button>}
           </div>}
           <div className={css.connectionPath} aria-label={t('channel.pathAria', { name: channel.name })}>
-            <span><small>{t('channel.pathPrerequisite')}</small><strong data-status={eligible ? 'configured' : 'missing'}>{eligible ? t('channel.binding.ready') : t('channel.binding.missing')}</strong><em className={css.channelPrerequisiteDetail}>{channel.credentialStatus === 'configured' ? t('channel.credentialConfigured') : t('channel.credentialMissing')}</em></span><i aria-hidden="true"/><span><small>{t('channel.pathQr')}</small><strong>{t(profile.qrKey)}</strong></span><i aria-hidden="true"/><span><small>{t('channel.pathIdentity')}</small><strong data-status={channel.bindingStatus === 'verified' ? 'configured' : 'missing'}>{channel.bindingStatus === 'verified' ? t('channel.binding.verified') : t('channel.binding.unbound')}</strong></span><i aria-hidden="true"/><span><small>{t('channel.pathEvidence')}</small><strong>{t('channel.transportUnverified')}</strong></span>
+            <span><small>{t('channel.pathPrerequisite')}</small><strong data-status={eligible ? 'configured' : 'missing'}>{eligible ? t('channel.binding.ready') : t('channel.binding.missing')}</strong><em className={css.channelPrerequisiteDetail}>{prerequisiteDetail(channel)}</em></span><i aria-hidden="true"/><span><small>{t('channel.pathQr')}</small><strong>{t(profile.qrKey)}</strong></span><i aria-hidden="true"/><span><small>{t('channel.pathIdentity')}</small><strong data-status={channel.bindingStatus === 'verified' ? 'configured' : 'missing'}>{channel.bindingStatus === 'verified' ? t('channel.binding.verified') : t('channel.binding.unbound')}</strong></span><i aria-hidden="true"/><span><small>{t('channel.pathEvidence')}</small><strong>{t('channel.transportUnverified')}</strong></span>
           </div>
           {channel.bindingStatus === 'verified' && <div className={css.channelBindingEvidence}>
             <strong>{verifiedIdentity ?? t('channel.binding.identityFallback')}</strong>
@@ -877,7 +926,7 @@ function ChannelsPage({ page, api, busy, onDirty, onClean, t }: {
             <span>{t('channel.binding.actorEvidence', { actor: channel.bindingVerifiedBy ?? t('channel.binding.notRecorded'), time: channel.bindingVerifiedAt === undefined ? t('channel.binding.notRecorded') : formatDate(channel.bindingVerifiedAt) })}</span>
           </div>}
           <div className={css.channelIntentRow}><span>{t('channel.allowedIntents')}</span><div>{channel.allowedIntents.map(intent => <span key={intent}>{t(`channel.intent.${intent}`)}</span>)}</div>{!channel.inboundEnabled && <em>{t('channel.outboundOnly')}</em>}</div>
-          <div className={css.channelActions}><span>{t('channel.revision', { revision: channel.revision })}</span><button type="button" className={css.primaryButton} disabled={!eligible || channelBinding?.phase === 'opening'} onClick={() => { void beginBinding(channel) }}>{channel.bindingStatus === 'verified' ? t('channel.binding.rebind') : t(profile.actionKey)}</button><button type="button" className={css.secondaryButton} onClick={() => { edit(channel) }}><IconEditOutline16 size={16}/>{t('channel.edit')}</button>{channel.state === 'active' && <button type="button" className={css.secondaryButton} aria-label={t('channel.pauseAria', { name: channel.name })} disabled={busy} onClick={() => { void api.saveChannelConfiguration({ channelId: channel.channelId, name: channel.name, provider: channel.provider, ...(channel.tenantId === undefined ? {} : { tenantId: channel.tenantId }), accountId: channel.accountId, ...(channel.credentialRef === undefined ? {} : { credentialRef: channel.credentialRef }), ...(channel.defaultEmployeeReleaseId === undefined ? {} : { defaultEmployeeReleaseId: channel.defaultEmployeeReleaseId }), inboundEnabled: channel.inboundEnabled, state: 'paused', expectedRevision: channel.revision }) }}>{t('channel.pause')}</button>}{channel.state === 'paused' && <button type="button" className={css.primaryButton} disabled={busy || channel.credentialStatus !== 'configured'} onClick={() => { void api.saveChannelConfiguration({ channelId: channel.channelId, name: channel.name, provider: channel.provider, ...(channel.tenantId === undefined ? {} : { tenantId: channel.tenantId }), accountId: channel.accountId, ...(channel.credentialRef === undefined ? {} : { credentialRef: channel.credentialRef }), ...(channel.defaultEmployeeReleaseId === undefined ? {} : { defaultEmployeeReleaseId: channel.defaultEmployeeReleaseId }), inboundEnabled: channel.inboundEnabled, state: 'active', expectedRevision: channel.revision }) }}>{t('channel.resume')}</button>}<button type="button" className={css.secondaryButton} aria-label={t('channel.archiveAria', { name: channel.name })} disabled={busy} onClick={() => { void api.archiveChannelConfiguration(channel) }}>{t('channel.archive')}</button></div>
+          <div className={css.channelActions}><span>{t('channel.revision', { revision: channel.revision })}</span><button type="button" className={css.primaryButton} disabled={!eligible || bindingBusy} onClick={() => { void beginBinding(channel) }}>{channel.bindingStatus === 'verified' ? t('channel.binding.rebind') : t(profile.actionKey)}</button><button type="button" className={css.secondaryButton} onClick={() => { edit(channel) }}><IconEditOutline16 size={16}/>{t('channel.edit')}</button>{channel.state === 'active' && <button type="button" className={css.secondaryButton} aria-label={t('channel.pauseAria', { name: channel.name })} disabled={busy} onClick={() => { void api.saveChannelConfiguration({ channelId: channel.channelId, name: channel.name, provider: channel.provider, ...(channel.tenantId === undefined ? {} : { tenantId: channel.tenantId }), accountId: channel.accountId, ...(channel.credentialRef === undefined ? {} : { credentialRef: channel.credentialRef }), ...(channel.defaultEmployeeReleaseId === undefined ? {} : { defaultEmployeeReleaseId: channel.defaultEmployeeReleaseId }), inboundEnabled: channel.inboundEnabled, state: 'paused', expectedRevision: channel.revision }) }}>{t('channel.pause')}</button>}{channel.state === 'paused' && <button type="button" className={css.primaryButton} disabled={busy || channel.credentialStatus !== 'configured'} onClick={() => { void api.saveChannelConfiguration({ channelId: channel.channelId, name: channel.name, provider: channel.provider, ...(channel.tenantId === undefined ? {} : { tenantId: channel.tenantId }), accountId: channel.accountId, ...(channel.credentialRef === undefined ? {} : { credentialRef: channel.credentialRef }), ...(channel.defaultEmployeeReleaseId === undefined ? {} : { defaultEmployeeReleaseId: channel.defaultEmployeeReleaseId }), inboundEnabled: channel.inboundEnabled, state: 'active', expectedRevision: channel.revision }) }}>{t('channel.resume')}</button>}<button type="button" className={css.secondaryButton} aria-label={t('channel.archiveAria', { name: channel.name })} disabled={busy} onClick={() => { void api.archiveChannelConfiguration(channel) }}>{t('channel.archive')}</button></div>
         </article>
       })}</div>
     </PageBoundary>

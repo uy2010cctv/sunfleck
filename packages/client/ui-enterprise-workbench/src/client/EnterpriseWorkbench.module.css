@@ -970,11 +970,8 @@
   .connectionPath > i { inline-size: 1px; block-size: var(--dse-space-xs); margin-inline-start: var(--dse-space-md); }
   .connectionPath > i::after { margin-block-start: auto; margin-inline-start: -2px; transform: translateY(1px) rotate(135deg); }
   .channelBindingBanner, .channelActions { align-items: stretch; flex-direction: column; }
-  .channelActions > span { margin-inline-end: 0; }
-  .channelActions button { inline-size: 100%; }
-  .channelActions { align-items: stretch; }
-  .channelActions > span { flex-basis: 100%; }
-  .channelActions button { flex: 1; }
+  .channelActions > span { flex-basis: 100%; margin-inline-end: 0; }
+  .channelActions button { inline-size: 100%; flex: 1; }
 }
 
 @media (prefers-reduced-motion: reduce) {

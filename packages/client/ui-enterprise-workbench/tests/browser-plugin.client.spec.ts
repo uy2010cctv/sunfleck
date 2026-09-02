@@ -112,6 +112,28 @@ describe('enterprise workbench browser plugin', () => {
     expect(close).toHaveBeenCalledTimes(1)
   })
 
+  it('redacts callback secrets before invoking a deferred complete Remote', async () => {
+    const order: string[] = []
+    let resolveComplete!: (value: { result: { ok: true; value: { channelId: string } } }) => void
+    const completeBinding = vi.fn(() => {
+      order.push('remote')
+      return new Promise<{ result: { ok: true; value: { channelId: string } } }>((resolve) => {
+        resolveComplete = resolve
+      })
+    })
+    const pending = completeChannelBindingCallback({ completeBinding } as never, {
+      location: {
+        origin: 'https://dsh.example', pathname: '/workbench',
+        search: '?dsh_channel_binding=1&code=sensitive-code&state=signed-state',
+      },
+      history: { replaceState: () => { order.push('redact') } }, opener: null, close: vi.fn(),
+    })
+
+    expect(order).toEqual(['redact', 'remote'])
+    resolveComplete({ result: { ok: true, value: { channelId: 'finance-wecom' } } })
+    await pending
+  })
+
   it('ignores ordinary pages without the callback marker', async () => {
     const completeBinding = vi.fn()
     const handled = await completeChannelBindingCallback({ completeBinding }, {
