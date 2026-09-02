@@ -1,9 +1,10 @@
 import { Context } from '@deepseek-ai/cordis'
 import { EnterpriseRequestContext } from '@deepseek-ai/dsh-enterprise-auth-web'
+import type { EnterprisePrincipal } from '@deepseek-ai/dsh-enterprise-governance'
 import { RemoteError } from '@deepseek-ai/dsh-typert-protocol'
 import { describe, expect, it, vi } from 'vitest'
 
-const principal = { orgId: 'org-a', userId: 'admin-a', roles: ['administrator'] as const }
+const principal: EnterprisePrincipal = { orgId: 'org-a', userId: 'admin-a', roles: ['administrator'] }
 
 function stored(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
