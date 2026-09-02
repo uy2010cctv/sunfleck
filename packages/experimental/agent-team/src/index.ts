@@ -11,6 +11,7 @@ import { TeamJournal } from './journal.ts'
 import { TeamEnterpriseRuntime } from './enterprise-runtime.ts'
 import { TeamRuntimeLifecycle } from './lifecycle.ts'
 import { TeamMailbox } from './mailbox.ts'
+import { teamProjectionDefinition } from './projection.ts'
 import { TeamRoster } from './roster.ts'
 import type { TeamMembership } from './roster.ts'
 import { TeamTaskBoard } from './task-board.ts'
@@ -41,7 +42,7 @@ export type * from './types.ts'
 export type { TeamMembership } from './roster.ts'
 export { TeamId, TeamMessageId, TeamTaskId } from './types.ts'
 export { TeamError } from './error.ts'
-export { foldTeam } from './fold.ts'
+export { foldTeam } from './projection.ts'
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
@@ -65,7 +66,7 @@ function positiveLimit(name: string, value: number): number {
 
 /** Agent Teams service backed by the exact live Lead Session log. */
 export class TeamService extends TypertRemoteService {
-  static inject = ['agents', 'sessions', 'sessionPersistence', 'subagents']
+  static inject = ['agents', 'sessions', 'sessionPersistence', 'sessionProjections', 'subagents']
 
   static Config: z<Config> = z.object({
     maxMembers: z.number().step(1).min(1).default(DEFAULT_MAX_MEMBERS),
@@ -123,7 +124,16 @@ export class TeamService extends TypertRemoteService {
       const membership = this.roster.tryMembership(agent)
       if (membership !== undefined) this.activity.notify(membership.id)
     })
-    ctx.effect(() => () => this.disposeRuntime(), 'agentTeams.runtimeLifecycle()')
+    ctx.effect(() => {
+      const disposeProjection = ctx.root.sessionProjections.register(teamProjectionDefinition)
+      return async () => {
+        try {
+          await this.disposeRuntime()
+        } finally {
+          disposeProjection()
+        }
+      }
+    }, 'agentTeams.runtimeLifecycle()')
     for (const agent of ctx.agents.list()) this.scheduleRecovery(agent)
   }
 
@@ -155,7 +165,7 @@ export class TeamService extends TypertRemoteService {
     const state = this.journal.state(membership.root)
     return [
       ...this.roster.list(membership),
-      ...[...state.humans.values()].map(member => ({
+      ...state.humans.map(member => ({
         kind: 'human' as const,
         id: member.userId,
         userId: member.userId,
@@ -325,14 +335,14 @@ export class TeamService extends TypertRemoteService {
     const state = this.journal.state(membership.root)
     return {
       members: this.listMembers(agent),
-      humans: [...state.humans.values()].map(member => ({
+      humans: state.humans.map(member => ({
         kind: 'human', id: member.userId, userId: member.userId, displayName: member.displayName,
         name: member.displayName, role: 'human', roleId: member.roleId, status: 'active', diagnostics: [],
       })),
       roster: this.listRoster(agent),
       tasks: this.listTasks(agent),
       ...state.run === undefined ? {} : { run: state.run },
-      decisions: [...state.decisions.values()],
+      decisions: [...state.decisions],
     }
   }
 

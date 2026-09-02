@@ -19,7 +19,7 @@ function resultText(result: { content: readonly { type: string; text?: string }[
 
 function agentAt(cwd: string, name = 'memory-agent'): Agent {
   const id = SessionId(name)
-  const session = Session.create(id, [], { version: 0, id, createdAt: 1, cwd })
+  const session = Session.create(id, [], { version: 0, id, createdAt: 1, cwd, isSeeded: false })
   return { id, session } as unknown as Agent
 }
 

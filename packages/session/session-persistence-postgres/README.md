@@ -27,8 +27,9 @@ recovery closes interrupted turns without changing committed history.
 
 ## Storage model
 
-`dsh_session_headers` stores the immutable JSON header, a durable incarnation, and a monotonic
-revision. `dsh_session_events` stores one JSON event per `(session_id, seq)`. PostgreSQL locks the
+`dsh_session_headers` stores the immutable JSON header, exact fork-inherited event count, a durable
+incarnation, and a monotonic revision. Schema v2 adds `inherited_event_count`; schema-v1 rows migrate
+with the legacy zero-prefix default. `dsh_session_events` stores one JSON event per `(session_id, seq)`. PostgreSQL locks the
 header row before reading the tail, inserting a batch, or repairing a final torn row; independent
 writers therefore cannot both claim the same next sequence. Revisions are source-qualified by a
 database-local UUID, header incarnation, and revision counter.

@@ -3,6 +3,7 @@
 import { Context, Service } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { Pool, type PoolClient } from 'pg'
+import { SessionLogOffset } from '@deepseek-ai/dsh-session'
 import type { SessionHeader, SessionId, SessionPreparation } from '@deepseek-ai/dsh-session'
 import {
   DEFAULT_PREPARED_SESSION_CACHE_SIZE,
@@ -11,6 +12,7 @@ import {
   PersistenceCoordinator,
   SessionPersistence,
   type SessionInspection,
+  type SessionEventSuffix,
   type BorrowedSessionSource,
   type SessionLocation,
   type SessionPersistenceSnapshot,
@@ -122,8 +124,8 @@ export class PostgresSessionPersistence extends SessionPersistence {
     return undefined
   }
 
-  create(meta: SessionHeader): Promise<void> {
-    return this.coordinator.create(meta)
+  create(meta: SessionHeader, inheritedEventCount: SessionLogOffset = SessionLogOffset(0)): Promise<void> {
+    return this.coordinator.create(meta, inheritedEventCount)
   }
 
   append(id: SessionId, events: readonly import('@deepseek-ai/dsh-session').SessionEvent[]): Promise<void> {
@@ -146,7 +148,7 @@ export class PostgresSessionPersistence extends SessionPersistence {
     return this.coordinator.borrowSession(id, signal)
   }
 
-  readFrom(id: SessionId, fromSeq: number, signal?: AbortSignal): Promise<{ meta: SessionHeader; events: import('@deepseek-ai/dsh-session').SessionEvent[] }> {
+  readFrom(id: SessionId, fromSeq: SessionLogOffset, signal?: AbortSignal): Promise<SessionEventSuffix> {
     return this.coordinator.readFrom(id, fromSeq, signal)
   }
 

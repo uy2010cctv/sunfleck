@@ -10,6 +10,7 @@ import type { EnterpriseTeamDefinition, EnterpriseTeamRun, TeamDecision } from '
 import { EnterpriseTeamRuntimeError } from '@deepseek-ai/dsh-enterprise-operations'
 import { EnterpriseRequestContext } from '@deepseek-ai/dsh-enterprise-auth-web'
 import TeamService, { foldTeam } from '@deepseek-ai/dsh-experimental-agent-team'
+import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
 import SubagentService from '@deepseek-ai/dsh-subagent'
 import * as SubagentSpawn from '@deepseek-ai/dsh-subagent-spawn-in-process'
@@ -71,6 +72,7 @@ async function setup(options: { failBuyerSpawn?: boolean; failWorkspaceBinding?:
   const ctx = new Context()
   contexts.add(ctx)
   await mountAgentLoopTestDependencies(ctx)
+  await ctx.plugin(SessionProjectionRegistry)
   const storageRoot = options.storageRoot ?? mkdtempSync(join(tmpdir(), 'dsh-enterprise-team-runtime-'))
   roots.push(storageRoot)
   await ctx.plugin(JsonlSessionPersistence, { root: storageRoot })
@@ -164,14 +166,14 @@ describe('enterprise Agent Teams runtime driver', () => {
     app.ctx.on('agent/inbox/inserted', () => { currentInsideFollowup = app.requestContext.current() })
     const result = await app.requestContext.run(actor, () => driver.startRun(startInput()))
     const root = app.ctx.agents.get(result.rootSessionId as never)!
-    const state = foldTeam(root.id, root.session.events)
+    const state = foldTeam(root.id, root.session.snapshotEvents())
 
     expect(result).toMatchObject({ runtimeRevision: 2 })
     expect(root.session.header.cwd).toBe(app.storageRoot)
     expect(root.session.header.agentPreset).toBe('lead-preset')
     expect(state.run).toMatchObject({ runId: 'run-a', state: 'active', leader: { release: { releaseId: 'release-lead' } } })
     expect([...state.humans.values()]).toEqual([{ userId: 'reviewer-a', displayName: 'Reviewer A', roleId: 'reviewer' }])
-    const teamMembers = [...state.members.values()]
+    const teamMembers = state.members
     expect(teamMembers).toHaveLength(1)
     expect(teamMembers[0]).toMatchObject({
       employeeReleaseId: 'release-buyer', roleId: 'buyer', release: { releaseId: 'release-buyer' },
@@ -235,7 +237,7 @@ describe('enterprise Agent Teams runtime driver', () => {
       kind: 'clarification', question: 'Continue after restart?', options: ['yes'], contextDigest: 'restart-digest',
       assigneeUserId: 'reviewer-a',
     })
-    const projected = foldTeam(firstRoot.id, firstRoot.session.events).decisions.get('decision-restart')!
+    const projected = foldTeam(firstRoot.id, firstRoot.session.snapshotEvents()).decisions.find(candidate => candidate.decisionId === 'decision-restart')!
     await first.ctx.fiber.dispose()
     contexts.delete(first.ctx)
 
@@ -263,7 +265,7 @@ describe('enterprise Agent Teams runtime driver', () => {
     })
     expect(second.ctx.agents.get(started.rootSessionId as never)).toBeDefined()
     const resumed = second.ctx.agents.get(started.rootSessionId as never)!
-    expect(foldTeam(resumed.id, resumed.session.events).decisions.get('decision-restart')).toMatchObject({
+    expect(foldTeam(resumed.id, resumed.session.snapshotEvents()).decisions.find(candidate => candidate.decisionId === 'decision-restart')).toMatchObject({
       state: 'answered', answer: 'yes', respondedBy: { userId: 'reviewer-a' },
     })
   })
@@ -278,16 +280,16 @@ describe('enterprise Agent Teams runtime driver', () => {
       kind: 'clarification', question: 'Proceed?', options: ['yes', 'no'], contextDigest: 'digest-a',
       assigneeUserId: 'reviewer-a',
     })
-    const projected = foldTeam(root.id, root.session.events).decisions.get('decision-a')!
+    const projected = foldTeam(root.id, root.session.snapshotEvents()).decisions.find(candidate => candidate.decisionId === 'decision-a')!
     const decision: TeamDecision = {
       orgId: 'org-a', sourceEventSeq: 3,
       createdAt: 1, updatedAt: 1, ...projected,
     }
-    const insertionCount = root.session.events.length
+    const insertionCount = Number(root.session.seq)
     await driver.respondDecision({
       operationId: 'team-decision:respond:decision-a:key-a', decision, answer: 'yes', actor: { ...actor, userId: 'reviewer-a' },
     })
-    expect(root.session.events.length).toBeGreaterThan(insertionCount)
+    expect(Number(root.session.seq)).toBeGreaterThan(insertionCount)
     await driver.cancelRun({
       operationId: 'team-run:cancel:run-a:key-a',
       run: {
@@ -298,7 +300,7 @@ describe('enterprise Agent Teams runtime driver', () => {
       } satisfies EnterpriseTeamRun,
       actor,
     })
-    expect(foldTeam(root.id, root.session.events).run?.state).toBe('cancelled')
+    expect(foldTeam(root.id, root.session.snapshotEvents()).run?.state).toBe('cancelled')
     await expect(driver.reconcileRun({
       operationId: 'team-run:start:run-a',
       run: {

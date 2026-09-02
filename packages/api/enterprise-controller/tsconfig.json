@@ -13,6 +13,7 @@
     { "path": "../../enterprise/enterprise-postgres" },
     { "path": "../../preset/agent-presets" },
     { "path": "../../core/session" },
+    { "path": "../../util/values" },
     { "path": "../../runtime-diagnostics/invariants" }
   ]
 }

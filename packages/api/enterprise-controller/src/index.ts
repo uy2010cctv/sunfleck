@@ -1,9 +1,9 @@
 /** Authenticated enterprise Typert Remote controllers. */
 import { randomUUID } from 'node:crypto'
 import { Context } from '@deepseek-ai/cordis'
-import { Remote, TypertRemoteFailure, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
+import { Remote, RemoteError, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 import type { EnterprisePrincipal } from '@deepseek-ai/dsh-enterprise-governance'
-import type {} from '@deepseek-ai/dsh-enterprise-auth-web'
+import type { EnterpriseRemoteErrorCode } from '@deepseek-ai/dsh-enterprise-auth-web'
 import type {} from '@deepseek-ai/dsh-enterprise-postgres'
 import type { EmployeePresetDefinition } from '@deepseek-ai/dsh-agent-presets'
 import {
@@ -1057,8 +1057,8 @@ export class CordisGovernanceController extends TypertRemoteService {
 
 function enterpriseFailure(
   error: unknown, endpoint: string, resourceType: string, resourceId: string,
-): TypertRemoteFailure {
-  let code = 'internal'
+): RemoteError<EnterpriseRemoteErrorCode> {
+  let code: EnterpriseRemoteErrorCode = 'enterprise-internal'
   let message = 'enterprise repository operation failed'
   if (error instanceof EnterpriseOperationsAuthorizationError) {
     code = 'enterprise-forbidden'; message = 'enterprise request is forbidden'
@@ -1093,7 +1093,7 @@ function enterpriseFailure(
   } else if (error instanceof Error && /revision conflict/iu.test(error.message)) {
     code = 'enterprise-conflict'; message = error.message
   }
-  return new TypertRemoteFailure({ code, message, details: { endpoint, resourceType, resourceId } })
+  return new RemoteError(code, message, { endpoint, resourceType, resourceId })
 }
 
 /** Install all enterprise Remote namespace owners. */

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { SessionLogOffset } from '@deepseek-ai/dsh-session'
 import { PostgresSessionPersistence } from '../src/index.ts'
 import { PostgresSessionStore } from '../src/store.ts'
 import type { PostgresDatabase, PostgresQueryResult } from '../src/types.ts'
@@ -9,6 +10,7 @@ interface Header {
   incarnation: string
   revision: number
   created_at: number
+  inherited_event_count: number
 }
 
 interface Event {
@@ -61,7 +63,7 @@ class MemoryPostgresDatabase implements PostgresDatabase {
   }
 
   private rows(text: string, values: readonly unknown[]): Record<string, unknown>[] {
-    if (text.startsWith('CREATE ') || text.startsWith('CREATE INDEX') || text.startsWith('SET TRANSACTION') || text.startsWith('SELECT pg_advisory_xact_lock')) return []
+    if (text.startsWith('CREATE ') || text.startsWith('CREATE INDEX') || text.startsWith('ALTER TABLE') || text.startsWith('SET TRANSACTION') || text.startsWith('SELECT pg_advisory_xact_lock')) return []
     if (text.startsWith('SELECT value FROM dsh_session_persistence_meta')) {
       const key = text.includes("'schema-version'") ? 'schema-version' : 'store-id'
       const value = this.meta.get(key)
@@ -73,11 +75,18 @@ class MemoryPostgresDatabase implements PostgresDatabase {
       this.meta.set(key, value)
       return text.includes('RETURNING value') ? [{ value }] : []
     }
+    if (text.startsWith('UPDATE dsh_session_persistence_meta')) {
+      this.meta.set('schema-version', values[0] as string)
+      return []
+    }
     if (text.startsWith('INSERT INTO dsh_session_headers')) {
       const id = values[0] as string
       if (this.headers.has(id)) return []
       const header: unknown = typeof values[1] === 'string' ? JSON.parse(values[1]) as unknown : values[1]
-      const row: Header = { id, header_json: header, incarnation: values[2] as string, revision: 0, created_at: values[3] as number }
+      const row: Header = {
+        id, header_json: header, incarnation: values[2] as string, revision: 0,
+        created_at: values[3] as number, inherited_event_count: values[4] as number,
+      }
       this.headers.set(id, row)
       return [this.header(row)]
     }
@@ -127,7 +136,10 @@ class MemoryPostgresDatabase implements PostgresDatabase {
   }
 
   private header(row: Header): Record<string, unknown> {
-    return { id: row.id, header_json: structuredClone(row.header_json), incarnation: row.incarnation, revision: row.revision }
+    return {
+      id: row.id, header_json: structuredClone(row.header_json), incarnation: row.incarnation,
+      revision: row.revision, inherited_event_count: row.inherited_event_count,
+    }
   }
 
   private snapshot(): { meta: Map<string, string>; headers: Map<string, Header>; events: Map<string, Map<number, Event>> } {
@@ -142,7 +154,8 @@ class MemoryPostgresDatabase implements PostgresDatabase {
   }
 }
 
-const header = { id: 'session-a', version: 1, createdAt: 1 } as const
+const header = { id: 'session-a', version: 1, createdAt: 1, isSeeded: false } as const
+const storage = { meta: header, inheritedEventCount: SessionLogOffset(0) }
 const turnStart = { type: 'turn/start', seq: 0, time: 1, data: { turn: 1 } } as const
 const turnEnd = { type: 'turn/end', seq: 1, time: 2, data: { turn: 1, reason: { kind: 'completed' } } } as const
 
@@ -163,13 +176,30 @@ describe('PostgresSessionStore', () => {
   it('persists ordered events and advances one source-qualified revision per append', async () => {
     const database = new MemoryPostgresDatabase()
     const store = new PostgresSessionStore(database)
-    await store.appendBatch(header, [turnStart], false)
+    await store.appendBatch(storage, [turnStart], false)
     const first = await store.loadStored(header.id)
-    await store.appendBatch(header, [turnEnd], true)
+    await store.appendBatch(storage, [turnEnd], true)
     const second = await store.loadStored(header.id)
 
     expect(second?.events).toEqual([turnStart, turnEnd])
     expect(second?.revision).not.toBe(first?.revision)
+  })
+
+  it('round-trips the exact fork-inherited event count', async () => {
+    const database = new MemoryPostgresDatabase()
+    const store = new PostgresSessionStore(database)
+    const seeded = { ...header, id: 'session-seeded', isSeeded: true, parentSession: 'session-parent' }
+    await store.appendBatch(
+      { meta: seeded, inheritedEventCount: SessionLogOffset(1) },
+      [turnStart, turnEnd],
+      false,
+    )
+
+    await expect(store.loadStored(seeded.id)).resolves.toMatchObject({ inheritedEventCount: 1 })
+    await expect(store.loadStoredFrom(seeded.id, SessionLogOffset(1))).resolves.toMatchObject({
+      inheritedEventCount: 1,
+      events: [turnEnd],
+    })
   })
 
   it('accepts an existing header whose PostgreSQL JSONB keys are returned in another order', async () => {
@@ -177,21 +207,21 @@ describe('PostgresSessionStore', () => {
     const store = new PostgresSessionStore(database)
     const original = {
       id: 'session-ordered-header', version: 1, createdAt: 1, cwd: '/work',
-      runtime: { model: { provider: 'deepseek', name: 'chat' }, tools: ['bash', 'read'] },
+      runtime: { model: { provider: 'deepseek', name: 'chat' }, tools: ['bash', 'read'] }, isSeeded: false,
     } as const
     const reordered = {
       runtime: { tools: ['bash', 'read'], model: { name: 'chat', provider: 'deepseek' } },
-      cwd: '/work', createdAt: 1, id: 'session-ordered-header', version: 1,
+      cwd: '/work', createdAt: 1, id: 'session-ordered-header', version: 1, isSeeded: false,
     } as const
-    await store.appendBatch(original, [turnStart], false)
+    await store.appendBatch({ meta: original, inheritedEventCount: SessionLogOffset(0) }, [turnStart], false)
 
-    await expect(store.appendBatch(reordered, [turnEnd], true)).resolves.toBeUndefined()
+    await expect(store.appendBatch({ meta: reordered, inheritedEventCount: SessionLogOffset(0) }, [turnEnd], true)).resolves.toBeUndefined()
   })
 
   it('reads a header, events, and revision from one database transaction snapshot', async () => {
     const database = new MemoryPostgresDatabase()
     const store = new PostgresSessionStore(database)
-    await store.appendBatch(header, [turnStart], false)
+    await store.appendBatch(storage, [turnStart], false)
     database.transactionCalls = 0
 
     await store.loadStored(header.id)
@@ -202,11 +232,11 @@ describe('PostgresSessionStore', () => {
   it('rejects concurrent writers that claim the same next sequence', async () => {
     const database = new MemoryPostgresDatabase()
     const store = new PostgresSessionStore(database)
-    await store.appendBatch(header, [turnStart], false)
+    await store.appendBatch(storage, [turnStart], false)
 
     const writes = await Promise.allSettled([
-      store.appendBatch(header, [turnEnd], true),
-      store.appendBatch(header, [turnEnd], true),
+      store.appendBatch(storage, [turnEnd], true),
+      store.appendBatch(storage, [turnEnd], true),
     ])
 
     expect(writes.filter(write => write.status === 'fulfilled')).toHaveLength(1)
@@ -219,38 +249,38 @@ describe('PostgresSessionStore', () => {
     database.failNextEventInsert = true
     const store = new PostgresSessionStore(database)
 
-    await expect(store.appendBatch(header, [turnStart], false)).rejects.toThrow('injected event write failure')
+    await expect(store.appendBatch(storage, [turnStart], false)).rejects.toThrow('injected event write failure')
     expect(await store.loadStored(header.id)).toBeUndefined()
   })
 
   it('identifies and durably truncates only a corrupt final event row', async () => {
     const database = new MemoryPostgresDatabase()
     const store = new PostgresSessionStore(database)
-    await store.appendBatch(header, [turnStart, turnEnd], false)
+    await store.appendBatch(storage, [turnStart, turnEnd], false)
     database.corruptTail(header.id)
     const torn = await store.loadStored(header.id)
 
     expect(torn?.tornMarker).toBe(1)
-    await store.commitRepair(header, torn?.tornMarker, [])
+    await store.commitRepair(storage, torn?.tornMarker, [])
     expect((await store.loadStored(header.id))?.events).toEqual([turnStart])
   })
 
   it('rejects a requested suffix when an earlier sequence is missing', async () => {
     const database = new MemoryPostgresDatabase()
     const store = new PostgresSessionStore(database)
-    await store.appendBatch(header, [turnStart, turnEnd], false)
+    await store.appendBatch(storage, [turnStart, turnEnd], false)
     database.removeEvent(header.id, 0)
 
-    await expect(store.loadStoredFrom(header.id, 1)).rejects.toThrow('corrupt event in requested suffix')
+    await expect(store.loadStoredFrom(header.id, SessionLogOffset(1))).rejects.toThrow('corrupt event in requested suffix')
   })
 
   it('rejects a corrupt event inside a requested suffix', async () => {
     const database = new MemoryPostgresDatabase()
     const store = new PostgresSessionStore(database)
-    await store.appendBatch(header, [turnStart, turnEnd], false)
+    await store.appendBatch(storage, [turnStart, turnEnd], false)
     database.corruptTail(header.id)
 
-    await expect(store.loadStoredFrom(header.id, 1)).rejects.toThrow('corrupt event in requested suffix')
+    await expect(store.loadStoredFrom(header.id, SessionLogOffset(1))).rejects.toThrow('corrupt event in requested suffix')
   })
 
   it('takes the session schema advisory lock before checking or creating its store identity', async () => {

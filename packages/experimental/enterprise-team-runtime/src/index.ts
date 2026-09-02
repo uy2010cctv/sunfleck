@@ -23,7 +23,7 @@ import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import { SessionPersistenceNotFoundError } from '@deepseek-ai/dsh-session-persistence'
 import type {} from '@deepseek-ai/dsh-subagent'
-import { PERSONA_ORDER, PERSONA_SECTION } from '@deepseek-ai/dsh-system-prompt'
+import { PERSONA_SECTION } from '@deepseek-ai/dsh-system-prompt'
 import { WorkspaceId } from '@deepseek-ai/dsh-workspace'
 
 declare module '@deepseek-ai/cordis' {
@@ -114,7 +114,7 @@ export class EnterpriseTeamRuntimeAdapter implements EnterpriseTeamRuntimeDriver
       if (folded.run?.runId !== input.runId || folded.run.operationId !== input.operationId) {
         this.fail('team-run-identity-conflict')
       }
-      const receipt = folded.operations.get(input.operationId)
+      const receipt = folded.operations.find(candidate => candidate.operationId === input.operationId)?.receipt
       if (receipt !== undefined && folded.run.state !== 'starting') {
         return { rootSessionId: rootId, ...receipt }
       }
@@ -186,8 +186,8 @@ export class EnterpriseTeamRuntimeAdapter implements EnterpriseTeamRuntimeDriver
           || memberActor.employeeReleaseId === input.definition.leaderEmployeeReleaseId) continue
         const resolved = releases.get(memberActor.employeeReleaseId)
         if (resolved === undefined) this.fail('agent-release-not-found')
-        const current = foldTeam(root.id, root.session.events)
-        const existing = [...current.members.values()].find(member =>
+        const current = foldTeam(root.id, root.session.snapshotEvents())
+        const existing = current.members.find(member =>
           member.employeeReleaseId === memberActor.employeeReleaseId && member.roleId === rosterMember.roleId)
         if (existing !== undefined) { agentIndex++; continue }
         await this.ctx.enterpriseRequestContext.withoutPrincipal(() => this.ctx.agentTeams.spawnTeammate(runtimeRoot, {
@@ -230,7 +230,7 @@ export class EnterpriseTeamRuntimeAdapter implements EnterpriseTeamRuntimeDriver
             actor: { userId: input.actor.userId, displayName: actorUser.displayName },
             failure: { code: failure },
           }))
-          const children = [...foldTeam(failedRoot.id, failedRoot.session.events).members.keys()]
+          const children = foldTeam(failedRoot.id, failedRoot.session.snapshotEvents()).members.map(member => member.id)
           await this.ctx.enterpriseRequestContext.withoutPrincipal(() =>
             this.ctx.subagents.drainContinuableChildren(failedRoot, children))
         } catch {
@@ -243,7 +243,9 @@ export class EnterpriseTeamRuntimeAdapter implements EnterpriseTeamRuntimeDriver
         this.handles.delete(rootId)
       }
       if (error instanceof EnterpriseTeamRuntimeError) throw error
-      throw new EnterpriseTeamRuntimeError('deterministic', 'team-member-start-failed')
+      const failure = new EnterpriseTeamRuntimeError('deterministic', 'team-member-start-failed') as EnterpriseTeamRuntimeError & { cause?: unknown }
+      failure.cause = error
+      throw failure
     }
   }
 
@@ -251,8 +253,8 @@ export class EnterpriseTeamRuntimeAdapter implements EnterpriseTeamRuntimeDriver
     this.assertOrganization(input.actor, input.run.orgId, input.run.orgId)
     const rootId = this.rootIdFor(input.run.runId, input.run.rootSessionId)
     const root = await this.ctx.enterpriseRequestContext.withoutPrincipal(() => this.resumeFromLog(rootId))
-    const before = foldTeam(root.id, root.session.events)
-    const repeated = before.operations.get(input.operationId)
+    const before = foldTeam(root.id, root.session.snapshotEvents())
+    const repeated = before.operations.find(candidate => candidate.operationId === input.operationId)?.receipt
     if (repeated !== undefined) return repeated
     const user = await this.requireUser(input.actor)
     const receipt = await this.ctx.enterpriseRequestContext.withoutPrincipal(() => this.ctx.agentTeams.setRunState(root, {
@@ -263,7 +265,7 @@ export class EnterpriseTeamRuntimeAdapter implements EnterpriseTeamRuntimeDriver
     this.ctx.enterpriseRequestContext.withoutPrincipal(() => {
       root.cancel({ kind: 'user' }, { keepInbox: true })
     })
-    const children = [...foldTeam(root.id, root.session.events).members.keys()]
+    const children = foldTeam(root.id, root.session.snapshotEvents()).members.map(member => member.id)
     for (const childId of children) {
       this.ctx.enterpriseRequestContext.withoutPrincipal(() => {
         this.ctx.subagents.interrupt(childId, { kind: 'user', parentSessionId: root.id })
@@ -286,8 +288,8 @@ export class EnterpriseTeamRuntimeAdapter implements EnterpriseTeamRuntimeDriver
     this.assertOrganization(input.actor, input.decision.orgId, input.decision.orgId)
     const root = await this.ctx.enterpriseRequestContext.withoutPrincipal(() =>
       this.resumeFromLog(deterministicRootSessionId(input.decision.runId)))
-    const before = foldTeam(root.id, root.session.events)
-    const repeated = before.operations.get(input.operationId)
+    const before = foldTeam(root.id, root.session.snapshotEvents())
+    const repeated = before.operations.find(candidate => candidate.operationId === input.operationId)?.receipt
     if (repeated !== undefined) return repeated
     const user = await this.requireUser(input.actor)
     const receipt = await this.ctx.enterpriseRequestContext.withoutPrincipal(() => this.ctx.agentTeams.respondDecision(root, {
@@ -317,7 +319,7 @@ export class EnterpriseTeamRuntimeAdapter implements EnterpriseTeamRuntimeDriver
     if (state.run === undefined || state.run.runId !== input.run.runId) {
       throw new EnterpriseTeamRuntimeError('deterministic', 'team-run-log-mismatch')
     }
-    const receipt = state.operations.get(state.run.operationId)
+    const receipt = state.operations.find(candidate => candidate.operationId === state.run?.operationId)?.receipt
     return {
       rootSessionId: rootId,
       state: state.run.state,
@@ -383,7 +385,11 @@ export class EnterpriseTeamRuntimeAdapter implements EnterpriseTeamRuntimeDriver
     if (preset.id !== release.presetId) this.fail('employee-preset-mismatch')
     return async (agentCtx: Context): Promise<void> => {
       await this.ctx.agentPresets.mount(agentCtx, release.presetId)
-      agentCtx.systemPrompt.section({ name: PERSONA_SECTION, order: PERSONA_ORDER, text: release.persona })
+      agentCtx.systemPrompt.section({
+        name: PERSONA_SECTION,
+        order: agentCtx.systemPrompt.getSectionOrder('DEPLOYMENT_PERSONA'),
+        text: release.persona,
+      })
     }
   }
 
@@ -413,7 +419,7 @@ export class EnterpriseTeamRuntimeAdapter implements EnterpriseTeamRuntimeDriver
 
   private async inspect(rootId: SessionId) {
     const live = this.ctx.sessions.get(rootId)
-    if (live !== undefined) return { meta: live.header, events: live.events }
+    if (live !== undefined) return { meta: live.header, events: live.snapshotEvents() }
     try {
       return await this.ctx.sessionPersistence.inspect(rootId)
     } catch (error: unknown) {

@@ -1,11 +1,13 @@
 /** Transactional PostgreSQL storage primitives for the native session event log. */
 
 import { randomUUID } from 'node:crypto'
+import { SessionLogOffset } from '@deepseek-ai/dsh-session'
 import type { SessionEvent, SessionHeader, SessionId } from '@deepseek-ai/dsh-session'
 import {
   SessionPersistenceRevision,
   type PersistenceBackend,
   type SessionPersistenceSnapshot,
+  type SessionStorageMetadata,
   type StoredPrefix,
   type StoredSuffix,
 } from '@deepseek-ai/dsh-session-persistence'
@@ -17,6 +19,7 @@ interface HeaderRow extends Record<string, unknown> {
   readonly header_json: unknown
   readonly incarnation: string
   readonly revision: string | number
+  readonly inherited_event_count: string | number
 }
 
 interface EventRow extends Record<string, unknown> {
@@ -66,7 +69,7 @@ export class PostgresSessionStore implements PersistenceBackend<number> {
     return this.database.transaction(async (transaction) => {
       await transaction.query('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY')
       const result = await transaction.query<HeaderRow>(
-        'SELECT id, header_json, incarnation, revision FROM dsh_session_headers WHERE id = $1', [id],
+        'SELECT id, header_json, incarnation, revision, inherited_event_count FROM dsh_session_headers WHERE id = $1', [id],
       )
       const header = result.rows[0]
       if (header === undefined) return undefined
@@ -74,6 +77,7 @@ export class PostgresSessionStore implements PersistenceBackend<number> {
       signal?.throwIfAborted()
       return {
         meta: parseHeader(header.header_json),
+        inheritedEventCount: SessionLogOffset(integer(header.inherited_event_count, 'inherited event count')),
         events: parsed.events,
         revision: this.revision(header),
         ...(parsed.tornMarker === undefined ? {} : { tornMarker: parsed.tornMarker }),
@@ -87,19 +91,19 @@ export class PostgresSessionStore implements PersistenceBackend<number> {
   ): Promise<SessionPersistenceRevision | undefined> {
     await this.observe(signal)
     const result = await this.database.query<HeaderRow>(
-      'SELECT id, header_json, incarnation, revision FROM dsh_session_headers WHERE id = $1', [id],
+      'SELECT id, header_json, incarnation, revision, inherited_event_count FROM dsh_session_headers WHERE id = $1', [id],
     )
     signal?.throwIfAborted()
     const header = result.rows[0]
     return header === undefined ? undefined : this.revision(header)
   }
 
-  async loadStoredFrom(id: SessionId, fromSeq: number, signal?: AbortSignal): Promise<StoredSuffix | undefined> {
+  async loadStoredFrom(id: SessionId, fromSeq: SessionLogOffset, signal?: AbortSignal): Promise<StoredSuffix | undefined> {
     await this.observe(signal)
     return this.database.transaction(async (transaction) => {
       await transaction.query('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY')
       const headers = await transaction.query<HeaderRow>(
-        'SELECT id, header_json, incarnation, revision FROM dsh_session_headers WHERE id = $1', [id],
+        'SELECT id, header_json, incarnation, revision, inherited_event_count FROM dsh_session_headers WHERE id = $1', [id],
       )
       const header = headers.rows[0]
       if (header === undefined) return undefined
@@ -108,34 +112,40 @@ export class PostgresSessionStore implements PersistenceBackend<number> {
       if (parsed.tornMarker !== undefined && parsed.tornMarker >= fromSeq) {
         throw new Error(`session ${id} has a corrupt event in requested suffix at seq ${parsed.tornMarker}`)
       }
-      return { meta: parseHeader(header.header_json), events: parsed.events.filter(event => event.seq >= fromSeq) }
+      return {
+        meta: parseHeader(header.header_json),
+        inheritedEventCount: SessionLogOffset(integer(header.inherited_event_count, 'inherited event count')),
+        events: parsed.events.filter(event => event.seq >= fromSeq),
+      }
     })
   }
 
-  async appendBatch(meta: SessionHeader, events: readonly SessionEvent[], isMaterialized: boolean): Promise<void> {
+  async appendBatch(storage: SessionStorageMetadata, events: readonly SessionEvent[], isMaterialized: boolean): Promise<void> {
+    const { meta, inheritedEventCount } = storage
     await this.initialize()
     if (events.length === 0) return
     await this.database.transaction(async (transaction) => {
       let header: HeaderRow | undefined
       if (!isMaterialized) {
         const inserted = await transaction.query<HeaderRow>(
-          `INSERT INTO dsh_session_headers(id, header_json, incarnation, revision, created_at)
-           VALUES ($1, $2::jsonb, $3::uuid, 0, $4)
+          `INSERT INTO dsh_session_headers(id, header_json, incarnation, revision, created_at, inherited_event_count)
+           VALUES ($1, $2::jsonb, $3::uuid, 0, $4, $5)
            ON CONFLICT (id) DO NOTHING
-           RETURNING id, header_json, incarnation, revision`,
-          [meta.id, JSON.stringify(meta), randomUUID(), meta.createdAt],
+           RETURNING id, header_json, incarnation, revision, inherited_event_count`,
+          [meta.id, JSON.stringify(meta), randomUUID(), meta.createdAt, inheritedEventCount],
         )
         header = inserted.rows[0]
       }
       if (header === undefined) {
         const locked = await transaction.query<HeaderRow>(
-          `SELECT id, header_json, incarnation, revision FROM dsh_session_headers
+          `SELECT id, header_json, incarnation, revision, inherited_event_count FROM dsh_session_headers
            WHERE id = $1 FOR UPDATE`, [meta.id],
         )
         header = locked.rows[0]
       }
       if (header === undefined) throw new Error(`session ${meta.id} metadata row is missing`)
       assertSameHeader(meta, parseHeader(header.header_json))
+      assertInheritedEventCount(inheritedEventCount, header.inherited_event_count)
       const tail = await transaction.query<{ seq: string | number }>(
         'SELECT seq FROM dsh_session_events WHERE session_id = $1 ORDER BY seq DESC LIMIT 1', [meta.id],
       )
@@ -157,20 +167,22 @@ export class PostgresSessionStore implements PersistenceBackend<number> {
   }
 
   async commitRepair(
-    meta: SessionHeader,
+    storage: SessionStorageMetadata,
     tornMarker: number | undefined,
     closers: readonly SessionEvent[],
   ): Promise<void> {
+    const { meta, inheritedEventCount } = storage
     await this.initialize()
     if (tornMarker === undefined && closers.length === 0) return
     await this.database.transaction(async (transaction) => {
       const locked = await transaction.query<HeaderRow>(
-        `SELECT id, header_json, incarnation, revision FROM dsh_session_headers
+        `SELECT id, header_json, incarnation, revision, inherited_event_count FROM dsh_session_headers
          WHERE id = $1 FOR UPDATE`, [meta.id],
       )
       const header = locked.rows[0]
       if (header === undefined) throw new Error(`session ${meta.id} metadata row is missing`)
       assertSameHeader(meta, parseHeader(header.header_json))
+      assertInheritedEventCount(inheritedEventCount, header.inherited_event_count)
       const rows = await transaction.query<EventRow>(
         'SELECT seq, event_json FROM dsh_session_events WHERE session_id = $1 ORDER BY seq', [meta.id],
       )
@@ -198,7 +210,7 @@ export class PostgresSessionStore implements PersistenceBackend<number> {
   async list(signal?: AbortSignal): Promise<SessionHeader[]> {
     await this.observe(signal)
     const result = await this.database.query<HeaderRow>(
-      'SELECT id, header_json, incarnation, revision FROM dsh_session_headers ORDER BY created_at DESC, id',
+      'SELECT id, header_json, incarnation, revision, inherited_event_count FROM dsh_session_headers ORDER BY created_at DESC, id',
     )
     signal?.throwIfAborted()
     return result.rows.map(row => parseHeader(row.header_json))
@@ -207,7 +219,7 @@ export class PostgresSessionStore implements PersistenceBackend<number> {
   async listSnapshots(signal?: AbortSignal): Promise<SessionPersistenceSnapshot[]> {
     await this.observe(signal)
     const result = await this.database.query<HeaderRow>(
-      'SELECT id, header_json, incarnation, revision FROM dsh_session_headers ORDER BY created_at DESC, id',
+      'SELECT id, header_json, incarnation, revision, inherited_event_count FROM dsh_session_headers ORDER BY created_at DESC, id',
     )
     signal?.throwIfAborted()
     return result.rows.map(row => ({ header: parseHeader(row.header_json), revision: this.revision(row) }))
@@ -295,6 +307,12 @@ function assertContiguousAppend(id: SessionId, events: readonly SessionEvent[], 
 function assertSameHeader(expected: SessionHeader, actual: SessionHeader): void {
   if (canonicalJson(expected) !== canonicalJson(actual)) {
     throw new Error(`session ${expected.id} metadata does not match its existing durable header`)
+  }
+}
+
+function assertInheritedEventCount(expected: SessionLogOffset, actual: string | number): void {
+  if (expected !== integer(actual, 'inherited event count')) {
+    throw new Error('session inherited event count does not match its existing durable metadata')
   }
 }
 

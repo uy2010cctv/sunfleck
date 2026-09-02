@@ -21,6 +21,7 @@
     "@deepseek-ai/dsh-enterprise-identity": "workspace:^",
     "@deepseek-ai/dsh-enterprise-sso": "workspace:^",
     "@deepseek-ai/dsh-host-webserver": "workspace:^"
+    ,"@deepseek-ai/dsh-typert-protocol": "workspace:^"
     ,"@deepseek-ai/dsh-workspace": "workspace:^"
     ,"@deepseek-ai/dsh-invariants": "workspace:^"
   },
@@ -31,6 +32,7 @@
     "@deepseek-ai/dsh-enterprise-identity": "workspace:^",
     "@deepseek-ai/dsh-enterprise-sso": "workspace:^",
     "@deepseek-ai/dsh-host-webserver": "workspace:^"
+    ,"@deepseek-ai/dsh-typert-protocol": "workspace:^"
     ,"@deepseek-ai/dsh-workspace": "workspace:^"
     ,"@deepseek-ai/dsh-invariants": "workspace:^"
   }

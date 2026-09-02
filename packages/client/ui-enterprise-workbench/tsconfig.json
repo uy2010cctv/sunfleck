@@ -24,5 +24,6 @@
     { "path": "../../runtime-diagnostics/invariants" }
     ,{ "path": "../../core/session" }
     ,{ "path": "../../util/crypto" }
+    ,{ "path": "../../util/values" }
   ]
 }

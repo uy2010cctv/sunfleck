@@ -23,7 +23,7 @@ export class TeamEnterpriseRuntime {
   start(root: Agent, request: TeamRunStartRequest): Promise<TeamRuntimeMutationReceipt> {
     return this.journal.transact(root.id, async () => {
       const state = this.journal.state(root)
-      const repeated = state.operations.get(request.operationId)
+      const repeated = state.operations.find(candidate => candidate.operationId === request.operationId)?.receipt
       if (repeated !== undefined) {
         if (state.run?.runId !== request.runId || state.run.operationId !== request.operationId) {
           throw new TeamError(`TeamRun operation "${request.operationId}" is already used`, 'TEAM_OPERATION_CONFLICT')
@@ -43,7 +43,7 @@ export class TeamEnterpriseRuntime {
   /** Add one immutable Human row without granting Agent membership or mailbox access. */
   registerHuman(root: Agent, member: TeamHumanMemberSnapshot): Promise<void> {
     return this.journal.transact(root.id, async () => {
-      const prior = this.journal.state(root).humans.get(member.userId)
+      const prior = this.journal.state(root).humans.find(candidate => candidate.userId === member.userId)
       if (prior !== undefined) {
         if (JSON.stringify(prior) !== JSON.stringify(member)) {
           throw new TeamError(`Human member "${member.userId}" changed immutable identity`, 'TEAM_MEMBER_CONFLICT')
@@ -65,7 +65,7 @@ export class TeamEnterpriseRuntime {
       if (current.state === request.state && current.operationId === request.operationId) {
         return this.receipt(state, request.operationId)
       }
-      const used = state.operations.get(request.operationId)
+      const used = state.operations.find(candidate => candidate.operationId === request.operationId)
       const startContinuation = current.state === 'starting'
         && current.operationId === request.operationId
         && (request.state === 'active' || request.state === 'failed' || request.state === 'cancelled')
@@ -88,14 +88,14 @@ export class TeamEnterpriseRuntime {
   projectDecision(root: Agent, request: TeamDecisionProjectRequest): Promise<TeamRuntimeMutationReceipt> {
     return this.journal.transact(root.id, async () => {
       const state = this.journal.state(root)
-      const repeated = state.operations.get(request.operationId)
+      const repeated = state.operations.find(candidate => candidate.operationId === request.operationId)?.receipt
       if (repeated !== undefined) {
-        if (state.decisions.get(request.decisionId)?.operationId !== request.operationId) {
+        if (state.decisions.find(candidate => candidate.decisionId === request.decisionId)?.operationId !== request.operationId) {
           throw new TeamError(`decision operation "${request.operationId}" is already used`, 'TEAM_OPERATION_CONFLICT')
         }
         return repeated
       }
-      if (state.run?.runId !== request.runId || state.decisions.has(request.decisionId)) {
+      if (state.run?.runId !== request.runId || state.decisions.some(candidate => candidate.decisionId === request.decisionId)) {
         throw new TeamError(`decision "${request.decisionId}" conflicts with the TeamRun`, 'TEAM_DECISION_CONFLICT')
       }
       const decision: TeamDecisionSnapshot = {
@@ -112,15 +112,15 @@ export class TeamEnterpriseRuntime {
   respondDecision(root: Agent, request: TeamDecisionResponseRequest): Promise<TeamRuntimeMutationReceipt> {
     return this.journal.transact(root.id, async () => {
       const state = this.journal.state(root)
-      const repeated = state.operations.get(request.operationId)
+      const repeated = state.operations.find(candidate => candidate.operationId === request.operationId)?.receipt
       if (repeated !== undefined) {
-        const decision = state.decisions.get(request.decisionId)
+        const decision = state.decisions.find(candidate => candidate.decisionId === request.decisionId)
         if (decision?.operationId !== request.operationId || decision.answer !== request.answer) {
           throw new TeamError(`decision operation "${request.operationId}" is already used`, 'TEAM_OPERATION_CONFLICT')
         }
         return repeated
       }
-      const current = state.decisions.get(request.decisionId)
+      const current = state.decisions.find(candidate => candidate.decisionId === request.decisionId)
       if (current === undefined || current.state !== 'open' || current.revision !== request.expectedRevision) {
         throw new TeamError(`decision "${request.decisionId}" revision or state changed`, 'TEAM_DECISION_CONFLICT')
       }
@@ -140,20 +140,20 @@ export class TeamEnterpriseRuntime {
     state: ReturnType<TeamJournal['state']>,
     operationId: string,
   ): TeamRuntimeMutationReceipt {
-    const receipt = state.operations.get(operationId)
-    if (receipt === undefined) throw new TeamError(`operation "${operationId}" has no receipt`, 'TEAM_OPERATION_CONFLICT')
-    return receipt
+    const operation = state.operations.find(candidate => candidate.operationId === operationId)
+    if (operation === undefined) throw new TeamError(`operation "${operationId}" has no receipt`, 'TEAM_OPERATION_CONFLICT')
+    return operation.receipt
   }
 
   private async appendRun(root: Agent, run: TeamRunSnapshot): Promise<TeamRuntimeMutationReceipt> {
     await this.journal.appendAndFlush(root, 'team/run', { version: 1, teamId: TeamId(root.id), run })
-    return { runtimeRevision: run.runtimeRevision, sourceEventSeq: root.session.events.length - 1 }
+    return { runtimeRevision: run.runtimeRevision, sourceEventSeq: Number(root.session.seq) - 1 }
   }
 
   private async appendDecision(root: Agent, decision: TeamDecisionSnapshot): Promise<TeamRuntimeMutationReceipt> {
     await this.journal.appendAndFlush(root, 'team/decision', {
       version: 1, teamId: TeamId(root.id), decision,
     })
-    return { runtimeRevision: decision.runtimeRevision, sourceEventSeq: root.session.events.length - 1 }
+    return { runtimeRevision: decision.runtimeRevision, sourceEventSeq: Number(root.session.seq) - 1 }
   }
 }

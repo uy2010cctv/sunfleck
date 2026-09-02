@@ -26,7 +26,8 @@ PostgreSQL durable session persistence for DSH event logs。
 
 ## 存储模型
 
-`dsh_session_headers` 保存不可变 JSON 会话头、持久化 incarnation 和单调 revision。
+`dsh_session_headers` 保存不可变 JSON 会话头、精确的 fork 继承事件数、持久化 incarnation 和单调
+revision。Schema v2 新增 `inherited_event_count`；schema-v1 行迁移时沿用旧版零前缀默认值。
 `dsh_session_events` 为每个 `(session_id, seq)` 保存一个 JSON 事件。PostgreSQL 会在读取尾部、
 插入批次或修复最后一条损坏记录前锁定会话头行，因此独立写入方不能同时占用同一下一序号。revision
 由数据库本地 UUID、会话头 incarnation 和 revision 计数器共同限定来源。

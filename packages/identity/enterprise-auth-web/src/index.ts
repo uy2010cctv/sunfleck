@@ -1,6 +1,9 @@
 /** Web authentication and central API authorization for DSH Enterprise. */
 
 import type {} from '@deepseek-ai/cordis'
+import type {} from './remote-error-codes.ts'
+
+export type { EnterpriseRemoteErrorCode, EnterpriseRemoteErrorDetails } from './remote-error-codes.ts'
 
 declare module '@deepseek-ai/cordis' {
   interface Context {

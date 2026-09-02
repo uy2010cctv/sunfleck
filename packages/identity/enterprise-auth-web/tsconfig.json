@@ -9,6 +9,7 @@
     { "path": "../enterprise-identity" },
     { "path": "../enterprise-sso" },
     { "path": "../../host/webserver" }
+    ,{ "path": "../../typert/protocol" }
     ,{ "path": "../../workspace/workspace" }
     ,{ "path": "../../runtime-diagnostics/invariants" }
   ]
