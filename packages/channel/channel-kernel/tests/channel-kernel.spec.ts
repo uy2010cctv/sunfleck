@@ -88,7 +88,7 @@ describe('official channel authorization binding', () => {
     const requests: Array<{ url: string; init?: RequestInit }> = []
     const fetchImpl = async (input: string | URL, init?: RequestInit): Promise<Response> => {
       const url = input.toString()
-      requests.push({ url, init })
+      requests.push(init === undefined ? { url } : { url, init })
       if (url.includes('/gettoken')) return new Response(JSON.stringify({ errcode: 0, access_token: 'secret-token' }))
       return new Response(JSON.stringify({ errcode: 0, userid: 'zhangsan' }))
     }
