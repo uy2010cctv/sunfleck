@@ -6,7 +6,7 @@ import { EnterpriseTrigger } from '../src/client/EnterpriseTrigger.tsx'
 import {
   EnterpriseWorkbench, type EnterpriseWorkbenchProps,
 } from '../src/client/EnterpriseWorkbench.tsx'
-import { zh } from '../src/client/locales.ts'
+import { en, zh } from '../src/client/locales.ts'
 import type { EnterpriseView, EnterpriseWorkbenchState } from '../src/client/store.ts'
 import {
   officialChannelAuthorizationUrl, officialChannelBindingState,
@@ -304,13 +304,13 @@ describe('EnterpriseWorkbench', () => {
     }
     expect(screen.getAllByText('企业 / 租户 ID 缺失').length).toBeGreaterThan(0)
     expect(screen.getAllByText('账号 ID 缺失 · 凭证缺失').length).toBeGreaterThan(0)
-    expect(screen.getByRole('button', { name: '扫码绑定企业微信' }).getAttribute('aria-disabled')).toBe('true')
+    expect(screen.getByRole('button', { name: '扫码绑定企业微信' }).hasAttribute('disabled')).toBe(true)
     expect(screen.getByRole('button', { name: '扫码绑定飞书' }).hasAttribute('disabled')).toBe(false)
-    expect(screen.getByRole('button', { name: '扫码绑定钉钉' }).getAttribute('aria-disabled')).toBe('true')
+    expect(screen.getByRole('button', { name: '扫码绑定钉钉' }).hasAttribute('disabled')).toBe(true)
     expect(screen.getByRole('button', { name: '扫码绑定个人微信' }).hasAttribute('disabled')).toBe(true)
   })
 
-  it('shows only actionable channel attention and moves focus to the exact row action', () => {
+  it('targets the enabled configuration, binding, and transport recovery control for each attention condition', () => {
     const channel = (overrides: Record<string, unknown>) => ({
       orgId: 'org-a', provider: 'feishu', tenantId: 'tenant', accountId: 'app', credentialRef: 'CREDENTIAL',
       credentialStatus: 'configured', inboundEnabled: true, allowedIntents: [], transportStatus: 'unverified',
@@ -338,10 +338,70 @@ describe('EnterpriseWorkbench', () => {
     expect(attention.textContent).not.toContain('已连接')
     expect(attention.textContent).not.toContain('传输失败')
 
+    const missingRow = screen.getByRole('article', { name: '缺少配置' })
+    const edit = within(missingRow).getByRole('button', { name: '编辑' })
     fireEvent.click(within(attention).getByRole('button', { name: /缺少配置/u }))
-    expect(document.activeElement).toBe(screen.getAllByRole('button', { name: '扫码绑定企业微信' })[0])
+    expect(document.activeElement).toBe(edit)
+    expect(edit.hasAttribute('disabled')).toBe(false)
+    expect(document.activeElement).not.toBe(within(missingRow).getByRole('button', { name: '扫码绑定企业微信' }))
+
+    const unboundRow = screen.getByRole('article', { name: '待绑定' })
+    const bind = within(unboundRow).getByRole('button', { name: '扫码绑定飞书' })
     fireEvent.click(within(attention).getByRole('button', { name: /待绑定/u }))
-    expect(document.activeElement).toBe(screen.getAllByRole('button', { name: '扫码绑定飞书' })[0])
+    expect(document.activeElement).toBe(bind)
+    expect(bind.hasAttribute('disabled')).toBe(false)
+
+    const evidenceRow = screen.getByRole('article', { name: '待证据' })
+    const transport = within(evidenceRow).getByRole('link', { name: '查看传输接入要求' })
+    fireEvent.click(within(attention).getByRole('button', { name: /待证据/u }))
+    expect(document.activeElement).toBe(transport)
+    expect(document.activeElement).not.toBe(within(evidenceRow).getByRole('button', { name: '重新绑定' }))
+  })
+
+  it('keeps attention items as native keyboard buttons for Enter and Space activation', () => {
+    render(<EnterpriseWorkbench {...workbenchProps({ state: {
+      mode: 'enterprise', page: 'channels', channels: { phase: 'ready', error: null, items: [{
+        orgId: 'org-a', channelId: 'missing', name: '缺少配置', provider: 'wecom', tenantId: '', accountId: '',
+        credentialStatus: 'missing', inboundEnabled: true, allowedIntents: [], transportStatus: 'unverified',
+        state: 'active', bindingStatus: 'unbound', createdBy: 'admin', revision: 1, createdAt: 1, updatedAt: 1,
+      }] } as never,
+    } } as never)} />)
+
+    const attention = within(screen.getByRole('region', { name: '渠道待处理项' }))
+      .getByRole('button', { name: /缺少配置/u })
+    const edit = within(screen.getByRole('article', { name: '缺少配置' })).getByRole('button', { name: '编辑' })
+    expect(attention.tagName).toBe('BUTTON')
+    expect(attention.getAttribute('type')).toBe('button')
+    for (const key of ['Enter', ' ']) {
+      attention.focus()
+      expect(fireEvent.keyDown(attention, { key, code: key === ' ' ? 'Space' : 'Enter' })).toBe(true)
+      expect(fireEvent.keyUp(attention, { key, code: key === ' ' ? 'Space' : 'Enter' })).toBe(true)
+      fireEvent.click(attention)
+      expect(document.activeElement).toBe(edit)
+    }
+  })
+
+  it('renders English attention, readiness status, and provider transport guidance', () => {
+    const english = makeTranslate(en)
+    render(<EnterpriseWorkbench {...workbenchProps({ t: english, state: {
+      mode: 'enterprise', page: 'channels', channels: { phase: 'ready', error: null, items: [{
+        orgId: 'org-a', channelId: 'missing-wecom', name: 'Finance WeCom', provider: 'wecom', tenantId: '', accountId: '',
+        credentialStatus: 'missing', inboundEnabled: true, allowedIntents: [], transportStatus: 'unverified',
+        state: 'active', bindingStatus: 'unbound', createdBy: 'admin', revision: 1, createdAt: 1, updatedAt: 1,
+      }, {
+        orgId: 'org-a', channelId: 'verified-feishu', name: 'Finance Feishu', provider: 'feishu', accountId: 'app',
+        credentialRef: 'FEISHU', credentialStatus: 'configured', inboundEnabled: true, allowedIntents: [],
+        transportStatus: 'unverified', state: 'active', bindingStatus: 'verified', createdBy: 'admin', revision: 1,
+        createdAt: 1, updatedAt: 1,
+      }] } as never,
+    } } as never)} />)
+
+    expect(screen.getByRole('region', { name: 'Channel attention' }).textContent).toContain('Account ID missing · Enterprise / tenant ID missing · Credential missing')
+    expect(screen.getByText('Pending configuration')).toBeDefined()
+    expect(screen.getAllByText('Transport evidence pending').length).toBeGreaterThan(0)
+    expect(screen.getByText(/Create an Intelligent Bot or app in the admin console/u)).toBeDefined()
+    expect(screen.getByText(/Minimum transport permissions: read P2P messages/u)).toBeDefined()
+    expect(screen.getAllByRole('link', { name: 'View transport integration requirements' })).toHaveLength(2)
   })
 
   it('keeps configuration, official identity, DSH route, and transport evidence independent', () => {
