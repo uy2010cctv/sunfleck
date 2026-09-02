@@ -160,7 +160,8 @@ describe('enterprise channel Remote controller', () => {
     const state = new URL(String(session['authorizationUrl'])).searchParams.get('state') ?? ''
     expect(session['bindingId']).toBe(state)
     expect(String(session['authorizationUrl'])).toContain(`state=${encodeURIComponent(state)}`)
-    expect(state.length).toBeLessThanOrEqual(128)
+    expect(state).toMatch(/^[A-Za-z0-9_-]{43}\.[A-Za-z0-9_-]{43}$/u)
+    expect(state).toHaveLength(87)
     expect(bench.describe).toHaveBeenCalledTimes(1)
     expect(bench.resolve).not.toHaveBeenCalled()
     expect(JSON.stringify(session)).not.toContain('app-secret-private')
@@ -199,6 +200,64 @@ describe('enterprise channel Remote controller', () => {
     const expired = await begin(bench)
     now += 10 * 60_000 + 1
     await expect(complete(bench, expired)).rejects.toMatchObject({ code: 'enterprise-invalid-state' })
+  })
+
+  it.each([
+    ['blank code', { code: '   ' }],
+    ['oversized code', { code: 'c'.repeat(2_049) }],
+    ['oversized multibyte code', { code: '界'.repeat(683) }],
+    ['blank idempotency key', { idempotencyKey: '  ' }],
+    ['oversized idempotency key', { idempotencyKey: 'i'.repeat(129) }],
+    ['oversized callback', { redirectUri: `https://dsh.example.test/${'r'.repeat(2_049)}` }],
+  ])('rejects %s before secret resolution, provider network, or evidence storage', async (_name, input) => {
+    const fetchImpl = vi.fn()
+    const bench = await bindingBench({ fetch: fetchImpl })
+    const session = await begin(bench)
+    await expect(complete(bench, session, principal, input))
+      .rejects.toMatchObject({ code: 'enterprise-invalid-state' })
+    expect(bench.getChannelConfiguration).toHaveBeenCalledTimes(1)
+    expect(bench.resolve).not.toHaveBeenCalled()
+    expect(fetchImpl).not.toHaveBeenCalled()
+    expect(bench.verifyChannelBinding).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    '',
+    'a'.repeat(86),
+    `${'a'.repeat(43)}.${'a'.repeat(42)}`,
+    `${'a'.repeat(42)}!.${'a'.repeat(43)}`,
+  ])('rejects malformed state %j before HMAC-dependent work', async (state) => {
+    const fetchImpl = vi.fn()
+    const bench = await bindingBench({ fetch: fetchImpl })
+    await expect(complete(bench, { state })).rejects.toMatchObject({ code: 'enterprise-invalid-state' })
+    expect(bench.getChannelConfiguration).not.toHaveBeenCalled()
+    expect(bench.resolve).not.toHaveBeenCalled()
+    expect(fetchImpl).not.toHaveBeenCalled()
+    expect(bench.verifyChannelBinding).not.toHaveBeenCalled()
+  })
+
+  it('rejects an oversized begin callback without retaining a session', async () => {
+    const bench = await bindingBench()
+    await expect(begin(bench, principal, {
+      redirectUri: `https://dsh.example.test/${'r'.repeat(2_049)}`,
+    })).rejects.toMatchObject({ code: 'enterprise-invalid-state' })
+    const internals = bench.controller as unknown as { pendingBindings: Map<string, unknown> }
+    expect(internals.pendingBindings.size).toBe(0)
+    expect(JSON.stringify(bench.auditApiAsync.mock.calls)).not.toContain('redirectUri')
+  })
+
+  it('verifies the signature against the complete stored envelope before configuration reads', async () => {
+    const bench = await bindingBench()
+    const session = await begin(bench)
+    const state = String(session['bindingId'])
+    const internals = bench.controller as unknown as { pendingBindings: Map<string, Record<string, unknown>> }
+    const pending = internals.pendingBindings.get(state)
+    expect(pending).toBeDefined()
+    internals.pendingBindings.set(state, { ...pending, channelId: 'tampered-channel' })
+    const readsBeforeCompletion = bench.getChannelConfiguration.mock.calls.length
+    await expect(complete(bench, session)).rejects.toMatchObject({ code: 'enterprise-invalid-state' })
+    expect(bench.getChannelConfiguration).toHaveBeenCalledTimes(readsBeforeCompletion)
+    expect(bench.resolve).not.toHaveBeenCalled()
   })
 
   it('consumes state before a provider failure and redacts provider payload, code, and secret', async () => {
@@ -250,11 +309,46 @@ describe('enterprise channel Remote controller', () => {
     expect(rejected).toMatchObject({ reason: { code: 'enterprise-invalid-state' } })
   })
 
-  it('bounds pending sessions and evicts the oldest entry', async () => {
+  it('rejects actor and organization quota overflow without invalidating another organization session', async () => {
+    const fetchImpl = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ errcode: 0, access_token: 'token-private' })))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ errcode: 0, userid: 'victim-service' })))
+    const bench = await bindingBench({ fetch: fetchImpl })
+    const victim = { ...principal, orgId: 'org-victim', userId: 'victim-admin' }
+    const victimSession = await begin(bench, victim)
+
+    for (let actorIndex = 0; actorIndex < 4; actorIndex += 1) {
+      const attacker = { ...principal, userId: `attacker-${String(actorIndex)}` }
+      for (let index = 0; index < 16; index += 1) await begin(bench, attacker)
+      await expect(begin(bench, attacker)).rejects.toMatchObject({ code: 'enterprise-invalid-state' })
+    }
+    await expect(begin(bench, { ...principal, userId: 'attacker-over-org' }))
+      .rejects.toMatchObject({ code: 'enterprise-invalid-state' })
+
+    await expect(complete(bench, victimSession, victim)).resolves.toMatchObject({
+      boundProviderIdentityId: 'victim-service',
+    })
+    expect(fetchImpl).toHaveBeenCalledTimes(2)
+  })
+
+  it('rejects the global pending-session cap without evicting an existing session', async () => {
     const bench = await bindingBench()
-    const oldest = await begin(bench)
-    for (let index = 0; index < 256; index += 1) await begin(bench)
-    await expect(complete(bench, oldest)).rejects.toMatchObject({ code: 'enterprise-invalid-state' })
+    let first: Record<string, unknown> | undefined
+    for (let orgIndex = 0; orgIndex < 4; orgIndex += 1) {
+      for (let actorIndex = 0; actorIndex < 4; actorIndex += 1) {
+        const actor = {
+          ...principal, orgId: `org-${String(orgIndex)}`, userId: `actor-${String(actorIndex)}`,
+        }
+        for (let index = 0; index < 16; index += 1) {
+          const session = await begin(bench, actor)
+          first ??= session
+        }
+      }
+    }
+    await expect(begin(bench, { ...principal, orgId: 'org-overflow', userId: 'actor-overflow' }))
+      .rejects.toMatchObject({ code: 'enterprise-invalid-state' })
+    const internals = bench.controller as unknown as { pendingBindings: Map<string, unknown> }
+    expect(internals.pendingBindings.has(String(first?.['bindingId']))).toBe(true)
   })
 
   it('rejects a same-revision identity configuration change before resolving the secret', async () => {
