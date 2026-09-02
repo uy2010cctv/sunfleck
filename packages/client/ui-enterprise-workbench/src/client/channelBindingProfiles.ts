@@ -1,5 +1,16 @@
 import type { EnterpriseChannelProvider } from '@deepseek-ai/dsh-api-enterprise-controller/types'
 
+export const CHANNEL_BINDING_CALLBACK_PARAM = 'dsh_channel_binding'
+export const CHANNEL_BINDING_BROADCAST_CHANNEL = 'dsh-channel-binding'
+
+/** Canonical callback registered with providers for one unpredictable browser attempt. */
+export function channelBindingCallbackUri(
+  location: Pick<Location, 'origin' | 'pathname'>,
+  attemptId: string,
+): string {
+  return `${location.origin}${location.pathname}?${CHANNEL_BINDING_CALLBACK_PARAM}=${encodeURIComponent(attemptId)}`
+}
+
 /** Credential-free client metadata sourced from each provider's official binding contract. */
 export interface ChannelBindingClientProfile {
   readonly officialDocsUrl: string
