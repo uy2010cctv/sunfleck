@@ -61,6 +61,7 @@ const BASE_STATE: EnterpriseWorkbenchState = {
   error: null, busyEmployee: null, employeeFilters: {}, employees: EMPTY_PAGE,
   workRecords: EMPTY_PAGE, approvals: EMPTY_PAGE, schedules: EMPTY_PAGE,
   assets: EMPTY_PAGE, teams: EMPTY_PAGE,
+  channels: EMPTY_PAGE,
   teamDefinitions: EMPTY_PAGE, teamRuns: EMPTY_PAGE, teamDecisions: EMPTY_PAGE, teamAutonomy: EMPTY_PAGE,
   modelOptions: [],
   extensions: EMPTY_PAGE, extensionBindings: [], extensionReviews: EMPTY_PAGE, formalPlugins: EMPTY_PAGE,
@@ -175,6 +176,50 @@ describe('EnterpriseWorkbench', () => {
     }
     fireEvent.click(screen.getByRole('button', { name: '编辑采购专员' }))
     expect(openEmployeeDraft).toHaveBeenCalledWith('buyer')
+  })
+
+  it('manages channel configuration without accepting secret values', async () => {
+    const saveChannelConfiguration = vi.fn(() => Promise.resolve(true))
+    const archiveChannelConfiguration = vi.fn(() => Promise.resolve())
+    const { container } = render(<EnterpriseWorkbench {...workbenchProps({
+      state: {
+        mode: 'enterprise', page: 'channels',
+        channels: { phase: 'ready', error: null, items: [{
+          orgId: 'org-a', channelId: 'finance-wecom', name: '财务企业微信', provider: 'wecom',
+          tenantId: 'corp-a', accountId: 'app-a', credentialRef: 'WECOM_FINANCE_SECRET',
+          credentialStatus: 'configured', inboundEnabled: true,
+          allowedIntents: ['notify', 'handoff', 'team-start', 'decision-response', 'status'],
+          transportStatus: 'unverified', state: 'active', createdBy: 'admin-a', revision: 1,
+          createdAt: 1, updatedAt: 1,
+        }] } as never,
+      },
+      saveChannelConfiguration, archiveChannelConfiguration,
+    } as never)} />)
+
+    expect(screen.getByRole('heading', { name: '渠道设置' })).toBeDefined()
+    expect(screen.getByText('财务企业微信')).toBeDefined()
+    expect(screen.getByText('凭证已配置')).toBeDefined()
+    expect(screen.getByText('传输状态待验证')).toBeDefined()
+    expect(container.querySelector('input[type="password"]')).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: '新建渠道' }))
+    fireEvent.change(screen.getByLabelText('渠道提供方'), { target: { value: 'wechat' } })
+    expect((screen.getByLabelText('允许渠道发起命令') as HTMLInputElement).disabled).toBe(true)
+    fireEvent.change(screen.getByLabelText('渠道名称'), { target: { value: '个人微信提醒' } })
+    fireEvent.change(screen.getByLabelText('渠道 ID'), { target: { value: 'personal-wechat' } })
+    fireEvent.change(screen.getByLabelText('账号 ID'), { target: { value: 'owner-a' } })
+    fireEvent.change(screen.getByLabelText('Credential 引用'), { target: { value: 'WECHAT_NOTIFY' } })
+    fireEvent.click(screen.getByRole('button', { name: '保存为草稿' }))
+    await waitFor(() => { expect(saveChannelConfiguration).toHaveBeenCalledWith(expect.objectContaining({
+      provider: 'wechat', inboundEnabled: false, state: 'draft', expectedRevision: 0,
+    })) })
+
+    fireEvent.click(screen.getByRole('button', { name: '暂停财务企业微信' }))
+    expect(saveChannelConfiguration).toHaveBeenCalledWith(expect.objectContaining({
+      channelId: 'finance-wecom', state: 'paused', expectedRevision: 1,
+    }))
+    fireEvent.click(screen.getByRole('button', { name: '归档财务企业微信' }))
+    expect(archiveChannelConfiguration).toHaveBeenCalledWith(expect.objectContaining({ channelId: 'finance-wecom' }))
   })
 
   it('launches an active team charter, opens its Team Room, and answers assigned decisions', async () => {

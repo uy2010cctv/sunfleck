@@ -819,6 +819,47 @@
 .legacyTeams > summary > span:last-child { flex: none; font-size: 0.75rem; font-variant-numeric: tabular-nums; }
 .legacyTeams > .managementPage { padding-block: var(--dse-space-sm) var(--dse-space-xl); }
 .legacyActions { display: flex; justify-content: flex-end; margin-block-end: var(--dse-space-sm); }
+.channelPage { max-inline-size: 82rem; margin-inline: auto; }
+.channelPrinciple { display: flex; align-items: flex-start; gap: var(--dse-space-xs); margin-block-end: var(--dse-space-md); padding: var(--dse-space-sm); border: 1px solid color-mix(in srgb, var(--dse-color-accent) 24%, var(--dse-color-border)); border-radius: var(--dse-radius-control); background: var(--dse-color-accent-soft); color: var(--dse-color-accent); }
+.channelPrinciple > div { display: grid; gap: var(--dse-space-3xs); }
+.channelPrinciple strong { color: var(--dse-color-ink); font-size: 0.8125rem; }
+.channelPrinciple span { max-inline-size: 72ch; color: var(--dse-color-muted); font-size: 0.75rem; line-height: 1.5; }
+.channelForm { display: grid; gap: var(--dse-space-sm); margin-block-end: var(--dse-space-lg); padding: var(--dse-space-md); border: 1px solid var(--dse-color-border); border-radius: var(--dse-radius-card); background: var(--dse-color-surface-raised); }
+.channelForm > header { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--dse-space-sm); }
+.channelForm h3, .channelForm p { margin: 0; }
+.channelForm h3 { font-size: 1rem; letter-spacing: -0.015em; }
+.channelForm p { margin-block-start: var(--dse-space-3xs); color: var(--dse-color-muted); font-size: 0.75rem; line-height: 1.5; }
+.channelForm label small { color: var(--dse-color-muted); line-height: 1.45; }
+.channelCheck { min-block-size: 54px; display: flex !important; flex-direction: row !important; align-items: flex-start; gap: var(--dse-space-xs) !important; padding: var(--dse-space-xs); border: 1px solid var(--dse-color-border); border-radius: var(--dse-radius-control); background: var(--dse-color-surface); }
+.channelCheck input { inline-size: 18px; min-block-size: 18px; margin: 2px 0 0; accent-color: var(--dse-color-accent); }
+.channelCheck > span { display: grid; gap: var(--dse-space-3xs); }
+.channelCheck strong { color: var(--dse-color-ink); font-size: 0.8125rem; }
+.channelPolicyPreview { display: flex; align-items: center; flex-wrap: wrap; gap: var(--dse-space-2xs); color: var(--dse-color-muted); font-size: 0.6875rem; }
+.channelPolicyPreview em, .channelIntentRow div span { padding: 3px var(--dse-space-2xs); border-radius: 999px; background: var(--dse-color-surface); color: var(--dse-color-ink); font-style: normal; }
+.channelFormActions { display: flex; justify-content: flex-end; gap: var(--dse-space-2xs); }
+.channelList { border-block-start: 1px solid var(--dse-color-border); }
+.channelRow { display: grid; gap: var(--dse-space-sm); padding-block: var(--dse-space-md); border-block-end: 1px solid var(--dse-color-border); }
+.channelRow[data-state='paused'], .channelRow[data-state='draft'] { opacity: 0.82; }
+.channelIdentity { min-inline-size: 0; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: var(--dse-space-xs); }
+.channelProvider { min-inline-size: 4.5rem; padding: 5px var(--dse-space-2xs); border: 1px solid var(--dse-color-border); border-radius: var(--dse-radius-control); background: var(--dse-color-surface); color: var(--dse-color-accent); font-size: 0.6875rem; font-weight: 700; text-align: center; }
+.channelIdentity h3, .channelIdentity p { margin: 0; }
+.channelIdentity h3 { font-size: 1rem; letter-spacing: -0.015em; }
+.channelIdentity p { margin-block-start: 2px; color: var(--dse-color-muted); font-family: var(--dse-font-mono); font-size: 0.6875rem; overflow-wrap: anywhere; }
+.channelState { padding: 3px var(--dse-space-2xs); border-radius: 999px; background: var(--dse-color-accent-soft); color: var(--dse-color-accent); font-size: 0.6875rem; font-weight: 650; }
+.connectionPath { display: grid; grid-template-columns: minmax(7rem, 1fr) 2rem minmax(7rem, 1fr) 2rem minmax(7rem, 1fr) 2rem minmax(7rem, 1fr); align-items: center; }
+.connectionPath > span { min-inline-size: 0; min-block-size: 66px; display: grid; align-content: center; gap: var(--dse-space-3xs); padding: var(--dse-space-xs); border: 1px solid var(--dse-color-border); border-radius: var(--dse-radius-control); background: var(--dse-color-surface-raised); }
+.connectionPath small { color: var(--dse-color-muted); font-size: 0.625rem; text-transform: uppercase; letter-spacing: 0.04em; }
+.connectionPath strong { min-inline-size: 0; font-size: 0.75rem; overflow-wrap: anywhere; }
+.connectionPath strong[data-status='configured'] { color: var(--dse-color-success); }
+.connectionPath strong[data-status='missing'] { color: var(--dse-color-error); }
+.connectionPath > i { block-size: 1px; background: var(--dse-color-border); }
+.connectionPath > i::after { content: ''; display: block; inline-size: 5px; block-size: 5px; margin-inline-start: auto; border-block-start: 1px solid var(--dse-color-muted); border-inline-end: 1px solid var(--dse-color-muted); transform: translate(-1px, -2px) rotate(45deg); }
+.channelIntentRow { display: flex; align-items: center; flex-wrap: wrap; gap: var(--dse-space-xs); color: var(--dse-color-muted); font-size: 0.6875rem; }
+.channelIntentRow > div { display: flex; flex-wrap: wrap; gap: var(--dse-space-3xs); }
+.channelIntentRow em { margin-inline-start: auto; color: var(--dse-color-muted); font-style: normal; font-weight: 650; }
+.channelActions { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: var(--dse-space-2xs); }
+.channelActions > span { margin-inline-end: auto; color: var(--dse-color-muted); font-size: 0.6875rem; font-variant-numeric: tabular-nums; }
+.channelForm input:focus-visible, .channelForm select:focus-visible, .channelActions button:focus-visible { outline: 2px solid var(--dse-color-focus); outline-offset: 2px; }
 .spin { animation: spin 1s linear infinite; }
 
 @keyframes spin { to { transform: rotate(360deg); } }
@@ -863,6 +904,9 @@
   .extensionReviewActions,
   .extensionRow > .inlineActions { grid-column: 1 / -1; }
   .extensionReviewActions { grid-template-columns: minmax(12rem, 1fr) auto auto auto; }
+  .channelRow { grid-template-columns: minmax(0, 1fr) auto; }
+  .channelIdentity, .connectionPath, .channelIntentRow { grid-column: 1 / -1; }
+  .channelActions { grid-column: 2; }
 }
 
 @media (min-width: 72rem) {
@@ -906,6 +950,15 @@
   .decisionOptions { inline-size: 100%; margin-inline-start: 0; }
   .decisionOptions button,
   .decisionActions > button { flex: 1; }
+  .channelForm > header { flex-direction: column; }
+  .channelFormActions { align-items: stretch; flex-direction: column; }
+  .channelFormActions button { inline-size: 100%; }
+  .connectionPath { grid-template-columns: minmax(0, 1fr); gap: var(--dse-space-3xs); }
+  .connectionPath > i { inline-size: 1px; block-size: var(--dse-space-xs); margin-inline-start: var(--dse-space-md); }
+  .connectionPath > i::after { margin-block-start: auto; margin-inline-start: -2px; transform: translateY(1px) rotate(135deg); }
+  .channelActions { align-items: stretch; }
+  .channelActions > span { flex-basis: 100%; }
+  .channelActions button { flex: 1; }
 }
 
 @media (prefers-reduced-motion: reduce) {

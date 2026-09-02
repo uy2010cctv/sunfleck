@@ -148,6 +148,10 @@ export function classifyApiEndpoint(endpoint: string, input: unknown): ApiClassi
     return { action: 'employee.update', resourceType: 'employee', ...resourceId === undefined ? {} : { resourceId } }
   }
   if (endpoint.startsWith('credentials.')) return { action: 'credential.manage', resourceType: 'credential' }
+  if (endpoint.startsWith('enterpriseChannel.')) {
+    const resourceId = stringField(payload, 'channelId')
+    return { action: 'channel.manage', resourceType: 'channel', ...(resourceId === undefined ? {} : { resourceId }) }
+  }
   if (endpoint.startsWith('enterpriseAdmin.')) return { action: 'user.manage', resourceType: 'enterprise-admin' }
   if (endpoint === 'enterpriseAudit.list') return { action: 'audit.read', resourceType: 'audit' }
   if (['enterpriseEmployee.list', 'enterpriseEmployee.getDraft', 'enterpriseEmployee.saveDraft', 'enterpriseEmployee.publish', 'enterpriseEmployee.listReleases', 'enterpriseEmployee.rollback', 'enterpriseEmployee.optimizePrompt'].includes(endpoint)) {

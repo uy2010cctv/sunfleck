@@ -99,6 +99,35 @@ export interface FixedTeamView {
   readonly updatedAt: number
 }
 
+/** Supported enterprise and notification-only channel providers. */
+export type EnterpriseChannelProvider = 'wecom' | 'feishu' | 'dingtalk' | 'wechat'
+
+/** Configuration lifecycle; archived channels are terminal. */
+export type EnterpriseChannelState = 'draft' | 'active' | 'paused' | 'archived'
+
+/** Reusable channel account configuration. Secret values remain in the Credential seam. */
+export interface EnterpriseChannelConfiguration {
+  readonly orgId: string
+  readonly channelId: string
+  readonly name: string
+  readonly provider: EnterpriseChannelProvider
+  readonly tenantId?: string
+  readonly accountId: string
+  readonly credentialRef?: string
+  readonly defaultEmployeeReleaseId?: string
+  readonly inboundEnabled: boolean
+  readonly state: EnterpriseChannelState
+  readonly createdBy: string
+  readonly revision: number
+  readonly createdAt: number
+  readonly updatedAt: number
+}
+
+/** Complete organization-scoped channel configuration list. */
+export interface EnterpriseChannelConfigurationPage {
+  readonly items: readonly EnterpriseChannelConfiguration[]
+}
+
 /** A person or immutable Agent release assigned to an enterprise team. */
 export type TeamActorRef =
   | { readonly kind: 'human'; readonly userId: string }

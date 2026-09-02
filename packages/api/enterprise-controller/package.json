@@ -27,6 +27,8 @@
   "peerDependencies": {
     "@deepseek-ai/cordis": "workspace:^",
     "@deepseek-ai/dsh-enterprise-auth-web": "workspace:^",
+    "@deepseek-ai/dsh-channel-kernel": "workspace:^",
+    "@deepseek-ai/dsh-credentials": "workspace:^",
     "@deepseek-ai/dsh-enterprise-catalog": "workspace:^",
     "@deepseek-ai/dsh-enterprise-governance": "workspace:^",
     "@deepseek-ai/dsh-enterprise-operations": "workspace:^",
@@ -42,6 +44,8 @@
   "devDependencies": {
     "@deepseek-ai/cordis": "workspace:^",
     "@deepseek-ai/dsh-enterprise-auth-web": "workspace:^",
+    "@deepseek-ai/dsh-channel-kernel": "workspace:^",
+    "@deepseek-ai/dsh-credentials": "workspace:^",
     "@deepseek-ai/dsh-enterprise-catalog": "workspace:^",
     "@deepseek-ai/dsh-enterprise-governance": "workspace:^",
     "@deepseek-ai/dsh-enterprise-operations": "workspace:^",

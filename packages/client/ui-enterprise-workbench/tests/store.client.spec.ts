@@ -191,6 +191,7 @@ function controllerApi(overrides: Record<string, unknown> = {}) {
       listVersions: () => ok([]), archive: () => ok({}),
     },
     enterpriseTeams: { list: () => ok({ items: [] }), get: () => ok({}), save: () => ok({}) },
+    enterpriseChannels: { list: () => ok({ items: [] }), get: () => ok({}), save: () => ok({}), archive: () => ok({}) },
     enterpriseOperations: {
       listWorkRecords: () => ok({ items: [{
         orgId: 'server-org', sessionId: 'session-1', employeeReleaseId: 'release-2', source: 'console',

@@ -2,13 +2,13 @@
 
 English | [中文](human-agent-teams.zh.md)
 
-This page describes the complete target operating model. The source-checkout enterprise profile now stores typed Team Definitions, starts real TeamRuns on the Agent Teams Session log, projects Human and Agent roster entries, opens the root Session as a Team Room, and exposes a cross-Run Human decision queue. Human task ownership, a trust-grant editor, version-aware capability-asset assembly, and enterprise channel commands remain proposed.
+This page describes the complete target operating model. The source-checkout enterprise profile now stores typed Team Definitions, starts real TeamRuns on the Agent Teams Session log, projects Human and Agent roster entries, opens the root Session as a Team Room, exposes a cross-Run Human decision queue, and provides governed Channel Settings. Human task ownership, a trust-grant editor, version-aware capability-asset assembly, and live enterprise channel delivery remain proposed.
 
 ## Proposal status
 
 The implementation preserves DSH runtime ownership instead of adding another Team engine. PostgreSQL persists reusable Team Definitions and query projections; the experimental `TeamService` and each root Session event log own one TeamRun's actor roster, task DAG, mailbox, decisions, verification, and handoff state.
 
-The current experimental [Agent Teams subsystem](../../subsystems/agent-team.md) provides durable Human and Agent roster projection, an Agent-owned task DAG, mailbox, TeamRun state, and Human decisions in the source-checkout enterprise profile. PostgreSQL provides Team Definition, TeamRun/decision query projections, and explicit autonomy grants. Verifier records, Human task ownership, and channel integration are not complete.
+The current experimental [Agent Teams subsystem](../../subsystems/agent-team.md) provides durable Human and Agent roster projection, an Agent-owned task DAG, mailbox, TeamRun state, and Human decisions in the source-checkout enterprise profile. PostgreSQL provides Team Definition, TeamRun/decision query projections, explicit autonomy grants, and administrator-managed channel configurations. Verifier records, Human task ownership, and provider delivery integration are not complete.
 
 ## Proposed lifecycle
 
@@ -51,13 +51,15 @@ The model uses four trust levels, each constrained by Agent, task type, and capa
 - `execute-reviewed` executes within scope but cannot advance dependent work until the required review accepts the result.
 - `execute-delegated` executes pre-authorized reversible work within scope; irreversible actions and policy exceptions still require Human approval.
 
-## Channel and delivery proposal
+## Channel settings and delivery boundary
 
-The first delivery phase would contain only the authenticated DSH core collaboration loop. A later phase would start enterprise channel integration with Enterprise WeChat, then reuse the same DSH adapter protocol for Feishu and DingTalk. Personal WeChat would remain notification and Human-takeover transport only.
+Open **Channels** in the enterprise workbench to create, edit, activate, pause, or archive Enterprise WeChat, Feishu, DingTalk, and personal WeChat configurations. Each record stores provider/account identity, an optional tenant, a Host-managed Credential reference, a default employee Release route, inbound policy, lifecycle state, and revision. The page never asks for or displays the secret value.
+
+Personal WeChat is always outbound-only. Enterprise providers may enable inbound commands, but identity binding and DSH authorization still decide whether an individual intent is accepted. Saved or active configuration does not prove delivery: transport remains **unverified** until provider adapters record receipts or health evidence.
 
 The current Channel Kernel routing decision remains `stickyEmployeeId` → inferred intent → binding default. The Kernel and adapter do not persist an authoritative selection; future enterprise composition must derive `stickyEmployeeId` from a DSH-owned binding or Session projection. That integration is a migration target, not a current capability.
 
-Each future channel or outbox operation would persist one stable `operationId`. DSH would not dispatch a second logical operation for the same id. External de-duplication would be guaranteed only when the provider supports an idempotency key; an unsupported provider or timeout with an ambiguous result would create a visible unknown outcome and reconciliation task, not an exactly-once claim.
+Future provider delivery still requires durable inbox/outbox records, stable `operationId` values, leases, retries, receipts, heartbeat evidence, and reconciliation. External de-duplication can only be guaranteed when the provider supports an idempotency key; an unsupported provider or timeout with an ambiguous result must create a visible unknown outcome and reconciliation task, not an exactly-once claim.
 
 ## Continue
 

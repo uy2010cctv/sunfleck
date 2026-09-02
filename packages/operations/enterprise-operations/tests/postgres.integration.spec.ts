@@ -39,6 +39,7 @@ const postgres = database as PgTestDatabase
 
 async function reset(): Promise<void> {
   await database?.query(`DROP TABLE IF EXISTS
+    dsh_enterprise_channel_configurations,
     dsh_enterprise_team_decisions, dsh_enterprise_team_autonomy_grants, dsh_enterprise_team_runs,
     dsh_enterprise_team_definitions, dsh_enterprise_fixed_team_members, dsh_enterprise_operation_outbox, dsh_enterprise_fixed_teams,
     dsh_enterprise_schedules, dsh_enterprise_approval_requests, dsh_enterprise_work_records,
@@ -117,6 +118,24 @@ describe.skipIf(database === undefined)('enterprise operations PostgreSQL', () =
       occurrenceKey: 'three', sessionId: 'pg-rollback-session', firedAt: 3, nextRunAt: 4,
     })).rejects.toThrow()
     await expect(operations.getWorkRecord('pg-org', 'pg-rollback-session', 'pg-lead')).resolves.toBeUndefined()
+  })
+
+  it('persists organization-scoped channel configuration with CAS in PostgreSQL', async () => {
+    const operations = new EnterpriseOperationsRepository(postgres, { allowUnverifiedReferences: true })
+    const created = await operations.saveChannelConfiguration({
+      orgId: 'channel-org', channelId: 'finance-wecom', name: 'Finance WeCom', provider: 'wecom',
+      tenantId: 'corp-a', accountId: 'app-a', credentialRef: 'WECOM_FINANCE_SECRET',
+      inboundEnabled: true, state: 'active', actorUserId: 'admin-a', expectedRevision: 0,
+      idempotencyKey: 'channel-create-a',
+    })
+    expect(created).toMatchObject({ state: 'active', revision: 1 })
+    await expect(operations.getChannelConfiguration('other-org', created.channelId)).resolves.toBeUndefined()
+    await expect(operations.saveChannelConfiguration({
+      orgId: 'channel-org', channelId: created.channelId, name: created.name, provider: created.provider,
+      tenantId: 'corp-a', accountId: created.accountId, credentialRef: 'WECOM_FINANCE_SECRET',
+      inboundEnabled: created.inboundEnabled, state: 'paused', actorUserId: 'admin-a', expectedRevision: 0,
+      idempotencyKey: 'channel-stale-a',
+    })).rejects.toMatchObject({ code: 'conflict' })
   })
 
   it('persists TeamRun and Decision projections plus terminal explicit autonomy grants', async () => {

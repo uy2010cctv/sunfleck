@@ -40,6 +40,9 @@ export type {
   EnterpriseTeamDefinitionLookup,
   EnterpriseTeamDefinitionListInput,
   EnterpriseTeamDefinitionArchiveInput,
+  EnterpriseChannelSaveInput,
+  EnterpriseChannelLookup,
+  EnterpriseChannelArchiveInput,
 } from './service.ts'
 export {
   migrateEnterpriseOperations,

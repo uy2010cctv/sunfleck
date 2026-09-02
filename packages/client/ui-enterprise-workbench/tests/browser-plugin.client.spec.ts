@@ -43,6 +43,7 @@ async function bench(declareSlots = true) {
   const enterpriseTeamRun = {}
   const enterpriseTeamDecision = {}
   const enterpriseTeamAutonomy = {}
+  const enterpriseChannel = {}
   const session = {}
   const pluginInventory = {}
   const cordisWorkspace = {}
@@ -50,7 +51,8 @@ async function bench(declareSlots = true) {
   const cordisGovernance = {}
   ctx.provide('remote', {
     agentPresets, enterpriseEmployee, enterpriseAsset, enterpriseTeam, enterpriseOperation,
-    enterpriseTeamDefinition, enterpriseTeamRun, enterpriseTeamDecision, enterpriseTeamAutonomy, session, pluginInventory,
+    enterpriseTeamDefinition, enterpriseTeamRun, enterpriseTeamDecision, enterpriseTeamAutonomy,
+    enterpriseChannel, session, pluginInventory,
     cordisWorkspace, cordisReview, cordisGovernance,
   } as never)
   ctx.provide('remote.agentPresets', agentPresets as never)
@@ -62,6 +64,7 @@ async function bench(declareSlots = true) {
   ctx.provide('remote.enterpriseTeamRun', enterpriseTeamRun as never)
   ctx.provide('remote.enterpriseTeamDecision', enterpriseTeamDecision as never)
   ctx.provide('remote.enterpriseTeamAutonomy', enterpriseTeamAutonomy as never)
+  ctx.provide('remote.enterpriseChannel', enterpriseChannel as never)
   ctx.provide('remote.session', session as never)
   ctx.provide('remote.pluginInventory', pluginInventory as never)
   ctx.provide('remote.cordisWorkspace', cordisWorkspace as never)
@@ -80,6 +83,7 @@ describe('enterprise workbench browser plugin', () => {
       'remote.enterpriseTeam', 'remote.enterpriseOperation', 'remote.session',
       'remote.enterpriseTeamDefinition', 'remote.enterpriseTeamRun',
       'remote.enterpriseTeamDecision', 'remote.enterpriseTeamAutonomy',
+      'remote.enterpriseChannel',
       'remote.pluginInventory',
       'remote.cordisWorkspace', 'remote.cordisReview', 'remote.cordisGovernance',
     ])

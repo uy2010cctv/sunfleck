@@ -4,6 +4,7 @@ import type { ClientRemote, PluginInventorySnapshot, SessionId } from '@deepseek
 import type {
   EnterpriseApproval, EnterpriseAsset, EnterpriseAssetKind,
   EnterpriseBusinessState, EnterpriseEmployeeAssetRef, EnterpriseEmployeeDraft,
+  EnterpriseChannelConfiguration,
   EnterpriseEmployeeRelease, EnterpriseSchedule,
   EnterpriseScheduleTarget, EnterpriseTeam, EnterpriseTeamMember,
   EnterpriseTeamAutonomyGrant, EnterpriseTeamDecision, EnterpriseTeamDefinition, EnterpriseTeamRun,
@@ -71,7 +72,7 @@ export interface EnterpriseView {
 
 /** Overlay-local route. Governance deliberately remains in Settings. */
 export type EnterpriseWorkbenchPage =
-  | 'employees' | 'work-records' | 'approvals' | 'attention' | 'schedules' | 'assets' | 'teams' | 'extensions'
+  | 'employees' | 'work-records' | 'approvals' | 'attention' | 'schedules' | 'assets' | 'teams' | 'channels' | 'extensions'
 
 /** Shared asynchronous page state for enterprise PostgreSQL read models. */
 export interface EnterprisePageState<T> {
@@ -145,6 +146,7 @@ export interface EnterpriseWorkbenchState {
   readonly schedules: EnterprisePageState<EnterpriseSchedule>
   readonly assets: EnterprisePageState<EnterpriseAsset>
   readonly teams: EnterprisePageState<EnterpriseTeam>
+  readonly channels: EnterprisePageState<EnterpriseChannelConfiguration>
   readonly teamDefinitions: EnterprisePageState<EnterpriseTeamDefinition>
   readonly teamRuns: EnterprisePageState<EnterpriseTeamRun>
   readonly teamDecisions: EnterprisePageState<EnterpriseTeamDecision>
@@ -169,6 +171,7 @@ export interface EnterpriseWorkbenchRemote {
   readonly enterpriseEmployees: ClientRemote['enterpriseEmployee']
   readonly enterpriseAssets: ClientRemote['enterpriseAsset']
   readonly enterpriseTeams: ClientRemote['enterpriseTeam']
+  readonly enterpriseChannels: ClientRemote['enterpriseChannel']
   readonly enterpriseTeamDefinitions: ClientRemote['enterpriseTeamDefinition']
   readonly enterpriseTeamRuns: ClientRemote['enterpriseTeamRun']
   readonly enterpriseTeamDecisions: ClientRemote['enterpriseTeamDecision']
@@ -184,6 +187,7 @@ export type EnterpriseHostEventName =
   | 'enterprise/employee-updated'
   | 'enterprise/asset-updated'
   | 'enterprise/team-updated'
+  | 'enterprise/channel-updated'
   | 'enterprise/approval-requested'
   | 'enterprise/operation-updated'
 
@@ -309,6 +313,7 @@ const INITIAL_STATE: EnterpriseWorkbenchState = {
   schedules: emptyPage(),
   assets: emptyPage(),
   teams: emptyPage(),
+  channels: emptyPage(),
   teamDefinitions: emptyPage(),
   teamRuns: emptyPage(),
   teamDecisions: emptyPage(),
@@ -464,6 +469,7 @@ export class EnterpriseWorkbenchController {
       await Promise.all([
         this.refreshWorkRecords(), this.refreshApprovals(), this.refreshSchedules(),
         this.refreshAssets(), this.refreshTeams(), this.refreshTeamDefinitions(),
+        this.refreshChannels(),
         this.refreshTeamRuns(), this.refreshTeamDecisions(), this.refreshTeamAutonomy(),
         this.refreshExtensions(), this.refreshFormalPlugins(), this.refreshModelOptions(),
       ])
@@ -572,7 +578,7 @@ export class EnterpriseWorkbenchController {
     }
   }
 
-  private async loadPage<K extends 'workRecords' | 'approvals' | 'schedules' | 'assets' | 'teams' | 'teamDefinitions' | 'teamRuns' | 'teamDecisions' | 'teamAutonomy' | 'formalPlugins'>(
+  private async loadPage<K extends 'workRecords' | 'approvals' | 'schedules' | 'assets' | 'teams' | 'channels' | 'teamDefinitions' | 'teamRuns' | 'teamDecisions' | 'teamAutonomy' | 'formalPlugins'>(
     key: K,
     load: () => Promise<{ items: EnterpriseWorkbenchState[K]['items']; nextCursor?: string }>,
   ): Promise<boolean> {
@@ -625,6 +631,14 @@ export class EnterpriseWorkbenchController {
   /** Refresh fixed teams. */
   refreshTeams(): Promise<boolean> {
     return this.loadPage('teams', async () => valueOf(await this.api.enterpriseTeams.list({ limit: 50 })))
+  }
+
+  /**
+   * Refresh administrator-visible channel configurations.
+   * @returns whether the latest page replaced the previous projection.
+   */
+  refreshChannels(): Promise<boolean> {
+    return this.loadPage('channels', async () => valueOf(await this.api.enterpriseChannels.list({})))
   }
 
   /** Refresh typed Team Definitions. */
@@ -1091,6 +1105,41 @@ export class EnterpriseWorkbenchController {
     () => this.reloadPageConflict('teams', () => this.refreshTeams()))
   }
 
+  /**
+   * Save one channel configuration; secret values are never accepted here.
+   * @param input - provider account, Credential reference, DSH route, and write guards.
+   * @returns whether the mutation and refresh completed successfully.
+   */
+  async saveChannelConfiguration(input: {
+    channelId: string
+    name: string
+    provider: EnterpriseChannelConfiguration['provider']
+    tenantId?: string
+    accountId: string
+    credentialRef?: string
+    defaultEmployeeReleaseId?: string
+    inboundEnabled: boolean
+    state: 'draft' | 'active' | 'paused'
+    expectedRevision: number
+  }): Promise<boolean> {
+    return this.runMutation('channel-save', async () => valueOf(await this.api.enterpriseChannels.save({
+      ...input, idempotencyKey: mutationKey('channel-save'),
+    })), () => this.refreshChannels(), undefined,
+    () => this.reloadPageConflict('channels', () => this.refreshChannels()))
+  }
+
+  /**
+   * Terminally archive one channel configuration.
+   * @param channel - current revision of the channel configuration.
+   */
+  async archiveChannelConfiguration(channel: EnterpriseChannelConfiguration): Promise<void> {
+    await this.runMutation('channel-archive', async () => valueOf(await this.api.enterpriseChannels.archive({
+      channelId: channel.channelId, expectedRevision: channel.revision,
+      idempotencyKey: mutationKey('channel-archive'),
+    })), () => this.refreshChannels(), undefined,
+    () => this.reloadPageConflict('channels', () => this.refreshChannels()))
+  }
+
   /** Start one immutable Team Definition revision in an explicit Workspace. */
   async startTeamRun(input: {
     teamId: string
@@ -1124,7 +1173,7 @@ export class EnterpriseWorkbenchController {
   }
 
   private async reloadPageConflict(
-    key: 'workRecords' | 'approvals' | 'schedules' | 'assets' | 'teams' | 'teamDefinitions' | 'teamRuns' | 'teamDecisions' | 'teamAutonomy',
+    key: 'workRecords' | 'approvals' | 'schedules' | 'assets' | 'teams' | 'channels' | 'teamDefinitions' | 'teamRuns' | 'teamDecisions' | 'teamAutonomy',
     refresh: () => Promise<boolean>,
   ): Promise<void> {
     await refresh()
@@ -1234,6 +1283,7 @@ export class EnterpriseWorkbenchController {
       'enterprise/employee-updated': () => this.refreshEmployees(),
       'enterprise/asset-updated': () => this.refreshAssets(),
       'enterprise/team-updated': () => this.refreshTeams(),
+      'enterprise/channel-updated': () => this.refreshChannels(),
       'enterprise/approval-requested': () => this.refreshApprovals(),
     }
     const refreshed = frame.event !== 'enterprise/operation-updated'

@@ -640,6 +640,12 @@ importers:
       '@deepseek-ai/dsh-agent-presets':
         specifier: workspace:^
         version: link:../../preset/agent-presets
+      '@deepseek-ai/dsh-channel-kernel':
+        specifier: workspace:^
+        version: link:../../channel/channel-kernel
+      '@deepseek-ai/dsh-credentials':
+        specifier: workspace:^
+        version: link:../../credentials/credentials
       '@deepseek-ai/dsh-enterprise-auth-web':
         specifier: workspace:^
         version: link:../../identity/enterprise-auth-web

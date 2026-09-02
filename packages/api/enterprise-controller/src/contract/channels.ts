@@ -1,0 +1,54 @@
+/** Channel providers supported by the enterprise configuration control surface. */
+export type EnterpriseChannelProvider = 'wecom' | 'feishu' | 'dingtalk' | 'wechat'
+/** Persisted lifecycle for one governed channel configuration. */
+export type EnterpriseChannelState = 'draft' | 'active' | 'paused' | 'archived'
+/** Provider-filtered collaboration intents visible to administrators. */
+export type EnterpriseChannelIntent = 'notify' | 'handoff' | 'team-start' | 'decision-response' | 'status'
+
+/** Secret-free administrator projection of one channel account and DSH route. */
+export interface EnterpriseChannelConfiguration {
+  readonly orgId: string
+  readonly channelId: string
+  readonly name: string
+  readonly provider: EnterpriseChannelProvider
+  readonly tenantId?: string
+  readonly accountId: string
+  readonly credentialRef?: string
+  readonly credentialStatus: 'configured' | 'missing'
+  readonly defaultEmployeeReleaseId?: string
+  readonly inboundEnabled: boolean
+  readonly allowedIntents: readonly EnterpriseChannelIntent[]
+  readonly transportStatus: 'unverified'
+  readonly state: EnterpriseChannelState
+  readonly createdBy: string
+  readonly revision: number
+  readonly createdAt: number
+  readonly updatedAt: number
+}
+
+/** Organization-scoped channel configuration collection. */
+export interface EnterpriseChannelPage { readonly items: readonly EnterpriseChannelConfiguration[] }
+/** Filters accepted by the channel catalog. */
+export interface EnterpriseChannelListRequest { readonly includeArchived?: boolean }
+/** Stable identity of one channel configuration. */
+export interface EnterpriseChannelLookup { readonly channelId: string }
+/** Revision-fenced channel configuration write without secret values. */
+export interface EnterpriseChannelSaveRequest {
+  readonly channelId: string
+  readonly name: string
+  readonly provider: EnterpriseChannelProvider
+  readonly tenantId?: string
+  readonly accountId: string
+  readonly credentialRef?: string
+  readonly defaultEmployeeReleaseId?: string
+  readonly inboundEnabled: boolean
+  readonly state: Exclude<EnterpriseChannelState, 'archived'>
+  readonly expectedRevision: number
+  readonly idempotencyKey: string
+}
+/** Revision-fenced request for terminal channel archival. */
+export interface EnterpriseChannelArchiveRequest {
+  readonly channelId: string
+  readonly expectedRevision: number
+  readonly idempotencyKey: string
+}

@@ -6,6 +6,8 @@
     { "path": "../../../vendor/cordis" },
     { "path": "../../typert/protocol" },
     { "path": "../../identity/enterprise-auth-web" },
+    { "path": "../../channel/channel-kernel" },
+    { "path": "../../credentials/credentials" },
     { "path": "../../catalog/enterprise-catalog" },
     { "path": "../../governance/enterprise-governance" },
     { "path": "../../operations/enterprise-operations" },

@@ -14,7 +14,7 @@ import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import { randomUUID } from '@deepseek-ai/dsh-util-crypto'
 import type {
   EnterpriseApproval, EnterpriseAsset, EnterpriseAssetKind, EnterpriseBusinessState,
-  EnterpriseEmployeeDraft, EnterpriseEmployeeRelease, EnterpriseSchedule, EnterpriseScheduleTarget, EnterpriseTeam,
+  EnterpriseChannelConfiguration, EnterpriseEmployeeDraft, EnterpriseEmployeeRelease, EnterpriseSchedule, EnterpriseScheduleTarget, EnterpriseTeam,
   EnterpriseTeamAutonomyGrant, EnterpriseTeamDecision, EnterpriseTeamDefinition, EnterpriseTeamMember,
   EnterpriseTeamRun, EnterpriseVisibility, EnterpriseWorkRecord as OperationWorkRecord,
   CordisPackageVersion, CordisReviewRequest, CordisScopeBinding,
@@ -54,6 +54,8 @@ export interface EnterpriseWorkbenchInjected {
   saveAssetVersion: (input: { assetId: string; kind: EnterpriseAssetKind; name: string; content: Readonly<Record<string, JsonValue>>; expectedRevision: number }) => Promise<boolean>
   archiveAsset: (asset: EnterpriseAsset) => Promise<void>
   saveTeam: (input: { teamId: string; leaderEmployeeReleaseId: string; members: readonly EnterpriseTeamMember[]; workflowTemplate: Readonly<Record<string, JsonValue>>; approvalPolicy: Readonly<Record<string, JsonValue>>; expectedRevision: number }) => Promise<boolean>
+  saveChannelConfiguration: (input: { channelId: string; name: string; provider: EnterpriseChannelConfiguration['provider']; tenantId?: string; accountId: string; credentialRef?: string; defaultEmployeeReleaseId?: string; inboundEnabled: boolean; state: 'draft' | 'active' | 'paused'; expectedRevision: number }) => Promise<boolean>
+  archiveChannelConfiguration: (channel: EnterpriseChannelConfiguration) => Promise<void>
   startTeamRun: (input: { teamId: string; expectedTeamRevision: number; workspaceId: string; prompt: string }) => Promise<boolean>
   cancelTeamRun: (run: EnterpriseTeamRun) => Promise<void>
   respondTeamDecision: (decision: EnterpriseTeamDecision, answer: string) => Promise<void>
@@ -74,7 +76,7 @@ export type EnterpriseWorkbenchProps = PropsRuntime<'shell.overlay'> & PropsLoca
 type Translate = (key: EnterpriseWorkbenchKey, params?: Record<string, string | number>) => string
 const NAV_GROUPS: readonly { label: EnterpriseWorkbenchKey; items: readonly [EnterpriseWorkbenchPage, EnterpriseWorkbenchKey][] }[] = [
   { label: 'nav.use', items: [['employees', 'nav.employees'], ['work-records', 'nav.work-records'], ['approvals', 'nav.approvals'], ['attention', 'nav.attention']] },
-  { label: 'nav.manage', items: [['schedules', 'nav.schedules'], ['assets', 'nav.assets'], ['teams', 'nav.teams'], ['extensions', 'nav.extensions']] },
+  { label: 'nav.manage', items: [['schedules', 'nav.schedules'], ['assets', 'nav.assets'], ['teams', 'nav.teams'], ['channels', 'nav.channels'], ['extensions', 'nav.extensions']] },
 ]
 
 function formatDate(value: number): string {
@@ -705,6 +707,87 @@ function TeamAttentionPage({ page, runs, definitions, api, busy, t }: { page: En
   })}</div></PageBoundary></section>
 }
 
+const CHANNEL_PROVIDERS = ['wecom', 'feishu', 'dingtalk', 'wechat'] as const
+const CHANNEL_PROVIDER_INTENTS = {
+  wecom: ['notify', 'handoff', 'team-start', 'decision-response', 'status'],
+  feishu: ['notify', 'handoff', 'team-start', 'decision-response', 'status'],
+  dingtalk: ['notify', 'handoff', 'team-start', 'decision-response', 'status'],
+  wechat: ['notify', 'handoff', 'status'],
+} as const
+
+function ChannelsPage({ page, api, busy, onDirty, t }: {
+  page: EnterprisePageState<EnterpriseChannelConfiguration>
+  api: EnterpriseWorkbenchInjected
+  busy: boolean
+  onDirty: () => void
+  t: Translate
+}) {
+  type FormState = {
+    channelId: string
+    name: string
+    provider: EnterpriseChannelConfiguration['provider']
+    tenantId: string
+    accountId: string
+    credentialRef: string
+    defaultEmployeeReleaseId: string
+    inboundEnabled: boolean
+    expectedRevision: number
+  }
+  const emptyForm: FormState = { channelId: '', name: '', provider: 'wecom', tenantId: '', accountId: '', credentialRef: '', defaultEmployeeReleaseId: '', inboundEnabled: true, expectedRevision: 0 }
+  const [form, setForm] = useState<FormState | null>(null)
+  const edit = (channel: EnterpriseChannelConfiguration): void => {
+    setForm({
+      channelId: channel.channelId, name: channel.name, provider: channel.provider,
+      tenantId: channel.tenantId ?? '', accountId: channel.accountId,
+      credentialRef: channel.credentialRef ?? '', defaultEmployeeReleaseId: channel.defaultEmployeeReleaseId ?? '',
+      inboundEnabled: channel.inboundEnabled, expectedRevision: channel.revision,
+    })
+  }
+  const patch = (next: Partial<FormState>): void => { setForm(current => current === null ? current : { ...current, ...next }); onDirty() }
+  const save = async (state: 'draft' | 'active'): Promise<void> => {
+    if (form === null) return
+    const succeeded = await api.saveChannelConfiguration({
+      channelId: form.channelId.trim(), name: form.name.trim(), provider: form.provider,
+      ...(form.tenantId.trim() === '' ? {} : { tenantId: form.tenantId.trim() }),
+      accountId: form.accountId.trim(),
+      ...(form.credentialRef.trim() === '' ? {} : { credentialRef: form.credentialRef.trim() }),
+      ...(form.defaultEmployeeReleaseId.trim() === '' ? {} : { defaultEmployeeReleaseId: form.defaultEmployeeReleaseId.trim() }),
+      inboundEnabled: form.provider === 'wechat' ? false : form.inboundEnabled,
+      state, expectedRevision: form.expectedRevision,
+    })
+    if (succeeded) setForm(null)
+  }
+  return <section className={css.channelPage} aria-labelledby="channel-page-title">
+    <ManagementHeader id="channel-page-title" title={t('channel.title')} description={t('channel.description')} count={page.items.length} action={<button type="button" className={css.primaryButton} onClick={() => { setForm(emptyForm) }}><IconPlusOutline16 size={16}/>{t('channel.new')}</button>}/>
+    <div className={css.channelPrinciple}><IconApiOutline14 size={16}/><div><strong>{t('channel.truthTitle')}</strong><span>{t('channel.truthBody')}</span></div></div>
+    {form !== null && <form className={css.channelForm} onSubmit={(event) => { event.preventDefault(); void save('draft') }}>
+      <header><div><h3>{form.expectedRevision === 0 ? t('channel.createTitle') : t('channel.editTitle')}</h3><p>{t('channel.formHelp')}</p></div><button type="button" className={css.secondaryButton} onClick={() => { setForm(null) }}>{t('cancel')}</button></header>
+      <div className={css.formGrid}>
+        <label>{t('channel.name')}<input required value={form.name} onChange={(event) => { patch({ name: event.target.value }) }}/></label>
+        <label>{t('channel.id')}<input required pattern="[a-z0-9][a-z0-9-]*" disabled={form.expectedRevision > 0} value={form.channelId} onChange={(event) => { patch({ channelId: event.target.value }) }}/></label>
+        <label>{t('channel.provider')}<select value={form.provider} onChange={(event) => { const provider = event.target.value as EnterpriseChannelConfiguration['provider']; patch({ provider, inboundEnabled: provider === 'wechat' ? false : form.inboundEnabled }) }}>{CHANNEL_PROVIDERS.map(provider => <option value={provider} key={provider}>{t(`channel.provider.${provider}`)}</option>)}</select></label>
+        <label>{t('channel.tenant')}<input value={form.tenantId} onChange={(event) => { patch({ tenantId: event.target.value }) }}/></label>
+        <label>{t('channel.account')}<input required value={form.accountId} onChange={(event) => { patch({ accountId: event.target.value }) }}/></label>
+        <label>{t('channel.credentialRef')}<input aria-label={t('channel.credentialRef')} autoComplete="off" value={form.credentialRef} onChange={(event) => { patch({ credentialRef: event.target.value }) }}/><small>{t('channel.credentialHelp')}</small></label>
+        <label className={css.fullField}>{t('channel.defaultEmployee')}<input value={form.defaultEmployeeReleaseId} onChange={(event) => { patch({ defaultEmployeeReleaseId: event.target.value }) }}/></label>
+        <label className={`${css.fullField} ${css.channelCheck}`}><input type="checkbox" aria-label={t('channel.inbound')} checked={form.provider !== 'wechat' && form.inboundEnabled} disabled={form.provider === 'wechat'} onChange={(event) => { patch({ inboundEnabled: event.target.checked }) }}/><span><strong>{t('channel.inbound')}</strong><small>{form.provider === 'wechat' ? t('channel.wechatReadOnly') : t('channel.inboundHelp')}</small></span></label>
+      </div>
+      <div className={css.channelPolicyPreview}><span>{t('channel.providerPolicy')}</span>{CHANNEL_PROVIDER_INTENTS[form.provider].map(intent => <em key={intent}>{t(`channel.intent.${intent}`)}</em>)}</div>
+      <div className={css.channelFormActions}><button type="submit" className={css.secondaryButton} disabled={busy}>{t('channel.saveDraft')}</button><button type="button" className={css.primaryButton} disabled={busy || form.credentialRef.trim() === '' || (form.provider !== 'wechat' && form.tenantId.trim() === '')} onClick={() => { void save('active') }}>{t('channel.activate')}</button></div>
+    </form>}
+    <PageBoundary page={page} t={t} empty={<ActionableEmpty title={t('channel.emptyTitle')} description={t('channel.emptyBody')} action={<button type="button" className={css.primaryButton} onClick={() => { setForm(emptyForm) }}>{t('channel.new')}</button>}/>}>
+      <div className={css.channelList}>{page.items.map(channel => <article className={css.channelRow} data-state={channel.state} key={channel.channelId}>
+        <div className={css.channelIdentity}><span className={css.channelProvider}>{t(`channel.provider.${channel.provider}`)}</span><div><h3>{channel.name}</h3><p>{channel.channelId} · {channel.accountId}</p></div><span className={css.channelState}>{t(`channel.state.${channel.state}`)}</span></div>
+        <div className={css.connectionPath} aria-label={t('channel.pathAria', { name: channel.name })}>
+          <span><small>{t('channel.pathProvider')}</small><strong>{t(`channel.provider.${channel.provider}`)}</strong></span><i aria-hidden="true"/><span><small>{t('channel.pathCredential')}</small><strong data-status={channel.credentialStatus}>{channel.credentialStatus === 'configured' ? t('channel.credentialConfigured') : t('channel.credentialMissing')}</strong></span><i aria-hidden="true"/><span><small>{t('channel.pathRouting')}</small><strong>{channel.defaultEmployeeReleaseId ?? t('channel.routeWorkbench')}</strong></span><i aria-hidden="true"/><span><small>{t('channel.pathEvidence')}</small><strong>{t('channel.transportUnverified')}</strong></span>
+        </div>
+        <div className={css.channelIntentRow}><span>{t('channel.allowedIntents')}</span><div>{channel.allowedIntents.map(intent => <span key={intent}>{t(`channel.intent.${intent}`)}</span>)}</div>{!channel.inboundEnabled && <em>{t('channel.outboundOnly')}</em>}</div>
+        <div className={css.channelActions}><span>{t('channel.revision', { revision: channel.revision })}</span><button type="button" className={css.secondaryButton} onClick={() => { edit(channel) }}><IconEditOutline16 size={16}/>{t('channel.edit')}</button>{channel.state === 'active' && <button type="button" className={css.secondaryButton} aria-label={t('channel.pauseAria', { name: channel.name })} disabled={busy} onClick={() => { void api.saveChannelConfiguration({ channelId: channel.channelId, name: channel.name, provider: channel.provider, ...(channel.tenantId === undefined ? {} : { tenantId: channel.tenantId }), accountId: channel.accountId, ...(channel.credentialRef === undefined ? {} : { credentialRef: channel.credentialRef }), ...(channel.defaultEmployeeReleaseId === undefined ? {} : { defaultEmployeeReleaseId: channel.defaultEmployeeReleaseId }), inboundEnabled: channel.inboundEnabled, state: 'paused', expectedRevision: channel.revision }) }}>{t('channel.pause')}</button>}{channel.state === 'paused' && <button type="button" className={css.primaryButton} disabled={busy || channel.credentialStatus !== 'configured'} onClick={() => { void api.saveChannelConfiguration({ channelId: channel.channelId, name: channel.name, provider: channel.provider, ...(channel.tenantId === undefined ? {} : { tenantId: channel.tenantId }), accountId: channel.accountId, ...(channel.credentialRef === undefined ? {} : { credentialRef: channel.credentialRef }), ...(channel.defaultEmployeeReleaseId === undefined ? {} : { defaultEmployeeReleaseId: channel.defaultEmployeeReleaseId }), inboundEnabled: channel.inboundEnabled, state: 'active', expectedRevision: channel.revision }) }}>{t('channel.resume')}</button>}<button type="button" className={css.secondaryButton} aria-label={t('channel.archiveAria', { name: channel.name })} disabled={busy} onClick={() => { void api.archiveChannelConfiguration(channel) }}>{t('channel.archive')}</button></div>
+      </article>)}</div>
+    </PageBoundary>
+  </section>
+}
+
 const EXTENSION_SECTION = {
   running: 'running', personal: 'personal', department: 'department', organization: 'organization',
   formal: 'formal', reviews: 'reviews',
@@ -842,11 +925,13 @@ export function EnterpriseWorkbench(props: EnterpriseWorkbenchProps) {
     readonly teamRuns?: EnterprisePageState<EnterpriseTeamRun>
     readonly teamDecisions?: EnterprisePageState<EnterpriseTeamDecision>
     readonly teamAutonomy?: EnterprisePageState<EnterpriseTeamAutonomyGrant>
+    readonly channels?: EnterprisePageState<EnterpriseChannelConfiguration>
   }
   const teamDefinitions = compatibleState.teamDefinitions ?? emptyControlPage
   const teamRuns = compatibleState.teamRuns ?? emptyControlPage
   const teamDecisions = compatibleState.teamDecisions ?? emptyControlPage
   const teamAutonomy = compatibleState.teamAutonomy ?? emptyControlPage
+  const channels = compatibleState.channels ?? emptyControlPage
   const [localFormDirty, setLocalFormDirty] = useState(false)
   const mutationBusy = state.mutationPhase === 'running'
   const dirty = state.employeeEditor?.dirty === true || localFormDirty
@@ -865,7 +950,7 @@ export function EnterpriseWorkbench(props: EnterpriseWorkbenchProps) {
   if (!state.open) return null
   const onKeyDown = (event: React.KeyboardEvent<HTMLElement>): void => { if (event.key === 'Escape') { requestClose(); return } if (event.key !== 'Tab') return; const controls = [...dialogRef.current?.querySelectorAll<HTMLElement>('button:not(:disabled), [href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])') ?? []]; const first = controls[0]; const last = controls.at(-1); if (first === undefined || last === undefined) return; if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus() } else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus() } }
   const pages = [state.employees, state.workRecords, state.approvals, teamDefinitions, teamRuns,
-    teamDecisions, teamAutonomy, state.schedules, state.assets, state.teams,
+    teamDecisions, teamAutonomy, state.schedules, state.assets, state.teams, channels,
     state.extensions, state.extensionReviews, state.formalPlugins]
   const partial = state.mode === 'enterprise' && pages.some(value => value.phase === 'error' || value.phase === 'permission') && pages.some(value => value.phase === 'ready')
   const injected = props as unknown as EnterpriseWorkbenchInjected
@@ -883,6 +968,11 @@ export function EnterpriseWorkbench(props: EnterpriseWorkbenchProps) {
     },
     saveTeam: async (input) => {
       const success = await injected.saveTeam(input)
+      if (success) setLocalFormDirty(false)
+      return success
+    },
+    saveChannelConfiguration: async (input) => {
+      const success = await injected.saveChannelConfiguration(input)
       if (success) setLocalFormDirty(false)
       return success
     },
@@ -908,6 +998,7 @@ export function EnterpriseWorkbench(props: EnterpriseWorkbenchProps) {
             <TeamsPage embedded page={state.teams} releases={state.releases} api={api} busy={mutationBusy} onDirty={() => { setLocalFormDirty(true) }} t={props.t} />
           </LegacyTeamsDisclosure>
         </>}
+        {page === 'channels' && <ChannelsPage page={channels} api={api} busy={mutationBusy} onDirty={() => { setLocalFormDirty(true) }} t={props.t}/>}
         {page === 'extensions' && <ExtensionsPage state={state} workspaces={workspaces} api={api} busy={mutationBusy} t={props.t} />}
       </main>
     </div>}
