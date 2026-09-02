@@ -127,6 +127,7 @@ export function channelAuthorizationUrl(input: ChannelAuthorizationUrlInput): st
     case 'feishu':
       parameters.set('client_id', accountId)
       parameters.set('redirect_uri', callbackUrl)
+      parameters.set('response_type', 'code')
       parameters.set('state', state)
       return `https://accounts.feishu.cn/open-apis/authen/v1/authorize?${parameters}`
     case 'dingtalk':
@@ -311,13 +312,14 @@ export async function exchangeChannelAuthorizationCode(
         body: JSON.stringify({ clientId: accountId, clientSecret: appSecret, code, grantType: 'authorization_code' }),
       }), 'dingtalk')
       const accessToken = requiredResponseString(tokenBody.accessToken, 'dingtalk', 'accessToken')
+      const verifiedTenantId = optionalResponseString(tokenBody.corpId)
       const identity = await boundedJson(await request('https://api.dingtalk.com/v1.0/contact/users/me', {
         headers: { 'x-acs-dingtalk-access-token': accessToken },
       }), 'dingtalk')
       return identityResult(
         requiredResponseString(identity.openId ?? identity.unionId, 'dingtalk', 'openId or unionId'),
         optionalResponseString(identity.nick),
-        optionalResponseString(identity.corpId),
+        verifiedTenantId,
       )
     }
     case 'wechat': {

@@ -48,7 +48,7 @@ describe('official channel authorization binding', () => {
     expect(channelAuthorizationUrl({ provider: 'wecom', tenantId: 'corp 1', accountId: 'agent/2', callbackUrl, state }))
       .toBe('https://login.work.weixin.qq.com/wwlogin/sso/login?login_type=CorpApp&appid=corp+1&agentid=agent%2F2&redirect_uri=https%3A%2F%2Fdsh.example.com%2Fsettings%2Fchannels%2Fcallback%3Fsource%3D%E8%AE%BE%E7%BD%AE%E9%A1%B5&state=signed.state-value')
     expect(channelAuthorizationUrl({ provider: 'feishu', accountId: 'cli 1', callbackUrl, state }))
-      .toBe('https://accounts.feishu.cn/open-apis/authen/v1/authorize?client_id=cli+1&redirect_uri=https%3A%2F%2Fdsh.example.com%2Fsettings%2Fchannels%2Fcallback%3Fsource%3D%E8%AE%BE%E7%BD%AE%E9%A1%B5&state=signed.state-value')
+      .toBe('https://accounts.feishu.cn/open-apis/authen/v1/authorize?client_id=cli+1&redirect_uri=https%3A%2F%2Fdsh.example.com%2Fsettings%2Fchannels%2Fcallback%3Fsource%3D%E8%AE%BE%E7%BD%AE%E9%A1%B5&response_type=code&state=signed.state-value')
     expect(channelAuthorizationUrl({ provider: 'dingtalk', accountId: 'ding-1', tenantId: 'corp-1', callbackUrl, state }))
       .toBe('https://login.dingtalk.com/oauth2/auth?client_id=ding-1&redirect_uri=https%3A%2F%2Fdsh.example.com%2Fsettings%2Fchannels%2Fcallback%3Fsource%3D%E8%AE%BE%E7%BD%AE%E9%A1%B5&response_type=code&scope=openid+corpid&state=signed.state-value&prompt=consent')
     expect(channelAuthorizationUrl({ provider: 'wechat', accountId: 'wx-app', callbackUrl, state }))
@@ -95,8 +95,8 @@ describe('official channel authorization binding', () => {
     },
     {
       provider: 'dingtalk' as const,
-      token: { accessToken: 'ding-token' },
-      identity: { openId: 'ding-user', nick: '钉钉用户', corpId: 'corp-2' },
+      token: { accessToken: 'ding-token', corpId: 'corp-2', expireIn: 7_200, refreshToken: 'refresh-token' },
+      identity: { openId: 'ding-user', nick: '钉钉用户', unionId: 'union-user' },
       expected: { providerIdentityId: 'ding-user', providerIdentityName: '钉钉用户', verifiedTenantId: 'corp-2' },
     },
     {
@@ -115,6 +115,42 @@ describe('official channel authorization binding', () => {
     expect(result).toEqual(expected)
     expect(Object.keys(result)).not.toContain('accessToken')
     expect(Object.keys(result)).not.toContain('refreshToken')
+  })
+
+  it('rejects an empty one-time authorization code before fetching', async () => {
+    let fetched = false
+    await expect(exchangeChannelAuthorizationCode({
+      provider: 'feishu', accountId: 'app-1', appSecret: 'secret', code: ' ',
+      callbackUrl: 'https://dsh.example.com/callback',
+    }, async () => {
+      fetched = true
+      return new Response('{}')
+    })).rejects.toThrow(/code is required/u)
+    expect(fetched).toBe(false)
+  })
+
+  it('aborts a never-settling provider fetch at timeoutMs', async () => {
+    const operation = exchangeChannelAuthorizationCode({
+      provider: 'feishu', accountId: 'app-1', appSecret: 'secret', code: 'code-1',
+      callbackUrl: 'https://dsh.example.com/callback', timeoutMs: 20,
+    }, (_input, init) => new Promise<Response>((_resolve, reject) => {
+      const signal = init?.signal
+      if (!(signal instanceof AbortSignal)) throw new Error('missing abort signal')
+      signal.addEventListener('abort', () => {
+        reject(signal.reason instanceof Error ? signal.reason : new Error('authorization fetch aborted'))
+      }, { once: true })
+    }))
+    let guard: ReturnType<typeof setTimeout> | undefined
+    const boundedOperation = Promise.race([
+      operation,
+      new Promise<never>((_resolve, reject) => {
+        guard = setTimeout(() => {
+          reject(new Error('abort deadline elapsed without signal'))
+        }, 500)
+      }),
+    ])
+    await expect(boundedOperation).rejects.toThrow(/timeout/u)
+    clearTimeout(guard)
   })
 
   it('rejects HTTP, provider JSON errors, and oversized authorization responses', async () => {
