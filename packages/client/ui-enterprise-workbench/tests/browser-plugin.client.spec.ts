@@ -11,6 +11,9 @@ import {
 import { apply as applyNode } from '../src/index.ts'
 import { en, NS, zh } from '../src/client/locales.ts'
 
+const SIGNED_STATE_A = `${'a'.repeat(43)}.${'b'.repeat(43)}`
+const SIGNED_STATE_B = `${'c'.repeat(43)}.${'d'.repeat(43)}`
+
 async function bench(declareSlots = true) {
   const ctx = new Context()
   await ctx.plugin(SlotRegistry).await()
@@ -94,20 +97,20 @@ describe('enterprise workbench browser plugin', () => {
     const handled = await completeChannelBindingCallback({ completeBinding } as never, {
       location: {
         origin: 'https://dsh.example', pathname: '/workbench',
-        search: '?dsh_channel_binding=1&code=secret-code&state=opaque-state',
+        search: `?dsh_channel_binding=1&code=secret-code&state=${SIGNED_STATE_A}`,
       },
       history: { replaceState }, opener: { postMessage }, close,
     })
 
     expect(handled).toBe(true)
     expect(completeBinding).toHaveBeenCalledWith(expect.objectContaining({
-      code: 'secret-code', state: 'opaque-state',
+      code: 'secret-code', state: SIGNED_STATE_A,
       redirectUri: 'https://dsh.example/workbench?dsh_channel_binding=1',
     }))
     const completeRequest = requests[0] as { idempotencyKey: string }
     expect(completeRequest.idempotencyKey).toMatch(/^channel-binding-complete:/u)
     expect(postMessage).toHaveBeenCalledWith({
-      type: 'dsh-channel-binding-complete', attemptId: 'opaque-state', channelId: 'finance-wecom',
+      type: 'dsh-channel-binding-complete', attemptId: SIGNED_STATE_A, channelId: 'finance-wecom',
     }, 'https://dsh.example')
     expect(replaceState).toHaveBeenCalledWith(null, '', '/workbench?dsh_channel_binding=1')
     expect(close).toHaveBeenCalledTimes(1)
@@ -125,7 +128,7 @@ describe('enterprise workbench browser plugin', () => {
     const pending = completeChannelBindingCallback({ completeBinding } as never, {
       location: {
         origin: 'https://dsh.example', pathname: '/workbench',
-        search: '?dsh_channel_binding=1&code=sensitive-code&state=signed-state',
+        search: `?dsh_channel_binding=1&code=sensitive-code&state=${SIGNED_STATE_A}`,
       },
       history: { replaceState: () => { order.push('redact') } }, opener: null, close: vi.fn(),
     })
@@ -154,15 +157,73 @@ describe('enterprise workbench browser plugin', () => {
 
     await completeChannelBindingCallback({ completeBinding: () => Promise.resolve({ result: {
       ok: true, value: { channelId: 'finance-wecom' },
-    } }) } as never, browser('attempt-success'))
+    } }) } as never, browser(SIGNED_STATE_A))
     await completeChannelBindingCallback({ completeBinding: () => Promise.reject(new Error('failed')) },
-      browser('attempt-failure'))
+      browser(SIGNED_STATE_B))
 
     expect(posts).toEqual([
-      { type: 'dsh-channel-binding-complete', attemptId: 'attempt-success', channelId: 'finance-wecom' },
-      { type: 'dsh-channel-binding-failed', attemptId: 'attempt-failure' },
+      { type: 'dsh-channel-binding-complete', attemptId: SIGNED_STATE_A, channelId: 'finance-wecom' },
+      { type: 'dsh-channel-binding-failed', attemptId: SIGNED_STATE_B, status: 'failed' },
     ])
     expect(closed).toEqual([CHANNEL_BINDING_BROADCAST_CHANNEL, CHANNEL_BINDING_BROADCAST_CHANNEL])
+    vi.unstubAllGlobals()
+  })
+
+  it('correlates provider denial or missing code without calling completeBinding and keeps the popup open', async () => {
+    const posts: unknown[] = []
+    class FakeBroadcastChannel {
+      constructor(readonly name: string) {}
+      postMessage(message: unknown): void { posts.push(message) }
+      close(): void {}
+    }
+    vi.stubGlobal('BroadcastChannel', FakeBroadcastChannel)
+    const completeBinding = vi.fn()
+    const close = vi.fn()
+    const replaceState = vi.fn()
+    for (const search of [
+      `?dsh_channel_binding=1&state=${SIGNED_STATE_A}`,
+      `?dsh_channel_binding=1&state=${SIGNED_STATE_A}&code=%20%20`,
+      `?dsh_channel_binding=1&state=${SIGNED_STATE_B}&error=access_denied&error_description=cancelled`,
+    ]) {
+      await completeChannelBindingCallback({ completeBinding }, {
+        location: { origin: 'https://dsh.example', pathname: '/workbench', search },
+        history: { replaceState }, opener: null, close,
+      })
+    }
+
+    expect(completeBinding).not.toHaveBeenCalled()
+    expect(posts).toEqual([
+      { type: 'dsh-channel-binding-failed', attemptId: SIGNED_STATE_A, status: 'failed' },
+      { type: 'dsh-channel-binding-failed', attemptId: SIGNED_STATE_A, status: 'failed' },
+      { type: 'dsh-channel-binding-failed', attemptId: SIGNED_STATE_B, status: 'failed' },
+    ])
+    expect(replaceState).toHaveBeenCalledTimes(3)
+    expect(replaceState).toHaveBeenLastCalledWith(null, '', '/workbench?dsh_channel_binding=1&binding_error=1')
+    expect(close).not.toHaveBeenCalled()
+    vi.unstubAllGlobals()
+  })
+
+  it('redacts an invalid state without publishing an uncorrelated failure', async () => {
+    const postMessage = vi.fn()
+    class FakeBroadcastChannel {
+      constructor(readonly name: string) {}
+      postMessage(message: unknown): void { postMessage(message) }
+      close(): void {}
+    }
+    vi.stubGlobal('BroadcastChannel', FakeBroadcastChannel)
+    const completeBinding = vi.fn()
+    const replaceState = vi.fn()
+    await completeChannelBindingCallback({ completeBinding }, {
+      location: {
+        origin: 'https://dsh.example', pathname: '/workbench',
+        search: '?dsh_channel_binding=1&state=invalid&error=access_denied',
+      },
+      history: { replaceState }, opener: null, close: vi.fn(),
+    })
+
+    expect(completeBinding).not.toHaveBeenCalled()
+    expect(postMessage).not.toHaveBeenCalled()
+    expect(replaceState).toHaveBeenCalledWith(null, '', '/workbench?dsh_channel_binding=1&binding_error=1')
     vi.unstubAllGlobals()
   })
 
@@ -198,14 +259,14 @@ describe('enterprise workbench browser plugin', () => {
     await completeChannelBindingCallback({ completeBinding }, {
       location: {
         origin: 'https://dsh.example', pathname: '/workbench',
-        search: '?dsh_channel_binding=1&code=secret-code&state=opaque-state',
+        search: `?dsh_channel_binding=1&code=secret-code&state=${SIGNED_STATE_A}`,
       },
       history: { replaceState }, opener: { postMessage }, close,
     })
 
     expect(replaceState).toHaveBeenCalledWith(null, '', '/workbench?dsh_channel_binding=1&binding_error=1')
     expect(postMessage).toHaveBeenCalledWith({
-      type: 'dsh-channel-binding-failed', attemptId: 'opaque-state',
+      type: 'dsh-channel-binding-failed', attemptId: SIGNED_STATE_A, status: 'failed',
     }, 'https://dsh.example')
     expect(close).not.toHaveBeenCalled()
   })
@@ -216,7 +277,7 @@ describe('enterprise workbench browser plugin', () => {
       requests.push(request)
       return Promise.resolve({ result: { ok: true, value: { channelId: 'finance-wecom' } } })
     })
-    const state = 's'.repeat(87)
+    const state = SIGNED_STATE_A
     for (const code of ['first-code', 'retry-code']) {
       await completeChannelBindingCallback({ completeBinding } as never, {
         location: {

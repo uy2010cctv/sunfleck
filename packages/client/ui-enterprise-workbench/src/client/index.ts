@@ -16,7 +16,7 @@ import { en, NS, zh, type EnterpriseWorkbenchKey } from './locales.ts'
 import { EnterpriseWorkbenchController, type EnterpriseWorkbenchState } from './store.ts'
 import {
   CHANNEL_BINDING_BROADCAST_CHANNEL, CHANNEL_BINDING_CALLBACK_PARAM,
-  channelBindingCallbackUri,
+  channelBindingCallbackUri, isOfficialChannelBindingState,
 } from './channelBindingProfiles.ts'
 import './tokens.css'
 
@@ -34,7 +34,6 @@ interface EnterpriseTriggerInjected {
 }
 
 const CALLBACK_CODE_LIMIT = 4096
-const CALLBACK_STATE_LIMIT = 87
 
 interface BindingCallbackWindow {
   readonly location: Pick<Location, 'origin' | 'pathname' | 'search'>
@@ -44,7 +43,7 @@ interface BindingCallbackWindow {
 }
 
 function boundedCallbackValue(value: string | null, limit: number): value is string {
-  return value !== null && value.length > 0 && value.length <= limit
+  return value !== null && value.trim().length > 0 && value.length <= limit
 }
 
 /** Complete one marked provider callback and remove authorization material from browser history. */
@@ -63,21 +62,22 @@ export async function completeChannelBindingCallback(
       try { channel.postMessage(message) } finally { channel.close() }
     }
   }
-  const failWithoutCorrelation = (): true => {
+  const redactFailure = (): void => {
     browser.history.replaceState(null, '', `${canonicalPath}&binding_error=1`)
-    return true
   }
-  if (!boundedCallbackValue(code, CALLBACK_CODE_LIMIT) || !boundedCallbackValue(state, CALLBACK_STATE_LIMIT)) {
-    return failWithoutCorrelation()
+  if (!isOfficialChannelBindingState(state)) {
+    redactFailure()
+    return true
   }
   const attemptId = state
   const fail = (): true => {
-    browser.history.replaceState(null, '', `${canonicalPath}&binding_error=1`)
-    const message = { type: 'dsh-channel-binding-failed', attemptId: state }
+    redactFailure()
+    const message = { type: 'dsh-channel-binding-failed', attemptId: state, status: 'failed' }
     publish(message)
     browser.opener?.postMessage(message, browser.location.origin)
     return true
   }
+  if (query.has('error') || !boundedCallbackValue(code, CALLBACK_CODE_LIMIT)) return fail()
   const idempotencyKey = `channel-binding-complete:${state}`
   browser.history.replaceState(null, '', canonicalPath)
   try {
