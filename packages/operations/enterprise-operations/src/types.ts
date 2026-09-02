@@ -105,6 +105,9 @@ export type EnterpriseChannelProvider = 'wecom' | 'feishu' | 'dingtalk' | 'wecha
 /** Configuration lifecycle; archived channels are terminal. */
 export type EnterpriseChannelState = 'draft' | 'active' | 'paused' | 'archived'
 
+/** Verified provider identity state without provider credentials or raw authorization payloads. */
+export type EnterpriseChannelBindingStatus = 'unbound' | 'verified'
+
 /** Reusable channel account configuration. Secret values remain in the Credential seam. */
 export interface EnterpriseChannelConfiguration {
   readonly orgId: string
@@ -117,10 +120,28 @@ export interface EnterpriseChannelConfiguration {
   readonly defaultEmployeeReleaseId?: string
   readonly inboundEnabled: boolean
   readonly state: EnterpriseChannelState
+  readonly bindingStatus: EnterpriseChannelBindingStatus
+  readonly boundProviderIdentityId?: string
+  readonly boundProviderIdentityName?: string
+  readonly verifiedTenantId?: string
+  readonly bindingVerifiedBy?: string
+  readonly bindingVerifiedAt?: number
   readonly createdBy: string
   readonly revision: number
   readonly createdAt: number
   readonly updatedAt: number
+}
+
+/** Revision-fenced evidence that a provider identity was verified for a channel. */
+export interface EnterpriseChannelBindingVerificationWriteInput {
+  readonly orgId: string
+  readonly channelId: string
+  readonly expectedRevision: number
+  readonly actorUserId: string
+  readonly idempotencyKey: string
+  readonly providerIdentityId: string
+  readonly providerIdentityName?: string
+  readonly verifiedTenantId?: string
 }
 
 /** Complete organization-scoped channel configuration list. */

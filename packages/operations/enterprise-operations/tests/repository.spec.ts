@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import {
   ApprovalRevisionConflictError,
   EnterpriseOperationsRepository,
+  EnterpriseOperationsService,
   EnterpriseOperationsWorker,
   migrateEnterpriseOperations,
   type PostgresDatabase,
@@ -121,6 +122,12 @@ interface ChannelConfigurationRow {
   default_employee_release_id: string | null
   inbound_enabled: boolean
   state: string
+  binding_status: string
+  bound_provider_identity_id: string | null
+  bound_provider_identity_name: string | null
+  verified_tenant_id: string | null
+  binding_verified_by: string | null
+  binding_verified_at: number | null
   created_by: string
   revision: number
   created_at: number
@@ -664,6 +671,8 @@ class MemoryPostgresDatabase implements PostgresDatabase {
         account_id: String(values[5]), credential_ref: values[6] === null ? null : String(values[6]),
         default_employee_release_id: values[7] === null ? null : String(values[7]),
         inbound_enabled: Boolean(values[8]), state: String(values[9]), created_by: String(values[10]),
+        binding_status: 'unbound', bound_provider_identity_id: null, bound_provider_identity_name: null,
+        verified_tenant_id: null, binding_verified_by: null, binding_verified_at: null,
         revision: 1, created_at: Number(values[11]), updated_at: Number(values[11]),
       }
       const key = `${row.org_id}:${row.channel_id}`
@@ -672,15 +681,31 @@ class MemoryPostgresDatabase implements PostgresDatabase {
       return [clone(row)]
     }
     if (text.startsWith('UPDATE dsh_enterprise_channel_configurations SET\n            name=')) {
-      const key = `${String(values[9])}:${String(values[10])}`
+      const key = `${String(values[10])}:${String(values[11])}`
       const row = this.channels.get(key)
-      if (row === undefined || row.revision !== Number(values[11])) return []
+      if (row === undefined || row.revision !== Number(values[12])) return []
       row.name = String(values[0]); row.provider = String(values[1])
       row.tenant_id = values[2] === null ? null : String(values[2]); row.account_id = String(values[3])
       row.credential_ref = values[4] === null ? null : String(values[4])
       row.default_employee_release_id = values[5] === null ? null : String(values[5])
-      row.inbound_enabled = Boolean(values[6]); row.state = String(values[7]); row.updated_at = Number(values[8])
+      row.inbound_enabled = Boolean(values[6]); row.state = String(values[7]); row.updated_at = Number(values[9])
+      if (Boolean(values[8])) {
+        row.binding_status = 'unbound'; row.bound_provider_identity_id = null
+        row.bound_provider_identity_name = null; row.verified_tenant_id = null
+        row.binding_verified_by = null; row.binding_verified_at = null
+      }
       row.revision += 1
+      return [clone(row)]
+    }
+    if (text.startsWith('UPDATE dsh_enterprise_channel_configurations SET binding_status=')) {
+      const key = `${String(values[5])}:${String(values[6])}`
+      const row = this.channels.get(key)
+      if (row === undefined || row.revision !== Number(values[7]) || row.state === 'archived') return []
+      row.binding_status = 'verified'; row.bound_provider_identity_id = String(values[0])
+      row.bound_provider_identity_name = values[1] === null ? null : String(values[1])
+      row.verified_tenant_id = values[2] === null ? null : String(values[2])
+      row.binding_verified_by = String(values[3]); row.binding_verified_at = Number(values[4])
+      row.updated_at = Number(values[4]); row.revision += 1
       return [clone(row)]
     }
     if (text.startsWith("UPDATE dsh_enterprise_channel_configurations SET state='archived'")) {
@@ -769,7 +794,7 @@ describe('EnterpriseOperationsRepository', () => {
     })).toThrow('at least 32 bytes')
   })
 
-  it('migrates an existing schema version one database to version two', async () => {
+  it('migrates an existing schema version one database to the latest version', async () => {
     const database = new MemoryPostgresDatabase(1)
     const operations = new EnterpriseOperationsRepository(database)
 
@@ -783,7 +808,7 @@ describe('EnterpriseOperationsRepository', () => {
       idempotencyKey: 'approval-migration-create',
     })
 
-    expect(database.schemaVersion).toBe('13')
+    expect(database.schemaVersion).toBe('14')
   })
 
   it('permits unverified local writes only through explicit configuration', async () => {
@@ -1224,6 +1249,7 @@ describe('enterprise channel settings', () => {
     }
 
     const first = await repository.saveChannelConfiguration(create)
+    expect(first).toMatchObject({ bindingStatus: 'unbound' })
     await expect(repository.saveChannelConfiguration(create)).resolves.toEqual(first)
     await expect(repository.listChannelConfigurations('org-b')).resolves.toEqual({ items: [] })
     await expect(repository.listChannelConfigurations('org-a')).resolves.toMatchObject({
@@ -1236,6 +1262,147 @@ describe('enterprise channel settings', () => {
       orgId: 'org-a', channelId: 'finance-wecom', actorUserId: 'admin-a', expectedRevision: paused['revision'],
       idempotencyKey: 'channel-archive-a',
     })).resolves.toMatchObject({ state: 'archived', revision: 3 })
+  })
+
+  it('verifies, retries, fences, scopes, rebinds, and rejects archived channel bindings', async () => {
+    let now = 20
+    const operations = new EnterpriseOperationsRepository(
+      new MemoryPostgresDatabase(), { allowUnverifiedReferences: true, now: () => ++now },
+    ) as unknown as {
+      saveChannelConfiguration(input: Record<string, unknown>): Promise<Record<string, unknown>>
+      verifyChannelBinding(input: Record<string, unknown>): Promise<Record<string, unknown>>
+      archiveChannelConfiguration(input: Record<string, unknown>): Promise<Record<string, unknown>>
+    }
+    const created = await operations.saveChannelConfiguration({
+      orgId: 'org-a', channelId: 'support-wecom', name: 'Support', provider: 'wecom', tenantId: 'corp-a',
+      accountId: 'app-a', credentialRef: 'WECOM_SUPPORT_SECRET', inboundEnabled: true, state: 'active',
+      actorUserId: 'admin-a', expectedRevision: 0, idempotencyKey: 'channel-create-binding',
+    })
+    const verify = {
+      orgId: 'org-a', channelId: 'support-wecom', expectedRevision: created['revision'], actorUserId: 'admin-a',
+      idempotencyKey: 'channel-verify-a', providerIdentityId: '  provider-user-a  ',
+      providerIdentityName: '  Support Bot  ', verifiedTenantId: '  tenant-verified  ',
+    }
+    const verified = await operations.verifyChannelBinding(verify)
+    expect(verified).toMatchObject({
+      bindingStatus: 'verified', boundProviderIdentityId: 'provider-user-a',
+      boundProviderIdentityName: 'Support Bot', verifiedTenantId: 'tenant-verified',
+      bindingVerifiedBy: 'admin-a', bindingVerifiedAt: 22, revision: 2,
+    })
+    await expect(operations.verifyChannelBinding(verify)).resolves.toEqual(verified)
+    await expect(operations.verifyChannelBinding({
+      ...verify, idempotencyKey: 'channel-verify-stale', providerIdentityId: 'provider-user-b',
+    })).rejects.toMatchObject({ code: 'conflict', resourceType: 'channel' })
+    await expect(operations.verifyChannelBinding({
+      ...verify, orgId: 'org-b', idempotencyKey: 'channel-verify-cross-org',
+    })).rejects.toMatchObject({ code: 'not-found', resourceType: 'channel' })
+
+    const rebound = await operations.verifyChannelBinding({
+      ...verify, expectedRevision: verified['revision'], idempotencyKey: 'channel-rebind',
+      providerIdentityId: 'provider-user-b', providerIdentityName: '   ', verifiedTenantId: '',
+    })
+    expect(rebound).toMatchObject({
+      bindingStatus: 'verified', boundProviderIdentityId: 'provider-user-b', bindingVerifiedBy: 'admin-a', revision: 3,
+    })
+    expect(rebound).not.toHaveProperty('boundProviderIdentityName')
+    expect(rebound).not.toHaveProperty('verifiedTenantId')
+
+    const archived = await operations.archiveChannelConfiguration({
+      orgId: 'org-a', channelId: 'support-wecom', actorUserId: 'admin-a', expectedRevision: rebound['revision'],
+      idempotencyKey: 'channel-archive-binding',
+    })
+    expect(archived).toMatchObject({ bindingStatus: 'verified', boundProviderIdentityId: 'provider-user-b' })
+    await expect(operations.verifyChannelBinding({
+      ...verify, expectedRevision: archived['revision'], idempotencyKey: 'channel-verify-archived',
+    })).rejects.toMatchObject({ code: 'invalid-state', resourceType: 'channel' })
+  })
+
+  it('preserves binding evidence for presentation edits and clears it for identity configuration changes', async () => {
+    const operations = new EnterpriseOperationsRepository(
+      new MemoryPostgresDatabase(), { allowUnverifiedReferences: true },
+    ) as unknown as {
+      saveChannelConfiguration(input: Record<string, unknown>): Promise<Record<string, unknown>>
+      verifyChannelBinding(input: Record<string, unknown>): Promise<Record<string, unknown>>
+    }
+    const base = {
+      orgId: 'org-a', channelId: 'finance-binding', name: 'Finance', provider: 'wecom', tenantId: 'corp-a',
+      accountId: 'app-a', credentialRef: 'WECOM_FINANCE_SECRET', defaultEmployeeReleaseId: 'release-a',
+      inboundEnabled: true, state: 'active', actorUserId: 'admin-a',
+    }
+    const created = await operations.saveChannelConfiguration({
+      ...base, expectedRevision: 0, idempotencyKey: 'binding-clear-create',
+    })
+    const verified = await operations.verifyChannelBinding({
+      orgId: 'org-a', channelId: 'finance-binding', expectedRevision: created['revision'], actorUserId: 'admin-a',
+      idempotencyKey: 'binding-clear-verify', providerIdentityId: 'finance-bot',
+    })
+    const presentationEdit = await operations.saveChannelConfiguration({
+      ...base, name: 'Finance renamed', defaultEmployeeReleaseId: 'release-b', inboundEnabled: false, state: 'paused',
+      expectedRevision: verified['revision'], idempotencyKey: 'binding-preserve-save',
+    })
+    expect(presentationEdit).toMatchObject({ bindingStatus: 'verified', boundProviderIdentityId: 'finance-bot' })
+    Object.assign(base, { defaultEmployeeReleaseId: 'release-b' })
+
+    for (const [field, value] of [
+      ['provider', 'feishu'], ['tenantId', 'corp-b'], ['accountId', 'app-b'], ['credentialRef', 'WECOM_FINANCE_SECRET_V2'],
+    ] as const) {
+      const rebound = await operations.verifyChannelBinding({
+        orgId: 'org-a', channelId: 'finance-binding', expectedRevision: presentationEdit['revision'],
+        actorUserId: 'admin-a', idempotencyKey: `binding-${field}-verify`, providerIdentityId: `bot-${field}`,
+      })
+      Object.assign(presentationEdit, rebound)
+      const changed = await operations.saveChannelConfiguration({
+        ...base, name: 'Finance renamed', inboundEnabled: false, state: 'paused', [field]: value,
+        expectedRevision: rebound['revision'], idempotencyKey: `binding-${field}-clear`,
+      })
+      expect(changed).toMatchObject({ bindingStatus: 'unbound' })
+      expect(changed).not.toHaveProperty('boundProviderIdentityId')
+      Object.assign(presentationEdit, changed)
+      Object.assign(base, { [field]: value })
+    }
+  })
+
+  it('rejects blank or oversized provider binding identities', async () => {
+    const operations = new EnterpriseOperationsRepository(
+      new MemoryPostgresDatabase(), { allowUnverifiedReferences: true },
+    ) as unknown as { verifyChannelBinding(input: Record<string, unknown>): Promise<unknown> }
+    const input = {
+      orgId: 'org-a', channelId: 'channel-a', expectedRevision: 1, actorUserId: 'admin-a',
+      idempotencyKey: 'invalid-binding',
+    }
+    await expect(operations.verifyChannelBinding({ ...input, providerIdentityId: '   ' }))
+      .rejects.toThrow(/provider identity id is required/)
+    await expect(operations.verifyChannelBinding({ ...input, providerIdentityId: 'x'.repeat(257) }))
+      .rejects.toThrow(/256/)
+    await expect(operations.verifyChannelBinding({ ...input, actorUserId: '   ', providerIdentityId: 'provider-a' }))
+      .rejects.toThrow(/actor user id is required/)
+  })
+
+  it('authorizes, audits, and principal-scopes provider binding verification through the service', async () => {
+    const audit: Record<string, unknown>[] = []
+    const service = new EnterpriseOperationsService(
+      new EnterpriseOperationsRepository(new MemoryPostgresDatabase(), { allowUnverifiedReferences: true }),
+      { authorize: async () => true, audit: async (event) => { audit.push(event as unknown as Record<string, unknown>) } },
+    )
+    const principal = { orgId: 'org-a', userId: 'admin-a', roles: ['administrator'] }
+    const created = await service.saveChannelConfiguration(principal, {
+      channelId: 'service-binding', name: 'Service', provider: 'wecom', tenantId: 'corp-a', accountId: 'app-a',
+      credentialRef: 'WECOM_SERVICE_SECRET', inboundEnabled: true, state: 'active',
+      expectedRevision: 0, idempotencyKey: 'service-binding-create',
+    })
+    await expect(service.verifyChannelBinding(principal, {
+      orgId: 'org-b', channelId: created.channelId, expectedRevision: created.revision,
+      idempotencyKey: 'service-binding-cross-org', providerIdentityId: 'service-bot',
+    })).rejects.toMatchObject({ code: 'organization-mismatch' })
+    await expect(service.verifyChannelBinding(principal, {
+      channelId: created.channelId, expectedRevision: created.revision,
+      idempotencyKey: 'service-binding-verify', providerIdentityId: 'service-bot',
+    })).resolves.toMatchObject({
+      orgId: 'org-a', bindingStatus: 'verified', bindingVerifiedBy: 'admin-a',
+    })
+    expect(audit).toContainEqual(expect.objectContaining({
+      endpoint: 'enterpriseChannel.verifyBinding', resourceType: 'channel', resourceId: 'service-binding',
+    }))
   })
 
   it('enforces personal-WeChat and active-channel safety boundaries', async () => {
@@ -1857,7 +2024,7 @@ describe('EnterpriseOperationsRepository team definitions', () => {
       workerId: 'worker-a', leaseExpiresAt: 200,
     })
     await migrateEnterpriseOperations(database)
-    expect(database.schemaVersion).toBe('13')
+    expect(database.schemaVersion).toBe('14')
     expect(database.outboxState('legacy-null-revision')).toBe('dead-letter')
   })
 

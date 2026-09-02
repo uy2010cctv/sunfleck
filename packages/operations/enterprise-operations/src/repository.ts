@@ -6,6 +6,7 @@ import type {
   ApprovalView,
   BusinessState,
   EnterpriseChannelConfiguration,
+  EnterpriseChannelBindingVerificationWriteInput,
   EnterpriseChannelConfigurationPage,
   EnterpriseOperationsRepositoryOptions,
   EnterpriseTeamDefinition,
@@ -93,14 +94,17 @@ function canonicalDefinitionInput<T extends {
   return { ...input, allowedUserIds: [...new Set((input.allowedUserIds ?? []).map(userId => userId.trim()))].sort() }
 }
 
-type ChannelSaveInput = Omit<EnterpriseChannelConfiguration, 'createdBy' | 'revision' | 'createdAt' | 'updatedAt'> & {
-  readonly actorUserId: string
-  readonly expectedRevision: number
-  readonly idempotencyKey: string
-}
+type ChannelSaveInput = Omit<EnterpriseChannelConfiguration,
+    | 'bindingStatus' | 'boundProviderIdentityId' | 'boundProviderIdentityName' | 'verifiedTenantId'
+    | 'bindingVerifiedBy' | 'bindingVerifiedAt' | 'createdBy' | 'revision' | 'createdAt' | 'updatedAt'> & {
+      readonly actorUserId: string
+      readonly expectedRevision: number
+      readonly idempotencyKey: string
+    }
 
 const CHANNEL_ID = /^[a-z0-9][a-z0-9-]{0,63}$/u
 const CREDENTIAL_REF = /^[A-Za-z_][A-Za-z0-9_]*$/u
+const CHANNEL_BINDING_EVIDENCE_MAX_LENGTH = 256
 
 function canonicalChannelInput(input: ChannelSaveInput): ChannelSaveInput {
   const {
@@ -135,6 +139,32 @@ function canonicalChannelInput(input: ChannelSaveInput): ChannelSaveInput {
   }
   if (normalized.provider === 'wechat' && normalized.inboundEnabled) {
     throw new Error('personal WeChat cannot enable inbound commands')
+  }
+  return normalized
+}
+
+function canonicalChannelBindingInput(
+  input: EnterpriseChannelBindingVerificationWriteInput,
+): EnterpriseChannelBindingVerificationWriteInput {
+  const {
+    providerIdentityName: _providerIdentityName,
+    verifiedTenantId: _verifiedTenantId,
+    ...base
+  } = input
+  const normalized = {
+    ...base,
+    channelId: input.channelId.trim(),
+    providerIdentityId: input.providerIdentityId.trim(),
+    ...input.providerIdentityName?.trim() ? { providerIdentityName: input.providerIdentityName.trim() } : {},
+    ...input.verifiedTenantId?.trim() ? { verifiedTenantId: input.verifiedTenantId.trim() } : {},
+  }
+  if (!CHANNEL_ID.test(normalized.channelId)) throw new Error('channel id must use lowercase letters, numbers, and hyphens')
+  if (normalized.providerIdentityId === '') throw new Error('channel provider identity id is required')
+  if (normalized.actorUserId.trim() === '') throw new Error('channel binding actor user id is required')
+  for (const value of [normalized.providerIdentityId, normalized.providerIdentityName, normalized.verifiedTenantId]) {
+    if (value !== undefined && value.length > CHANNEL_BINDING_EVIDENCE_MAX_LENGTH) {
+      throw new Error('channel binding evidence must not exceed 256 characters')
+    }
   }
   return normalized
 }
@@ -320,6 +350,12 @@ interface ChannelConfigurationRow extends Record<string, unknown> {
   default_employee_release_id: string | null
   inbound_enabled: boolean
   state: EnterpriseChannelConfiguration['state']
+  binding_status: EnterpriseChannelConfiguration['bindingStatus']
+  bound_provider_identity_id: string | null
+  bound_provider_identity_name: string | null
+  verified_tenant_id: string | null
+  binding_verified_by: string | null
+  binding_verified_at: number | string | null
   created_by: string
   revision: number | string
   created_at: number | string
@@ -1399,17 +1435,73 @@ export class EnterpriseOperationsRepository {
         const updated = await database.query<ChannelConfigurationRow>(
           `UPDATE dsh_enterprise_channel_configurations SET
             name=$1,provider=$2,tenant_id=$3,account_id=$4,credential_ref=$5,default_employee_release_id=$6,
-            inbound_enabled=$7,state=$8,updated_at=$9,revision=revision+1
-          WHERE org_id=$10 AND channel_id=$11 AND revision=$12 RETURNING *`,
+            inbound_enabled=$7,state=$8,
+            binding_status=CASE WHEN $9 THEN 'unbound' ELSE binding_status END,
+            bound_provider_identity_id=CASE WHEN $9 THEN NULL ELSE bound_provider_identity_id END,
+            bound_provider_identity_name=CASE WHEN $9 THEN NULL ELSE bound_provider_identity_name END,
+            verified_tenant_id=CASE WHEN $9 THEN NULL ELSE verified_tenant_id END,
+            binding_verified_by=CASE WHEN $9 THEN NULL ELSE binding_verified_by END,
+            binding_verified_at=CASE WHEN $9 THEN NULL ELSE binding_verified_at END,
+            updated_at=$10,revision=revision+1
+          WHERE org_id=$11 AND channel_id=$12 AND revision=$13 RETURNING *`,
           [input.name, input.provider, input.tenantId ?? null, input.accountId, input.credentialRef ?? null,
-            input.defaultEmployeeReleaseId ?? null, input.inboundEnabled, input.state, now,
-            input.orgId, input.channelId, input.expectedRevision],
+            input.defaultEmployeeReleaseId ?? null, input.inboundEnabled, input.state,
+            existing.provider !== input.provider
+              || (existing.tenant_id ?? undefined) !== input.tenantId
+              || existing.account_id !== input.accountId
+              || (existing.credential_ref ?? undefined) !== input.credentialRef,
+            now, input.orgId, input.channelId, input.expectedRevision],
         )
         row = updated.rows[0]
       }
       if (row === undefined) throw new EnterpriseOperationsError('conflict', 'channel', input.channelId)
       const view = this.channelConfiguration(row)
       await this.remember(database, input.orgId, operation, input.idempotencyKey, input, view)
+      return view
+    })
+  }
+
+  /**
+   * Replace the verified provider identity evidence for one active channel revision.
+   * @param rawInput - organization, channel, actor, revision, idempotency guard, and secret-free provider evidence.
+   * @returns the committed channel configuration.
+   */
+  async verifyChannelBinding(
+    rawInput: EnterpriseChannelBindingVerificationWriteInput,
+  ): Promise<EnterpriseChannelConfiguration> {
+    const input = canonicalChannelBindingInput(rawInput)
+    await this.initialize()
+    return this.database.transaction(async (database) => {
+      await this.lock(database, `channel:${input.orgId}:${input.channelId}`)
+      await this.lockIdempotency(database, input.orgId, 'channel-binding-verify', input.idempotencyKey)
+      const prior = await this.idempotent<EnterpriseChannelConfiguration>(
+        database, input.orgId, 'channel-binding-verify', input.idempotencyKey, input,
+      )
+      if (prior !== undefined) return prior
+      await this.requireUser(database, input.orgId, input.actorUserId)
+      const current = await database.query<ChannelConfigurationRow>(
+        'SELECT * FROM dsh_enterprise_channel_configurations WHERE org_id=$1 AND channel_id=$2 FOR UPDATE',
+        [input.orgId, input.channelId],
+      )
+      const existing = current.rows[0]
+      if (existing === undefined) throw new EnterpriseOperationsError('not-found', 'channel', input.channelId)
+      if (existing.state === 'archived') throw new EnterpriseOperationsError('invalid-state', 'channel', input.channelId)
+      if (Number(existing.revision) !== input.expectedRevision) {
+        throw new EnterpriseOperationsError('conflict', 'channel', input.channelId)
+      }
+      const now = this.now()
+      const updated = await database.query<ChannelConfigurationRow>(
+        `UPDATE dsh_enterprise_channel_configurations SET binding_status='verified',
+          bound_provider_identity_id=$1,bound_provider_identity_name=$2,verified_tenant_id=$3,
+          binding_verified_by=$4,binding_verified_at=$5,updated_at=$5,revision=revision+1
+        WHERE org_id=$6 AND channel_id=$7 AND revision=$8 AND state<>'archived' RETURNING *`,
+        [input.providerIdentityId, input.providerIdentityName ?? null, input.verifiedTenantId ?? null,
+          input.actorUserId, now, input.orgId, input.channelId, input.expectedRevision],
+      )
+      const row = updated.rows[0]
+      if (row === undefined) throw new EnterpriseOperationsError('conflict', 'channel', input.channelId)
+      const view = this.channelConfiguration(row)
+      await this.remember(database, input.orgId, 'channel-binding-verify', input.idempotencyKey, input, view)
       return view
     })
   }
@@ -1495,6 +1587,12 @@ export class EnterpriseOperationsRepository {
       ...(row.default_employee_release_id === null ? {} : { defaultEmployeeReleaseId: row.default_employee_release_id }),
       inboundEnabled: row.inbound_enabled,
       state: row.state,
+      bindingStatus: row.binding_status,
+      ...(row.bound_provider_identity_id === null ? {} : { boundProviderIdentityId: row.bound_provider_identity_id }),
+      ...(row.bound_provider_identity_name === null ? {} : { boundProviderIdentityName: row.bound_provider_identity_name }),
+      ...(row.verified_tenant_id === null ? {} : { verifiedTenantId: row.verified_tenant_id }),
+      ...(row.binding_verified_by === null ? {} : { bindingVerifiedBy: row.binding_verified_by }),
+      ...(row.binding_verified_at === null ? {} : { bindingVerifiedAt: Number(row.binding_verified_at) }),
       createdBy: row.created_by,
       revision: Number(row.revision),
       createdAt: Number(row.created_at),

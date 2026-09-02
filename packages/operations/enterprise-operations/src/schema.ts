@@ -1,6 +1,6 @@
 /** PostgreSQL schema for work records, approvals, schedules, teams, and outbox. */
 import type { PostgresDatabase } from './types.ts'
-export const ENTERPRISE_OPERATIONS_SCHEMA_VERSION = 13
+export const ENTERPRISE_OPERATIONS_SCHEMA_VERSION = 14
 /** Owner placeholder for legacy fixed teams whose creator was never persisted. */
 export const LEGACY_TEAM_DEFINITION_OWNER_USER_ID = 'system:legacy-fixed-team-migration'
 const statements = [
@@ -92,6 +92,9 @@ const statements = [
     tenant_id TEXT, account_id TEXT NOT NULL, credential_ref TEXT,
     default_employee_release_id TEXT, inbound_enabled BOOLEAN NOT NULL,
     state TEXT NOT NULL CHECK (state IN ('draft','active','paused','archived')),
+    binding_status TEXT NOT NULL DEFAULT 'unbound' CHECK (binding_status IN ('unbound','verified')),
+    bound_provider_identity_id TEXT, bound_provider_identity_name TEXT, verified_tenant_id TEXT,
+    binding_verified_by TEXT, binding_verified_at BIGINT,
     created_by TEXT NOT NULL, revision BIGINT NOT NULL, created_at BIGINT NOT NULL, updated_at BIGINT NOT NULL,
     PRIMARY KEY(org_id,channel_id)
   )`,
@@ -275,6 +278,16 @@ export async function migrateEnterpriseOperations(database: PostgresDatabase): P
         await transaction.query(
           'ALTER TABLE dsh_enterprise_team_runs ALTER COLUMN definition_snapshot_json SET NOT NULL',
         )
+      }
+      if (version < 14) {
+        await transaction.query(
+          "ALTER TABLE dsh_enterprise_channel_configurations ADD COLUMN IF NOT EXISTS binding_status TEXT NOT NULL DEFAULT 'unbound' CHECK (binding_status IN ('unbound','verified'))",
+        )
+        await transaction.query('ALTER TABLE dsh_enterprise_channel_configurations ADD COLUMN IF NOT EXISTS bound_provider_identity_id TEXT')
+        await transaction.query('ALTER TABLE dsh_enterprise_channel_configurations ADD COLUMN IF NOT EXISTS bound_provider_identity_name TEXT')
+        await transaction.query('ALTER TABLE dsh_enterprise_channel_configurations ADD COLUMN IF NOT EXISTS verified_tenant_id TEXT')
+        await transaction.query('ALTER TABLE dsh_enterprise_channel_configurations ADD COLUMN IF NOT EXISTS binding_verified_by TEXT')
+        await transaction.query('ALTER TABLE dsh_enterprise_channel_configurations ADD COLUMN IF NOT EXISTS binding_verified_at BIGINT')
       }
       if (version < ENTERPRISE_OPERATIONS_SCHEMA_VERSION) {
         await transaction.query("UPDATE dsh_enterprise_operations_meta SET value = $1 WHERE key = 'schema-version'", [String(ENTERPRISE_OPERATIONS_SCHEMA_VERSION)])

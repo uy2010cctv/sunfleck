@@ -57,6 +57,7 @@ export interface EnterpriseOperationsDriver {
   readonly getChannelConfiguration: EnterpriseOperationsRepository['getChannelConfiguration']
   readonly listChannelConfigurations: EnterpriseOperationsRepository['listChannelConfigurations']
   readonly archiveChannelConfiguration: EnterpriseOperationsRepository['archiveChannelConfiguration']
+  readonly verifyChannelBinding: EnterpriseOperationsRepository['verifyChannelBinding']
 }
 
 type DriverInput<Name extends keyof EnterpriseOperationsDriver> = Parameters<EnterpriseOperationsDriver[Name]>[0]
@@ -118,6 +119,10 @@ export type EnterpriseChannelSaveInput = Omit<WithoutOrganization<DriverInput<'s
 export interface EnterpriseChannelLookup { readonly orgId?: string; readonly channelId: string }
 /** Host input for terminal channel archival. */
 export type EnterpriseChannelArchiveInput = Omit<WithoutOrganization<DriverInput<'archiveChannelConfiguration'>>, 'actorUserId'>
+/** Host input for secret-free provider identity verification. */
+export type EnterpriseChannelBindingVerificationInput = Omit<
+  WithoutOrganization<DriverInput<'verifyChannelBinding'>>, 'actorUserId'
+>
 
 export type EnterpriseOperationsEndpoint =
   | 'enterpriseOperation.workRecords.upsert'
@@ -149,6 +154,7 @@ export type EnterpriseOperationsEndpoint =
   | 'enterpriseChannel.get'
   | 'enterpriseChannel.list'
   | 'enterpriseChannel.archive'
+  | 'enterpriseChannel.verifyBinding'
 
 export interface EnterpriseOperationsAuthorizationDecision {
   readonly allowed: boolean
@@ -518,6 +524,20 @@ export class EnterpriseOperationsService {
   ): Promise<EnterpriseChannelConfiguration> {
     const scoped = await this.authorize(principal, 'enterpriseChannel.archive', input)
     return this.driver.archiveChannelConfiguration({ ...scoped, actorUserId: principal.userId })
+  }
+
+  /**
+   * Record verified provider identity evidence as the authenticated principal.
+   * @param principal - authenticated enterprise actor.
+   * @param input - channel revision, idempotency guard, and secret-free provider evidence.
+   * @returns the committed channel configuration.
+   */
+  async verifyChannelBinding(
+    principal: EnterprisePrincipal,
+    input: EnterpriseChannelBindingVerificationInput,
+  ): Promise<EnterpriseChannelConfiguration> {
+    const scoped = await this.authorize(principal, 'enterpriseChannel.verifyBinding', input)
+    return this.driver.verifyChannelBinding({ ...scoped, actorUserId: principal.userId })
   }
 
 }
