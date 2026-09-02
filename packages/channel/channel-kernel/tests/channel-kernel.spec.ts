@@ -3,6 +3,9 @@ import {
   channelActorKey,
   channelAuditEvent,
   channelHealth,
+  channelEnvelopeIdempotencyKey,
+  channelIntentPolicy,
+  normalizeChannelEnvelope,
   admitInbound,
   inboundIdempotencyKey,
   parseChannelCommand,
@@ -52,6 +55,34 @@ describe('channel command and routing', () => {
 })
 
 describe('channel identity and delivery reliability', () => {
+  it('normalizes one provider-neutral TeamRun envelope with a stable operation id', () => {
+    const envelope = normalizeChannelEnvelope({
+      provider: 'wecom', tenantId: 'tenant-a', accountId: 'bot-a', threadId: 'thread-a',
+      messageId: 'message-a', direction: 'inbound', intent: 'team-start', canonicalUserId: 'user-a',
+      teamId: 'team-a', runId: 'run-a', payloadDigest: 'a'.repeat(64), occurredAt: 1,
+    })
+    expect(envelope.operationId).toBe(channelEnvelopeIdempotencyKey(envelope))
+    expect(envelope).not.toHaveProperty('payload')
+  })
+
+  it('keeps enterprise channels bidirectional and personal WeChat notification-only', () => {
+    expect(channelIntentPolicy('wecom', 'team-start')).toEqual({ allowed: true, mutation: true })
+    expect(channelIntentPolicy('feishu', 'decision-response')).toEqual({ allowed: true, mutation: true })
+    expect(channelIntentPolicy('dingtalk', 'status')).toEqual({ allowed: true, mutation: false })
+    expect(channelIntentPolicy('wechat', 'notify')).toEqual({ allowed: true, mutation: false })
+    expect(channelIntentPolicy('wechat', 'handoff')).toEqual({ allowed: true, mutation: false })
+    expect(channelIntentPolicy('wechat', 'team-start')).toEqual({ allowed: false, mutation: true })
+    expect(channelIntentPolicy('wechat', 'decision-response')).toEqual({ allowed: false, mutation: true })
+  })
+
+  it('rejects malformed identifiers, digests, and personal-WeChat mutations', () => {
+    expect(() => normalizeChannelEnvelope({
+      provider: 'wechat', tenantId: 'tenant-a', accountId: 'personal-a', threadId: 'thread-a',
+      messageId: 'message-a', direction: 'inbound', intent: 'decision-response',
+      payloadDigest: 'bad', occurredAt: 1,
+    })).toThrow(/personal WeChat|payload digest/u)
+  })
+
   it('merges channel aliases under a canonical enterprise user when available', () => {
     expect(channelActorKey({ channelId: 'wx', channelUserId: 'wx-7', canonicalUserId: 'user-9' }))
       .toBe('enterprise:user-9')

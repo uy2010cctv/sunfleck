@@ -28,6 +28,8 @@ Pure Channel Kernel contracts for enterprise messaging:
 - Provider-scoped inbound idempotency and capped outbound retry timing.
 - Token/heartbeat health and fail-closed Session recovery decisions.
 - Message audit metadata containing a content hash and length, never raw content or credentials.
+- A provider-neutral `ChannelEnvelope` for WeCom, Feishu, DingTalk, and personal WeChat, correlated to DSH Team and Run identities by a stable operation id.
+- Fail-closed intent policy: enterprise channels may submit authorized Team and decision intents; personal WeChat is outbound notification and handoff only.
 
 The package does not log in to WeChat, host WeCom webhooks, persist queues, or send messages. Those are adapter responsibilities and must use DSH Credentials and native Sessions rather than private copies.
 
@@ -49,9 +51,10 @@ None. The kernel neither assembles nor mutates a provider request.
 
 ## Known Limitations and Deferred Work
 
-- Real personal-WeChat and WeCom Bot adapters are not included.
+- Real Feishu, DingTalk, and personal-WeChat adapters are not included; the existing WeCom adapter does not yet implement the complete Team envelope command surface.
 - Durable idempotency and outbox stores must be supplied by a deployment adapter.
 - Intent recognition supplies an employee candidate; this package only validates and orders it.
+- Provider acknowledgement, unknown-outcome reconciliation, and receipt storage remain adapter responsibilities.
 
 <a id="dev-note"></a>
 ### Dev Note

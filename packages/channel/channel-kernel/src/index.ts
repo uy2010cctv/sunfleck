@@ -5,6 +5,80 @@ import { createHash } from 'node:crypto'
 /** Supported GA transport. Personal WeChat is intentionally excluded. */
 export type ChannelKind = 'wecom-bot'
 
+/** Provider families sharing the DSH-owned channel envelope. */
+export type ChannelProvider = 'wecom' | 'feishu' | 'dingtalk' | 'wechat'
+
+/** Provider-neutral intent carried by one channel message. */
+export type ChannelEnvelopeIntent = 'notify' | 'handoff' | 'team-start' | 'decision-response' | 'status'
+
+/** Transport metadata and DSH correlation without raw message content. */
+export interface ChannelEnvelope {
+  readonly provider: ChannelProvider
+  readonly tenantId: string
+  readonly accountId: string
+  readonly threadId: string
+  readonly messageId: string
+  readonly operationId: string
+  readonly direction: 'inbound' | 'outbound'
+  readonly intent: ChannelEnvelopeIntent
+  readonly canonicalUserId?: string
+  readonly teamId?: string
+  readonly runId?: string
+  readonly payloadDigest: string
+  readonly occurredAt: number
+}
+
+/** Whether an intent is admitted and whether it can mutate DSH state. */
+export interface ChannelIntentPolicy {
+  readonly allowed: boolean
+  readonly mutation: boolean
+}
+
+/** Resolve provider policy; personal WeChat never receives a mutation grant. */
+export function channelIntentPolicy(provider: ChannelProvider, intent: ChannelEnvelopeIntent): ChannelIntentPolicy {
+  const mutation = intent === 'team-start' || intent === 'decision-response'
+  return { allowed: provider !== 'wechat' || !mutation, mutation }
+}
+
+/** Hash the provider account and message identity into one stable DSH operation id. */
+export function channelEnvelopeIdempotencyKey(
+  envelope: Pick<ChannelEnvelope, 'provider' | 'tenantId' | 'accountId' | 'messageId'>,
+): string {
+  const digest = createHash('sha256')
+    .update(JSON.stringify([envelope.provider, envelope.tenantId, envelope.accountId, envelope.messageId]))
+    .digest('hex')
+  return `channel:${digest}`
+}
+
+function channelIdentifier(value: string, field: string): string {
+  const normalized = value.trim()
+  if (normalized === '') throw new Error(`${field} is required`)
+  return normalized
+}
+
+/** Validate and normalize one envelope before an adapter submits it to DSH. */
+export function normalizeChannelEnvelope(
+  input: Omit<ChannelEnvelope, 'operationId'>,
+): ChannelEnvelope {
+  if (!/^[a-f0-9]{64}$/u.test(input.payloadDigest)) throw new Error('payload digest must be lowercase SHA-256')
+  if (!Number.isSafeInteger(input.occurredAt) || input.occurredAt < 0) throw new Error('occurredAt must be non-negative')
+  const policy = channelIntentPolicy(input.provider, input.intent)
+  if (!policy.allowed || (input.provider === 'wechat' && input.direction === 'inbound')) {
+    throw new Error('personal WeChat is limited to outbound notifications and handoff invitations')
+  }
+  const normalized = {
+    ...input,
+    tenantId: channelIdentifier(input.tenantId, 'tenantId'),
+    accountId: channelIdentifier(input.accountId, 'accountId'),
+    threadId: channelIdentifier(input.threadId, 'threadId'),
+    messageId: channelIdentifier(input.messageId, 'messageId'),
+    ...input.canonicalUserId === undefined ? {} : { canonicalUserId: channelIdentifier(input.canonicalUserId, 'canonicalUserId') },
+    ...input.teamId === undefined ? {} : { teamId: channelIdentifier(input.teamId, 'teamId') },
+    ...input.runId === undefined ? {} : { runId: channelIdentifier(input.runId, 'runId') },
+  }
+  return { ...normalized, operationId: channelEnvelopeIdempotencyKey(normalized) }
+}
+
 export interface ChannelBinding {
   readonly channelId: string
   readonly kind: ChannelKind
