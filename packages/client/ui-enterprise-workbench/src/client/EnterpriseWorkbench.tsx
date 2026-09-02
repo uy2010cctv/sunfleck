@@ -753,6 +753,7 @@ function ChannelsPage({ page, api, busy, onDirty, onClean, t }: {
     refreshComplete?: boolean
   } | null>(null)
   const attemptGeneration = useRef(0)
+  const bindingActionRefs = useRef(new Map<string, HTMLButtonElement>())
   const activeBinding = useRef<{
     generation: number
     attemptId: string | null
@@ -880,18 +881,20 @@ function ChannelsPage({ page, api, busy, onDirty, onClean, t }: {
     })
     if (succeeded) setForm(null)
   }
-  const canBind = (channel: EnterpriseChannelConfiguration): boolean => channel.state !== 'archived'
-    && channel.credentialStatus === 'configured'
-    && channel.accountId.trim() !== ''
-    && (channel.provider !== 'wecom' || (channel.tenantId?.trim() ?? '') !== '')
-  const prerequisiteDetail = (channel: EnterpriseChannelConfiguration): string => {
+  const missingPrerequisites = (channel: EnterpriseChannelConfiguration): string[] => {
     const missing: string[] = []
     if (channel.accountId.trim() === '') missing.push(t('channel.binding.accountMissing'))
     if (channel.provider === 'wecom' && (channel.tenantId?.trim() ?? '') === '') {
       missing.push(t('channel.binding.tenantMissing'))
     }
     if (channel.credentialStatus !== 'configured') missing.push(t('channel.credentialMissing'))
-    if (channel.state === 'archived') missing.push(t('channel.binding.archived'))
+    return missing
+  }
+  const canBind = (channel: EnterpriseChannelConfiguration): boolean => channel.state !== 'archived'
+    && missingPrerequisites(channel).length === 0
+  const prerequisiteDetail = (channel: EnterpriseChannelConfiguration): string => {
+    if (channel.state === 'archived') return t('channel.binding.archived')
+    const missing = missingPrerequisites(channel)
     return missing.length === 0 ? t('channel.credentialConfigured') : missing.join(' · ')
   }
   const beginBinding = async (channel: EnterpriseChannelConfiguration): Promise<void> => {
@@ -960,6 +963,40 @@ function ChannelsPage({ page, api, busy, onDirty, onClean, t }: {
     }
   }
   const bindingBusy = binding?.phase === 'opening' || binding?.phase === 'waiting' || binding?.phase === 'checking'
+  const attention = page.items.flatMap((channel) => {
+    if (channel.state === 'archived') return []
+    const channelBinding = binding?.channelId === channel.channelId ? binding : null
+    if (channelBinding?.phase === 'error' || channelBinding?.phase === 'expired') {
+      const detail = channelBinding.message ?? t(`channel.binding.phase.${channelBinding.phase}`)
+      return [{ channel, reason: t('channel.attention.binding', { reason: detail }) }]
+    }
+    const missing = missingPrerequisites(channel)
+    if (missing.length > 0) return [{ channel, reason: missing.join(' · ') }]
+    if (channel.state === 'active' && channel.bindingStatus !== 'verified') {
+      return [{ channel, reason: t('channel.attention.unbound') }]
+    }
+    if (channel.state === 'active') {
+      return [{ channel, reason: t('channel.attention.transport') }]
+    }
+    return []
+  })
+  const focusBindingAction = (channelId: string): void => {
+    const action = bindingActionRefs.current.get(channelId)
+    const row = action?.closest('article')
+    if (typeof row?.scrollIntoView === 'function') row.scrollIntoView({ block: 'center' })
+    action?.focus()
+  }
+  const derivedStatusKeys = (channel: EnterpriseChannelConfiguration): EnterpriseWorkbenchKey[] => {
+    if (channel.state === 'archived') return ['channel.status.archived']
+    if (channel.state === 'paused') return ['channel.status.paused']
+    if (missingPrerequisites(channel).length > 0) return ['channel.status.pendingConfiguration']
+    const statuses: EnterpriseWorkbenchKey[] = [channel.bindingStatus === 'verified'
+      ? 'channel.status.identityVerified' : 'channel.status.readyToScan']
+    if (channel.state === 'active' && channel.bindingStatus === 'verified') {
+      statuses.push('channel.status.transportPending')
+    }
+    return statuses
+  }
   return <section className={css.channelPage} aria-labelledby="channel-page-title">
     <ManagementHeader id="channel-page-title" title={t('channel.title')} description={t('channel.description')} count={page.items.length} action={<button type="button" className={css.primaryButton} onClick={() => { setForm(emptyForm) }}><IconPlusOutline16 size={16}/>{t('channel.new')}</button>}/>
     <div className={css.channelPrinciple}><IconApiOutline14 size={16}/><div><strong>{t('channel.truthTitle')}</strong><span>{t('channel.truthBody')}</span></div></div>
@@ -978,25 +1015,33 @@ function ChannelsPage({ page, api, busy, onDirty, onClean, t }: {
       <div className={css.channelPolicyPreview}><span>{t('channel.providerPolicy')}</span>{CHANNEL_PROVIDER_INTENTS[form.provider].map(intent => <em key={intent}>{t(`channel.intent.${intent}`)}</em>)}</div>
       <div className={css.channelFormActions}><button type="submit" className={css.secondaryButton} disabled={busy}>{t('channel.saveDraft')}</button><button type="button" className={css.primaryButton} disabled={busy || form.credentialRef.trim() === '' || (form.provider !== 'wechat' && form.tenantId.trim() === '')} onClick={() => { void save('active') }}>{t('channel.activate')}</button></div>
     </form>}
+    {attention.length > 0 && <section className={css.channelAttention} aria-label={t('channel.attentionAria')}>
+      {attention.map(item => <button type="button" key={item.channel.channelId} aria-label={t('channel.attention.open', { name: item.channel.name, reason: item.reason })} onClick={() => { focusBindingAction(item.channel.channelId) }}>
+        <IconWarningOutline16 size={16}/><strong>{item.channel.name}</strong><span>{item.reason}</span>
+      </button>)}
+    </section>}
     <PageBoundary page={page} t={t} empty={<ActionableEmpty title={t('channel.emptyTitle')} description={t('channel.emptyBody')} action={<button type="button" className={css.primaryButton} onClick={() => { setForm(emptyForm) }}>{t('channel.new')}</button>}/>}>
       <div className={css.channelList}>{page.items.map((channel) => {
         const profile = CHANNEL_BINDING_PROFILES[channel.provider]
         const eligible = canBind(channel)
         const channelBinding = binding?.channelId === channel.channelId ? binding : null
         const verifiedIdentity = channel.boundProviderIdentityName ?? channel.boundProviderIdentityId
-        return <article className={css.channelRow} data-state={channel.state} key={channel.channelId}>
-          <div className={css.channelIdentity}><span className={css.channelProvider}>{t(`channel.provider.${channel.provider}`)}</span><div><h3>{channel.name}</h3><p>{channel.channelId} · {channel.accountId}</p></div><span className={css.channelState}>{t(`channel.state.${channel.state}`)}</span></div>
+        const configurationReady = missingPrerequisites(channel).length === 0
+        const recoverableBinding = channelBinding?.phase === 'error' || channelBinding?.phase === 'expired'
+        return <article className={css.channelRow} data-state={channel.state} key={channel.channelId} aria-label={channel.name}>
+          <div className={css.channelIdentity}><span className={css.channelProvider}>{t(`channel.provider.${channel.provider}`)}</span><div><h3>{channel.name}</h3><p>{channel.channelId} · {channel.accountId}</p></div><div className={css.channelStatuses}><span className={css.channelState}>{t(`channel.state.${channel.state}`)}</span>{derivedStatusKeys(channel).map(key => <span key={key}>{t(key)}</span>)}</div></div>
           <div className={css.channelBindingGuide}>
             <p>{t(profile.guidanceKey)}</p>
             <a href={profile.officialDocsUrl} target="_blank" rel="noopener noreferrer">{t('channel.binding.docs')}</a>
             {profile.identityOnly && <strong>{t('channel.binding.wechatBoundary')}</strong>}
           </div>
+          <div className={css.channelTransportGuide}><strong>{t('channel.transport.separate')}</strong><p>{t(`channel.transport.guidance.${channel.provider}`)}</p></div>
           {channelBinding !== null && <div className={css.channelBindingBanner} role={channelBinding.phase === 'error' || channelBinding.phase === 'expired' ? 'alert' : 'status'} data-phase={channelBinding.phase}>
             <span>{channelBinding.message ?? t(`channel.binding.phase.${channelBinding.phase}`)}</span>
-            {(channelBinding.phase === 'error' || channelBinding.phase === 'expired') && <button type="button" className={css.textButton} disabled={!eligible} onClick={() => { void beginBinding(channel) }}>{t('channel.binding.retry')}</button>}
+            {recoverableBinding && <button type="button" className={css.textButton} ref={(node) => { if (node === null) bindingActionRefs.current.delete(channel.channelId); else bindingActionRefs.current.set(channel.channelId, node) }} disabled={channel.state === 'archived' || bindingBusy} aria-disabled={!eligible || bindingBusy} onClick={() => { if (eligible && !bindingBusy) void beginBinding(channel) }}>{t('channel.binding.retry')}</button>}
           </div>}
-          <div className={css.connectionPath} aria-label={t('channel.pathAria', { name: channel.name })}>
-            <span><small>{t('channel.pathPrerequisite')}</small><strong data-status={eligible ? 'configured' : 'missing'}>{eligible ? t('channel.binding.ready') : t('channel.binding.missing')}</strong><em className={css.channelPrerequisiteDetail}>{prerequisiteDetail(channel)}</em></span><i aria-hidden="true"/><span><small>{t('channel.pathQr')}</small><strong>{t(profile.qrKey)}</strong></span><i aria-hidden="true"/><span><small>{t('channel.pathIdentity')}</small><strong data-status={channel.bindingStatus === 'verified' ? 'configured' : 'missing'}>{channel.bindingStatus === 'verified' ? t('channel.binding.verified') : t('channel.binding.unbound')}</strong></span><i aria-hidden="true"/><span><small>{t('channel.pathEvidence')}</small><strong>{t('channel.transportUnverified')}</strong></span>
+          <div className={css.connectionPath} role="group" aria-label={t('channel.factsAria', { name: channel.name })}>
+            <span><small>{t('channel.truth.configuration')}</small><strong data-status={configurationReady ? 'configured' : 'missing'}>{configurationReady ? t('channel.binding.ready') : t('channel.binding.missing')}</strong><em className={css.channelPrerequisiteDetail}>{prerequisiteDetail(channel)}</em></span><i aria-hidden="true"/><span><small>{t('channel.truth.identity')}</small><strong data-status={channel.bindingStatus === 'verified' ? 'configured' : 'missing'}>{channel.bindingStatus === 'verified' ? t('channel.binding.verified') : t('channel.binding.unbound')}</strong><em className={css.channelPrerequisiteDetail}>{channelBinding === null ? t(profile.qrKey) : channelBinding.message ?? t(`channel.binding.phase.${channelBinding.phase}`)}</em></span><i aria-hidden="true"/><span><small>{t('channel.truth.route')}</small><strong>{channel.defaultEmployeeReleaseId ?? t('channel.routeWorkbench')}</strong></span><i aria-hidden="true"/><span><small>{t('channel.truth.transport')}</small><strong>{t('channel.transportUnverified')}</strong><em className={css.channelPrerequisiteDetail}>{t('channel.transportUnverifiedDetail')}</em></span>
           </div>
           {channel.bindingStatus === 'verified' && <div className={css.channelBindingEvidence}>
             <strong>{verifiedIdentity ?? t('channel.binding.identityFallback')}</strong>
@@ -1005,7 +1050,7 @@ function ChannelsPage({ page, api, busy, onDirty, onClean, t }: {
             <span>{t('channel.binding.actorEvidence', { actor: channel.bindingVerifiedBy ?? t('channel.binding.notRecorded'), time: channel.bindingVerifiedAt === undefined ? t('channel.binding.notRecorded') : formatDate(channel.bindingVerifiedAt) })}</span>
           </div>}
           <div className={css.channelIntentRow}><span>{t('channel.allowedIntents')}</span><div>{channel.allowedIntents.map(intent => <span key={intent}>{t(`channel.intent.${intent}`)}</span>)}</div>{!channel.inboundEnabled && <em>{t('channel.outboundOnly')}</em>}</div>
-          <div className={css.channelActions}><span>{t('channel.revision', { revision: channel.revision })}</span><button type="button" className={css.primaryButton} disabled={!eligible || bindingBusy} onClick={() => { void beginBinding(channel) }}>{channel.bindingStatus === 'verified' ? t('channel.binding.rebind') : t(profile.actionKey)}</button><button type="button" className={css.secondaryButton} onClick={() => { edit(channel) }}><IconEditOutline16 size={16}/>{t('channel.edit')}</button>{channel.state === 'active' && <button type="button" className={css.secondaryButton} aria-label={t('channel.pauseAria', { name: channel.name })} disabled={busy} onClick={() => { void api.saveChannelConfiguration({ channelId: channel.channelId, name: channel.name, provider: channel.provider, ...(channel.tenantId === undefined ? {} : { tenantId: channel.tenantId }), accountId: channel.accountId, ...(channel.credentialRef === undefined ? {} : { credentialRef: channel.credentialRef }), ...(channel.defaultEmployeeReleaseId === undefined ? {} : { defaultEmployeeReleaseId: channel.defaultEmployeeReleaseId }), inboundEnabled: channel.inboundEnabled, state: 'paused', expectedRevision: channel.revision }) }}>{t('channel.pause')}</button>}{channel.state === 'paused' && <button type="button" className={css.primaryButton} disabled={busy || channel.credentialStatus !== 'configured'} onClick={() => { void api.saveChannelConfiguration({ channelId: channel.channelId, name: channel.name, provider: channel.provider, ...(channel.tenantId === undefined ? {} : { tenantId: channel.tenantId }), accountId: channel.accountId, ...(channel.credentialRef === undefined ? {} : { credentialRef: channel.credentialRef }), ...(channel.defaultEmployeeReleaseId === undefined ? {} : { defaultEmployeeReleaseId: channel.defaultEmployeeReleaseId }), inboundEnabled: channel.inboundEnabled, state: 'active', expectedRevision: channel.revision }) }}>{t('channel.resume')}</button>}<button type="button" className={css.secondaryButton} aria-label={t('channel.archiveAria', { name: channel.name })} disabled={busy} onClick={() => { void api.archiveChannelConfiguration(channel) }}>{t('channel.archive')}</button></div>
+          <div className={css.channelActions}><span>{t('channel.revision', { revision: channel.revision })}</span><button type="button" className={css.primaryButton} ref={recoverableBinding ? undefined : (node) => { if (node === null) bindingActionRefs.current.delete(channel.channelId); else bindingActionRefs.current.set(channel.channelId, node) }} disabled={channel.state === 'archived' || bindingBusy} aria-disabled={!eligible || bindingBusy} onClick={() => { if (eligible && !bindingBusy) void beginBinding(channel) }}>{channel.bindingStatus === 'verified' ? t('channel.binding.rebind') : t(profile.actionKey)}</button><button type="button" className={css.secondaryButton} disabled={channel.state === 'archived'} onClick={() => { edit(channel) }}><IconEditOutline16 size={16}/>{t('channel.edit')}</button>{channel.state === 'active' && <button type="button" className={css.secondaryButton} aria-label={t('channel.pauseAria', { name: channel.name })} disabled={busy} onClick={() => { void api.saveChannelConfiguration({ channelId: channel.channelId, name: channel.name, provider: channel.provider, ...(channel.tenantId === undefined ? {} : { tenantId: channel.tenantId }), accountId: channel.accountId, ...(channel.credentialRef === undefined ? {} : { credentialRef: channel.credentialRef }), ...(channel.defaultEmployeeReleaseId === undefined ? {} : { defaultEmployeeReleaseId: channel.defaultEmployeeReleaseId }), inboundEnabled: channel.inboundEnabled, state: 'paused', expectedRevision: channel.revision }) }}>{t('channel.pause')}</button>}{channel.state === 'paused' && <button type="button" className={css.primaryButton} disabled={busy || channel.credentialStatus !== 'configured'} onClick={() => { void api.saveChannelConfiguration({ channelId: channel.channelId, name: channel.name, provider: channel.provider, ...(channel.tenantId === undefined ? {} : { tenantId: channel.tenantId }), accountId: channel.accountId, ...(channel.credentialRef === undefined ? {} : { credentialRef: channel.credentialRef }), ...(channel.defaultEmployeeReleaseId === undefined ? {} : { defaultEmployeeReleaseId: channel.defaultEmployeeReleaseId }), inboundEnabled: channel.inboundEnabled, state: 'active', expectedRevision: channel.revision }) }}>{t('channel.resume')}</button>}<button type="button" className={css.secondaryButton} aria-label={t('channel.archiveAria', { name: channel.name })} disabled={busy || channel.state === 'archived'} onClick={() => { void api.archiveChannelConfiguration(channel) }}>{t('channel.archive')}</button></div>
         </article>
       })}</div>
     </PageBoundary>
