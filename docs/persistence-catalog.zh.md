@@ -761,6 +761,32 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 
 ### `team/*`
 
+<a id="teamdecision--log-only"></a>
+
+#### `team/decision` — log-only
+
+```ts persistence-catalog
+/** Authoritative Human decision value, stored only in the Team Lead Session. */
+'team/decision': { version: 1; teamId: TeamId; decision: TeamDecisionSnapshot }
+```
+
+类型：[TeamId](subsystems/agent-team.zh.md)
+
+来源：[`packages/experimental/agent-team/src/types.ts:389`](../packages/experimental/agent-team/src/types.ts)
+
+<a id="teamhuman-member--log-only"></a>
+
+#### `team/human-member` — log-only
+
+```ts persistence-catalog
+/** Human roster row, stored only in the Team Lead Session and never granted Agent mailbox authority. */
+'team/human-member': { version: 1; teamId: TeamId; member: TeamHumanMemberSnapshot }
+```
+
+类型：[TeamId](subsystems/agent-team.zh.md)
+
+来源：[`packages/experimental/agent-team/src/types.ts:387`](../packages/experimental/agent-team/src/types.ts)
+
 <a id="teammember--log-only"></a>
 
 #### `team/member` — log-only
@@ -772,7 +798,7 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 
 类型：[TeamId](subsystems/agent-team.zh.md) · [TeamMemberSnapshot](subsystems/agent-team.zh.md)
 
-来源：[`packages/experimental/agent-team/src/types.ts:206`](../packages/experimental/agent-team/src/types.ts)
+来源：[`packages/experimental/agent-team/src/types.ts:372`](../packages/experimental/agent-team/src/types.ts)
 
 <a id="teammessagedelivered--log-only"></a>
 
@@ -790,7 +816,7 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 
 类型：[TeamId](subsystems/agent-team.zh.md) · [TeamMessageId](subsystems/agent-team.zh.md)
 
-来源：[`packages/experimental/agent-team/src/types.ts:212`](../packages/experimental/agent-team/src/types.ts)
+来源：[`packages/experimental/agent-team/src/types.ts:378`](../packages/experimental/agent-team/src/types.ts)
 
 <a id="teammessagequeued--log-only"></a>
 
@@ -803,7 +829,20 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 
 类型：[TeamId](subsystems/agent-team.zh.md) · [TeamMessageSnapshot](subsystems/agent-team.zh.md)
 
-来源：[`packages/experimental/agent-team/src/types.ts:210`](../packages/experimental/agent-team/src/types.ts)
+来源：[`packages/experimental/agent-team/src/types.ts:376`](../packages/experimental/agent-team/src/types.ts)
+
+<a id="teamrun--log-only"></a>
+
+#### `team/run` — log-only
+
+```ts persistence-catalog
+/** Authoritative enterprise TeamRun value, stored only in the Team Lead Session. */
+'team/run': { version: 1; teamId: TeamId; run: TeamRunSnapshot }
+```
+
+类型：[TeamId](subsystems/agent-team.zh.md)
+
+来源：[`packages/experimental/agent-team/src/types.ts:385`](../packages/experimental/agent-team/src/types.ts)
 
 <a id="teamtask--log-only"></a>
 
@@ -816,7 +855,7 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 
 类型：[TeamId](subsystems/agent-team.zh.md) · [TeamTaskSnapshot](subsystems/agent-team.zh.md)
 
-来源：[`packages/experimental/agent-team/src/types.ts:208`](../packages/experimental/agent-team/src/types.ts)
+来源：[`packages/experimental/agent-team/src/types.ts:374`](../packages/experimental/agent-team/src/types.ts)
 
 ### `todo/*`
 

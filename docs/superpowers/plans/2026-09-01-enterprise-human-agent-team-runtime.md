@@ -1,5 +1,7 @@
 # Enterprise Human-Agent Team Runtime Implementation Plan
 
+English | [中文](2026-09-01-enterprise-human-agent-team-runtime.zh.md)
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use test-driven-development to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Connect enterprise TeamRun control to the existing Session-backed Agent Teams runtime with immutable employee releases, first-class human roster rows, idempotent decisions, restart recovery, and enterprise-only composition.
