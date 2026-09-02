@@ -191,7 +191,10 @@ function controllerApi(overrides: Record<string, unknown> = {}) {
       listVersions: () => ok([]), archive: () => ok({}),
     },
     enterpriseTeams: { list: () => ok({ items: [] }), get: () => ok({}), save: () => ok({}) },
-    enterpriseChannels: { list: () => ok({ items: [] }), get: () => ok({}), save: () => ok({}), archive: () => ok({}) },
+    enterpriseChannels: {
+      list: () => ok({ items: [] }), get: () => ok({}), save: () => ok({}), archive: () => ok({}),
+      beginBinding: () => ok({}), completeBinding: () => ok({}),
+    },
     enterpriseOperations: {
       listWorkRecords: () => ok({ items: [{
         orgId: 'server-org', sessionId: 'session-1', employeeReleaseId: 'release-2', source: 'console',
@@ -323,6 +326,31 @@ describe('EnterpriseWorkbenchController enterprise read models', () => {
 })
 
 describe('EnterpriseWorkbenchController edits, mutations, and events', () => {
+  it('begins channel binding with the saved revision and exact canonical callback', async () => {
+    const beginBinding = vi.fn(() => ok({
+      bindingId: 'binding-1', channelId: 'finance-wecom', provider: 'wecom',
+      authorizationUrl: 'https://login.work.weixin.qq.com/wwlogin/sso/login?state=opaque',
+      officialDocumentationUrl: 'https://developer.work.weixin.qq.com/document/path/98152',
+      expiresAt: 100,
+    }))
+    const base = controllerApi(); const services = controllerServices()
+    const controller = new EnterpriseWorkbenchController(controllerApi({
+      enterpriseChannels: { ...base.enterpriseChannels, beginBinding },
+    }) as never, services.sessions as never, services.workspaces as never)
+    const channel = {
+      channelId: 'finance-wecom', revision: 7,
+    } as never
+
+    await expect(controller.beginChannelBinding(
+      channel,
+      'https://dsh.example/workbench?dsh_channel_binding=1',
+    )).resolves.toMatchObject({ bindingId: 'binding-1', channelId: 'finance-wecom' })
+    expect(beginBinding).toHaveBeenCalledWith({
+      channelId: 'finance-wecom', expectedRevision: 7,
+      redirectUri: 'https://dsh.example/workbench?dsh_channel_binding=1',
+    })
+  })
+
   it('ignores an old employee response after filters change', async () => {
     let resolveOld!: (value: ReturnType<typeof responsePage>) => void
     const responsePage = (name: string) => ({ result: { ok: true as const, value: { items: [{

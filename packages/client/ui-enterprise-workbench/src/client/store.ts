@@ -4,7 +4,7 @@ import type { ClientRemote, PluginInventorySnapshot, SessionId } from '@deepseek
 import type {
   EnterpriseApproval, EnterpriseAsset, EnterpriseAssetKind,
   EnterpriseBusinessState, EnterpriseEmployeeAssetRef, EnterpriseEmployeeDraft,
-  EnterpriseChannelConfiguration,
+  EnterpriseChannelBindingSession, EnterpriseChannelConfiguration,
   EnterpriseEmployeeRelease, EnterpriseSchedule,
   EnterpriseScheduleTarget, EnterpriseTeam, EnterpriseTeamMember,
   EnterpriseTeamAutonomyGrant, EnterpriseTeamDecision, EnterpriseTeamDefinition, EnterpriseTeamRun,
@@ -639,6 +639,18 @@ export class EnterpriseWorkbenchController {
    */
   refreshChannels(): Promise<boolean> {
     return this.loadPage('channels', async () => valueOf(await this.api.enterpriseChannels.list({})))
+  }
+
+  /** Begin provider-owned authorization for one persisted channel revision. */
+  async beginChannelBinding(
+    channel: EnterpriseChannelConfiguration,
+    redirectUri: string,
+  ): Promise<EnterpriseChannelBindingSession> {
+    return valueOf(await this.api.enterpriseChannels.beginBinding({
+      channelId: channel.channelId,
+      expectedRevision: channel.revision,
+      redirectUri,
+    }))
   }
 
   /** Refresh typed Team Definitions. */

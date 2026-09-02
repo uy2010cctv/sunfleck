@@ -2,6 +2,9 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import type { SnapshotStore } from '@deepseek-ai/dsh-client-store'
+import type { ClientRemote } from '@deepseek-ai/dsh-api-remotes/client'
+import type { EnterpriseChannelConfiguration } from '@deepseek-ai/dsh-api-enterprise-controller/types'
+import { randomUUID } from '@deepseek-ai/dsh-util-crypto'
 import type {} from '@deepseek-ai/dsh-client-connection/client'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
@@ -27,6 +30,62 @@ interface EnterpriseTriggerInjected {
   toggle: () => void
 }
 
+const CALLBACK_MARKER = 'dsh_channel_binding'
+const CALLBACK_VALUE_LIMIT = 4096
+
+interface BindingCallbackWindow {
+  readonly location: Pick<Location, 'origin' | 'pathname' | 'search'>
+  readonly history: Pick<History, 'replaceState'>
+  readonly opener: { postMessage: (message: unknown, targetOrigin: string) => void } | null
+  readonly close: () => void
+}
+
+/** Canonical callback registered with providers; provider secrets never appear in it. */
+export function channelBindingCallbackUri(location: Pick<Location, 'origin' | 'pathname'>): string {
+  return `${location.origin}${location.pathname}?${CALLBACK_MARKER}=1`
+}
+
+function boundedCallbackValue(value: string | null): value is string {
+  return value !== null && value.length > 0 && value.length <= CALLBACK_VALUE_LIMIT
+}
+
+/** Complete one marked provider callback and remove authorization material from browser history. */
+export async function completeChannelBindingCallback(
+  remote: Pick<ClientRemote['enterpriseChannel'], 'completeBinding'>,
+  browser: BindingCallbackWindow,
+): Promise<boolean> {
+  const query = new URLSearchParams(browser.location.search)
+  if (query.get(CALLBACK_MARKER) !== '1') return false
+  const canonicalPath = `${browser.location.pathname}?${CALLBACK_MARKER}=1`
+  const code = query.get('code')
+  const state = query.get('state')
+  const fail = (): true => {
+    browser.history.replaceState(null, '', `${canonicalPath}&binding_error=1`)
+    browser.opener?.postMessage({ type: 'dsh-channel-binding-failed' }, browser.location.origin)
+    return true
+  }
+  if (!boundedCallbackValue(code) || !boundedCallbackValue(state)) return fail()
+  try {
+    const response = await remote.completeBinding({
+      code, state,
+      redirectUri: channelBindingCallbackUri(browser.location),
+      idempotencyKey: `channel-binding-complete:${randomUUID()}`,
+    })
+    const wrapped = response as typeof response | { readonly result: typeof response }
+    const result = 'result' in wrapped ? wrapped.result : wrapped
+    if (!result.ok) throw new Error(result.error.message)
+    const channel: EnterpriseChannelConfiguration = result.value
+    browser.opener?.postMessage({
+      type: 'dsh-channel-binding-complete', channelId: channel.channelId,
+    }, browser.location.origin)
+    browser.history.replaceState(null, '', canonicalPath)
+    browser.close()
+    return true
+  } catch {
+    return fail()
+  }
+}
+
 /** Required browser services. */
 export const inject = [
   'slots', 'locale', 'connection', 'sessions', 'workspaces', 'remote',
@@ -41,6 +100,7 @@ export const inject = [
 
 /** Mount the enterprise trigger, overlay, and live projection subscriptions. */
 export function apply(ctx: Context): void {
+  if (typeof window !== 'undefined') void completeChannelBindingCallback(ctx.remote.enterpriseChannel, window)
   const controller = new EnterpriseWorkbenchController({
     agentPresets: ctx.remote.agentPresets,
     session: ctx.remote.session,
@@ -107,6 +167,8 @@ export function apply(ctx: Context): void {
     respondTeamDecision: (decision, answer) => controller.respondTeamDecision(decision, answer),
     saveChannelConfiguration: input => controller.saveChannelConfiguration(input),
     archiveChannelConfiguration: channel => controller.archiveChannelConfiguration(channel),
+    beginChannelBinding: (channel, redirectUri) => controller.beginChannelBinding(channel, redirectUri),
+    refreshChannels: () => controller.refreshChannels(),
     setExtensionWorkspace: (workspaceId) => { controller.setExtensionWorkspace(workspaceId) },
     refreshExtensions: () => controller.refreshExtensions(),
     stopExtension: (binding, reason) => controller.stopExtension(binding, reason),
