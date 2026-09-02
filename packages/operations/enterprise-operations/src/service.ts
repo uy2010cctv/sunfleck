@@ -12,6 +12,8 @@ import type {
   ApprovalKind,
   ApprovalView,
   BusinessState,
+  EnterpriseChannelConfiguration,
+  EnterpriseChannelConfigurationPage,
   FixedTeamView,
   EnterpriseTeamDefinition,
   OutboxCommandView,
@@ -51,6 +53,10 @@ export interface EnterpriseOperationsDriver {
   readonly getTeamDefinition: EnterpriseOperationsRepository['getTeamDefinition']
   readonly listTeamDefinitions: EnterpriseOperationsRepository['listTeamDefinitions']
   readonly archiveTeamDefinition: EnterpriseOperationsRepository['archiveTeamDefinition']
+  readonly saveChannelConfiguration: EnterpriseOperationsRepository['saveChannelConfiguration']
+  readonly getChannelConfiguration: EnterpriseOperationsRepository['getChannelConfiguration']
+  readonly listChannelConfigurations: EnterpriseOperationsRepository['listChannelConfigurations']
+  readonly archiveChannelConfiguration: EnterpriseOperationsRepository['archiveChannelConfiguration']
 }
 
 type DriverInput<Name extends keyof EnterpriseOperationsDriver> = Parameters<EnterpriseOperationsDriver[Name]>[0]
@@ -106,6 +112,12 @@ export type EnterpriseTeamDefinitionListInput = Omit<DriverInput<'listTeamDefini
 }
 /** Host input for terminal team-definition archival. */
 export type EnterpriseTeamDefinitionArchiveInput = WithoutOrganization<DriverInput<'archiveTeamDefinition'>>
+/** Host input for a secret-free revision-fenced channel configuration write. */
+export type EnterpriseChannelSaveInput = Omit<WithoutOrganization<DriverInput<'saveChannelConfiguration'>>, 'actorUserId'>
+/** Host-scoped channel configuration identity. */
+export interface EnterpriseChannelLookup { readonly orgId?: string; readonly channelId: string }
+/** Host input for terminal channel archival. */
+export type EnterpriseChannelArchiveInput = Omit<WithoutOrganization<DriverInput<'archiveChannelConfiguration'>>, 'actorUserId'>
 
 export type EnterpriseOperationsEndpoint =
   | 'enterpriseOperation.workRecords.upsert'
@@ -133,6 +145,10 @@ export type EnterpriseOperationsEndpoint =
   | 'enterpriseOperation.teamDefinitions.get'
   | 'enterpriseOperation.teamDefinitions.list'
   | 'enterpriseOperation.teamDefinitions.archive'
+  | 'enterpriseChannel.save'
+  | 'enterpriseChannel.get'
+  | 'enterpriseChannel.list'
+  | 'enterpriseChannel.archive'
 
 export interface EnterpriseOperationsAuthorizationDecision {
   readonly allowed: boolean
@@ -197,6 +213,10 @@ function resource(endpoint: EnterpriseOperationsEndpoint, input: unknown): { res
   if (endpoint.startsWith('enterpriseOperation.teamDefinitions.')) {
     const id = typeof payload.teamId === 'string' ? payload.teamId : undefined
     return { resourceType: 'team-definition', ...(id === undefined ? {} : { resourceId: id }) }
+  }
+  if (endpoint.startsWith('enterpriseChannel.')) {
+    const id = typeof payload.channelId === 'string' ? payload.channelId : undefined
+    return { resourceType: 'channel', ...(id === undefined ? {} : { resourceId: id }) }
   }
   const id = typeof payload.teamId === 'string' ? payload.teamId : undefined
   return { resourceType: 'fixed-team', ...(id === undefined ? {} : { resourceId: id }) }
@@ -446,8 +466,62 @@ export class EnterpriseOperationsService {
     )
   }
 
+  /**
+   * Save a channel configuration as the authenticated principal.
+   * @param principal - authenticated enterprise actor.
+   * @param input - secret-free configuration and write guards.
+   * @returns the committed channel configuration.
+   */
+  async saveChannelConfiguration(
+    principal: EnterprisePrincipal,
+    input: EnterpriseChannelSaveInput,
+  ): Promise<EnterpriseChannelConfiguration> {
+    const scoped = await this.authorize(principal, 'enterpriseChannel.save', input)
+    return this.driver.saveChannelConfiguration({ ...scoped, actorUserId: principal.userId })
+  }
+
+  /**
+   * Read one organization-scoped channel configuration.
+   * @param principal - authenticated enterprise actor.
+   * @param input - stable channel identity.
+   * @returns the configuration when it exists in the principal organization.
+   */
+  async getChannelConfiguration(
+    principal: EnterprisePrincipal,
+    input: EnterpriseChannelLookup,
+  ): Promise<EnterpriseChannelConfiguration | undefined> {
+    const scoped = await this.authorize(principal, 'enterpriseChannel.get', input)
+    return this.driver.getChannelConfiguration(scoped.orgId, scoped.channelId)
+  }
+
+  /**
+   * List channel configurations in the principal organization.
+   * @param principal - authenticated enterprise actor.
+   * @returns the organization-scoped channel configuration page.
+   */
+  async listChannelConfigurations(
+    principal: EnterprisePrincipal,
+  ): Promise<EnterpriseChannelConfigurationPage> {
+    const scoped = await this.authorize(principal, 'enterpriseChannel.list', {})
+    return this.driver.listChannelConfigurations(scoped.orgId)
+  }
+
+  /**
+   * Terminally archive a channel configuration as the authenticated principal.
+   * @param principal - authenticated enterprise actor.
+   * @param input - channel identity and write guards.
+   * @returns the archived channel configuration.
+   */
+  async archiveChannelConfiguration(
+    principal: EnterprisePrincipal,
+    input: EnterpriseChannelArchiveInput,
+  ): Promise<EnterpriseChannelConfiguration> {
+    const scoped = await this.authorize(principal, 'enterpriseChannel.archive', input)
+    return this.driver.archiveChannelConfiguration({ ...scoped, actorUserId: principal.userId })
+  }
+
 }
 
 // Keep these imports visible in generated declaration files for consumers that
 // use the service contract without importing the repository implementation.
-export type { ApprovalKind, BusinessState, ScheduleTarget, WorkRecordInput }
+export type { ApprovalKind, BusinessState, EnterpriseChannelConfiguration, ScheduleTarget, WorkRecordInput }

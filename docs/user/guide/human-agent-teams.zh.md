@@ -2,13 +2,13 @@
 
 [English](human-agent-teams.md) | 中文
 
-本页描述完整目标协作模型。源码 checkout 企业 profile 目前已能存储类型化 Team Definition、在 Agent Teams Session 日志上启动真实 TeamRun、投影 Human/Agent roster、把根 Session 作为 Team Room 打开，并提供跨 Run 的 Human 决策队列。Human task ownership、信任授权编辑器、版本感知能力资产装配和企业渠道命令仍属于拟议能力。
+本页描述完整目标协作模型。源码 checkout 企业 profile 目前已能存储类型化 Team Definition、在 Agent Teams Session 日志上启动真实 TeamRun、投影 Human/Agent roster、把根 Session 作为 Team Room 打开、提供跨 Run 的 Human 决策队列，并提供受治理的渠道设置。Human task ownership、信任授权编辑器、版本感知能力资产装配和真实企业渠道投递仍属于拟议能力。
 
 ## 提案状态
 
 当前实现保留 DSH 运行时归属，而不是增加另一个 Team 引擎。PostgreSQL 持久化可复用 Team Definition 与查询投影；experimental `TeamService` 和每个根 Session event log 拥有某次 TeamRun 的 actor roster、任务 DAG、mailbox、决策、验证和人工接管状态。
 
-当前 experimental [Agent Teams 子系统](../../subsystems/agent-team.zh.md)会在源码 checkout 企业 profile 中提供持久 Human/Agent roster 投影、Agent-owned 任务 DAG、mailbox、TeamRun 状态和 Human 决策。PostgreSQL 提供 Team Definition、TeamRun/decision 查询投影与显式自治授权。Verifier 记录、Human task ownership 与渠道集成尚未完成。
+当前 experimental [Agent Teams 子系统](../../subsystems/agent-team.zh.md)会在源码 checkout 企业 profile 中提供持久 Human/Agent roster 投影、Agent-owned 任务 DAG、mailbox、TeamRun 状态和 Human 决策。PostgreSQL 提供 Team Definition、TeamRun/decision 查询投影、显式自治授权和管理员维护的渠道配置。Verifier 记录、Human task ownership 与提供方投递集成尚未完成。
 
 ## 拟议生命周期
 
@@ -51,13 +51,15 @@ runtime 决策请求携带问题、选项、建议、assignee、context digest�
 - `execute-reviewed` 在范围内执行，但在所需复核接受结果前不能推进依赖工作。
 - `execute-delegated` 在范围内执行预先授权的可逆工作；不可逆操作和策略例外仍需 Human 审批。
 
-## 渠道与交付提案
+## 渠道设置与交付边界
 
-首个交付阶段将只包含经认证的 DSH 核心协作闭环。后续阶段将从企业微信开始集成企业渠道，再为飞书和钉钉复用同一 DSH 适配器协议。个人微信将仍仅用于通知和 Human 接管传输。
+在企业工作台打开**渠道设置**，可以创建、编辑、启用、暂停或归档企业微信、飞书、钉钉和个人微信配置。每条记录包含提供方/账号身份、可选租户、Host 管理的 Credential 引用、默认数字员工 Release 路由、入站策略、生命周期状态与 revision。本页不会要求或显示密钥值。
+
+个人微信始终仅出站。企业渠道可以启用入站命令，但仍须经过身份绑定和 DSH 授权才能接受具体意图。配置已保存或已启用不代表投递成功：提供方适配器记录回执或健康证据前，传输状态保持**待验证**。
 
 当前 Channel Kernel 路由决策仍为 `stickyEmployeeId` → 推断意图 → binding 默认值。Kernel 和适配器不持久化权威 selection；未来企业组合必须从 DSH 拥有的 binding 或 Session 投影推导 `stickyEmployeeId`。该集成属于迁移目标，不是当前能力。
 
-未来每项渠道或 outbox 操作都将持久化一个稳定 `operationId`。DSH 不会为同一 id 派发第二个逻辑操作。只有提供方支持幂等键时，才能保证外部去重；不支持的提供方或返回模糊结果的超时会产生可见的未知结果和对账任务，而不是 exactly-once 保证。
+后续真实提供方投递仍需要 durable inbox/outbox、稳定 `operationId`、lease、重试、回执、心跳证据与对账。只有提供方支持幂等键时，才能保证外部去重；不支持的提供方或返回模糊结果的超时必须产生可见的未知结果和对账任务，而不是 exactly-once 保证。
 
 ## 继续阅读
 

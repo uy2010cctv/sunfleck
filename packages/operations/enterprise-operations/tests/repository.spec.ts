@@ -110,6 +110,23 @@ interface OutboxRow {
   created_at: number
 }
 
+interface ChannelConfigurationRow {
+  org_id: string
+  channel_id: string
+  name: string
+  provider: string
+  tenant_id: string | null
+  account_id: string
+  credential_ref: string | null
+  default_employee_release_id: string | null
+  inbound_enabled: boolean
+  state: string
+  created_by: string
+  revision: number
+  created_at: number
+  updated_at: number
+}
+
 /** Transactional in-memory PostgreSQL double for the operations repository. */
 class MemoryPostgresDatabase implements PostgresDatabase {
   private readonly meta = new Map<string, string>()
@@ -119,6 +136,7 @@ class MemoryPostgresDatabase implements PostgresDatabase {
   private readonly teams = new Map<string, TeamRow>()
   private readonly members = new Map<string, TeamMemberRow>()
   private readonly teamDefinitions = new Map<string, TeamDefinitionRow>()
+  private readonly channels = new Map<string, ChannelConfigurationRow>()
   private readonly outbox = new Map<string, OutboxRow>()
   private readonly idempotency = new Map<string, unknown>()
   private tail = Promise.resolve()
@@ -179,6 +197,7 @@ class MemoryPostgresDatabase implements PostgresDatabase {
         teams: this.teams,
         members: this.members,
         teamDefinitions: this.teamDefinitions,
+        channels: this.channels,
         outbox: this.outbox,
         idempotency: this.idempotency,
       })
@@ -629,6 +648,48 @@ class MemoryPostgresDatabase implements PostgresDatabase {
     if (text.startsWith('SELECT employee_release_id, role FROM dsh_enterprise_fixed_team_members')) {
       return [...this.members.values()].filter(row => row.team_id === String(values[0])).map(clone)
     }
+    if (text.startsWith('SELECT * FROM dsh_enterprise_channel_configurations WHERE org_id=$1 AND channel_id=$2')) {
+      const row = this.channels.get(`${String(values[0])}:${String(values[1])}`)
+      return row === undefined ? [] : [clone(row)]
+    }
+    if (text.startsWith('SELECT * FROM dsh_enterprise_channel_configurations WHERE org_id=$1 ORDER BY')) {
+      return [...this.channels.values()].filter(row => row.org_id === String(values[0]))
+        .sort((left, right) => right.created_at - left.created_at || right.channel_id.localeCompare(left.channel_id))
+        .map(clone)
+    }
+    if (text.startsWith('INSERT INTO dsh_enterprise_channel_configurations')) {
+      const row: ChannelConfigurationRow = {
+        org_id: String(values[0]), channel_id: String(values[1]), name: String(values[2]),
+        provider: String(values[3]), tenant_id: values[4] === null ? null : String(values[4]),
+        account_id: String(values[5]), credential_ref: values[6] === null ? null : String(values[6]),
+        default_employee_release_id: values[7] === null ? null : String(values[7]),
+        inbound_enabled: Boolean(values[8]), state: String(values[9]), created_by: String(values[10]),
+        revision: 1, created_at: Number(values[11]), updated_at: Number(values[11]),
+      }
+      const key = `${row.org_id}:${row.channel_id}`
+      if (this.channels.has(key)) return []
+      this.channels.set(key, row)
+      return [clone(row)]
+    }
+    if (text.startsWith('UPDATE dsh_enterprise_channel_configurations SET\n            name=')) {
+      const key = `${String(values[9])}:${String(values[10])}`
+      const row = this.channels.get(key)
+      if (row === undefined || row.revision !== Number(values[11])) return []
+      row.name = String(values[0]); row.provider = String(values[1])
+      row.tenant_id = values[2] === null ? null : String(values[2]); row.account_id = String(values[3])
+      row.credential_ref = values[4] === null ? null : String(values[4])
+      row.default_employee_release_id = values[5] === null ? null : String(values[5])
+      row.inbound_enabled = Boolean(values[6]); row.state = String(values[7]); row.updated_at = Number(values[8])
+      row.revision += 1
+      return [clone(row)]
+    }
+    if (text.startsWith("UPDATE dsh_enterprise_channel_configurations SET state='archived'")) {
+      const key = `${String(values[1])}:${String(values[2])}`
+      const row = this.channels.get(key)
+      if (row === undefined || row.revision !== Number(values[3]) || row.state === 'archived') return []
+      row.state = 'archived'; row.updated_at = Number(values[0]); row.revision += 1
+      return [clone(row)]
+    }
     throw new Error(`unhandled operations PostgreSQL test query: ${text}`)
   }
 
@@ -640,6 +701,7 @@ class MemoryPostgresDatabase implements PostgresDatabase {
     teams: Map<string, TeamRow>
     members: Map<string, TeamMemberRow>
     teamDefinitions: Map<string, TeamDefinitionRow>
+    channels: Map<string, ChannelConfigurationRow>
     outbox: Map<string, OutboxRow>
     idempotency: Map<string, unknown>
   }): void {
@@ -651,6 +713,7 @@ class MemoryPostgresDatabase implements PostgresDatabase {
       [this.teams, snapshot.teams],
       [this.members, snapshot.members],
       [this.teamDefinitions, snapshot.teamDefinitions],
+      [this.channels, snapshot.channels],
       [this.outbox, snapshot.outbox],
       [this.idempotency, snapshot.idempotency],
     ] as const
@@ -720,7 +783,7 @@ describe('EnterpriseOperationsRepository', () => {
       idempotencyKey: 'approval-migration-create',
     })
 
-    expect(database.schemaVersion).toBe('12')
+    expect(database.schemaVersion).toBe('13')
   })
 
   it('permits unverified local writes only through explicit configuration', async () => {
@@ -1141,6 +1204,56 @@ describe('EnterpriseOperationsRepository', () => {
       scheduleId: 'schedule-update', orgId: 'org-a', target: { kind: 'employee', employeeReleaseId: 'release-c' },
       timezone: 'UTC', rule: '* * * * *', input: {}, nextRunAt: 3, expectedRevision: 3, idempotencyKey: 'edit-archived',
     })).rejects.toMatchObject({ code: 'invalid-state', resourceType: 'schedule' })
+  })
+})
+
+describe('enterprise channel settings', () => {
+  it('creates, lists, pauses, and archives one organization-scoped channel idempotently', async () => {
+    const database = new MemoryPostgresDatabase()
+    const repository = new EnterpriseOperationsRepository(database, { allowUnverifiedReferences: true }) as unknown as {
+      saveChannelConfiguration(input: Record<string, unknown>): Promise<Record<string, unknown>>
+      listChannelConfigurations(orgId: string): Promise<{ items: readonly Record<string, unknown>[] }>
+      archiveChannelConfiguration(input: Record<string, unknown>): Promise<Record<string, unknown>>
+    }
+    const create = {
+      orgId: 'org-a', channelId: 'finance-wecom', name: '财务企业微信', provider: 'wecom',
+      tenantId: 'corp-a', accountId: 'app-a', credentialRef: 'WECOM_FINANCE_SECRET',
+      defaultEmployeeReleaseId: 'release-a', inboundEnabled: true, state: 'active',
+      actorUserId: 'admin-a',
+      expectedRevision: 0, idempotencyKey: 'channel-create-a',
+    }
+
+    const first = await repository.saveChannelConfiguration(create)
+    await expect(repository.saveChannelConfiguration(create)).resolves.toEqual(first)
+    await expect(repository.listChannelConfigurations('org-b')).resolves.toEqual({ items: [] })
+    await expect(repository.listChannelConfigurations('org-a')).resolves.toMatchObject({
+      items: [expect.objectContaining({ channelId: 'finance-wecom', state: 'active', revision: 1 })],
+    })
+    const paused = await repository.saveChannelConfiguration({
+      ...create, state: 'paused', expectedRevision: 1, idempotencyKey: 'channel-pause-a',
+    })
+    await expect(repository.archiveChannelConfiguration({
+      orgId: 'org-a', channelId: 'finance-wecom', actorUserId: 'admin-a', expectedRevision: paused['revision'],
+      idempotencyKey: 'channel-archive-a',
+    })).resolves.toMatchObject({ state: 'archived', revision: 3 })
+  })
+
+  it('enforces personal-WeChat and active-channel safety boundaries', async () => {
+    const repository = new EnterpriseOperationsRepository(
+      new MemoryPostgresDatabase(), { allowUnverifiedReferences: true },
+    ) as unknown as { saveChannelConfiguration(input: Record<string, unknown>): Promise<unknown> }
+    await expect(repository.saveChannelConfiguration({
+      orgId: 'org-a', channelId: 'personal', name: '个人微信提醒', provider: 'wechat',
+      accountId: 'owner-a', credentialRef: 'WECHAT_NOTIFY', inboundEnabled: true,
+      actorUserId: 'admin-a',
+      state: 'active', expectedRevision: 0, idempotencyKey: 'unsafe-personal',
+    })).rejects.toThrow(/personal WeChat.*inbound/)
+    await expect(repository.saveChannelConfiguration({
+      orgId: 'org-a', channelId: 'wecom-missing-secret', name: '企业微信', provider: 'wecom',
+      tenantId: 'corp-a', accountId: 'app-a', inboundEnabled: true,
+      actorUserId: 'admin-a',
+      state: 'active', expectedRevision: 0, idempotencyKey: 'missing-secret',
+    })).rejects.toThrow(/Credential reference/)
   })
 })
 
@@ -1744,7 +1857,7 @@ describe('EnterpriseOperationsRepository team definitions', () => {
       workerId: 'worker-a', leaseExpiresAt: 200,
     })
     await migrateEnterpriseOperations(database)
-    expect(database.schemaVersion).toBe('12')
+    expect(database.schemaVersion).toBe('13')
     expect(database.outboxState('legacy-null-revision')).toBe('dead-letter')
   })
 

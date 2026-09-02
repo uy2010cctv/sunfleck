@@ -6,6 +6,8 @@ import type { EnterprisePrincipal } from '@deepseek-ai/dsh-enterprise-governance
 import type {} from '@deepseek-ai/dsh-enterprise-auth-web'
 import type {} from '@deepseek-ai/dsh-enterprise-postgres'
 import type { EmployeePresetDefinition } from '@deepseek-ai/dsh-agent-presets'
+import { credentialRef } from '@deepseek-ai/dsh-credentials'
+import { channelIntentPolicy } from '@deepseek-ai/dsh-channel-kernel'
 import {
   BlockAssembler,
   createUserMessage,
@@ -24,6 +26,7 @@ import {
   EnterpriseTeamControlService,
   EnterpriseTeamRuntimeError,
   type EnterpriseTeamRuntimeDriver,
+  type EnterpriseChannelConfiguration as StoredChannelConfiguration,
 } from '@deepseek-ai/dsh-enterprise-operations'
 import {
   EnterpriseCordisError,
@@ -109,6 +112,15 @@ import type {
   EnterpriseTeamRunStartRequest,
 } from './contract/team-control.ts'
 import type {
+  EnterpriseChannelArchiveRequest,
+  EnterpriseChannelConfiguration,
+  EnterpriseChannelIntent,
+  EnterpriseChannelListRequest,
+  EnterpriseChannelLookup,
+  EnterpriseChannelPage,
+  EnterpriseChannelSaveRequest,
+} from './contract/channels.ts'
+import type {
   CordisDepartmentManagersRequest,
   CordisDepartmentManagersSaveRequest,
   CordisGovernanceDisableRequest,
@@ -146,6 +158,8 @@ declare module '@deepseek-ai/cordis' {
     enterpriseTeamDecisionController: EnterpriseTeamDecisionController
     /** Enterprise Team autonomy Remote namespace owner. */
     enterpriseTeamAutonomyController: EnterpriseTeamAutonomyController
+    /** Enterprise channel-configuration Remote namespace owner. */
+    enterpriseChannelController: EnterpriseChannelController
     /** Optional provider that appends authoritative Team events to root Session logs. */
     enterpriseTeamRuntimeDriver: EnterpriseTeamRuntimeDriver
     /** Enterprise Cordis Workspace extension Remote namespace owner. */
@@ -192,7 +206,8 @@ function operations(ctx: Context): EnterpriseOperationsService {
       const field = event.resourceType === 'work-record' ? 'sessionId'
         : event.resourceType === 'approval' ? 'approvalId'
           : event.resourceType === 'schedule' ? 'scheduleId'
-            : event.resourceType === 'fixed-team' || event.resourceType === 'team-definition' ? 'teamId' : 'commandId'
+            : event.resourceType === 'channel' ? 'channelId'
+              : event.resourceType === 'fixed-team' || event.resourceType === 'team-definition' ? 'teamId' : 'commandId'
       const input = event.resourceId === undefined ? {} : { [field]: event.resourceId }
       return ctx.enterpriseSecurity.auditApiAsync(
         event.principal, event.endpoint, input,
@@ -476,6 +491,91 @@ export class EnterpriseAssetController extends TypertRemoteService {
       this.ctx.enterprisePostgres.catalog.archiveAsset(
         principal.orgId, request.assetId, request.expectedRevision, request.idempotencyKey,
       ) as Promise<EnterpriseAsset>)
+  }
+}
+
+const CHANNEL_INTENTS = ['notify', 'handoff', 'team-start', 'decision-response', 'status'] as const
+
+/** Enterprise channel-configuration Remote service. */
+export class EnterpriseChannelController extends TypertRemoteService {
+  static inject = ['enterprisePostgres', 'enterpriseSecurity', 'enterpriseRequestContext', 'credentials']
+
+  /** @param ctx - authenticated enterprise Host context with the Credential seam. */
+  constructor(ctx: Context) { super(ctx, 'enterpriseChannelController', { namespace: 'enterpriseChannel' }) }
+
+  /**
+   * List channel configurations visible to the authenticated organization administrator.
+   * @param request - optional archived-record filter.
+   * @returns secret-free channel configuration projections.
+   */
+  @Remote('list')
+  async list(request: EnterpriseChannelListRequest): Promise<EnterpriseChannelPage> {
+    return this.run('enterpriseChannel.list', 'catalog', async () => {
+      const page = await operations(this.ctx).listChannelConfigurations(principal(this.ctx))
+      const values = request.includeArchived ? page.items : page.items.filter(item => item.state !== 'archived')
+      return { items: await Promise.all(values.map(item => this.present(item))) }
+    })
+  }
+
+  /**
+   * Read one organization-scoped channel configuration.
+   * @param request - stable channel identity.
+   * @returns the secret-free channel configuration projection.
+   */
+  @Remote('get')
+  async get(request: EnterpriseChannelLookup): Promise<EnterpriseChannelConfiguration> {
+    return this.run('enterpriseChannel.get', request.channelId, async () => {
+      const value = await operations(this.ctx).getChannelConfiguration(principal(this.ctx), request)
+      if (value === undefined) throw new EnterpriseOperationsError('not-found', 'channel', request.channelId)
+      return this.present(value)
+    })
+  }
+
+  /**
+   * Create or revision-fence an administrator-managed channel configuration.
+   * @param request - provider account, Credential reference, route, and lifecycle state.
+   * @returns the saved secret-free channel configuration projection.
+   */
+  @Remote('save')
+  async save(request: EnterpriseChannelSaveRequest): Promise<EnterpriseChannelConfiguration> {
+    return this.run('enterpriseChannel.save', request.channelId, async () => {
+      if (request.provider === 'wechat' && request.inboundEnabled) {
+        throw new EnterpriseOperationsError('invalid-state', 'channel', request.channelId)
+      }
+      if (request.state === 'active') {
+        if (request.credentialRef === undefined
+          || !(await this.ctx.credentials.describe(credentialRef(request.credentialRef))).configured) {
+          throw new EnterpriseOperationsError('invalid-state', 'channel', request.channelId)
+        }
+      }
+      const value = await operations(this.ctx).saveChannelConfiguration(principal(this.ctx), request)
+      return this.present(value)
+    })
+  }
+
+  /**
+   * Terminally archive one channel configuration.
+   * @param request - channel identity, expected revision, and idempotency key.
+   * @returns the archived secret-free channel configuration projection.
+   */
+  @Remote('archive')
+  async archive(request: EnterpriseChannelArchiveRequest): Promise<EnterpriseChannelConfiguration> {
+    return this.run('enterpriseChannel.archive', request.channelId, async () =>
+      this.present(await operations(this.ctx).archiveChannelConfiguration(principal(this.ctx), request)))
+  }
+
+  private async present(value: StoredChannelConfiguration): Promise<EnterpriseChannelConfiguration> {
+    const credentialStatus = value.credentialRef !== undefined
+      && (await this.ctx.credentials.describe(credentialRef(value.credentialRef))).configured
+      ? 'configured' as const : 'missing' as const
+    const allowedIntents = CHANNEL_INTENTS.filter(intent =>
+      channelIntentPolicy(value.provider, intent).allowed) as readonly EnterpriseChannelIntent[]
+    return { ...value, credentialStatus, allowedIntents, transportStatus: 'unverified' }
+  }
+
+  private async run<T>(endpoint: string, resourceId: string, operation: () => Promise<T>): Promise<T> {
+    try { return await operation() }
+    catch (error) { throw enterpriseFailure(error, endpoint, 'channel', resourceId) }
   }
 }
 
@@ -1100,6 +1200,7 @@ function enterpriseFailure(
 export function apply(ctx: Context): void {
   new EnterpriseEmployeeController(ctx)
   new EnterpriseAssetController(ctx)
+  new EnterpriseChannelController(ctx)
   new EnterpriseTeamController(ctx)
   new EnterpriseTeamDefinitionController(ctx)
   new EnterpriseOperationController(ctx)
@@ -1111,5 +1212,5 @@ export function apply(ctx: Context): void {
   new CordisGovernanceController(ctx)
 }
 
-export const inject = ['enterprisePostgres', 'enterpriseSecurity', 'enterpriseRequestContext', 'enterpriseCordis', 'llm']
+export const inject = ['enterprisePostgres', 'enterpriseSecurity', 'enterpriseRequestContext', 'enterpriseCordis', 'credentials', 'llm']
 export { name } from './invariant.ts'

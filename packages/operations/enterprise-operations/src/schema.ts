@@ -1,6 +1,6 @@
 /** PostgreSQL schema for work records, approvals, schedules, teams, and outbox. */
 import type { PostgresDatabase } from './types.ts'
-export const ENTERPRISE_OPERATIONS_SCHEMA_VERSION = 12
+export const ENTERPRISE_OPERATIONS_SCHEMA_VERSION = 13
 /** Owner placeholder for legacy fixed teams whose creator was never persisted. */
 export const LEGACY_TEAM_DEFINITION_OWNER_USER_ID = 'system:legacy-fixed-team-migration'
 const statements = [
@@ -86,6 +86,15 @@ const statements = [
     revision BIGINT NOT NULL, created_at BIGINT NOT NULL, updated_at BIGINT NOT NULL,
     PRIMARY KEY(org_id,team_id,employee_release_id,task_type,capability_scope)
   )`,
+  `CREATE TABLE IF NOT EXISTS dsh_enterprise_channel_configurations (
+    org_id TEXT NOT NULL, channel_id TEXT NOT NULL, name TEXT NOT NULL,
+    provider TEXT NOT NULL CHECK (provider IN ('wecom','feishu','dingtalk','wechat')),
+    tenant_id TEXT, account_id TEXT NOT NULL, credential_ref TEXT,
+    default_employee_release_id TEXT, inbound_enabled BOOLEAN NOT NULL,
+    state TEXT NOT NULL CHECK (state IN ('draft','active','paused','archived')),
+    created_by TEXT NOT NULL, revision BIGINT NOT NULL, created_at BIGINT NOT NULL, updated_at BIGINT NOT NULL,
+    PRIMARY KEY(org_id,channel_id)
+  )`,
   `CREATE INDEX IF NOT EXISTS dsh_enterprise_work_records_page_idx
     ON dsh_enterprise_work_records(org_id, updated_at DESC, session_id DESC, employee_release_id DESC)`,
   `CREATE INDEX IF NOT EXISTS dsh_enterprise_work_records_filter_idx
@@ -146,6 +155,8 @@ const statements = [
     ON dsh_enterprise_team_decisions(org_id, run_id, state, assignee_user_id, created_at DESC, decision_id DESC)`,
   `CREATE INDEX IF NOT EXISTS dsh_enterprise_team_autonomy_created_page_idx
     ON dsh_enterprise_team_autonomy_grants(org_id, created_at DESC, team_id DESC, employee_release_id DESC, task_type DESC, capability_scope DESC)`,
+  `CREATE INDEX IF NOT EXISTS dsh_enterprise_channel_configurations_idx
+    ON dsh_enterprise_channel_configurations(org_id, provider, state, created_at DESC, channel_id DESC)`,
 ] as const
 export async function migrateEnterpriseOperations(database: PostgresDatabase): Promise<void> {
   await database.transaction(async (transaction) => {

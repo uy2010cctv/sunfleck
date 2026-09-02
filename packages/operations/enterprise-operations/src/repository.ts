@@ -5,6 +5,8 @@ import type {
   ApprovalPage,
   ApprovalView,
   BusinessState,
+  EnterpriseChannelConfiguration,
+  EnterpriseChannelConfigurationPage,
   EnterpriseOperationsRepositoryOptions,
   EnterpriseTeamDefinition,
   FixedTeamView,
@@ -32,7 +34,7 @@ export class EnterpriseOperationsError extends Error {
       | 'cursor-invalid' | 'idempotency-conflict' | 'invalid-state' | 'fencing-lost' | 'admission-rejected'
       | 'forbidden',
     readonly resourceType: 'work-record' | 'approval' | 'schedule' | 'team' | 'team-definition' | 'operation-outbox'
-      | 'team-run' | 'team-decision' | 'team-autonomy-grant',
+      | 'team-run' | 'team-decision' | 'team-autonomy-grant' | 'channel',
     readonly resourceId?: string,
   ) {
     super(`enterprise operations ${code}`)
@@ -89,6 +91,52 @@ function canonicalDefinitionInput<T extends {
 }>(input: T): T & { readonly allowedUserIds: readonly string[] } {
   if (input.visibility !== 'restricted') return { ...input, allowedUserIds: input.allowedUserIds ?? [] }
   return { ...input, allowedUserIds: [...new Set((input.allowedUserIds ?? []).map(userId => userId.trim()))].sort() }
+}
+
+type ChannelSaveInput = Omit<EnterpriseChannelConfiguration, 'createdBy' | 'revision' | 'createdAt' | 'updatedAt'> & {
+  readonly actorUserId: string
+  readonly expectedRevision: number
+  readonly idempotencyKey: string
+}
+
+const CHANNEL_ID = /^[a-z0-9][a-z0-9-]{0,63}$/u
+const CREDENTIAL_REF = /^[A-Za-z_][A-Za-z0-9_]*$/u
+
+function canonicalChannelInput(input: ChannelSaveInput): ChannelSaveInput {
+  const {
+    tenantId: _tenantId,
+    credentialRef: _credentialRef,
+    defaultEmployeeReleaseId: _defaultEmployeeReleaseId,
+    ...base
+  } = input
+  const normalized = {
+    ...base,
+    channelId: input.channelId.trim(),
+    name: input.name.trim(),
+    accountId: input.accountId.trim(),
+    ...input.tenantId?.trim() ? { tenantId: input.tenantId.trim() } : {},
+    ...input.credentialRef?.trim() ? { credentialRef: input.credentialRef.trim() } : {},
+    ...input.defaultEmployeeReleaseId?.trim()
+      ? { defaultEmployeeReleaseId: input.defaultEmployeeReleaseId.trim() }
+      : {},
+  }
+  if (!CHANNEL_ID.test(normalized.channelId)) throw new Error('channel id must use lowercase letters, numbers, and hyphens')
+  if (normalized.name === '' || normalized.accountId === '') throw new Error('channel name and account id are required')
+  if (!['wecom', 'feishu', 'dingtalk', 'wechat'].includes(normalized.provider)) throw new Error('channel provider is unsupported')
+  if (normalized.credentialRef !== undefined && !CREDENTIAL_REF.test(normalized.credentialRef)) {
+    throw new Error('channel Credential reference must be a POSIX identifier')
+  }
+  if (normalized.state === 'archived') throw new Error('channel archive requires the archive operation')
+  if (normalized.state === 'active' && normalized.credentialRef === undefined) {
+    throw new Error('active channel requires a Credential reference')
+  }
+  if (normalized.provider !== 'wechat' && normalized.state === 'active' && normalized.tenantId === undefined) {
+    throw new Error('active enterprise channel requires a tenant id')
+  }
+  if (normalized.provider === 'wechat' && normalized.inboundEnabled) {
+    throw new Error('personal WeChat cannot enable inbound commands')
+  }
+  return normalized
 }
 interface OperationsCursor {
   readonly version: 2
@@ -259,6 +307,23 @@ interface OutboxRow extends Record<string, unknown> {
   start_admitted_at: number | string | null
   team_definition_revision: number | string | null
   created_at: number | string
+}
+
+interface ChannelConfigurationRow extends Record<string, unknown> {
+  org_id: string
+  channel_id: string
+  name: string
+  provider: EnterpriseChannelConfiguration['provider']
+  tenant_id: string | null
+  account_id: string
+  credential_ref: string | null
+  default_employee_release_id: string | null
+  inbound_enabled: boolean
+  state: EnterpriseChannelConfiguration['state']
+  created_by: string
+  revision: number | string
+  created_at: number | string
+  updated_at: number | string
 }
 
 export class EnterpriseOperationsRepository {
@@ -1282,6 +1347,161 @@ export class EnterpriseOperationsRepository {
       }),
     }
   }
+  /**
+   * Create or CAS-save one organization-scoped channel configuration.
+   * @param rawInput - configuration, authenticated actor, revision, and idempotency guard.
+   * @returns the committed channel configuration.
+   */
+  async saveChannelConfiguration(rawInput: ChannelSaveInput): Promise<EnterpriseChannelConfiguration> {
+    const input = canonicalChannelInput(rawInput)
+    await this.initialize()
+    return this.database.transaction(async (database) => {
+      await this.lock(database, `channel:${input.orgId}:${input.channelId}`)
+      const operation = input.expectedRevision === 0 ? 'channel-create' : 'channel-save'
+      await this.lockIdempotency(database, input.orgId, operation, input.idempotencyKey)
+      const prior = await this.idempotent<EnterpriseChannelConfiguration>(
+        database, input.orgId, operation, input.idempotencyKey, input,
+      )
+      if (prior !== undefined) return prior
+      await this.requireUser(database, input.orgId, input.actorUserId)
+      if (input.defaultEmployeeReleaseId !== undefined) {
+        await this.requireRelease(database, input.orgId, input.defaultEmployeeReleaseId)
+      }
+      const now = this.now()
+      let row: ChannelConfigurationRow | undefined
+      if (input.expectedRevision === 0) {
+        const existing = await database.query<ChannelConfigurationRow>(
+          'SELECT * FROM dsh_enterprise_channel_configurations WHERE org_id=$1 AND channel_id=$2 FOR UPDATE',
+          [input.orgId, input.channelId],
+        )
+        if (existing.rows[0] !== undefined) throw new EnterpriseOperationsError('conflict', 'channel', input.channelId)
+        const inserted = await database.query<ChannelConfigurationRow>(
+          `INSERT INTO dsh_enterprise_channel_configurations(
+            org_id,channel_id,name,provider,tenant_id,account_id,credential_ref,default_employee_release_id,
+            inbound_enabled,state,created_by,revision,created_at,updated_at)
+          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,1,$12,$12) RETURNING *`,
+          [input.orgId, input.channelId, input.name, input.provider, input.tenantId ?? null,
+            input.accountId, input.credentialRef ?? null, input.defaultEmployeeReleaseId ?? null,
+            input.inboundEnabled, input.state, input.actorUserId, now],
+        )
+        row = inserted.rows[0]
+      } else {
+        const current = await database.query<ChannelConfigurationRow>(
+          'SELECT * FROM dsh_enterprise_channel_configurations WHERE org_id=$1 AND channel_id=$2 FOR UPDATE',
+          [input.orgId, input.channelId],
+        )
+        const existing = current.rows[0]
+        if (existing === undefined) throw new EnterpriseOperationsError('not-found', 'channel', input.channelId)
+        if (existing.state === 'archived') throw new EnterpriseOperationsError('invalid-state', 'channel', input.channelId)
+        if (Number(existing.revision) !== input.expectedRevision) {
+          throw new EnterpriseOperationsError('conflict', 'channel', input.channelId)
+        }
+        const updated = await database.query<ChannelConfigurationRow>(
+          `UPDATE dsh_enterprise_channel_configurations SET
+            name=$1,provider=$2,tenant_id=$3,account_id=$4,credential_ref=$5,default_employee_release_id=$6,
+            inbound_enabled=$7,state=$8,updated_at=$9,revision=revision+1
+          WHERE org_id=$10 AND channel_id=$11 AND revision=$12 RETURNING *`,
+          [input.name, input.provider, input.tenantId ?? null, input.accountId, input.credentialRef ?? null,
+            input.defaultEmployeeReleaseId ?? null, input.inboundEnabled, input.state, now,
+            input.orgId, input.channelId, input.expectedRevision],
+        )
+        row = updated.rows[0]
+      }
+      if (row === undefined) throw new EnterpriseOperationsError('conflict', 'channel', input.channelId)
+      const view = this.channelConfiguration(row)
+      await this.remember(database, input.orgId, operation, input.idempotencyKey, input, view)
+      return view
+    })
+  }
+
+  /**
+   * Read one channel configuration without crossing its organization boundary.
+   * @param orgId - authenticated organization identity.
+   * @param channelId - stable channel identity.
+   * @returns the configuration when it belongs to the organization.
+   */
+  async getChannelConfiguration(orgId: string, channelId: string): Promise<EnterpriseChannelConfiguration | undefined> {
+    await this.initialize()
+    const result = await this.database.query<ChannelConfigurationRow>(
+      'SELECT * FROM dsh_enterprise_channel_configurations WHERE org_id=$1 AND channel_id=$2',
+      [orgId, channelId],
+    )
+    return result.rows[0] === undefined ? undefined : this.channelConfiguration(result.rows[0])
+  }
+
+  /**
+   * List every channel configuration visible to the authenticated organization administrator.
+   * @param orgId - authenticated organization identity.
+   * @returns organization-scoped channel configurations.
+   */
+  async listChannelConfigurations(orgId: string): Promise<EnterpriseChannelConfigurationPage> {
+    await this.initialize()
+    const result = await this.database.query<ChannelConfigurationRow>(
+      'SELECT * FROM dsh_enterprise_channel_configurations WHERE org_id=$1 ORDER BY created_at DESC,channel_id DESC',
+      [orgId],
+    )
+    return { items: result.rows.map(row => this.channelConfiguration(row)) }
+  }
+
+  /**
+   * Archive one channel configuration; archive is terminal.
+   * @param input - organization, channel, actor, revision, and idempotency guard.
+   * @returns the archived channel configuration.
+   */
+  async archiveChannelConfiguration(input: {
+    readonly orgId: string
+    readonly channelId: string
+    readonly actorUserId: string
+    readonly expectedRevision: number
+    readonly idempotencyKey: string
+  }): Promise<EnterpriseChannelConfiguration> {
+    await this.initialize()
+    return this.database.transaction(async (database) => {
+      await this.lock(database, `channel:${input.orgId}:${input.channelId}`)
+      await this.lockIdempotency(database, input.orgId, 'channel-archive', input.idempotencyKey)
+      const prior = await this.idempotent<EnterpriseChannelConfiguration>(
+        database, input.orgId, 'channel-archive', input.idempotencyKey, input,
+      )
+      if (prior !== undefined) return prior
+      await this.requireUser(database, input.orgId, input.actorUserId)
+      const updated = await database.query<ChannelConfigurationRow>(
+        `UPDATE dsh_enterprise_channel_configurations SET state='archived',updated_at=$1,revision=revision+1
+          WHERE org_id=$2 AND channel_id=$3 AND revision=$4 AND state<>'archived' RETURNING *`,
+        [this.now(), input.orgId, input.channelId, input.expectedRevision],
+      )
+      if (updated.rows[0] === undefined) {
+        const current = await database.query<ChannelConfigurationRow>(
+          'SELECT * FROM dsh_enterprise_channel_configurations WHERE org_id=$1 AND channel_id=$2',
+          [input.orgId, input.channelId],
+        )
+        if (current.rows[0] === undefined) throw new EnterpriseOperationsError('not-found', 'channel', input.channelId)
+        throw new EnterpriseOperationsError('conflict', 'channel', input.channelId)
+      }
+      const view = this.channelConfiguration(updated.rows[0])
+      await this.remember(database, input.orgId, 'channel-archive', input.idempotencyKey, input, view)
+      return view
+    })
+  }
+
+  private channelConfiguration(row: ChannelConfigurationRow): EnterpriseChannelConfiguration {
+    return {
+      orgId: row.org_id,
+      channelId: row.channel_id,
+      name: row.name,
+      provider: row.provider,
+      ...(row.tenant_id === null ? {} : { tenantId: row.tenant_id }),
+      accountId: row.account_id,
+      ...(row.credential_ref === null ? {} : { credentialRef: row.credential_ref }),
+      ...(row.default_employee_release_id === null ? {} : { defaultEmployeeReleaseId: row.default_employee_release_id }),
+      inboundEnabled: row.inbound_enabled,
+      state: row.state,
+      createdBy: row.created_by,
+      revision: Number(row.revision),
+      createdAt: Number(row.created_at),
+      updatedAt: Number(row.updated_at),
+    }
+  }
+
   private work(row: WorkRow): WorkRecordView {
     return {
       orgId: row.org_id,

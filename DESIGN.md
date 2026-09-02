@@ -112,6 +112,13 @@ The Team surface makes Human authority and Agent execution visible without creat
 - Batch decisions are available only when every selected item has the same action semantics, authorization requirement, and visible consequence. The confirmation states the affected Runs and records one attributable decision per item.
 - Opening an item preserves return context, shows the smallest sufficient evidence packet, and links to the full Team Room timeline. Resolving it updates the DSH Run and advances to the next compatible item without losing the queue position.
 
+### Channel Settings
+
+- Channel Settings is an administrator-only Operate surface beside Teams. It uses one evidence path per account—provider/account → Credential readiness → DSH route → delivery evidence—so configuration and real transport health cannot be confused.
+- Create and edit forms accept only a Credential reference managed by the Host. They never render a password input, secret value, provider token, or raw webhook payload.
+- Enterprise WeChat, Feishu, and DingTalk may enable inbound commands after identity binding and authorization. Personal WeChat is visibly outbound-only: it may deliver summaries and authenticated handoff links, but its replies cannot mutate DSH state.
+- Draft, active, paused, and archived are explicit lifecycle states with revision-aware writes. An active configuration still displays transport as unverified until adapter receipts, heartbeat, or reconciliation evidence is available.
+
 ## Employee card
 
 - Avatar: DiceBear Lorelei rendered from an opaque persisted seed. New employees receive a random seed; names, emails, and other personal data never become avatar seeds. Existing records without a seed fall back to their stable Preset id.
