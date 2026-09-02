@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write docs/superpowers/plans/2026-09-02-channel-qr-binding.md
-2026-09-02-channel-qr-binding.md: 23ac0e96f6bee2ff8adcc93f6a5640c494986ac0
-2026-09-02-channel-qr-binding.zh.md: e4c29cb267a895eca608268026407ecd25e77f6f
+2026-09-02-channel-qr-binding.md: 7b94ec000a7cbb224d4db1cc0c5ef9ae690038b6
+2026-09-02-channel-qr-binding.zh.md: bbfdba406902c4085ee1d54ec2305fbd10696089
