@@ -248,10 +248,14 @@ describe('EnterpriseWorkbench', () => {
     fireEvent.click(screen.getByRole('button', { name: '新建渠道' }))
     fireEvent.change(screen.getByLabelText('渠道提供方'), { target: { value: 'wechat' } })
     expect(screen.getByLabelText<HTMLInputElement>('允许渠道发起命令').disabled).toBe(true)
+    const form = screen.getByLabelText('渠道提供方').closest('form') as HTMLFormElement
+    expect(within(form).getByText('接管链接')).toBeDefined()
+    expect(within(form).queryByText('通知')).toBeNull()
+    expect(within(form).queryByText('状态查询')).toBeNull()
     fireEvent.change(screen.getByLabelText('渠道名称'), { target: { value: '个人微信提醒' } })
     fireEvent.change(screen.getByLabelText('渠道 ID'), { target: { value: 'personal-wechat' } })
     fireEvent.change(screen.getByLabelText('账号 ID'), { target: { value: 'owner-a' } })
-    fireEvent.change(screen.getByLabelText('Credential 引用'), { target: { value: 'WECHAT_NOTIFY' } })
+    fireEvent.change(screen.getByLabelText('Credential 引用'), { target: { value: 'WECHAT_IDENTITY' } })
     fireEvent.click(screen.getByRole('button', { name: '保存为草稿' }))
     await waitFor(() => { expect(saveChannelConfiguration).toHaveBeenCalledWith(expect.objectContaining({
       provider: 'wechat', inboundEnabled: false, state: 'draft', expectedRevision: 0,
@@ -263,6 +267,31 @@ describe('EnterpriseWorkbench', () => {
     }))
     fireEvent.click(screen.getByRole('button', { name: '归档财务企业微信' }))
     expect(archiveChannelConfiguration).toHaveBeenCalledWith(expect.objectContaining({ channelId: 'finance-wecom' }))
+  })
+
+  it('activates Feishu and DingTalk without tenant input while keeping WeCom CorpID required', async () => {
+    const saveChannelConfiguration = vi.fn((_input: Record<string, unknown>) => Promise.resolve(false))
+    render(<EnterpriseWorkbench {...workbenchProps({
+      state: { mode: 'enterprise', page: 'channels', channels: { phase: 'ready', error: null, items: [] } },
+      saveChannelConfiguration,
+    } as never)} />)
+    fireEvent.click(screen.getAllByRole('button', { name: '新建渠道' })[0]!)
+    fireEvent.change(screen.getByLabelText('渠道名称'), { target: { value: '财务渠道' } })
+    fireEvent.change(screen.getByLabelText('渠道 ID'), { target: { value: 'finance-channel' } })
+    fireEvent.change(screen.getByLabelText('账号 ID'), { target: { value: 'app-a' } })
+    fireEvent.change(screen.getByLabelText('Credential 引用'), { target: { value: 'CHANNEL_SECRET' } })
+    const activate = screen.getByRole('button', { name: '保存并启用' })
+    expect(activate.hasAttribute('disabled')).toBe(true)
+
+    for (const provider of ['feishu', 'dingtalk'] as const) {
+      fireEvent.change(screen.getByLabelText('渠道提供方'), { target: { value: provider } })
+      expect(activate.hasAttribute('disabled')).toBe(false)
+      fireEvent.click(activate)
+      await waitFor(() => { expect(saveChannelConfiguration).toHaveBeenLastCalledWith(expect.objectContaining({
+        provider, accountId: 'app-a', credentialRef: 'CHANNEL_SECRET', state: 'active',
+      })) })
+      expect(saveChannelConfiguration.mock.calls.at(-1)?.[0]).not.toHaveProperty('tenantId')
+    }
   })
 
   it('shows provider guidance, official docs, and disables binding until prerequisites are saved', () => {
@@ -287,7 +316,7 @@ describe('EnterpriseWorkbench', () => {
           },
           {
             orgId: 'org-a', channelId: 'wechat', name: '个人微信', provider: 'wechat', accountId: 'website-app',
-            credentialRef: 'WECHAT', credentialStatus: 'configured', inboundEnabled: false, allowedIntents: ['notify', 'handoff'],
+            credentialRef: 'WECHAT', credentialStatus: 'configured', inboundEnabled: false, allowedIntents: ['handoff'],
             transportStatus: 'unverified', state: 'archived', bindingStatus: 'unbound', createdBy: 'admin', revision: 1, createdAt: 1, updatedAt: 1,
           },
         ] } as never,

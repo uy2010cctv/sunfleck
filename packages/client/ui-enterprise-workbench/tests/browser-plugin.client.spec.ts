@@ -237,13 +237,13 @@ describe('enterprise workbench browser plugin', () => {
     expect(completeBinding).not.toHaveBeenCalled()
   })
 
-  it('rejects empty or oversized callback values without calling the Remote', async () => {
+  it('rejects callback codes over 2048 UTF-8 bytes without calling the Remote', async () => {
     const completeBinding = vi.fn()
     const replaceState = vi.fn()
     await completeChannelBindingCallback({ completeBinding }, {
       location: {
         origin: 'https://dsh.example', pathname: '/workbench',
-        search: `?dsh_channel_binding=1&code=${'x'.repeat(4097)}&state=`,
+        search: `?dsh_channel_binding=1&code=${'界'.repeat(683)}&state=${SIGNED_STATE_A}`,
       },
       history: { replaceState }, opener: null, close: vi.fn(),
     })

@@ -20,7 +20,7 @@ English | [中文](2026-09-02-channel-qr-binding.zh.md)
 
 - [x] Write failing tests for provider prerequisites, official documentation URLs, authorization endpoints, callback parameters, and the personal-Weixin identity-only boundary.
 - [x] Add `channelBindingProfile(provider)` and `channelAuthorizationUrl(input)` with these modes: WeCom `CorpApp`, Feishu OAuth authorize, DingTalk OAuth2 authorize, and Weixin website-app `snsapi_login`.
-- [x] Add `exchangeChannelAuthorizationCode(input, fetch)` returning only provider identity, display name, and tenant evidence; never return access or refresh tokens.
+- [x] Add `exchangeChannelAuthorizationCode(input, fetch)` returning only provider identity, display name, and tenant evidence; use Feishu's official v3 user-access-token endpoint and never return access or refresh tokens.
 - [x] Verify callback URI, `state`, one-time code, response size, timeout, and provider error handling.
 
 ### Task 2: Persist verified binding evidence
@@ -76,7 +76,7 @@ English | [中文](2026-09-02-channel-qr-binding.zh.md)
 - Modify: `docs/user/guide/human-agent-teams.zh.md`
 
 - [x] Record official-source links and the identity-versus-delivery boundary.
-- [x] Complete the feature-owned release gates: the focused matrix passes 257 tests across 18 files; typecheck and the production build pass after the strict fixture fixes in `66953f09`; package paths resolve across 4,829 files; tsconfig aliases are current; and the two changed translation pairs are consistent.
+- [x] Complete the final-review release gates: the focused matrix passes 234 tests across 11 executed files, with the 12 real-PostgreSQL cases skipped; typecheck and the production build pass; client copy ownership passes across 497 source files; and the five changed translation pairs are consistent.
 - [ ] Run the optional real PostgreSQL acceptance. The integration file was invoked but skipped all 12 tests because `DSH_TEST_POSTGRES_URL` is absent.
 - [ ] Make full lint, corpus translation pairing, and doc-sync clean. They retain known unrelated repository-wide JSDoc/catalog, pairing, wrapping, subsystem, Agent Note, and package README debt outside this feature.
 - [x] Preserve the single Impeccable detector run completed during Task 4; do not rerun it in Task 5.

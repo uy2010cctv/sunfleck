@@ -107,7 +107,7 @@ describe('official channel authorization binding', () => {
   it.each([
     {
       provider: 'feishu' as const,
-      token: { code: 0, data: { access_token: 'feishu-token' } },
+      token: { access_token: 'feishu-token' },
       identity: { code: 0, data: { open_id: 'ou_1', name: '飞书用户', tenant_key: 'tenant-1' } },
       expected: { providerIdentityId: 'ou_1', providerIdentityName: '飞书用户', verifiedTenantId: 'tenant-1' },
     },
@@ -133,6 +133,31 @@ describe('official channel authorization binding', () => {
     expect(result).toEqual(expected)
     expect(Object.keys(result)).not.toContain('accessToken')
     expect(Object.keys(result)).not.toContain('refreshToken')
+  })
+
+  it('uses the official Feishu v3 user-access-token request', async () => {
+    const requests: Array<{ url: string; init?: RequestInit }> = []
+    const fetchImpl = async (input: string | URL, init?: RequestInit): Promise<Response> => {
+      const url = input.toString()
+      requests.push(init === undefined ? { url } : { url, init })
+      return new Response(JSON.stringify(requests.length === 1
+        ? { access_token: 'feishu-token' }
+        : { data: { open_id: 'ou_1' } }))
+    }
+    await exchangeChannelAuthorizationCode({
+      provider: 'feishu', accountId: 'app-1', appSecret: 'app-secret', code: 'code-1',
+      callbackUrl: 'https://dsh.example.com/callback',
+    }, fetchImpl)
+    expect(requests[0]).toMatchObject({
+      url: 'https://accounts.feishu.cn/oauth/v3/token',
+      init: {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          grant_type: 'authorization_code', client_id: 'app-1', client_secret: 'app-secret',
+          code: 'code-1', redirect_uri: 'https://dsh.example.com/callback',
+        }),
+      },
+    })
   })
 
   it('rejects an empty one-time authorization code before fetching', async () => {
@@ -275,12 +300,13 @@ describe('channel identity and delivery reliability', () => {
     expect(envelope).not.toHaveProperty('payload')
   })
 
-  it('keeps enterprise channels bidirectional and personal WeChat notification-only', () => {
+  it('keeps enterprise channels bidirectional and personal WeChat handoff-only', () => {
     expect(channelIntentPolicy('wecom', 'team-start')).toEqual({ allowed: true, mutation: true })
     expect(channelIntentPolicy('feishu', 'decision-response')).toEqual({ allowed: true, mutation: true })
     expect(channelIntentPolicy('dingtalk', 'status')).toEqual({ allowed: true, mutation: false })
-    expect(channelIntentPolicy('wechat', 'notify')).toEqual({ allowed: true, mutation: false })
+    expect(channelIntentPolicy('wechat', 'notify')).toEqual({ allowed: false, mutation: false })
     expect(channelIntentPolicy('wechat', 'handoff')).toEqual({ allowed: true, mutation: false })
+    expect(channelIntentPolicy('wechat', 'status')).toEqual({ allowed: false, mutation: false })
     expect(channelIntentPolicy('wechat', 'team-start')).toEqual({ allowed: false, mutation: true })
     expect(channelIntentPolicy('wechat', 'decision-response')).toEqual({ allowed: false, mutation: true })
   })

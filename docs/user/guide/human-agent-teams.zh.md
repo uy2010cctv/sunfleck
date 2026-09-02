@@ -53,14 +53,14 @@ runtime 决策请求携带问题、选项、建议、assignee、context digest�
 
 ## 渠道设置与交付边界
 
-在企业工作台打开**渠道设置**，可以创建、编辑、启用、暂停或归档企业微信、飞书、钉钉和个人微信配置。每条记录包含提供方/账号身份、可选租户、Host 管理的 Credential 引用、默认数字员工 Release 路由、入站策略、生命周期状态与 revision。本页不会要求或显示密钥值。
+在企业工作台打开**渠道设置**，可以创建、编辑、启用、暂停或归档企业微信、飞书、钉钉和个人微信配置。每条记录包含提供方/账号身份、Host 管理的 Credential 引用、默认数字员工 Release 路由、入站策略、生命周期状态与 revision。已启用企业微信记录还必须提供 CorpID 租户；飞书和钉钉可不填租户直接启用，DSH 不会伪造租户。本页不会要求或显示密钥值。
 
 对满足前置条件的已保存渠道，**扫描官方二维码**会打开由提供方托管的 OAuth/二维码页面，而不是在 DSH 中渲染或代理提供方二维码。DSH 签发有效期 10 分钟的 state，绑定单个 Host 进程、组织、actor、渠道、提供方、准确 revision、固定回调 URI、nonce 与过期时间。Host 通过 Credential 引用解析 App Secret，交换一次性 code，只保存已验证的提供方身份、显示名称、租户证据、验证 actor 和时间。access token、refresh token、授权 code、提供方原始载荷和 App Secret 均不会持久化或显示。用户拒绝、过期或 Host 重启后都需要重新扫码。
 
 扫码前需在对应提供方完成应用配置：
 
 - [企业微信 Web 登录](https://developer.work.weixin.qq.com/document/path/98152)及其[身份 API](https://developer.work.weixin.qq.com/document/path/96442)需要 CorpID、AgentID 和 OAuth 可信回调域名。
-- [飞书扫码 SDK/OAuth](https://open.feishu.cn/document/common-capabilities/sso/web-application-sso/qr-sdk-documentation)及其[用户 token 交换](https://open.feishu.cn/document/authentication-management/access-token/get-user-access-token)需要 App ID、App Secret 和已登记的重定向 URL。
+- [飞书扫码 SDK/OAuth](https://open.feishu.cn/document/common-capabilities/sso/web-application-sso/qr-sdk-documentation)及其[用户 token 交换](https://open.feishu.cn/document/authentication-management/access-token/get-user-access-token)需要 App ID、App Secret 和已登记的重定向 URL；DSH 通过官方 `https://accounts.feishu.cn/oauth/v3/token` 端点交换 code。
 - [钉钉官方登录 OAuth](https://open.dingtalk.com/document/isvapp/tutorial-enabling-login-to-third-party-websites.md)及其[用户 token 交换](https://open.dingtalk.com/document/isvapp/obtain-user-token.md)需要 Client ID、Client Secret 和钉钉「登录与分享」回调。
 - [个人微信网站应用扫码登录](https://developers.weixin.qq.com/doc/oplatform/developers/dev/auth/web.html)需要已审核的网站应用、AppID、AppSecret、`snsapi_login` 和已登记的授权作用域。
 

@@ -320,13 +320,12 @@ export async function exchangeChannelAuthorizationCode(
       return identityResult(identityId, undefined, tenantId)
     }
     case 'feishu': {
-      const tokenBody = await boundedJson(await request('https://open.feishu.cn/open-apis/authen/v2/oauth/token', {
+      const tokenBody = await boundedJson(await request('https://accounts.feishu.cn/oauth/v3/token', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ grant_type: 'authorization_code', client_id: accountId, client_secret: appSecret, code, redirect_uri: callbackUrl }),
       }), 'feishu')
-      const tokenData = recordValue(tokenBody.data)
-      const accessToken = requiredResponseString(tokenBody.access_token ?? tokenData.access_token, 'feishu', 'access_token')
+      const accessToken = requiredResponseString(tokenBody.access_token, 'feishu', 'access_token')
       const identityBody = await boundedJson(await request('https://open.feishu.cn/open-apis/authen/v1/user_info', {
         headers: { authorization: `Bearer ${accessToken}` },
       }), 'feishu')
@@ -396,10 +395,10 @@ export interface ChannelIntentPolicy {
   readonly mutation: boolean
 }
 
-/** Resolve provider policy; personal WeChat never receives a mutation grant. */
+/** Resolve provider policy; personal WeChat admits authenticated handoff only. */
 export function channelIntentPolicy(provider: ChannelProvider, intent: ChannelEnvelopeIntent): ChannelIntentPolicy {
   const mutation = intent === 'team-start' || intent === 'decision-response'
-  return { allowed: provider !== 'wechat' || !mutation, mutation }
+  return { allowed: provider !== 'wechat' || intent === 'handoff', mutation }
 }
 
 /** Hash the provider account and message identity into one stable DSH operation id. */
@@ -426,7 +425,7 @@ export function normalizeChannelEnvelope(
   if (!Number.isSafeInteger(input.occurredAt) || input.occurredAt < 0) throw new Error('occurredAt must be non-negative')
   const policy = channelIntentPolicy(input.provider, input.intent)
   if (!policy.allowed || (input.provider === 'wechat' && input.direction === 'inbound')) {
-    throw new Error('personal WeChat is limited to outbound notifications and handoff invitations')
+    throw new Error('personal WeChat website-app authorization is limited to outbound handoff invitations')
   }
   const normalized = {
     ...input,

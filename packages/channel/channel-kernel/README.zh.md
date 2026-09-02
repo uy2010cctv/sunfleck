@@ -29,7 +29,7 @@ Provider-neutral enterprise channel routing, reliability, identity, and audit co
 - 计算 Token/心跳健康状态和失败关闭的 Session 自愈决策。
 - 记录包含内容哈希和长度的消息审计元数据，不记录原始内容或凭据。
 - 提供面向企微、飞书、钉钉与个人微信的 provider-neutral `ChannelEnvelope`，通过稳定 operation id 关联 DSH Team 与 Run 身份。
-- 失败关闭的意图策略：企业渠道可以提交经过授权的 Team 与决策意图；个人微信仅允许出站通知与接管邀请。
+- 失败关闭的意图策略：企业渠道可以提交经过授权的 Team 与决策意图；个人微信网站应用授权仅允许经认证的 DSH 接管。
 
 本包不登录微信、不托管企微 webhook、不持久队列、不发送消息。这些属于适配器职责，并且必须使用 DSH Credentials 和原生 Session，而不是私有副本。
 
@@ -51,7 +51,7 @@ Provider-neutral enterprise channel routing, reliability, identity, and audit co
 
 ## Known Limitations and Deferred Work
 
-- 未包含真实飞书、钉钉与个人微信适配器；既有企微 adapter 尚未实现完整 Team envelope 命令面。
+- 未包含真实飞书与钉钉适配器；个人微信聊天传输不在范围内，既有企微 adapter 尚未实现完整 Team envelope 命令面。
 - 部署适配器必须提供持久幂等和 outbox 存储。
 - 意图识别提供员工候选；本包只校验并排序该候选。
 - provider acknowledgement、unknown-outcome 对账与 receipt 存储仍属于 adapter 职责。
