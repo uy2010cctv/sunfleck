@@ -12,7 +12,12 @@ export function channelBindingCallbackUri(location: Pick<Location, 'origin' | 'p
 /** Extract the controller-issued nonce.signature state used for cross-window correlation. */
 export function officialChannelBindingState(authorizationUrl: URL): string | null {
   const state = authorizationUrl.searchParams.get('state')
-  return state !== null && CHANNEL_BINDING_SIGNED_STATE.test(state) ? state : null
+  return isOfficialChannelBindingState(state) ? state : null
+}
+
+/** Whether a callback state has the exact controller-issued nonce.signature grammar. */
+export function isOfficialChannelBindingState(state: string | null): state is string {
+  return state !== null && CHANNEL_BINDING_SIGNED_STATE.test(state)
 }
 
 /** Credential-free client metadata sourced from each provider's official binding contract. */

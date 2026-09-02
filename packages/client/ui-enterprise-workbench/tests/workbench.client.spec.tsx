@@ -521,14 +521,16 @@ describe('EnterpriseWorkbench', () => {
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: '扫码绑定飞书' })) })
     expect(new URL(redirectUri).searchParams.get('dsh_channel_binding')).toBe('1')
 
-    await completeChannelBindingCallback({ completeBinding: () => Promise.reject(new Error('failed')) }, {
+    const completeBinding = vi.fn()
+    await completeChannelBindingCallback({ completeBinding }, {
       location: {
         origin: window.location.origin, pathname: window.location.pathname,
-        search: `?dsh_channel_binding=1&code=provider-code&state=${SIGNED_STATE_A}`,
+        search: `?dsh_channel_binding=1&state=${SIGNED_STATE_A}&error=access_denied`,
       },
       history: { replaceState: vi.fn() }, opener: null, close: vi.fn(),
     })
 
+    expect(completeBinding).not.toHaveBeenCalled()
     expect(screen.getByRole('alert').textContent).toContain('提供方验证失败')
     expect(FakeBroadcastChannel.channels.every(item => item.closed)).toBe(true)
   })
