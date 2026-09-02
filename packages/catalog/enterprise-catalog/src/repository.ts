@@ -649,6 +649,21 @@ export class EnterpriseCatalogRepository {
   }
 
   /**
+   * Read one immutable employee release inside its owning organization.
+   * @param releaseId - Immutable release identity.
+   * @param orgId - Organization allowed to read the release.
+   * @returns Digest-verified release, or `undefined` when absent or cross-organization.
+   */
+  async getRelease(releaseId: string, orgId: string): Promise<EmployeeReleaseView | undefined> {
+    await this.initialize()
+    const result = await this.database.query<ReleaseRow>(
+      'SELECT * FROM dsh_enterprise_employee_releases WHERE release_id = $1 AND org_id = $2',
+      [releaseId, orgId],
+    )
+    return result.rows[0] === undefined ? undefined : this.release(result.rows[0])
+  }
+
+  /**
    * Publishes a new release from an earlier immutable snapshot.
    * @param input - Source release, organization, revision, actor, and idempotency controls.
    * @returns Newly published release whose source identifies the prior release.

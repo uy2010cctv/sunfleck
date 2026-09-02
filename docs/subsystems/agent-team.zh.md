@@ -18,6 +18,9 @@ interface TeamMemberSnapshot {
   readonly context: 'fresh' | 'fork'
   readonly phase: TeamMemberPhase
   readonly error?: string
+  readonly employeeReleaseId?: string
+  readonly roleId?: string
+  readonly release?: TeamReleaseSnapshot
 }
 ```
 
@@ -72,9 +75,13 @@ interface TeamTaskSnapshot {
 
 `pending` 表示尚未开始或已经释放，`in_progress` 携带 owner，`completed` 满足 blocker，`deleted` 是保留的 tombstone。view 会添加 owner name、readiness 和 write-scope 重叠警告，但不会改变持久快照。
 
+## 企业运行与 Human roster
+
+同一 Team 日志可以保留一个企业 TeamRun、Human roster 条目、不可变员工 Release 证据与 Human 决策。Human 条目没有 Session 身份，也不会进入 Agent mailbox 或 task owner 权限。TeamRun 与 decision mutation 使用稳定 operation id 和单调 runtime revision；回放会拒绝身份变化、跳跃 revision、非法终态转换和 operation id 冲突复用。私有[企业 Team runtime adapter](../../packages/experimental/enterprise-team-runtime/README.zh.md)负责 Workspace、Release、Agent 创建、取消与冷恢复行为。
+
 ## 回放
 
-`foldTeam()` 把一个 Root Session 回放成每个 Team 操作所读取的 roster、任务板与 queued-minus-delivered mailbox。它按 `TeamId` 选取记录，因此普通 fork 继承的 event 保留 ancestor id，绝不会进入新 Root 的状态。Session event 的 `seq` 与 `time` 继续负责顺序和时间记录，Team snapshot 不再重复保存它们。roster 与 task 读取以 view 形式到达调用方，而 pending 邮件仅供投递与恢复内部使用。包 [README](../../packages/experimental/agent-team/README.zh.md)负责 operation、authorization、recovery 和限制行为。
+`foldTeam()` 把一个 Root Session 回放成 Team 操作读取的 Agent/Human roster、任务板、queued-minus-delivered mailbox、TeamRun、decision 与 operation receipt。它按 `TeamId` 选取记录，因此普通 fork 继承的 event 保留 ancestor id，绝不会进入新 Root 的状态。Session event 的 `seq` 与 `time` 继续负责顺序和时间记录，Team snapshot 不再重复保存它们。roster、task、run 与 decision 读取以 view 形式到达调用方，而 pending 邮件仅供投递与恢复内部使用。包 [README](../../packages/experimental/agent-team/README.zh.md)负责 operation、authorization、recovery 和限制行为。
 
 <!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
 

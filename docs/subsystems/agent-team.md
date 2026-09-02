@@ -18,6 +18,9 @@ interface TeamMemberSnapshot {
   readonly context: 'fresh' | 'fork'
   readonly phase: TeamMemberPhase
   readonly error?: string
+  readonly employeeReleaseId?: string
+  readonly roleId?: string
+  readonly release?: TeamReleaseSnapshot
 }
 ```
 
@@ -72,9 +75,13 @@ interface TeamTaskSnapshot {
 
 `pending` is unstarted or released, `in_progress` carries an owner, `completed` satisfies blockers, and `deleted` is a retained tombstone. Views add owner name, readiness, and write-scope overlap warnings without changing the durable snapshot.
 
+## Enterprise run and Human roster
+
+The same Team log can retain one enterprise TeamRun, Human roster rows, immutable employee Release evidence, and Human decisions. Human rows have no Session identity and never enter the Agent mailbox or task-owner authority. TeamRun and decision mutations use stable operation ids plus monotonic runtime revisions; replay rejects identity changes, skipped revisions, invalid terminal transitions, and conflicting reuse of an operation id. The private [enterprise Team runtime adapter](../../packages/experimental/enterprise-team-runtime/README.md) owns Workspace, Release, Agent creation, cancellation, and cold-resume behavior.
+
 ## Replay
 
-`foldTeam()` replays one root Session into the roster, task board, and queued-minus-delivered mailbox that every Team operation reads. It selects records by `TeamId`, so events inherited by an ordinary fork retain the ancestor id and never enter the new root's state. Session event `seq` and `time` remain the ordering and timing record; Team snapshots do not duplicate them. Roster and task reads reach callers as views; pending mail stays internal to delivery and recovery. The package [README](../../packages/experimental/agent-team/README.md) owns operation, authorization, recovery, and limit behavior.
+`foldTeam()` replays one root Session into the Agent and Human roster, task board, queued-minus-delivered mailbox, TeamRun, decisions, and operation receipts that Team operations read. It selects records by `TeamId`, so events inherited by an ordinary fork retain the ancestor id and never enter the new root's state. Session event `seq` and `time` remain the ordering and timing record; Team snapshots do not duplicate them. Roster, task, run, and decision reads reach callers as views; pending mail stays internal to delivery and recovery. The package [README](../../packages/experimental/agent-team/README.md) owns operation, authorization, recovery, and limit behavior.
 
 <!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
 

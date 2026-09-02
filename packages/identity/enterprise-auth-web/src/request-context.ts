@@ -24,6 +24,15 @@ export class EnterpriseRequestContext {
   }
 
   /**
+   * Run Agent-owned work without inheriting the active authenticated Human.
+   * @param callback - Work whose asynchronous descendants must carry no request principal.
+   * @returns the callback result while the surrounding request store is restored afterwards.
+   */
+  withoutPrincipal<T>(callback: () => T): T {
+    return this.storage.exit(callback)
+  }
+
+  /**
    * Return the principal for the active request, if any.
    * @returns the active principal, or `undefined` outside a live request.
    */

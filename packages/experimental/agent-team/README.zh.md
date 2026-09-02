@@ -11,6 +11,8 @@ kind: "package-reference"
 
 `dsh-experimental-agent-team` 把一个编码会话变成一个小型工作团队：会话中的 agent 成为 Lead，创建具名 teammate 处理委派的工作，与它们交换持久消息，并在公共任务板上跟踪共享任务。消息与任务状态能挺过崩溃、reload 与中断，因此离线的 teammate 会在恢复后收到排队的消息。它本身不提供任何工具——请挂载兄弟包 `dsh-experimental-tool-agent-team`，让模型能够创建 teammate、给它们发消息并使用任务板。它是实验性的：不进入正式发布、不承诺稳定性，并且需要持久会话存储才能激活。
 
+同一根日志也能携带企业 TeamRun、Human roster 条目、不可变员工 Release 证据与 Human 决策。这些 Host-only mutation 由私有[企业 Team runtime adapter](../enterprise-team-runtime/README.zh.md)使用；它们不会向 Human 授予 Agent mailbox 或工具权限。
+
 ## 目录
 
 - [使用本包](#use-this-package)
@@ -198,6 +200,8 @@ Peer 消息追加在 target 可复用历史前缀之后。冷恢复会先复用�
 - **扁平且不可变的 roster**——只有 Lead 可以创建直接 teammate；不支持嵌套 Team、重命名、删除或名字复用。
 - **不会自动释放 owner**——idle、interrupt、进程退出与工作失败都不会释放任务 owner。
 - **mailbox 不保证跨进程 exactly-once**——不支持多个 harness 进程并发操作同一 Team。
+- **Human task ownership 延后**——Human 会出现在企业 roster 和决策中，但共享任务板仍只分配 Agent Session owner。
+- **企业装配相互独立**——本包记录 Release 证据；企业 runtime adapter 决定哪些版本化能力能够实际挂载，并对不支持的绑定明确失败。
 
 <a id="dev-note"></a>
 ### 开发备注

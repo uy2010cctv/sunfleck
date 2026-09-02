@@ -49,17 +49,78 @@ const MEMBER_VIEW_SCHEMA = {
   type: 'object',
   additionalProperties: false,
   properties: {
+    kind: { type: 'string', required: true, enum: ['agent', 'human'] },
     id: { type: 'string', required: true },
     name: { type: 'string', required: true },
-    role: { type: 'string', required: true, enum: ['lead', 'teammate'] },
-    status: { type: 'string', required: true, enum: ['running', 'idle', 'inactive', 'provisioning', 'failed'] },
+    role: { type: 'string', required: true, enum: ['lead', 'teammate', 'human'] },
+    status: { type: 'string', required: true, enum: ['running', 'idle', 'inactive', 'provisioning', 'failed', 'active'] },
+    userId: { type: 'string' },
+    displayName: { type: 'string' },
     description: { type: 'string' },
     provider: { type: 'string' },
     context: { type: 'string', enum: ['fresh', 'fork'] },
     model: { type: 'string' },
+    employeeReleaseId: { type: 'string' },
+    roleId: { type: 'string' },
+    release: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        releaseId: { type: 'string', required: true },
+        digest: { type: 'string', required: true },
+        presetId: { type: 'string', required: true },
+        modelRef: {
+          type: 'object',
+          required: true,
+          additionalProperties: false,
+          properties: {
+            provider: { type: 'string', required: true },
+            model: { type: 'string', required: true },
+          },
+        },
+        capabilityBindings: {
+          type: 'array',
+          required: true,
+          items: {
+            type: 'object',
+            additionalProperties: false,
+            properties: {
+              kind: { type: 'string', required: true, enum: ['sop', 'knowledge', 'skill', 'tool', 'model'] },
+              assetId: { type: 'string', required: true },
+              version: { type: 'integer', required: true },
+            },
+          },
+        },
+      },
+    },
     diagnostics: { type: 'array', required: true, items: { type: 'string' } },
   },
 } as const
+
+type ModelMemberView = InferValue<typeof MEMBER_VIEW_SCHEMA>
+
+/** Detach readonly durable arrays before returning one roster row to the model tool wire. */
+function modelMemberView(member: TeamMemberView): ModelMemberView {
+  return {
+    kind: 'agent', id: member.id, name: member.name, role: member.role, status: member.status,
+    ...member.description === undefined ? {} : { description: member.description },
+    ...member.provider === undefined ? {} : { provider: member.provider },
+    ...member.context === undefined ? {} : { context: member.context },
+    ...member.model === undefined ? {} : { model: member.model },
+    ...member.employeeReleaseId === undefined ? {} : { employeeReleaseId: member.employeeReleaseId },
+    ...member.roleId === undefined ? {} : { roleId: member.roleId },
+    ...member.release === undefined ? {} : {
+      release: {
+        releaseId: member.release.releaseId,
+        digest: member.release.digest,
+        presetId: member.release.presetId,
+        modelRef: { ...member.release.modelRef },
+        capabilityBindings: member.release.capabilityBindings.map(binding => ({ ...binding })),
+      },
+    },
+    diagnostics: [...member.diagnostics],
+  }
+}
 
 /** One shared task, matching the public `TeamTaskView`. */
 const TASK_VIEW_SCHEMA = {
@@ -188,7 +249,7 @@ function install(agent: Agent, ctx: Context, config: Required<Config>): () => vo
       async execute(args, exec) {
         const agent = callingAgent(exec.agent, 'spawn_teammate')
         const context = args.context ?? 'fresh'
-        return await ctx.agentTeams.spawnTeammate(agent, {
+        const result = await ctx.agentTeams.spawnTeammate(agent, {
           name: args.name,
           description: args.description,
           prompt: [{ type: 'text', text: args.prompt }],
@@ -196,6 +257,7 @@ function install(agent: Agent, ctx: Context, config: Required<Config>): () => vo
           provider: context === 'fork' ? config.forkProvider : config.freshProvider,
           signal: exec.signal,
         })
+        return { member: modelMemberView(result.member) }
       },
     })))
 
@@ -228,8 +290,8 @@ function install(agent: Agent, ctx: Context, config: Required<Config>): () => vo
       description: 'List the Lead and every durable teammate with current runtime status.',
       parameters: {},
       output: jsonOutput(MEMBER_LIST_VALUE_SCHEMA),
-      async execute(_args, exec) {
-        return Promise.resolve(ctx.agentTeams.listMembers(callingAgent(exec.agent, 'list_agents')))
+      execute(_args, exec) {
+        return ctx.agentTeams.listMembers(callingAgent(exec.agent, 'list_agents')).map(modelMemberView)
       },
     })))
 

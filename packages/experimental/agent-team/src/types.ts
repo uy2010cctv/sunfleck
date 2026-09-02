@@ -43,6 +43,22 @@ export function TeamMessageId(id: string): TeamMessageId {
 /** Durable teammate lifecycle. */
 export type TeamMemberPhase = 'provisioning' | 'active' | 'failed'
 
+/** One immutable capability asset pinned by an enterprise employee release. */
+export interface TeamCapabilityBindingSnapshot {
+  readonly kind: 'sop' | 'knowledge' | 'skill' | 'tool' | 'model'
+  readonly assetId: string
+  readonly version: number
+}
+
+/** Immutable enterprise employee release fields required to reconstruct one Agent. */
+export interface TeamReleaseSnapshot {
+  readonly releaseId: string
+  readonly digest: string
+  readonly presetId: string
+  readonly modelRef: { readonly provider: string; readonly model: string }
+  readonly capabilityBindings: readonly TeamCapabilityBindingSnapshot[]
+}
+
 /** Whole durable value written on every teammate lifecycle change. */
 export interface TeamMemberSnapshot {
   readonly id: SessionId
@@ -52,10 +68,15 @@ export interface TeamMemberSnapshot {
   readonly context: 'fresh' | 'fork'
   readonly phase: TeamMemberPhase
   readonly error?: string
+  readonly employeeReleaseId?: string
+  readonly roleId?: string
+  readonly release?: TeamReleaseSnapshot
 }
 
-/** Current runtime-enriched roster row. */
-export interface TeamMemberView {
+/** Current runtime-enriched Agent roster row. */
+export interface TeamAgentMemberView {
+  /** Explicit on live projections; optional for backward-compatible stored/UI fixtures. */
+  readonly kind?: 'agent'
   readonly id: SessionId
   readonly name: string
   readonly role: 'lead' | 'teammate'
@@ -64,7 +85,113 @@ export interface TeamMemberView {
   readonly provider?: string
   readonly context?: 'fresh' | 'fork'
   readonly model?: string
+  readonly employeeReleaseId?: string
+  readonly roleId?: string
+  readonly release?: TeamReleaseSnapshot
   readonly diagnostics: string[]
+}
+
+/** Durable Human participant with no Agent Session or mailbox authority. */
+export interface TeamHumanMemberSnapshot {
+  readonly userId: string
+  readonly displayName: string
+  readonly roleId: string
+}
+
+/** Current Human roster row projected beside Agents. */
+export interface TeamHumanMemberView {
+  readonly kind: 'human'
+  readonly id: string
+  readonly userId: string
+  readonly displayName: string
+  readonly name: string
+  readonly role: 'human'
+  readonly roleId: string
+  readonly status: 'active'
+  readonly diagnostics: string[]
+}
+
+/** Backward-compatible Agent row returned by Agent control and model tools. */
+export type TeamMemberView = TeamAgentMemberView
+
+/** One Agent or Human row in the shared enterprise Team roster. */
+export type TeamRosterMemberView = TeamAgentMemberView | TeamHumanMemberView
+
+/** Human actor attribution retained on enterprise runtime mutations. */
+export interface TeamHumanActorSnapshot {
+  readonly userId: string
+  readonly displayName: string
+}
+
+/** Enterprise Agent pinned as the TeamRun leader. */
+export interface TeamRunLeaderSnapshot {
+  readonly sessionId: SessionId
+  readonly roleId: string
+  readonly release: TeamReleaseSnapshot
+}
+
+/** Authoritative enterprise TeamRun state stored in the root Session log. */
+export interface TeamRunSnapshot {
+  readonly runId: string
+  readonly orgId: string
+  readonly teamDefinitionRevision: number
+  readonly workspaceId: string
+  readonly operationId: string
+  readonly state: 'starting' | 'active' | 'waiting-human' | 'verifying' | 'completed' | 'failed' | 'cancelled'
+  readonly runtimeRevision: number
+  readonly actor: TeamHumanActorSnapshot
+  readonly leader: TeamRunLeaderSnapshot
+  readonly failure?: { readonly code: string; readonly message?: string }
+}
+
+/** Authoritative Human decision snapshot stored in the root Session log. */
+export interface TeamDecisionSnapshot {
+  readonly decisionId: string
+  readonly runId: string
+  readonly kind: 'approval' | 'handoff' | 'clarification'
+  readonly question: string
+  readonly options: readonly string[]
+  readonly recommendation?: string
+  readonly contextDigest: string
+  readonly assigneeUserId: string
+  readonly state: 'open' | 'answered' | 'cancelled' | 'expired'
+  readonly answer?: string
+  readonly revision: number
+  readonly runtimeRevision: number
+  readonly operationId: string
+  readonly respondedBy?: TeamHumanActorSnapshot
+}
+
+/** Runtime revision and root event position committed for one idempotent operation. */
+export interface TeamRuntimeMutationReceipt {
+  readonly runtimeRevision: number
+  readonly sourceEventSeq: number
+}
+
+/** Initial TeamRun fields whose revision and starting state are assigned by the Team service. */
+export type TeamRunStartRequest = Omit<TeamRunSnapshot, 'state' | 'runtimeRevision' | 'failure'>
+
+/** One authoritative TeamRun transition requested by its Host runtime adapter. */
+export interface TeamRunStateRequest {
+  readonly operationId: string
+  readonly state: Exclude<TeamRunSnapshot['state'], 'starting'>
+  readonly actor: TeamHumanActorSnapshot
+  readonly failure?: TeamRunSnapshot['failure']
+}
+
+/** Open-decision fields whose revisions are assigned by the Team service. */
+export type TeamDecisionProjectRequest = Omit<
+  TeamDecisionSnapshot,
+  'state' | 'revision' | 'runtimeRevision' | 'answer' | 'respondedBy'
+>
+
+/** Human answer using decision revision CAS and operation idempotency. */
+export interface TeamDecisionResponseRequest {
+  readonly operationId: string
+  readonly decisionId: string
+  readonly expectedRevision: number
+  readonly answer: string
+  readonly actor: TeamHumanActorSnapshot
 }
 
 /** Durable task lifecycle. */
@@ -99,7 +226,11 @@ export interface TeamTaskView {
 /** Point-in-time roster and task-board projection returned to browser clients. */
 export interface TeamView {
   readonly members: TeamMemberView[]
+  readonly humans?: TeamHumanMemberView[]
+  readonly roster?: TeamRosterMemberView[]
   readonly tasks: TeamTaskView[]
+  readonly run?: TeamRunSnapshot
+  readonly decisions?: TeamDecisionSnapshot[]
 }
 
 /** One peer message retained until its target Session records it. */
@@ -142,12 +273,30 @@ export interface Config {
 }
 
 /** Input for creating one durable teammate. */
+export interface TeamAgentOptions {
+  readonly provider?: string
+  readonly model?: string
+}
+
+/** Client-safe global-tool restriction persisted for one enterprise teammate. */
+export interface TeamToolRestriction {
+  readonly allow?: readonly string[]
+  readonly deny?: readonly string[]
+}
+
+/** Input for creating one durable teammate. */
 export interface SpawnTeammateRequest {
   readonly name: string
   readonly description: string
   readonly prompt: ContentBlock[]
   readonly context: 'fresh' | 'fork'
   readonly provider: string
+  readonly agentOptions?: TeamAgentOptions
+  readonly persona?: string
+  readonly toolFilter?: TeamToolRestriction
+  readonly employeeReleaseId?: string
+  readonly roleId?: string
+  readonly release?: TeamReleaseSnapshot
   readonly signal: AbortSignal
 }
 
@@ -232,5 +381,11 @@ declare module '@deepseek-ai/dsh-session/types' {
       messageId: TeamMessageId
       targetId: SessionId
     }
+    /** Authoritative enterprise TeamRun value, stored only in the Team Lead Session. */
+    'team/run': { version: 1; teamId: TeamId; run: TeamRunSnapshot }
+    /** Human roster row, stored only in the Team Lead Session and never granted Agent mailbox authority. */
+    'team/human-member': { version: 1; teamId: TeamId; member: TeamHumanMemberSnapshot }
+    /** Authoritative Human decision value, stored only in the Team Lead Session. */
+    'team/decision': { version: 1; teamId: TeamId; decision: TeamDecisionSnapshot }
   }
 }

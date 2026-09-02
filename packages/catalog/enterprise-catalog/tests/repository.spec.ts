@@ -239,7 +239,7 @@ class MemoryPostgresDatabase implements PostgresDatabase {
     }
     if (text.startsWith('SELECT ') && text.includes('FROM dsh_enterprise_employee_releases WHERE release_id')) {
       const row = this.releases.get(String(values[0]))
-      return row === undefined ? [] : [clone(row)]
+      return row === undefined || (text.includes('org_id = $2') && row.org_id !== values[1]) ? [] : [clone(row)]
     }
     if (text.startsWith('SELECT ') && text.includes('FROM dsh_enterprise_employee_releases WHERE preset_id')) {
       return [...this.releases.values()].filter(row => row.preset_id === String(values[0]))
@@ -383,6 +383,9 @@ describe('EnterpriseCatalogRepository', () => {
     ])
     expect((await repository.listReleases('preset-sales', 'org-a'))[0]).toEqual(release)
     expect((await repository.listReleases('preset-sales', 'org-a'))[0].snapshot.profile.prompt).toBe('Help the sales team.')
+    await expect(repository.getRelease(release.releaseId, 'org-a')).resolves.toEqual(release)
+    await expect(repository.getRelease(release.releaseId, 'org-b')).resolves.toBeUndefined()
+    await expect(repository.getRelease('missing-release', 'org-a')).resolves.toBeUndefined()
   })
 
   it('publishes a configured provider model route without requiring a model catalog asset', async () => {

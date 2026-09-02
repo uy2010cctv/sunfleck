@@ -80,6 +80,12 @@ function setup(allowStart = true, allowWorkspace = true) {
 }
 
 describe('enterprise team-control Remote namespaces', () => {
+  it('fails loud when the enterprise runtime adapter is absent', () => {
+    const ctx = new Context()
+    expect(() => new EnterpriseTeamRunController(ctx)).toThrow(/enterprise Team runtime driver is required/)
+    expect(() => new EnterpriseTeamDecisionController(ctx)).toThrow(/enterprise Team runtime driver is required/)
+  })
+
   it('injects principal identity into TeamRun start and keeps runtime fields Host-only', async () => {
     const app = setup()
     const principal = { orgId: 'org-a', userId: 'owner-a', roles: ['creator'] as const }

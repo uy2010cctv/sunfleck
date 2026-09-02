@@ -129,17 +129,24 @@ export class TeamRoster {
     const { root } = membership
     const state = this.journal.state(root)
     const result: TeamMemberView[] = [{
+      kind: 'agent',
       id: root.id,
       name: 'lead',
       role: 'lead',
       status: root.status,
       ...root.options.model === undefined ? {} : { model: root.options.model },
+      ...state.run === undefined ? {} : {
+        employeeReleaseId: state.run.leader.release.releaseId,
+        roleId: state.run.leader.roleId,
+        release: state.run.leader.release,
+      },
       diagnostics: [],
     }]
     for (const member of state.members.values()) {
       const live = this.ctx.agents.get(member.id)
       const model = live?.options.model ?? root.options.model
       result.push({
+        kind: 'agent',
         id: member.id,
         name: member.name,
         role: 'teammate',
@@ -152,6 +159,9 @@ export class TeamRoster {
         provider: member.provider,
         context: member.context,
         ...model === undefined ? {} : { model },
+        ...member.employeeReleaseId === undefined ? {} : { employeeReleaseId: member.employeeReleaseId },
+        ...member.roleId === undefined ? {} : { roleId: member.roleId },
+        ...member.release === undefined ? {} : { release: member.release },
         diagnostics: member.error === undefined ? [] : [member.error],
       })
     }
@@ -262,6 +272,9 @@ export class TeamRoster {
       provider: requiredText(request.provider, 'provider', 200),
       context: request.context,
       phase: 'provisioning',
+      ...request.employeeReleaseId === undefined ? {} : { employeeReleaseId: request.employeeReleaseId },
+      ...request.roleId === undefined ? {} : { roleId: request.roleId },
+      ...request.release === undefined ? {} : { release: request.release },
     }
 
     await this.journal.transact(root.id, async () => {
@@ -284,6 +297,9 @@ export class TeamRoster {
         request: {
           prompt: request.prompt,
           parent: root,
+          ...request.agentOptions === undefined ? {} : { agentOptions: request.agentOptions },
+          ...request.persona === undefined ? {} : { persona: request.persona },
+          ...request.toolFilter === undefined ? {} : { toolFilter: request.toolFilter },
         },
         signal,
       })
@@ -434,6 +450,7 @@ export class TeamRoster {
   private memberView(member: TeamMemberSnapshot & { readonly phase: 'active' }): TeamMemberView {
     const live = this.ctx.agents.get(member.id)
     return {
+      kind: 'agent',
       id: member.id,
       name: member.name,
       role: 'teammate',
@@ -442,6 +459,9 @@ export class TeamRoster {
       provider: member.provider,
       context: member.context,
       ...live?.options.model === undefined ? {} : { model: live.options.model },
+      ...member.employeeReleaseId === undefined ? {} : { employeeReleaseId: member.employeeReleaseId },
+      ...member.roleId === undefined ? {} : { roleId: member.roleId },
+      ...member.release === undefined ? {} : { release: member.release },
       diagnostics: [],
     }
   }

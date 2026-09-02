@@ -11,6 +11,8 @@ English | [中文](README.zh.md)
 
 `dsh-experimental-agent-team` turns one coding session into a small working team: the session's agent becomes the Lead, creates named teammates for delegated work, exchanges durable messages with them, and tracks shared tasks on a common board. Messages and task state survive crashes, reloads, and interruptions, so a teammate that was offline receives its queued messages when it resumes. It provides no tools of its own — mount the sibling `dsh-experimental-tool-agent-team` so the model can create teammates, message them, and use the task board. It is experimental: excluded from official releases, carries no stability promise, and needs durable session storage to activate.
 
+The same root log can carry an enterprise TeamRun, Human roster rows, immutable employee Release evidence, and Human decisions. Those Host-only mutations are used by the private [enterprise Team runtime adapter](../enterprise-team-runtime/README.md); they do not grant Humans Agent mailbox or tool authority.
+
 ## Table of Contents
 
 - [Use this package](#use-this-package)
@@ -198,6 +200,8 @@ These limits describe what a team cannot do yet or what needs special operationa
 - **Flat immutable roster** — only the Lead creates direct teammates; there is no nested Team, rename, deletion, or name reuse.
 - **No automatic ownership release** — idle, interruption, process exit, and failed work do not release a task owner.
 - **Mailbox is not cross-process exactly-once** — concurrent harness processes over one Team are unsupported.
+- **Human task ownership is deferred** — Humans appear in the enterprise roster and decisions, but the shared task board still assigns Agent Session owners only.
+- **Enterprise assembly is separate** — this package records Release evidence; the enterprise runtime adapter decides which versioned capabilities can actually be mounted and fails loud for unsupported bindings.
 
 <a id="dev-note"></a>
 ### Dev Note

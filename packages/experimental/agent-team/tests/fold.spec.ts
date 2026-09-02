@@ -9,7 +9,15 @@ import {
 } from '../src/fold.ts'
 import type { TeamFoldState } from '../src/fold.ts'
 import { TeamId, TeamMessageId, TeamTaskId } from '../src/types.ts'
-import type { TeamMemberSnapshot, TeamMessageSnapshot, TeamTaskSnapshot } from '../src/types.ts'
+import type {
+  TeamDecisionSnapshot,
+  TeamHumanMemberSnapshot,
+  TeamMemberSnapshot,
+  TeamMessageSnapshot,
+  TeamReleaseSnapshot,
+  TeamRunSnapshot,
+  TeamTaskSnapshot,
+} from '../src/types.ts'
 
 const ROOT = SessionId('team-root')
 const TEAM = TeamId(ROOT)
@@ -67,7 +75,147 @@ function message(overrides: Partial<TeamMessageSnapshot> = {}): TeamMessageSnaps
   }
 }
 
+function release(releaseId = 'release-lead'): TeamReleaseSnapshot {
+  return {
+    releaseId,
+    digest: `${releaseId}-digest`,
+    presetId: `${releaseId}-preset`,
+    modelRef: { provider: 'mock', model: `${releaseId}-model` },
+    capabilityBindings: [],
+  }
+}
+
+function run(overrides: Partial<TeamRunSnapshot> = {}): TeamRunSnapshot {
+  return {
+    runId: 'run-a',
+    orgId: 'org-a',
+    teamDefinitionRevision: 4,
+    workspaceId: 'workspace-a',
+    operationId: 'team-run:start:run-a',
+    state: 'starting',
+    runtimeRevision: 1,
+    actor: { userId: 'owner-a', displayName: 'Owner A' },
+    leader: { sessionId: ROOT, roleId: 'lead', release: release() },
+    ...overrides,
+  }
+}
+
+function human(overrides: Partial<TeamHumanMemberSnapshot> = {}): TeamHumanMemberSnapshot {
+  return {
+    userId: 'reviewer-a',
+    displayName: 'Reviewer A',
+    roleId: 'reviewer',
+    ...overrides,
+  }
+}
+
+function decision(overrides: Partial<TeamDecisionSnapshot> = {}): TeamDecisionSnapshot {
+  return {
+    decisionId: 'decision-a',
+    runId: 'run-a',
+    kind: 'clarification',
+    question: 'Proceed?',
+    options: ['yes', 'no'],
+    contextDigest: 'context-a',
+    assigneeUserId: 'reviewer-a',
+    state: 'open',
+    revision: 1,
+    runtimeRevision: 3,
+    operationId: 'team-decision:project:decision-a',
+    ...overrides,
+  }
+}
+
 describe('Agent Teams fold', () => {
+  it('replays legacy Agent records beside first-class Human and enterprise Agent metadata', () => {
+    const enterprise = member({
+      id: SessionId('child-enterprise'),
+      name: 'buyer',
+      employeeReleaseId: 'release-buyer',
+      roleId: 'buyer',
+      release: release('release-buyer'),
+    })
+    const state = foldTeam(ROOT, [
+      event('team/member', { version: 1, teamId: TEAM, member: member() }, 0),
+      event('team/human-member', { version: 1, teamId: TEAM, member: human() }, 1),
+      event('team/member', { version: 1, teamId: TEAM, member: enterprise }, 2),
+    ])
+
+    expect(state.members.get(CHILD)).toEqual(member())
+    expect(state.members.get(enterprise.id)).toEqual(enterprise)
+    expect(state.humans.get('reviewer-a')).toEqual(human())
+  })
+
+  it('folds monotonic TeamRun and Decision events with operation idempotency', () => {
+    const starting = event('team/run', { version: 1, teamId: TEAM, run: run() }, 0)
+    const active = event('team/run', {
+      version: 1,
+      teamId: TEAM,
+      run: run({ state: 'active', runtimeRevision: 2 }),
+    }, 1)
+    const projected = event('team/decision', {
+      version: 1,
+      teamId: TEAM,
+      decision: decision(),
+    }, 2)
+    const answered = event('team/decision', {
+      version: 1,
+      teamId: TEAM,
+      decision: decision({
+        state: 'answered',
+        answer: 'yes',
+        revision: 2,
+        runtimeRevision: 4,
+        operationId: 'team-decision:respond:decision-a:key-a',
+        respondedBy: { userId: 'reviewer-a', displayName: 'Reviewer A' },
+      }),
+    }, 3)
+    const state = foldTeam(ROOT, [starting, active, projected, answered])
+
+    expect(state.run).toEqual(run({ state: 'active', runtimeRevision: 2 }))
+    expect(state.decisions.get('decision-a')).toEqual(answered.data.decision)
+    expect(state.runtimeRevision).toBe(4)
+    expect(state.operations.get('team-run:start:run-a')).toEqual({ runtimeRevision: 2, sourceEventSeq: 1 })
+    expect(state.operations.get('team-decision:respond:decision-a:key-a')).toEqual({
+      runtimeRevision: 4,
+      sourceEventSeq: 3,
+    })
+  })
+
+  it('rejects runtime revision gaps, stale decision CAS, and conflicting operation reuse', () => {
+    const starting = event('team/run', { version: 1, teamId: TEAM, run: run() }, 0)
+    expect(() => foldTeam(ROOT, [starting, event('team/run', {
+      version: 1,
+      teamId: TEAM,
+      run: run({ state: 'active', runtimeRevision: 3 }),
+    }, 1)])).toThrow(/runtime revision is not contiguous/)
+
+    const active = event('team/run', {
+      version: 1, teamId: TEAM, run: run({ state: 'active', runtimeRevision: 2 }),
+    }, 1)
+    const projected = event('team/decision', {
+      version: 1, teamId: TEAM, decision: decision(),
+    }, 2)
+    expect(() => foldTeam(ROOT, [starting, active, projected, event('team/decision', {
+      version: 1,
+      teamId: TEAM,
+      decision: decision({
+        state: 'answered', answer: 'yes', revision: 3, runtimeRevision: 4,
+        operationId: 'team-decision:respond:decision-a:key-a',
+      }),
+    }, 3)])).toThrow(/decision .* revision is not contiguous/)
+
+    expect(() => foldTeam(ROOT, [starting, active, event('team/run', {
+      version: 1,
+      teamId: TEAM,
+      run: run({
+        state: 'cancelled',
+        runtimeRevision: 3,
+        operationId: 'team-run:start:run-a',
+      }),
+    }, 2)])).toThrow(/operation .* changed intent/)
+  })
+
   it('folds current-team records and ignores inherited records', () => {
     const records: SessionEvent[] = [
       event('team/member', { version: 1, teamId: TeamId('ancestor'), member: member() }, 0),

@@ -15,7 +15,12 @@ import * as SubagentSpawn from '@deepseek-ai/dsh-subagent-spawn-in-process'
 import { MockAdapter, textResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
 import TeamService, { foldTeam, TeamError, TeamId, TeamMessageId, TeamTaskId } from '../src/index.ts'
 import { TeamRuntimeLifecycle } from '../src/lifecycle.ts'
-import type { TeamMemberSnapshot, TeamMessageSnapshot, TeamTaskSnapshot } from '../src/index.ts'
+import type {
+  TeamMemberSnapshot,
+  TeamMessageSnapshot,
+  TeamReleaseSnapshot,
+  TeamTaskSnapshot,
+} from '../src/index.ts'
 import { TestSessionQuery } from './test-session-query.ts'
 
 const SIGNAL = new AbortController().signal
@@ -63,6 +68,16 @@ async function setup(
 
 function content(text: string) {
   return [{ type: 'text' as const, text }]
+}
+
+function enterpriseRelease(releaseId: string): TeamReleaseSnapshot {
+  return {
+    releaseId,
+    digest: `${releaseId}-digest`,
+    presetId: `${releaseId}-preset`,
+    modelRef: { provider: 'mock', model: `${releaseId}-model` },
+    capabilityBindings: [],
+  }
 }
 
 interface TeamServiceInternals {
@@ -120,6 +135,113 @@ async function waitRunning(ctx: Context, id: SessionId): Promise<Agent> {
 }
 
 describe('Team identity and provisioning', () => {
+  it('projects Human and Agent participants with idempotent TeamRun and Decision mutations', async () => {
+    const { ctx, lead } = await setup([])
+    const actor = { userId: 'owner-a', displayName: 'Owner A' }
+    const start = {
+      runId: 'run-a',
+      orgId: 'org-a',
+      teamDefinitionRevision: 4,
+      workspaceId: 'workspace-a',
+      operationId: 'team-run:start:run-a',
+      actor,
+      leader: { sessionId: lead.id, roleId: 'lead', release: enterpriseRelease('release-lead') },
+    }
+
+    await expect(ctx.agentTeams.startRun(lead, start)).resolves.toEqual({ runtimeRevision: 1, sourceEventSeq: 0 })
+    await expect(ctx.agentTeams.startRun(lead, start)).resolves.toEqual({ runtimeRevision: 1, sourceEventSeq: 0 })
+    await ctx.agentTeams.registerHuman(lead, {
+      userId: 'reviewer-a', displayName: 'Reviewer A', roleId: 'reviewer',
+    })
+    await ctx.agentTeams.registerHuman(lead, {
+      userId: 'reviewer-a', displayName: 'Reviewer A', roleId: 'reviewer',
+    })
+    await expect(ctx.agentTeams.setRunState(lead, {
+      operationId: start.operationId, state: 'active', actor,
+    })).resolves.toEqual({ runtimeRevision: 2, sourceEventSeq: 2 })
+    await expect(ctx.agentTeams.projectDecision(lead, {
+      operationId: 'team-decision:project:decision-a',
+      decisionId: 'decision-a',
+      runId: start.runId,
+      kind: 'clarification',
+      question: 'Proceed?',
+      options: ['yes', 'no'],
+      contextDigest: 'context-a',
+      assigneeUserId: 'reviewer-a',
+    })).resolves.toEqual({ runtimeRevision: 3, sourceEventSeq: 3 })
+    const response = {
+      operationId: 'team-decision:respond:decision-a:key-a',
+      decisionId: 'decision-a',
+      expectedRevision: 1,
+      answer: 'yes',
+      actor: { userId: 'reviewer-a', displayName: 'Reviewer A' },
+    }
+    await expect(ctx.agentTeams.respondDecision(lead, response)).resolves.toEqual({
+      runtimeRevision: 4, sourceEventSeq: 4,
+    })
+    await expect(ctx.agentTeams.respondDecision(lead, response)).resolves.toEqual({
+      runtimeRevision: 4, sourceEventSeq: 4,
+    })
+    await expect(ctx.agentTeams.respondDecision(lead, {
+      ...response, operationId: 'team-decision:respond:decision-a:key-b', answer: 'no',
+    })).rejects.toMatchObject({ code: 'TEAM_DECISION_CONFLICT' })
+
+    expect(ctx.agentTeams.remoteView(lead)).toMatchObject({
+      members: [
+        { kind: 'agent', name: 'lead', employeeReleaseId: 'release-lead', roleId: 'lead' },
+      ],
+      humans: [
+        { kind: 'human', userId: 'reviewer-a', displayName: 'Reviewer A', roleId: 'reviewer' },
+      ],
+      roster: [
+        { kind: 'agent', name: 'lead', employeeReleaseId: 'release-lead', roleId: 'lead' },
+        { kind: 'human', userId: 'reviewer-a', displayName: 'Reviewer A', roleId: 'reviewer' },
+      ],
+      run: { runId: 'run-a', state: 'active', runtimeRevision: 2 },
+      decisions: [{ decisionId: 'decision-a', state: 'answered', answer: 'yes', runtimeRevision: 4 }],
+    })
+  })
+
+  it('forwards immutable enterprise composition to a continuable teammate without a Human identity', async () => {
+    const { ctx, lead } = await setup([textResponse('enterprise child')])
+    const start = ctx.subagents.startContinuable.bind(ctx.subagents)
+    const captured: unknown[] = []
+    vi.spyOn(ctx.subagents, 'startContinuable').mockImplementation(async (spec) => {
+      captured.push(spec)
+      return start(spec)
+    })
+    const release = enterpriseRelease('release-buyer')
+
+    const created = await ctx.agentTeams.spawnTeammate(lead, {
+      name: 'buyer',
+      description: 'Buyer responsibility',
+      prompt: content('Buy safely'),
+      context: 'fresh',
+      provider: 'spawn',
+      agentOptions: { provider: 'mock', model: 'release-buyer-model' },
+      persona: 'You are the immutable buyer release.',
+      toolFilter: { deny: [] },
+      employeeReleaseId: release.releaseId,
+      roleId: 'buyer',
+      release,
+      signal: SIGNAL,
+    })
+
+    const capturedRequest = (captured[0] as { request?: Record<string, unknown> } | undefined)?.request
+    expect(capturedRequest?.['agentOptions']).toEqual({ provider: 'mock', model: 'release-buyer-model' })
+    expect(capturedRequest?.['persona']).toBe('You are the immutable buyer release.')
+    expect(capturedRequest?.['toolFilter']).toEqual({ deny: [] })
+    expect(durable(lead).members[0]).toMatchObject({
+      id: created.member.id,
+      employeeReleaseId: 'release-buyer',
+      roleId: 'buyer',
+      release,
+    })
+    expect(Object.hasOwn(captured[0] as object, 'actor')).toBe(false)
+    expect(Object.hasOwn(captured[0] as object, 'principal')).toBe(false)
+    await waitNoAgent(ctx, created.member.id)
+  })
+
   it('rejects deployment limits that are not positive safe integers', async () => {
     const fields = [
       'maxMembers',
@@ -843,7 +965,10 @@ describe('Team Remote API', () => {
     expect(ctx.agentTeams.typertRemote).toMatchObject({ serviceKey: 'agentTeams', namespace: 'agentTeams' })
     expect(ctx.agentTeams.remoteView(lead)).toEqual({
       members: [expect.objectContaining({ name: 'lead', role: 'lead', status: 'idle' })],
+      humans: [],
+      roster: [expect.objectContaining({ name: 'lead', role: 'lead', status: 'idle' })],
       tasks: [],
+      decisions: [],
     })
 
     const createdResult = await ctx.agentTeams.remoteCreateTask(lead, {

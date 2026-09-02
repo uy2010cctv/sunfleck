@@ -8,6 +8,7 @@ import { Remote, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 import { TeamActivity } from './activity.ts'
 import { errorMessage, TeamError } from './error.ts'
 import { TeamJournal } from './journal.ts'
+import { TeamEnterpriseRuntime } from './enterprise-runtime.ts'
 import { TeamRuntimeLifecycle } from './lifecycle.ts'
 import { TeamMailbox } from './mailbox.ts'
 import { TeamRoster } from './roster.ts'
@@ -21,7 +22,14 @@ import type {
   SendTeamMessageResult,
   SpawnTeammateRequest,
   SpawnTeammateResult,
+  TeamDecisionProjectRequest,
+  TeamDecisionResponseRequest,
+  TeamHumanMemberSnapshot,
   TeamMemberView,
+  TeamRosterMemberView,
+  TeamRunStartRequest,
+  TeamRunStateRequest,
+  TeamRuntimeMutationReceipt,
   TeamTaskMutationResult,
   TeamTaskView,
   TeamView,
@@ -76,6 +84,7 @@ export class TeamService extends TypertRemoteService {
   private readonly roster: TeamRoster
   private readonly mailbox: TeamMailbox
   private readonly tasks: TeamTaskBoard
+  private readonly enterprise: TeamEnterpriseRuntime
 
   constructor(ctx: Context, config: Config = {}) {
     super(ctx, 'agentTeams')
@@ -106,6 +115,7 @@ export class TeamService extends TypertRemoteService {
       this.config.maxMessageBytes,
     )
     this.tasks = new TeamTaskBoard(this.journal, this.config.maxTasks)
+    this.enterprise = new TeamEnterpriseRuntime(this.journal)
 
     ctx.on('session/event', (session, event) => { this.mailbox.observeSessionEvent(session, event) })
     ctx.on('agent/session-start', ({ agent }) => { this.scheduleRecovery(agent) })
@@ -133,6 +143,85 @@ export class TeamService extends TypertRemoteService {
    */
   listMembers(agent: Agent): TeamMemberView[] {
     return this.roster.list(this.roster.membership(agent))
+  }
+
+  /**
+   * Return the Agent and Human roster without granting Humans Agent authority.
+   * @param agent - exact live Team member used to resolve the root Team.
+   * @returns Agent and Human rows in durable roster order.
+   */
+  listRoster(agent: Agent): TeamRosterMemberView[] {
+    const membership = this.roster.membership(agent)
+    const state = this.journal.state(membership.root)
+    return [
+      ...this.roster.list(membership),
+      ...[...state.humans.values()].map(member => ({
+        kind: 'human' as const,
+        id: member.userId,
+        userId: member.userId,
+        displayName: member.displayName,
+        name: member.displayName,
+        role: 'human' as const,
+        roleId: member.roleId,
+        status: 'active' as const,
+        diagnostics: [],
+      })),
+    ]
+  }
+
+  /**
+   * Append or recover the authoritative starting TeamRun mutation.
+   * @param root - exact live Team Lead whose Session owns the run.
+   * @param request - immutable run identity, Release evidence, actor, and operation id.
+   * @returns committed runtime revision and root event position.
+   */
+  startRun(root: Agent, request: TeamRunStartRequest): Promise<TeamRuntimeMutationReceipt> {
+    this.requireLead(root)
+    return this.enterprise.start(root, request)
+  }
+
+  /**
+   * Register a Human in the shared roster without Agent mailbox authority.
+   * @param root - exact live Team Lead whose Session owns the roster.
+   * @param member - immutable Human identity, display name, and Team role.
+   * @returns once the Human roster event is durable.
+   */
+  registerHuman(root: Agent, member: TeamHumanMemberSnapshot): Promise<void> {
+    this.requireLead(root)
+    return this.enterprise.registerHuman(root, member)
+  }
+
+  /**
+   * Append one authoritative TeamRun transition.
+   * @param root - exact live Team Lead whose Session owns the run.
+   * @param request - target state, Human attribution, failure, and operation id.
+   * @returns committed runtime revision and root event position.
+   */
+  setRunState(root: Agent, request: TeamRunStateRequest): Promise<TeamRuntimeMutationReceipt> {
+    this.requireLead(root)
+    return this.enterprise.setState(root, request)
+  }
+
+  /**
+   * Append one runtime-projected Human decision.
+   * @param root - exact live Team Lead whose Session owns the decision.
+   * @param request - immutable open-decision fields and projection operation id.
+   * @returns committed runtime revision and root event position.
+   */
+  projectDecision(root: Agent, request: TeamDecisionProjectRequest): Promise<TeamRuntimeMutationReceipt> {
+    this.requireLead(root)
+    return this.enterprise.projectDecision(root, request)
+  }
+
+  /**
+   * Append one CAS-protected Human answer.
+   * @param root - exact live Team Lead whose Session owns the decision.
+   * @param request - decision revision, answer, Human attribution, and operation id.
+   * @returns committed runtime revision and root event position.
+   */
+  respondDecision(root: Agent, request: TeamDecisionResponseRequest): Promise<TeamRuntimeMutationReceipt> {
+    this.requireLead(root)
+    return this.enterprise.respondDecision(root, request)
   }
 
   /**
@@ -232,9 +321,18 @@ export class TeamService extends TypertRemoteService {
    */
   @Remote('view')
   remoteView(agent: Agent): TeamView {
+    const membership = this.roster.membership(agent)
+    const state = this.journal.state(membership.root)
     return {
       members: this.listMembers(agent),
+      humans: [...state.humans.values()].map(member => ({
+        kind: 'human', id: member.userId, userId: member.userId, displayName: member.displayName,
+        name: member.displayName, role: 'human', roleId: member.roleId, status: 'active', diagnostics: [],
+      })),
+      roster: this.listRoster(agent),
       tasks: this.listTasks(agent),
+      ...state.run === undefined ? {} : { run: state.run },
+      decisions: [...state.decisions.values()],
     }
   }
 
@@ -273,6 +371,13 @@ export class TeamService extends TypertRemoteService {
           message: error.message,
         },
       }
+    }
+  }
+
+  /** Require the exact live Team Lead for Host-only enterprise mutations. */
+  private requireLead(agent: Agent): void {
+    if (this.roster.membership(agent).role !== 'lead') {
+      throw new TeamError('enterprise Team runtime mutations require the Team Lead', 'TEAM_LEAD_REQUIRED')
     }
   }
 

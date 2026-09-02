@@ -5,10 +5,14 @@ import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionEvent, SessionEventMap } from '@deepseek-ai/dsh-session'
 import type {
+  TeamDecisionSnapshot,
+  TeamHumanMemberSnapshot,
   TeamId,
   TeamMemberSnapshot,
   TeamMessageId,
   TeamMessageSnapshot,
+  TeamRunSnapshot,
+  TeamRuntimeMutationReceipt,
   TeamTaskId,
   TeamTaskSnapshot,
 } from './types.ts'
@@ -29,6 +33,23 @@ const teamTaskIdSchema = z.string().min(1).refine((value) => {
   return match === null || Number.isSafeInteger(Number(match[1]))
 }, { message: 'numeric task id suffix must be a safe integer' }).transform(value => toTeamTaskId(value))
 const teamMessageIdSchema = z.string().min(1).transform(value => toTeamMessageId(value))
+const requiredText = z.string().min(1)
+
+const capabilityBindingSchema = z.object({
+  kind: z.enum(['sop', 'knowledge', 'skill', 'tool', 'model']),
+  assetId: requiredText,
+  version: positiveSafeInteger,
+}).strict()
+
+const releaseSchema = z.object({
+  releaseId: requiredText,
+  digest: requiredText,
+  presetId: requiredText,
+  modelRef: z.object({ provider: requiredText, model: requiredText }).strict(),
+  capabilityBindings: z.array(capabilityBindingSchema),
+}).strict()
+
+const humanActorSchema = z.object({ userId: requiredText, displayName: requiredText }).strict()
 
 const coreContentBlockTypes = new Set(['text', 'reasoning', 'image', 'tool-call', 'tool-result'])
 const imageAttachmentSchema = z.object({
@@ -72,7 +93,46 @@ const teamMemberSnapshotSchema = z.object({
   context: z.enum(['fresh', 'fork']),
   phase: z.enum(['provisioning', 'active', 'failed']),
   error: z.string().optional(),
+  employeeReleaseId: requiredText.optional(),
+  roleId: requiredText.optional(),
+  release: releaseSchema.optional(),
 }).strict() as z.ZodType<TeamMemberSnapshot>
+
+const humanMemberSnapshotSchema = z.object({
+  userId: requiredText,
+  displayName: requiredText,
+  roleId: requiredText,
+}).strict() as z.ZodType<TeamHumanMemberSnapshot>
+
+const runSnapshotSchema = z.object({
+  runId: requiredText,
+  orgId: requiredText,
+  teamDefinitionRevision: positiveSafeInteger,
+  workspaceId: requiredText,
+  operationId: requiredText,
+  state: z.enum(['starting', 'active', 'waiting-human', 'verifying', 'completed', 'failed', 'cancelled']),
+  runtimeRevision: positiveSafeInteger,
+  actor: humanActorSchema,
+  leader: z.object({ sessionId: sessionIdSchema, roleId: requiredText, release: releaseSchema }).strict(),
+  failure: z.object({ code: requiredText, message: z.string().optional() }).strict().optional(),
+}).strict() as z.ZodType<TeamRunSnapshot>
+
+const decisionSnapshotSchema = z.object({
+  decisionId: requiredText,
+  runId: requiredText,
+  kind: z.enum(['approval', 'handoff', 'clarification']),
+  question: requiredText,
+  options: z.array(z.string()),
+  recommendation: z.string().optional(),
+  contextDigest: requiredText,
+  assigneeUserId: requiredText,
+  state: z.enum(['open', 'answered', 'cancelled', 'expired']),
+  answer: z.string().optional(),
+  revision: positiveSafeInteger,
+  runtimeRevision: positiveSafeInteger,
+  operationId: requiredText,
+  respondedBy: humanActorSchema.optional(),
+}).strict() as z.ZodType<TeamDecisionSnapshot>
 
 const teamTaskSnapshotSchema = z.object({
   id: teamTaskIdSchema,
@@ -124,14 +184,38 @@ const teamMessageDeliveredEventSchema = z.object({
   targetId: sessionIdSchema,
 }).strict() as z.ZodType<SessionEventMap['team/message/delivered']>
 
+const teamRunEventSchema = z.object({
+  version: z.literal(1),
+  teamId: teamIdSchema,
+  run: runSnapshotSchema,
+}).strict() as z.ZodType<SessionEventMap['team/run']>
+
+const teamHumanMemberEventSchema = z.object({
+  version: z.literal(1),
+  teamId: teamIdSchema,
+  member: humanMemberSnapshotSchema,
+}).strict() as z.ZodType<SessionEventMap['team/human-member']>
+
+const teamDecisionEventSchema = z.object({
+  version: z.literal(1),
+  teamId: teamIdSchema,
+  decision: decisionSnapshotSchema,
+}).strict() as z.ZodType<SessionEventMap['team/decision']>
+
 /** Mutable internal replay state. */
 export interface TeamFoldState {
   readonly id: TeamId
   readonly members: Map<SessionId, TeamMemberSnapshot>
   readonly memberIdsByName: Map<string, SessionId>
+  readonly humans: Map<string, TeamHumanMemberSnapshot>
   readonly tasks: Map<TeamTaskId, TeamTaskSnapshot>
   readonly messages: Map<TeamMessageId, TeamMessageSnapshot>
   readonly delivered: Set<TeamMessageId>
+  readonly decisions: Map<string, TeamDecisionSnapshot>
+  readonly operations: Map<string, TeamRuntimeMutationReceipt>
+  readonly operationIntents: Map<string, string>
+  run: TeamRunSnapshot | undefined
+  runtimeRevision: number
   nextTaskNumber: number
 }
 
@@ -145,9 +229,15 @@ export function emptyTeamFoldState(rootId: SessionId): TeamFoldState {
     id: toTeamId(rootId),
     members: new Map(),
     memberIdsByName: new Map(),
+    humans: new Map(),
     tasks: new Map(),
     messages: new Map(),
     delivered: new Set(),
+    decisions: new Map(),
+    operations: new Map(),
+    operationIntents: new Map(),
+    run: undefined,
+    runtimeRevision: 0,
     nextTaskNumber: 1,
   }
 }
@@ -158,6 +248,9 @@ export type TeamEventType =
   | 'team/task'
   | 'team/message/queued'
   | 'team/message/delivered'
+  | 'team/run'
+  | 'team/human-member'
+  | 'team/decision'
 
 /** One event owned by the Team domain. */
 export type TeamSessionEvent = SessionEvent<TeamEventType>
@@ -172,6 +265,9 @@ export function isTeamEvent(event: SessionEvent): event is TeamSessionEvent {
     || event.type === 'team/task'
     || event.type === 'team/message/queued'
     || event.type === 'team/message/delivered'
+    || event.type === 'team/run'
+    || event.type === 'team/human-member'
+    || event.type === 'team/decision'
 }
 
 /** Decode one persisted Team value and retain the schema failure as its cause. */
@@ -194,10 +290,53 @@ function parseCurrentTeamEvent(event: TeamSessionEvent): TeamSessionEvent {
       return { ...event, data: parsePersisted(event.type, teamMessageQueuedEventSchema, event.data) }
     case 'team/message/delivered':
       return { ...event, data: parsePersisted(event.type, teamMessageDeliveredEventSchema, event.data) }
+    case 'team/run':
+      return { ...event, data: parsePersisted(event.type, teamRunEventSchema, event.data) }
+    case 'team/human-member':
+      return { ...event, data: parsePersisted(event.type, teamHumanMemberEventSchema, event.data) }
+    case 'team/decision':
+      return { ...event, data: parsePersisted(event.type, teamDecisionEventSchema, event.data) }
     /* v8 ignore next 2 -- TeamEventType is closed and every member is handled above. */
     default:
       return event
   }
+}
+
+/** Require one enterprise runtime event to advance the root-wide revision exactly once. */
+function advanceRuntime(
+  state: TeamFoldState,
+  operationId: string,
+  intent: string,
+  runtimeRevision: number,
+  sourceEventSeq: number,
+): void {
+  const priorIntent = state.operationIntents.get(operationId)
+  if (priorIntent !== undefined && priorIntent !== intent) {
+    throw new Error(`team runtime operation "${operationId}" changed intent`)
+  }
+  if (runtimeRevision !== state.runtimeRevision + 1) {
+    throw new Error(`team runtime revision is not contiguous: expected ${String(state.runtimeRevision + 1)}, got ${String(runtimeRevision)}`)
+  }
+  state.runtimeRevision = runtimeRevision
+  state.operationIntents.set(operationId, intent)
+  state.operations.set(operationId, { runtimeRevision, sourceEventSeq })
+}
+
+const RUN_TRANSITIONS: Readonly<Record<TeamRunSnapshot['state'], ReadonlySet<TeamRunSnapshot['state']>>> = {
+  starting: new Set(['active', 'failed', 'cancelled']),
+  active: new Set(['waiting-human', 'verifying', 'completed', 'failed', 'cancelled']),
+  'waiting-human': new Set(['active', 'verifying', 'failed', 'cancelled']),
+  verifying: new Set(['active', 'completed', 'failed', 'cancelled']),
+  completed: new Set(),
+  failed: new Set(),
+  cancelled: new Set(),
+}
+
+/** Stable intent lets a start operation own both its starting and terminal admission records. */
+function runOperationIntent(run: TeamRunSnapshot, prior: TeamRunSnapshot | undefined): string {
+  return prior === undefined || (prior.operationId === run.operationId && prior.state === 'starting')
+    ? `run-start:${run.runId}`
+    : `run-${run.state}:${run.runId}`
 }
 
 /**
@@ -227,7 +366,9 @@ export function applyTeamEvent(state: TeamFoldState, event: SessionEvent): void 
         if (member.phase !== 'provisioning') throw new Error(`teammate "${member.name}" must begin provisioning`)
         state.memberIdsByName.set(member.name, member.id)
       } else {
-        if (prior.name !== member.name || prior.provider !== member.provider || prior.context !== member.context) {
+        if (prior.name !== member.name || prior.provider !== member.provider || prior.context !== member.context
+          || prior.employeeReleaseId !== member.employeeReleaseId || prior.roleId !== member.roleId
+          || JSON.stringify(prior.release) !== JSON.stringify(member.release)) {
           throw new Error(`teammate "${member.id}" changed immutable identity fields`)
         }
         if (prior.phase !== 'provisioning' || member.phase === 'provisioning') {
@@ -235,6 +376,15 @@ export function applyTeamEvent(state: TeamFoldState, event: SessionEvent): void 
         }
       }
       state.members.set(member.id, member)
+      break
+    }
+    case 'team/human-member': {
+      const member = decoded.data.member
+      const prior = state.humans.get(member.userId)
+      if (prior !== undefined && JSON.stringify(prior) !== JSON.stringify(member)) {
+        throw new Error(`human Team member "${member.userId}" changed immutable identity fields`)
+      }
+      state.humans.set(member.userId, member)
       break
     }
     case 'team/task': {
@@ -270,6 +420,56 @@ export function applyTeamEvent(state: TeamFoldState, event: SessionEvent): void 
       if (queued.targetId !== decoded.data.targetId) throw new Error(`team message "${decoded.data.messageId}" target changed`)
       if (state.delivered.has(decoded.data.messageId)) throw new Error(`team message "${decoded.data.messageId}" was delivered twice`)
       state.delivered.add(decoded.data.messageId)
+      break
+    }
+    case 'team/run': {
+      const run = decoded.data.run
+      const prior = state.run
+      if (prior !== undefined) {
+        if (prior.runId !== run.runId || prior.orgId !== run.orgId
+          || prior.teamDefinitionRevision !== run.teamDefinitionRevision
+          || prior.workspaceId !== run.workspaceId
+          || JSON.stringify(prior.leader) !== JSON.stringify(run.leader)) {
+          throw new Error(`TeamRun "${run.runId}" changed immutable identity fields`)
+        }
+        if (!RUN_TRANSITIONS[prior.state].has(run.state)) {
+          throw new Error(`TeamRun "${run.runId}" has an invalid ${prior.state} -> ${run.state} transition`)
+        }
+      } else if (run.state !== 'starting') {
+        throw new Error(`TeamRun "${run.runId}" must begin starting`)
+      }
+      advanceRuntime(state, run.operationId, runOperationIntent(run, prior), run.runtimeRevision, decoded.seq)
+      state.run = run
+      break
+    }
+    case 'team/decision': {
+      const decision = decoded.data.decision
+      if (state.run?.runId !== decision.runId) {
+        throw new Error(`team decision "${decision.decisionId}" does not belong to the current TeamRun`)
+      }
+      const prior = state.decisions.get(decision.decisionId)
+      if (prior === undefined) {
+        if (decision.state !== 'open' || decision.revision !== 1) {
+          throw new Error(`team decision "${decision.decisionId}" must begin open at revision 1`)
+        }
+      } else {
+        if (decision.revision !== prior.revision + 1) {
+          throw new Error(`team decision "${decision.decisionId}" revision is not contiguous`)
+        }
+        if (prior.state !== 'open' || decision.state === 'open') {
+          throw new Error(`team decision "${decision.decisionId}" has an invalid ${prior.state} -> ${decision.state} transition`)
+        }
+        if (prior.runId !== decision.runId || prior.kind !== decision.kind || prior.question !== decision.question
+          || prior.contextDigest !== decision.contextDigest || prior.assigneeUserId !== decision.assigneeUserId
+          || JSON.stringify(prior.options) !== JSON.stringify(decision.options)) {
+          throw new Error(`team decision "${decision.decisionId}" changed immutable identity fields`)
+        }
+      }
+      const intent = prior === undefined
+        ? `decision-project:${decision.decisionId}`
+        : `decision-${decision.state}:${decision.decisionId}`
+      advanceRuntime(state, decision.operationId, intent, decision.runtimeRevision, decoded.seq)
+      state.decisions.set(decision.decisionId, decision)
       break
     }
     /* v8 ignore next 2 -- TeamEventType is closed and every member is handled above. */

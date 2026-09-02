@@ -51,6 +51,21 @@ describe('EnterpriseRequestContext', () => {
     expect(context.current()).toBeUndefined()
   })
 
+  it('runs Agent-owned work without inheriting the active Human principal', async () => {
+    const context = new EnterpriseRequestContext()
+    const member = principal('member-1')
+
+    await context.run(member, async () => {
+      expect(context.requirePrincipal()).toBe(member)
+      await context.withoutPrincipal(async () => {
+        await Promise.resolve()
+        expect(context.current()).toBeUndefined()
+        expect(() => context.requirePrincipal()).toThrow(/authenticated enterprise principal is required/)
+      })
+      expect(context.requirePrincipal()).toBe(member)
+    })
+  })
+
   it('disable and dispose clear inherited asynchronous stores', async () => {
     for (const stop of ['disable', 'dispose'] as const) {
       const context = new EnterpriseRequestContext()

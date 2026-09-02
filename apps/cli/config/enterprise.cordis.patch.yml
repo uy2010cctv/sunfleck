@@ -30,6 +30,10 @@
       - session-persistence-postgres
       - enterprise-auth-web
       - enterprise-cordis-runtime
+      - agent-team
+      - tool-agent-team
+      - ui-agent-team
+      - enterprise-team-runtime
       - enterprise-controller
 
 - insert:
@@ -87,6 +91,20 @@
       name: '@deepseek-ai/dsh-enterprise-cordis-runtime'
       config:
         artifactRoot: !!js dshHomePath('enterprise/artifacts/cordis')
+
+    # Private source-checkout Team composition. The ordinary Web profile stays
+    # unchanged; the enterprise controller fails loud without this runtime.
+    - id: agent-team
+      name: '@deepseek-ai/dsh-experimental-agent-team'
+
+    - id: tool-agent-team
+      name: '@deepseek-ai/dsh-experimental-tool-agent-team'
+
+    - id: ui-agent-team
+      name: '@deepseek-ai/dsh-experimental-client-ui-agent-team'
+
+    - id: enterprise-team-runtime
+      name: '@deepseek-ai/dsh-experimental-enterprise-team-runtime'
 
     - id: enterprise-controller
       name: '@deepseek-ai/dsh-api-enterprise-controller'

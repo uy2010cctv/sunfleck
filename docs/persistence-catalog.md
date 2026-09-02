@@ -759,6 +759,32 @@ Source: [`packages/subagent/tool-subagent/src/model-selection-state.ts:14`](../p
 
 ### `team/*`
 
+<a id="teamdecision--log-only"></a>
+
+#### `team/decision` — log-only
+
+```ts persistence-catalog
+/** Authoritative Human decision value, stored only in the Team Lead Session. */
+'team/decision': { version: 1; teamId: TeamId; decision: TeamDecisionSnapshot }
+```
+
+Types: [TeamId](subsystems/agent-team.md)
+
+Source: [`packages/experimental/agent-team/src/types.ts:389`](../packages/experimental/agent-team/src/types.ts)
+
+<a id="teamhuman-member--log-only"></a>
+
+#### `team/human-member` — log-only
+
+```ts persistence-catalog
+/** Human roster row, stored only in the Team Lead Session and never granted Agent mailbox authority. */
+'team/human-member': { version: 1; teamId: TeamId; member: TeamHumanMemberSnapshot }
+```
+
+Types: [TeamId](subsystems/agent-team.md)
+
+Source: [`packages/experimental/agent-team/src/types.ts:387`](../packages/experimental/agent-team/src/types.ts)
+
 <a id="teammember--log-only"></a>
 
 #### `team/member` — log-only
@@ -770,7 +796,7 @@ Source: [`packages/subagent/tool-subagent/src/model-selection-state.ts:14`](../p
 
 Types: [TeamId](subsystems/agent-team.md) · [TeamMemberSnapshot](subsystems/agent-team.md)
 
-Source: [`packages/experimental/agent-team/src/types.ts:223`](../packages/experimental/agent-team/src/types.ts)
+Source: [`packages/experimental/agent-team/src/types.ts:372`](../packages/experimental/agent-team/src/types.ts)
 
 <a id="teammessagedelivered--log-only"></a>
 
@@ -788,7 +814,7 @@ Source: [`packages/experimental/agent-team/src/types.ts:223`](../packages/experi
 
 Types: [TeamId](subsystems/agent-team.md) · [TeamMessageId](subsystems/agent-team.md)
 
-Source: [`packages/experimental/agent-team/src/types.ts:229`](../packages/experimental/agent-team/src/types.ts)
+Source: [`packages/experimental/agent-team/src/types.ts:378`](../packages/experimental/agent-team/src/types.ts)
 
 <a id="teammessagequeued--log-only"></a>
 
@@ -801,7 +827,20 @@ Source: [`packages/experimental/agent-team/src/types.ts:229`](../packages/experi
 
 Types: [TeamId](subsystems/agent-team.md) · [TeamMessageSnapshot](subsystems/agent-team.md)
 
-Source: [`packages/experimental/agent-team/src/types.ts:227`](../packages/experimental/agent-team/src/types.ts)
+Source: [`packages/experimental/agent-team/src/types.ts:376`](../packages/experimental/agent-team/src/types.ts)
+
+<a id="teamrun--log-only"></a>
+
+#### `team/run` — log-only
+
+```ts persistence-catalog
+/** Authoritative enterprise TeamRun value, stored only in the Team Lead Session. */
+'team/run': { version: 1; teamId: TeamId; run: TeamRunSnapshot }
+```
+
+Types: [TeamId](subsystems/agent-team.md)
+
+Source: [`packages/experimental/agent-team/src/types.ts:385`](../packages/experimental/agent-team/src/types.ts)
 
 <a id="teamtask--log-only"></a>
 
@@ -814,7 +853,7 @@ Source: [`packages/experimental/agent-team/src/types.ts:227`](../packages/experi
 
 Types: [TeamId](subsystems/agent-team.md) · [TeamTaskSnapshot](subsystems/agent-team.md)
 
-Source: [`packages/experimental/agent-team/src/types.ts:225`](../packages/experimental/agent-team/src/types.ts)
+Source: [`packages/experimental/agent-team/src/types.ts:374`](../packages/experimental/agent-team/src/types.ts)
 
 ### `todo/*`
 

@@ -59,6 +59,27 @@ describe('enterprise workbench Web composition', () => {
     ]))
   })
 
+  it('orders private Agent Teams Host, Client, and runtime rows before the enterprise controller', () => {
+    const rows = readEnterpriseOverlay()
+    const inserted = rows.flatMap(row => row.insert ?? [])
+    const ids = inserted.map(row => row.id)
+    expect(ids).toEqual(expect.arrayContaining([
+      'agent-team', 'tool-agent-team', 'ui-agent-team', 'enterprise-team-runtime', 'enterprise-controller',
+    ]))
+    expect(ids.indexOf('agent-team')).toBeLessThan(ids.indexOf('tool-agent-team'))
+    expect(ids.indexOf('tool-agent-team')).toBeLessThan(ids.indexOf('enterprise-team-runtime'))
+    expect(ids.indexOf('ui-agent-team')).toBeLessThan(ids.indexOf('enterprise-controller'))
+    expect(ids.indexOf('enterprise-team-runtime')).toBeLessThan(ids.indexOf('enterprise-controller'))
+    expect(inserted.find(row => row.id === 'enterprise-team-runtime')).toMatchObject({
+      name: '@deepseek-ai/dsh-experimental-enterprise-team-runtime',
+    })
+    const ordinaryRows = load(
+      readFileSync(`${PACKAGE_ROOT}/cordis.patch.yml`, 'utf8'),
+      { schema: entryListSchema },
+    ) as PatchRow[]
+    expect(ordinaryRows.flatMap(row => row.insert ?? []).map(row => row.id)).not.toContain('enterprise-team-runtime')
+  })
+
   it('makes enterprise Postgres and auth visible before Loader activates connection', async () => {
     const rows = readEnterpriseOverlay()
     const connection = rows.find(row => row.id === 'connection')

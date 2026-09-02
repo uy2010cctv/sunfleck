@@ -208,13 +208,8 @@ function operations(ctx: Context): EnterpriseOperationsService {
 
 function teamControl(ctx: Context): EnterpriseTeamControlService {
   const runtime = ctx.get('enterpriseTeamRuntimeDriver')
-  const unavailable: EnterpriseTeamRuntimeDriver = {
-    startRun: () => Promise.reject(new EnterpriseTeamRuntimeError('deterministic', 'team-runtime-unavailable')),
-    cancelRun: () => Promise.reject(new EnterpriseTeamRuntimeError('deterministic', 'team-runtime-unavailable')),
-    respondDecision: () => Promise.reject(new EnterpriseTeamRuntimeError('deterministic', 'team-runtime-unavailable')),
-    reconcileRun: () => Promise.reject(new EnterpriseTeamRuntimeError('unknown', 'team-runtime-unavailable')),
-  }
-  return new EnterpriseTeamControlService(ctx.enterprisePostgres.teamControl, runtime ?? unavailable, {
+  if (runtime === undefined) throw new Error('enterprise Team runtime driver is required')
+  return new EnterpriseTeamControlService(ctx.enterprisePostgres.teamControl, runtime, {
     authorize: (actor, endpoint, input) => ctx.enterpriseSecurity.authorizeApiAsync(actor, endpoint, input),
     authorizeWorkspace: async (actor, workspaceId) =>
       (await ctx.enterpriseSecurity.authorizeApiAsync(actor, 'session.create', { workspaceId })).allowed,
@@ -597,9 +592,14 @@ export class EnterpriseTeamDefinitionController extends TypertRemoteService {
 
 /** Enterprise TeamRun query and command Remote service. */
 export class EnterpriseTeamRunController extends TypertRemoteService {
-  static inject = ['enterprisePostgres', 'enterpriseSecurity', 'enterpriseRequestContext']
+  static inject = ['enterprisePostgres', 'enterpriseSecurity', 'enterpriseRequestContext', 'enterpriseTeamRuntimeDriver']
   /** @param ctx - authenticated enterprise Host context. */
-  constructor(ctx: Context) { super(ctx, 'enterpriseTeamRunController', { namespace: 'enterpriseTeamRun' }) }
+  constructor(ctx: Context) {
+    super(ctx, 'enterpriseTeamRunController', { namespace: 'enterpriseTeamRun' })
+    if (ctx.get('enterpriseTeamRuntimeDriver') === undefined) {
+      throw new Error('enterprise Team runtime driver is required')
+    }
+  }
 
   /**
    * List visible TeamRun projections.
@@ -645,9 +645,14 @@ export class EnterpriseTeamRunController extends TypertRemoteService {
 
 /** Enterprise TeamDecision query and human-response Remote service. */
 export class EnterpriseTeamDecisionController extends TypertRemoteService {
-  static inject = ['enterprisePostgres', 'enterpriseSecurity', 'enterpriseRequestContext']
+  static inject = ['enterprisePostgres', 'enterpriseSecurity', 'enterpriseRequestContext', 'enterpriseTeamRuntimeDriver']
   /** @param ctx - authenticated enterprise Host context. */
-  constructor(ctx: Context) { super(ctx, 'enterpriseTeamDecisionController', { namespace: 'enterpriseTeamDecision' }) }
+  constructor(ctx: Context) {
+    super(ctx, 'enterpriseTeamDecisionController', { namespace: 'enterpriseTeamDecision' })
+    if (ctx.get('enterpriseTeamRuntimeDriver') === undefined) {
+      throw new Error('enterprise Team runtime driver is required')
+    }
+  }
   /**
    * List visible runtime-emitted decisions.
    * @param request - visible decision filters.
