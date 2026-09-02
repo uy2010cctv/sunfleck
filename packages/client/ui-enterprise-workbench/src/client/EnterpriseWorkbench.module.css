@@ -837,6 +837,13 @@
 .channelPolicyPreview { display: flex; align-items: center; flex-wrap: wrap; gap: var(--dse-space-2xs); color: var(--dse-color-muted); font-size: 0.6875rem; }
 .channelPolicyPreview em, .channelIntentRow div span { padding: 3px var(--dse-space-2xs); border-radius: 999px; background: var(--dse-color-surface); color: var(--dse-color-ink); font-style: normal; }
 .channelFormActions { display: flex; justify-content: flex-end; gap: var(--dse-space-2xs); }
+.channelAttention { display: grid; gap: var(--dse-space-2xs); margin-block-end: var(--dse-space-md); padding: var(--dse-space-xs); border: 1px solid color-mix(in srgb, var(--dse-color-warning) 28%, var(--dse-color-border)); border-radius: var(--dse-radius-control); background: color-mix(in srgb, var(--dse-color-warning) 7%, var(--dse-color-surface)); }
+.channelAttention button { min-inline-size: 0; display: grid; grid-template-columns: auto minmax(7rem, auto) minmax(0, 1fr); align-items: center; gap: var(--dse-space-xs); padding: var(--dse-space-xs); border: 0; border-radius: var(--dse-radius-control); background: transparent; color: var(--dse-color-ink); text-align: start; cursor: pointer; }
+.channelAttention button:hover { background: var(--dse-color-surface-raised); }
+.channelAttention button:focus-visible { outline: 2px solid var(--dse-color-focus); outline-offset: 2px; }
+.channelAttention button svg { color: var(--dse-color-warning); }
+.channelAttention button strong { font-size: 0.75rem; overflow-wrap: anywhere; }
+.channelAttention button span { color: var(--dse-color-muted); font-size: 0.75rem; line-height: 1.45; overflow-wrap: anywhere; }
 .channelList { border-block-start: 1px solid var(--dse-color-border); }
 .channelRow { display: grid; gap: var(--dse-space-sm); padding-block: var(--dse-space-md); border-block-end: 1px solid var(--dse-color-border); }
 .channelRow[data-state='paused'], .channelRow[data-state='draft'] { opacity: 0.82; }
@@ -845,6 +852,8 @@
 .channelIdentity h3, .channelIdentity p { margin: 0; }
 .channelIdentity h3 { font-size: 1rem; letter-spacing: -0.015em; }
 .channelIdentity p { margin-block-start: 2px; color: var(--dse-color-muted); font-family: var(--dse-font-mono); font-size: 0.6875rem; overflow-wrap: anywhere; }
+.channelStatuses { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: var(--dse-space-3xs); }
+.channelStatuses > span { padding: 3px var(--dse-space-2xs); border-radius: 999px; background: var(--dse-color-surface); color: var(--dse-color-muted); font-size: 0.6875rem; font-weight: 650; }
 .channelState { padding: 3px var(--dse-space-2xs); border-radius: 999px; background: var(--dse-color-accent-soft); color: var(--dse-color-accent); font-size: 0.6875rem; font-weight: 650; }
 .connectionPath { display: grid; grid-template-columns: minmax(7rem, 1fr) 2rem minmax(7rem, 1fr) 2rem minmax(7rem, 1fr) 2rem minmax(7rem, 1fr); align-items: center; }
 .connectionPath > span { min-inline-size: 0; min-block-size: 66px; display: grid; align-content: center; gap: var(--dse-space-3xs); padding: var(--dse-space-xs); border-block-start: 1px solid var(--dse-color-border); }
@@ -860,6 +869,9 @@
 .channelBindingGuide a, .textButton { color: var(--dse-color-accent); font-weight: 650; text-underline-offset: 3px; }
 .channelBindingGuide a:focus-visible, .textButton:focus-visible { outline: 2px solid var(--dse-color-focus); outline-offset: 2px; }
 .channelBindingGuide strong { inline-size: 100%; color: var(--dse-color-warning); font-size: 0.75rem; }
+.channelTransportGuide { min-inline-size: 0; display: grid; grid-template-columns: minmax(9rem, auto) minmax(0, 1fr); align-items: baseline; gap: var(--dse-space-xs); padding: var(--dse-space-xs); border-radius: var(--dse-radius-control); background: var(--dse-color-surface); }
+.channelTransportGuide strong { color: var(--dse-color-ink); font-size: 0.6875rem; }
+.channelTransportGuide p { margin: 0; color: var(--dse-color-muted); font-size: 0.75rem; line-height: 1.5; overflow-wrap: anywhere; }
 .channelBindingBanner { display: flex; align-items: center; justify-content: space-between; gap: var(--dse-space-xs); padding: var(--dse-space-xs); border-radius: var(--dse-radius-control); background: var(--dse-color-accent-soft); color: var(--dse-color-ink); font-size: 0.75rem; }
 .channelBindingBanner[data-phase='error'], .channelBindingBanner[data-phase='expired'] { background: color-mix(in srgb, var(--dse-color-error) 10%, var(--dse-color-surface)); }
 .textButton { padding: 0; border: 0; background: transparent; cursor: pointer; }
@@ -873,6 +885,7 @@
 .channelActions { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: var(--dse-space-2xs); }
 .channelActions > span { margin-inline-end: auto; color: var(--dse-color-muted); font-size: 0.6875rem; font-variant-numeric: tabular-nums; }
 .channelForm input:focus-visible, .channelForm select:focus-visible, .channelActions button:focus-visible { outline: 2px solid var(--dse-color-focus); outline-offset: 2px; }
+.channelActions button[aria-disabled='true'] { opacity: 0.56; cursor: not-allowed; }
 .spin { animation: spin 1s linear infinite; }
 
 @keyframes spin { to { transform: rotate(360deg); } }
@@ -918,7 +931,7 @@
   .extensionRow > .inlineActions { grid-column: 1 / -1; }
   .extensionReviewActions { grid-template-columns: minmax(12rem, 1fr) auto auto auto; }
   .channelRow { grid-template-columns: minmax(0, 1fr) auto; }
-  .channelIdentity, .channelBindingGuide, .channelBindingBanner, .connectionPath, .channelBindingEvidence, .channelIntentRow { grid-column: 1 / -1; }
+  .channelIdentity, .channelBindingGuide, .channelTransportGuide, .channelBindingBanner, .connectionPath, .channelBindingEvidence, .channelIntentRow { grid-column: 1 / -1; }
   .channelActions { grid-column: 2; }
 }
 
@@ -966,6 +979,11 @@
   .channelForm > header { flex-direction: column; }
   .channelFormActions { align-items: stretch; flex-direction: column; }
   .channelFormActions button { inline-size: 100%; }
+  .channelAttention button { grid-template-columns: auto minmax(0, 1fr); }
+  .channelAttention button span { grid-column: 2; }
+  .channelIdentity { align-items: start; }
+  .channelStatuses { grid-column: 1 / -1; justify-content: flex-start; }
+  .channelTransportGuide { grid-template-columns: minmax(0, 1fr); }
   .connectionPath { grid-template-columns: minmax(0, 1fr); gap: var(--dse-space-3xs); }
   .connectionPath > i { inline-size: 1px; block-size: var(--dse-space-xs); margin-inline-start: var(--dse-space-md); }
   .connectionPath > i::after { margin-block-start: auto; margin-inline-start: -2px; transform: translateY(1px) rotate(135deg); }

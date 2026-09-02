@@ -232,9 +232,9 @@ describe('EnterpriseWorkbench', () => {
     } as never)} />)
 
     expect(screen.getByRole('heading', { name: '渠道设置' })).toBeDefined()
-    expect(screen.getByText('财务企业微信')).toBeDefined()
+    expect(screen.getByRole('heading', { name: '财务企业微信' })).toBeDefined()
     expect(screen.getByText('凭证已配置')).toBeDefined()
-    expect(screen.getByText('传输状态待验证')).toBeDefined()
+    expect(screen.getAllByText('传输证据待补充').length).toBeGreaterThan(0)
     expect(container.querySelector('input[type="password"]')).toBeNull()
 
     fireEvent.click(screen.getByRole('button', { name: '新建渠道' }))
@@ -302,12 +302,108 @@ describe('EnterpriseWorkbench', () => {
       expect(link.getAttribute('target')).toBe('_blank')
       expect(link.getAttribute('rel')).toBe('noopener noreferrer')
     }
-    expect(screen.getByText('企业 / 租户 ID 缺失')).toBeDefined()
-    expect(screen.getByText('账号 ID 缺失 · 凭证缺失')).toBeDefined()
-    expect(screen.getByRole('button', { name: '扫码绑定企业微信' }).hasAttribute('disabled')).toBe(true)
+    expect(screen.getAllByText('企业 / 租户 ID 缺失').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('账号 ID 缺失 · 凭证缺失').length).toBeGreaterThan(0)
+    expect(screen.getByRole('button', { name: '扫码绑定企业微信' }).getAttribute('aria-disabled')).toBe('true')
     expect(screen.getByRole('button', { name: '扫码绑定飞书' }).hasAttribute('disabled')).toBe(false)
-    expect(screen.getByRole('button', { name: '扫码绑定钉钉' }).hasAttribute('disabled')).toBe(true)
+    expect(screen.getByRole('button', { name: '扫码绑定钉钉' }).getAttribute('aria-disabled')).toBe('true')
     expect(screen.getByRole('button', { name: '扫码绑定个人微信' }).hasAttribute('disabled')).toBe(true)
+  })
+
+  it('shows only actionable channel attention and moves focus to the exact row action', () => {
+    const channel = (overrides: Record<string, unknown>) => ({
+      orgId: 'org-a', provider: 'feishu', tenantId: 'tenant', accountId: 'app', credentialRef: 'CREDENTIAL',
+      credentialStatus: 'configured', inboundEnabled: true, allowedIntents: [], transportStatus: 'unverified',
+      state: 'active', bindingStatus: 'verified', createdBy: 'admin', revision: 1, createdAt: 1, updatedAt: 1,
+      ...overrides,
+    })
+    render(<EnterpriseWorkbench {...workbenchProps({ state: {
+      mode: 'enterprise', page: 'channels', channels: { phase: 'ready', error: null, items: [
+        channel({ channelId: 'missing', name: '缺少配置', provider: 'wecom', tenantId: '', accountId: '', credentialStatus: 'missing', bindingStatus: 'unbound' }),
+        channel({ channelId: 'unbound', name: '待绑定', bindingStatus: 'unbound' }),
+        channel({ channelId: 'evidence', name: '待证据' }),
+        channel({ channelId: 'draft', name: '草稿未绑定', state: 'draft', bindingStatus: 'unbound' }),
+        channel({ channelId: 'paused', name: '暂停待证据', state: 'paused' }),
+        channel({ channelId: 'archived', name: '归档缺少配置', state: 'archived', accountId: '', credentialStatus: 'missing', bindingStatus: 'unbound' }),
+      ] } as never,
+    } } as never)} />)
+
+    const attention = screen.getByRole('region', { name: '渠道待处理项' })
+    expect(within(attention).getByText('账号 ID 缺失 · 企业 / 租户 ID 缺失 · 凭证缺失')).toBeDefined()
+    expect(within(attention).getByText('已启用渠道的官方二维码身份未绑定')).toBeDefined()
+    expect(within(attention).getByText('适配器证据尚未记录；当前不能判断传输结果')).toBeDefined()
+    expect(attention.textContent).not.toContain('草稿未绑定')
+    expect(attention.textContent).not.toContain('暂停待证据')
+    expect(attention.textContent).not.toContain('归档缺少配置')
+    expect(attention.textContent).not.toContain('已连接')
+    expect(attention.textContent).not.toContain('传输失败')
+
+    fireEvent.click(within(attention).getByRole('button', { name: /缺少配置/u }))
+    expect(document.activeElement).toBe(screen.getAllByRole('button', { name: '扫码绑定企业微信' })[0])
+    fireEvent.click(within(attention).getByRole('button', { name: /待绑定/u }))
+    expect(document.activeElement).toBe(screen.getAllByRole('button', { name: '扫码绑定飞书' })[0])
+  })
+
+  it('keeps configuration, official identity, DSH route, and transport evidence independent', () => {
+    render(<EnterpriseWorkbench {...workbenchProps({ state: {
+      mode: 'enterprise', page: 'channels', channels: { phase: 'ready', error: null, items: [{
+        orgId: 'org-a', channelId: 'finance-feishu', name: '财务飞书', provider: 'feishu', accountId: 'app',
+        credentialRef: 'FEISHU', credentialStatus: 'configured', defaultEmployeeReleaseId: 'release-finance-v3',
+        inboundEnabled: true, allowedIntents: [], transportStatus: 'unverified', state: 'active', bindingStatus: 'verified',
+        createdBy: 'admin', revision: 1, createdAt: 1, updatedAt: 1,
+      }] } as never,
+    } } as never)} />)
+
+    const rail = screen.getByRole('group', { name: '财务飞书渠道事实' })
+    for (const label of ['配置', '官方二维码身份', 'DSH 路由', '传输证据']) {
+      expect(within(rail).getByText(label)).toBeDefined()
+    }
+    expect(within(rail).getByText('release-finance-v3')).toBeDefined()
+    expect(within(rail).getByText('身份已验证')).toBeDefined()
+    expect(within(rail).getByText('传输证据待补充')).toBeDefined()
+  })
+
+  it('separates provider transport setup from OAuth identity guidance', () => {
+    const channel = (provider: 'wecom' | 'feishu' | 'dingtalk' | 'wechat') => ({
+      orgId: 'org-a', channelId: provider, name: provider, provider, tenantId: 'tenant', accountId: 'app',
+      credentialRef: 'REF', credentialStatus: 'configured', inboundEnabled: provider !== 'wechat', allowedIntents: [],
+      transportStatus: 'unverified', state: 'active', bindingStatus: 'verified', createdBy: 'admin', revision: 1, createdAt: 1, updatedAt: 1,
+    })
+    render(<EnterpriseWorkbench {...workbenchProps({ state: {
+      mode: 'enterprise', page: 'channels', channels: { phase: 'ready', error: null,
+        items: ['wecom', 'feishu', 'dingtalk', 'wechat'].map(provider => channel(provider as never)) } as never,
+    } } as never)} />)
+
+    for (const copy of [
+      '在管理后台创建智能机器人或应用，配置 Agent / 应用可见范围与回调可信域名；仍需 Bot / 传输 Credential 引用。',
+      '传输最小权限：读取单聊消息、接收群 @ 事件、以机器人身份发送；联系人、邮件、HR 仅在业务需要时申请。',
+      '创建 Stream 模式机器人 / 应用，配置「登录与分享」回调，并引用 Client ID / Secret Credential。',
+      '已审核网站应用 OAuth 仅验证身份与交接；DSH 不实现 StaffDeck iLink，也不声称可发送个人聊天消息。',
+    ]) expect(screen.getByText(copy)).toBeDefined()
+    expect(screen.getAllByText('传输配置，与 OAuth 身份分离')).toHaveLength(4)
+  })
+
+  it('derives channel readiness copy and disables every archived row action', () => {
+    const channel = (overrides: Record<string, unknown>) => ({
+      orgId: 'org-a', provider: 'feishu', tenantId: 'tenant', accountId: 'app', credentialRef: 'REF',
+      credentialStatus: 'configured', inboundEnabled: true, allowedIntents: [], transportStatus: 'unverified', state: 'active',
+      bindingStatus: 'unbound', createdBy: 'admin', revision: 1, createdAt: 1, updatedAt: 1, ...overrides,
+    })
+    render(<EnterpriseWorkbench {...workbenchProps({ state: {
+      mode: 'enterprise', page: 'channels', channels: { phase: 'ready', error: null, items: [
+        channel({ channelId: 'pending', name: '待配置', accountId: '', credentialStatus: 'missing' }),
+        channel({ channelId: 'scan', name: '待扫码' }),
+        channel({ channelId: 'verified', name: '已验证', bindingStatus: 'verified' }),
+        channel({ channelId: 'paused', name: '暂停', state: 'paused' }),
+        channel({ channelId: 'archived', name: '归档', state: 'archived' }),
+      ] } as never,
+    } } as never)} />)
+
+    for (const status of ['待补全配置', '可扫码', '身份已验证', '已暂停', '已归档', '传输证据待补充']) {
+      expect(screen.getAllByText(status).length).toBeGreaterThan(0)
+    }
+    const archivedRow = screen.getByRole('article', { name: '归档' })
+    expect(within(archivedRow).getAllByRole('button').every(button => button.hasAttribute('disabled'))).toBe(true)
   })
 
   it('opens a blank popup synchronously, then assigns the returned official authorization URL', async () => {
@@ -726,7 +822,12 @@ describe('EnterpriseWorkbench', () => {
     expect(screen.getByRole('status').textContent).toContain('已打开官方授权')
     act(() => { vi.advanceTimersByTime(101) })
     expect(screen.getByRole('alert').textContent).toContain('本次绑定已过期')
-    expect(screen.getByRole('button', { name: '重试绑定' }).hasAttribute('disabled')).toBe(false)
+    const retry = screen.getByRole('button', { name: '重试绑定' })
+    expect(retry.hasAttribute('disabled')).toBe(false)
+    const attention = screen.getByRole('region', { name: '渠道待处理项' })
+    expect(attention.textContent).toContain('当前绑定尝试需要恢复')
+    fireEvent.click(within(attention).getByRole('button', { name: /财务企业微信/u }))
+    expect(document.activeElement).toBe(retry)
     expect(refreshChannels).not.toHaveBeenCalled()
   })
 
