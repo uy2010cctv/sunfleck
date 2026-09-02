@@ -70,6 +70,13 @@ const CHANNEL_BINDING_PROFILES: Readonly<Record<ChannelProvider, ChannelBindingP
     boundary: 'identity-and-handoff-only-no-chat-delivery',
   },
 }
+for (const profile of Object.values(CHANNEL_BINDING_PROFILES)) {
+  Object.freeze(profile.authorization)
+  Object.freeze(profile.requiredFields)
+  Object.freeze(profile.prerequisiteCopyKeys)
+  Object.freeze(profile)
+}
+Object.freeze(CHANNEL_BINDING_PROFILES)
 
 /** Return credential-free official authorization metadata for one provider. */
 export function channelBindingProfile(provider: ChannelProvider): ChannelBindingProfile {
@@ -84,7 +91,7 @@ export interface ChannelAuthorizationUrlInput {
   readonly tenantId?: string
   /** Provider application or agent id. */
   readonly accountId?: string
-  /** Exact callback registered with the provider. */
+  /** Callback registered with the provider; trimmed and serialized to its canonical URL. */
   readonly callbackUrl: string
   /** Non-empty, caller-signed anti-CSRF state. */
   readonly state: string
@@ -97,15 +104,18 @@ function requiredAuthorizationValue(value: string | undefined, field: string): s
 }
 
 function validatedCallbackUrl(callbackUrl: string): string {
+  const normalized = callbackUrl.trim()
   let parsed: URL
   try {
-    parsed = new URL(callbackUrl)
+    parsed = new URL(normalized)
   } catch {
     throw new Error('a valid HTTPS callback URL is required')
   }
   const loopbackHttp = parsed.protocol === 'http:' && (parsed.hostname === '127.0.0.1' || parsed.hostname === 'localhost')
   if (parsed.protocol !== 'https:' && !loopbackHttp) throw new Error('HTTPS callback is required outside loopback development')
-  return callbackUrl
+  if (parsed.username !== '' || parsed.password !== '') throw new Error('callback URL credentials are not allowed')
+  if (normalized.includes('#')) throw new Error('callback URL fragment is not allowed')
+  return parsed.toString()
 }
 
 /** Build the exact provider-owned OAuth URL without logging or persisting configuration. */
@@ -160,9 +170,9 @@ export interface ChannelAuthorizationCodeInput {
   readonly appSecret: string
   /** One-time authorization code. */
   readonly code: string
-  /** Exact callback used during authorization. */
+  /** Callback used during authorization; trimmed and serialized to its canonical URL. */
   readonly callbackUrl: string
-  /** Per-request timeout in milliseconds; defaults to ten seconds. */
+  /** Per-request timeout in milliseconds; defaults to ten seconds and is capped at sixty seconds. */
   readonly timeoutMs?: number
 }
 
@@ -180,11 +190,20 @@ export interface ChannelAuthorizationIdentity {
 export type ChannelAuthorizationFetch = (input: string | URL, init?: RequestInit) => Promise<Response>
 
 const MAX_AUTHORIZATION_RESPONSE_BYTES = 64 * 1024
+const MAX_AUTHORIZATION_TIMEOUT_MS = 60_000
+
+async function cancelResponseBody(response: Response): Promise<void> {
+  try {
+    await response.body?.cancel()
+  } catch {
+    // A provider body may already be closed or non-cancellable; preserve the bounded-size error.
+  }
+}
 
 async function boundedJson(response: Response, provider: ChannelProvider): Promise<Record<string, unknown>> {
-  if (!response.ok) throw new Error(`${provider} authorization request failed with HTTP ${response.status}`)
   const declaredLength = Number(response.headers.get('content-length'))
   if (Number.isFinite(declaredLength) && declaredLength > MAX_AUTHORIZATION_RESPONSE_BYTES) {
+    await cancelResponseBody(response)
     throw new Error(`${provider} authorization response is too large`)
   }
   const reader = response.body?.getReader()
@@ -213,15 +232,26 @@ async function boundedJson(response: Response, provider: ChannelProvider): Promi
   try {
     value = JSON.parse(body)
   } catch {
-    throw new Error(`${provider} authorization response is not valid JSON`)
+    const prefix = response.ok ? `${provider} authorization response` : `${provider} authorization request failed with HTTP ${response.status}; response`
+    throw new Error(`${prefix} is not valid JSON`)
   }
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-    throw new Error(`${provider} authorization response must be an object`)
+    const prefix = response.ok ? `${provider} authorization response` : `${provider} authorization request failed with HTTP ${response.status}; response`
+    throw new Error(`${prefix} must be an object`)
   }
   const record = value as Record<string, unknown>
-  const errorCode = typeof record.errcode === 'number' ? record.errcode : record.code
-  if ((typeof errorCode === 'number' && errorCode !== 0) || (typeof errorCode === 'string' && errorCode !== '0')) {
-    throw new Error(`${provider} authorization failed with provider code ${String(errorCode)}`)
+  const errorCode = record.errcode ?? record.code ?? record.error
+  const hasErrorCode = (typeof errorCode === 'number' && errorCode !== 0)
+    || (typeof errorCode === 'string' && errorCode !== '' && errorCode !== '0')
+  const providerMessage = optionalResponseString(record.msg ?? record.errmsg ?? record.message ?? record.error_description)
+  const errorDetails = hasErrorCode
+    ? `provider code ${String(errorCode)}${providerMessage === undefined ? '' : `: ${providerMessage}`}`
+    : providerMessage === undefined ? undefined : `provider message ${providerMessage}`
+  if (!response.ok) {
+    throw new Error(`${provider} authorization request failed with HTTP ${response.status}${errorDetails === undefined ? '' : `; ${errorDetails}`}`)
+  }
+  if (hasErrorCode) {
+    throw new Error(`${provider} authorization failed with ${errorDetails}`)
   }
   return record
 }
@@ -241,7 +271,9 @@ function optionalResponseString(value: unknown): string | undefined {
 
 function authorizationSignal(timeoutMs: number | undefined): AbortSignal {
   const timeout = timeoutMs ?? 10_000
-  if (!Number.isSafeInteger(timeout) || timeout <= 0) throw new RangeError('timeoutMs must be a positive integer')
+  if (!Number.isFinite(timeout) || timeout <= 0) throw new RangeError('timeoutMs must be finite positive milliseconds')
+  if (!Number.isSafeInteger(timeout)) throw new RangeError('timeoutMs must be a positive integer')
+  if (timeout > MAX_AUTHORIZATION_TIMEOUT_MS) throw new RangeError(`timeoutMs must be at most ${MAX_AUTHORIZATION_TIMEOUT_MS}`)
   return AbortSignal.timeout(timeout)
 }
 
