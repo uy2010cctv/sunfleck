@@ -35,7 +35,6 @@ interface EnterpriseTriggerInjected {
 
 const CALLBACK_CODE_LIMIT = 4096
 const CALLBACK_STATE_LIMIT = 87
-const CALLBACK_ATTEMPT_LIMIT = 128
 
 interface BindingCallbackWindow {
   readonly location: Pick<Location, 'origin' | 'pathname' | 'search'>
@@ -54,9 +53,8 @@ export async function completeChannelBindingCallback(
   browser: BindingCallbackWindow,
 ): Promise<boolean> {
   const query = new URLSearchParams(browser.location.search)
-  const attemptId = query.get(CHANNEL_BINDING_CALLBACK_PARAM)
-  if (!boundedCallbackValue(attemptId, CALLBACK_ATTEMPT_LIMIT)) return false
-  const canonicalPath = `${browser.location.pathname}?${CHANNEL_BINDING_CALLBACK_PARAM}=${encodeURIComponent(attemptId)}`
+  if (query.get(CHANNEL_BINDING_CALLBACK_PARAM) !== '1') return false
+  const canonicalPath = `${browser.location.pathname}?${CHANNEL_BINDING_CALLBACK_PARAM}=1`
   const code = query.get('code')
   const state = query.get('state')
   const publish = (message: Readonly<Record<string, string>>): void => {
@@ -65,20 +63,27 @@ export async function completeChannelBindingCallback(
       try { channel.postMessage(message) } finally { channel.close() }
     }
   }
+  const failWithoutCorrelation = (): true => {
+    browser.history.replaceState(null, '', `${canonicalPath}&binding_error=1`)
+    return true
+  }
+  if (!boundedCallbackValue(code, CALLBACK_CODE_LIMIT) || !boundedCallbackValue(state, CALLBACK_STATE_LIMIT)) {
+    return failWithoutCorrelation()
+  }
+  const attemptId = state
   const fail = (): true => {
     browser.history.replaceState(null, '', `${canonicalPath}&binding_error=1`)
-    const message = { type: 'dsh-channel-binding-failed', attemptId }
+    const message = { type: 'dsh-channel-binding-failed', attemptId: state }
     publish(message)
     browser.opener?.postMessage(message, browser.location.origin)
     return true
   }
-  if (!boundedCallbackValue(code, CALLBACK_CODE_LIMIT) || !boundedCallbackValue(state, CALLBACK_STATE_LIMIT)) return fail()
   const idempotencyKey = `channel-binding-complete:${state}`
   browser.history.replaceState(null, '', canonicalPath)
   try {
     const response = await remote.completeBinding({
       code, state,
-      redirectUri: channelBindingCallbackUri(browser.location, attemptId),
+      redirectUri: channelBindingCallbackUri(browser.location),
       idempotencyKey,
     })
     const wrapped = response as typeof response | { readonly result: typeof response }

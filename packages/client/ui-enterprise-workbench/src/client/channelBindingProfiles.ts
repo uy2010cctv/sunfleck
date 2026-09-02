@@ -2,13 +2,17 @@ import type { EnterpriseChannelProvider } from '@deepseek-ai/dsh-api-enterprise-
 
 export const CHANNEL_BINDING_CALLBACK_PARAM = 'dsh_channel_binding'
 export const CHANNEL_BINDING_BROADCAST_CHANNEL = 'dsh-channel-binding'
+const CHANNEL_BINDING_SIGNED_STATE = /^[A-Za-z0-9_-]{43}\.[A-Za-z0-9_-]{43}$/u
 
-/** Canonical callback registered with providers for one unpredictable browser attempt. */
-export function channelBindingCallbackUri(
-  location: Pick<Location, 'origin' | 'pathname'>,
-  attemptId: string,
-): string {
-  return `${location.origin}${location.pathname}?${CHANNEL_BINDING_CALLBACK_PARAM}=${encodeURIComponent(attemptId)}`
+/** Fixed callback URI registered with every provider; correlation lives in signed OAuth state. */
+export function channelBindingCallbackUri(location: Pick<Location, 'origin' | 'pathname'>): string {
+  return `${location.origin}${location.pathname}?${CHANNEL_BINDING_CALLBACK_PARAM}=1`
+}
+
+/** Extract the controller-issued nonce.signature state used for cross-window correlation. */
+export function officialChannelBindingState(authorizationUrl: URL): string | null {
+  const state = authorizationUrl.searchParams.get('state')
+  return state !== null && CHANNEL_BINDING_SIGNED_STATE.test(state) ? state : null
 }
 
 /** Credential-free client metadata sourced from each provider's official binding contract. */
