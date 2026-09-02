@@ -370,14 +370,16 @@ describe('EnterpriseWorkbench', () => {
     const attention = within(screen.getByRole('region', { name: '渠道待处理项' }))
       .getByRole('button', { name: /缺少配置/u })
     const edit = within(screen.getByRole('article', { name: '缺少配置' })).getByRole('button', { name: '编辑' })
+    const focus = vi.spyOn(edit, 'focus')
     expect(attention.tagName).toBe('BUTTON')
     expect(attention.getAttribute('type')).toBe('button')
-    for (const key of ['Enter', ' ']) {
+    for (const [index, key] of ['Enter', ' '].entries()) {
       attention.focus()
-      expect(fireEvent.keyDown(attention, { key, code: key === ' ' ? 'Space' : 'Enter' })).toBe(true)
-      expect(fireEvent.keyUp(attention, { key, code: key === ' ' ? 'Space' : 'Enter' })).toBe(true)
-      fireEvent.click(attention)
+      expect(fireEvent.keyDown(attention, { key, code: key === ' ' ? 'Space' : 'Enter' })).toBe(false)
       expect(document.activeElement).toBe(edit)
+      expect(focus).toHaveBeenCalledTimes(index + 1)
+      expect(fireEvent.keyUp(attention, { key, code: key === ' ' ? 'Space' : 'Enter' })).toBe(true)
+      expect(focus).toHaveBeenCalledTimes(index + 1)
     }
   })
 
