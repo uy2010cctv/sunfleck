@@ -222,6 +222,23 @@ describe('EnterpriseWorkbench', () => {
     expect(archiveChannelConfiguration).toHaveBeenCalledWith(expect.objectContaining({ channelId: 'finance-wecom' }))
   })
 
+  it('clears the local dirty guard when a new channel form is cancelled', () => {
+    const close = vi.fn()
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    render(<EnterpriseWorkbench {...workbenchProps({
+      state: { mode: 'enterprise', page: 'channels', channels: { phase: 'ready', error: null, items: [] } },
+      close,
+    })} />)
+
+    fireEvent.click(screen.getAllByRole('button', { name: '新建渠道' })[0] as HTMLElement)
+    fireEvent.change(screen.getByLabelText('渠道名称'), { target: { value: '临时渠道' } })
+    fireEvent.click(screen.getByRole('button', { name: '取消' }))
+    fireEvent.click(screen.getByRole('button', { name: '关闭' }))
+
+    expect(confirmSpy).not.toHaveBeenCalled()
+    expect(close).toHaveBeenCalledTimes(1)
+  })
+
   it('launches an active team charter, opens its Team Room, and answers assigned decisions', async () => {
     const startTeamRun = vi.fn(() => Promise.resolve(true))
     const openRecord = vi.fn()
