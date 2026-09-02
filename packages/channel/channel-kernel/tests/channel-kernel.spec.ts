@@ -27,7 +27,8 @@ const binding = {
 
 describe('official channel authorization binding', () => {
   it('describes provider prerequisites and keeps personal WeChat at the identity boundary', () => {
-    expect(channelBindingProfile('wecom')).toMatchObject({
+    const profile = channelBindingProfile('wecom')
+    expect(profile).toMatchObject({
       officialDocsUrl: 'https://developer.work.weixin.qq.com/document/path/98152',
       authorization: { host: 'login.work.weixin.qq.com', mode: 'redirect' },
       requiredFields: ['tenantId', 'accountId', 'appSecret', 'callbackUrl'],
@@ -40,19 +41,23 @@ describe('official channel authorization binding', () => {
       authorization: { host: 'open.weixin.qq.com', mode: 'qr-connect' },
       boundary: 'identity-and-handoff-only-no-chat-delivery',
     })
+    expect(Object.isFrozen(profile)).toBe(true)
+    expect(Object.isFrozen(profile.authorization)).toBe(true)
+    expect(Object.isFrozen(profile.requiredFields)).toBe(true)
+    expect(Object.isFrozen(profile.prerequisiteCopyKeys)).toBe(true)
   })
 
   it('builds exact official authorization URLs for all four providers', () => {
     const callbackUrl = 'https://dsh.example.com/settings/channels/callback?source=设置页'
     const state = 'signed.state-value'
     expect(channelAuthorizationUrl({ provider: 'wecom', tenantId: 'corp 1', accountId: 'agent/2', callbackUrl, state }))
-      .toBe('https://login.work.weixin.qq.com/wwlogin/sso/login?login_type=CorpApp&appid=corp+1&agentid=agent%2F2&redirect_uri=https%3A%2F%2Fdsh.example.com%2Fsettings%2Fchannels%2Fcallback%3Fsource%3D%E8%AE%BE%E7%BD%AE%E9%A1%B5&state=signed.state-value')
+      .toBe('https://login.work.weixin.qq.com/wwlogin/sso/login?login_type=CorpApp&appid=corp+1&agentid=agent%2F2&redirect_uri=https%3A%2F%2Fdsh.example.com%2Fsettings%2Fchannels%2Fcallback%3Fsource%3D%25E8%25AE%25BE%25E7%25BD%25AE%25E9%25A1%25B5&state=signed.state-value')
     expect(channelAuthorizationUrl({ provider: 'feishu', accountId: 'cli 1', callbackUrl, state }))
-      .toBe('https://accounts.feishu.cn/open-apis/authen/v1/authorize?client_id=cli+1&redirect_uri=https%3A%2F%2Fdsh.example.com%2Fsettings%2Fchannels%2Fcallback%3Fsource%3D%E8%AE%BE%E7%BD%AE%E9%A1%B5&response_type=code&state=signed.state-value')
+      .toBe('https://accounts.feishu.cn/open-apis/authen/v1/authorize?client_id=cli+1&redirect_uri=https%3A%2F%2Fdsh.example.com%2Fsettings%2Fchannels%2Fcallback%3Fsource%3D%25E8%25AE%25BE%25E7%25BD%25AE%25E9%25A1%25B5&response_type=code&state=signed.state-value')
     expect(channelAuthorizationUrl({ provider: 'dingtalk', accountId: 'ding-1', tenantId: 'corp-1', callbackUrl, state }))
-      .toBe('https://login.dingtalk.com/oauth2/auth?client_id=ding-1&redirect_uri=https%3A%2F%2Fdsh.example.com%2Fsettings%2Fchannels%2Fcallback%3Fsource%3D%E8%AE%BE%E7%BD%AE%E9%A1%B5&response_type=code&scope=openid+corpid&state=signed.state-value&prompt=consent')
+      .toBe('https://login.dingtalk.com/oauth2/auth?client_id=ding-1&redirect_uri=https%3A%2F%2Fdsh.example.com%2Fsettings%2Fchannels%2Fcallback%3Fsource%3D%25E8%25AE%25BE%25E7%25BD%25AE%25E9%25A1%25B5&response_type=code&scope=openid+corpid&state=signed.state-value&prompt=consent')
     expect(channelAuthorizationUrl({ provider: 'wechat', accountId: 'wx-app', callbackUrl, state }))
-      .toBe('https://open.weixin.qq.com/connect/qrconnect?appid=wx-app&redirect_uri=https%3A%2F%2Fdsh.example.com%2Fsettings%2Fchannels%2Fcallback%3Fsource%3D%E8%AE%BE%E7%BD%AE%E9%A1%B5&response_type=code&scope=snsapi_login&state=signed.state-value#wechat_redirect')
+      .toBe('https://open.weixin.qq.com/connect/qrconnect?appid=wx-app&redirect_uri=https%3A%2F%2Fdsh.example.com%2Fsettings%2Fchannels%2Fcallback%3Fsource%3D%25E8%25AE%25BE%25E7%25BD%25AE%25E9%25A1%25B5&response_type=code&scope=snsapi_login&state=signed.state-value#wechat_redirect')
   })
 
   it('accepts loopback HTTP callbacks but rejects unsafe callbacks and missing provider fields', () => {
@@ -64,6 +69,19 @@ describe('official channel authorization binding', () => {
       .toThrow(/tenantId/u)
     expect(() => channelAuthorizationUrl({ provider: 'wechat', accountId: 'app', callbackUrl: 'https://example.com/callback', state: ' ' }))
       .toThrow(/state/u)
+  })
+
+  it('canonicalizes callbacks and rejects URL credentials or fragments', () => {
+    const authorized = channelAuthorizationUrl({
+      provider: 'feishu', accountId: 'app', callbackUrl: '  HTTPS://DSH.Example.COM:443/callback?source=settings  ', state: 'signed',
+    })
+    expect(authorized).toContain('redirect_uri=https%3A%2F%2Fdsh.example.com%2Fcallback%3Fsource%3Dsettings')
+    expect(() => channelAuthorizationUrl({
+      provider: 'feishu', accountId: 'app', callbackUrl: 'https://user:password@example.com/callback', state: 'signed',
+    })).toThrow(/credentials/u)
+    expect(() => channelAuthorizationUrl({
+      provider: 'feishu', accountId: 'app', callbackUrl: 'https://example.com/callback#fragment', state: 'signed',
+    })).toThrow(/fragment/u)
   })
 
   it('exchanges WeCom code through app token and identity APIs without returning credentials', async () => {
@@ -153,17 +171,64 @@ describe('official channel authorization binding', () => {
     clearTimeout(guard)
   })
 
+  it('rejects invalid timeout bounds before fetching', async () => {
+    const input = {
+      provider: 'feishu' as const, accountId: 'app-1', appSecret: 'secret', code: 'code-1',
+      callbackUrl: 'https://dsh.example.com/callback',
+    }
+    await expect(exchangeChannelAuthorizationCode({ ...input, timeoutMs: Number.POSITIVE_INFINITY }, async () => new Response('{}')))
+      .rejects.toThrow(/finite positive/u)
+    await expect(exchangeChannelAuthorizationCode({ ...input, timeoutMs: 60_001 }, async () => new Response('{}')))
+      .rejects.toThrow(/at most 60000/u)
+  })
+
+  it('aborts a stalled response body at timeoutMs', async () => {
+    const operation = exchangeChannelAuthorizationCode({
+      provider: 'feishu', accountId: 'app-1', appSecret: 'secret', code: 'code-1',
+      callbackUrl: 'https://dsh.example.com/callback', timeoutMs: 20,
+    }, async (_input, init) => new Response(new ReadableStream({
+      start(controller) {
+        const signal = init?.signal
+        if (!(signal instanceof AbortSignal)) throw new Error('missing abort signal')
+        signal.addEventListener('abort', () => {
+          controller.error(signal.reason)
+        }, { once: true })
+      },
+    })))
+    await expect(operation).rejects.toThrow(/timeout/u)
+  })
+
   it('rejects HTTP, provider JSON errors, and oversized authorization responses', async () => {
     const input = {
       provider: 'feishu' as const, accountId: 'app-1', appSecret: 'secret', code: 'code-1',
       callbackUrl: 'https://dsh.example.com/callback',
     }
-    await expect(exchangeChannelAuthorizationCode(input, async () => new Response('upstream', { status: 502 })))
-      .rejects.toThrow(/502/u)
+    await expect(exchangeChannelAuthorizationCode(input, async () => new Response(
+      JSON.stringify({ code: 20029, msg: 'invalid authorization code' }),
+      { status: 400, headers: { 'content-type': 'application/json' } },
+    ))).rejects.toThrow(/HTTP 400; provider code 20029: invalid authorization code/u)
     await expect(exchangeChannelAuthorizationCode(input, async () => new Response(JSON.stringify({ code: 10003, msg: 'invalid code' }))))
       .rejects.toThrow(/10003/u)
     await expect(exchangeChannelAuthorizationCode(input, async () => new Response('x'.repeat(70_000))))
       .rejects.toThrow(/too large/u)
+    await expect(exchangeChannelAuthorizationCode(input, async () => new Response('not json')))
+      .rejects.toThrow(/not valid JSON/u)
+    await expect(exchangeChannelAuthorizationCode(input, async () => new Response('[]')))
+      .rejects.toThrow(/must be an object/u)
+  })
+
+  it('cancels a declared-oversized response body without reading it', async () => {
+    let cancelled = false
+    const response = new Response(new ReadableStream({
+      cancel() {
+        cancelled = true
+      },
+    }), { headers: { 'content-length': '70000' } })
+    await expect(exchangeChannelAuthorizationCode({
+      provider: 'feishu', accountId: 'app-1', appSecret: 'secret', code: 'code-1',
+      callbackUrl: 'https://dsh.example.com/callback',
+    }, async () => response)).rejects.toThrow(/too large/u)
+    expect(cancelled).toBe(true)
   })
 })
 
