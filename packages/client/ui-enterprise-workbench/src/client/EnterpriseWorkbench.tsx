@@ -720,7 +720,7 @@ const CHANNEL_PROVIDER_INTENTS = {
   wecom: ['notify', 'handoff', 'team-start', 'decision-response', 'status'],
   feishu: ['notify', 'handoff', 'team-start', 'decision-response', 'status'],
   dingtalk: ['notify', 'handoff', 'team-start', 'decision-response', 'status'],
-  wechat: ['notify', 'handoff', 'status'],
+  wechat: ['handoff'],
 } as const
 
 function ChannelsPage({ page, api, busy, onDirty, onClean, t }: {
@@ -1017,7 +1017,7 @@ function ChannelsPage({ page, api, busy, onDirty, onClean, t }: {
         <label className={`${css.fullField} ${css.channelCheck}`}><input type="checkbox" aria-label={t('channel.inbound')} checked={form.provider !== 'wechat' && form.inboundEnabled} disabled={form.provider === 'wechat'} onChange={(event) => { patch({ inboundEnabled: event.target.checked }) }}/><span><strong>{t('channel.inbound')}</strong><small>{form.provider === 'wechat' ? t('channel.wechatReadOnly') : t('channel.inboundHelp')}</small></span></label>
       </div>
       <div className={css.channelPolicyPreview}><span>{t('channel.providerPolicy')}</span>{CHANNEL_PROVIDER_INTENTS[form.provider].map(intent => <em key={intent}>{t(`channel.intent.${intent}`)}</em>)}</div>
-      <div className={css.channelFormActions}><button type="submit" className={css.secondaryButton} disabled={busy}>{t('channel.saveDraft')}</button><button type="button" className={css.primaryButton} disabled={busy || form.credentialRef.trim() === '' || (form.provider !== 'wechat' && form.tenantId.trim() === '')} onClick={() => { void save('active') }}>{t('channel.activate')}</button></div>
+      <div className={css.channelFormActions}><button type="submit" className={css.secondaryButton} disabled={busy}>{t('channel.saveDraft')}</button><button type="button" className={css.primaryButton} disabled={busy || form.credentialRef.trim() === '' || (form.provider === 'wecom' && form.tenantId.trim() === '')} onClick={() => { void save('active') }}>{t('channel.activate')}</button></div>
     </form>}
     {attention.length > 0 && <section className={css.channelAttention} aria-label={t('channel.attentionAria')}>
       {attention.map(item => <button type="button" key={item.channel.channelId} aria-label={t('channel.attention.open', { name: item.channel.name, reason: item.reason })} onClick={() => { focusRecoveryAction(item.channel.channelId, item.target) }} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); focusRecoveryAction(item.channel.channelId, item.target) } else if (event.key === ' ') event.preventDefault() }} onKeyUp={(event) => { if (event.key === ' ') { event.preventDefault(); focusRecoveryAction(item.channel.channelId, item.target) } }}>

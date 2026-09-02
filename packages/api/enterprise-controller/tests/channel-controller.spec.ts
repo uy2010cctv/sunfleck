@@ -1,6 +1,7 @@
 import { Context } from '@deepseek-ai/cordis'
 import { EnterpriseRequestContext } from '@deepseek-ai/dsh-enterprise-auth-web'
 import type { EnterprisePrincipal } from '@deepseek-ai/dsh-enterprise-governance'
+import { EnterpriseOperationsError } from '@deepseek-ai/dsh-enterprise-operations'
 import { RemoteError } from '@deepseek-ai/dsh-typert-protocol'
 import { describe, expect, it, vi } from 'vitest'
 
@@ -97,8 +98,18 @@ describe('enterprise channel Remote controller', () => {
       accountId: 'app-a', credentialRef: 'WECOM_FINANCE_SECRET', inboundEnabled: true, state: 'active',
       createdBy: 'admin-a', revision: 1, createdAt: 1, updatedAt: 1,
     }
-    const saveChannelConfiguration = vi.fn().mockResolvedValue(saved)
-    const listChannelConfigurations = vi.fn().mockResolvedValue({ items: [saved] })
+    const { tenantId: _savedTenantId, ...savedWithoutTenant } = saved
+    const saveChannelConfiguration = vi.fn((input: Record<string, unknown>) => {
+      if (input['provider'] === 'wecom' && input['state'] === 'active' && input['tenantId'] === undefined) {
+        return Promise.reject(new EnterpriseOperationsError('invalid-state', 'channel', String(input['channelId'])))
+      }
+      return Promise.resolve({ ...savedWithoutTenant, ...input })
+    })
+    const personal = {
+      ...saved, channelId: 'personal-wechat', name: '个人微信', provider: 'wechat', tenantId: undefined,
+      accountId: 'website-app', credentialRef: 'WECHAT_SECRET', inboundEnabled: false,
+    }
+    const listChannelConfigurations = vi.fn().mockResolvedValue({ items: [saved, personal] })
     const ctx = new Context()
     ctx.provide('enterprisePostgres' as never, { operations: {
       saveChannelConfiguration, listChannelConfigurations,
@@ -125,7 +136,23 @@ describe('enterprise channel Remote controller', () => {
       credentialStatus: 'configured', transportStatus: 'unverified',
       allowedIntents: ['notify', 'handoff', 'team-start', 'decision-response', 'status'],
     })
-    expect(JSON.stringify(await requestContext.run(principal, () => controller.list({})))).not.toContain('encrypted')
+    for (const provider of ['feishu', 'dingtalk'] as const) {
+      const tenantFree = await requestContext.run(principal, () => controller.save({
+        channelId: `${provider}-active`, name: provider, provider, accountId: `${provider}-app`,
+        credentialRef: `${provider.toUpperCase()}_SECRET`, inboundEnabled: true,
+        state: 'active', expectedRevision: 0, idempotencyKey: `${provider}-save`,
+      }))
+      expect(tenantFree).not.toHaveProperty('tenantId')
+      expect(saveChannelConfiguration.mock.calls.at(-1)?.[0]).not.toHaveProperty('tenantId')
+    }
+    await expect(requestContext.run(principal, () => controller.save({
+      channelId: 'wecom-no-corp', name: 'WeCom', provider: 'wecom', accountId: 'agent-a',
+      credentialRef: 'WECOM_SECRET', inboundEnabled: true, state: 'active', expectedRevision: 0,
+      idempotencyKey: 'wecom-no-corp-save',
+    }))).rejects.toMatchObject({ code: 'enterprise-invalid-state' })
+    const listed = await requestContext.run(principal, () => controller.list({}))
+    expect(listed.items[1]).toMatchObject({ provider: 'wechat', allowedIntents: ['handoff'] })
+    expect(JSON.stringify(listed)).not.toContain('encrypted')
   })
 
   it('fails closed when channel.manage is denied', async () => {
@@ -166,6 +193,13 @@ describe('enterprise channel Remote controller', () => {
     expect(bench.describe).toHaveBeenCalledTimes(1)
     expect(bench.resolve).not.toHaveBeenCalled()
     expect(JSON.stringify(session)).not.toContain('app-secret-private')
+  })
+
+  it.each(['feishu', 'dingtalk'] as const)('begins %s binding without a tenant prerequisite', async (provider) => {
+    const bench = await bindingBench({ row: stored({ provider, tenantId: undefined }) })
+    const session = await begin(bench)
+    expect(session).toMatchObject({ provider })
+    expect(session).not.toHaveProperty('tenantId')
   })
 
   it.each([

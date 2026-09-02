@@ -53,14 +53,14 @@ The model uses four trust levels, each constrained by Agent, task type, and capa
 
 ## Channel settings and delivery boundary
 
-Open **Channels** in the enterprise workbench to create, edit, activate, pause, or archive Enterprise WeChat, Feishu, DingTalk, and personal WeChat configurations. Each record stores provider/account identity, an optional tenant, a Host-managed Credential reference, a default employee Release route, inbound policy, lifecycle state, and revision. The page never asks for or displays the secret value.
+Open **Channels** in the enterprise workbench to create, edit, activate, pause, or archive Enterprise WeChat, Feishu, DingTalk, and personal WeChat configurations. Each record stores provider/account identity, a Host-managed Credential reference, a default employee Release route, inbound policy, lifecycle state, and revision. An active WeCom record also requires its CorpID tenant; Feishu and DingTalk activate without a tenant and DSH does not fabricate one. The page never asks for or displays the secret value.
 
 For an eligible saved channel, **Scan official QR code** opens the provider-hosted OAuth/QR page rather than rendering or proxying a provider QR inside DSH. DSH signs a 10-minute state tied to one Host process, the organization, actor, channel, provider, exact revision, fixed callback URI, nonce, and expiry. The Host resolves the App Secret from the Credential reference, exchanges the one-time code, and stores only the verified provider identity, display name, tenant evidence, verifying actor, and time. It never persists or shows an access token, refresh token, authorization code, raw provider payload, or App Secret. Rejection, expiry, or a Host restart requires a new scan.
 
 Configure the corresponding provider application before scanning:
 
 - [WeCom Web login](https://developer.work.weixin.qq.com/document/path/98152) and its [identity API](https://developer.work.weixin.qq.com/document/path/96442) require CorpID, AgentID, and an OAuth trusted callback domain.
-- [Feishu QR SDK/OAuth](https://open.feishu.cn/document/common-capabilities/sso/web-application-sso/qr-sdk-documentation) and its [user-token exchange](https://open.feishu.cn/document/authentication-management/access-token/get-user-access-token) require App ID, App Secret, and a registered redirect URL.
+- [Feishu QR SDK/OAuth](https://open.feishu.cn/document/common-capabilities/sso/web-application-sso/qr-sdk-documentation) and its [user-token exchange](https://open.feishu.cn/document/authentication-management/access-token/get-user-access-token) require App ID, App Secret, and a registered redirect URL; DSH exchanges the code through the official `https://accounts.feishu.cn/oauth/v3/token` endpoint.
 - [DingTalk official login OAuth](https://open.dingtalk.com/document/isvapp/tutorial-enabling-login-to-third-party-websites.md) and its [user-token exchange](https://open.dingtalk.com/document/isvapp/obtain-user-token.md) require Client ID, Client Secret, and a DingTalk Login & Share callback.
 - [Personal Weixin website-app QR login](https://developers.weixin.qq.com/doc/oplatform/developers/dev/auth/web.html) requires an approved Website App, AppID, AppSecret, `snsapi_login`, and a registered authorization domain.
 

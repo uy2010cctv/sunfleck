@@ -20,7 +20,7 @@
 
 - [x] 为提供方前置条件、官方文档 URL、授权端点、回调参数及个人微信仅身份边界编写失败测试。
 - [x] 增加 `channelBindingProfile(provider)` 与 `channelAuthorizationUrl(input)`：企业微信 `CorpApp`、飞书 OAuth authorize、钉钉 OAuth2 authorize、个人微信网站应用 `snsapi_login`。
-- [x] 增加 `exchangeChannelAuthorizationCode(input, fetch)`，只返回提供方身份、显示名和租户证据，绝不返回 access/refresh token。
+- [x] 增加 `exchangeChannelAuthorizationCode(input, fetch)`，只返回提供方身份、显示名和租户证据；使用飞书官方 v3 用户 access token 端点，绝不返回 access/refresh token。
 - [x] 校验回调 URI、`state`、一次性 code、响应大小、超时和提供方错误。
 
 ### 任务 2：持久化已验证绑定证据
@@ -76,7 +76,7 @@
 - 修改：`docs/user/guide/human-agent-teams.zh.md`
 
 - [x] 记录官方来源链接及身份与投递边界。
-- [x] 完成本功能范围的发布门禁：定向矩阵的 18 个文件、257 项测试全部通过；`66953f09` 修正严格 fixture 类型后，typecheck 与生产构建通过；4,829 个文件的 package path 全部可解析；tsconfig 别名为最新；本次两组翻译配对一致。
+- [x] 完成最终审查发布门禁：定向矩阵在 11 个已执行文件中通过 234 项测试，12 项真实 PostgreSQL 用例跳过；typecheck 与生产构建通过；497 个客户端源文件的文案归属门禁通过；五组已修改翻译配对一致。
 - [ ] 运行可选的真实 PostgreSQL 验收。integration 文件已调用，但由于未设置 `DSH_TEST_POSTGRES_URL`，12 项测试全部跳过。
 - [ ] 使全量 lint、全库翻译配对与 doc-sync 全部通过。它们仍有与本功能无关的全库 JSDoc/catalog、翻译配对、换行、子系统、Agent Note 和 package README 存量问题。
 - [x] 保留任务 4 已执行的唯一一次 Impeccable detector；任务 5 不重复运行。

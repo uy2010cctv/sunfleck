@@ -4,7 +4,7 @@
 
 > **供 agent 工作者使用：** 必须使用 subagent-driven-development 或 executing-plans，逐项实施本计划。各步骤使用复选框（`- [ ]`）语法跟踪。
 
-**目标：** 为企业微信、飞书、钉钉和仅通知的个人微信增加经过认证、由 PostgreSQL 支撑的渠道设置控制面，且不在 Credential seam 之外存储密钥值。
+**目标：** 为企业微信、飞书、钉钉和仅身份/接管的个人微信增加经过认证、由 PostgreSQL 支撑的渠道设置控制面，且不在 Credential seam 之外存储密钥值。
 
 **架构：** Enterprise Operations 负责可复用渠道配置及 revision/幂等规则。Enterprise Controller 通过中央 `channel.manage` 授权与审计公开按 principal 限定的 Remote 方法。工作台展示提供方能力、配置就绪度、Credential 引用、默认路由和生命周期动作；真实传输健康度仍必须来自适配器证据，绝不由已保存配置推断。
 
@@ -22,7 +22,7 @@
 - [ ] 添加失败的类型/API 测试，要求提供方、账号身份、Credential 引用、默认路由、入站策略、生命周期、revision 和时间戳。
 - [ ] 运行 `pnpm exec vitest run packages/api/enterprise-controller/tests/channel-controller.spec.ts`，确认 namespace 尚不存在。
 - [ ] 定义 `EnterpriseChannelConfiguration` 与 list/get/save/archive 请求。只接受 `credentialRef: string`，绝不接受密钥值。
-- [ ] 将个人微信限制为通知、handoff 和状态，并强制关闭入站命令。
+- [ ] 将个人微信限制为仅 handoff，并强制关闭入站命令。
 
 ### 任务 2：使用 CAS 与幂等持久化渠道设置
 

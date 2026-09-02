@@ -4,7 +4,7 @@ English | [中文](2026-09-02-enterprise-channel-settings.zh.md)
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use subagent-driven-development or executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Add an authenticated, PostgreSQL-backed Channel Settings control surface for Enterprise WeChat, Feishu, DingTalk, and notification-only personal WeChat without storing secret values outside the Credential seam.
+**Goal:** Add an authenticated, PostgreSQL-backed Channel Settings control surface for Enterprise WeChat, Feishu, DingTalk, and identity/handoff-only personal WeChat without storing secret values outside the Credential seam.
 
 **Architecture:** Enterprise Operations owns reusable channel configuration and revision/idempotency rules. Enterprise Controller exposes principal-scoped Remote methods with central `channel.manage` authorization and audit. The workbench renders provider capabilities, configuration readiness, credential references, routing defaults, and lifecycle actions; real transport health remains adapter evidence and is never inferred from saved configuration.
 
@@ -22,7 +22,7 @@ English | [中文](2026-09-02-enterprise-channel-settings.zh.md)
 - [ ] Add a failing type/API test requiring the provider, account identity, Credential reference, routing default, inbound policy, lifecycle, revision, and timestamps.
 - [ ] Run `pnpm exec vitest run packages/api/enterprise-controller/tests/channel-controller.spec.ts` and confirm the namespace is absent.
 - [ ] Define `EnterpriseChannelConfiguration` and list/get/save/archive requests. Use only `credentialRef: string`; never accept a secret value.
-- [ ] Encode personal WeChat as notification/handoff/status only and force inbound commands off.
+- [ ] Encode personal WeChat as handoff-only and force inbound commands off.
 
 ### Task 2: Persist channel settings with CAS and idempotency
 

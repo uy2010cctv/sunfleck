@@ -33,7 +33,7 @@ interface EnterpriseTriggerInjected {
   toggle: () => void
 }
 
-const CALLBACK_CODE_LIMIT = 4096
+const CALLBACK_CODE_MAX_BYTES = 2048
 
 interface BindingCallbackWindow {
   readonly location: Pick<Location, 'origin' | 'pathname' | 'search'>
@@ -43,7 +43,7 @@ interface BindingCallbackWindow {
 }
 
 function boundedCallbackValue(value: string | null, limit: number): value is string {
-  return value !== null && value.trim().length > 0 && value.length <= limit
+  return value !== null && value.trim().length > 0 && new TextEncoder().encode(value).byteLength <= limit
 }
 
 /** Complete one marked provider callback and remove authorization material from browser history. */
@@ -77,7 +77,7 @@ export async function completeChannelBindingCallback(
     browser.opener?.postMessage(message, browser.location.origin)
     return true
   }
-  if (query.has('error') || !boundedCallbackValue(code, CALLBACK_CODE_LIMIT)) return fail()
+  if (query.has('error') || !boundedCallbackValue(code, CALLBACK_CODE_MAX_BYTES)) return fail()
   const idempotencyKey = `channel-binding-complete:${state}`
   browser.history.replaceState(null, '', canonicalPath)
   try {

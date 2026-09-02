@@ -1264,6 +1264,27 @@ describe('enterprise channel settings', () => {
     })).resolves.toMatchObject({ state: 'archived', revision: 3 })
   })
 
+  it('activates Feishu and DingTalk without fabricating a tenant while requiring WeCom CorpID', async () => {
+    const repository = new EnterpriseOperationsRepository(
+      new MemoryPostgresDatabase(), { allowUnverifiedReferences: true },
+    ) as unknown as { saveChannelConfiguration(input: Record<string, unknown>): Promise<Record<string, unknown>> }
+    for (const provider of ['feishu', 'dingtalk'] as const) {
+      const saved = await repository.saveChannelConfiguration({
+        orgId: 'org-a', channelId: `${provider}-active`, name: provider, provider,
+        accountId: `${provider}-app`, credentialRef: `${provider.toUpperCase()}_SECRET`,
+        inboundEnabled: true, state: 'active', actorUserId: 'admin-a', expectedRevision: 0,
+        idempotencyKey: `${provider}-active-create`,
+      })
+      expect(saved).toMatchObject({ provider, state: 'active', accountId: `${provider}-app` })
+      expect(saved).not.toHaveProperty('tenantId')
+    }
+    await expect(repository.saveChannelConfiguration({
+      orgId: 'org-a', channelId: 'wecom-no-corp', name: 'WeCom', provider: 'wecom',
+      accountId: 'agent-a', credentialRef: 'WECOM_SECRET', inboundEnabled: true, state: 'active',
+      actorUserId: 'admin-a', expectedRevision: 0, idempotencyKey: 'wecom-no-corp-create',
+    })).rejects.toThrow(/tenant id/u)
+  })
+
   it('verifies, retries, fences, scopes, rebinds, and rejects archived channel bindings', async () => {
     let now = 20
     const operations = new EnterpriseOperationsRepository(
@@ -1411,7 +1432,7 @@ describe('enterprise channel settings', () => {
     ) as unknown as { saveChannelConfiguration(input: Record<string, unknown>): Promise<unknown> }
     await expect(repository.saveChannelConfiguration({
       orgId: 'org-a', channelId: 'personal', name: '个人微信提醒', provider: 'wechat',
-      accountId: 'owner-a', credentialRef: 'WECHAT_NOTIFY', inboundEnabled: true,
+      accountId: 'owner-a', credentialRef: 'WECHAT_IDENTITY', inboundEnabled: true,
       actorUserId: 'admin-a',
       state: 'active', expectedRevision: 0, idempotencyKey: 'unsafe-personal',
     })).rejects.toThrow(/personal WeChat.*inbound/)
