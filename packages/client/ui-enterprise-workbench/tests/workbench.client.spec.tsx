@@ -61,6 +61,7 @@ const BASE_STATE: EnterpriseWorkbenchState = {
   error: null, busyEmployee: null, employeeFilters: {}, employees: EMPTY_PAGE,
   workRecords: EMPTY_PAGE, approvals: EMPTY_PAGE, schedules: EMPTY_PAGE,
   assets: EMPTY_PAGE, teams: EMPTY_PAGE,
+  teamDefinitions: EMPTY_PAGE, teamRuns: EMPTY_PAGE, teamDecisions: EMPTY_PAGE, teamAutonomy: EMPTY_PAGE,
   modelOptions: [],
   extensions: EMPTY_PAGE, extensionBindings: [], extensionReviews: EMPTY_PAGE, formalPlugins: EMPTY_PAGE,
   releases: [],
@@ -174,6 +175,62 @@ describe('EnterpriseWorkbench', () => {
     }
     fireEvent.click(screen.getByRole('button', { name: '编辑采购专员' }))
     expect(openEmployeeDraft).toHaveBeenCalledWith('buyer')
+  })
+
+  it('launches an active team charter, opens its Team Room, and answers assigned decisions', async () => {
+    const startTeamRun = vi.fn(() => Promise.resolve(true))
+    const openRecord = vi.fn()
+    const respondTeamDecision = vi.fn(() => Promise.resolve())
+    const definition = {
+      teamId: 'team-a', orgId: 'org-a', name: '采购交付组', northStar: '让采购交付可验证',
+      ownerUserId: 'owner-a', visibility: 'organization', leaderEmployeeReleaseId: 'release-lead',
+      roster: [
+        { actor: { kind: 'human', userId: 'owner-a' }, roleId: 'sponsor' },
+        { actor: { kind: 'agent', employeeReleaseId: 'release-lead' }, roleId: 'lead' },
+      ],
+      roles: [{ roleId: 'sponsor', name: 'Sponsor', responsibility: 'Decide' }, { roleId: 'lead', name: 'Lead', responsibility: 'Coordinate' }],
+      verificationPolicy: { rubricRefs: ['采购验收标准'] }, attentionPolicy: { decisionQueue: 'centralized' },
+      approvalPolicy: {}, revision: 4, state: 'active', createdAt: 1, updatedAt: 1,
+    }
+    const decision = {
+      decisionId: 'decision-a', orgId: 'org-a', runId: 'run-a', kind: 'approval', question: '是否发布采购结论？',
+      options: ['批准', '退回'], recommendation: '批准', contextDigest: 'digest', assigneeUserId: 'owner-a',
+      state: 'open', runtimeRevision: 3, revision: 1, createdAt: 1, updatedAt: 1,
+    }
+    const run = {
+      runId: 'run-a', orgId: 'org-a', teamId: 'team-a', teamDefinitionRevision: 4,
+      workspaceId: 'workspace-1', rootSessionId: 'session-team', rosterSnapshot: definition.roster,
+      createdBy: 'owner-a', source: 'console', state: 'active', runtimeRevision: 2, revision: 2,
+      createdAt: 1, updatedAt: 1,
+    }
+    const props = workbenchProps({
+      state: {
+        mode: 'enterprise', page: 'teams', releases: [],
+        teamDefinitions: { phase: 'ready', items: [definition], error: null } as never,
+        teamRuns: { phase: 'ready', items: [run], error: null } as never,
+        teamDecisions: { phase: 'ready', items: [decision], error: null } as never,
+        teamAutonomy: { phase: 'ready', items: [], error: null },
+      }, startTeamRun, openRecord, respondTeamDecision,
+    } as never)
+    const { rerender } = render(<EnterpriseWorkbench {...props}/>)
+    expect(screen.getByText('让采购交付可验证')).toBeDefined()
+    fireEvent.click(screen.getByRole('button', { name: '准备启动' }))
+    fireEvent.change(screen.getByLabelText('业务空间'), { target: { value: 'workspace-1' } })
+    fireEvent.change(screen.getByLabelText('本次工作目标'), { target: { value: '交付供应商核验报告' } })
+    fireEvent.click(screen.getByRole('button', { name: '启动团队工作' }))
+    await waitFor(() => { expect(startTeamRun).toHaveBeenCalledWith({
+      teamId: 'team-a', expectedTeamRevision: 4, workspaceId: 'workspace-1', prompt: '交付供应商核验报告',
+    }) })
+    fireEvent.click(screen.getByRole('button', { name: '打开 Team Room' }))
+    expect(openRecord).toHaveBeenCalledWith('session-team')
+
+    rerender(<EnterpriseWorkbench {...workbenchProps({
+      state: { mode: 'enterprise', page: 'attention', teamDecisions: { phase: 'ready', items: [decision], error: null } as never },
+      respondTeamDecision,
+    } as never)}/>)
+    expect(screen.getByText('是否发布采购结论？')).toBeDefined()
+    fireEvent.click(screen.getByRole('button', { name: '批准' }))
+    expect(respondTeamDecision).toHaveBeenCalledWith(expect.objectContaining({ decisionId: 'decision-a' }), '批准')
   })
 
   it('offers a primary creation action when the managed employee roster is empty', () => {

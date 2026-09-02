@@ -2,13 +2,13 @@
 
 English | [中文](human-agent-teams.zh.md)
 
-This page describes a proposed enterprise collaboration model, not an executable quickstart. DSH does not currently ship the complete Team Definition, Human roster, trust-grant editor, Team Room, cross-Run attention queue, or enterprise channel command surface described here. Users should not expect those controls in the current Web UI.
+This page describes the complete target operating model. The source-checkout enterprise profile now stores typed Team Definitions, starts real TeamRuns on the Agent Teams Session log, projects Human and Agent roster entries, opens the root Session as a Team Room, and exposes a cross-Run Human decision queue. Human task ownership, a trust-grant editor, version-aware capability-asset assembly, and enterprise channel commands remain proposed.
 
 ## Proposal status
 
-The proposal preserves DSH runtime ownership instead of adding another Team engine. PostgreSQL would persist reusable Team Definitions; the existing experimental `TeamService` and each root Session event log would own one TeamRun's actor roster, task DAG, mailbox, decisions, verification, and handoff state.
+The implementation preserves DSH runtime ownership instead of adding another Team engine. PostgreSQL persists reusable Team Definitions and query projections; the experimental `TeamService` and each root Session event log own one TeamRun's actor roster, task DAG, mailbox, decisions, verification, and handoff state.
 
-The current experimental [Agent Teams subsystem](../../subsystems/agent-team.md) provides an Agent-only roster, task DAG, and mailbox in a source-checkout profile. It does not provide the proposed Human actor records, Team Definition lifecycle, scoped trust grants, decision queue, verifier records, or channel integration. A manually organized Session is not equivalent to the proposed TeamRun contract.
+The current experimental [Agent Teams subsystem](../../subsystems/agent-team.md) provides durable Human and Agent roster projection, an Agent-owned task DAG, mailbox, TeamRun state, and Human decisions in the source-checkout enterprise profile. PostgreSQL provides Team Definition, TeamRun/decision query projections, and explicit autonomy grants. Verifier records, Human task ownership, and channel integration are not complete.
 
 ## Proposed lifecycle
 
@@ -18,11 +18,11 @@ A future Team Definition would record a Human-owned North Star, success evidence
 
 Autonomy would be scoped by Agent, task type, and capability instead of one global label. Each Agent would use an independent service identity and Credential references rather than a Human browser or channel credential.
 
-### 2. Launch
+### 2. Launch in the source-checkout enterprise profile
 
-A future launch would snapshot one exact Team Definition version, Workspace, Run-specific North Star, participating actors, effective grants, verification policy, and decision policy into a DSH root Session before Agent work begins. Later definition edits would not change an active Run implicitly.
+Open **Teams**, select an active charter, choose a Workspace, and enter the Run objective. Launch snapshots the exact Team Definition revision, roster, Workspace, effective policy, and immutable employee Release identities before Agent work begins. Later definition edits do not change an active Run implicitly.
 
-The same `TeamService` domain would record both Human and Agent members for that Run. A Human member would have an enterprise user identity without a Session; an Agent member would bind a Session and Employee Release. The enterprise layer would not maintain a second roster.
+The same `TeamService` domain records both Human and Agent members for that Run. A Human member has an enterprise user identity without a Session; an Agent member binds a Session and Employee Release. Open **Team Room** to enter the root Session and inspect its Agent Teams roster and task projection.
 
 ### 3. Coordination and verification
 
@@ -32,7 +32,7 @@ A Doer completion and a Verifier decision would remain separate runtime events. 
 
 ### 4. Human decisions and handoff
 
-Decision requests would contain a recommendation, alternatives, consequences, deadline, downstream blockers, authorization requirement, and bounded evidence packet. A cross-Run attention projection would group only compatible decisions and would revalidate every mutation against the owning root Session.
+Runtime decision requests carry their question, options, recommendation, assignee, context digest, revision, and root Session event position. Open **Needs my attention** to answer assigned decisions; every response is revalidated against the owning root Session before its PostgreSQL projection changes.
 
 A handoff would be a recorded Human or Agent actor transition inside the same TeamRun. Personal WeChat could notify a Human and link to authenticated DSH, but it could not settle the decision or mutate Team state.
 

@@ -712,6 +712,32 @@
 .empty { min-block-size: 120px; flex-direction: column; justify-content: center; padding: var(--dse-space-md); border: 1px dashed var(--dse-color-border); border-radius: var(--dse-radius-card); text-align: center; }
 .empty strong { color: var(--dse-color-ink); }
 .empty span { max-inline-size: 45ch; font-size: 0.8125rem; line-height: 1.5; }
+.teamControl { display: grid; gap: var(--dse-space-lg); margin-block-start: var(--dse-space-xl); padding-block-start: var(--dse-space-lg); border-block-start: 1px solid var(--dse-color-border); }
+.teamCharters,
+.teamRooms { display: grid; gap: var(--dse-space-sm); }
+.teamLaunch { display: grid; gap: var(--dse-space-sm); padding: var(--dse-space-md); border: 1px solid var(--dse-color-border); border-radius: var(--dse-radius-card); background: var(--dse-color-surface-raised); }
+.teamLaunch > div:first-child { display: grid; gap: var(--dse-space-3xs); }
+.teamLaunch h3,
+.teamLaunch p { margin: 0; }
+.teamLaunch label { display: grid; gap: var(--dse-space-2xs); color: var(--dse-color-muted); font-size: 0.75rem; font-weight: 650; }
+.teamLaunch select,
+.teamLaunch textarea { inline-size: 100%; border: 1px solid var(--dse-color-border); border-radius: var(--dse-radius-control); background: var(--dse-color-surface); color: var(--dse-color-ink); padding: var(--dse-space-xs); font: inherit; }
+.teamLaunch textarea { min-block-size: 6rem; resize: vertical; }
+.launchEvidence { display: flex; flex-wrap: wrap; gap: var(--dse-space-2xs) var(--dse-space-sm); padding-block: var(--dse-space-xs); border-block: 1px solid var(--dse-color-border-subtle); color: var(--dse-color-muted); font-size: 0.75rem; }
+.launchEvidence strong { flex-basis: 100%; color: var(--dse-color-ink); font-size: 0.875rem; }
+.quietText { margin: 0; color: var(--dse-color-muted); font-size: 0.8125rem; }
+.teamRoomRow,
+.decisionRow { display: flex; flex-direction: column; gap: var(--dse-space-sm); padding-block: var(--dse-space-sm); border-block-end: 1px solid var(--dse-color-border-subtle); }
+.teamRoomRow > div:first-child,
+.decisionRow > div:first-child { display: grid; gap: var(--dse-space-3xs); min-inline-size: 0; }
+.teamRoomRow span,
+.teamRoomRow small,
+.decisionRow span { color: var(--dse-color-muted); }
+.attentionLink { justify-self: start; border: 0; background: transparent; color: var(--dse-color-accent); font-weight: 650; cursor: pointer; padding: var(--dse-space-2xs) 0; text-underline-offset: 0.2em; }
+.attentionLink:hover { text-decoration: underline; }
+.decisionQueue { display: grid; }
+.decisionOptions { display: flex; flex-wrap: wrap; gap: var(--dse-space-2xs); }
+.decisionRow p { margin: var(--dse-space-2xs) 0 0; color: var(--dse-color-ink); }
 .spin { animation: spin 1s linear infinite; }
 
 @keyframes spin { to { transform: rotate(360deg); } }
@@ -725,6 +751,10 @@
   .recordTime { display: block; }
   .capabilityTypeGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .teamChoiceGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .teamLaunch { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .teamLaunch > div:first-child,
+  .teamLaunch > button,
+  .launchEvidence { grid-column: 1 / -1; }
 }
 
 @media (min-width: 48rem) {
@@ -743,6 +773,8 @@
 .compactField { inline-size: min(100%, 32rem); }
   .wideField { grid-column: span 2; }
   .row { flex-direction: row; align-items: center; justify-content: space-between; }
+  .teamRoomRow,
+  .decisionRow { flex-direction: row; align-items: center; justify-content: space-between; }
   .extensionHeader { flex-direction: row; align-items: end; justify-content: space-between; }
   .extensionWorkspace { inline-size: min(28rem, 48%); }
   .extensionRow { grid-template-columns: minmax(16rem, 1.4fr) minmax(10rem, .8fr); }

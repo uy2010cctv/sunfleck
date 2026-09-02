@@ -20,7 +20,7 @@ Start reservation acquires the same global team lock as definition save/archive,
 
 Autonomy grants are human-authored records keyed by team, immutable employee release, task type, and capability scope. Only a rostered Agent release can receive a grant. Evidence references are canonical, revocation is terminal, and runtime code has no grant-write method, so observed success cannot promote autonomy. Run, decision, and grant queries join the current definition and apply the minimal viewer/admin visibility scope before limit; signed cursors bind that scope with organization and filters.
 
-The concrete Agent Teams adapter, UI, and channel integration are not part of this control plane.
+The concrete Agent Teams adapter and enterprise workbench consume this control plane through the driver and generated Remote namespaces; they remain separate packages with separate runtime and UI ownership. Channel integration is not part of this control plane.
 
 ## Alternatives considered
 
@@ -34,8 +34,8 @@ The concrete Agent Teams adapter, UI, and channel integration are not part of th
 
 - Enterprise policy, idempotency, audit, visibility, and query pagination remain stable while runtime implementations can change behind one driver.
 - Unknown network outcomes require reconciliation and may leave a visible `starting` or pre-cancellation projection temporarily.
-- Shipping the control plane does not claim that a concrete Agent Teams adapter, TeamRun UI, or channel path exists.
+- The source-checkout enterprise profile supplies a private Agent Teams adapter plus Team launch, Room entry, and Human-decision UI; external channel delivery remains separate.
 
 ## Verification
 
-Focused tests cover start success, idempotency and operation-ID reuse, stale and inactive definitions, visibility, Workspace denial, deterministic and unknown driver outcomes, reconciliation, immutable roster snapshots, cancellation, decision ingestion and response authority, autonomy validation and terminal revocation, organization scoping, signed pagination, Remote principal injection, audit calls, schema migration, and the optional real-PostgreSQL path.
+Focused tests cover start success, idempotency and operation-ID reuse, stale and inactive definitions, visibility, Workspace denial, deterministic and unknown driver outcomes, reconciliation, immutable roster snapshots, cancellation, decision ingestion and response authority, autonomy validation and terminal revocation, organization scoping, signed pagination, Remote principal injection, audit calls, schema migration, the optional real-PostgreSQL path, and the workbench launch, Room, and decision surfaces.

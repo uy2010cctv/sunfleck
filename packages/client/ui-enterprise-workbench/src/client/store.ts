@@ -6,6 +6,7 @@ import type {
   EnterpriseBusinessState, EnterpriseEmployeeAssetRef, EnterpriseEmployeeDraft,
   EnterpriseEmployeeRelease, EnterpriseSchedule,
   EnterpriseScheduleTarget, EnterpriseTeam, EnterpriseTeamMember,
+  EnterpriseTeamAutonomyGrant, EnterpriseTeamDecision, EnterpriseTeamDefinition, EnterpriseTeamRun,
   EnterpriseVisibility, EnterpriseWorkRecord as EnterpriseOperationWorkRecord,
   CordisPackageVersion, CordisReviewRequest, CordisScopeBinding,
 } from '@deepseek-ai/dsh-api-enterprise-controller/types'
@@ -70,7 +71,7 @@ export interface EnterpriseView {
 
 /** Overlay-local route. Governance deliberately remains in Settings. */
 export type EnterpriseWorkbenchPage =
-  | 'employees' | 'work-records' | 'approvals' | 'schedules' | 'assets' | 'teams' | 'extensions'
+  | 'employees' | 'work-records' | 'approvals' | 'attention' | 'schedules' | 'assets' | 'teams' | 'extensions'
 
 /** Shared asynchronous page state for enterprise PostgreSQL read models. */
 export interface EnterprisePageState<T> {
@@ -144,6 +145,10 @@ export interface EnterpriseWorkbenchState {
   readonly schedules: EnterprisePageState<EnterpriseSchedule>
   readonly assets: EnterprisePageState<EnterpriseAsset>
   readonly teams: EnterprisePageState<EnterpriseTeam>
+  readonly teamDefinitions: EnterprisePageState<EnterpriseTeamDefinition>
+  readonly teamRuns: EnterprisePageState<EnterpriseTeamRun>
+  readonly teamDecisions: EnterprisePageState<EnterpriseTeamDecision>
+  readonly teamAutonomy: EnterprisePageState<EnterpriseTeamAutonomyGrant>
   readonly extensions: EnterprisePageState<CordisPackageVersion>
   readonly extensionBindings: readonly CordisScopeBinding[]
   readonly extensionReviews: EnterprisePageState<CordisReviewRequest>
@@ -164,6 +169,10 @@ export interface EnterpriseWorkbenchRemote {
   readonly enterpriseEmployees: ClientRemote['enterpriseEmployee']
   readonly enterpriseAssets: ClientRemote['enterpriseAsset']
   readonly enterpriseTeams: ClientRemote['enterpriseTeam']
+  readonly enterpriseTeamDefinitions: ClientRemote['enterpriseTeamDefinition']
+  readonly enterpriseTeamRuns: ClientRemote['enterpriseTeamRun']
+  readonly enterpriseTeamDecisions: ClientRemote['enterpriseTeamDecision']
+  readonly enterpriseTeamAutonomy: ClientRemote['enterpriseTeamAutonomy']
   readonly enterpriseOperations: ClientRemote['enterpriseOperation']
   readonly pluginInventory: ClientRemote['pluginInventory']
   readonly cordisWorkspace: ClientRemote['cordisWorkspace']
@@ -300,6 +309,10 @@ const INITIAL_STATE: EnterpriseWorkbenchState = {
   schedules: emptyPage(),
   assets: emptyPage(),
   teams: emptyPage(),
+  teamDefinitions: emptyPage(),
+  teamRuns: emptyPage(),
+  teamDecisions: emptyPage(),
+  teamAutonomy: emptyPage(),
   extensions: emptyPage(),
   extensionBindings: [],
   extensionReviews: emptyPage(),
@@ -450,7 +463,8 @@ export class EnterpriseWorkbenchController {
       await this.refreshEmployees()
       await Promise.all([
         this.refreshWorkRecords(), this.refreshApprovals(), this.refreshSchedules(),
-        this.refreshAssets(), this.refreshTeams(),
+        this.refreshAssets(), this.refreshTeams(), this.refreshTeamDefinitions(),
+        this.refreshTeamRuns(), this.refreshTeamDecisions(), this.refreshTeamAutonomy(),
         this.refreshExtensions(), this.refreshFormalPlugins(), this.refreshModelOptions(),
       ])
       this.store.set({
@@ -558,7 +572,7 @@ export class EnterpriseWorkbenchController {
     }
   }
 
-  private async loadPage<K extends 'workRecords' | 'approvals' | 'schedules' | 'assets' | 'teams' | 'formalPlugins'>(
+  private async loadPage<K extends 'workRecords' | 'approvals' | 'schedules' | 'assets' | 'teams' | 'teamDefinitions' | 'teamRuns' | 'teamDecisions' | 'teamAutonomy' | 'formalPlugins'>(
     key: K,
     load: () => Promise<{ items: EnterpriseWorkbenchState[K]['items']; nextCursor?: string }>,
   ): Promise<boolean> {
@@ -611,6 +625,26 @@ export class EnterpriseWorkbenchController {
   /** Refresh fixed teams. */
   refreshTeams(): Promise<boolean> {
     return this.loadPage('teams', async () => valueOf(await this.api.enterpriseTeams.list({ limit: 50 })))
+  }
+
+  /** Refresh typed Team Definitions. */
+  refreshTeamDefinitions(): Promise<boolean> {
+    return this.loadPage('teamDefinitions', async () => valueOf(await this.api.enterpriseTeamDefinitions.list({ limit: 50 })))
+  }
+
+  /** Refresh visible TeamRun projections. */
+  refreshTeamRuns(): Promise<boolean> {
+    return this.loadPage('teamRuns', async () => valueOf(await this.api.enterpriseTeamRuns.list({ limit: 50 })))
+  }
+
+  /** Refresh the current Human decision queue. */
+  refreshTeamDecisions(): Promise<boolean> {
+    return this.loadPage('teamDecisions', async () => valueOf(await this.api.enterpriseTeamDecisions.list({ limit: 50 })))
+  }
+
+  /** Refresh explicit scoped autonomy grants. */
+  refreshTeamAutonomy(): Promise<boolean> {
+    return this.loadPage('teamAutonomy', async () => valueOf(await this.api.enterpriseTeamAutonomy.list({ limit: 50 })))
   }
 
   /** Read formally installed Registry/tgz/Profile plugins from the live Loader inventory. */
@@ -1057,8 +1091,40 @@ export class EnterpriseWorkbenchController {
     () => this.reloadPageConflict('teams', () => this.refreshTeams()))
   }
 
+  /** Start one immutable Team Definition revision in an explicit Workspace. */
+  async startTeamRun(input: {
+    teamId: string
+    expectedTeamRevision: number
+    workspaceId: string
+    prompt: string
+  }): Promise<boolean> {
+    const idempotencyKey = mutationKey('team-run-start')
+    return this.runMutation('team-run-start', async () => valueOf(await this.api.enterpriseTeamRuns.start({
+      ...input, source: 'console', idempotencyKey,
+    })), async () => {
+      await Promise.all([this.refreshTeamRuns(), this.refreshTeamDecisions()])
+    })
+  }
+
+  /** Cancel one non-terminal TeamRun. */
+  async cancelTeamRun(run: EnterpriseTeamRun): Promise<void> {
+    await this.runMutation('team-run-cancel', async () => valueOf(await this.api.enterpriseTeamRuns.cancel({
+      runId: run.runId, expectedRevision: run.revision, idempotencyKey: mutationKey('team-run-cancel'),
+    })), () => this.refreshTeamRuns())
+  }
+
+  /** Answer one assigned Human decision. */
+  async respondTeamDecision(decision: EnterpriseTeamDecision, answer: string): Promise<void> {
+    await this.runMutation('team-decision-respond', async () => valueOf(await this.api.enterpriseTeamDecisions.respond({
+      decisionId: decision.decisionId, answer, expectedRevision: decision.revision,
+      idempotencyKey: mutationKey('team-decision-respond'),
+    })), async () => {
+      await Promise.all([this.refreshTeamDecisions(), this.refreshTeamRuns()])
+    })
+  }
+
   private async reloadPageConflict(
-    key: 'workRecords' | 'approvals' | 'schedules' | 'assets' | 'teams',
+    key: 'workRecords' | 'approvals' | 'schedules' | 'assets' | 'teams' | 'teamDefinitions' | 'teamRuns' | 'teamDecisions' | 'teamAutonomy',
     refresh: () => Promise<boolean>,
   ): Promise<void> {
     await refresh()

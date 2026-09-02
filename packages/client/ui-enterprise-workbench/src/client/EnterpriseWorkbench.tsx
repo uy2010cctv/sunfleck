@@ -15,7 +15,8 @@ import { randomUUID } from '@deepseek-ai/dsh-util-crypto'
 import type {
   EnterpriseApproval, EnterpriseAsset, EnterpriseAssetKind, EnterpriseBusinessState,
   EnterpriseEmployeeDraft, EnterpriseEmployeeRelease, EnterpriseSchedule, EnterpriseScheduleTarget, EnterpriseTeam,
-  EnterpriseTeamMember, EnterpriseVisibility, EnterpriseWorkRecord as OperationWorkRecord,
+  EnterpriseTeamAutonomyGrant, EnterpriseTeamDecision, EnterpriseTeamDefinition, EnterpriseTeamMember,
+  EnterpriseTeamRun, EnterpriseVisibility, EnterpriseWorkRecord as OperationWorkRecord,
   CordisPackageVersion, CordisReviewRequest, CordisScopeBinding,
 } from '@deepseek-ai/dsh-api-enterprise-controller/types'
 import type { WorkspaceSnapshot } from '@deepseek-ai/dsh-api-workspace-controller/client'
@@ -53,6 +54,9 @@ export interface EnterpriseWorkbenchInjected {
   saveAssetVersion: (input: { assetId: string; kind: EnterpriseAssetKind; name: string; content: Readonly<Record<string, JsonValue>>; expectedRevision: number }) => Promise<boolean>
   archiveAsset: (asset: EnterpriseAsset) => Promise<void>
   saveTeam: (input: { teamId: string; leaderEmployeeReleaseId: string; members: readonly EnterpriseTeamMember[]; workflowTemplate: Readonly<Record<string, JsonValue>>; approvalPolicy: Readonly<Record<string, JsonValue>>; expectedRevision: number }) => Promise<boolean>
+  startTeamRun: (input: { teamId: string; expectedTeamRevision: number; workspaceId: string; prompt: string }) => Promise<boolean>
+  cancelTeamRun: (run: EnterpriseTeamRun) => Promise<void>
+  respondTeamDecision: (decision: EnterpriseTeamDecision, answer: string) => Promise<void>
   setExtensionWorkspace: (workspaceId: string) => void
   refreshExtensions: () => Promise<boolean>
   stopExtension: (binding: CordisScopeBinding, reason: string) => Promise<void>
@@ -69,7 +73,7 @@ export interface EnterpriseWorkbenchInjected {
 export type EnterpriseWorkbenchProps = PropsRuntime<'shell.overlay'> & PropsLocale<typeof NS> & InjectFace<EnterpriseWorkbenchInjected>
 type Translate = (key: EnterpriseWorkbenchKey, params?: Record<string, string | number>) => string
 const NAV_GROUPS: readonly { label: EnterpriseWorkbenchKey; items: readonly [EnterpriseWorkbenchPage, EnterpriseWorkbenchKey][] }[] = [
-  { label: 'nav.use', items: [['employees', 'nav.employees'], ['work-records', 'nav.work-records'], ['approvals', 'nav.approvals']] },
+  { label: 'nav.use', items: [['employees', 'nav.employees'], ['work-records', 'nav.work-records'], ['approvals', 'nav.approvals'], ['attention', 'nav.attention']] },
   { label: 'nav.manage', items: [['schedules', 'nav.schedules'], ['assets', 'nav.assets'], ['teams', 'nav.teams'], ['extensions', 'nav.extensions']] },
 ]
 
@@ -599,6 +603,60 @@ function TeamsPage({ page, releases, api, busy, onDirty, t }: { page: Enterprise
   </section>
 }
 
+function TeamControlPanel({ definitions, runs, decisions, autonomy, workspaces, api, busy, t }: {
+  definitions: EnterprisePageState<EnterpriseTeamDefinition>
+  runs: EnterprisePageState<EnterpriseTeamRun>
+  decisions: EnterprisePageState<EnterpriseTeamDecision>
+  autonomy: EnterprisePageState<EnterpriseTeamAutonomyGrant>
+  workspaces: WorkspaceSnapshot
+  api: EnterpriseWorkbenchInjected
+  busy: boolean
+  t: Translate
+}) {
+  const activeDefinitions = definitions.items.filter(item => item.state === 'active')
+  const [teamId, setTeamId] = useState('')
+  const [workspaceId, setWorkspaceId] = useState('')
+  const [prompt, setPrompt] = useState('')
+  const selected = activeDefinitions.find(item => item.teamId === teamId)
+  const visibleRuns = runs.items.filter(run => teamId === '' || run.teamId === teamId)
+  const openDecisionCount = decisions.items.filter(item => item.state === 'open').length
+  return <div className={css.teamControl}>
+    <section className={css.teamCharters} aria-labelledby="team-charters-title">
+      <div className={css.sectionHead}><h3 id="team-charters-title">{t('team.charters')}</h3><span>{definitions.items.length}</span></div>
+      {definitions.items.length === 0
+        ? <p className={css.quietText}>{t('team.chartersEmpty')}</p>
+        : <div className={css.rows}>{definitions.items.map(item => <div className={css.row} key={item.teamId}><div><strong>{item.name || item.teamId}</strong><span>{item.northStar || t('team.charterRequired')} · {t(`team.state.${item.state}`)}</span><small>{t('team.rosterSummary', { humans: item.roster.filter(member => member.actor.kind === 'human').length, agents: item.roster.filter(member => member.actor.kind === 'agent').length })}</small></div>{item.state === 'active' && <button type="button" className={css.secondaryButton} onClick={() => { setTeamId(item.teamId) }}>{t('team.launch')}</button>}</div>)}</div>}
+    </section>
+    <form className={css.teamLaunch} onSubmit={(event) => {
+      event.preventDefault()
+      if (selected === undefined) return
+      void api.startTeamRun({ teamId: selected.teamId, expectedTeamRevision: selected.revision, workspaceId, prompt })
+    }}>
+      <div><h3>{t('team.launchTitle')}</h3><p>{t('team.launchHelp')}</p></div>
+      <label>{t('team.definition')}<select required value={teamId} onChange={(event) => { setTeamId(event.target.value) }}><option value="">{t('team.definitionPlaceholder')}</option>{activeDefinitions.map(item => <option key={item.teamId} value={item.teamId}>{item.name}</option>)}</select></label>
+      <label>{t('team.workspace')}<select required value={workspaceId} onChange={(event) => { setWorkspaceId(event.target.value) }}><option value="">{t('team.workspacePlaceholder')}</option>{workspaces.items.map(workspace => <option key={workspace.workspaceId} value={workspace.workspaceId}>{workspace.title}</option>)}</select></label>
+      <label className={css.fullField}>{t('team.objective')}<textarea required rows={4} value={prompt} onChange={(event) => { setPrompt(event.target.value) }} placeholder={t('team.objectivePlaceholder')}/></label>
+      {selected !== undefined && <div className={css.launchEvidence}><strong>{selected.northStar}</strong><span>{t('team.releaseFence', { revision: selected.revision })}</span><span>{t('team.verificationSummary', { count: selected.verificationPolicy.rubricRefs?.length ?? 0 })}</span></div>}
+      <button className={css.primaryButton} type="submit" disabled={busy || selected === undefined || workspaceId === '' || prompt.trim() === ''}>{t('team.startRun')}</button>
+    </form>
+    <section className={css.teamRooms} aria-labelledby="team-runs-title">
+      <div className={css.sectionHead}><h3 id="team-runs-title">{t('team.rooms')}</h3><span>{visibleRuns.length}</span></div>
+      {visibleRuns.length === 0 ? <p className={css.quietText}>{t('team.roomsEmpty')}</p> : <div className={css.rows}>{visibleRuns.map((run) => {
+        const definition = definitions.items.find(item => item.teamId === run.teamId)
+        const runDecisions = decisions.items.filter(item => item.runId === run.runId && item.state === 'open').length
+        const grants = autonomy.items.filter(item => item.teamId === run.teamId && item.state === 'active').length
+        return <div className={css.teamRoomRow} key={run.runId}><div><strong>{definition?.name ?? run.teamId}</strong><span>{definition?.northStar ?? run.runId}</span><small>{t(`team.runState.${run.state}`)} · {t('team.roomEvidence', { members: run.rosterSnapshot.length, decisions: runDecisions, grants })}</small></div><div className={css.inlineActions}>{run.rootSessionId !== undefined && <button type="button" className={css.primaryButton} onClick={() => { api.openRecord(run.rootSessionId as SessionId) }}>{t('team.openRoom')}</button>}{!['completed', 'failed', 'cancelled'].includes(run.state) && <button type="button" className={css.secondaryButton} disabled={busy} onClick={() => { void api.cancelTeamRun(run) }}>{t('team.cancelRun')}</button>}</div></div>
+      })}</div>}
+      {openDecisionCount > 0 && <button type="button" className={css.attentionLink} onClick={() => { api.setPage('attention') }}>{t('team.openAttention', { count: openDecisionCount })}</button>}
+    </section>
+  </div>
+}
+
+function TeamAttentionPage({ page, api, busy, t }: { page: EnterprisePageState<EnterpriseTeamDecision>; api: EnterpriseWorkbenchInjected; busy: boolean; t: Translate }) {
+  const open = page.items.filter(item => item.state === 'open')
+  return <section aria-labelledby="attention-page-title"><ManagementHeader id="attention-page-title" title={t('nav.attention')} description={t('attention.description')} count={open.length}/><PageBoundary page={{ ...page, items: open }} t={t} empty={<ActionableEmpty title={t('attention.emptyTitle')} description={t('attention.emptyBody')}/>}><div className={css.decisionQueue}>{open.map(item => <article className={css.decisionRow} key={item.decisionId}><div><strong>{item.question}</strong><span>{t(`attention.kind.${item.kind}`)} · {item.assigneeUserId}</span>{item.recommendation !== undefined && <p>{t('attention.recommendation', { value: item.recommendation })}</p>}</div><div className={css.decisionOptions}>{item.options.map(option => <button type="button" className={css.primaryButton} disabled={busy} key={option} onClick={() => { void api.respondTeamDecision(item, option) }}>{option}</button>)}</div></article>)}</div></PageBoundary></section>
+}
+
 const EXTENSION_SECTION = {
   running: 'running', personal: 'personal', department: 'department', organization: 'organization',
   formal: 'formal', reviews: 'reviews',
@@ -730,6 +788,17 @@ function ExtensionsPage({ state, workspaces, api, busy, t }: {
 export function EnterpriseWorkbench(props: EnterpriseWorkbenchProps) {
   const state = props.useEnterprise(snapshot => snapshot); const dialogRef = useRef<HTMLElement>(null); const closeRef = useRef<HTMLButtonElement>(null); const page = state.page
   const workspaces = props.useWorkspaces(snapshot => snapshot)
+  const emptyControlPage = { phase: 'ready', items: [], error: null } as const
+  const compatibleState = state as unknown as {
+    readonly teamDefinitions?: EnterprisePageState<EnterpriseTeamDefinition>
+    readonly teamRuns?: EnterprisePageState<EnterpriseTeamRun>
+    readonly teamDecisions?: EnterprisePageState<EnterpriseTeamDecision>
+    readonly teamAutonomy?: EnterprisePageState<EnterpriseTeamAutonomyGrant>
+  }
+  const teamDefinitions = compatibleState.teamDefinitions ?? emptyControlPage
+  const teamRuns = compatibleState.teamRuns ?? emptyControlPage
+  const teamDecisions = compatibleState.teamDecisions ?? emptyControlPage
+  const teamAutonomy = compatibleState.teamAutonomy ?? emptyControlPage
   const [localFormDirty, setLocalFormDirty] = useState(false)
   const mutationBusy = state.mutationPhase === 'running'
   const dirty = state.employeeEditor?.dirty === true || localFormDirty
@@ -747,7 +816,8 @@ export function EnterpriseWorkbench(props: EnterpriseWorkbenchProps) {
   useEffect(() => { if (!dirty) return; const warn = (event: BeforeUnloadEvent): void => { event.preventDefault() }; window.addEventListener('beforeunload', warn); return () => { window.removeEventListener('beforeunload', warn) } }, [dirty])
   if (!state.open) return null
   const onKeyDown = (event: React.KeyboardEvent<HTMLElement>): void => { if (event.key === 'Escape') { requestClose(); return } if (event.key !== 'Tab') return; const controls = [...dialogRef.current?.querySelectorAll<HTMLElement>('button:not(:disabled), [href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])') ?? []]; const first = controls[0]; const last = controls.at(-1); if (first === undefined || last === undefined) return; if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus() } else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus() } }
-  const pages = [state.employees, state.workRecords, state.approvals, state.schedules, state.assets, state.teams,
+  const pages = [state.employees, state.workRecords, state.approvals, teamDefinitions, teamRuns,
+    teamDecisions, teamAutonomy, state.schedules, state.assets, state.teams,
     state.extensions, state.extensionReviews, state.formalPlugins]
   const partial = state.mode === 'enterprise' && pages.some(value => value.phase === 'error' || value.phase === 'permission') && pages.some(value => value.phase === 'ready')
   const injected = props as unknown as EnterpriseWorkbenchInjected
@@ -771,5 +841,5 @@ export function EnterpriseWorkbench(props: EnterpriseWorkbenchProps) {
   }
   return <section ref={dialogRef} className={css.workbench} role="dialog" aria-modal="true" aria-label={props.t('title')} onKeyDown={onKeyDown}><header className={css.header}><div><h1>{props.t('title')}</h1><p>{props.t('subtitle')}</p></div><div className={css.headerActions}><button type="button" className={css.iconButton} aria-label={props.t('refresh')} onClick={() => { void props.refresh() }}><IconRefreshOutline16 size={16} /></button><button ref={closeRef} type="button" className={css.iconButton} aria-label={props.t('close')} onClick={requestClose}><IconCloseOutline16 size={16} /></button></div></header>
     {state.mutationError !== null && <div className={css.mutationError} role="alert" aria-label={props.t('mutation.errorAria')}><IconWarningOutline16 size={18} /><span>{state.mutationPhase === 'conflict' ? props.t('mutation.conflict') : state.mutationError}</span>{state.mutationPhase === 'conflict' ? <button type="button" onClick={() => { void props.resolveMutationConflict() }}>{props.t('mutation.reload')}</button> : <button type="button" onClick={() => { void props.retryMutation() }}>{props.t('mutation.retry')}</button>}<button type="button" onClick={props.dismissMutationError}>{props.t('mutation.dismiss')}</button></div>}
-    {state.phase === 'loading' && state.mode === null && <div className={css.loading} role="status"><span className={css.skeleton} />{props.t('loading')}</div>}{state.phase === 'error' && <div className={css.error} role="alert"><IconWarningOutline16 size={18} /><span>{state.error}</span><button type="button" onClick={() => { void props.refresh() }}>{props.t('retry')}</button></div>}{state.phase !== 'error' && state.mode === 'fallback' && <main className={css.body}><FallbackPage state={state} start={props.startEmployee} open={props.openRecord} t={props.t} /></main>}{state.phase !== 'error' && state.mode === 'enterprise' && <div className={css.shell}><nav className={css.nav} aria-label={props.t('nav.aria')}>{NAV_GROUPS.map(group => <div className={css.navGroup} key={group.label}><span>{props.t(group.label)}</span>{group.items.map(([id, key]) => <button type="button" key={id} aria-current={page === id ? 'page' : undefined} onClick={() => { requestPage(id) }}>{props.t(key)}</button>)}</div>)}</nav><main className={css.main}>{partial && <div className={css.notice} role="status">{props.t('partial')}</div>}{page === 'employees' && <EmployeesPage state={state} api={api} guardDirty={guardDirty} t={props.t} />}{page === 'work-records' && <WorkRecordsPage page={state.workRecords} update={props.updateWorkRecord} busy={mutationBusy} t={props.t} />}{page === 'approvals' && <ApprovalsPage page={state.approvals} api={api} busy={mutationBusy} t={props.t} />}{page === 'schedules' && <SchedulesPage page={state.schedules} releases={state.releases} api={api} busy={mutationBusy} onDirty={() => { setLocalFormDirty(true) }} t={props.t} />}{page === 'assets' && <AssetsPage page={state.assets} cordisCount={cordisExtensionCount(state)} api={api} busy={mutationBusy} onDirty={() => { setLocalFormDirty(true) }} openExtensions={() => { requestPage('extensions') }} t={props.t} />}{page === 'teams' && <TeamsPage page={state.teams} releases={state.releases} api={api} busy={mutationBusy} onDirty={() => { setLocalFormDirty(true) }} t={props.t} />}{page === 'extensions' && <ExtensionsPage state={state} workspaces={workspaces} api={api} busy={mutationBusy} t={props.t} />}</main></div>}</section>
+    {state.phase === 'loading' && state.mode === null && <div className={css.loading} role="status"><span className={css.skeleton} />{props.t('loading')}</div>}{state.phase === 'error' && <div className={css.error} role="alert"><IconWarningOutline16 size={18} /><span>{state.error}</span><button type="button" onClick={() => { void props.refresh() }}>{props.t('retry')}</button></div>}{state.phase !== 'error' && state.mode === 'fallback' && <main className={css.body}><FallbackPage state={state} start={props.startEmployee} open={props.openRecord} t={props.t} /></main>}{state.phase !== 'error' && state.mode === 'enterprise' && <div className={css.shell}><nav className={css.nav} aria-label={props.t('nav.aria')}>{NAV_GROUPS.map(group => <div className={css.navGroup} key={group.label}><span>{props.t(group.label)}</span>{group.items.map(([id, key]) => <button type="button" key={id} aria-current={page === id ? 'page' : undefined} onClick={() => { requestPage(id) }}>{props.t(key)}</button>)}</div>)}</nav><main className={css.main}>{partial && <div className={css.notice} role="status">{props.t('partial')}</div>}{page === 'employees' && <EmployeesPage state={state} api={api} guardDirty={guardDirty} t={props.t} />}{page === 'work-records' && <WorkRecordsPage page={state.workRecords} update={props.updateWorkRecord} busy={mutationBusy} t={props.t} />}{page === 'approvals' && <ApprovalsPage page={state.approvals} api={api} busy={mutationBusy} t={props.t} />}{page === 'attention' && <TeamAttentionPage page={teamDecisions} api={api} busy={mutationBusy} t={props.t} />}{page === 'schedules' && <SchedulesPage page={state.schedules} releases={state.releases} api={api} busy={mutationBusy} onDirty={() => { setLocalFormDirty(true) }} t={props.t} />}{page === 'assets' && <AssetsPage page={state.assets} cordisCount={cordisExtensionCount(state)} api={api} busy={mutationBusy} onDirty={() => { setLocalFormDirty(true) }} openExtensions={() => { requestPage('extensions') }} t={props.t} />}{page === 'teams' && <><TeamsPage page={state.teams} releases={state.releases} api={api} busy={mutationBusy} onDirty={() => { setLocalFormDirty(true) }} t={props.t} /><TeamControlPanel definitions={teamDefinitions} runs={teamRuns} decisions={teamDecisions} autonomy={teamAutonomy} workspaces={workspaces} api={api} busy={mutationBusy} t={props.t}/></>}{page === 'extensions' && <ExtensionsPage state={state} workspaces={workspaces} api={api} busy={mutationBusy} t={props.t} />}</main></div>}</section>
 }

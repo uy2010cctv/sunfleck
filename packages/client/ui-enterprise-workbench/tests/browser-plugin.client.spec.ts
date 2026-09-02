@@ -39,13 +39,18 @@ async function bench(declareSlots = true) {
   const enterpriseAsset = {}
   const enterpriseTeam = {}
   const enterpriseOperation = {}
+  const enterpriseTeamDefinition = {}
+  const enterpriseTeamRun = {}
+  const enterpriseTeamDecision = {}
+  const enterpriseTeamAutonomy = {}
   const session = {}
   const pluginInventory = {}
   const cordisWorkspace = {}
   const cordisReview = {}
   const cordisGovernance = {}
   ctx.provide('remote', {
-    agentPresets, enterpriseEmployee, enterpriseAsset, enterpriseTeam, enterpriseOperation, session, pluginInventory,
+    agentPresets, enterpriseEmployee, enterpriseAsset, enterpriseTeam, enterpriseOperation,
+    enterpriseTeamDefinition, enterpriseTeamRun, enterpriseTeamDecision, enterpriseTeamAutonomy, session, pluginInventory,
     cordisWorkspace, cordisReview, cordisGovernance,
   } as never)
   ctx.provide('remote.agentPresets', agentPresets as never)
@@ -53,6 +58,10 @@ async function bench(declareSlots = true) {
   ctx.provide('remote.enterpriseAsset', enterpriseAsset as never)
   ctx.provide('remote.enterpriseTeam', enterpriseTeam as never)
   ctx.provide('remote.enterpriseOperation', enterpriseOperation as never)
+  ctx.provide('remote.enterpriseTeamDefinition', enterpriseTeamDefinition as never)
+  ctx.provide('remote.enterpriseTeamRun', enterpriseTeamRun as never)
+  ctx.provide('remote.enterpriseTeamDecision', enterpriseTeamDecision as never)
+  ctx.provide('remote.enterpriseTeamAutonomy', enterpriseTeamAutonomy as never)
   ctx.provide('remote.session', session as never)
   ctx.provide('remote.pluginInventory', pluginInventory as never)
   ctx.provide('remote.cordisWorkspace', cordisWorkspace as never)
@@ -69,6 +78,8 @@ describe('enterprise workbench browser plugin', () => {
       'slots', 'locale', 'connection', 'sessions', 'workspaces', 'remote',
       'remote.agentPresets', 'remote.enterpriseEmployee', 'remote.enterpriseAsset',
       'remote.enterpriseTeam', 'remote.enterpriseOperation', 'remote.session',
+      'remote.enterpriseTeamDefinition', 'remote.enterpriseTeamRun',
+      'remote.enterpriseTeamDecision', 'remote.enterpriseTeamAutonomy',
       'remote.pluginInventory',
       'remote.cordisWorkspace', 'remote.cordisReview', 'remote.cordisGovernance',
     ])

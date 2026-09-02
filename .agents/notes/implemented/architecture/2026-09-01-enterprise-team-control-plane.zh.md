@@ -20,7 +20,7 @@ Start reservation 使用与 definition save/archive 相同的全局 team lock，
 
 自主权授权是人类创建的记录，以 team、不可变 employee release、task type 和 capability scope 为键。只有已入名册的 Agent release 可获授权。Evidence reference 会 canonicalize，撤销为终态，runtime 代码不存在 grant write 方法，因此不能根据成功记录自动提升自主权。Run、decision 与 grant 查询会 join 当前 definition，并在 limit 前应用最小 viewer/admin 可见性 scope；签名 cursor 将该 scope 与组织、filter 绑定。
 
-具体 Agent Teams adapter、UI 与渠道集成不属于该控制面。
+具体 Agent Teams adapter 与企业工作台通过 driver 和生成 Remote namespace 使用该控制面；它们仍是拥有独立 runtime/UI 归属的单独 package。渠道集成不属于该控制面。
 
 ## Alternatives considered
 
@@ -34,8 +34,8 @@ Start reservation 使用与 definition save/archive 相同的全局 team lock，
 
 - 企业策略、幂等、审计、可见性与查询分页保持稳定，runtime 实现可在单一 driver 后更换。
 - 未知网络结果需要 reconciliation，并可能暂时保留可见 `starting` 或取消前投影。
-- 交付控制面不代表具体 Agent Teams adapter、TeamRun UI 或渠道路径已存在。
+- 源码 checkout 企业 profile 提供私有 Agent Teams adapter，以及 Team 启动、Room 入口与 Human 决策 UI；外部渠道交付仍相互独立。
 
 ## Verification
 
-聚焦测试覆盖 start 成功、幂等与 operation ID 复用、过期与非 active 定义、可见性、Workspace 拒绝、driver 确定性与未知结果、reconciliation、不可变 roster snapshot、取消、decision ingest 与响应权限、自主权校验与终态撤销、组织 scope、签名分页、Remote principal 注入、审计调用、schema 迁移与可选真实 PostgreSQL 路径。
+聚焦测试覆盖 start 成功、幂等与 operation ID 复用、过期与非 active 定义、可见性、Workspace 拒绝、driver 确定性与未知结果、reconciliation、不可变 roster snapshot、取消、decision ingest 与响应权限、自主权校验与终态撤销、组织 scope、签名分页、Remote principal 注入、审计调用、schema 迁移、可选真实 PostgreSQL 路径，以及工作台启动、Room 与决策界面。
