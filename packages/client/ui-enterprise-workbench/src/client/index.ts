@@ -4,7 +4,6 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { SnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type { ClientRemote } from '@deepseek-ai/dsh-api-remotes/client'
 import type { EnterpriseChannelConfiguration } from '@deepseek-ai/dsh-api-enterprise-controller/types'
-import { randomUUID } from '@deepseek-ai/dsh-util-crypto'
 import type {} from '@deepseek-ai/dsh-client-connection/client'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
@@ -31,7 +30,8 @@ interface EnterpriseTriggerInjected {
 }
 
 const CALLBACK_MARKER = 'dsh_channel_binding'
-const CALLBACK_VALUE_LIMIT = 4096
+const CALLBACK_CODE_LIMIT = 4096
+const CALLBACK_STATE_LIMIT = 87
 
 interface BindingCallbackWindow {
   readonly location: Pick<Location, 'origin' | 'pathname' | 'search'>
@@ -45,8 +45,8 @@ export function channelBindingCallbackUri(location: Pick<Location, 'origin' | 'p
   return `${location.origin}${location.pathname}?${CALLBACK_MARKER}=1`
 }
 
-function boundedCallbackValue(value: string | null): value is string {
-  return value !== null && value.length > 0 && value.length <= CALLBACK_VALUE_LIMIT
+function boundedCallbackValue(value: string | null, limit: number): value is string {
+  return value !== null && value.length > 0 && value.length <= limit
 }
 
 /** Complete one marked provider callback and remove authorization material from browser history. */
@@ -64,12 +64,12 @@ export async function completeChannelBindingCallback(
     browser.opener?.postMessage({ type: 'dsh-channel-binding-failed' }, browser.location.origin)
     return true
   }
-  if (!boundedCallbackValue(code) || !boundedCallbackValue(state)) return fail()
+  if (!boundedCallbackValue(code, CALLBACK_CODE_LIMIT) || !boundedCallbackValue(state, CALLBACK_STATE_LIMIT)) return fail()
   try {
     const response = await remote.completeBinding({
       code, state,
       redirectUri: channelBindingCallbackUri(browser.location),
-      idempotencyKey: `channel-binding-complete:${randomUUID()}`,
+      idempotencyKey: `channel-binding-complete:${state}`,
     })
     const wrapped = response as typeof response | { readonly result: typeof response }
     const result = 'result' in wrapped ? wrapped.result : wrapped

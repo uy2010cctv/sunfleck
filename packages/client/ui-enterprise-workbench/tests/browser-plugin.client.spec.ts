@@ -154,6 +154,30 @@ describe('enterprise workbench browser plugin', () => {
     expect(close).not.toHaveBeenCalled()
   })
 
+  it('uses the same bounded idempotency key for retries of one signed state without including the code', async () => {
+    const requests: Array<{ idempotencyKey: string }> = []
+    const completeBinding = vi.fn((request: { idempotencyKey: string }) => {
+      requests.push(request)
+      return Promise.resolve({ result: { ok: true, value: { channelId: 'finance-wecom' } } })
+    })
+    const state = 's'.repeat(87)
+    for (const code of ['first-code', 'retry-code']) {
+      await completeChannelBindingCallback({ completeBinding } as never, {
+        location: {
+          origin: 'https://dsh.example', pathname: '/workbench',
+          search: `?dsh_channel_binding=1&code=${code}&state=${state}`,
+        },
+        history: { replaceState: vi.fn() }, opener: null, close: vi.fn(),
+      })
+    }
+
+    expect(requests).toHaveLength(2)
+    expect(requests[0]?.idempotencyKey).toBe(requests[1]?.idempotencyKey)
+    expect(requests[0]?.idempotencyKey.length).toBeLessThanOrEqual(128)
+    expect(requests[0]?.idempotencyKey).not.toContain('first-code')
+    expect(requests[0]?.idempotencyKey).not.toContain('retry-code')
+  })
+
   it('builds the exact marker-only callback URI', () => {
     expect(channelBindingCallbackUri({ origin: 'https://dsh.example', pathname: '/workbench' }))
       .toBe('https://dsh.example/workbench?dsh_channel_binding=1')

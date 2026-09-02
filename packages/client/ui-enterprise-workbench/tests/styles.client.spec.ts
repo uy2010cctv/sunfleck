@@ -44,4 +44,10 @@ describe('enterprise workbench responsive shell', () => {
     expect(css).toMatch(/::-webkit-scrollbar/u)
     expect(css).toMatch(/\.inlineField select:focus-visible/u)
   })
+
+  it('stacks the channel binding rail and actions on mobile', () => {
+    const css = readFileSync(WORKBENCH, 'utf8')
+    expect(css).toMatch(/@media\s*\(max-width:\s*39\.99rem\)[\s\S]*\.connectionPath\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)/su)
+    expect(css).toMatch(/@media\s*\(max-width:\s*39\.99rem\)[\s\S]*\.channelActions\s*\{[^}]*flex-direction:\s*column/su)
+  })
 })

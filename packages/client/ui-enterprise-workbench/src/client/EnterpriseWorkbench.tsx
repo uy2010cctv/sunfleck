@@ -749,7 +749,7 @@ function ChannelsPage({ page, api, busy, onDirty, onClean, t }: {
   useEffect(() => {
     const onMessage = (event: MessageEvent): void => {
       if (event.origin !== window.location.origin) return
-      if (bindingPopup.current !== null && event.source !== bindingPopup.current) return
+      if (bindingPopup.current === null || event.source !== bindingPopup.current) return
       if (typeof event.data !== 'object' || event.data === null) return
       const data = event.data as { type?: unknown; channelId?: unknown }
       if (data.type === 'dsh-channel-binding-complete' && typeof data.channelId === 'string') {
@@ -757,6 +757,7 @@ function ChannelsPage({ page, api, busy, onDirty, onClean, t }: {
         setBinding(null)
         void api.refreshChannels()
       } else if (data.type === 'dsh-channel-binding-failed') {
+        bindingPopup.current = null
         setBinding(current => ({
           channelId: current?.channelId ?? '', phase: 'error', message: t('channel.binding.callbackFailed'),
         }))
