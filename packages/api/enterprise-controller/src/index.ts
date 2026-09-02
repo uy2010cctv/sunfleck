@@ -724,6 +724,7 @@ export class EnterpriseChannelController extends TypertRemoteService {
       if (canonicalRedirectFromAuthorizationUrl(callbackAuthorizationUrl) !== pending.redirectUri) {
         throw new EnterpriseOperationsError('invalid-state', 'channel', pending.channelId)
       }
+      this.pendingBindings.delete(request.state)
       const current = await operations(this.ctx).getChannelConfiguration(actor, { channelId: pending.channelId })
       if (current === undefined) throw new EnterpriseOperationsError('not-found', 'channel', pending.channelId)
       if (current.revision !== pending.expectedRevision) {
@@ -732,8 +733,6 @@ export class EnterpriseChannelController extends TypertRemoteService {
       if (current.state === 'archived' || !sameChannelIdentity(current, pending)) {
         throw new EnterpriseOperationsError('invalid-state', 'channel', pending.channelId)
       }
-
-      this.pendingBindings.delete(request.state)
       let appSecret: string | undefined
       try {
         appSecret = (await this.ctx.credentials.resolve(credentialRef(pending.credentialRef)))?.value

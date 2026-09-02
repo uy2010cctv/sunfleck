@@ -216,6 +216,40 @@ describe('enterprise channel Remote controller', () => {
     expect(bench.verifyChannelBinding).not.toHaveBeenCalled()
   })
 
+  it('claims state before an awaited configuration read so concurrent completion reaches the provider once', async () => {
+    let releaseRead: (() => void) | undefined
+    const pausedRead = new Promise<Record<string, unknown>>((resolve) => {
+      releaseRead = () => { resolve(stored()) }
+    })
+    const fetchImpl = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ errcode: 0, access_token: 'token-private' })))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ errcode: 0, userid: 'finance-service' })))
+    const bench = await bindingBench({ fetch: fetchImpl })
+    const session = await begin(bench)
+    bench.getChannelConfiguration.mockImplementationOnce(() => pausedRead)
+
+    const first = complete(bench, session)
+    await vi.waitFor(() => { expect(bench.getChannelConfiguration).toHaveBeenCalledTimes(2) })
+    const secondOutcome = await complete(bench, session).then(
+      value => ({ status: 'fulfilled' as const, value }),
+      (reason: unknown) => ({ status: 'rejected' as const, reason }),
+    )
+    releaseRead?.()
+    const outcomes = await Promise.all([
+      first.then(
+        value => ({ status: 'fulfilled' as const, value }),
+        (reason: unknown) => ({ status: 'rejected' as const, reason }),
+      ),
+      Promise.resolve(secondOutcome),
+    ])
+
+    expect(outcomes.filter(outcome => outcome.status === 'fulfilled')).toHaveLength(1)
+    expect(outcomes.filter(outcome => outcome.status === 'rejected')).toHaveLength(1)
+    expect(fetchImpl).toHaveBeenCalledTimes(2)
+    const rejected = outcomes.find(outcome => outcome.status === 'rejected')
+    expect(rejected).toMatchObject({ reason: { code: 'enterprise-invalid-state' } })
+  })
+
   it('bounds pending sessions and evicts the oldest entry', async () => {
     const bench = await bindingBench()
     const oldest = await begin(bench)
@@ -229,6 +263,9 @@ describe('enterprise channel Remote controller', () => {
     bench.setRow(stored({ accountId: 'other-app', revision: 1 }))
     await expect(complete(bench, session)).rejects.toMatchObject({ code: 'enterprise-invalid-state' })
     expect(bench.resolve).not.toHaveBeenCalled()
+    const readsAfterFailure = bench.getChannelConfiguration.mock.calls.length
+    await expect(complete(bench, session)).rejects.toMatchObject({ code: 'enterprise-invalid-state' })
+    expect(bench.getChannelConfiguration).toHaveBeenCalledTimes(readsAfterFailure)
   })
 
   it('exchanges once and writes only verified identity evidence at the exact revision', async () => {
