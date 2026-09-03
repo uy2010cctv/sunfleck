@@ -830,6 +830,13 @@
 .channelForm h3 { font-size: 1rem; letter-spacing: -0.015em; }
 .channelForm p { margin-block-start: var(--dse-space-3xs); color: var(--dse-color-muted); font-size: 0.75rem; line-height: 1.5; }
 .channelForm label small { color: var(--dse-color-muted); line-height: 1.45; }
+.channelProviderStarts { display: flex; justify-content: center; flex-wrap: wrap; gap: var(--dse-space-2xs); }
+.channelQuickStart { display: grid; gap: var(--dse-space-xs); padding-block: var(--dse-space-xs); border-block: 1px solid var(--dse-color-border); }
+.channelQuickStart ol { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--dse-space-xs); margin: 0; padding: 0; list-style: none; counter-reset: none; }
+.channelQuickStart li { color: var(--dse-color-ink); font-size: 0.75rem; font-weight: 650; line-height: 1.45; }
+.channelQuickStart > div { display: flex; align-items: baseline; flex-wrap: wrap; gap: var(--dse-space-2xs) var(--dse-space-sm); color: var(--dse-color-muted); font-size: 0.75rem; }
+.channelQuickStart a { color: var(--dse-color-accent); font-weight: 650; text-underline-offset: 3px; }
+.channelQuickStart a:focus-visible, .channelProviderStarts button:focus-visible { outline: 2px solid var(--dse-color-focus); outline-offset: 2px; }
 .channelCheck { min-block-size: 54px; display: flex !important; flex-direction: row !important; align-items: flex-start; gap: var(--dse-space-xs) !important; padding: var(--dse-space-xs); border: 1px solid var(--dse-color-border); border-radius: var(--dse-radius-control); background: var(--dse-color-surface); }
 .channelCheck input { inline-size: 18px; min-block-size: 18px; margin: 2px 0 0; accent-color: var(--dse-color-accent); }
 .channelCheck > span { display: grid; gap: var(--dse-space-3xs); }
@@ -977,6 +984,9 @@
   .decisionOptions button,
   .decisionActions > button { flex: 1; }
   .channelForm > header { flex-direction: column; }
+  .channelProviderStarts { align-items: stretch; flex-direction: column; }
+  .channelProviderStarts button { inline-size: 100%; }
+  .channelQuickStart ol { grid-template-columns: minmax(0, 1fr); gap: var(--dse-space-2xs); }
   .channelFormActions { align-items: stretch; flex-direction: column; }
   .channelFormActions button { inline-size: 100%; }
   .channelAttention button { grid-template-columns: auto minmax(0, 1fr); }

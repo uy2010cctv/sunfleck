@@ -150,6 +150,71 @@ describe('EnterpriseTrigger', () => {
 })
 
 describe('EnterpriseWorkbench', () => {
+  it('starts channel onboarding from a provider and exposes provider-specific fields before save', () => {
+    render(<EnterpriseWorkbench {...workbenchProps({ state: {
+      mode: 'enterprise', page: 'channels', channels: { phase: 'ready', error: null, items: [] },
+    } })} />)
+
+    for (const provider of ['企业微信', '飞书', '钉钉', '个人微信']) {
+      expect(screen.getByRole('button', { name: `接入${provider}` })).toBeDefined()
+    }
+    fireEvent.click(screen.getByRole('button', { name: '接入飞书' }))
+
+    expect(screen.getByRole('heading', { name: '飞书快速接入' })).toBeDefined()
+    expect(screen.getByLabelText('飞书 App ID')).toBeDefined()
+    expect(screen.getByLabelText('App Secret 的 Credential 引用')).toBeDefined()
+    expect(screen.getByText('安全设置中配置 App ID + 重定向 URL')).toBeDefined()
+    expect(screen.getByRole('button', { name: '保存草稿并扫码绑定飞书' })).toBeDefined()
+  })
+
+  it('saves a new channel draft and starts its QR binding as one guided action', async () => {
+    const state = 'a'.repeat(43) + '.' + 'b'.repeat(43)
+    const saveChannelConfiguration = vi.fn(() => Promise.resolve(true))
+    const beginChannelBinding = vi.fn(() => Promise.resolve({
+      authorizationUrl: `https://accounts.feishu.cn/open-apis/authen/v1/authorize?state=${state}`,
+      expiresAt: Date.now() + 60_000,
+    }))
+    const popup = { location: { href: 'about:blank' }, close: vi.fn(), closed: false, opener: window }
+    vi.spyOn(window, 'open').mockReturnValue(popup as never)
+    vi.stubGlobal('BroadcastChannel', class {
+      onmessage: ((event: MessageEvent) => void) | null = null
+      postMessage(): void {}
+      close(): void {}
+    })
+    const base = { mode: 'enterprise' as const, page: 'channels' as const }
+    const { rerender } = render(<EnterpriseWorkbench {...workbenchProps({
+      state: { ...base, channels: { phase: 'ready', error: null, items: [] } },
+      saveChannelConfiguration, beginChannelBinding,
+    } as never)} />)
+
+    fireEvent.click(screen.getByRole('button', { name: '接入飞书' }))
+    fireEvent.change(screen.getByLabelText('渠道名称'), { target: { value: '销售飞书' } })
+    fireEvent.change(screen.getByLabelText('渠道 ID'), { target: { value: 'sales-feishu' } })
+    fireEvent.change(screen.getByLabelText('飞书 App ID'), { target: { value: 'cli_sales' } })
+    fireEvent.change(screen.getByLabelText('App Secret 的 Credential 引用'), { target: { value: 'FEISHU_SALES_SECRET' } })
+    fireEvent.click(screen.getByRole('button', { name: '保存草稿并扫码绑定飞书' }))
+    await waitFor(() => { expect(saveChannelConfiguration).toHaveBeenCalledWith(expect.objectContaining({
+      channelId: 'sales-feishu', provider: 'feishu', state: 'draft', expectedRevision: 0,
+    })) })
+
+    const saved = {
+      orgId: 'org-a', channelId: 'sales-feishu', name: '销售飞书', provider: 'feishu', accountId: 'cli_sales',
+      credentialRef: 'FEISHU_SALES_SECRET', credentialStatus: 'configured', inboundEnabled: true,
+      allowedIntents: ['notify', 'handoff'], transportStatus: 'unverified', state: 'draft', bindingStatus: 'unbound',
+      createdBy: 'admin', revision: 1, createdAt: 1, updatedAt: 1,
+    }
+    rerender(<EnterpriseWorkbench {...workbenchProps({
+      state: { ...base, channels: { phase: 'ready', error: null, items: [saved] } as never },
+      saveChannelConfiguration, beginChannelBinding,
+    } as never)} />)
+
+    await waitFor(() => { expect(beginChannelBinding).toHaveBeenCalledWith(
+      expect.objectContaining({ channelId: 'sales-feishu', revision: 1 }),
+      expect.stringMatching(/\?dsh_channel_binding=1$/u),
+    ) })
+    expect(popup.location.href).toContain('accounts.feishu.cn/open-apis/authen/v1/authorize')
+  })
+
   it('shows Workspace Cordis versions, source, lifecycle actions, and department review actions', () => {
     const stopExtension = vi.fn(() => Promise.resolve())
     const reviewExtension = vi.fn(() => Promise.resolve())
@@ -254,8 +319,8 @@ describe('EnterpriseWorkbench', () => {
     expect(within(form).queryByText('状态查询')).toBeNull()
     fireEvent.change(screen.getByLabelText('渠道名称'), { target: { value: '个人微信提醒' } })
     fireEvent.change(screen.getByLabelText('渠道 ID'), { target: { value: 'personal-wechat' } })
-    fireEvent.change(screen.getByLabelText('账号 ID'), { target: { value: 'owner-a' } })
-    fireEvent.change(screen.getByLabelText('Credential 引用'), { target: { value: 'WECHAT_IDENTITY' } })
+    fireEvent.change(screen.getByLabelText('网站应用 AppID'), { target: { value: 'owner-a' } })
+    fireEvent.change(screen.getByLabelText('AppSecret 的 Credential 引用'), { target: { value: 'WECHAT_IDENTITY' } })
     fireEvent.click(screen.getByRole('button', { name: '保存为草稿' }))
     await waitFor(() => { expect(saveChannelConfiguration).toHaveBeenCalledWith(expect.objectContaining({
       provider: 'wechat', inboundEnabled: false, state: 'draft', expectedRevision: 0,
@@ -278,8 +343,8 @@ describe('EnterpriseWorkbench', () => {
     fireEvent.click(screen.getAllByRole('button', { name: '新建渠道' })[0]!)
     fireEvent.change(screen.getByLabelText('渠道名称'), { target: { value: '财务渠道' } })
     fireEvent.change(screen.getByLabelText('渠道 ID'), { target: { value: 'finance-channel' } })
-    fireEvent.change(screen.getByLabelText('账号 ID'), { target: { value: 'app-a' } })
-    fireEvent.change(screen.getByLabelText('Credential 引用'), { target: { value: 'CHANNEL_SECRET' } })
+    fireEvent.change(screen.getByLabelText('企业微信 AgentID'), { target: { value: 'app-a' } })
+    fireEvent.change(screen.getByLabelText('企业微信 Secret 的 Credential 引用'), { target: { value: 'CHANNEL_SECRET' } })
     const activate = screen.getByRole('button', { name: '保存并启用' })
     expect(activate.hasAttribute('disabled')).toBe(true)
 
