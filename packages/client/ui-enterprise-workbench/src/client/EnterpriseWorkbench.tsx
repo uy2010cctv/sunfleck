@@ -748,6 +748,12 @@ function ChannelsPage({ page, api, busy, t }: {
     popup: Window
     broadcast: BroadcastChannel | null
   } | null>(null)
+  const activeBotInstall = useRef<{
+    attemptId: string | null
+    provider: EnterpriseChannelConfiguration['provider']
+    popup: Window
+    broadcast: BroadcastChannel
+  } | null>(null)
   const isActiveAttempt = (generation: number, popup: Window): boolean => {
     const active = activeBinding.current
     return active !== null && active.generation === generation && active.popup === popup
@@ -774,10 +780,34 @@ function ChannelsPage({ page, api, busy, t }: {
       })
     }
   }
+  const releaseBotInstall = (): void => {
+    activeBotInstall.current?.broadcast.close()
+    activeBotInstall.current = null
+  }
+  const acceptBotInstallSignal = (value: unknown): void => {
+    const active = activeBotInstall.current
+    if (active === null || active.attemptId === null || typeof value !== 'object' || value === null) return
+    const data = value as { type?: unknown; attemptId?: unknown }
+    if (data.attemptId !== active.attemptId) return
+    if (data.type === 'dsh-channel-bot-install-complete') {
+      releaseBotInstall()
+      setBotInstall(null)
+      void api.refreshChannels()
+    } else if (data.type === 'dsh-channel-bot-install-failed') {
+      const provider = active.provider
+      releaseBotInstall()
+      setBotInstall({ provider, phase: 'error' })
+    }
+  }
   useEffect(() => {
     const onMessage = (event: MessageEvent): void => {
       const active = activeBinding.current
       if (event.origin !== window.location.origin) return
+      const botInstallAttempt = activeBotInstall.current
+      if (botInstallAttempt !== null && event.source === botInstallAttempt.popup) {
+        acceptBotInstallSignal(event.data)
+        return
+      }
       if (active === null || event.source !== active.popup) return
       acceptBindingSignal(event.data)
     }
@@ -787,6 +817,7 @@ function ChannelsPage({ page, api, busy, t }: {
   useEffect(() => () => {
     const active = activeBinding.current
     if (active !== null) releaseActive(active)
+    releaseBotInstall()
   }, [])
   useEffect(() => {
     if (binding?.phase !== 'waiting' || binding.expiresAt === undefined) return
@@ -847,21 +878,46 @@ function ChannelsPage({ page, api, busy, t }: {
     return () => { window.clearTimeout(reconcile) }
   }, [binding, page.items, t])
   const startBotInstall = async (provider: EnterpriseChannelConfiguration['provider']): Promise<void> => {
+    const previous = activeBotInstall.current
+    if (previous !== null) {
+      releaseBotInstall()
+      if (!previous.popup.closed) previous.popup.close()
+    }
+    const popup = provider === 'wechat' ? null
+      : window.open('', 'dsh-channel-bot-install', 'popup,width=640,height=760,resizable=yes,scrollbars=yes')
+    if (provider !== 'wechat' && popup == null) {
+      setBotInstall({ provider, phase: 'error' })
+      return
+    }
+    if (popup !== null) {
+      const broadcast = new BroadcastChannel(CHANNEL_BINDING_BROADCAST_CHANNEL)
+      activeBotInstall.current = { attemptId: null, provider, popup, broadcast }
+      broadcast.onmessage = (event) => { acceptBotInstallSignal(event.data) }
+    }
     setBotInstall({ provider, phase: 'opening' })
     try {
       const result = await api.beginChannelBotInstall(provider, channelBotInstallCallbackUri(window.location))
       if (result.status === 'ready') {
         const authorization = new URL(result.authorizationUrl)
-        if (authorization.protocol !== 'https:') throw new Error('provider installation URL must use HTTPS')
-        window.open(authorization.href, 'dsh-channel-bot-install', 'popup,width=640,height=760,resizable=yes,scrollbars=yes')
-        setBotInstall(null)
+        const state = officialChannelBindingState(authorization)
+        const active = activeBotInstall.current
+        if (authorization.protocol !== 'https:' || state === null || active === null || popup === null) {
+          throw new Error('invalid provider installation URL')
+        }
+        active.attemptId = state
+        popup.opener = null
+        popup.location.href = authorization.href
         return
       }
+      if (popup !== null && !popup.closed) popup.close()
+      releaseBotInstall()
       setBotInstall({
         provider: result.provider, phase: result.status,
         officialDocumentationUrl: result.officialDocumentationUrl,
       })
     } catch {
+      if (popup !== null && !popup.closed) popup.close()
+      releaseBotInstall()
       setBotInstall({ provider, phase: 'error' })
     }
   }

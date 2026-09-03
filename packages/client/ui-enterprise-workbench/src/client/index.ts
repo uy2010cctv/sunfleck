@@ -16,7 +16,8 @@ import { en, NS, zh, type EnterpriseWorkbenchKey } from './locales.ts'
 import { EnterpriseWorkbenchController, type EnterpriseWorkbenchState } from './store.ts'
 import {
   CHANNEL_BINDING_BROADCAST_CHANNEL, CHANNEL_BINDING_CALLBACK_PARAM,
-  channelBindingCallbackUri, isOfficialChannelBindingState,
+  CHANNEL_BOT_INSTALL_CALLBACK_PARAM, channelBindingCallbackUri, channelBotInstallCallbackUri,
+  isOfficialChannelBindingState,
 } from './channelBindingProfiles.ts'
 import './tokens.css'
 
@@ -102,7 +103,58 @@ export async function completeChannelBindingCallback(
   }
 }
 
-export { CHANNEL_BINDING_BROADCAST_CHANNEL, channelBindingCallbackUri }
+/** Complete a provider-app installation and announce the automatically created channel. */
+export async function completeChannelBotInstallCallback(
+  remote: Pick<ClientRemote['enterpriseChannel'], 'completeBotInstall'>,
+  browser: BindingCallbackWindow,
+): Promise<boolean> {
+  const query = new URLSearchParams(browser.location.search)
+  if (query.get(CHANNEL_BOT_INSTALL_CALLBACK_PARAM) !== '1') return false
+  const canonicalPath = `${browser.location.pathname}?${CHANNEL_BOT_INSTALL_CALLBACK_PARAM}=1`
+  const code = query.get('code')
+  const state = query.get('state')
+  const redact = (failed = false): void => {
+    browser.history.replaceState(null, '', `${canonicalPath}${failed ? '&install_error=1' : ''}`)
+  }
+  if (!isOfficialChannelBindingState(state)) {
+    redact(true)
+    return true
+  }
+  const publish = (message: Readonly<Record<string, string>>): void => {
+    if (typeof BroadcastChannel === 'function') {
+      const channel = new BroadcastChannel(CHANNEL_BINDING_BROADCAST_CHANNEL)
+      try { channel.postMessage(message) } finally { channel.close() }
+    }
+    browser.opener?.postMessage(message, browser.location.origin)
+  }
+  const fail = (): true => {
+    redact(true)
+    publish({ type: 'dsh-channel-bot-install-failed', attemptId: state, status: 'failed' })
+    return true
+  }
+  if (query.has('error') || !boundedCallbackValue(code, CALLBACK_CODE_MAX_BYTES)) return fail()
+  redact()
+  try {
+    const response = await remote.completeBotInstall({
+      code, state, redirectUri: channelBotInstallCallbackUri(browser.location),
+      idempotencyKey: `channel-bot-install-complete:${state}`,
+    })
+    const wrapped = response as typeof response | { readonly result: typeof response }
+    const result = 'result' in wrapped ? wrapped.result : wrapped
+    if (!result.ok) throw new Error(result.error.message)
+    const channel: EnterpriseChannelConfiguration = result.value
+    publish({
+      type: 'dsh-channel-bot-install-complete', attemptId: state,
+      channelId: channel.channelId, channelName: channel.name,
+    })
+    browser.close()
+    return true
+  } catch {
+    return fail()
+  }
+}
+
+export { CHANNEL_BINDING_BROADCAST_CHANNEL, channelBindingCallbackUri, channelBotInstallCallbackUri }
 
 /** Required browser services. */
 export const inject = [
@@ -118,7 +170,10 @@ export const inject = [
 
 /** Mount the enterprise trigger, overlay, and live projection subscriptions. */
 export function apply(ctx: Context): void {
-  if (typeof window !== 'undefined') void completeChannelBindingCallback(ctx.remote.enterpriseChannel, window)
+  if (typeof window !== 'undefined') {
+    void completeChannelBindingCallback(ctx.remote.enterpriseChannel, window)
+    void completeChannelBotInstallCallback(ctx.remote.enterpriseChannel, window)
+  }
   const controller = new EnterpriseWorkbenchController({
     agentPresets: ctx.remote.agentPresets,
     session: ctx.remote.session,

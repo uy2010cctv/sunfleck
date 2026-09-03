@@ -94,6 +94,14 @@ export interface EnterpriseChannelBeginBotInstallRequest {
   readonly redirectUri: string
 }
 
+/** One-time completion of provider-app installation; all channel fields come from the Host installer. */
+export interface EnterpriseChannelCompleteBotInstallRequest {
+  readonly code: string
+  readonly state: string
+  readonly redirectUri: string
+  readonly idempotencyKey: string
+}
+
 /** One-time provider callback completion request. */
 export interface EnterpriseChannelCompleteBindingRequest {
   readonly code: string

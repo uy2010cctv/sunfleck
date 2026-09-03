@@ -12,7 +12,7 @@ import {
   officialChannelAuthorizationUrl, officialChannelBindingState,
 } from '../src/client/channelBindingProfiles.ts'
 import {
-  CHANNEL_BINDING_BROADCAST_CHANNEL, completeChannelBindingCallback,
+  CHANNEL_BINDING_BROADCAST_CHANNEL, completeChannelBindingCallback, completeChannelBotInstallCallback,
 } from '../src/client/index.ts'
 
 class FakeBroadcastChannel {
@@ -155,6 +155,9 @@ describe('EnterpriseTrigger', () => {
 
 describe('EnterpriseWorkbench', () => {
   it('keeps provider identifiers and Credential references out of the user channel flow', async () => {
+    vi.spyOn(window, 'open').mockReturnValue({
+      closed: false, close: vi.fn(), opener: window, location: { href: 'about:blank' },
+    } as never)
     render(<EnterpriseWorkbench {...workbenchProps({
       state: { mode: 'enterprise', page: 'channels', channels: { phase: 'ready', error: null, items: [] } },
     })} />)
@@ -170,7 +173,45 @@ describe('EnterpriseWorkbench', () => {
     expect(screen.queryByText(/Credential 引用/u)).toBeNull()
   })
 
+  it('preopens the provider installer and refreshes after an automatic channel callback', async () => {
+    let resolveInstall!: (value: Record<string, unknown>) => void
+    const beginChannelBotInstall = vi.fn(() => new Promise<Record<string, unknown>>((resolve) => {
+      resolveInstall = resolve
+    }))
+    const refreshChannels = vi.fn(() => Promise.resolve(true))
+    const popup = { closed: false, close: vi.fn(), opener: window, location: { href: 'about:blank' } }
+    vi.spyOn(window, 'open').mockReturnValue(popup as never)
+    render(<EnterpriseWorkbench {...workbenchProps({
+      state: { mode: 'enterprise', page: 'channels', channels: { phase: 'ready', error: null, items: [] } },
+      beginChannelBotInstall, refreshChannels,
+    } as never)} />)
+
+    fireEvent.click(screen.getByRole('button', { name: '扫码添加飞书 Bot' }))
+    expect(window.open).toHaveBeenCalledTimes(1)
+    expect(popup.location.href).toBe('about:blank')
+    resolveInstall({
+      status: 'ready', provider: 'feishu', expiresAt: Date.now() + 60_000,
+      authorizationUrl: `https://open.feishu.cn/app/install?state=${SIGNED_STATE_A}`,
+    })
+    await waitFor(() => { expect(popup.location.href).toContain(`state=${SIGNED_STATE_A}`) })
+    expect(popup.opener).toBeNull()
+
+    await completeChannelBotInstallCallback({ completeBotInstall: () => Promise.resolve({ result: {
+      ok: true, value: { channelId: 'feishu-123456789abc', name: '夏树助手' },
+    } }) } as never, {
+      location: {
+        origin: window.location.origin, pathname: window.location.pathname,
+        search: `?dsh_channel_bot_install=1&code=provider-code&state=${SIGNED_STATE_A}`,
+      },
+      history: { replaceState: vi.fn() }, opener: null, close: vi.fn(),
+    })
+    await waitFor(() => { expect(refreshChannels).toHaveBeenCalledTimes(1) })
+  })
+
   it('starts provider Bot installation without exposing a manual app form', async () => {
+    vi.spyOn(window, 'open').mockReturnValue({
+      closed: false, close: vi.fn(), opener: window, location: { href: 'about:blank' },
+    } as never)
     const beginChannelBotInstall = vi.fn(() => Promise.resolve({
       status: 'setup-required', provider: 'feishu',
       officialDocumentationUrl: 'https://open.feishu.cn/document/isv-guides/publish-your-app/publishing-guidelines',
