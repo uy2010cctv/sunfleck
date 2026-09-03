@@ -744,6 +744,8 @@ function ChannelsPage({ page, api, busy, onDirty, onClean, t }: {
   }
   const emptyForm: FormState = { channelId: '', name: '', provider: 'wecom', tenantId: '', accountId: '', credentialRef: '', defaultEmployeeReleaseId: '', inboundEnabled: true, expectedRevision: 0 }
   const [form, setForm] = useState<FormState | null>(null)
+  const [pendingQuickBindId, setPendingQuickBindId] = useState<string | null>(null)
+  const pendingQuickBindPopup = useRef<Window | null>(null)
   const [binding, setBinding] = useState<{
     generation: number
     attemptId: string
@@ -868,9 +870,13 @@ function ChannelsPage({ page, api, busy, onDirty, onClean, t }: {
       inboundEnabled: channel.inboundEnabled, expectedRevision: channel.revision,
     })
   }
+  const openCreate = (provider: EnterpriseChannelConfiguration['provider']): void => {
+    setForm({ ...emptyForm, provider, inboundEnabled: provider !== 'wechat' })
+    onDirty()
+  }
   const patch = (next: Partial<FormState>): void => { setForm(current => current === null ? current : { ...current, ...next }); onDirty() }
-  const save = async (state: 'draft' | 'active'): Promise<void> => {
-    if (form === null) return
+  const save = async (state: 'draft' | 'active'): Promise<boolean> => {
+    if (form === null) return false
     const succeeded = await api.saveChannelConfiguration({
       channelId: form.channelId.trim(), name: form.name.trim(), provider: form.provider,
       ...(form.tenantId.trim() === '' ? {} : { tenantId: form.tenantId.trim() }),
@@ -880,7 +886,8 @@ function ChannelsPage({ page, api, busy, onDirty, onClean, t }: {
       inboundEnabled: form.provider === 'wechat' ? false : form.inboundEnabled,
       state, expectedRevision: form.expectedRevision,
     })
-    if (succeeded) setForm(null)
+    if (succeeded) { setForm(null); onClean() }
+    return succeeded
   }
   const missingPrerequisites = (channel: EnterpriseChannelConfiguration): string[] => {
     const missing: string[] = []
@@ -898,7 +905,7 @@ function ChannelsPage({ page, api, busy, onDirty, onClean, t }: {
     const missing = missingPrerequisites(channel)
     return missing.length === 0 ? t('channel.credentialConfigured') : missing.join(' · ')
   }
-  const beginBinding = async (channel: EnterpriseChannelConfiguration): Promise<void> => {
+  const beginBinding = async (channel: EnterpriseChannelConfiguration, preparedPopup?: Window): Promise<void> => {
     const generation = ++attemptGeneration.current
     const localAttemptId = randomUUID()
     if (typeof BroadcastChannel !== 'function') {
@@ -913,7 +920,7 @@ function ChannelsPage({ page, api, busy, onDirty, onClean, t }: {
       releaseActive(previous)
       if (!previous.popup.closed) previous.popup.close()
     }
-    const popup = window.open('', 'dsh-channel-binding', 'popup,width=560,height=720,resizable=yes,scrollbars=yes')
+    const popup = preparedPopup ?? window.open('', 'dsh-channel-binding', 'popup,width=560,height=720,resizable=yes,scrollbars=yes')
     if (popup === null) {
       setBinding({
         generation, attemptId: localAttemptId, channelId: channel.channelId,
@@ -963,7 +970,47 @@ function ChannelsPage({ page, api, busy, onDirty, onClean, t }: {
       })
     }
   }
+  useEffect(() => {
+    if (pendingQuickBindId === null) return
+    const channel = page.items.find(item => item.channelId === pendingQuickBindId)
+    if (channel === undefined) return
+    const popup = pendingQuickBindPopup.current
+    pendingQuickBindPopup.current = null
+    setPendingQuickBindId(null)
+    if (!canBind(channel)) {
+      if (popup !== null && !popup.closed) popup.close()
+      setBinding({
+        generation: ++attemptGeneration.current, attemptId: randomUUID(), channelId: channel.channelId,
+        phase: 'error', message: t('channel.binding.quickCredentialMissing'),
+      })
+      return
+    }
+    void beginBinding(channel, popup ?? undefined)
+  }, [page.items, pendingQuickBindId])
+  const saveAndBind = async (): Promise<void> => {
+    if (form === null) return
+    const popup = window.open('', 'dsh-channel-binding', 'popup,width=560,height=720,resizable=yes,scrollbars=yes')
+    if (popup === null) {
+      setBinding({
+        generation: ++attemptGeneration.current, attemptId: randomUUID(), channelId: form.channelId.trim(),
+        phase: 'error', message: t('channel.binding.popupBlocked'),
+      })
+      return
+    }
+    const channelId = form.channelId.trim()
+    pendingQuickBindPopup.current = popup
+    setPendingQuickBindId(channelId)
+    const succeeded = await save('draft')
+    if (!succeeded) {
+      pendingQuickBindPopup.current = null
+      setPendingQuickBindId(null)
+      if (!popup.closed) popup.close()
+    }
+  }
   const bindingBusy = binding?.phase === 'opening' || binding?.phase === 'waiting' || binding?.phase === 'checking'
+  const quickFormReady = form !== null && form.name.trim() !== '' && form.channelId.trim() !== ''
+    && form.accountId.trim() !== '' && form.credentialRef.trim() !== ''
+    && (form.provider !== 'wecom' || form.tenantId.trim() !== '')
   const recoveryKey = (channelId: string, target: ChannelRecoveryTarget): string => `${channelId}:${target}`
   const setRecoveryAction = (channelId: string, target: ChannelRecoveryTarget, action: HTMLElement | null): void => {
     const key = recoveryKey(channelId, target)
@@ -1002,29 +1049,33 @@ function ChannelsPage({ page, api, busy, onDirty, onClean, t }: {
     return statuses
   }
   return <section className={css.channelPage} aria-labelledby="channel-page-title">
-    <ManagementHeader id="channel-page-title" title={t('channel.title')} description={t('channel.description')} count={page.items.length} action={<button type="button" className={css.primaryButton} onClick={() => { setForm(emptyForm) }}><IconPlusOutline16 size={16}/>{t('channel.new')}</button>}/>
+    <ManagementHeader id="channel-page-title" title={t('channel.title')} description={t('channel.description')} count={page.items.length} action={<button type="button" className={css.primaryButton} onClick={() => { openCreate('wecom') }}><IconPlusOutline16 size={16}/>{t('channel.new')}</button>}/>
     <div className={css.channelPrinciple}><IconApiOutline14 size={16}/><div><strong>{t('channel.truthTitle')}</strong><span>{t('channel.truthBody')}</span></div></div>
     {form !== null && <form className={css.channelForm} onSubmit={(event) => { event.preventDefault(); void save('draft') }}>
-      <header><div><h3>{form.expectedRevision === 0 ? t('channel.createTitle') : t('channel.editTitle')}</h3><p>{t('channel.formHelp')}</p></div><button type="button" className={css.secondaryButton} onClick={() => { setForm(null); onClean() }}>{t('cancel')}</button></header>
+      <header><div><h3>{form.expectedRevision === 0 ? t(`channel.quick.title.${form.provider}`) : t('channel.editTitle')}</h3><p>{t('channel.formHelp')}</p></div><button type="button" className={css.secondaryButton} onClick={() => { setForm(null); onClean() }}>{t('cancel')}</button></header>
+      <div className={css.channelQuickStart}>
+        <ol><li>{t('channel.quick.stepConfig')}</li><li>{t('channel.quick.stepSave')}</li><li>{t('channel.quick.stepScan')}</li></ol>
+        <div><span>{t(CHANNEL_BINDING_PROFILES[form.provider].guidanceKey)}</span><a href={CHANNEL_BINDING_PROFILES[form.provider].officialDocsUrl} target="_blank" rel="noopener noreferrer">{t('channel.binding.docs')}</a></div>
+      </div>
       <div className={css.formGrid}>
         <label>{t('channel.name')}<input required value={form.name} onChange={(event) => { patch({ name: event.target.value }) }}/></label>
         <label>{t('channel.id')}<input required pattern="[a-z0-9][a-z0-9-]*" disabled={form.expectedRevision > 0} value={form.channelId} onChange={(event) => { patch({ channelId: event.target.value }) }}/></label>
         <label>{t('channel.provider')}<select value={form.provider} onChange={(event) => { const provider = event.target.value as EnterpriseChannelConfiguration['provider']; patch({ provider, inboundEnabled: provider === 'wechat' ? false : form.inboundEnabled }) }}>{CHANNEL_PROVIDERS.map(provider => <option value={provider} key={provider}>{t(`channel.provider.${provider}`)}</option>)}</select></label>
-        <label>{t('channel.tenant')}<input value={form.tenantId} onChange={(event) => { patch({ tenantId: event.target.value }) }}/></label>
-        <label>{t('channel.account')}<input required value={form.accountId} onChange={(event) => { patch({ accountId: event.target.value }) }}/></label>
-        <label>{t('channel.credentialRef')}<input aria-label={t('channel.credentialRef')} autoComplete="off" value={form.credentialRef} onChange={(event) => { patch({ credentialRef: event.target.value }) }}/><small>{t('channel.credentialHelp')}</small></label>
+        <label>{t(`channel.quick.tenant.${form.provider}`)}<input value={form.tenantId} onChange={(event) => { patch({ tenantId: event.target.value }) }}/></label>
+        <label>{t(`channel.quick.account.${form.provider}`)}<input required value={form.accountId} onChange={(event) => { patch({ accountId: event.target.value }) }}/></label>
+        <label>{t(`channel.quick.credential.${form.provider}`)}<input aria-label={t(`channel.quick.credential.${form.provider}`)} autoComplete="off" value={form.credentialRef} onChange={(event) => { patch({ credentialRef: event.target.value }) }}/><small>{t(`channel.quick.credentialHelp.${form.provider}`)}</small></label>
         <label className={css.fullField}>{t('channel.defaultEmployee')}<input value={form.defaultEmployeeReleaseId} onChange={(event) => { patch({ defaultEmployeeReleaseId: event.target.value }) }}/></label>
         <label className={`${css.fullField} ${css.channelCheck}`}><input type="checkbox" aria-label={t('channel.inbound')} checked={form.provider !== 'wechat' && form.inboundEnabled} disabled={form.provider === 'wechat'} onChange={(event) => { patch({ inboundEnabled: event.target.checked }) }}/><span><strong>{t('channel.inbound')}</strong><small>{form.provider === 'wechat' ? t('channel.wechatReadOnly') : t('channel.inboundHelp')}</small></span></label>
       </div>
       <div className={css.channelPolicyPreview}><span>{t('channel.providerPolicy')}</span>{CHANNEL_PROVIDER_INTENTS[form.provider].map(intent => <em key={intent}>{t(`channel.intent.${intent}`)}</em>)}</div>
-      <div className={css.channelFormActions}><button type="submit" className={css.secondaryButton} disabled={busy}>{t('channel.saveDraft')}</button><button type="button" className={css.primaryButton} disabled={busy || form.credentialRef.trim() === '' || (form.provider === 'wecom' && form.tenantId.trim() === '')} onClick={() => { void save('active') }}>{t('channel.activate')}</button></div>
+      <div className={css.channelFormActions}><button type="submit" className={css.secondaryButton} disabled={busy}>{t('channel.saveDraft')}</button>{form.expectedRevision === 0 && <button type="button" className={css.primaryButton} disabled={busy || !quickFormReady} onClick={() => { void saveAndBind() }}>{t(`channel.quick.saveAndBind.${form.provider}`)}</button>}<button type="button" className={form.expectedRevision === 0 ? css.secondaryButton : css.primaryButton} disabled={busy || form.credentialRef.trim() === '' || (form.provider === 'wecom' && form.tenantId.trim() === '')} onClick={() => { void save('active') }}>{t('channel.activate')}</button></div>
     </form>}
     {attention.length > 0 && <section className={css.channelAttention} aria-label={t('channel.attentionAria')}>
       {attention.map(item => <button type="button" key={item.channel.channelId} aria-label={t('channel.attention.open', { name: item.channel.name, reason: item.reason })} onClick={() => { focusRecoveryAction(item.channel.channelId, item.target) }} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); focusRecoveryAction(item.channel.channelId, item.target) } else if (event.key === ' ') event.preventDefault() }} onKeyUp={(event) => { if (event.key === ' ') { event.preventDefault(); focusRecoveryAction(item.channel.channelId, item.target) } }}>
         <IconWarningOutline16 size={16}/><strong>{item.channel.name}</strong><span>{item.reason}</span>
       </button>)}
     </section>}
-    <PageBoundary page={page} t={t} empty={<ActionableEmpty title={t('channel.emptyTitle')} description={t('channel.emptyBody')} action={<button type="button" className={css.primaryButton} onClick={() => { setForm(emptyForm) }}>{t('channel.new')}</button>}/>}>
+    <PageBoundary page={page} t={t} empty={<ActionableEmpty title={t('channel.emptyTitle')} description={t('channel.emptyBody')} action={<div className={css.channelProviderStarts}>{CHANNEL_PROVIDERS.map(provider => <button type="button" className={provider === 'wecom' ? css.primaryButton : css.secondaryButton} key={provider} onClick={() => { openCreate(provider) }}>{t(`channel.quick.start.${provider}`)}</button>)}</div>}/>}>
       <div className={css.channelList}>{page.items.map((channel) => {
         const profile = CHANNEL_BINDING_PROFILES[channel.provider]
         const eligible = canBind(channel)
