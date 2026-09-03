@@ -53,20 +53,18 @@ runtime 决策请求携带问题、选项、建议、assignee、context digest�
 
 ## 渠道设置与交付边界
 
-在企业工作台打开**渠道设置**，可以创建、编辑、启用、暂停或归档企业微信、飞书、钉钉和个人微信配置。每条记录包含提供方/账号身份、Host 管理的 Credential 引用、默认数字员工 Release 路由、入站策略、生命周期状态与 revision。已启用企业微信记录还必须提供 CorpID 租户；飞书和钉钉可不填租户直接启用，DSH 不会伪造租户。本页不会要求或显示密钥值。
+在企业工作台打开**渠道设置**，普通用户只选择提供方并扫码，不填写渠道名称、渠道 ID、租户、App ID、Credential 引用或数字员工 Release。Host 安装器完成官方授权交换后返回经过验证的租户、应用和 Bot 元数据；DSH 以组织、租户与应用身份的 SHA-256 摘要生成稳定渠道 ID，使用提供方 Bot 名称，绑定 Host 已保存的 Credential，并默认路由到 DSH 决策路由器。随后 DSH 以同一个幂等操作创建启用状态的渠道并记录已验证身份。
 
-对满足前置条件的已保存渠道，**扫描官方二维码**会打开由提供方托管的 OAuth/二维码页面，而不是在 DSH 中渲染或代理提供方二维码。DSH 签发有效期 10 分钟的 state，绑定单个 Host 进程、组织、actor、渠道、提供方、准确 revision、固定回调 URI、nonce 与过期时间。Host 通过 Credential 引用解析 App Secret，交换一次性 code，只保存已验证的提供方身份、显示名称、租户证据、验证 actor 和时间。access token、refresh token、授权 code、提供方原始载荷和 App Secret 均不会持久化或显示。用户拒绝、过期或 Host 重启后都需要重新扫码。
+每次扫码安装使用有效期 10 分钟的 HMAC state，并绑定 Host 进程、组织、actor、提供方、固定回调 URI、nonce 与过期时间。授权 code 会在浏览器历史中先行清除，再交给 Host-only `enterpriseChannelBotInstaller`；浏览器永远收不到平台应用密钥、suite ticket、app_ticket、permanent code、access token 或 Credential 值。成功回调通过同源 BroadcastChannel 通知原窗口刷新自动创建的渠道；拒绝、过期、Host 重启或 actor/组织不匹配均失败关闭。
 
-扫码前需在对应提供方完成应用配置：
+扫码安装需要运维先在 Host 部署对应的官方第三方/商店应用适配器，而不是让最终用户填写应用字段：
 
-- [企业微信 Web 登录](https://developer.work.weixin.qq.com/document/path/98152)及其[身份 API](https://developer.work.weixin.qq.com/document/path/96442)需要 CorpID、AgentID 和 OAuth 可信回调域名。
-- [飞书扫码 SDK/OAuth](https://open.feishu.cn/document/common-capabilities/sso/web-application-sso/qr-sdk-documentation)及其[用户 token 交换](https://open.feishu.cn/document/authentication-management/access-token/get-user-access-token)需要 App ID、App Secret 和已登记的重定向 URL；DSH 通过官方 `https://accounts.feishu.cn/oauth/v3/token` 端点交换 code。
-- [钉钉官方登录 OAuth](https://open.dingtalk.com/document/isvapp/tutorial-enabling-login-to-third-party-websites.md)及其[用户 token 交换](https://open.dingtalk.com/document/isvapp/obtain-user-token.md)需要 Client ID、Client Secret 和钉钉「登录与分享」回调。
-- [个人微信网站应用扫码登录](https://developers.weixin.qq.com/doc/oplatform/developers/dev/auth/web.html)需要已审核的网站应用、AppID、AppSecret、`snsapi_login` 和已登记的授权作用域。
+- [企业微信第三方应用安装](https://developer.work.weixin.qq.com/document/path/90665)使用 suite ticket、suite access token、pre-auth code 和企业永久授权信息。管理员通过官方安装页授权后，适配器把企业和应用身份交给 DSH。
+- [飞书商店应用](https://open.feishu.cn/document/isv-guides/publish-your-app/step7-publish-the-store-application?lang=zh-CN)通过应用中心或非公开安装链接安装；Host 适配器接收 app_ticket 与首次启用事件中的 tenant_key，再为该租户取得应用凭证。
+- [钉钉第三方企业应用](https://open.dingtalk.com/document/isvapp/application-authorization.md)通过应用广场授权开通；Host 适配器必须接收 SyncHTTP/RDS 授权事件，并从 org_suite_auth 或临时授权码取得企业与应用身份。
+- [个人微信网站应用授权](https://developers.weixin.qq.com/doc/oplatform/developers/dev/auth/web.html)只用于身份与人工接管，不提供官方个人聊天 Bot，因此不会显示为可安装的聊天渠道。
 
-生产环境必须使用一个固定、公网可访问、已登记的 HTTPS 回调。localhost HTTP 仅用于开发，提供方控制台可能不接受。
-
-扫码成功只证明身份绑定和经认证的接管。企业渠道后续可以启用入站命令，但每个意图仍需通过 DSH 授权。个人微信网站应用授权不提供官方个人聊天消息 API，也不会把个人微信变成投递渠道。配置已保存、已启用或身份已验证都不代表投递成功：提供方适配器记录回执或健康证据前，传输状态保持**待验证**。
+生产环境必须使用固定、公开可访问、已在提供方登记的 HTTPS 回调或事件接收地址；`127.0.0.1` 只能验证 DSH 内部状态机，不能接收真实平台安装事件。扫码完成证明应用安装和身份验证，不等于消息投递成功；提供方适配器记录真实回执或健康证据前，传输状态保持**待验证**。
 
 渠道体验在只把本地 AGPL-3.0 StaffDeck checkout 作为产品先例评审后独立设计。DSH 采纳了异常优先的配置提醒、分离的生命周期/配置/身份/路由/传输证据、提供方定制说明、扫码过期/重试以及中性的「待验证」状态等产品思路；没有复制 StaffDeck 的源码、样式、资产、协议实现或文案。StaffDeck 的个人微信 iLink 属于非公开/实验性传输，不在本官方二维码绑定范围内。
 

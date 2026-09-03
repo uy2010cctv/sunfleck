@@ -6,7 +6,7 @@ import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
 import { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
 import {
   apply, CHANNEL_BINDING_BROADCAST_CHANNEL, channelBindingCallbackUri,
-  completeChannelBindingCallback, inject,
+  channelBotInstallCallbackUri, completeChannelBindingCallback, completeChannelBotInstallCallback, inject,
 } from '../src/client/index.ts'
 import { apply as applyNode } from '../src/index.ts'
 import { en, NS, zh } from '../src/client/locales.ts'
@@ -83,6 +83,35 @@ async function bench(declareSlots = true) {
 }
 
 describe('enterprise workbench browser plugin', () => {
+  it('completes Bot installation, redacts the code, broadcasts the auto-created channel, and closes', async () => {
+    const completeBotInstall = vi.fn(() => Promise.resolve({ result: { ok: true, value: {
+      channelId: 'feishu-123456789abc', name: '夏树助手',
+    } } }))
+    const replaceState = vi.fn()
+    const postMessage = vi.fn()
+    const close = vi.fn()
+    const handled = await completeChannelBotInstallCallback({ completeBotInstall } as never, {
+      location: {
+        origin: 'https://dsh.example', pathname: '/workbench',
+        search: `?dsh_channel_bot_install=1&code=provider-code&state=${SIGNED_STATE_A}`,
+      },
+      history: { replaceState }, opener: { postMessage }, close,
+    })
+
+    expect(handled).toBe(true)
+    expect(completeBotInstall).toHaveBeenCalledWith(expect.objectContaining({
+      code: 'provider-code', state: SIGNED_STATE_A,
+      redirectUri: 'https://dsh.example/workbench?dsh_channel_bot_install=1',
+      idempotencyKey: `channel-bot-install-complete:${SIGNED_STATE_A}`,
+    }))
+    expect(replaceState).toHaveBeenCalledWith(null, '', '/workbench?dsh_channel_bot_install=1')
+    expect(postMessage).toHaveBeenCalledWith({
+      type: 'dsh-channel-bot-install-complete', attemptId: SIGNED_STATE_A,
+      channelId: 'feishu-123456789abc', channelName: '夏树助手',
+    }, 'https://dsh.example')
+    expect(close).toHaveBeenCalledTimes(1)
+  })
+
   it('completes a marked callback with the canonical redirect, redacts it, notifies its opener, and closes', async () => {
     const requests: unknown[] = []
     const completeBinding = vi.fn((request: unknown) => {
@@ -298,6 +327,8 @@ describe('enterprise workbench browser plugin', () => {
   it('builds the exact marker-only callback URI', () => {
     expect(channelBindingCallbackUri({ origin: 'https://dsh.example', pathname: '/workbench' }))
       .toBe('https://dsh.example/workbench?dsh_channel_binding=1')
+    expect(channelBotInstallCallbackUri({ origin: 'https://dsh.example', pathname: '/workbench' }))
+      .toBe('https://dsh.example/workbench?dsh_channel_bot_install=1')
   })
 
   it('declares its runtime dependencies', () => {

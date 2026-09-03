@@ -1,5 +1,5 @@
 /** Authenticated enterprise Typert Remote controllers. */
-import { createHmac, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto'
+import { createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto'
 import { Context } from '@deepseek-ai/cordis'
 import { Remote, RemoteError, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 import type { EnterprisePrincipal } from '@deepseek-ai/dsh-enterprise-governance'
@@ -124,6 +124,7 @@ import type {
   EnterpriseChannelBotInstallResult,
   EnterpriseChannelBindingSession,
   EnterpriseChannelCompleteBindingRequest,
+  EnterpriseChannelCompleteBotInstallRequest,
   EnterpriseChannelConfiguration,
   EnterpriseChannelIntent,
   EnterpriseChannelListRequest,
@@ -171,6 +172,8 @@ declare module '@deepseek-ai/cordis' {
     enterpriseTeamAutonomyController: EnterpriseTeamAutonomyController
     /** Enterprise channel-configuration Remote namespace owner. */
     enterpriseChannelController: EnterpriseChannelController
+    /** Optional Host-only provider app installer. Browser code never receives its credentials. */
+    enterpriseChannelBotInstaller: EnterpriseChannelBotInstaller
     /** Optional provider that appends authoritative Team events to root Session logs. */
     enterpriseTeamRuntimeDriver: EnterpriseTeamRuntimeDriver
     /** Enterprise Cordis Workspace extension Remote namespace owner. */
@@ -539,6 +542,38 @@ interface PendingChannelBinding {
   readonly expiresAt: number
 }
 
+interface PendingChannelBotInstall {
+  readonly orgId: string
+  readonly actorUserId: string
+  readonly provider: StoredChannelConfiguration['provider']
+  readonly redirectUri: string
+  readonly nonce: string
+  readonly expiresAt: number
+}
+
+/** Verified Bot metadata returned only by a Host provider adapter after official authorization. */
+export interface EnterpriseInstalledChannelBot {
+  readonly provider: StoredChannelConfiguration['provider']
+  readonly tenantId: string
+  readonly tenantName?: string
+  readonly accountId: string
+  readonly botName: string
+  readonly credentialRef: string
+  readonly providerIdentityId: string
+}
+
+/** Host-only seam implemented by approved WeCom, Feishu, or DingTalk provider-app adapters. */
+export interface EnterpriseChannelBotInstaller {
+  begin(input: PendingChannelBotInstall & { readonly state: string }): Promise<{
+    readonly authorizationUrl: string
+    readonly expiresAt: number
+  }>
+  complete(input: PendingChannelBotInstall & {
+    readonly state: string
+    readonly code: string
+  }): Promise<EnterpriseInstalledChannelBot>
+}
+
 /** Runtime seams for deterministic channel-binding tests and Host fetch injection. */
 export interface EnterpriseChannelControllerOptions {
   readonly now?: () => number
@@ -564,6 +599,27 @@ function validChannelBindingState(state: string, pending: PendingChannelBinding)
   if (nonce !== pending.nonce) return false
   const supplied = Buffer.from(signature, 'base64url')
   const expected = Buffer.from(channelBindingSignature(pending), 'base64url')
+  return supplied.length === expected.length && timingSafeEqual(supplied, expected)
+}
+
+function canonicalChannelBotInstallEnvelope(pending: PendingChannelBotInstall): string {
+  return JSON.stringify([
+    'bot-install', pending.nonce, pending.orgId, pending.actorUserId, pending.provider,
+    pending.redirectUri, pending.expiresAt,
+  ])
+}
+
+function channelBotInstallSignature(pending: PendingChannelBotInstall): string {
+  return createHmac('sha256', CHANNEL_BINDING_HMAC_KEY)
+    .update(canonicalChannelBotInstallEnvelope(pending)).digest('base64url')
+}
+
+function validChannelBotInstallState(state: string, pending: PendingChannelBotInstall): boolean {
+  if (!CHANNEL_BINDING_STATE_PATTERN.test(state)) return false
+  const [nonce = '', signature = ''] = state.split('.')
+  if (nonce !== pending.nonce) return false
+  const supplied = Buffer.from(signature, 'base64url')
+  const expected = Buffer.from(channelBotInstallSignature(pending), 'base64url')
   return supplied.length === expected.length && timingSafeEqual(supplied, expected)
 }
 
@@ -606,6 +662,7 @@ export class EnterpriseChannelController extends TypertRemoteService {
   static inject = ['enterprisePostgres', 'enterpriseSecurity', 'enterpriseRequestContext', 'credentials']
 
   private readonly pendingBindings = new Map<string, PendingChannelBinding>()
+  private readonly pendingBotInstalls = new Map<string, PendingChannelBotInstall>()
   private readonly now: () => number
   private readonly fetch: ChannelAuthorizationFetch
 
@@ -686,15 +743,95 @@ export class EnterpriseChannelController extends TypertRemoteService {
    */
   @Remote('beginBotInstall')
   async beginBotInstall(request: EnterpriseChannelBeginBotInstallRequest): Promise<EnterpriseChannelBotInstallResult> {
-    return catalogCall(this.ctx, 'enterpriseChannel.beginBotInstall', { provider: request.provider }, 'channel', request.provider, async () => {
+    return catalogCall(this.ctx, 'enterpriseChannel.beginBotInstall', { provider: request.provider }, 'channel', request.provider, async (actor) => {
       if (!boundedRemoteString(request.redirectUri, MAX_CHANNEL_REDIRECT_URI_BYTES)) {
         throw new EnterpriseOperationsError('invalid-state', 'channel', request.provider)
       }
-      return {
-        status: request.provider === 'wechat' ? 'unsupported' : 'setup-required',
-        provider: request.provider,
+      if (request.provider === 'wechat') return {
+        status: 'unsupported', provider: request.provider,
         officialDocumentationUrl: CHANNEL_BOT_INSTALL_DOCUMENTATION[request.provider],
       }
+      const installer = this.ctx.get('enterpriseChannelBotInstaller')
+      if (installer === undefined) return {
+        status: 'setup-required', provider: request.provider,
+        officialDocumentationUrl: CHANNEL_BOT_INSTALL_DOCUMENTATION[request.provider],
+      }
+      this.prunePendingBindings()
+      const nonce = randomBytes(32).toString('base64url')
+      const pending: PendingChannelBotInstall = {
+        orgId: actor.orgId, actorUserId: actor.userId, provider: request.provider,
+        redirectUri: request.redirectUri, nonce, expiresAt: this.now() + CHANNEL_BINDING_TTL_MS,
+      }
+      const state = `${nonce}.${channelBotInstallSignature(pending)}`
+      const session = await installer.begin({ ...pending, state })
+      const authorization = new URL(session.authorizationUrl)
+      if (authorization.protocol !== 'https:' || authorization.searchParams.get('state') !== state
+        || session.expiresAt !== pending.expiresAt) {
+        throw new EnterpriseOperationsError('invalid-state', 'channel', request.provider)
+      }
+      this.pendingBotInstalls.set(state, pending)
+      return {
+        status: 'ready', provider: request.provider,
+        authorizationUrl: authorization.href, expiresAt: pending.expiresAt,
+      }
+    })
+  }
+
+  /** Complete a signed provider-app installation and create the governed channel automatically. */
+  @Remote('completeBotInstall')
+  async completeBotInstall(request: EnterpriseChannelCompleteBotInstallRequest): Promise<EnterpriseChannelConfiguration> {
+    return catalogCall(this.ctx, 'enterpriseChannel.completeBotInstall', {}, 'channel', 'bot-install', async (actor) => {
+      if (!boundedRemoteString(request.code, MAX_CHANNEL_AUTHORIZATION_CODE_BYTES)
+        || !boundedRemoteString(request.idempotencyKey, MAX_CHANNEL_BINDING_IDEMPOTENCY_KEY_BYTES)
+        || !boundedRemoteString(request.redirectUri, MAX_CHANNEL_REDIRECT_URI_BYTES)
+        || !CHANNEL_BINDING_STATE_PATTERN.test(request.state)) {
+        throw new EnterpriseOperationsError('invalid-state', 'channel', 'bot-install')
+      }
+      this.prunePendingBindings()
+      const pending = this.pendingBotInstalls.get(request.state)
+      if (pending === undefined || !validChannelBotInstallState(request.state, pending)
+        || this.now() >= pending.expiresAt || pending.redirectUri !== request.redirectUri) {
+        if (pending !== undefined) this.pendingBotInstalls.delete(request.state)
+        throw new EnterpriseOperationsError('invalid-state', 'channel', 'bot-install')
+      }
+      if (pending.orgId !== actor.orgId || pending.actorUserId !== actor.userId) {
+        throw new EnterpriseOperationsAuthorizationError(
+          'insufficient-role', 'enterpriseChannel.completeBotInstall' as never,
+        )
+      }
+      const installer = this.ctx.get('enterpriseChannelBotInstaller')
+      if (installer === undefined) throw new EnterpriseOperationsError('invalid-state', 'channel', 'bot-install')
+      this.pendingBotInstalls.delete(request.state)
+      const installed = await installer.complete({ ...pending, state: request.state, code: request.code })
+      if (installed.provider !== pending.provider
+        || !boundedRemoteString(installed.tenantId, 512)
+        || !boundedRemoteString(installed.accountId, 512)
+        || !boundedRemoteString(installed.botName, 512)
+        || !boundedRemoteString(installed.credentialRef, 512)
+        || !boundedRemoteString(installed.providerIdentityId, 512)) {
+        throw new EnterpriseOperationsError('invalid-state', 'channel', 'bot-install')
+      }
+      if (!(await this.ctx.credentials.describe(credentialRef(installed.credentialRef))).configured) {
+        throw new EnterpriseOperationsError('invalid-state', 'channel', 'bot-install')
+      }
+      const digest = createHash('sha256').update(JSON.stringify([
+        actor.orgId, installed.provider, installed.tenantId, installed.accountId,
+      ])).digest('hex').slice(0, 12)
+      const saved = await operations(this.ctx).saveChannelConfiguration(actor, {
+        channelId: `${installed.provider}-${digest}`, name: installed.botName.trim(),
+        provider: installed.provider, tenantId: installed.tenantId.trim(), accountId: installed.accountId.trim(),
+        credentialRef: installed.credentialRef.trim(), inboundEnabled: true, state: 'active', expectedRevision: 0,
+        idempotencyKey: request.idempotencyKey,
+      })
+      const verificationIdempotencyKey = `bot-install-verify:${createHash('sha256')
+        .update(request.idempotencyKey).digest('hex').slice(0, 32)}`
+      const verified = await operations(this.ctx).verifyChannelBinding(actor, {
+        channelId: saved.channelId, expectedRevision: saved.revision,
+        providerIdentityId: installed.providerIdentityId.trim(),
+        providerIdentityName: installed.botName.trim(), verifiedTenantId: installed.tenantId.trim(),
+        idempotencyKey: verificationIdempotencyKey,
+      })
+      return this.present(verified)
     })
   }
 
@@ -820,6 +957,9 @@ export class EnterpriseChannelController extends TypertRemoteService {
     const now = this.now()
     for (const [state, pending] of this.pendingBindings) {
       if (now >= pending.expiresAt) this.pendingBindings.delete(state)
+    }
+    for (const [state, pending] of this.pendingBotInstalls) {
+      if (now >= pending.expiresAt) this.pendingBotInstalls.delete(state)
     }
   }
 

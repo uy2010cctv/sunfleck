@@ -59,6 +59,50 @@ async function bindingBench(overrides: {
   }
 }
 
+async function botInstallBench() {
+  const api = await import('../src/index.ts') as Record<string, unknown>
+  const Controller = api['EnterpriseChannelController'] as new (ctx: Context) => {
+    beginBotInstall(input: Record<string, unknown>): Promise<Record<string, unknown>>
+    completeBotInstall(input: Record<string, unknown>): Promise<Record<string, unknown>>
+  }
+  const requestContext = new EnterpriseRequestContext()
+  const saveChannelConfiguration = vi.fn((input: Record<string, unknown>) => Promise.resolve({
+    ...input, bindingStatus: 'unbound', createdBy: input['actorUserId'], revision: 1, createdAt: 1, updatedAt: 1,
+  }))
+  const verifyChannelBinding = vi.fn((input: Record<string, unknown>) => Promise.resolve({
+    orgId: 'org-a', channelId: input['channelId'], name: '夏树助手', provider: 'feishu',
+    tenantId: input['verifiedTenantId'], accountId: 'cli_verified', credentialRef: 'DSH_FEISHU_TENANT_VERIFIED',
+    inboundEnabled: true, state: 'active', bindingStatus: 'verified',
+    boundProviderIdentityId: input['providerIdentityId'], boundProviderIdentityName: input['providerIdentityName'],
+    verifiedTenantId: input['verifiedTenantId'], createdBy: 'admin-a', revision: 2, createdAt: 1, updatedAt: 2,
+  }))
+  const installer = {
+    begin: vi.fn((input: Record<string, unknown>) => Promise.resolve({
+      authorizationUrl: `https://open.feishu.cn/app/install?state=${encodeURIComponent(String(input['state']))}`
+        + `&redirect_uri=${encodeURIComponent(String(input['redirectUri']))}`,
+      expiresAt: Number(input['expiresAt']),
+    })),
+    complete: vi.fn(() => Promise.resolve({
+      provider: 'feishu', tenantId: 'tenant-verified', tenantName: '夏树科技',
+      accountId: 'cli_verified', botName: '夏树助手', credentialRef: 'DSH_FEISHU_TENANT_VERIFIED',
+      providerIdentityId: 'bot-open-id',
+    })),
+  }
+  const ctx = new Context()
+  ctx.provide('enterprisePostgres' as never, { operations: {
+    saveChannelConfiguration, verifyChannelBinding, getChannelConfiguration: vi.fn().mockResolvedValue(undefined),
+  } } as never)
+  ctx.provide('enterpriseRequestContext' as never, requestContext as never)
+  ctx.provide('enterpriseSecurity' as never, {
+    authorizeApiAsync: vi.fn().mockResolvedValue({ allowed: true, reason: 'administrator' }), auditApiAsync: vi.fn(),
+  } as never)
+  ctx.provide('credentials' as never, {
+    describe: vi.fn().mockResolvedValue({ configured: true, writable: false, source: 'encrypted' }),
+  } as never)
+  ctx.provide('enterpriseChannelBotInstaller' as never, installer as never)
+  return { controller: new Controller(ctx), requestContext, installer, saveChannelConfiguration, verifyChannelBinding }
+}
+
 function begin(bench: Awaited<ReturnType<typeof bindingBench>>, actor = principal, input: Record<string, unknown> = {}) {
   return bench.requestContext.run(actor, () => bench.controller.beginBinding({
     channelId: 'finance-wecom', expectedRevision: 1, redirectUri: 'https://dsh.example.test/channel/callback', ...input,
@@ -98,6 +142,50 @@ describe('enterprise channel Remote controller', () => {
       status: 'setup-required', provider: 'feishu',
       officialDocumentationUrl: 'https://open.feishu.cn/document/isv-guides/publish-your-app/publishing-guidelines',
     })
+  })
+
+  it('starts a signed provider Bot installation when the Host installer is deployed', async () => {
+    const bench = await botInstallBench()
+    const result = await bench.requestContext.run(principal, () => bench.controller.beginBotInstall({
+      provider: 'feishu', redirectUri: 'https://dsh.example.test/channel/install-callback',
+    }))
+    expect(result).toMatchObject({ status: 'ready', provider: 'feishu' })
+    const authorization = new URL(String(result['authorizationUrl']))
+    expect(authorization.host).toBe('open.feishu.cn')
+    expect(authorization.searchParams.get('state')).toMatch(/^[A-Za-z0-9_-]{43}\.[A-Za-z0-9_-]{43}$/u)
+    expect(bench.installer.begin).toHaveBeenCalledWith(expect.objectContaining({
+      provider: 'feishu', orgId: 'org-a', actorUserId: 'admin-a',
+      redirectUri: 'https://dsh.example.test/channel/install-callback',
+    }))
+  })
+
+  it('automatically derives and saves a governed channel from verified Bot installation metadata', async () => {
+    const bench = await botInstallBench()
+    const session = await bench.requestContext.run(principal, () => bench.controller.beginBotInstall({
+      provider: 'feishu', redirectUri: 'https://dsh.example.test/channel/install-callback',
+    }))
+    const state = new URL(String(session['authorizationUrl'])).searchParams.get('state')
+    const result = await bench.requestContext.run(principal, () => bench.controller.completeBotInstall({
+      code: 'provider-install-code', state, redirectUri: 'https://dsh.example.test/channel/install-callback',
+      idempotencyKey: 'install-feishu-tenant',
+    }))
+    expect(bench.installer.complete).toHaveBeenCalledWith(expect.objectContaining({
+      provider: 'feishu', code: 'provider-install-code', orgId: 'org-a', actorUserId: 'admin-a',
+    }))
+    expect(bench.saveChannelConfiguration).toHaveBeenCalledWith(expect.objectContaining({
+      orgId: 'org-a', actorUserId: 'admin-a', provider: 'feishu', tenantId: 'tenant-verified',
+      accountId: 'cli_verified', credentialRef: 'DSH_FEISHU_TENANT_VERIFIED', name: '夏树助手',
+      channelId: expect.stringMatching(/^feishu-[a-f0-9]{12}$/u), inboundEnabled: true,
+      state: 'active', expectedRevision: 0, idempotencyKey: 'install-feishu-tenant',
+    }))
+    expect(bench.verifyChannelBinding).toHaveBeenCalledWith(expect.objectContaining({
+      channelId: expect.stringMatching(/^feishu-[a-f0-9]{12}$/u), expectedRevision: 1,
+      providerIdentityId: 'bot-open-id', providerIdentityName: '夏树助手', verifiedTenantId: 'tenant-verified',
+    }))
+    expect(result).toMatchObject({
+      name: '夏树助手', provider: 'feishu', bindingStatus: 'verified', credentialStatus: 'configured',
+    })
+    expect(JSON.stringify(result)).not.toContain('provider-install-code')
   })
 
   it('injects organization and actor, returns secret-free readiness, and preserves provider policy', async () => {
