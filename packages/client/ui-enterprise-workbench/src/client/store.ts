@@ -4,7 +4,7 @@ import type { ClientRemote, PluginInventorySnapshot, SessionId } from '@deepseek
 import type {
   EnterpriseApproval, EnterpriseAsset, EnterpriseAssetKind,
   EnterpriseBusinessState, EnterpriseEmployeeAssetRef, EnterpriseEmployeeDraft,
-  EnterpriseChannelBindingSession, EnterpriseChannelConfiguration,
+  EnterpriseChannelBindingSession, EnterpriseChannelBotInstallResult, EnterpriseChannelConfiguration,
   EnterpriseEmployeeRelease, EnterpriseSchedule,
   EnterpriseScheduleTarget, EnterpriseTeam, EnterpriseTeamMember,
   EnterpriseTeamAutonomyGrant, EnterpriseTeamDecision, EnterpriseTeamDefinition, EnterpriseTeamRun,
@@ -651,6 +651,14 @@ export class EnterpriseWorkbenchController {
       expectedRevision: channel.revision,
       redirectUri,
     }))
+  }
+
+  /** Start provider-app installation before a channel configuration exists. */
+  async beginChannelBotInstall(
+    provider: EnterpriseChannelConfiguration['provider'],
+    redirectUri: string,
+  ): Promise<EnterpriseChannelBotInstallResult> {
+    return valueOf(await this.api.enterpriseChannels.beginBotInstall({ provider, redirectUri }))
   }
 
   /** Refresh typed Team Definitions. */

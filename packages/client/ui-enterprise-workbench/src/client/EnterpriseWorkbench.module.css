@@ -824,6 +824,14 @@
 .channelPrinciple > div { display: grid; gap: var(--dse-space-3xs); }
 .channelPrinciple strong { color: var(--dse-color-ink); font-size: 0.8125rem; }
 .channelPrinciple span { max-inline-size: 72ch; color: var(--dse-color-muted); font-size: 0.75rem; line-height: 1.5; }
+.channelBotInstall { display: flex; align-items: center; justify-content: space-between; gap: var(--dse-space-md); margin-block-end: var(--dse-space-md); padding-block: var(--dse-space-sm); border-block: 1px solid var(--dse-color-border); }
+.channelBotInstall > div:first-child { min-inline-size: 0; display: grid; gap: var(--dse-space-3xs); }
+.channelBotInstall h3, .channelBotInstall p { margin: 0; }
+.channelBotInstall h3 { color: var(--dse-color-ink); font-size: 0.875rem; }
+.channelBotInstall p { max-inline-size: 68ch; color: var(--dse-color-muted); font-size: 0.75rem; line-height: 1.5; }
+.channelBotInstall > div:last-child { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: var(--dse-space-2xs); }
+.channelBotInstall a { color: var(--dse-color-accent); font-size: 0.75rem; font-weight: 650; text-underline-offset: 3px; }
+.channelBotInstall a:focus-visible { outline: 2px solid var(--dse-color-focus); outline-offset: 2px; }
 .channelForm { display: grid; gap: var(--dse-space-sm); margin-block-end: var(--dse-space-lg); padding: var(--dse-space-md); border: 1px solid var(--dse-color-border); border-radius: var(--dse-radius-card); background: var(--dse-color-surface-raised); }
 .channelForm > header { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--dse-space-sm); }
 .channelForm h3, .channelForm p { margin: 0; }
@@ -984,6 +992,9 @@
   .decisionOptions button,
   .decisionActions > button { flex: 1; }
   .channelForm > header { flex-direction: column; }
+  .channelBotInstall { align-items: stretch; flex-direction: column; }
+  .channelBotInstall > div:last-child { align-items: stretch; justify-content: flex-start; flex-direction: column; }
+  .channelBotInstall > div:last-child > * { inline-size: 100%; text-align: center; }
   .channelProviderStarts { align-items: stretch; flex-direction: column; }
   .channelProviderStarts button { inline-size: 100%; }
   .channelQuickStart ol { grid-template-columns: minmax(0, 1fr); gap: var(--dse-space-2xs); }

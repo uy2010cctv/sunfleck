@@ -186,6 +186,7 @@ export function apply(ctx: Context): void {
     saveChannelConfiguration: input => controller.saveChannelConfiguration(input),
     archiveChannelConfiguration: channel => controller.archiveChannelConfiguration(channel),
     beginChannelBinding: (channel, redirectUri) => controller.beginChannelBinding(channel, redirectUri),
+    beginChannelBotInstall: (provider, redirectUri) => controller.beginChannelBotInstall(provider, redirectUri),
     refreshChannels: () => controller.refreshChannels(),
     setExtensionWorkspace: (workspaceId) => { controller.setExtensionWorkspace(workspaceId) },
     refreshExtensions: () => controller.refreshExtensions(),

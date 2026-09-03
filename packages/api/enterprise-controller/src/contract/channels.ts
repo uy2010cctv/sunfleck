@@ -76,6 +76,24 @@ export interface EnterpriseChannelBeginBindingRequest {
   readonly redirectUri: string
 }
 
+/** Official provider-app installation readiness before any channel row exists. */
+export type EnterpriseChannelBotInstallResult = {
+  readonly status: 'setup-required' | 'unsupported'
+  readonly provider: EnterpriseChannelProvider
+  readonly officialDocumentationUrl: string
+} | {
+  readonly status: 'ready'
+  readonly provider: EnterpriseChannelProvider
+  readonly authorizationUrl: string
+  readonly expiresAt: number
+}
+
+/** Start provider-owned installation of the DSH Bot; successful callback creates the channel. */
+export interface EnterpriseChannelBeginBotInstallRequest {
+  readonly provider: EnterpriseChannelProvider
+  readonly redirectUri: string
+}
+
 /** One-time provider callback completion request. */
 export interface EnterpriseChannelCompleteBindingRequest {
   readonly code: string
