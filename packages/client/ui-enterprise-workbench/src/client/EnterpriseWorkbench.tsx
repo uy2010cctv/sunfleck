@@ -14,7 +14,7 @@ import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import { randomUUID } from '@deepseek-ai/dsh-util-crypto'
 import type {
   EnterpriseApproval, EnterpriseAsset, EnterpriseAssetKind, EnterpriseBusinessState,
-  EnterpriseChannelBindingSession, EnterpriseChannelConfiguration, EnterpriseEmployeeDraft, EnterpriseEmployeeRelease, EnterpriseSchedule, EnterpriseScheduleTarget, EnterpriseTeam,
+  EnterpriseChannelBindingSession, EnterpriseChannelBotInstallResult, EnterpriseChannelConfiguration, EnterpriseEmployeeDraft, EnterpriseEmployeeRelease, EnterpriseSchedule, EnterpriseScheduleTarget, EnterpriseTeam,
   EnterpriseTeamAutonomyGrant, EnterpriseTeamDecision, EnterpriseTeamDefinition, EnterpriseTeamMember,
   EnterpriseTeamRun, EnterpriseVisibility, EnterpriseWorkRecord as OperationWorkRecord,
   CordisPackageVersion, CordisReviewRequest, CordisScopeBinding,
@@ -30,7 +30,7 @@ import type {
 import css from './EnterpriseWorkbench.module.css'
 import {
   CHANNEL_BINDING_BROADCAST_CHANNEL, CHANNEL_BINDING_PROFILES,
-  channelBindingCallbackUri, officialChannelAuthorizationUrl, officialChannelBindingState,
+  channelBindingCallbackUri, channelBotInstallCallbackUri, officialChannelAuthorizationUrl, officialChannelBindingState,
 } from './channelBindingProfiles.ts'
 
 export interface EnterpriseWorkbenchInjected {
@@ -61,6 +61,7 @@ export interface EnterpriseWorkbenchInjected {
   saveChannelConfiguration: (input: { channelId: string; name: string; provider: EnterpriseChannelConfiguration['provider']; tenantId?: string; accountId: string; credentialRef?: string; defaultEmployeeReleaseId?: string; inboundEnabled: boolean; state: 'draft' | 'active' | 'paused'; expectedRevision: number }) => Promise<boolean>
   archiveChannelConfiguration: (channel: EnterpriseChannelConfiguration) => Promise<void>
   beginChannelBinding: (channel: EnterpriseChannelConfiguration, redirectUri: string) => Promise<EnterpriseChannelBindingSession>
+  beginChannelBotInstall: (provider: EnterpriseChannelConfiguration['provider'], redirectUri: string) => Promise<EnterpriseChannelBotInstallResult>
   refreshChannels: () => Promise<boolean>
   startTeamRun: (input: { teamId: string; expectedTeamRevision: number; workspaceId: string; prompt: string }) => Promise<boolean>
   cancelTeamRun: (run: EnterpriseTeamRun) => Promise<void>
@@ -746,6 +747,11 @@ function ChannelsPage({ page, api, busy, onDirty, onClean, t }: {
   const [form, setForm] = useState<FormState | null>(null)
   const [pendingQuickBindId, setPendingQuickBindId] = useState<string | null>(null)
   const pendingQuickBindPopup = useRef<Window | null>(null)
+  const [botInstall, setBotInstall] = useState<{
+    provider: EnterpriseChannelConfiguration['provider']
+    phase: 'opening' | 'setup-required' | 'unsupported' | 'error'
+    officialDocumentationUrl?: string
+  } | null>(null)
   const [binding, setBinding] = useState<{
     generation: number
     attemptId: string
@@ -871,8 +877,29 @@ function ChannelsPage({ page, api, busy, onDirty, onClean, t }: {
     })
   }
   const openCreate = (provider: EnterpriseChannelConfiguration['provider']): void => {
+    setBotInstall(null)
     setForm({ ...emptyForm, provider, inboundEnabled: provider !== 'wechat' })
     onDirty()
+  }
+  const startBotInstall = async (provider: EnterpriseChannelConfiguration['provider']): Promise<void> => {
+    setForm(null)
+    setBotInstall({ provider, phase: 'opening' })
+    try {
+      const result = await api.beginChannelBotInstall(provider, channelBotInstallCallbackUri(window.location))
+      if (result.status === 'ready') {
+        const authorization = new URL(result.authorizationUrl)
+        if (authorization.protocol !== 'https:') throw new Error('provider installation URL must use HTTPS')
+        window.open(authorization.href, 'dsh-channel-bot-install', 'popup,width=640,height=760,resizable=yes,scrollbars=yes')
+        setBotInstall(null)
+        return
+      }
+      setBotInstall({
+        provider: result.provider, phase: result.status,
+        officialDocumentationUrl: result.officialDocumentationUrl,
+      })
+    } catch {
+      setBotInstall({ provider, phase: 'error' })
+    }
   }
   const patch = (next: Partial<FormState>): void => { setForm(current => current === null ? current : { ...current, ...next }); onDirty() }
   const save = async (state: 'draft' | 'active'): Promise<boolean> => {
@@ -1051,8 +1078,12 @@ function ChannelsPage({ page, api, busy, onDirty, onClean, t }: {
   return <section className={css.channelPage} aria-labelledby="channel-page-title">
     <ManagementHeader id="channel-page-title" title={t('channel.title')} description={t('channel.description')} count={page.items.length} action={<button type="button" className={css.primaryButton} onClick={() => { openCreate('wecom') }}><IconPlusOutline16 size={16}/>{t('channel.new')}</button>}/>
     <div className={css.channelPrinciple}><IconApiOutline14 size={16}/><div><strong>{t('channel.truthTitle')}</strong><span>{t('channel.truthBody')}</span></div></div>
+    {botInstall !== null && <section className={css.channelBotInstall} role={botInstall.phase === 'error' ? 'alert' : 'status'}>
+      <div><h3>{t(`channel.botInstall.title.${botInstall.phase}`, { provider: t(`channel.provider.${botInstall.provider}`) })}</h3><p>{t(`channel.botInstall.body.${botInstall.phase}.${botInstall.provider}`)}</p></div>
+      <div>{botInstall.officialDocumentationUrl !== undefined && <a href={botInstall.officialDocumentationUrl} target="_blank" rel="noopener noreferrer">{t('channel.botInstall.officialSetup')}</a>}<button type="button" className={css.secondaryButton} onClick={() => { openCreate(botInstall.provider) }}>{t(`channel.botInstall.manual.${botInstall.provider}`)}</button><button type="button" className={css.textButton} onClick={() => { setBotInstall(null) }}>{t('cancel')}</button></div>
+    </section>}
     {form !== null && <form className={css.channelForm} onSubmit={(event) => { event.preventDefault(); void save('draft') }}>
-      <header><div><h3>{form.expectedRevision === 0 ? t(`channel.quick.title.${form.provider}`) : t('channel.editTitle')}</h3><p>{t('channel.formHelp')}</p></div><button type="button" className={css.secondaryButton} onClick={() => { setForm(null); onClean() }}>{t('cancel')}</button></header>
+      <header><div><h3>{form.expectedRevision === 0 ? t(`channel.manual.title.${form.provider}`) : t('channel.editTitle')}</h3><p>{t('channel.formHelp')}</p></div><button type="button" className={css.secondaryButton} onClick={() => { setForm(null); onClean() }}>{t('cancel')}</button></header>
       <div className={css.channelQuickStart}>
         <ol><li>{t('channel.quick.stepConfig')}</li><li>{t('channel.quick.stepSave')}</li><li>{t('channel.quick.stepScan')}</li></ol>
         <div><span>{t(CHANNEL_BINDING_PROFILES[form.provider].guidanceKey)}</span><a href={CHANNEL_BINDING_PROFILES[form.provider].officialDocsUrl} target="_blank" rel="noopener noreferrer">{t('channel.binding.docs')}</a></div>
@@ -1075,7 +1106,7 @@ function ChannelsPage({ page, api, busy, onDirty, onClean, t }: {
         <IconWarningOutline16 size={16}/><strong>{item.channel.name}</strong><span>{item.reason}</span>
       </button>)}
     </section>}
-    <PageBoundary page={page} t={t} empty={<ActionableEmpty title={t('channel.emptyTitle')} description={t('channel.emptyBody')} action={<div className={css.channelProviderStarts}>{CHANNEL_PROVIDERS.map(provider => <button type="button" className={provider === 'wecom' ? css.primaryButton : css.secondaryButton} key={provider} onClick={() => { openCreate(provider) }}>{t(`channel.quick.start.${provider}`)}</button>)}</div>}/>}>
+    <PageBoundary page={page} t={t} empty={<ActionableEmpty title={t('channel.emptyTitle')} description={t('channel.emptyBody')} action={<div className={css.channelProviderStarts}>{CHANNEL_PROVIDERS.map(provider => <button type="button" className={provider === 'wecom' ? css.primaryButton : css.secondaryButton} key={provider} onClick={() => { void startBotInstall(provider) }}>{t(`channel.botInstall.start.${provider}`)}</button>)}</div>}/>}>
       <div className={css.channelList}>{page.items.map((channel) => {
         const profile = CHANNEL_BINDING_PROFILES[channel.provider]
         const eligible = canBind(channel)

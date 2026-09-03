@@ -119,7 +119,9 @@ import type {
 } from './contract/team-control.ts'
 import type {
   EnterpriseChannelArchiveRequest,
+  EnterpriseChannelBeginBotInstallRequest,
   EnterpriseChannelBeginBindingRequest,
+  EnterpriseChannelBotInstallResult,
   EnterpriseChannelBindingSession,
   EnterpriseChannelCompleteBindingRequest,
   EnterpriseChannelConfiguration,
@@ -505,6 +507,13 @@ export class EnterpriseAssetController extends TypertRemoteService {
 
 const CHANNEL_INTENTS = ['notify', 'handoff', 'team-start', 'decision-response', 'status'] as const
 
+const CHANNEL_BOT_INSTALL_DOCUMENTATION: Readonly<Record<StoredChannelConfiguration['provider'], string>> = Object.freeze({
+  wecom: 'https://developer.work.weixin.qq.com/document/path/90665',
+  feishu: 'https://open.feishu.cn/document/isv-guides/publish-your-app/publishing-guidelines',
+  dingtalk: 'https://open.dingtalk.com/document/isvapp/enterprise-authorized-application-activation-event-1.md',
+  wechat: 'https://developers.weixin.qq.com/doc/oplatform/developers/dev/auth/web.html',
+})
+
 const CHANNEL_BINDING_TTL_MS = 10 * 60_000
 const MAX_PENDING_CHANNEL_BINDINGS = 256
 const MAX_PENDING_CHANNEL_BINDINGS_PER_ORG = 64
@@ -669,6 +678,24 @@ export class EnterpriseChannelController extends TypertRemoteService {
   async archive(request: EnterpriseChannelArchiveRequest): Promise<EnterpriseChannelConfiguration> {
     return this.run('enterpriseChannel.archive', request.channelId, async () =>
       this.present(await operations(this.ctx).archiveChannelConfiguration(principal(this.ctx), request)))
+  }
+
+  /**
+   * Start installation of a provider-hosted DSH Bot before a channel exists.
+   * Self-hosted builds fail visibly until an approved provider app installer is deployed.
+   */
+  @Remote('beginBotInstall')
+  async beginBotInstall(request: EnterpriseChannelBeginBotInstallRequest): Promise<EnterpriseChannelBotInstallResult> {
+    return catalogCall(this.ctx, 'enterpriseChannel.beginBotInstall', { provider: request.provider }, 'channel', request.provider, async () => {
+      if (!boundedRemoteString(request.redirectUri, MAX_CHANNEL_REDIRECT_URI_BYTES)) {
+        throw new EnterpriseOperationsError('invalid-state', 'channel', request.provider)
+      }
+      return {
+        status: request.provider === 'wechat' ? 'unsupported' : 'setup-required',
+        provider: request.provider,
+        officialDocumentationUrl: CHANNEL_BOT_INSTALL_DOCUMENTATION[request.provider],
+      }
+    })
   }
 
   /**

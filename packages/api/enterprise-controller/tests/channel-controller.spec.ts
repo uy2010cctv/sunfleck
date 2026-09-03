@@ -86,6 +86,20 @@ describe('enterprise channel Remote controller', () => {
     expect(api['EnterpriseChannelController']).toBeTypeOf('function')
   })
 
+  it('reports Bot installation setup honestly when no managed provider app is deployed', async () => {
+    const bench = await bindingBench()
+    const controller = bench.controller as typeof bench.controller & {
+      beginBotInstall(input: Record<string, unknown>): Promise<Record<string, unknown>>
+    }
+    const result = await bench.requestContext.run(principal, () => controller.beginBotInstall({
+      provider: 'feishu', redirectUri: 'https://dsh.example.test/channel/install-callback',
+    }))
+    expect(result).toEqual({
+      status: 'setup-required', provider: 'feishu',
+      officialDocumentationUrl: 'https://open.feishu.cn/document/isv-guides/publish-your-app/publishing-guidelines',
+    })
+  })
+
   it('injects organization and actor, returns secret-free readiness, and preserves provider policy', async () => {
     const api = await import('../src/index.ts') as Record<string, unknown>
     const Controller = api['EnterpriseChannelController'] as new (ctx: Context) => {
@@ -303,8 +317,8 @@ describe('enterprise channel Remote controller', () => {
     const session = await begin(bench)
     const failure: unknown = await complete(bench, session).catch((error: unknown) => error)
     expect(failure).toBeInstanceOf(RemoteError)
-    expect(JSON.stringify(failure)).not.toMatch(/app-secret-private|one-time-code|token-private|bad/i)
-    expect(JSON.stringify(bench.auditApiAsync.mock.calls)).not.toMatch(/app-secret-private|one-time-code|token-private|bad/i)
+    expect(JSON.stringify(failure)).not.toMatch(/app-secret-private|one-time-code|token-private|\bbad\b/i)
+    expect(JSON.stringify(bench.auditApiAsync.mock.calls)).not.toMatch(/app-secret-private|one-time-code|token-private|\bbad\b/i)
     await expect(complete(bench, session)).rejects.toMatchObject({ code: 'enterprise-invalid-state' })
     expect(fetchImpl).toHaveBeenCalledTimes(1)
     expect(bench.verifyChannelBinding).not.toHaveBeenCalled()

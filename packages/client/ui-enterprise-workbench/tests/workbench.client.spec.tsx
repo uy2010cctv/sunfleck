@@ -120,6 +120,10 @@ function workbenchProps(overrides: Partial<EnterpriseWorkbenchProps> & {
     refresh: vi.fn(() => Promise.resolve()),
     startEmployee: vi.fn(() => Promise.resolve()),
     openRecord: vi.fn(),
+    beginChannelBotInstall: vi.fn((provider: string) => Promise.resolve({
+      status: provider === 'wechat' ? 'unsupported' : 'setup-required', provider,
+      officialDocumentationUrl: 'https://example.test/provider-app',
+    })),
     t,
     ...rest,
   } as EnterpriseWorkbenchProps
@@ -150,17 +154,42 @@ describe('EnterpriseTrigger', () => {
 })
 
 describe('EnterpriseWorkbench', () => {
-  it('starts channel onboarding from a provider and exposes provider-specific fields before save', () => {
+  it('starts provider Bot installation before showing the manual app form', async () => {
+    const beginChannelBotInstall = vi.fn(() => Promise.resolve({
+      status: 'setup-required', provider: 'feishu',
+      officialDocumentationUrl: 'https://open.feishu.cn/document/isv-guides/publish-your-app/publishing-guidelines',
+    }))
+    render(<EnterpriseWorkbench {...workbenchProps({
+      state: { mode: 'enterprise', page: 'channels', channels: { phase: 'ready', error: null, items: [] } },
+      beginChannelBotInstall,
+    } as never)} />)
+
+    fireEvent.click(screen.getByRole('button', { name: '扫码添加飞书 Bot' }))
+    await waitFor(() => { expect(beginChannelBotInstall).toHaveBeenCalledWith(
+      'feishu', expect.stringMatching(/\?dsh_channel_bot_install=1$/u),
+    ) })
+    expect(screen.getByRole('heading', { name: '飞书 Bot 安装尚未就绪' })).toBeDefined()
+    expect(screen.getByText('需要先部署 DSH 飞书商店应用，之后管理员扫码即可自动安装并创建渠道。')).toBeDefined()
+    expect(screen.queryByLabelText('飞书 App ID')).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: '使用已有飞书自建应用' }))
+    expect(screen.getByRole('heading', { name: '接入已有飞书应用' })).toBeDefined()
+    expect(screen.getByLabelText('飞书 App ID')).toBeDefined()
+  })
+
+  it('starts channel onboarding from a provider and exposes provider-specific fields before save', async () => {
     render(<EnterpriseWorkbench {...workbenchProps({ state: {
       mode: 'enterprise', page: 'channels', channels: { phase: 'ready', error: null, items: [] },
     } })} />)
 
-    for (const provider of ['企业微信', '飞书', '钉钉', '个人微信']) {
-      expect(screen.getByRole('button', { name: `接入${provider}` })).toBeDefined()
+    for (const provider of ['企业微信', '飞书', '钉钉']) {
+      expect(screen.getByRole('button', { name: `扫码添加${provider} Bot` })).toBeDefined()
     }
-    fireEvent.click(screen.getByRole('button', { name: '接入飞书' }))
+    expect(screen.getByRole('button', { name: '绑定个人微信接管身份' })).toBeDefined()
+    fireEvent.click(screen.getByRole('button', { name: '扫码添加飞书 Bot' }))
+    fireEvent.click(await screen.findByRole('button', { name: '使用已有飞书自建应用' }))
 
-    expect(screen.getByRole('heading', { name: '飞书快速接入' })).toBeDefined()
+    expect(screen.getByRole('heading', { name: '接入已有飞书应用' })).toBeDefined()
     expect(screen.getByLabelText('飞书 App ID')).toBeDefined()
     expect(screen.getByLabelText('App Secret 的 Credential 引用')).toBeDefined()
     expect(screen.getByText('安全设置中配置 App ID + 重定向 URL')).toBeDefined()
@@ -187,7 +216,8 @@ describe('EnterpriseWorkbench', () => {
       saveChannelConfiguration, beginChannelBinding,
     } as never)} />)
 
-    fireEvent.click(screen.getByRole('button', { name: '接入飞书' }))
+    fireEvent.click(screen.getByRole('button', { name: '新建渠道' }))
+    fireEvent.change(screen.getByLabelText('渠道提供方'), { target: { value: 'feishu' } })
     fireEvent.change(screen.getByLabelText('渠道名称'), { target: { value: '销售飞书' } })
     fireEvent.change(screen.getByLabelText('渠道 ID'), { target: { value: 'sales-feishu' } })
     fireEvent.change(screen.getByLabelText('飞书 App ID'), { target: { value: 'cli_sales' } })
