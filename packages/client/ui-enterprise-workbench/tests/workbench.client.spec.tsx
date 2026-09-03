@@ -154,7 +154,23 @@ describe('EnterpriseTrigger', () => {
 })
 
 describe('EnterpriseWorkbench', () => {
-  it('starts provider Bot installation before showing the manual app form', async () => {
+  it('keeps provider identifiers and Credential references out of the user channel flow', async () => {
+    render(<EnterpriseWorkbench {...workbenchProps({
+      state: { mode: 'enterprise', page: 'channels', channels: { phase: 'ready', error: null, items: [] } },
+    })} />)
+
+    expect(screen.queryByRole('button', { name: '新建渠道' })).toBeNull()
+    expect(screen.queryByRole('textbox')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: '扫码添加飞书 Bot' }))
+    await screen.findByRole('heading', { name: '飞书 Bot 安装尚未就绪' })
+    expect(screen.queryByText('使用已有飞书自建应用')).toBeNull()
+    expect(screen.queryByLabelText('渠道名称')).toBeNull()
+    expect(screen.queryByLabelText('渠道 ID')).toBeNull()
+    expect(screen.queryByLabelText('飞书 App ID')).toBeNull()
+    expect(screen.queryByText(/Credential 引用/u)).toBeNull()
+  })
+
+  it('starts provider Bot installation without exposing a manual app form', async () => {
     const beginChannelBotInstall = vi.fn(() => Promise.resolve({
       status: 'setup-required', provider: 'feishu',
       officialDocumentationUrl: 'https://open.feishu.cn/document/isv-guides/publish-your-app/publishing-guidelines',
@@ -171,78 +187,6 @@ describe('EnterpriseWorkbench', () => {
     expect(screen.getByRole('heading', { name: '飞书 Bot 安装尚未就绪' })).toBeDefined()
     expect(screen.getByText('需要先部署 DSH 飞书商店应用，之后管理员扫码即可自动安装并创建渠道。')).toBeDefined()
     expect(screen.queryByLabelText('飞书 App ID')).toBeNull()
-
-    fireEvent.click(screen.getByRole('button', { name: '使用已有飞书自建应用' }))
-    expect(screen.getByRole('heading', { name: '接入已有飞书应用' })).toBeDefined()
-    expect(screen.getByLabelText('飞书 App ID')).toBeDefined()
-  })
-
-  it('starts channel onboarding from a provider and exposes provider-specific fields before save', async () => {
-    render(<EnterpriseWorkbench {...workbenchProps({ state: {
-      mode: 'enterprise', page: 'channels', channels: { phase: 'ready', error: null, items: [] },
-    } })} />)
-
-    for (const provider of ['企业微信', '飞书', '钉钉']) {
-      expect(screen.getByRole('button', { name: `扫码添加${provider} Bot` })).toBeDefined()
-    }
-    expect(screen.getByRole('button', { name: '绑定个人微信接管身份' })).toBeDefined()
-    fireEvent.click(screen.getByRole('button', { name: '扫码添加飞书 Bot' }))
-    fireEvent.click(await screen.findByRole('button', { name: '使用已有飞书自建应用' }))
-
-    expect(screen.getByRole('heading', { name: '接入已有飞书应用' })).toBeDefined()
-    expect(screen.getByLabelText('飞书 App ID')).toBeDefined()
-    expect(screen.getByLabelText('App Secret 的 Credential 引用')).toBeDefined()
-    expect(screen.getByText('安全设置中配置 App ID + 重定向 URL')).toBeDefined()
-    expect(screen.getByRole('button', { name: '保存草稿并扫码绑定飞书' })).toBeDefined()
-  })
-
-  it('saves a new channel draft and starts its QR binding as one guided action', async () => {
-    const state = 'a'.repeat(43) + '.' + 'b'.repeat(43)
-    const saveChannelConfiguration = vi.fn(() => Promise.resolve(true))
-    const beginChannelBinding = vi.fn(() => Promise.resolve({
-      authorizationUrl: `https://accounts.feishu.cn/open-apis/authen/v1/authorize?state=${state}`,
-      expiresAt: Date.now() + 60_000,
-    }))
-    const popup = { location: { href: 'about:blank' }, close: vi.fn(), closed: false, opener: window }
-    vi.spyOn(window, 'open').mockReturnValue(popup as never)
-    vi.stubGlobal('BroadcastChannel', class {
-      onmessage: ((event: MessageEvent) => void) | null = null
-      postMessage(): void {}
-      close(): void {}
-    })
-    const base = { mode: 'enterprise' as const, page: 'channels' as const }
-    const { rerender } = render(<EnterpriseWorkbench {...workbenchProps({
-      state: { ...base, channels: { phase: 'ready', error: null, items: [] } },
-      saveChannelConfiguration, beginChannelBinding,
-    } as never)} />)
-
-    fireEvent.click(screen.getByRole('button', { name: '新建渠道' }))
-    fireEvent.change(screen.getByLabelText('渠道提供方'), { target: { value: 'feishu' } })
-    fireEvent.change(screen.getByLabelText('渠道名称'), { target: { value: '销售飞书' } })
-    fireEvent.change(screen.getByLabelText('渠道 ID'), { target: { value: 'sales-feishu' } })
-    fireEvent.change(screen.getByLabelText('飞书 App ID'), { target: { value: 'cli_sales' } })
-    fireEvent.change(screen.getByLabelText('App Secret 的 Credential 引用'), { target: { value: 'FEISHU_SALES_SECRET' } })
-    fireEvent.click(screen.getByRole('button', { name: '保存草稿并扫码绑定飞书' }))
-    await waitFor(() => { expect(saveChannelConfiguration).toHaveBeenCalledWith(expect.objectContaining({
-      channelId: 'sales-feishu', provider: 'feishu', state: 'draft', expectedRevision: 0,
-    })) })
-
-    const saved = {
-      orgId: 'org-a', channelId: 'sales-feishu', name: '销售飞书', provider: 'feishu', accountId: 'cli_sales',
-      credentialRef: 'FEISHU_SALES_SECRET', credentialStatus: 'configured', inboundEnabled: true,
-      allowedIntents: ['notify', 'handoff'], transportStatus: 'unverified', state: 'draft', bindingStatus: 'unbound',
-      createdBy: 'admin', revision: 1, createdAt: 1, updatedAt: 1,
-    }
-    rerender(<EnterpriseWorkbench {...workbenchProps({
-      state: { ...base, channels: { phase: 'ready', error: null, items: [saved] } as never },
-      saveChannelConfiguration, beginChannelBinding,
-    } as never)} />)
-
-    await waitFor(() => { expect(beginChannelBinding).toHaveBeenCalledWith(
-      expect.objectContaining({ channelId: 'sales-feishu', revision: 1 }),
-      expect.stringMatching(/\?dsh_channel_binding=1$/u),
-    ) })
-    expect(popup.location.href).toContain('accounts.feishu.cn/open-apis/authen/v1/authorize')
   })
 
   it('shows Workspace Cordis versions, source, lifecycle actions, and department review actions', () => {
@@ -340,21 +284,8 @@ describe('EnterpriseWorkbench', () => {
     expect(screen.getAllByText('适配器证据待补充').length).toBeGreaterThan(0)
     expect(container.querySelector('input[type="password"]')).toBeNull()
 
-    fireEvent.click(screen.getByRole('button', { name: '新建渠道' }))
-    fireEvent.change(screen.getByLabelText('渠道提供方'), { target: { value: 'wechat' } })
-    expect(screen.getByLabelText<HTMLInputElement>('允许渠道发起命令').disabled).toBe(true)
-    const form = screen.getByLabelText('渠道提供方').closest('form') as HTMLFormElement
-    expect(within(form).getByText('接管链接')).toBeDefined()
-    expect(within(form).queryByText('通知')).toBeNull()
-    expect(within(form).queryByText('状态查询')).toBeNull()
-    fireEvent.change(screen.getByLabelText('渠道名称'), { target: { value: '个人微信提醒' } })
-    fireEvent.change(screen.getByLabelText('渠道 ID'), { target: { value: 'personal-wechat' } })
-    fireEvent.change(screen.getByLabelText('网站应用 AppID'), { target: { value: 'owner-a' } })
-    fireEvent.change(screen.getByLabelText('AppSecret 的 Credential 引用'), { target: { value: 'WECHAT_IDENTITY' } })
-    fireEvent.click(screen.getByRole('button', { name: '保存为草稿' }))
-    await waitFor(() => { expect(saveChannelConfiguration).toHaveBeenCalledWith(expect.objectContaining({
-      provider: 'wechat', inboundEnabled: false, state: 'draft', expectedRevision: 0,
-    })) })
+    expect(screen.queryByRole('textbox')).toBeNull()
+    expect(screen.getByRole('button', { name: '绑定个人微信接管身份' })).toBeDefined()
 
     fireEvent.click(screen.getByRole('button', { name: '暂停财务企业微信' }))
     expect(saveChannelConfiguration).toHaveBeenCalledWith(expect.objectContaining({
@@ -362,31 +293,6 @@ describe('EnterpriseWorkbench', () => {
     }))
     fireEvent.click(screen.getByRole('button', { name: '归档财务企业微信' }))
     expect(archiveChannelConfiguration).toHaveBeenCalledWith(expect.objectContaining({ channelId: 'finance-wecom' }))
-  })
-
-  it('activates Feishu and DingTalk without tenant input while keeping WeCom CorpID required', async () => {
-    const saveChannelConfiguration = vi.fn((_input: Record<string, unknown>) => Promise.resolve(false))
-    render(<EnterpriseWorkbench {...workbenchProps({
-      state: { mode: 'enterprise', page: 'channels', channels: { phase: 'ready', error: null, items: [] } },
-      saveChannelConfiguration,
-    } as never)} />)
-    fireEvent.click(screen.getAllByRole('button', { name: '新建渠道' })[0]!)
-    fireEvent.change(screen.getByLabelText('渠道名称'), { target: { value: '财务渠道' } })
-    fireEvent.change(screen.getByLabelText('渠道 ID'), { target: { value: 'finance-channel' } })
-    fireEvent.change(screen.getByLabelText('企业微信 AgentID'), { target: { value: 'app-a' } })
-    fireEvent.change(screen.getByLabelText('企业微信 Secret 的 Credential 引用'), { target: { value: 'CHANNEL_SECRET' } })
-    const activate = screen.getByRole('button', { name: '保存并启用' })
-    expect(activate.hasAttribute('disabled')).toBe(true)
-
-    for (const provider of ['feishu', 'dingtalk'] as const) {
-      fireEvent.change(screen.getByLabelText('渠道提供方'), { target: { value: provider } })
-      expect(activate.hasAttribute('disabled')).toBe(false)
-      fireEvent.click(activate)
-      await waitFor(() => { expect(saveChannelConfiguration).toHaveBeenLastCalledWith(expect.objectContaining({
-        provider, accountId: 'app-a', credentialRef: 'CHANNEL_SECRET', state: 'active',
-      })) })
-      expect(saveChannelConfiguration.mock.calls.at(-1)?.[0]).not.toHaveProperty('tenantId')
-    }
   })
 
   it('shows provider guidance, official docs, and disables binding until prerequisites are saved', () => {
@@ -471,10 +377,9 @@ describe('EnterpriseWorkbench', () => {
     expect(attention.textContent).not.toContain('传输失败')
 
     const missingRow = screen.getByRole('article', { name: '缺少配置' })
-    const edit = within(missingRow).getByRole('button', { name: '编辑' })
+    const setupDocs = within(missingRow).getByRole('link', { name: '查看官方配置文档' })
     fireEvent.click(within(attention).getByRole('button', { name: /缺少配置/u }))
-    expect(document.activeElement).toBe(edit)
-    expect(edit.hasAttribute('disabled')).toBe(false)
+    expect(document.activeElement).toBe(setupDocs)
     expect(document.activeElement).not.toBe(within(missingRow).getByRole('button', { name: '扫码绑定企业微信' }))
 
     const unboundRow = screen.getByRole('article', { name: '待绑定' })
@@ -499,13 +404,13 @@ describe('EnterpriseWorkbench', () => {
 
     const attention = within(screen.getByRole('region', { name: '渠道待处理项' }))
       .getByRole('button', { name: /缺少配置/u })
-    const edit = within(screen.getByRole('article', { name: '缺少配置' })).getByRole('button', { name: '编辑' })
-    const focus = vi.spyOn(edit, 'focus')
+    const setupDocs = within(screen.getByRole('article', { name: '缺少配置' })).getByRole('link', { name: '查看官方配置文档' })
+    const focus = vi.spyOn(setupDocs, 'focus')
     expect(attention.tagName).toBe('BUTTON')
     expect(attention.getAttribute('type')).toBe('button')
     attention.focus()
     expect(fireEvent.keyDown(attention, { key: 'Enter', code: 'Enter' })).toBe(false)
-    expect(document.activeElement).toBe(edit)
+    expect(document.activeElement).toBe(setupDocs)
     expect(focus).toHaveBeenCalledTimes(1)
     expect(fireEvent.keyUp(attention, { key: 'Enter', code: 'Enter' })).toBe(true)
     expect(focus).toHaveBeenCalledTimes(1)
@@ -515,7 +420,7 @@ describe('EnterpriseWorkbench', () => {
     expect(document.activeElement).toBe(attention)
     expect(focus).toHaveBeenCalledTimes(1)
     expect(fireEvent.keyUp(attention, { key: ' ', code: 'Space' })).toBe(false)
-    expect(document.activeElement).toBe(edit)
+    expect(document.activeElement).toBe(setupDocs)
     expect(focus).toHaveBeenCalledTimes(2)
   })
 
@@ -1056,23 +961,6 @@ describe('EnterpriseWorkbench', () => {
     fireEvent.click(within(attention).getByRole('button', { name: /财务企业微信/u }))
     expect(document.activeElement).toBe(retry)
     expect(refreshChannels).not.toHaveBeenCalled()
-  })
-
-  it('clears the local dirty guard when a new channel form is cancelled', () => {
-    const close = vi.fn()
-    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false)
-    render(<EnterpriseWorkbench {...workbenchProps({
-      state: { mode: 'enterprise', page: 'channels', channels: { phase: 'ready', error: null, items: [] } },
-      close,
-    })} />)
-
-    fireEvent.click(screen.getAllByRole('button', { name: '新建渠道' })[0] as HTMLElement)
-    fireEvent.change(screen.getByLabelText('渠道名称'), { target: { value: '临时渠道' } })
-    fireEvent.click(screen.getByRole('button', { name: '取消' }))
-    fireEvent.click(screen.getByRole('button', { name: '关闭' }))
-
-    expect(confirmSpy).not.toHaveBeenCalled()
-    expect(close).toHaveBeenCalledTimes(1)
   })
 
   it('launches an active team charter, opens its Team Room, and answers assigned decisions', async () => {
