@@ -241,6 +241,31 @@ describe('EnterpriseWorkbench', () => {
     expect(popup.close).toHaveBeenCalledTimes(1)
   })
 
+  it('asks only for the conditional Weixin verification number and resumes the QR login', async () => {
+    const beginChannelBotInstall = vi.fn(() => Promise.resolve({
+      status: 'ready', provider: 'wechat', completionMode: 'poll', installId: SIGNED_STATE_A,
+      expiresAt: Date.now() + 60_000,
+      authorizationUrl: 'https://liteapp.weixin.qq.com/q/visible-code',
+    }))
+    const pollChannelBotInstall = vi.fn()
+      .mockResolvedValueOnce({ status: 'verification-required', provider: 'wechat' })
+      .mockResolvedValueOnce({ status: 'pending', provider: 'wechat' })
+    const popup = { closed: false, close: vi.fn(), opener: window, location: { href: 'about:blank' } }
+    vi.spyOn(window, 'open').mockReturnValue(popup as never)
+    render(<EnterpriseWorkbench {...workbenchProps({
+      state: { mode: 'enterprise', page: 'channels', channels: { phase: 'ready', error: null, items: [] } },
+      beginChannelBotInstall, pollChannelBotInstall,
+    } as never)} />)
+
+    fireEvent.click(screen.getByRole('button', { name: '扫码连接微信 Bot' }))
+    expect(await screen.findByRole('img', { name: '微信 Bot 安装二维码' })).toBeDefined()
+    const code = await screen.findByRole('textbox', { name: '微信显示的验证数字' })
+    fireEvent.change(code, { target: { value: '123456' } })
+    fireEvent.click(screen.getByRole('button', { name: '提交验证数字' }))
+    await waitFor(() => { expect(pollChannelBotInstall).toHaveBeenCalledWith(SIGNED_STATE_A, '123456') })
+    expect(screen.queryByRole('textbox', { name: '微信显示的验证数字' })).toBeNull()
+  })
+
   it('starts provider Bot installation without exposing a manual app form', async () => {
     vi.spyOn(window, 'open').mockReturnValue({
       closed: false, close: vi.fn(), opener: window, location: { href: 'about:blank' },
@@ -359,7 +384,7 @@ describe('EnterpriseWorkbench', () => {
     expect(container.querySelector('input[type="password"]')).toBeNull()
 
     expect(screen.queryByRole('textbox')).toBeNull()
-    expect(screen.getByRole('button', { name: '绑定个人微信接管身份' })).toBeDefined()
+    expect(screen.getByRole('button', { name: '扫码连接微信 Bot' })).toBeDefined()
 
     fireEvent.click(screen.getByRole('button', { name: '暂停财务企业微信' }))
     expect(saveChannelConfiguration).toHaveBeenCalledWith(expect.objectContaining({
@@ -575,7 +600,7 @@ describe('EnterpriseWorkbench', () => {
   it('separates provider transport setup from OAuth identity guidance', () => {
     const channel = (provider: 'wecom' | 'feishu' | 'dingtalk' | 'wechat') => ({
       orgId: 'org-a', channelId: provider, name: provider, provider, tenantId: 'tenant', accountId: 'app',
-      credentialRef: 'REF', credentialStatus: 'configured', inboundEnabled: provider !== 'wechat', allowedIntents: [],
+      credentialRef: 'REF', credentialStatus: 'configured', inboundEnabled: true, allowedIntents: [],
       transportStatus: 'unverified', state: 'active', bindingStatus: 'verified', createdBy: 'admin', revision: 1, createdAt: 1, updatedAt: 1,
     })
     render(<EnterpriseWorkbench {...workbenchProps({ state: {
@@ -587,7 +612,7 @@ describe('EnterpriseWorkbench', () => {
       '在管理后台创建智能机器人或应用，配置 Agent / 应用可见范围与回调可信域名；仍需 Bot / 传输 Credential 引用。',
       '传输最小权限：读取单聊消息、接收群 @ 事件、以机器人身份发送；联系人、邮件、HR 仅在业务需要时申请。',
       '创建 Stream 模式机器人 / 监听器，并引用 Client ID / Secret Credential。',
-      '已审核网站应用 OAuth 仅验证身份与交接；DSH 不实现非公开 iLink / 个人聊天协议，也不声称可发送个人聊天消息。',
+      '腾讯微信扫码凭证已配置；DSH 记录提供方回执或心跳前，传输仍为待验证。',
     ]) expect(screen.getByText(copy)).toBeDefined()
     expect(screen.getAllByText('传输配置，与 OAuth 身份分离')).toHaveLength(4)
   })

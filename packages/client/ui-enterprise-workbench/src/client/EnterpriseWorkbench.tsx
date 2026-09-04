@@ -63,7 +63,7 @@ export interface EnterpriseWorkbenchInjected {
   archiveChannelConfiguration: (channel: EnterpriseChannelConfiguration) => Promise<void>
   beginChannelBinding: (channel: EnterpriseChannelConfiguration, redirectUri: string) => Promise<EnterpriseChannelBindingSession>
   beginChannelBotInstall: (provider: EnterpriseChannelConfiguration['provider'], redirectUri: string) => Promise<EnterpriseChannelBotInstallResult>
-  pollChannelBotInstall: (installId: string) => Promise<EnterpriseChannelPollBotInstallResult>
+  pollChannelBotInstall: (installId: string, verificationCode?: string) => Promise<EnterpriseChannelPollBotInstallResult>
   refreshChannels: () => Promise<boolean>
   startTeamRun: (input: { teamId: string; expectedTeamRevision: number; workspaceId: string; prompt: string }) => Promise<boolean>
   cancelTeamRun: (run: EnterpriseTeamRun) => Promise<void>
@@ -744,9 +744,10 @@ function ChannelsPage({ page, api, busy, t }: {
 }) {
   const [botInstall, setBotInstall] = useState<{
     provider: EnterpriseChannelConfiguration['provider']
-    phase: 'opening' | 'waiting' | 'setup-required' | 'unsupported' | 'error'
+    phase: 'opening' | 'waiting' | 'verification-required' | 'setup-required' | 'unsupported' | 'error'
     officialDocumentationUrl?: string
     qrValue?: string
+    verificationCode?: string
   } | null>(null)
   const [binding, setBinding] = useState<{
     generation: number
@@ -773,6 +774,7 @@ function ChannelsPage({ page, api, busy, t }: {
     broadcast: BroadcastChannel
     pollTimer?: number
   } | null>(null)
+  const currentBotInstallAttempt = () => activeBotInstall.current
   const isActiveAttempt = (generation: number, popup: Window): boolean => {
     const active = activeBinding.current
     return active !== null && active.generation === generation && active.popup === popup
@@ -904,10 +906,15 @@ function ChannelsPage({ page, api, busy, t }: {
     }, CHANNEL_BINDING_RECONCILE_MS)
     return () => { window.clearTimeout(reconcile) }
   }, [binding, page.items, t])
-  const pollDeviceInstall = async (active: NonNullable<typeof activeBotInstall.current>): Promise<void> => {
+  const pollDeviceInstall = async (
+    active: NonNullable<typeof activeBotInstall.current>,
+    verificationCode?: string,
+  ): Promise<void> => {
     if (activeBotInstall.current !== active || active.attemptId === null) return
     try {
-      const result = await api.pollChannelBotInstall(active.attemptId)
+      const result = verificationCode === undefined
+        ? await api.pollChannelBotInstall(active.attemptId)
+        : await api.pollChannelBotInstall(active.attemptId, verificationCode)
       if (activeBotInstall.current !== active) return
       if (result.status === 'complete') {
         if (!active.popup.closed) active.popup.close()
@@ -916,6 +923,17 @@ function ChannelsPage({ page, api, busy, t }: {
         void api.refreshChannels()
         return
       }
+      if (result.status === 'verification-required') {
+        setBotInstall(current => current === null ? current : {
+          ...current, phase: 'verification-required', verificationCode: '',
+        })
+        return
+      }
+      setBotInstall((current) => {
+        if (current === null) return current
+        const { verificationCode: _verificationCode, ...rest } = current
+        return { ...rest, phase: 'waiting' }
+      })
       active.pollTimer = window.setTimeout(() => { void pollDeviceInstall(active) }, 500)
     } catch {
       if (!active.popup.closed) active.popup.close()
@@ -930,28 +948,29 @@ function ChannelsPage({ page, api, busy, t }: {
       releaseBotInstall()
       if (!previous.popup.closed) previous.popup.close()
     }
-    const popup = provider === 'wechat' ? null
-      : window.open('', 'dsh-channel-bot-install', 'popup,width=640,height=760,resizable=yes,scrollbars=yes')
-    if (provider !== 'wechat' && popup == null) {
+    const popup = window.open('', 'dsh-channel-bot-install', 'popup,width=640,height=760,resizable=yes,scrollbars=yes')
+    if (popup == null) {
       setBotInstall({ provider, phase: 'error' })
       return
     }
-    if (popup !== null) {
-      const broadcast = new BroadcastChannel(CHANNEL_BINDING_BROADCAST_CHANNEL)
-      activeBotInstall.current = { attemptId: null, provider, popup, broadcast }
-      broadcast.onmessage = (event) => { acceptBotInstallSignal(event.data) }
-    }
+    const broadcast = new BroadcastChannel(CHANNEL_BINDING_BROADCAST_CHANNEL)
+    activeBotInstall.current = { attemptId: null, provider, popup, broadcast }
+    broadcast.onmessage = (event) => { acceptBotInstallSignal(event.data) }
     setBotInstall({ provider, phase: 'opening' })
     try {
       const result = await api.beginChannelBotInstall(provider, channelBotInstallCallbackUri(window.location))
       if (result.status === 'ready') {
         const authorization = new URL(result.authorizationUrl)
-        const active = activeBotInstall.current
-        if (authorization.protocol !== 'https:' || active === null || popup === null) {
+        const active = currentBotInstallAttempt()
+        if (authorization.protocol !== 'https:' || active === null
+          || active.popup !== popup || active.provider !== provider) {
           throw new Error('invalid provider installation URL')
         }
         if (result.completionMode === 'poll') {
-          if (result.provider !== 'feishu' || authorization.host !== 'open.feishu.cn') {
+          const expectedHost = result.provider === 'feishu' ? 'open.feishu.cn'
+            : result.provider === 'wecom' ? 'work.weixin.qq.com'
+              : result.provider === 'wechat' ? 'liteapp.weixin.qq.com' : null
+          if (expectedHost === null || authorization.host !== expectedHost) {
             throw new Error('invalid provider Device Grant URL')
           }
           active.attemptId = result.installId
@@ -968,14 +987,14 @@ function ChannelsPage({ page, api, busy, t }: {
         }
         return
       }
-      if (popup !== null && !popup.closed) popup.close()
+      if (!popup.closed) popup.close()
       releaseBotInstall()
       setBotInstall({
         provider: result.provider, phase: result.status,
         officialDocumentationUrl: result.officialDocumentationUrl,
       })
     } catch {
-      if (popup !== null && !popup.closed) popup.close()
+      if (!popup.closed) popup.close()
       releaseBotInstall()
       setBotInstall({ provider, phase: 'error' })
     }
@@ -983,7 +1002,8 @@ function ChannelsPage({ page, api, busy, t }: {
   const missingPrerequisites = (channel: EnterpriseChannelConfiguration): string[] => {
     const missing: string[] = []
     if (channel.accountId.trim() === '') missing.push(t('channel.binding.accountMissing'))
-    if (channel.provider === 'wecom' && (channel.tenantId?.trim() ?? '') === '') {
+    if (channel.provider === 'wecom' && channel.bindingStatus !== 'verified'
+      && (channel.tenantId?.trim() ?? '') === '') {
       missing.push(t('channel.binding.tenantMissing'))
     }
     if (channel.credentialStatus !== 'configured') missing.push(t('channel.credentialMissing'))
@@ -1105,7 +1125,7 @@ function ChannelsPage({ page, api, busy, t }: {
     <div className={css.channelProviderStarts} aria-label={t('channel.botInstall.choicesAria')}>{CHANNEL_PROVIDERS.map(provider => <button type="button" className={provider === 'wecom' ? css.primaryButton : css.secondaryButton} key={provider} onClick={() => { void startBotInstall(provider) }}>{t(`channel.botInstall.start.${provider}`)}</button>)}</div>
     {botInstall !== null && <section className={css.channelBotInstall} role={botInstall.phase === 'error' ? 'alert' : 'status'}>
       <div><h3>{t(`channel.botInstall.title.${botInstall.phase}`, { provider: t(`channel.provider.${botInstall.provider}`) })}</h3><p>{t(`channel.botInstall.body.${botInstall.phase}.${botInstall.provider}`)}</p>{botInstall.qrValue !== undefined && <ProviderInstallQr value={botInstall.qrValue} label={t('channel.botInstall.qrAlt', { provider: t(`channel.provider.${botInstall.provider}`) })}/>}</div>
-      <div>{botInstall.officialDocumentationUrl !== undefined && <a href={botInstall.officialDocumentationUrl} target="_blank" rel="noopener noreferrer">{t('channel.botInstall.officialSetup')}</a>}<button type="button" className={css.textButton} onClick={cancelBotInstall}>{t('cancel')}</button></div>
+      <div>{botInstall.phase === 'verification-required' && <div className={css.channelVerification}><label><span>{t('channel.botInstall.verificationLabel')}</span><input aria-label={t('channel.botInstall.verificationLabel')} inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]*" value={botInstall.verificationCode ?? ''} onChange={(event) => { const verificationCode = event.target.value.replace(/\D/gu, '').slice(0, 12); setBotInstall(current => current === null ? current : { ...current, verificationCode }) }}/></label><button type="button" className={css.primaryButton} disabled={!/^\d{4,12}$/u.test(botInstall.verificationCode ?? '')} onClick={() => { const active = activeBotInstall.current; if (active !== null) void pollDeviceInstall(active, botInstall.verificationCode) }}>{t('channel.botInstall.verificationSubmit')}</button></div>}{botInstall.officialDocumentationUrl !== undefined && <a href={botInstall.officialDocumentationUrl} target="_blank" rel="noopener noreferrer">{t('channel.botInstall.officialSetup')}</a>}<button type="button" className={css.textButton} onClick={cancelBotInstall}>{t('cancel')}</button></div>
     </section>}
     {attention.length > 0 && <section className={css.channelAttention} aria-label={t('channel.attentionAria')}>
       {attention.map(item => <button type="button" key={item.channel.channelId} aria-label={t('channel.attention.open', { name: item.channel.name, reason: item.reason })} onClick={() => { focusRecoveryAction(item.channel.channelId, item.target) }} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); focusRecoveryAction(item.channel.channelId, item.target) } else if (event.key === ' ') event.preventDefault() }} onKeyUp={(event) => { if (event.key === ' ') { event.preventDefault(); focusRecoveryAction(item.channel.channelId, item.target) } }}>

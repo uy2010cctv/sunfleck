@@ -1264,7 +1264,7 @@ describe('enterprise channel settings', () => {
     })).resolves.toMatchObject({ state: 'archived', revision: 3 })
   })
 
-  it('activates Feishu and DingTalk without fabricating a tenant while requiring WeCom CorpID', async () => {
+  it('activates native QR Bots without fabricating a tenant', async () => {
     const repository = new EnterpriseOperationsRepository(
       new MemoryPostgresDatabase(), { allowUnverifiedReferences: true },
     ) as unknown as { saveChannelConfiguration(input: Record<string, unknown>): Promise<Record<string, unknown>> }
@@ -1282,7 +1282,7 @@ describe('enterprise channel settings', () => {
       orgId: 'org-a', channelId: 'wecom-no-corp', name: 'WeCom', provider: 'wecom',
       accountId: 'agent-a', credentialRef: 'WECOM_SECRET', inboundEnabled: true, state: 'active',
       actorUserId: 'admin-a', expectedRevision: 0, idempotencyKey: 'wecom-no-corp-create',
-    })).rejects.toThrow(/tenant id/u)
+    })).resolves.toMatchObject({ provider: 'wecom', accountId: 'agent-a', state: 'active' })
   })
 
   it('verifies, retries, fences, scopes, rebinds, and rejects archived channel bindings', async () => {
@@ -1426,7 +1426,7 @@ describe('enterprise channel settings', () => {
     }))
   })
 
-  it('enforces personal-WeChat and active-channel safety boundaries', async () => {
+  it('allows Tencent Weixin Bot inbound while preserving active-channel Credential safety', async () => {
     const repository = new EnterpriseOperationsRepository(
       new MemoryPostgresDatabase(), { allowUnverifiedReferences: true },
     ) as unknown as { saveChannelConfiguration(input: Record<string, unknown>): Promise<unknown> }
@@ -1435,7 +1435,7 @@ describe('enterprise channel settings', () => {
       accountId: 'owner-a', credentialRef: 'WECHAT_IDENTITY', inboundEnabled: true,
       actorUserId: 'admin-a',
       state: 'active', expectedRevision: 0, idempotencyKey: 'unsafe-personal',
-    })).rejects.toThrow(/personal WeChat.*inbound/)
+    })).resolves.toMatchObject({ provider: 'wechat', inboundEnabled: true, state: 'active' })
     await expect(repository.saveChannelConfiguration({
       orgId: 'org-a', channelId: 'wecom-missing-secret', name: '企业微信', provider: 'wecom',
       tenantId: 'corp-a', accountId: 'app-a', inboundEnabled: true,

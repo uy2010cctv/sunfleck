@@ -364,6 +364,12 @@ describe('EnterpriseWorkbenchController edits, mutations, and events', () => {
     expect(pollBotInstall).toHaveBeenCalledWith({
       installId: 'signed-install-id', idempotencyKey: 'channel-bot-install:signed-install-id',
     })
+
+    await controller.pollChannelBotInstall('signed-install-id', '123456')
+    expect(pollBotInstall).toHaveBeenLastCalledWith({
+      installId: 'signed-install-id', verificationCode: '123456',
+      idempotencyKey: 'channel-bot-install:signed-install-id',
+    })
   })
 
   it('ignores an old employee response after filters change', async () => {

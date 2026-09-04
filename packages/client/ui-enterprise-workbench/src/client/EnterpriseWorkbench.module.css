@@ -833,6 +833,10 @@
 .channelBotInstall a { color: var(--dse-color-accent); font-size: 0.75rem; font-weight: 650; text-underline-offset: 3px; }
 .channelBotInstall a:focus-visible { outline: 2px solid var(--dse-color-focus); outline-offset: 2px; }
 .channelInstallQr { inline-size: 13.75rem; block-size: 13.75rem; margin-block-start: var(--dse-space-sm); border-radius: var(--dse-radius-control); background: white; }
+.channelVerification { display: flex; align-items: end; flex-wrap: wrap; gap: var(--dse-space-xs); margin-inline-end: auto; }
+.channelVerification label { display: grid; gap: var(--dse-space-2xs); color: var(--dse-color-ink-muted); font-size: 0.75rem; font-weight: 650; }
+.channelVerification input { inline-size: 10rem; min-block-size: 2.25rem; border: 1px solid var(--dse-color-border); border-radius: var(--dse-radius-control); background: var(--dse-color-surface); color: var(--dse-color-ink); padding-inline: var(--dse-space-xs); font: inherit; letter-spacing: 0.12em; }
+.channelVerification input:focus-visible { outline: 2px solid var(--dse-color-focus); outline-offset: 2px; }
 .channelProviderStarts { display: flex; justify-content: center; flex-wrap: wrap; gap: var(--dse-space-2xs); margin-block-end: var(--dse-space-md); }
 .channelProviderStarts button:focus-visible { outline: 2px solid var(--dse-color-focus); outline-offset: 2px; }
 .channelIntentRow div span { padding: 3px var(--dse-space-2xs); border-radius: 999px; background: var(--dse-color-surface); color: var(--dse-color-ink); font-style: normal; }

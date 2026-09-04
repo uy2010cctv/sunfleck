@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write docs/superpowers/plans/2026-09-03-channel-bot-auto-install.md
-2026-09-03-channel-bot-auto-install.md: b57457fd7018cedb8e08fc5bad1e57f903efeeed
-2026-09-03-channel-bot-auto-install.zh.md: f9178a4cc7a448037d407849adc486053a8c921b
+2026-09-03-channel-bot-auto-install.md: 7783977a93909c2bc7e46e5414830bc44c78ab6a
+2026-09-03-channel-bot-auto-install.zh.md: dcbd531c040604e02ea9df318bac2cfb75c2c77c
