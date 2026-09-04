@@ -60,5 +60,20 @@ English | [中文](2026-09-03-channel-bot-auto-install.zh.md)
 
 - [x] Document the provider-level prerequisite: WeCom Suite ticket/pre-auth code, Feishu Store App app_ticket/tenant_key, and DingTalk third-party app authorization event/SyncHTTP.
 - [x] State that platform registration credentials live in the Host installer and never in browser state or channel records.
-- [ ] Run controller and workbench suites, `pnpm exec tsc -b tsconfig.client.json`, and `pnpm build`.
+- [x] Run controller and workbench suites, `pnpm exec tsc -b tsconfig.client.json`, and `pnpm build`.
 - [ ] Commit only task-owned files, restart `com.deepseek.dsh.local.3081`, and verify the authenticated desktop and mobile channel page.
+
+### Task 5: Native Feishu device authorization flow
+
+**Files:**
+- Modify: `packages/api/enterprise-controller/src/contract/channels.ts`
+- Modify: `packages/api/enterprise-controller/src/index.ts`
+- Modify: `packages/client/ui-enterprise-workbench/src/client/EnterpriseWorkbench.tsx`
+- Modify: `packages/client/ui-enterprise-workbench/src/client/store.ts`
+- Test: `packages/api/enterprise-controller/tests/channel-controller.spec.ts`
+- Test: `packages/client/ui-enterprise-workbench/tests/workbench.client.spec.tsx`
+
+- [x] Use the official Feishu Node SDK `registerApp()` to obtain a device authorization scan URL without a preconfigured App ID, Secret, or public callback.
+- [x] Return only the official scan URL and opaque installation ID to the browser while the Host polls completion.
+- [x] On scan confirmation, save the App Secret directly in Host Credentials and automatically create the governed channel without returning the Secret to the browser.
+- [x] Render the real QR inline in Channel Settings, wait for completion, and refresh the newly created channel automatically.

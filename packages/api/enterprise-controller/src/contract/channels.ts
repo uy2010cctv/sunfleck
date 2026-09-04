@@ -84,6 +84,8 @@ export type EnterpriseChannelBotInstallResult = {
 } | {
   readonly status: 'ready'
   readonly provider: EnterpriseChannelProvider
+  readonly installId: string
+  readonly completionMode: 'callback' | 'poll'
   readonly authorizationUrl: string
   readonly expiresAt: number
 }
@@ -100,6 +102,22 @@ export interface EnterpriseChannelCompleteBotInstallRequest {
   readonly state: string
   readonly redirectUri: string
   readonly idempotencyKey: string
+}
+
+/** Poll a provider Device Authorization Grant without exposing its device code. */
+export interface EnterpriseChannelPollBotInstallRequest {
+  readonly installId: string
+  readonly idempotencyKey: string
+}
+
+/** Secret-free Device Grant progress or the automatically created channel. */
+export type EnterpriseChannelPollBotInstallResult = {
+  readonly status: 'pending'
+  readonly provider: EnterpriseChannelProvider
+} | {
+  readonly status: 'complete'
+  readonly provider: EnterpriseChannelProvider
+  readonly channel: EnterpriseChannelConfiguration
 }
 
 /** One-time provider callback completion request. */

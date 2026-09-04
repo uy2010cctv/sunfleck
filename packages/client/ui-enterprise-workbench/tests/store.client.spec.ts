@@ -351,6 +351,21 @@ describe('EnterpriseWorkbenchController edits, mutations, and events', () => {
     })
   })
 
+  it('polls a channel Device Grant with a deterministic idempotency key', async () => {
+    const pollBotInstall = vi.fn(() => ok({ status: 'pending', provider: 'feishu' }))
+    const base = controllerApi(); const services = controllerServices()
+    const controller = new EnterpriseWorkbenchController(controllerApi({
+      enterpriseChannels: { ...base.enterpriseChannels, pollBotInstall },
+    }) as never, services.sessions as never, services.workspaces as never)
+
+    await expect(controller.pollChannelBotInstall('signed-install-id')).resolves.toEqual({
+      status: 'pending', provider: 'feishu',
+    })
+    expect(pollBotInstall).toHaveBeenCalledWith({
+      installId: 'signed-install-id', idempotencyKey: 'channel-bot-install:signed-install-id',
+    })
+  })
+
   it('ignores an old employee response after filters change', async () => {
     let resolveOld!: (value: ReturnType<typeof responsePage>) => void
     const responsePage = (name: string) => ({ result: { ok: true as const, value: { items: [{
