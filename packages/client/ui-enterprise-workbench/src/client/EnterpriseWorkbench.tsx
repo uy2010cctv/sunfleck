@@ -1,7 +1,7 @@
 /* oxlint-disable @stylistic/max-len */
 /** Enterprise digital-employee roster and operations overlay. */
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import QRCode from 'qrcode'
+import QRCode from 'qrcode/lib/browser.js'
 import {
   IconApiOutline14, IconCheckOutline16, IconChecklistOutline14, IconCloseOutline16,
   IconContextInjectionOutline16, IconCordisPluginOutline14, IconEditOutline16, IconPlayOutline16,
