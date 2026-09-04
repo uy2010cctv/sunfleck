@@ -77,3 +77,19 @@
 - [x] 只向浏览器返回官方扫码 URL 和不透明安装 ID，由 Host 轮询完成状态。
 - [x] 扫码确认后把 App Secret 直接保存到 Host Credential，自动创建受治理渠道，不向浏览器返回 Secret。
 - [x] 在渠道页内嵌渲染真实二维码，自动等待结果并刷新已创建渠道。
+
+### 任务 6：腾讯企业微信与微信原生扫码流
+
+**文件：**
+- 修改：`packages/api/enterprise-controller/src/contract/channels.ts`
+- 修改：`packages/api/enterprise-controller/src/index.ts`
+- 修改：`packages/channel/channel-kernel/src/index.ts`
+- 修改：`packages/operations/enterprise-operations/src/repository.ts`
+- 修改：`packages/client/ui-enterprise-workbench/src/client/EnterpriseWorkbench.tsx`
+- 测试：对应控制器、Kernel、Repository、Store 和工作台套件
+
+- [x] 参照 `@wecom/wecom-openclaw-cli` 1.1.1 请求企业微信官方 Bot 二维码，由 Host 保管 `scode` 并轮询 Bot ID/Secret。
+- [x] 参照 `@tencent-weixin/openclaw-weixin` 2.4.8 请求微信 iLink 二维码，由 Host 保管会话值并轮询 Bot ID/token。
+- [x] 把提供方凭证直接写入 Credential seam，不向浏览器返回二维码轮询密钥、Bot Secret 或 token。
+- [x] 支持微信条件式数字验证，不重新引入应用配置字段。
+- [x] 微信只允许通知、状态和接管意图；Team 启动、决策回复与审批仍留在经认证的 DSH。

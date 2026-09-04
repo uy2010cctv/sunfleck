@@ -514,10 +514,10 @@ export class EnterpriseAssetController extends TypertRemoteService {
 const CHANNEL_INTENTS = ['notify', 'handoff', 'team-start', 'decision-response', 'status'] as const
 
 const CHANNEL_BOT_INSTALL_DOCUMENTATION: Readonly<Record<StoredChannelConfiguration['provider'], string>> = Object.freeze({
-  wecom: 'https://developer.work.weixin.qq.com/document/path/90665',
+  wecom: 'https://github.com/WecomTeam/wecom-openclaw-plugin',
   feishu: 'https://open.feishu.cn/document/isv-guides/publish-your-app/publishing-guidelines',
   dingtalk: 'https://open.dingtalk.com/document/isvapp/enterprise-authorized-application-activation-event-1.md',
-  wechat: 'https://developers.weixin.qq.com/doc/oplatform/developers/dev/auth/web.html',
+  wechat: 'https://docs.openclaw.ai/channels/wechat',
 })
 
 const CHANNEL_BINDING_TTL_MS = 10 * 60_000
@@ -527,6 +527,7 @@ const MAX_PENDING_CHANNEL_BINDINGS_PER_ACTOR = 16
 const MAX_CHANNEL_REDIRECT_URI_BYTES = 2_048
 const MAX_CHANNEL_AUTHORIZATION_CODE_BYTES = 2_048
 const MAX_CHANNEL_BINDING_IDEMPOTENCY_KEY_BYTES = 128
+const MAX_CHANNEL_PROVIDER_RESPONSE_BYTES = 64 * 1_024
 const CHANNEL_BINDING_STATE_PATTERN = /^[A-Za-z0-9_-]{43}\.[A-Za-z0-9_-]{43}$/u
 const CHANNEL_BINDING_STATE_PLACEHOLDER = `${'A'.repeat(43)}.${'A'.repeat(43)}`
 const CHANNEL_BINDING_HMAC_KEY = randomBytes(32)
@@ -584,6 +585,12 @@ interface LarkRegistrationAttempt {
   status: 'pending' | 'complete' | 'failed'
   result?: RegisterLarkAppResult
   controller: AbortController
+}
+
+interface NativeQrRegistrationAttempt {
+  readonly provider: 'wecom' | 'wechat'
+  readonly deviceCode: string
+  pollBaseUrl: string
 }
 
 /** Runtime seams for deterministic channel-binding tests and Host fetch injection. */
@@ -677,6 +684,7 @@ export class EnterpriseChannelController extends TypertRemoteService {
   private readonly pendingBindings = new Map<string, PendingChannelBinding>()
   private readonly pendingBotInstalls = new Map<string, PendingChannelBotInstall>()
   private readonly larkRegistrationAttempts = new Map<string, LarkRegistrationAttempt>()
+  private readonly nativeQrRegistrationAttempts = new Map<string, NativeQrRegistrationAttempt>()
   private readonly now: () => number
   private readonly fetch: ChannelAuthorizationFetch
   private readonly registerLarkApp: RegisterLarkApp
@@ -728,9 +736,6 @@ export class EnterpriseChannelController extends TypertRemoteService {
   @Remote('save')
   async save(request: EnterpriseChannelSaveRequest): Promise<EnterpriseChannelConfiguration> {
     return this.run('enterpriseChannel.save', request.channelId, async () => {
-      if (request.provider === 'wechat' && request.inboundEnabled) {
-        throw new EnterpriseOperationsError('invalid-state', 'channel', request.channelId)
-      }
       if (request.state === 'active') {
         if (request.credentialRef === undefined
           || !(await this.ctx.credentials.describe(credentialRef(request.credentialRef))).configured) {
@@ -763,16 +768,19 @@ export class EnterpriseChannelController extends TypertRemoteService {
       if (!boundedRemoteString(request.redirectUri, MAX_CHANNEL_REDIRECT_URI_BYTES)) {
         throw new EnterpriseOperationsError('invalid-state', 'channel', request.provider)
       }
-      if (request.provider === 'wechat') return {
-        status: 'unsupported', provider: request.provider,
-        officialDocumentationUrl: CHANNEL_BOT_INSTALL_DOCUMENTATION[request.provider],
-      }
       const installer = this.ctx.get('enterpriseChannelBotInstaller')
-      if (installer === undefined && request.provider !== 'feishu') return {
+      if (installer === undefined && request.provider === 'dingtalk') return {
         status: 'setup-required', provider: request.provider,
         officialDocumentationUrl: CHANNEL_BOT_INSTALL_DOCUMENTATION[request.provider],
       }
       this.prunePendingBindings()
+      const orgPending = [...this.pendingBotInstalls.values()].filter(pending => pending.orgId === actor.orgId)
+      const actorPending = orgPending.filter(pending => pending.actorUserId === actor.userId)
+      if (this.pendingBotInstalls.size >= MAX_PENDING_CHANNEL_BINDINGS
+        || orgPending.length >= MAX_PENDING_CHANNEL_BINDINGS_PER_ORG
+        || actorPending.length >= MAX_PENDING_CHANNEL_BINDINGS_PER_ACTOR) {
+        throw new EnterpriseOperationsError('invalid-state', 'channel', request.provider)
+      }
       const nonce = randomBytes(32).toString('base64url')
       const pending: PendingChannelBotInstall = {
         orgId: actor.orgId, actorUserId: actor.userId, provider: request.provider,
@@ -781,6 +789,14 @@ export class EnterpriseChannelController extends TypertRemoteService {
       const state = `${nonce}.${channelBotInstallSignature(pending)}`
       if (request.provider === 'feishu' && installer === undefined) {
         const session = await this.beginLarkRegistration(state, pending)
+        this.pendingBotInstalls.set(state, pending)
+        return {
+          status: 'ready', provider: request.provider, installId: state, completionMode: 'poll',
+          authorizationUrl: session.authorizationUrl, expiresAt: pending.expiresAt,
+        }
+      }
+      if ((request.provider === 'wecom' || request.provider === 'wechat') && installer === undefined) {
+        const session = await this.beginNativeQrRegistration(state, request.provider)
         this.pendingBotInstalls.set(state, pending)
         return {
           status: 'ready', provider: request.provider, installId: state, completionMode: 'poll',
@@ -816,29 +832,40 @@ export class EnterpriseChannelController extends TypertRemoteService {
         || pending.orgId !== actor.orgId || pending.actorUserId !== actor.userId) {
         throw new EnterpriseOperationsError('invalid-state', 'channel', 'bot-install')
       }
-      if (pending.provider !== 'feishu') throw new EnterpriseOperationsError('invalid-state', 'channel', 'bot-install')
-      const attempt = this.larkRegistrationAttempts.get(request.installId)
-      if (attempt === undefined || attempt.status === 'failed') {
-        this.pendingBotInstalls.delete(request.installId)
-        this.larkRegistrationAttempts.delete(request.installId)
+      let installed: EnterpriseInstalledChannelBot | undefined
+      let secret: string | undefined
+      if (pending.provider === 'feishu') {
+        const attempt = this.larkRegistrationAttempts.get(request.installId)
+        if (attempt === undefined || attempt.status === 'failed') {
+          this.failBotInstall(request.installId)
+        }
+        if (attempt.status === 'pending' || attempt.result === undefined) {
+          return { status: 'pending', provider: pending.provider }
+        }
+        const appId = attempt.result.client_id.trim()
+        secret = attempt.result.client_secret
+        const credentialName = this.botCredentialName('FEISHU_APP', appId)
+        installed = {
+          provider: 'feishu', accountId: appId, botName: 'DSH Agent', credentialRef: credentialName,
+          providerIdentityId: attempt.result.user_info?.open_id?.trim() || appId,
+        }
+      } else if (pending.provider === 'wecom' || pending.provider === 'wechat') {
+        const polled = await this.pollNativeQrRegistration(request.installId, pending.provider, request.verificationCode)
+        if (polled === 'pending') return { status: 'pending', provider: pending.provider }
+        if (polled === 'verification-required') return { status: 'verification-required', provider: 'wechat' }
+        installed = polled.installed
+        secret = polled.secret
+      } else {
         throw new EnterpriseOperationsError('invalid-state', 'channel', 'bot-install')
       }
-      if (attempt.status === 'pending' || attempt.result === undefined) {
-        return { status: 'pending', provider: pending.provider }
+      if (!boundedRemoteString(installed.accountId, 512) || !boundedRemoteString(secret, 4_096)) {
+        this.failBotInstall(request.installId)
       }
+      await this.ctx.credentials.set(credentialRef(installed.credentialRef), secret)
+      const channel = await this.saveInstalledBot(actor, pending, installed, request.idempotencyKey)
       this.pendingBotInstalls.delete(request.installId)
       this.larkRegistrationAttempts.delete(request.installId)
-      const appId = attempt.result.client_id.trim()
-      const appSecret = attempt.result.client_secret
-      if (!boundedRemoteString(appId, 512) || !boundedRemoteString(appSecret, 4_096)) {
-        throw new EnterpriseOperationsError('invalid-state', 'channel', 'bot-install')
-      }
-      const credentialName = `DSH_FEISHU_APP_${createHash('sha256').update(appId).digest('hex').slice(0, 12).toUpperCase()}`
-      await this.ctx.credentials.set(credentialRef(credentialName), appSecret)
-      const channel = await this.saveInstalledBot(actor, pending, {
-        provider: 'feishu', accountId: appId, botName: 'DSH Agent', credentialRef: credentialName,
-        providerIdentityId: attempt.result.user_info?.open_id?.trim() || appId,
-      }, request.idempotencyKey)
+      this.nativeQrRegistrationAttempts.delete(request.installId)
       return { status: 'complete', provider: pending.provider, channel }
     })
   }
@@ -1022,7 +1049,7 @@ export class EnterpriseChannelController extends TypertRemoteService {
           } catch (error) {
             controller.abort()
             attempt.status = 'failed'
-            reject(error)
+            reject(error instanceof Error ? error : new Error(String(error)))
           }
         },
       }).then((result) => {
@@ -1030,7 +1057,7 @@ export class EnterpriseChannelController extends TypertRemoteService {
         attempt.result = result
       }, (error: unknown) => {
         attempt.status = 'failed'
-        if (!qrDelivered) reject(error)
+        if (!qrDelivered) reject(error instanceof Error ? error : new Error(String(error)))
       })
       if (this.now() >= pending.expiresAt) {
         controller.abort()
@@ -1038,6 +1065,142 @@ export class EnterpriseChannelController extends TypertRemoteService {
         reject(new Error('Feishu registration expired before start'))
       }
     })
+  }
+
+  private async beginNativeQrRegistration(
+    state: string,
+    provider: 'wecom' | 'wechat',
+  ): Promise<{ authorizationUrl: string }> {
+    if (provider === 'wecom') {
+      const platform = process.platform === 'darwin' ? 1 : process.platform === 'win32' ? 2 : process.platform === 'linux' ? 3 : 0
+      const body = await this.providerJson(`https://work.weixin.qq.com/ai/qc/generate?source=wecom-cli&plat=${platform}`)
+      const data = this.providerRecord(body['data'])
+      const deviceCode = this.providerString(data['scode'])
+      const authorizationUrl = this.validProviderQrUrl(this.providerString(data['auth_url']), 'work.weixin.qq.com')
+      this.nativeQrRegistrationAttempts.set(state, {
+        provider, deviceCode, pollBaseUrl: 'https://work.weixin.qq.com/ai/qc/query_result',
+      })
+      return { authorizationUrl }
+    }
+    const body = await this.providerJson(
+      'https://ilinkai.weixin.qq.com/ilink/bot/get_bot_qrcode?bot_type=3',
+      { method: 'POST', headers: this.weixinHeaders(true), body: JSON.stringify({ local_token_list: [] }) },
+    )
+    const deviceCode = this.providerString(body['qrcode'])
+    const authorizationUrl = this.validProviderQrUrl(this.providerString(body['qrcode_img_content']), 'liteapp.weixin.qq.com')
+    this.nativeQrRegistrationAttempts.set(state, {
+      provider, deviceCode, pollBaseUrl: 'https://ilinkai.weixin.qq.com',
+    })
+    return { authorizationUrl }
+  }
+
+  private async pollNativeQrRegistration(
+    state: string,
+    provider: 'wecom' | 'wechat',
+    verificationCode?: string,
+  ): Promise<'pending' | 'verification-required' | { installed: EnterpriseInstalledChannelBot; secret: string }> {
+    const attempt = this.nativeQrRegistrationAttempts.get(state)
+    if (attempt === undefined || attempt.provider !== provider) this.failBotInstall(state)
+    if (provider === 'wecom') {
+      const url = new URL(attempt.pollBaseUrl)
+      url.searchParams.set('scode', attempt.deviceCode)
+      const body = await this.providerJson(url.href)
+      const data = this.providerRecord(body['data'])
+      if (data['status'] !== 'success') return 'pending'
+      const botInfo = this.providerRecord(data['bot_info'])
+      const accountId = this.providerString(botInfo['botid'])
+      return { installed: {
+        provider, accountId, botName: 'DSH 企业微信 Bot',
+        credentialRef: this.botCredentialName('WECOM_BOT', accountId), providerIdentityId: accountId,
+      }, secret: this.providerString(botInfo['secret']) }
+    }
+    if (verificationCode !== undefined && !/^\d{4,12}$/u.test(verificationCode)) {
+      throw new EnterpriseOperationsError('invalid-state', 'channel', 'bot-install')
+    }
+    const url = new URL('/ilink/bot/get_qrcode_status', attempt.pollBaseUrl)
+    url.searchParams.set('qrcode', attempt.deviceCode)
+    if (verificationCode !== undefined) url.searchParams.set('verify_code', verificationCode)
+    const body = await this.providerJson(url.href, { headers: this.weixinHeaders(false) }, 40_000)
+    const status = body['status']
+    if (status === 'need_verifycode') return 'verification-required'
+    if (status === 'scaned_but_redirect') {
+      const host = this.providerString(body['redirect_host'])
+      if (!/^[a-z0-9.-]+$/u.test(host) || (host !== 'weixin.qq.com' && !host.endsWith('.weixin.qq.com'))) {
+        this.failBotInstall(state)
+      }
+      attempt.pollBaseUrl = `https://${host}`
+      return 'pending'
+    }
+    if (status !== 'confirmed') {
+      if (status === 'expired' || status === 'verify_code_blocked' || status === 'binded_redirect') {
+        this.failBotInstall(state)
+      }
+      return 'pending'
+    }
+    const accountId = this.providerString(body['ilink_bot_id'])
+    const providerIdentityId = typeof body['ilink_user_id'] === 'string' && body['ilink_user_id'].trim() !== ''
+      ? body['ilink_user_id'].trim() : accountId
+    return { installed: {
+      provider, accountId, botName: 'DSH 微信 Bot',
+      credentialRef: this.botCredentialName('WEIXIN_BOT', accountId), providerIdentityId,
+    }, secret: this.providerString(body['bot_token']) }
+  }
+
+  private botCredentialName(kind: string, accountId: string): string {
+    return `DSH_${kind}_${createHash('sha256').update(accountId).digest('hex').slice(0, 12).toUpperCase()}`
+  }
+
+  private weixinHeaders(includeAuthorization: boolean): Record<string, string> {
+    return {
+      ...(includeAuthorization ? {
+        'content-type': 'application/json', AuthorizationType: 'ilink_bot_token',
+        'X-WECHAT-UIN': Buffer.from(String(randomBytes(4).readUInt32BE(0)), 'utf8').toString('base64'),
+      } : {}),
+      'iLink-App-Id': 'bot', 'iLink-App-ClientVersion': '132104',
+    }
+  }
+
+  private async providerJson(input: string, init?: RequestInit, timeoutMs = 10_000): Promise<Record<string, unknown>> {
+    const response = await this.fetch(input, { ...init, signal: AbortSignal.timeout(timeoutMs) })
+    const raw = await response.text()
+    if (!response.ok || Buffer.byteLength(raw, 'utf8') > MAX_CHANNEL_PROVIDER_RESPONSE_BYTES) {
+      throw new EnterpriseOperationsError('invalid-state', 'channel', 'bot-install')
+    }
+    try {
+      return this.providerRecord(JSON.parse(raw))
+    } catch {
+      throw new EnterpriseOperationsError('invalid-state', 'channel', 'bot-install')
+    }
+  }
+
+  private providerRecord(value: unknown): Record<string, unknown> {
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+      throw new EnterpriseOperationsError('invalid-state', 'channel', 'bot-install')
+    }
+    return value as Record<string, unknown>
+  }
+
+  private providerString(value: unknown): string {
+    if (typeof value !== 'string' || !boundedRemoteString(value, 4_096)) {
+      throw new EnterpriseOperationsError('invalid-state', 'channel', 'bot-install')
+    }
+    return value.trim()
+  }
+
+  private validProviderQrUrl(value: string, expectedHost: string): string {
+    const parsed = new URL(value)
+    if (parsed.protocol !== 'https:' || parsed.host !== expectedHost || parsed.username !== '' || parsed.password !== '') {
+      throw new EnterpriseOperationsError('invalid-state', 'channel', 'bot-install')
+    }
+    return parsed.href
+  }
+
+  private failBotInstall(state: string): never {
+    this.pendingBotInstalls.delete(state)
+    this.larkRegistrationAttempts.get(state)?.controller.abort()
+    this.larkRegistrationAttempts.delete(state)
+    this.nativeQrRegistrationAttempts.delete(state)
+    throw new EnterpriseOperationsError('invalid-state', 'channel', 'bot-install')
   }
 
   private async saveInstalledBot(
@@ -1088,6 +1251,7 @@ export class EnterpriseChannelController extends TypertRemoteService {
         this.pendingBotInstalls.delete(state)
         this.larkRegistrationAttempts.get(state)?.controller.abort()
         this.larkRegistrationAttempts.delete(state)
+        this.nativeQrRegistrationAttempts.delete(state)
       }
     }
   }

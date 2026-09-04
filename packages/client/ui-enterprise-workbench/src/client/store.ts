@@ -662,9 +662,10 @@ export class EnterpriseWorkbenchController {
   }
 
   /** Poll a provider Device Grant and return only secret-free progress. */
-  async pollChannelBotInstall(installId: string): Promise<EnterpriseChannelPollBotInstallResult> {
+  async pollChannelBotInstall(installId: string, verificationCode?: string): Promise<EnterpriseChannelPollBotInstallResult> {
     return valueOf(await this.api.enterpriseChannels.pollBotInstall({
-      installId, idempotencyKey: `channel-bot-install:${installId}`,
+      installId, ...(verificationCode === undefined ? {} : { verificationCode }),
+      idempotencyKey: `channel-bot-install:${installId}`,
     }))
   }
 

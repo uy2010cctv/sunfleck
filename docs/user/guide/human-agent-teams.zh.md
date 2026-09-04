@@ -34,7 +34,7 @@ Doer 完成与 Verifier 决策将保持为不同运行时 event。证据将区�
 
 runtime 决策请求携带问题、选项、建议、assignee、context digest、revision 与根 Session event 位置。打开**待我处理**可以回答分配给你的决策；每次回答都会根据所属根 Session 重新验证，之后才更新 PostgreSQL 投影。
 
-人工接管将是同一 TeamRun 内记录在案的 Human 或 Agent actor 转换。个人微信可以绑定进入经认证 DSH 接管所使用的身份，但网站应用授权不提供官方个人聊天消息 API，也不能结算决策或修改 Team 状态。
+人工接管将是同一 TeamRun 内记录在案的 Human 或 Agent actor 转换。微信 Bot 可以接收通知、查询状态并引导用户进入经认证的 DSH 接管；微信消息不能直接启动团队、回复决策、审批或修改 Team 状态。
 
 ### 5. 复盘与授权演进
 
@@ -59,16 +59,18 @@ runtime 决策请求携带问题、选项、建议、assignee、context digest�
 
 飞书已提供 DSH 内置的零配置通道：Host 调用飞书官方 Node SDK 的 `registerApp()` 设备授权流，将官方扫码地址交给页面，并在 Host 内轮询创建结果。管理员扫码并确认后，App ID 只用于派生可审计的 Credential 引用，App Secret 直接写入 Host Credential 存储，两者都无需人工填写，Secret 也不会出现在浏览器或 Remote 响应中。这一流程不需要预先创建飞书应用，也不依赖公网回调。
 
-扫码安装需要运维先在 Host 部署对应的官方第三方/商店应用适配器，而不是让最终用户填写应用字段：
+企业微信与微信也已提供内置扫码通道。企业微信流程参照腾讯企业微信团队的 `@wecom/wecom-openclaw-cli` 1.1.1：Host 请求官方二维码，保管 `scode`，轮询后直接将 Bot ID 和 Secret 写入受治理渠道与 Credential。微信流程参照腾讯的 `@tencent-weixin/openclaw-weixin` 2.4.8：Host 保管二维码会话值，扫码后保存 `ilink_bot_id` 和 `bot_token`。少数账号如果被微信要求额外校验，页面只在该时刻显示手机上的数字验证输入，不显示任何应用配置字段。
 
-- [企业微信第三方应用安装](https://developer.work.weixin.qq.com/document/path/90665)使用 suite ticket、suite access token、pre-auth code 和企业永久授权信息。管理员通过官方安装页授权后，适配器把企业和应用身份交给 DSH。
+各提供方的真实边界如下：
+
+- [企业微信 OpenClaw 官方插件](https://github.com/WecomTeam/wecom-openclaw-plugin)已验证公开的 Bot 扫码获取流程，DSH 直接使用同一企业微信端点协议，不安装或修改 OpenClaw。如改用企业微信第三方企业应用，则仍需 suite ticket 与 pre-auth code 适配器。
 - [飞书扫码一键创建应用](https://open.feishu.cn/document/mcp_open_tools/integrating-agents-with-feishu/scan-to-create-an-app-in-one-click-nodejs)已由 DSH 内置实现；官方设备授权流在扫码确认后返回应用凭证，由 Host 直接保存。如改用飞书商店应用模式，则仍需独立适配 app_ticket 和 tenant_key 事件。
 - [钉钉第三方企业应用](https://open.dingtalk.com/document/isvapp/application-authorization.md)通过应用广场授权开通；Host 适配器必须接收 SyncHTTP/RDS 授权事件，并从 org_suite_auth 或临时授权码取得企业与应用身份。
-- [个人微信网站应用授权](https://developers.weixin.qq.com/doc/oplatform/developers/dev/auth/web.html)只用于身份与人工接管，不提供官方个人聊天 Bot，因此不会显示为可安装的聊天渠道。
+- [微信 OpenClaw 渠道](https://docs.openclaw.ai/channels/wechat)由腾讯微信团队维护，DSH 参照其公开的 iLink Bot 扫码协议实现账号绑定。微信渠道只允许非业务变更意图；Team 启动、决策回复与审批继续要求在经认证的 DSH 中完成。
 
-企业微信、飞书商店应用和钉钉等回调型安装在生产环境必须使用固定、公开可访问、已在提供方登记的 HTTPS 回调或事件接收地址；`127.0.0.1` 不能接收这些平台安装事件。飞书内置设备授权流不依赖公网回调，因此可从本地 DSH 完成扫码创建。扫码完成证明应用创建/安装和身份验证，不等于消息投递成功；提供方适酈器记录真实回执或健康证据前，传输状态保持**待验证**。
+飞书、企业微信 Bot 和微信 Bot 的内置扫码流程都不依赖 DSH 公网回调，因此可从本地 Host 完成绑定。飞书商店应用、企业微信第三方应用和钉钉等回调型安装仍需固定、公开可访问的 HTTPS 地址。扫码完成只证明应用/Bot 凭证已创建和保存，不等于消息投递成功；提供方适配器记录真实回执或健康证据前，传输状态保持**待验证**。
 
-渠道体验在只把本地 AGPL-3.0 StaffDeck checkout 作为产品先例评审后独立设计。DSH 采纳了异常优先的配置提醒、分离的生命周期/配置/身份/路由/传输证据、提供方定制说明、扫码过期/重试以及中性的「待验证」状态等产品思路；没有复制 StaffDeck 的源码、样式、资产、协议实现或文案。StaffDeck 的个人微信 iLink 属于非公开/实验性传输，不在本官方二维码绑定范围内。
+渠道体验在只把本地 AGPL-3.0 StaffDeck checkout 作为产品先例评审后独立设计。DSH 采纳了异常优先的配置提醒、分离的生命周期/配置/身份/路由/传输证据、提供方定制说明、扫码过期/重试以及中性的「待验证」状态等产品思路；没有复制 StaffDeck 的源码、样式、资产、协议实现或文案。本次企业微信/微信协议证据来自腾讯团队公开的 npm 包与仓库，不来自 StaffDeck。
 
 工作台不会伪造真实会话/投递日志、管理员角色、独立身份绑定码或传输健康。这些能力必须来自 DSH 适配器与持久 inbox/outbox 证据、受治理的身份/角色、提供方回执、心跳或对账记录。
 

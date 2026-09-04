@@ -26,7 +26,7 @@ const binding = {
 }
 
 describe('official channel authorization binding', () => {
-  it('describes provider prerequisites and keeps personal WeChat at the identity boundary', () => {
+  it('describes provider prerequisites and keeps Website App OAuth at the identity boundary', () => {
     const profile = channelBindingProfile('wecom')
     expect(profile).toMatchObject({
       officialDocsUrl: 'https://developer.work.weixin.qq.com/document/path/98152',
@@ -300,13 +300,13 @@ describe('channel identity and delivery reliability', () => {
     expect(envelope).not.toHaveProperty('payload')
   })
 
-  it('keeps enterprise channels bidirectional and personal WeChat handoff-only', () => {
+  it('keeps enterprise channels bidirectional and personal WeChat read-only for DSH business state', () => {
     expect(channelIntentPolicy('wecom', 'team-start')).toEqual({ allowed: true, mutation: true })
     expect(channelIntentPolicy('feishu', 'decision-response')).toEqual({ allowed: true, mutation: true })
     expect(channelIntentPolicy('dingtalk', 'status')).toEqual({ allowed: true, mutation: false })
-    expect(channelIntentPolicy('wechat', 'notify')).toEqual({ allowed: false, mutation: false })
+    expect(channelIntentPolicy('wechat', 'notify')).toEqual({ allowed: true, mutation: false })
     expect(channelIntentPolicy('wechat', 'handoff')).toEqual({ allowed: true, mutation: false })
-    expect(channelIntentPolicy('wechat', 'status')).toEqual({ allowed: false, mutation: false })
+    expect(channelIntentPolicy('wechat', 'status')).toEqual({ allowed: true, mutation: false })
     expect(channelIntentPolicy('wechat', 'team-start')).toEqual({ allowed: false, mutation: true })
     expect(channelIntentPolicy('wechat', 'decision-response')).toEqual({ allowed: false, mutation: true })
   })
@@ -317,6 +317,11 @@ describe('channel identity and delivery reliability', () => {
       messageId: 'message-a', direction: 'inbound', intent: 'decision-response',
       payloadDigest: 'bad', occurredAt: 1,
     })).toThrow(/personal WeChat|payload digest/u)
+    expect(normalizeChannelEnvelope({
+      provider: 'wechat', tenantId: 'personal', accountId: 'bot-a', threadId: 'thread-a',
+      messageId: 'message-b', direction: 'inbound', intent: 'status',
+      payloadDigest: 'b'.repeat(64), occurredAt: 2,
+    })).toMatchObject({ provider: 'wechat', direction: 'inbound', intent: 'status' })
   })
 
   it('merges channel aliases under a canonical enterprise user when available', () => {

@@ -134,12 +134,6 @@ function canonicalChannelInput(input: ChannelSaveInput): ChannelSaveInput {
   if (normalized.state === 'active' && normalized.credentialRef === undefined) {
     throw new Error('active channel requires a Credential reference')
   }
-  if (normalized.provider === 'wecom' && normalized.state === 'active' && normalized.tenantId === undefined) {
-    throw new Error('active WeCom channel requires a tenant id')
-  }
-  if (normalized.provider === 'wechat' && normalized.inboundEnabled) {
-    throw new Error('personal WeChat cannot enable inbound commands')
-  }
   return normalized
 }
 
