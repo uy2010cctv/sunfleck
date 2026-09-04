@@ -107,7 +107,7 @@ async function larkDeviceInstallBench() {
   const api = await import('../src/index.ts') as Record<string, unknown>
   let resolveRegistration!: (value: Record<string, unknown>) => void
   const registerLarkApp = vi.fn((options: { onQRCodeReady: (info: { url: string; expireIn: number }) => void }) => {
-    options.onQRCodeReady({ url: 'https://open.feishu.cn/page/launcher?user_code=ABCD-EFGH', expireIn: 600 })
+    options.onQRCodeReady({ url: 'https://open.feishu.cn/page/launcher?user_code=ABCD-EFGH', expireIn: 3_600 })
     return new Promise<Record<string, unknown>>((resolve) => { resolveRegistration = resolve })
   })
   const Controller = api['EnterpriseChannelController'] as new (ctx: Context, options: Record<string, unknown>) => {
