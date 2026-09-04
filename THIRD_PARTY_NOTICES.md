@@ -38,6 +38,7 @@ External packages that a workspace package resolves at runtime. The tier covers 
 | [`@earendil-works/pi-ai`](https://github.com/earendil-works/pi) | MIT |
 | [`@joplin/turndown-plugin-gfm`](https://github.com/laurent22/joplin-turndown-plugin-gfm) | MIT |
 | [`@jridgewell/gen-mapping`](https://github.com/jridgewell/sourcemaps) | MIT |
+| [`@larksuiteoapi/node-sdk`](https://github.com/larksuite/node-sdk) | MIT |
 | [`@lexical/history`](https://github.com/facebook/lexical) | MIT |
 | [`@lexical/plain-text`](https://github.com/facebook/lexical) | MIT |
 | [`@lexical/text`](https://github.com/facebook/lexical) | MIT |
@@ -97,6 +98,7 @@ External packages that a workspace package resolves at runtime. The tier covers 
 | [`openid-client`](https://github.com/panva/openid-client) | MIT |
 | [`pg`](https://github.com/brianc/node-postgres) | MIT |
 | [`picomatch`](https://github.com/micromatch/picomatch) | MIT |
+| [`qrcode`](https://github.com/soldair/node-qrcode) | MIT |
 | [`react`](https://github.com/facebook/react) | MIT |
 | [`react-dom`](https://github.com/facebook/react) | MIT |
 | [`readable-stream`](https://github.com/nodejs/readable-stream) | MIT |
@@ -157,6 +159,7 @@ External packages **directly declared** only by repository tooling, test infrast
 | [`@types/node`](https://github.com/DefinitelyTyped/DefinitelyTyped) | MIT |
 | [`@types/pg`](https://github.com/DefinitelyTyped/DefinitelyTyped) | MIT |
 | [`@types/picomatch`](https://github.com/DefinitelyTyped/DefinitelyTyped) | MIT |
+| [`@types/qrcode`](https://github.com/DefinitelyTyped/DefinitelyTyped) | MIT |
 | [`@types/react`](https://github.com/DefinitelyTyped/DefinitelyTyped) | MIT |
 | [`@types/react-dom`](https://github.com/DefinitelyTyped/DefinitelyTyped) | MIT |
 | [`@types/readable-stream`](https://github.com/DefinitelyTyped/DefinitelyTyped) | MIT |

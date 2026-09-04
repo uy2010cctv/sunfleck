@@ -190,7 +190,8 @@ describe('EnterpriseWorkbench', () => {
     expect(window.open).toHaveBeenCalledTimes(1)
     expect(popup.location.href).toBe('about:blank')
     resolveInstall({
-      status: 'ready', provider: 'feishu', expiresAt: Date.now() + 60_000,
+      status: 'ready', provider: 'feishu', completionMode: 'callback', installId: SIGNED_STATE_A,
+      expiresAt: Date.now() + 60_000,
       authorizationUrl: `https://open.feishu.cn/app/install?state=${SIGNED_STATE_A}`,
     })
     await waitFor(() => { expect(popup.location.href).toContain(`state=${SIGNED_STATE_A}`) })
@@ -206,6 +207,38 @@ describe('EnterpriseWorkbench', () => {
       history: { replaceState: vi.fn() }, opener: null, close: vi.fn(),
     })
     await waitFor(() => { expect(refreshChannels).toHaveBeenCalledTimes(1) })
+  })
+
+  it('polls the Feishu Device Grant and refreshes after the channel is created', async () => {
+    const beginChannelBotInstall = vi.fn(() => Promise.resolve({
+      status: 'ready', provider: 'feishu', completionMode: 'poll', installId: SIGNED_STATE_A,
+      expiresAt: Date.now() + 60_000,
+      authorizationUrl: 'https://open.feishu.cn/page/launcher?user_code=ABCD-EFGH',
+    }))
+    const pollChannelBotInstall = vi.fn()
+      .mockResolvedValueOnce({ status: 'pending', provider: 'feishu' })
+      .mockResolvedValueOnce({
+        status: 'complete', provider: 'feishu',
+        channel: { channelId: 'feishu-created', name: 'DSH Agent' },
+      })
+    const refreshChannels = vi.fn(() => Promise.resolve(true))
+    const popup = { closed: false, close: vi.fn(), opener: window, location: { href: 'about:blank' } }
+    vi.spyOn(window, 'open').mockReturnValue(popup as never)
+    render(<EnterpriseWorkbench {...workbenchProps({
+      state: { mode: 'enterprise', page: 'channels', channels: { phase: 'ready', error: null, items: [] } },
+      beginChannelBotInstall, pollChannelBotInstall, refreshChannels,
+    } as never)} />)
+
+    fireEvent.click(screen.getByRole('button', { name: '扫码添加飞书 Bot' }))
+    await waitFor(() => { expect(popup.location.href).toContain('user_code=ABCD-EFGH') })
+    expect(screen.getByRole('heading', { name: '等待扫码创建飞书 Bot' })).toBeDefined()
+    const qr = await screen.findByRole('img', { name: '飞书 Bot 安装二维码' })
+    expect(qr.tagName).toBe('svg')
+    expect(qr.querySelector('path')?.getAttribute('d')?.length).toBeGreaterThan(100)
+    await waitFor(() => { expect(pollChannelBotInstall).toHaveBeenCalledWith(SIGNED_STATE_A) })
+    await waitFor(() => { expect(pollChannelBotInstall).toHaveBeenCalledTimes(2) }, { timeout: 3_000 })
+    expect(refreshChannels).toHaveBeenCalledTimes(1)
+    expect(popup.close).toHaveBeenCalledTimes(1)
   })
 
   it('starts provider Bot installation without exposing a manual app form', async () => {

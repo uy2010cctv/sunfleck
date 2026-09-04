@@ -1,6 +1,7 @@
 /** Authenticated enterprise Typert Remote controllers. */
 import { createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto'
 import { Context } from '@deepseek-ai/cordis'
+import { registerApp as officialRegisterLarkApp } from '@larksuiteoapi/node-sdk'
 import { Remote, TypertRemoteFailure, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 import type { EnterprisePrincipal } from '@deepseek-ai/dsh-enterprise-governance'
 import type {} from '@deepseek-ai/dsh-enterprise-auth-web'
@@ -130,6 +131,8 @@ import type {
   EnterpriseChannelListRequest,
   EnterpriseChannelLookup,
   EnterpriseChannelPage,
+  EnterpriseChannelPollBotInstallRequest,
+  EnterpriseChannelPollBotInstallResult,
   EnterpriseChannelSaveRequest,
 } from './contract/channels.ts'
 import type {
@@ -554,7 +557,7 @@ interface PendingChannelBotInstall {
 /** Verified Bot metadata returned only by a Host provider adapter after official authorization. */
 export interface EnterpriseInstalledChannelBot {
   readonly provider: StoredChannelConfiguration['provider']
-  readonly tenantId: string
+  readonly tenantId?: string
   readonly tenantName?: string
   readonly accountId: string
   readonly botName: string
@@ -574,10 +577,20 @@ export interface EnterpriseChannelBotInstaller {
   }): Promise<EnterpriseInstalledChannelBot>
 }
 
+type RegisterLarkApp = typeof officialRegisterLarkApp
+type RegisterLarkAppResult = Awaited<ReturnType<RegisterLarkApp>>
+
+interface LarkRegistrationAttempt {
+  status: 'pending' | 'complete' | 'failed'
+  result?: RegisterLarkAppResult
+  controller: AbortController
+}
+
 /** Runtime seams for deterministic channel-binding tests and Host fetch injection. */
 export interface EnterpriseChannelControllerOptions {
   readonly now?: () => number
   readonly fetch?: ChannelAuthorizationFetch
+  readonly registerLarkApp?: RegisterLarkApp
 }
 
 function canonicalChannelBindingEnvelope(pending: PendingChannelBinding): string {
@@ -663,8 +676,10 @@ export class EnterpriseChannelController extends TypertRemoteService {
 
   private readonly pendingBindings = new Map<string, PendingChannelBinding>()
   private readonly pendingBotInstalls = new Map<string, PendingChannelBotInstall>()
+  private readonly larkRegistrationAttempts = new Map<string, LarkRegistrationAttempt>()
   private readonly now: () => number
   private readonly fetch: ChannelAuthorizationFetch
+  private readonly registerLarkApp: RegisterLarkApp
 
   /**
    * @param ctx - authenticated enterprise Host context with the Credential seam.
@@ -674,6 +689,7 @@ export class EnterpriseChannelController extends TypertRemoteService {
     super(ctx, 'enterpriseChannelController', { namespace: 'enterpriseChannel' })
     this.now = options.now ?? Date.now
     this.fetch = options.fetch ?? globalThis.fetch
+    this.registerLarkApp = options.registerLarkApp ?? officialRegisterLarkApp
   }
 
   /**
@@ -752,7 +768,7 @@ export class EnterpriseChannelController extends TypertRemoteService {
         officialDocumentationUrl: CHANNEL_BOT_INSTALL_DOCUMENTATION[request.provider],
       }
       const installer = this.ctx.get('enterpriseChannelBotInstaller')
-      if (installer === undefined) return {
+      if (installer === undefined && request.provider !== 'feishu') return {
         status: 'setup-required', provider: request.provider,
         officialDocumentationUrl: CHANNEL_BOT_INSTALL_DOCUMENTATION[request.provider],
       }
@@ -763,6 +779,15 @@ export class EnterpriseChannelController extends TypertRemoteService {
         redirectUri: request.redirectUri, nonce, expiresAt: this.now() + CHANNEL_BINDING_TTL_MS,
       }
       const state = `${nonce}.${channelBotInstallSignature(pending)}`
+      if (request.provider === 'feishu' && installer === undefined) {
+        const session = await this.beginLarkRegistration(state, pending)
+        this.pendingBotInstalls.set(state, pending)
+        return {
+          status: 'ready', provider: request.provider, installId: state, completionMode: 'poll',
+          authorizationUrl: session.authorizationUrl, expiresAt: pending.expiresAt,
+        }
+      }
+      if (installer === undefined) throw new EnterpriseOperationsError('invalid-state', 'channel', 'bot-install')
       const session = await installer.begin({ ...pending, state })
       const authorization = new URL(session.authorizationUrl)
       if (authorization.protocol !== 'https:' || authorization.searchParams.get('state') !== state
@@ -771,9 +796,50 @@ export class EnterpriseChannelController extends TypertRemoteService {
       }
       this.pendingBotInstalls.set(state, pending)
       return {
-        status: 'ready', provider: request.provider,
+        status: 'ready', provider: request.provider, installId: state, completionMode: 'callback',
         authorizationUrl: authorization.href, expiresAt: pending.expiresAt,
       }
+    })
+  }
+
+  /** Poll an official Device Authorization Grant and create the channel after provider confirmation. */
+  @Remote('pollBotInstall')
+  async pollBotInstall(request: EnterpriseChannelPollBotInstallRequest): Promise<EnterpriseChannelPollBotInstallResult> {
+    return catalogCall(this.ctx, 'enterpriseChannel.pollBotInstall', {}, 'channel', 'bot-install', async (actor) => {
+      if (!CHANNEL_BINDING_STATE_PATTERN.test(request.installId)
+        || !boundedRemoteString(request.idempotencyKey, MAX_CHANNEL_BINDING_IDEMPOTENCY_KEY_BYTES)) {
+        throw new EnterpriseOperationsError('invalid-state', 'channel', 'bot-install')
+      }
+      this.prunePendingBindings()
+      const pending = this.pendingBotInstalls.get(request.installId)
+      if (pending === undefined || !validChannelBotInstallState(request.installId, pending)
+        || pending.orgId !== actor.orgId || pending.actorUserId !== actor.userId) {
+        throw new EnterpriseOperationsError('invalid-state', 'channel', 'bot-install')
+      }
+      if (pending.provider !== 'feishu') throw new EnterpriseOperationsError('invalid-state', 'channel', 'bot-install')
+      const attempt = this.larkRegistrationAttempts.get(request.installId)
+      if (attempt === undefined || attempt.status === 'failed') {
+        this.pendingBotInstalls.delete(request.installId)
+        this.larkRegistrationAttempts.delete(request.installId)
+        throw new EnterpriseOperationsError('invalid-state', 'channel', 'bot-install')
+      }
+      if (attempt.status === 'pending' || attempt.result === undefined) {
+        return { status: 'pending', provider: pending.provider }
+      }
+      this.pendingBotInstalls.delete(request.installId)
+      this.larkRegistrationAttempts.delete(request.installId)
+      const appId = attempt.result.client_id.trim()
+      const appSecret = attempt.result.client_secret
+      if (!boundedRemoteString(appId, 512) || !boundedRemoteString(appSecret, 4_096)) {
+        throw new EnterpriseOperationsError('invalid-state', 'channel', 'bot-install')
+      }
+      const credentialName = `DSH_FEISHU_APP_${createHash('sha256').update(appId).digest('hex').slice(0, 12).toUpperCase()}`
+      await this.ctx.credentials.set(credentialRef(credentialName), appSecret)
+      const channel = await this.saveInstalledBot(actor, pending, {
+        provider: 'feishu', accountId: appId, botName: 'DSH Agent', credentialRef: credentialName,
+        providerIdentityId: attempt.result.user_info?.open_id?.trim() || appId,
+      }, request.idempotencyKey)
+      return { status: 'complete', provider: pending.provider, channel }
     })
   }
 
@@ -803,35 +869,7 @@ export class EnterpriseChannelController extends TypertRemoteService {
       if (installer === undefined) throw new EnterpriseOperationsError('invalid-state', 'channel', 'bot-install')
       this.pendingBotInstalls.delete(request.state)
       const installed = await installer.complete({ ...pending, state: request.state, code: request.code })
-      if (installed.provider !== pending.provider
-        || !boundedRemoteString(installed.tenantId, 512)
-        || !boundedRemoteString(installed.accountId, 512)
-        || !boundedRemoteString(installed.botName, 512)
-        || !boundedRemoteString(installed.credentialRef, 512)
-        || !boundedRemoteString(installed.providerIdentityId, 512)) {
-        throw new EnterpriseOperationsError('invalid-state', 'channel', 'bot-install')
-      }
-      if (!(await this.ctx.credentials.describe(credentialRef(installed.credentialRef))).configured) {
-        throw new EnterpriseOperationsError('invalid-state', 'channel', 'bot-install')
-      }
-      const digest = createHash('sha256').update(JSON.stringify([
-        actor.orgId, installed.provider, installed.tenantId, installed.accountId,
-      ])).digest('hex').slice(0, 12)
-      const saved = await operations(this.ctx).saveChannelConfiguration(actor, {
-        channelId: `${installed.provider}-${digest}`, name: installed.botName.trim(),
-        provider: installed.provider, tenantId: installed.tenantId.trim(), accountId: installed.accountId.trim(),
-        credentialRef: installed.credentialRef.trim(), inboundEnabled: true, state: 'active', expectedRevision: 0,
-        idempotencyKey: request.idempotencyKey,
-      })
-      const verificationIdempotencyKey = `bot-install-verify:${createHash('sha256')
-        .update(request.idempotencyKey).digest('hex').slice(0, 32)}`
-      const verified = await operations(this.ctx).verifyChannelBinding(actor, {
-        channelId: saved.channelId, expectedRevision: saved.revision,
-        providerIdentityId: installed.providerIdentityId.trim(),
-        providerIdentityName: installed.botName.trim(), verifiedTenantId: installed.tenantId.trim(),
-        idempotencyKey: verificationIdempotencyKey,
-      })
-      return this.present(verified)
+      return this.saveInstalledBot(actor, pending, installed, request.idempotencyKey)
     })
   }
 
@@ -953,13 +991,104 @@ export class EnterpriseChannelController extends TypertRemoteService {
     })
   }
 
+  private beginLarkRegistration(
+    state: string,
+    pending: PendingChannelBotInstall,
+  ): Promise<{ authorizationUrl: string }> {
+    const controller = new AbortController()
+    const attempt: LarkRegistrationAttempt = { status: 'pending', controller }
+    this.larkRegistrationAttempts.set(state, attempt)
+    return new Promise((resolve, reject) => {
+      let qrDelivered = false
+      void this.registerLarkApp({
+        source: 'dsh', signal: controller.signal, createOnly: true,
+        appPreset: { name: 'DSH Agent', desc: 'DSH enterprise Human-Agent collaboration channel' },
+        addons: {
+          scopes: { tenant: [
+            'im:message.p2p_msg:readonly', 'im:message.group_at_msg:readonly', 'im:message:send_as_bot',
+          ] },
+          events: { items: { tenant: ['im.message.receive_v1'] } },
+        },
+        onQRCodeReady: ({ url, expireIn }) => {
+          if (qrDelivered) return
+          try {
+            const authorization = new URL(url)
+            if (authorization.protocol !== 'https:' || authorization.host !== 'open.feishu.cn'
+              || expireIn <= 0 || expireIn * 1_000 > CHANNEL_BINDING_TTL_MS) {
+              throw new Error('invalid Feishu registration QR')
+            }
+            qrDelivered = true
+            resolve({ authorizationUrl: authorization.href })
+          } catch (error) {
+            controller.abort()
+            attempt.status = 'failed'
+            reject(error)
+          }
+        },
+      }).then((result) => {
+        attempt.status = 'complete'
+        attempt.result = result
+      }, (error: unknown) => {
+        attempt.status = 'failed'
+        if (!qrDelivered) reject(error)
+      })
+      if (this.now() >= pending.expiresAt) {
+        controller.abort()
+        attempt.status = 'failed'
+        reject(new Error('Feishu registration expired before start'))
+      }
+    })
+  }
+
+  private async saveInstalledBot(
+    actor: EnterprisePrincipal,
+    pending: PendingChannelBotInstall,
+    installed: EnterpriseInstalledChannelBot,
+    idempotencyKey: string,
+  ): Promise<EnterpriseChannelConfiguration> {
+    if (installed.provider !== pending.provider
+      || (installed.tenantId !== undefined && !boundedRemoteString(installed.tenantId, 512))
+      || !boundedRemoteString(installed.accountId, 512)
+      || !boundedRemoteString(installed.botName, 512)
+      || !boundedRemoteString(installed.credentialRef, 512)
+      || !boundedRemoteString(installed.providerIdentityId, 512)) {
+      throw new EnterpriseOperationsError('invalid-state', 'channel', 'bot-install')
+    }
+    if (!(await this.ctx.credentials.describe(credentialRef(installed.credentialRef))).configured) {
+      throw new EnterpriseOperationsError('invalid-state', 'channel', 'bot-install')
+    }
+    const digest = createHash('sha256').update(JSON.stringify([
+      actor.orgId, installed.provider, installed.tenantId ?? null, installed.accountId,
+    ])).digest('hex').slice(0, 12)
+    const saved = await operations(this.ctx).saveChannelConfiguration(actor, {
+      channelId: `${installed.provider}-${digest}`, name: installed.botName.trim(),
+      provider: installed.provider,
+      ...(installed.tenantId === undefined ? {} : { tenantId: installed.tenantId.trim() }),
+      accountId: installed.accountId.trim(), credentialRef: installed.credentialRef.trim(),
+      inboundEnabled: true, state: 'active', expectedRevision: 0, idempotencyKey,
+    })
+    const verificationIdempotencyKey = `bot-install-verify:${createHash('sha256')
+      .update(idempotencyKey).digest('hex').slice(0, 32)}`
+    const verified = await operations(this.ctx).verifyChannelBinding(actor, {
+      channelId: saved.channelId, expectedRevision: saved.revision,
+      providerIdentityId: installed.providerIdentityId.trim(), providerIdentityName: installed.botName.trim(),
+      ...(installed.tenantId === undefined ? {} : { verifiedTenantId: installed.tenantId.trim() }),
+      idempotencyKey: verificationIdempotencyKey,
+    })
+    return this.present(verified)
+  }
+
   private prunePendingBindings(): void {
     const now = this.now()
     for (const [state, pending] of this.pendingBindings) {
       if (now >= pending.expiresAt) this.pendingBindings.delete(state)
     }
     for (const [state, pending] of this.pendingBotInstalls) {
-      if (now >= pending.expiresAt) this.pendingBotInstalls.delete(state)
+      if (now >= pending.expiresAt) {
+        this.pendingBotInstalls.delete(state)
+        this.larkRegistrationAttempts.get(state)?.controller.abort()
+        this.larkRegistrationAttempts.delete(state)
+      }
     }
   }
 

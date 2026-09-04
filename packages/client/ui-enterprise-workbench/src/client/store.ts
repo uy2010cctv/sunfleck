@@ -4,7 +4,7 @@ import type { ClientRemote, PluginInventorySnapshot, SessionId } from '@deepseek
 import type {
   EnterpriseApproval, EnterpriseAsset, EnterpriseAssetKind,
   EnterpriseBusinessState, EnterpriseEmployeeAssetRef, EnterpriseEmployeeDraft,
-  EnterpriseChannelBindingSession, EnterpriseChannelBotInstallResult, EnterpriseChannelConfiguration,
+  EnterpriseChannelBindingSession, EnterpriseChannelBotInstallResult, EnterpriseChannelConfiguration, EnterpriseChannelPollBotInstallResult,
   EnterpriseEmployeeRelease, EnterpriseSchedule,
   EnterpriseScheduleTarget, EnterpriseTeam, EnterpriseTeamMember,
   EnterpriseTeamAutonomyGrant, EnterpriseTeamDecision, EnterpriseTeamDefinition, EnterpriseTeamRun,
@@ -659,6 +659,13 @@ export class EnterpriseWorkbenchController {
     redirectUri: string,
   ): Promise<EnterpriseChannelBotInstallResult> {
     return valueOf(await this.api.enterpriseChannels.beginBotInstall({ provider, redirectUri }))
+  }
+
+  /** Poll a provider Device Grant and return only secret-free progress. */
+  async pollChannelBotInstall(installId: string): Promise<EnterpriseChannelPollBotInstallResult> {
+    return valueOf(await this.api.enterpriseChannels.pollBotInstall({
+      installId, idempotencyKey: `channel-bot-install:${installId}`,
+    }))
   }
 
   /** Refresh typed Team Definitions. */

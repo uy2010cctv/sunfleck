@@ -103,6 +103,46 @@ async function botInstallBench() {
   return { controller: new Controller(ctx), requestContext, installer, saveChannelConfiguration, verifyChannelBinding }
 }
 
+async function larkDeviceInstallBench() {
+  const api = await import('../src/index.ts') as Record<string, unknown>
+  let resolveRegistration!: (value: Record<string, unknown>) => void
+  const registerLarkApp = vi.fn((options: { onQRCodeReady: (info: { url: string; expireIn: number }) => void }) => {
+    options.onQRCodeReady({ url: 'https://open.feishu.cn/page/launcher?user_code=ABCD-EFGH', expireIn: 600 })
+    return new Promise<Record<string, unknown>>((resolve) => { resolveRegistration = resolve })
+  })
+  const Controller = api['EnterpriseChannelController'] as new (ctx: Context, options: Record<string, unknown>) => {
+    beginBotInstall(input: Record<string, unknown>): Promise<Record<string, unknown>>
+    pollBotInstall(input: Record<string, unknown>): Promise<Record<string, unknown>>
+  }
+  const requestContext = new EnterpriseRequestContext()
+  const setCredential = vi.fn().mockResolvedValue(undefined)
+  const saveChannelConfiguration = vi.fn((input: Record<string, unknown>) => Promise.resolve({
+    ...input, bindingStatus: 'unbound', createdBy: input['actorUserId'], revision: 1, createdAt: 1, updatedAt: 1,
+  }))
+  const verifyChannelBinding = vi.fn((input: Record<string, unknown>) => Promise.resolve({
+    orgId: 'org-a', channelId: input['channelId'], name: 'DSH Agent', provider: 'feishu',
+    accountId: 'cli_created', credentialRef: 'DSH_FEISHU_APP_123456789ABC', inboundEnabled: true,
+    state: 'active', bindingStatus: 'verified', boundProviderIdentityId: 'cli_created',
+    createdBy: 'admin-a', revision: 2, createdAt: 1, updatedAt: 2,
+  }))
+  const ctx = new Context()
+  ctx.provide('enterprisePostgres' as never, { operations: {
+    saveChannelConfiguration, verifyChannelBinding, getChannelConfiguration: vi.fn().mockResolvedValue(undefined),
+  } } as never)
+  ctx.provide('enterpriseRequestContext' as never, requestContext as never)
+  ctx.provide('enterpriseSecurity' as never, {
+    authorizeApiAsync: vi.fn().mockResolvedValue({ allowed: true, reason: 'administrator' }), auditApiAsync: vi.fn(),
+  } as never)
+  ctx.provide('credentials' as never, {
+    set: setCredential, describe: vi.fn().mockResolvedValue({ configured: true, writable: true, source: 'encrypted' }),
+  } as never)
+  return {
+    controller: new Controller(ctx, { registerLarkApp }), requestContext, registerLarkApp,
+    resolveRegistration(value: Record<string, unknown>) { resolveRegistration(value) },
+    setCredential, saveChannelConfiguration,
+  }
+}
+
 function begin(bench: Awaited<ReturnType<typeof bindingBench>>, actor = principal, input: Record<string, unknown> = {}) {
   return bench.requestContext.run(actor, () => bench.controller.beginBinding({
     channelId: 'finance-wecom', expectedRevision: 1, redirectUri: 'https://dsh.example.test/channel/callback', ...input,
@@ -136,11 +176,11 @@ describe('enterprise channel Remote controller', () => {
       beginBotInstall(input: Record<string, unknown>): Promise<Record<string, unknown>>
     }
     const result = await bench.requestContext.run(principal, () => controller.beginBotInstall({
-      provider: 'feishu', redirectUri: 'https://dsh.example.test/channel/install-callback',
+      provider: 'dingtalk', redirectUri: 'https://dsh.example.test/channel/install-callback',
     }))
     expect(result).toEqual({
-      status: 'setup-required', provider: 'feishu',
-      officialDocumentationUrl: 'https://open.feishu.cn/document/isv-guides/publish-your-app/publishing-guidelines',
+      status: 'setup-required', provider: 'dingtalk',
+      officialDocumentationUrl: 'https://open.dingtalk.com/document/isvapp/enterprise-authorized-application-activation-event-1.md',
     })
   })
 
@@ -186,6 +226,47 @@ describe('enterprise channel Remote controller', () => {
       name: '夏树助手', provider: 'feishu', bindingStatus: 'verified', credentialStatus: 'configured',
     })
     expect(JSON.stringify(result)).not.toContain('provider-install-code')
+  })
+
+  it('creates a Feishu app through the official device flow and persists its secret without browser input', async () => {
+    const bench = await larkDeviceInstallBench()
+    const started = await bench.requestContext.run(principal, () => bench.controller.beginBotInstall({
+      provider: 'feishu', redirectUri: 'https://dsh.example.test/channel/install-callback',
+    }))
+    expect(started).toMatchObject({
+      status: 'ready', provider: 'feishu', completionMode: 'poll',
+      authorizationUrl: 'https://open.feishu.cn/page/launcher?user_code=ABCD-EFGH',
+      installId: expect.stringMatching(/^[A-Za-z0-9_-]{43}\.[A-Za-z0-9_-]{43}$/u),
+    })
+    expect(bench.registerLarkApp).toHaveBeenCalledWith(expect.objectContaining({
+      createOnly: true, appPreset: expect.objectContaining({ name: 'DSH Agent' }),
+    }))
+
+    const pending = await bench.requestContext.run(principal, () => bench.controller.pollBotInstall({
+      installId: started['installId'], idempotencyKey: 'poll-feishu-create',
+    }))
+    expect(pending).toEqual({ status: 'pending', provider: 'feishu' })
+
+    bench.resolveRegistration({
+      client_id: 'cli_created', client_secret: 'secret-created',
+      user_info: { open_id: 'ou_creator', tenant_brand: 'feishu' },
+    })
+    await Promise.resolve()
+    const completed = await bench.requestContext.run(principal, () => bench.controller.pollBotInstall({
+      installId: started['installId'], idempotencyKey: 'poll-feishu-create',
+    }))
+    expect(bench.setCredential).toHaveBeenCalledWith(
+      expect.stringMatching(/^DSH_FEISHU_APP_[A-F0-9]{12}$/u), 'secret-created',
+    )
+    const credentialRef = String(bench.setCredential.mock.calls[0]?.[0])
+    expect(bench.saveChannelConfiguration).toHaveBeenCalledWith(expect.objectContaining({
+      provider: 'feishu', accountId: 'cli_created', credentialRef,
+      name: 'DSH Agent', state: 'active', expectedRevision: 0,
+    }))
+    expect(completed).toMatchObject({ status: 'complete', provider: 'feishu', channel: {
+      accountId: 'cli_created', bindingStatus: 'verified', credentialStatus: 'configured',
+    } })
+    expect(JSON.stringify(completed)).not.toContain('secret-created')
   })
 
   it('injects organization and actor, returns secret-free readiness, and preserves provider policy', async () => {

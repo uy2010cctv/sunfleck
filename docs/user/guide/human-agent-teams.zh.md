@@ -57,14 +57,16 @@ runtime 决策请求携带问题、选项、建议、assignee、context digest�
 
 每次扫码安装使用有效期 10 分钟的 HMAC state，并绑定 Host 进程、组织、actor、提供方、固定回调 URI、nonce 与过期时间。授权 code 会在浏览器历史中先行清除，再交给 Host-only `enterpriseChannelBotInstaller`；浏览器永远收不到平台应用密钥、suite ticket、app_ticket、permanent code、access token 或 Credential 值。成功回调通过同源 BroadcastChannel 通知原窗口刷新自动创建的渠道；拒绝、过期、Host 重启或 actor/组织不匹配均失败关闭。
 
+飞书已提供 DSH 内置的零配置通道：Host 调用飞书官方 Node SDK 的 `registerApp()` 设备授权流，将官方扫码地址交给页面，并在 Host 内轮询创建结果。管理员扫码并确认后，App ID 只用于派生可审计的 Credential 引用，App Secret 直接写入 Host Credential 存储，两者都无需人工填写，Secret 也不会出现在浏览器或 Remote 响应中。这一流程不需要预先创建飞书应用，也不依赖公网回调。
+
 扫码安装需要运维先在 Host 部署对应的官方第三方/商店应用适配器，而不是让最终用户填写应用字段：
 
 - [企业微信第三方应用安装](https://developer.work.weixin.qq.com/document/path/90665)使用 suite ticket、suite access token、pre-auth code 和企业永久授权信息。管理员通过官方安装页授权后，适配器把企业和应用身份交给 DSH。
-- [飞书商店应用](https://open.feishu.cn/document/isv-guides/publish-your-app/step7-publish-the-store-application?lang=zh-CN)通过应用中心或非公开安装链接安装；Host 适配器接收 app_ticket 与首次启用事件中的 tenant_key，再为该租户取得应用凭证。
+- [飞书扫码一键创建应用](https://open.feishu.cn/document/mcp_open_tools/integrating-agents-with-feishu/scan-to-create-an-app-in-one-click-nodejs)已由 DSH 内置实现；官方设备授权流在扫码确认后返回应用凭证，由 Host 直接保存。如改用飞书商店应用模式，则仍需独立适配 app_ticket 和 tenant_key 事件。
 - [钉钉第三方企业应用](https://open.dingtalk.com/document/isvapp/application-authorization.md)通过应用广场授权开通；Host 适配器必须接收 SyncHTTP/RDS 授权事件，并从 org_suite_auth 或临时授权码取得企业与应用身份。
 - [个人微信网站应用授权](https://developers.weixin.qq.com/doc/oplatform/developers/dev/auth/web.html)只用于身份与人工接管，不提供官方个人聊天 Bot，因此不会显示为可安装的聊天渠道。
 
-生产环境必须使用固定、公开可访问、已在提供方登记的 HTTPS 回调或事件接收地址；`127.0.0.1` 只能验证 DSH 内部状态机，不能接收真实平台安装事件。扫码完成证明应用安装和身份验证，不等于消息投递成功；提供方适配器记录真实回执或健康证据前，传输状态保持**待验证**。
+企业微信、飞书商店应用和钉钉等回调型安装在生产环境必须使用固定、公开可访问、已在提供方登记的 HTTPS 回调或事件接收地址；`127.0.0.1` 不能接收这些平台安装事件。飞书内置设备授权流不依赖公网回调，因此可从本地 DSH 完成扫码创建。扫码完成证明应用创建/安装和身份验证，不等于消息投递成功；提供方适酈器记录真实回执或健康证据前，传输状态保持**待验证**。
 
 渠道体验在只把本地 AGPL-3.0 StaffDeck checkout 作为产品先例评审后独立设计。DSH 采纳了异常优先的配置提醒、分离的生命周期/配置/身份/路由/传输证据、提供方定制说明、扫码过期/重试以及中性的「待验证」状态等产品思路；没有复制 StaffDeck 的源码、样式、资产、协议实现或文案。StaffDeck 的个人微信 iLink 属于非公开/实验性传输，不在本官方二维码绑定范围内。
 

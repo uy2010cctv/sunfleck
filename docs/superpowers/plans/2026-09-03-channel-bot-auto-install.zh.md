@@ -60,5 +60,20 @@
 
 - [x] 记录企业微信 Suite ticket/pre-auth code、飞书商店应用 app_ticket/tenant_key、钉钉第三方应用授权事件/SyncHTTP 前置。
 - [x] 说明平台注册凭证只存在 Host 安装器，不进入浏览器状态或渠道记录。
-- [ ] 运行控制器与工作台测试、客户端类型检查和完整构建。
+- [x] 运行控制器与工作台测试、客户端类型检查和完整构建。
 - [ ] 只提交任务文件，重启 `com.deepseek.dsh.local.3081` 并验收渠道页。
+
+### 任务 5：飞书原生设备授权流
+
+**文件：**
+- 修改：`packages/api/enterprise-controller/src/contract/channels.ts`
+- 修改：`packages/api/enterprise-controller/src/index.ts`
+- 修改：`packages/client/ui-enterprise-workbench/src/client/EnterpriseWorkbench.tsx`
+- 修改：`packages/client/ui-enterprise-workbench/src/client/store.ts`
+- 测试：`packages/api/enterprise-controller/tests/channel-controller.spec.ts`
+- 测试：`packages/client/ui-enterprise-workbench/tests/workbench.client.spec.tsx`
+
+- [x] 使用飞书官方 Node SDK `registerApp()` 获取设备授权扫码地址，无需预设 App ID、Secret 或公网回调。
+- [x] 只向浏览器返回官方扫码 URL 和不透明安装 ID，由 Host 轮询完成状态。
+- [x] 扫码确认后把 App Secret 直接保存到 Host Credential，自动创建受治理渠道，不向浏览器返回 Secret。
+- [x] 在渠道页内嵌渲染真实二维码，自动等待结果并刷新已创建渠道。
