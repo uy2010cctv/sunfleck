@@ -32,7 +32,7 @@ English | [中文](2026-09-03-channel-bot-auto-install.zh.md)
 - Test: `packages/api/enterprise-controller/tests/channel-controller.spec.ts`
 
 - [x] Add a failing completion test whose fake installer returns verified tenant, application, Bot name, and a Host Credential reference.
-- [x] Derive `channelId` as `<provider>-<sha256(orgId, tenantId, accountId)[0..11]>`, derive the display name from the verified Bot or tenant name, force personal WeChat to identity-only inbound policy, and leave routing on the DSH decision router default.
+- [x] Derive `channelId` as `<provider>-<sha256(orgId, tenantId, accountId)[0..11]>`, derive the display name from the verified Bot or tenant name, and leave routing on the DSH decision router default.
 - [x] Verify the returned Credential reference is configured before committing an active channel with `expectedRevision: 0` and the callback idempotency key.
 - [x] Persist verified provider Bot identity and tenant evidence after channel creation.
 
@@ -77,3 +77,19 @@ English | [中文](2026-09-03-channel-bot-auto-install.zh.md)
 - [x] Return only the official scan URL and opaque installation ID to the browser while the Host polls completion.
 - [x] On scan confirmation, save the App Secret directly in Host Credentials and automatically create the governed channel without returning the Secret to the browser.
 - [x] Render the real QR inline in Channel Settings, wait for completion, and refresh the newly created channel automatically.
+
+### Task 6: Native Tencent WeCom and WeChat QR flows
+
+**Files:**
+- Modify: `packages/api/enterprise-controller/src/contract/channels.ts`
+- Modify: `packages/api/enterprise-controller/src/index.ts`
+- Modify: `packages/channel/channel-kernel/src/index.ts`
+- Modify: `packages/operations/enterprise-operations/src/repository.ts`
+- Modify: `packages/client/ui-enterprise-workbench/src/client/EnterpriseWorkbench.tsx`
+- Test: corresponding controller, kernel, repository, store, and workbench suites
+
+- [x] Follow `@wecom/wecom-openclaw-cli` 1.1.1 to request the official WeCom Bot QR, retain `scode` on the Host, and poll Bot ID/Secret.
+- [x] Follow `@tencent-weixin/openclaw-weixin` 2.4.8 to request the WeChat iLink QR, retain its session value on the Host, and poll Bot ID/token.
+- [x] Store provider credentials directly in the Credential seam and return no QR polling secret, Bot Secret, or token to the browser.
+- [x] Support WeChat's conditional numeric verification step without reintroducing application configuration fields.
+- [x] Limit WeChat to notification, status, and handoff intents; keep Team start, decision response, and approvals inside authenticated DSH.

@@ -107,6 +107,8 @@ export interface EnterpriseChannelCompleteBotInstallRequest {
 /** Poll a provider Device Authorization Grant without exposing its device code. */
 export interface EnterpriseChannelPollBotInstallRequest {
   readonly installId: string
+  /** Conditional numeric proof requested by Tencent Weixin after a scan. */
+  readonly verificationCode?: string
   readonly idempotencyKey: string
 }
 
@@ -114,6 +116,9 @@ export interface EnterpriseChannelPollBotInstallRequest {
 export type EnterpriseChannelPollBotInstallResult = {
   readonly status: 'pending'
   readonly provider: EnterpriseChannelProvider
+} | {
+  readonly status: 'verification-required'
+  readonly provider: 'wechat'
 } | {
   readonly status: 'complete'
   readonly provider: EnterpriseChannelProvider

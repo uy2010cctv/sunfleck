@@ -395,10 +395,10 @@ export interface ChannelIntentPolicy {
   readonly mutation: boolean
 }
 
-/** Resolve provider policy; personal WeChat admits authenticated handoff only. */
+/** Resolve provider policy; personal Weixin chat cannot mutate DSH business state. */
 export function channelIntentPolicy(provider: ChannelProvider, intent: ChannelEnvelopeIntent): ChannelIntentPolicy {
   const mutation = intent === 'team-start' || intent === 'decision-response'
-  return { allowed: provider !== 'wechat' || intent === 'handoff', mutation }
+  return { allowed: provider !== 'wechat' || !mutation, mutation }
 }
 
 /** Hash the provider account and message identity into one stable DSH operation id. */
@@ -424,8 +424,8 @@ export function normalizeChannelEnvelope(
   if (!/^[a-f0-9]{64}$/u.test(input.payloadDigest)) throw new Error('payload digest must be lowercase SHA-256')
   if (!Number.isSafeInteger(input.occurredAt) || input.occurredAt < 0) throw new Error('occurredAt must be non-negative')
   const policy = channelIntentPolicy(input.provider, input.intent)
-  if (!policy.allowed || (input.provider === 'wechat' && input.direction === 'inbound')) {
-    throw new Error('personal WeChat website-app authorization is limited to outbound handoff invitations')
+  if (!policy.allowed) {
+    throw new Error('personal Weixin chat cannot mutate DSH business state')
   }
   const normalized = {
     ...input,

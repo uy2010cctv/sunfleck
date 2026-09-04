@@ -1,7 +1,6 @@
 import { Context } from '@deepseek-ai/cordis'
 import { EnterpriseRequestContext } from '@deepseek-ai/dsh-enterprise-auth-web'
 import type { EnterprisePrincipal } from '@deepseek-ai/dsh-enterprise-governance'
-import { EnterpriseOperationsError } from '@deepseek-ai/dsh-enterprise-operations'
 import { RemoteError } from '@deepseek-ai/dsh-typert-protocol'
 import { describe, expect, it, vi } from 'vitest'
 
@@ -143,6 +142,64 @@ async function larkDeviceInstallBench() {
   }
 }
 
+async function nativeQrInstallBench(provider: 'wecom' | 'wechat') {
+  const api = await import('../src/index.ts') as Record<string, unknown>
+  const Controller = api['EnterpriseChannelController'] as new (ctx: Context, options: Record<string, unknown>) => {
+    beginBotInstall(input: Record<string, unknown>): Promise<Record<string, unknown>>
+    pollBotInstall(input: Record<string, unknown>): Promise<Record<string, unknown>>
+  }
+  const requestContext = new EnterpriseRequestContext()
+  const setCredential = vi.fn().mockResolvedValue(undefined)
+  let completed = false
+  let verificationRequired = false
+  let saved: Record<string, unknown> = {}
+  const fetchProvider = vi.fn(async (input: string | URL, _init?: RequestInit) => {
+    const url = input.toString()
+    if (provider === 'wecom') {
+      if (url.includes('/generate')) return new Response(JSON.stringify({ data: {
+        scode: 'host-only-scode', auth_url: 'https://work.weixin.qq.com/ai/qc/gen?source=wecom-cli&scode=public-code',
+      } }))
+      return new Response(JSON.stringify({ data: completed
+        ? { status: 'success', bot_info: { botid: 'wecom-bot-id', secret: 'wecom-bot-secret' } }
+        : { status: 'wait' } }))
+    }
+    if (url.includes('/get_bot_qrcode')) {
+      return new Response(JSON.stringify({
+        qrcode: 'host-only-qrcode', qrcode_img_content: 'https://liteapp.weixin.qq.com/q/visible-code',
+      }))
+    }
+    return new Response(JSON.stringify(completed
+      ? { status: 'confirmed', bot_token: 'weixin-bot-token', ilink_bot_id: 'weixin-bot-id', ilink_user_id: 'wx-user' }
+      : verificationRequired ? { status: 'need_verifycode' } : { status: 'wait' }))
+  })
+  const saveChannelConfiguration = vi.fn((input: Record<string, unknown>) => {
+    saved = input
+    return Promise.resolve({
+      ...input, bindingStatus: 'unbound', createdBy: input['actorUserId'], revision: 1, createdAt: 1, updatedAt: 1,
+    })
+  })
+  const verifyChannelBinding = vi.fn((input: Record<string, unknown>) => Promise.resolve({
+    ...saved, bindingStatus: 'verified', boundProviderIdentityId: input['providerIdentityId'],
+    boundProviderIdentityName: input['providerIdentityName'], createdBy: 'admin-a', revision: 2, createdAt: 1, updatedAt: 2,
+  }))
+  const ctx = new Context()
+  ctx.provide('enterprisePostgres' as never, { operations: {
+    saveChannelConfiguration, verifyChannelBinding, getChannelConfiguration: vi.fn().mockResolvedValue(undefined),
+  } } as never)
+  ctx.provide('enterpriseRequestContext' as never, requestContext as never)
+  ctx.provide('enterpriseSecurity' as never, {
+    authorizeApiAsync: vi.fn().mockResolvedValue({ allowed: true, reason: 'administrator' }), auditApiAsync: vi.fn(),
+  } as never)
+  ctx.provide('credentials' as never, {
+    set: setCredential, describe: vi.fn().mockResolvedValue({ configured: true, writable: true, source: 'encrypted' }),
+  } as never)
+  return {
+    controller: new Controller(ctx, { fetch: fetchProvider }), requestContext, fetchProvider,
+    setCompleted() { completed = true }, requireVerification() { verificationRequired = true },
+    setCredential, saveChannelConfiguration,
+  }
+}
+
 function begin(bench: Awaited<ReturnType<typeof bindingBench>>, actor = principal, input: Record<string, unknown> = {}) {
   return bench.requestContext.run(actor, () => bench.controller.beginBinding({
     channelId: 'finance-wecom', expectedRevision: 1, redirectUri: 'https://dsh.example.test/channel/callback', ...input,
@@ -269,6 +326,74 @@ describe('enterprise channel Remote controller', () => {
     expect(JSON.stringify(completed)).not.toContain('secret-created')
   })
 
+  it.each([
+    {
+      provider: 'wecom' as const, qrHost: 'work.weixin.qq.com', accountId: 'wecom-bot-id',
+      secret: 'wecom-bot-secret', credentialPattern: /^DSH_WECOM_BOT_[A-F0-9]{12}$/u,
+    },
+    {
+      provider: 'wechat' as const, qrHost: 'liteapp.weixin.qq.com', accountId: 'weixin-bot-id',
+      secret: 'weixin-bot-token', credentialPattern: /^DSH_WEIXIN_BOT_[A-F0-9]{12}$/u,
+    },
+  ])('binds $provider Bot through its Tencent QR protocol without browser-entered credentials', async ({
+    provider, qrHost, accountId, secret, credentialPattern,
+  }) => {
+    const bench = await nativeQrInstallBench(provider)
+    const started = await bench.requestContext.run(principal, () => bench.controller.beginBotInstall({
+      provider, redirectUri: 'https://dsh.example.test/channel/install-callback',
+    }))
+    expect(started).toMatchObject({
+      status: 'ready', provider, completionMode: 'poll',
+      installId: expect.stringMatching(/^[A-Za-z0-9_-]{43}\.[A-Za-z0-9_-]{43}$/u),
+    })
+    expect(new URL(String(started['authorizationUrl'])).host).toBe(qrHost)
+    expect(JSON.stringify(started)).not.toContain('host-only')
+    if (provider === 'wecom') {
+      expect(String(bench.fetchProvider.mock.calls[0]?.[0])).toContain('work.weixin.qq.com/ai/qc/generate')
+    } else {
+      expect(bench.fetchProvider.mock.calls[0]?.[1]).toMatchObject({
+        method: 'POST', headers: expect.objectContaining({
+          'iLink-App-Id': 'bot', 'iLink-App-ClientVersion': '132104', AuthorizationType: 'ilink_bot_token',
+        }),
+      })
+    }
+
+    await expect(bench.requestContext.run(principal, () => bench.controller.pollBotInstall({
+      installId: started['installId'], idempotencyKey: `poll-${provider}-create`,
+    }))).resolves.toEqual({ status: 'pending', provider })
+
+    bench.setCompleted()
+    const result = await bench.requestContext.run(principal, () => bench.controller.pollBotInstall({
+      installId: started['installId'], idempotencyKey: `poll-${provider}-create`,
+    }))
+    expect(bench.setCredential).toHaveBeenCalledWith(expect.stringMatching(credentialPattern), secret)
+    expect(bench.saveChannelConfiguration).toHaveBeenCalledWith(expect.objectContaining({
+      provider, accountId, inboundEnabled: true, state: 'active', expectedRevision: 0,
+    }))
+    expect(bench.saveChannelConfiguration.mock.calls[0]?.[0]).not.toHaveProperty('tenantId')
+    expect(result).toMatchObject({ status: 'complete', provider, channel: {
+      provider, accountId, bindingStatus: 'verified', credentialStatus: 'configured',
+    } })
+    expect(JSON.stringify(result)).not.toContain(secret)
+  })
+
+  it('forwards a conditional Weixin verification number only to the Host polling request', async () => {
+    const bench = await nativeQrInstallBench('wechat')
+    const started = await bench.requestContext.run(principal, () => bench.controller.beginBotInstall({
+      provider: 'wechat', redirectUri: 'https://dsh.example.test/channel/install-callback',
+    }))
+    bench.requireVerification()
+    await expect(bench.requestContext.run(principal, () => bench.controller.pollBotInstall({
+      installId: started['installId'], idempotencyKey: 'poll-weixin-verify',
+    }))).resolves.toEqual({ status: 'verification-required', provider: 'wechat' })
+
+    bench.setCompleted()
+    await bench.requestContext.run(principal, () => bench.controller.pollBotInstall({
+      installId: started['installId'], verificationCode: '123456', idempotencyKey: 'poll-weixin-verify',
+    }))
+    expect(String(bench.fetchProvider.mock.calls.at(-1)?.[0])).toContain('verify_code=123456')
+  })
+
   it('injects organization and actor, returns secret-free readiness, and preserves provider policy', async () => {
     const api = await import('../src/index.ts') as Record<string, unknown>
     const Controller = api['EnterpriseChannelController'] as new (ctx: Context) => {
@@ -283,9 +408,6 @@ describe('enterprise channel Remote controller', () => {
     }
     const { tenantId: _savedTenantId, ...savedWithoutTenant } = saved
     const saveChannelConfiguration = vi.fn((input: Record<string, unknown>) => {
-      if (input['provider'] === 'wecom' && input['state'] === 'active' && input['tenantId'] === undefined) {
-        return Promise.reject(new EnterpriseOperationsError('invalid-state', 'channel', String(input['channelId'])))
-      }
       return Promise.resolve({ ...savedWithoutTenant, ...input })
     })
     const personal = {
@@ -332,9 +454,9 @@ describe('enterprise channel Remote controller', () => {
       channelId: 'wecom-no-corp', name: 'WeCom', provider: 'wecom', accountId: 'agent-a',
       credentialRef: 'WECOM_SECRET', inboundEnabled: true, state: 'active', expectedRevision: 0,
       idempotencyKey: 'wecom-no-corp-save',
-    }))).rejects.toMatchObject({ code: 'enterprise-invalid-state' })
+    }))).resolves.toMatchObject({ provider: 'wecom', accountId: 'agent-a', state: 'active' })
     const listed = await requestContext.run(principal, () => controller.list({}))
-    expect(listed.items[1]).toMatchObject({ provider: 'wechat', allowedIntents: ['handoff'] })
+    expect(listed.items[1]).toMatchObject({ provider: 'wechat', allowedIntents: ['notify', 'handoff', 'status'] })
     expect(JSON.stringify(listed)).not.toContain('encrypted')
   })
 
