@@ -1014,7 +1014,7 @@ export class EnterpriseChannelController extends TypertRemoteService {
           try {
             const authorization = new URL(url)
             if (authorization.protocol !== 'https:' || authorization.host !== 'open.feishu.cn'
-              || expireIn <= 0 || expireIn * 1_000 > CHANNEL_BINDING_TTL_MS) {
+              || !Number.isFinite(expireIn) || expireIn <= 0) {
               throw new Error('invalid Feishu registration QR')
             }
             qrDelivered = true
