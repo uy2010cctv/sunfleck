@@ -1099,6 +1099,8 @@ describe('EnterpriseWorkbench', () => {
     } as never)
     const { container, rerender } = render(<EnterpriseWorkbench {...props}/>)
     expect(screen.getByRole('heading', { name: '团队协作指挥台' })).toBeDefined()
+    expect(screen.queryByRole('button', { name: '编辑章程' })).toBeNull()
+    expect(screen.queryByRole('button', { name: '保存草稿' })).toBeNull()
     expect(container.querySelector('details')?.open).toBe(false)
     expect(screen.getByRole('button', { name: '选择采购交付组章程' }).getAttribute('aria-pressed')).toBe('false')
     expect(screen.getAllByText('让采购交付可验证').length).toBeGreaterThan(0)
@@ -1129,6 +1131,154 @@ describe('EnterpriseWorkbench', () => {
     expect(openRecord).toHaveBeenLastCalledWith('session-team')
     fireEvent.click(screen.getByRole('button', { name: '批准' }))
     expect(respondTeamDecision).toHaveBeenCalledWith(expect.objectContaining({ decisionId: 'decision-a' }), '批准')
+  })
+
+  it('creates a charter draft without exposing internal JSON or ids', async () => {
+    const saveTeamDefinition = vi.fn((_input: Parameters<EnterpriseWorkbenchProps['saveTeamDefinition']>[0]) => Promise.resolve(true))
+    render(<EnterpriseWorkbench {...workbenchProps({
+      state: { mode: 'enterprise', page: 'teams', releases: [{
+        releaseId: 'release-lead', presetId: 'lead', orgId: 'o', version: 1, digest: 'a',
+        snapshot: { profile: { name: '采购领队' }, bindings: [] }, publishedBy: 'u', publishedAt: 1,
+      }] as never }, saveTeamDefinition,
+    } as never)} />)
+
+    fireEvent.click(screen.getByRole('button', { name: '新建章程' }))
+    expect(screen.getByRole('heading', { name: '新建团队章程' })).toBeDefined()
+    expect(screen.queryByText(/JSON/u)).toBeNull()
+    expect(screen.queryByLabelText('团队 ID')).toBeNull()
+    fireEvent.change(screen.getByLabelText('团队名称'), { target: { value: '采购协同组' } })
+    fireEvent.change(screen.getByLabelText('Human 负责人'), { target: { value: 'owner-1' } })
+    fireEvent.change(screen.getByLabelText('领队 Agent'), { target: { value: 'release-lead' } })
+    fireEvent.click(screen.getByRole('button', { name: '保存草稿' }))
+
+    await waitFor(() => { expect(saveTeamDefinition).toHaveBeenCalledOnce() })
+    expect(saveTeamDefinition).toHaveBeenCalledWith(expect.objectContaining({
+      teamId: expect.stringMatching(/^team-/u), name: '采购协同组', ownerUserId: 'owner-1',
+      state: 'needs-charter', expectedRevision: 0,
+      attentionPolicy: { decisionQueue: 'centralized' },
+    }))
+  })
+
+  it('confirms before discarding unsaved charter changes', () => {
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValueOnce(false).mockReturnValueOnce(true)
+    render(<EnterpriseWorkbench {...workbenchProps({
+      state: { mode: 'enterprise', page: 'teams', releases: [] },
+    } as never)} />)
+    fireEvent.click(screen.getByRole('button', { name: '新建章程' }))
+    fireEvent.change(screen.getByLabelText('团队名称'), { target: { value: '未保存团队' } })
+    fireEvent.click(screen.getByRole('button', { name: '取消' }))
+    expect(screen.getByRole('heading', { name: '新建团队章程' })).toBeDefined()
+    fireEvent.click(screen.getByRole('button', { name: '取消' }))
+    expect(screen.queryByRole('heading', { name: '新建团队章程' })).toBeNull()
+    expect(confirm).toHaveBeenCalledTimes(2)
+  })
+
+  it('improves a migrated charter and activates its governed Human-Agent roster', async () => {
+    const saveTeamDefinition = vi.fn(() => Promise.resolve(true))
+    const releases = [{
+      releaseId: 'release-lead', presetId: 'lead', orgId: 'o', version: 2, digest: 'a',
+      snapshot: { profile: { name: '采购领队' }, bindings: [] }, publishedBy: 'u', publishedAt: 1,
+    }, {
+      releaseId: 'release-verifier', presetId: 'verifier', orgId: 'o', version: 1, digest: 'b',
+      snapshot: { profile: { name: '交付核验员' }, bindings: [] }, publishedBy: 'u', publishedAt: 1,
+    }] as never
+    const definition = {
+      teamId: 'team-migrated', orgId: 'org-a', name: '旧采购组', northStar: '', ownerUserId: 'system:legacy-fixed-team-migration',
+      visibility: 'organization', leaderEmployeeReleaseId: 'release-lead',
+      roster: [{ actor: { kind: 'agent', employeeReleaseId: 'release-lead' }, roleId: 'lead' }],
+      roles: [{ roleId: 'lead', name: 'Agent lead', responsibility: '' }],
+      verificationPolicy: {}, attentionPolicy: {}, approvalPolicy: {}, revision: 1,
+      state: 'needs-charter', createdAt: 1, updatedAt: 1,
+    }
+    render(<EnterpriseWorkbench {...workbenchProps({
+      state: {
+        mode: 'enterprise', page: 'teams', releases,
+        teamDefinitions: { phase: 'ready', items: [definition], error: null } as never,
+      }, saveTeamDefinition,
+    } as never)} />)
+
+    fireEvent.click(screen.getByRole('button', { name: '完善章程' }))
+    expect(screen.getByRole('heading', { name: '完善团队章程' })).toBeDefined()
+    expect((screen.getByLabelText('Human 负责人') as HTMLInputElement).value).toBe('')
+    fireEvent.change(screen.getByLabelText('北极星目标'), { target: { value: '让每次采购交付都可验证、可追溯' } })
+    fireEvent.change(screen.getByLabelText('Human 负责人'), { target: { value: 'owner-1' } })
+    fireEvent.change(screen.getByLabelText('Agent lead 职责说明'), { target: { value: '拆解工作并持续汇报' } })
+    fireEvent.click(screen.getByRole('radio', { name: '选择交付核验员为验证 Agent' }))
+    fireEvent.change(screen.getByLabelText('验收标准'), { target: { value: '来源可追溯\n金额复核通过' } })
+    fireEvent.click(screen.getByRole('button', { name: '保存并启用' }))
+
+    await waitFor(() => { expect(saveTeamDefinition).toHaveBeenCalledOnce() })
+    expect(saveTeamDefinition).toHaveBeenCalledWith(expect.objectContaining({
+      teamId: 'team-migrated', northStar: '让每次采购交付都可验证、可追溯', ownerUserId: 'owner-1',
+      leaderEmployeeReleaseId: 'release-lead', state: 'active', expectedRevision: 1,
+      roster: expect.arrayContaining([
+        { actor: { kind: 'human', userId: 'owner-1' }, roleId: 'owner' },
+        { actor: { kind: 'agent', employeeReleaseId: 'release-lead' }, roleId: 'lead' },
+        { actor: { kind: 'agent', employeeReleaseId: 'release-verifier' }, roleId: 'verifier' },
+      ]),
+      verificationPolicy: expect.objectContaining({
+        verifierRequired: true, rubricRefs: ['来源可追溯', '金额复核通过'], highRiskHumanReviewRequired: true,
+      }),
+    }))
+  })
+
+  it('preserves unexposed migrated governance and reloads a newer charter revision', async () => {
+    const saveTeamDefinition = vi.fn((_input: Parameters<EnterpriseWorkbenchProps['saveTeamDefinition']>[0]) => Promise.resolve(true))
+    const baseDefinition = {
+      teamId: 'team-roundtrip', orgId: 'org-a', name: '迁移团队', northStar: '', ownerUserId: '',
+      visibility: 'organization', leaderEmployeeReleaseId: 'release-lead',
+      roster: [
+        { actor: { kind: 'human', userId: 'observer-1' }, roleId: 'observer' },
+        { actor: { kind: 'agent', employeeReleaseId: 'release-lead' }, roleId: 'coordinator' },
+      ],
+      roles: [
+        { roleId: 'observer', name: '观察员', responsibility: '监督业务边界' },
+        { roleId: 'coordinator', name: '协调者', responsibility: '' },
+      ],
+      verificationPolicy: { verifierRequired: false, rubricRefs: [], highRiskHumanReviewRequired: true },
+      attentionPolicy: { decisionQueue: 'centralized', openDecisionLimit: 7 },
+      approvalPolicy: { retainCustomGate: true }, revision: 1, state: 'needs-charter', createdAt: 1, updatedAt: 1,
+    }
+    const release = [{
+      releaseId: 'release-lead', presetId: 'lead', orgId: 'o', version: 1, digest: 'a',
+      snapshot: { profile: { name: '迁移领队' }, bindings: [] }, publishedBy: 'u', publishedAt: 1,
+    }] as never
+    const props = (definition: typeof baseDefinition) => workbenchProps({
+      state: {
+        mode: 'enterprise', page: 'teams', releases: release,
+        teamDefinitions: { phase: 'ready', items: [definition], error: null } as never,
+      }, saveTeamDefinition,
+    } as never)
+    const { rerender } = render(<EnterpriseWorkbench {...props(baseDefinition)}/>)
+    fireEvent.click(screen.getByRole('button', { name: '完善章程' }))
+    fireEvent.change(screen.getByLabelText('团队名称'), { target: { value: '本地未保存名称' } })
+
+    rerender(<EnterpriseWorkbench {...props({ ...baseDefinition, name: '服务器新版本', revision: 2 })}/>)
+    expect((screen.getByLabelText('团队名称') as HTMLInputElement).value).toBe('本地未保存名称')
+    expect(screen.getByText('服务器已有更新版本')).toBeDefined()
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    fireEvent.click(screen.getByRole('button', { name: '载入服务器版本' }))
+    expect((screen.getByLabelText('团队名称') as HTMLInputElement).value).toBe('服务器新版本')
+    fireEvent.change(screen.getByLabelText('Human 负责人'), { target: { value: 'owner-1' } })
+    fireEvent.change(screen.getByLabelText('协调者 职责说明'), { target: { value: '协调既有流程' } })
+    fireEvent.click(screen.getByText('注意力与并发上限'))
+    fireEvent.change(screen.getByLabelText('待 Human 决策上限'), { target: { value: '' } })
+    fireEvent.click(screen.getByRole('button', { name: '保存草稿' }))
+
+    await waitFor(() => { expect(saveTeamDefinition).toHaveBeenCalledOnce() })
+    expect(saveTeamDefinition).toHaveBeenCalledWith(expect.objectContaining({
+      expectedRevision: 2,
+      roster: expect.arrayContaining([
+        { actor: { kind: 'human', userId: 'observer-1' }, roleId: 'observer' },
+        { actor: { kind: 'agent', employeeReleaseId: 'release-lead' }, roleId: 'coordinator' },
+      ]),
+      roles: expect.arrayContaining([
+        { roleId: 'observer', name: '观察员', responsibility: '监督业务边界' },
+        { roleId: 'coordinator', name: '协调者', responsibility: '协调既有流程' },
+      ]),
+      approvalPolicy: expect.objectContaining({ retainCustomGate: true }),
+    }))
+    expect(saveTeamDefinition.mock.calls[0]![0].attentionPolicy).not.toHaveProperty('openDecisionLimit')
   })
 
   it('offers a primary creation action when the managed employee roster is empty', () => {

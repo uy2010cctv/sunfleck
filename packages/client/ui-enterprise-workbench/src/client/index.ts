@@ -235,6 +235,7 @@ export function apply(ctx: Context): void {
     saveAssetVersion: input => controller.saveAssetVersion(input),
     archiveAsset: asset => controller.archiveAsset(asset),
     saveTeam: input => controller.saveTeam(input),
+    saveTeamDefinition: input => controller.saveTeamDefinition(input),
     startTeamRun: input => controller.startTeamRun(input),
     cancelTeamRun: run => controller.cancelTeamRun(run),
     respondTeamDecision: (decision, answer) => controller.respondTeamDecision(decision, answer),

@@ -1133,6 +1133,17 @@ export class EnterpriseWorkbenchController {
     () => this.reloadPageConflict('teams', () => this.refreshTeams()))
   }
 
+  /** Save a versioned Human-Agent team charter. */
+  async saveTeamDefinition(input: Omit<EnterpriseTeamDefinition, 'orgId' | 'revision' | 'createdAt' | 'updatedAt'> & {
+    expectedRevision: number
+  }): Promise<boolean> {
+    const idempotencyKey = mutationKey('team-definition-save')
+    return this.runMutation('team-definition-save', async () => valueOf(await this.api.enterpriseTeamDefinitions.save({
+      ...input, idempotencyKey,
+    })), () => this.refreshTeamDefinitions(), undefined,
+    () => this.reloadPageConflict('teamDefinitions', () => this.refreshTeamDefinitions()))
+  }
+
   /**
    * Save one channel configuration; secret values are never accepted here.
    * @param input - provider account, Credential reference, DSH route, and write guards.
