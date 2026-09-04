@@ -94,6 +94,36 @@ function nearestManifest(modulePath: string): string | undefined {
   }
 }
 
+/** Resolve the manifest from the exact module URL already selected by the Loader. */
+function loaderResolvedPackageManifest(entry: Entry, packageName: string, baseUrl: string): string | undefined {
+  const internal = entry.loader.internal
+  if (internal === undefined || typeof Reflect.get(internal, 'resolveSync') !== 'function') return undefined
+  let moduleUrl: string
+  try {
+    moduleUrl = internal.version === 'v2'
+      ? internal.resolveSync(baseUrl, { specifier: entry.options.name, attributes: {} }).url
+      : internal.resolveSync(entry.options.name, baseUrl, {}).url
+  } catch {
+    return undefined
+  }
+  if (!moduleUrl.startsWith('file:')) return undefined
+  let current = dirname(fileURLToPath(moduleUrl))
+  const root = parse(current).root
+  while (true) {
+    const manifest = join(current, 'package.json')
+    if (existsSync(manifest)) {
+      try {
+        const value = JSON.parse(readFileSync(manifest, 'utf8')) as PackageManifest
+        if (value.name === packageName) return manifest
+      } catch {
+        // An unreadable intermediate manifest cannot own the resolved module.
+      }
+    }
+    if (current === root) return undefined
+    current = dirname(current)
+  }
+}
+
 /** Exact package identity resolver with immutable per-process manifest caching. */
 class PackageIdentityResolver {
   // TODO: Invalidate manifest identities if in-process package-version replacement becomes a supported upgrade path.
@@ -112,7 +142,8 @@ class PackageIdentityResolver {
     const packageName = barePackageName(entry.options.name)
     let manifest: string | undefined
     if (packageName !== undefined) {
-      manifest = barePackageManifest(packageName, anchors)
+      manifest = (bareBaseUrl === undefined ? loaderResolvedPackageManifest(entry, packageName, treeBase) : undefined)
+        ?? barePackageManifest(packageName, anchors)
       if (manifest === undefined) {
         throw new Error(`plugin-package-inventory-deepseek: cannot resolve active package ${JSON.stringify(packageName)}`)
       }

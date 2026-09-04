@@ -169,6 +169,38 @@ describe('DeepSeek plugin package inventory', () => {
       .rejects.toThrow(/cannot resolve active package/)
   })
 
+  it.each(['v1', 'v2'] as const)(
+    'uses the %s Loader-resolved module location for a source-checkout package',
+    async (version) => {
+      const { ctx, root } = await harness()
+      const packageName = `@fixture/source-checkout-${version}`
+      const relative = await packagePlugin(root, `source-checkout-${version}`, {
+        name: packageName, version: '4.2.0',
+      })
+      const hostPath = join(root, relative.slice(2))
+      const entryBaseUrl = ctx.loader.ctx.baseUrl!
+      const calls: unknown[][] = []
+      ctx.loader.internal = {
+        version,
+        import: async () => ({ default: () => {} }),
+        resolveSync: (...args: unknown[]) => {
+          calls.push(args)
+          return { format: 'module' as const, url: pathToFileURL(hostPath).href }
+        },
+      } as unknown as NonNullable<Context['loader']['internal']>
+      await ctx.loader.create({ name: packageName })
+
+      const prepared = await ctx.deepseekLlmApiExtensions.prepare({ body: {}, signal: SIGNAL })
+
+      expect(calls).toEqual(version === 'v2'
+        ? [[entryBaseUrl, { specifier: packageName, attributes: {} }]]
+        : [[packageName, entryBaseUrl, {}]])
+      expect(prepared.fields.dsh_plugin_packages).toEqual({
+        version: 1, packages: [{ name: packageName, version: '4.2.0' }],
+      })
+    },
+  )
+
   it('supports a direct embedding whose context has no base URL', async () => {
     const ctx = new Context()
     contexts.push(ctx)
