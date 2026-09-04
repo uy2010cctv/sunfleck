@@ -242,6 +242,7 @@ export function apply(ctx: Context): void {
     archiveChannelConfiguration: channel => controller.archiveChannelConfiguration(channel),
     beginChannelBinding: (channel, redirectUri) => controller.beginChannelBinding(channel, redirectUri),
     beginChannelBotInstall: (provider, redirectUri) => controller.beginChannelBotInstall(provider, redirectUri),
+    pollChannelBotInstall: installId => controller.pollChannelBotInstall(installId),
     refreshChannels: () => controller.refreshChannels(),
     setExtensionWorkspace: (workspaceId) => { controller.setExtensionWorkspace(workspaceId) },
     refreshExtensions: () => controller.refreshExtensions(),

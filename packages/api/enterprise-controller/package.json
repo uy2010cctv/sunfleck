@@ -9,7 +9,7 @@
     "directory": "packages/api/enterprise-controller"
   },
   "type": "module",
-  "dependencies": { "zod": "^4.4.3" },
+  "dependencies": { "@larksuiteoapi/node-sdk": "1.73.2", "zod": "^4.4.3" },
   "main": "lib/index.js",
   "types": "lib/types/index.d.ts",
   "exports": {

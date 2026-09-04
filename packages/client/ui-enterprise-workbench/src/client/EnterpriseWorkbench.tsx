@@ -1,6 +1,7 @@
 /* oxlint-disable @stylistic/max-len */
 /** Enterprise digital-employee roster and operations overlay. */
 import { useEffect, useRef, useState, type ReactNode } from 'react'
+import QRCode from 'qrcode'
 import {
   IconApiOutline14, IconCheckOutline16, IconChecklistOutline14, IconCloseOutline16,
   IconContextInjectionOutline16, IconCordisPluginOutline14, IconEditOutline16, IconPlayOutline16,
@@ -14,7 +15,7 @@ import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import { randomUUID } from '@deepseek-ai/dsh-util-crypto'
 import type {
   EnterpriseApproval, EnterpriseAsset, EnterpriseAssetKind, EnterpriseBusinessState,
-  EnterpriseChannelBindingSession, EnterpriseChannelBotInstallResult, EnterpriseChannelConfiguration, EnterpriseEmployeeDraft, EnterpriseEmployeeRelease, EnterpriseSchedule, EnterpriseScheduleTarget, EnterpriseTeam,
+  EnterpriseChannelBindingSession, EnterpriseChannelBotInstallResult, EnterpriseChannelConfiguration, EnterpriseChannelPollBotInstallResult, EnterpriseEmployeeDraft, EnterpriseEmployeeRelease, EnterpriseSchedule, EnterpriseScheduleTarget, EnterpriseTeam,
   EnterpriseTeamAutonomyGrant, EnterpriseTeamDecision, EnterpriseTeamDefinition, EnterpriseTeamMember,
   EnterpriseTeamRun, EnterpriseVisibility, EnterpriseWorkRecord as OperationWorkRecord,
   CordisPackageVersion, CordisReviewRequest, CordisScopeBinding,
@@ -62,6 +63,7 @@ export interface EnterpriseWorkbenchInjected {
   archiveChannelConfiguration: (channel: EnterpriseChannelConfiguration) => Promise<void>
   beginChannelBinding: (channel: EnterpriseChannelConfiguration, redirectUri: string) => Promise<EnterpriseChannelBindingSession>
   beginChannelBotInstall: (provider: EnterpriseChannelConfiguration['provider'], redirectUri: string) => Promise<EnterpriseChannelBotInstallResult>
+  pollChannelBotInstall: (installId: string) => Promise<EnterpriseChannelPollBotInstallResult>
   refreshChannels: () => Promise<boolean>
   startTeamRun: (input: { teamId: string; expectedTeamRevision: number; workspaceId: string; prompt: string }) => Promise<boolean>
   cancelTeamRun: (run: EnterpriseTeamRun) => Promise<void>
@@ -717,6 +719,21 @@ function TeamAttentionPage({ page, runs, definitions, api, busy, t }: { page: En
 const CHANNEL_PROVIDERS = ['wecom', 'feishu', 'dingtalk', 'wechat'] as const
 const CHANNEL_BINDING_RECONCILE_MS = 1_500
 type ChannelRecoveryTarget = 'configuration' | 'binding'
+
+function ProviderInstallQr({ value, label }: { value: string; label: string }) {
+  const code = QRCode.create(value, { errorCorrectionLevel: 'M' })
+  let path = ''
+  for (let row = 0; row < code.modules.size; row += 1) {
+    for (let column = 0; column < code.modules.size; column += 1) {
+      if (code.modules.get(row, column)) path += `M${column} ${row}h1v1h-1z`
+    }
+  }
+  return <svg className={css.channelInstallQr} role="img" aria-label={label}
+    viewBox={`-2 -2 ${code.modules.size + 4} ${code.modules.size + 4}`} shapeRendering="crispEdges">
+    <rect x="-2" y="-2" width={code.modules.size + 4} height={code.modules.size + 4} fill="white"/>
+    <path d={path} fill="black"/>
+  </svg>
+}
 function ChannelsPage({ page, api, busy, t }: {
   page: EnterprisePageState<EnterpriseChannelConfiguration>
   api: EnterpriseWorkbenchInjected
@@ -727,8 +744,9 @@ function ChannelsPage({ page, api, busy, t }: {
 }) {
   const [botInstall, setBotInstall] = useState<{
     provider: EnterpriseChannelConfiguration['provider']
-    phase: 'opening' | 'setup-required' | 'unsupported' | 'error'
+    phase: 'opening' | 'waiting' | 'setup-required' | 'unsupported' | 'error'
     officialDocumentationUrl?: string
+    qrValue?: string
   } | null>(null)
   const [binding, setBinding] = useState<{
     generation: number
@@ -753,6 +771,7 @@ function ChannelsPage({ page, api, busy, t }: {
     provider: EnterpriseChannelConfiguration['provider']
     popup: Window
     broadcast: BroadcastChannel
+    pollTimer?: number
   } | null>(null)
   const isActiveAttempt = (generation: number, popup: Window): boolean => {
     const active = activeBinding.current
@@ -781,8 +800,16 @@ function ChannelsPage({ page, api, busy, t }: {
     }
   }
   const releaseBotInstall = (): void => {
+    const timer = activeBotInstall.current?.pollTimer
+    if (timer !== undefined) window.clearTimeout(timer)
     activeBotInstall.current?.broadcast.close()
     activeBotInstall.current = null
+  }
+  const cancelBotInstall = (): void => {
+    const active = activeBotInstall.current
+    releaseBotInstall()
+    if (active !== null && !active.popup.closed) active.popup.close()
+    setBotInstall(null)
   }
   const acceptBotInstallSignal = (value: unknown): void => {
     const active = activeBotInstall.current
@@ -877,6 +904,26 @@ function ChannelsPage({ page, api, busy, t }: {
     }, CHANNEL_BINDING_RECONCILE_MS)
     return () => { window.clearTimeout(reconcile) }
   }, [binding, page.items, t])
+  const pollDeviceInstall = async (active: NonNullable<typeof activeBotInstall.current>): Promise<void> => {
+    if (activeBotInstall.current !== active || active.attemptId === null) return
+    try {
+      const result = await api.pollChannelBotInstall(active.attemptId)
+      if (activeBotInstall.current !== active) return
+      if (result.status === 'complete') {
+        if (!active.popup.closed) active.popup.close()
+        releaseBotInstall()
+        setBotInstall(null)
+        void api.refreshChannels()
+        return
+      }
+      active.pollTimer = window.setTimeout(() => { void pollDeviceInstall(active) }, 500)
+    } catch {
+      if (!active.popup.closed) active.popup.close()
+      const provider = active.provider
+      releaseBotInstall()
+      setBotInstall({ provider, phase: 'error' })
+    }
+  }
   const startBotInstall = async (provider: EnterpriseChannelConfiguration['provider']): Promise<void> => {
     const previous = activeBotInstall.current
     if (previous !== null) {
@@ -899,14 +946,26 @@ function ChannelsPage({ page, api, busy, t }: {
       const result = await api.beginChannelBotInstall(provider, channelBotInstallCallbackUri(window.location))
       if (result.status === 'ready') {
         const authorization = new URL(result.authorizationUrl)
-        const state = officialChannelBindingState(authorization)
         const active = activeBotInstall.current
-        if (authorization.protocol !== 'https:' || state === null || active === null || popup === null) {
+        if (authorization.protocol !== 'https:' || active === null || popup === null) {
           throw new Error('invalid provider installation URL')
         }
-        active.attemptId = state
+        if (result.completionMode === 'poll') {
+          if (result.provider !== 'feishu' || authorization.host !== 'open.feishu.cn') {
+            throw new Error('invalid provider Device Grant URL')
+          }
+          active.attemptId = result.installId
+        } else {
+          const state = officialChannelBindingState(authorization)
+          if (state === null || state !== result.installId) throw new Error('invalid provider callback state')
+          active.attemptId = state
+        }
         popup.opener = null
         popup.location.href = authorization.href
+        if (result.completionMode === 'poll') {
+          setBotInstall({ provider, phase: 'waiting', qrValue: authorization.href })
+          void pollDeviceInstall(active)
+        }
         return
       }
       if (popup !== null && !popup.closed) popup.close()
@@ -1045,8 +1104,8 @@ function ChannelsPage({ page, api, busy, t }: {
     <div className={css.channelPrinciple}><IconApiOutline14 size={16}/><div><strong>{t('channel.truthTitle')}</strong><span>{t('channel.truthBody')}</span></div></div>
     <div className={css.channelProviderStarts} aria-label={t('channel.botInstall.choicesAria')}>{CHANNEL_PROVIDERS.map(provider => <button type="button" className={provider === 'wecom' ? css.primaryButton : css.secondaryButton} key={provider} onClick={() => { void startBotInstall(provider) }}>{t(`channel.botInstall.start.${provider}`)}</button>)}</div>
     {botInstall !== null && <section className={css.channelBotInstall} role={botInstall.phase === 'error' ? 'alert' : 'status'}>
-      <div><h3>{t(`channel.botInstall.title.${botInstall.phase}`, { provider: t(`channel.provider.${botInstall.provider}`) })}</h3><p>{t(`channel.botInstall.body.${botInstall.phase}.${botInstall.provider}`)}</p></div>
-      <div>{botInstall.officialDocumentationUrl !== undefined && <a href={botInstall.officialDocumentationUrl} target="_blank" rel="noopener noreferrer">{t('channel.botInstall.officialSetup')}</a>}<button type="button" className={css.textButton} onClick={() => { setBotInstall(null) }}>{t('cancel')}</button></div>
+      <div><h3>{t(`channel.botInstall.title.${botInstall.phase}`, { provider: t(`channel.provider.${botInstall.provider}`) })}</h3><p>{t(`channel.botInstall.body.${botInstall.phase}.${botInstall.provider}`)}</p>{botInstall.qrValue !== undefined && <ProviderInstallQr value={botInstall.qrValue} label={t('channel.botInstall.qrAlt', { provider: t(`channel.provider.${botInstall.provider}`) })}/>}</div>
+      <div>{botInstall.officialDocumentationUrl !== undefined && <a href={botInstall.officialDocumentationUrl} target="_blank" rel="noopener noreferrer">{t('channel.botInstall.officialSetup')}</a>}<button type="button" className={css.textButton} onClick={cancelBotInstall}>{t('cancel')}</button></div>
     </section>}
     {attention.length > 0 && <section className={css.channelAttention} aria-label={t('channel.attentionAria')}>
       {attention.map(item => <button type="button" key={item.channel.channelId} aria-label={t('channel.attention.open', { name: item.channel.name, reason: item.reason })} onClick={() => { focusRecoveryAction(item.channel.channelId, item.target) }} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); focusRecoveryAction(item.channel.channelId, item.target) } else if (event.key === ' ') event.preventDefault() }} onKeyUp={(event) => { if (event.key === ' ') { event.preventDefault(); focusRecoveryAction(item.channel.channelId, item.target) } }}>
