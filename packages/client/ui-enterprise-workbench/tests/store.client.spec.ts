@@ -191,6 +191,7 @@ function controllerApi(overrides: Record<string, unknown> = {}) {
       listVersions: () => ok([]), archive: () => ok({}),
     },
     enterpriseTeams: { list: () => ok({ items: [] }), get: () => ok({}), save: () => ok({}) },
+    enterpriseTeamDefinitions: { list: () => ok({ items: [] }), get: () => ok({}), save: () => ok({}), archive: () => ok({}) },
     enterpriseChannels: {
       list: () => ok({ items: [] }), get: () => ok({}), save: () => ok({}), archive: () => ok({}),
       beginBinding: () => ok({}), completeBinding: () => ok({}),
@@ -436,6 +437,36 @@ describe('EnterpriseWorkbenchController edits, mutations, and events', () => {
       teamId: 't', leaderEmployeeReleaseId: 'r', members: [], workflowTemplate: {},
       approvalPolicy: {}, expectedRevision: 0,
     })).resolves.toBe(true)
+  })
+
+  it('saves a typed team charter and refreshes the versioned definition projection', async () => {
+    const save = vi.fn(() => ok({}))
+    const list = vi.fn(() => ok({ items: [] }))
+    const base = controllerApi(); const services = controllerServices()
+    const controller = new EnterpriseWorkbenchController(controllerApi({
+      enterpriseTeamDefinitions: { ...base.enterpriseTeamDefinitions, save, list },
+    }) as never, services.sessions as never, services.workspaces as never)
+
+    await expect(controller.saveTeamDefinition({
+      teamId: 'team-charter', name: '采购协同组', northStar: '让采购交付可验证',
+      ownerUserId: 'owner-1', visibility: 'organization', leaderEmployeeReleaseId: 'release-lead',
+      roster: [
+        { actor: { kind: 'human', userId: 'owner-1' }, roleId: 'owner' },
+        { actor: { kind: 'agent', employeeReleaseId: 'release-lead' }, roleId: 'lead' },
+      ],
+      roles: [
+        { roleId: 'owner', name: 'Human owner', responsibility: 'Own goals and irreversible decisions.' },
+        { roleId: 'lead', name: 'Agent lead', responsibility: 'Break down, coordinate, and report work.' },
+      ],
+      verificationPolicy: { verifierRequired: true, rubricRefs: ['交付标准'], highRiskHumanReviewRequired: true },
+      attentionPolicy: { decisionQueue: 'centralized', openDecisionLimit: 5, workInProgressLimit: 3 },
+      approvalPolicy: { highRiskApprovalRequired: true }, state: 'active', expectedRevision: 2,
+    })).resolves.toBe(true)
+
+    expect(save).toHaveBeenCalledWith(expect.objectContaining({
+      teamId: 'team-charter', expectedRevision: 2, idempotencyKey: expect.stringMatching(/^team-definition-save:/u),
+    }))
+    expect(list).toHaveBeenCalledWith({ limit: 50 })
   })
 
   it('deduplicates concurrent starts for the same employee', async () => {
