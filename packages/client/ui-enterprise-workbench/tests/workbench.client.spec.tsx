@@ -1176,16 +1176,19 @@ describe('EnterpriseWorkbench', () => {
   it('improves a migrated charter and activates its governed Human-Agent roster', async () => {
     const saveTeamDefinition = vi.fn(() => Promise.resolve(true))
     const releases = [{
-      releaseId: 'release-lead', presetId: 'lead', orgId: 'o', version: 2, digest: 'a',
+      releaseId: 'release-lead-old', presetId: 'lead', orgId: 'o', version: 1, digest: 'old',
       snapshot: { profile: { name: '采购领队' }, bindings: [] }, publishedBy: 'u', publishedAt: 1,
+    }, {
+      releaseId: 'release-lead', presetId: 'lead', orgId: 'o', version: 2, digest: 'a',
+      snapshot: { profile: { name: '采购领队' }, bindings: [] }, publishedBy: 'u', publishedAt: 2,
     }, {
       releaseId: 'release-verifier', presetId: 'verifier', orgId: 'o', version: 1, digest: 'b',
       snapshot: { profile: { name: '交付核验员' }, bindings: [] }, publishedBy: 'u', publishedAt: 1,
     }] as never
     const definition = {
       teamId: 'team-migrated', orgId: 'org-a', name: '旧采购组', northStar: '', ownerUserId: 'system:legacy-fixed-team-migration',
-      visibility: 'organization', leaderEmployeeReleaseId: 'release-lead',
-      roster: [{ actor: { kind: 'agent', employeeReleaseId: 'release-lead' }, roleId: 'lead' }],
+      visibility: 'organization', leaderEmployeeReleaseId: 'release-lead-old',
+      roster: [{ actor: { kind: 'agent', employeeReleaseId: 'release-lead-old' }, roleId: 'lead' }],
       roles: [{ roleId: 'lead', name: 'Agent lead', responsibility: '' }],
       verificationPolicy: {}, attentionPolicy: {}, approvalPolicy: {}, revision: 1,
       state: 'needs-charter', createdAt: 1, updatedAt: 1,
@@ -1200,6 +1203,7 @@ describe('EnterpriseWorkbench', () => {
     fireEvent.click(screen.getByRole('button', { name: '完善章程' }))
     expect(screen.getByRole('heading', { name: '完善团队章程' })).toBeDefined()
     expect((screen.getByLabelText('Human 负责人') as HTMLInputElement).value).toBe('')
+    expect((screen.getByLabelText('领队 Agent') as HTMLSelectElement).value).toBe('release-lead-old')
     fireEvent.change(screen.getByLabelText('北极星目标'), { target: { value: '让每次采购交付都可验证、可追溯' } })
     fireEvent.change(screen.getByLabelText('Human 负责人'), { target: { value: 'owner-1' } })
     fireEvent.change(screen.getByLabelText('Agent lead 职责说明'), { target: { value: '拆解工作并持续汇报' } })
@@ -1210,10 +1214,10 @@ describe('EnterpriseWorkbench', () => {
     await waitFor(() => { expect(saveTeamDefinition).toHaveBeenCalledOnce() })
     expect(saveTeamDefinition).toHaveBeenCalledWith(expect.objectContaining({
       teamId: 'team-migrated', northStar: '让每次采购交付都可验证、可追溯', ownerUserId: 'owner-1',
-      leaderEmployeeReleaseId: 'release-lead', state: 'active', expectedRevision: 1,
+      leaderEmployeeReleaseId: 'release-lead-old', state: 'active', expectedRevision: 1,
       roster: expect.arrayContaining([
         { actor: { kind: 'human', userId: 'owner-1' }, roleId: 'owner' },
-        { actor: { kind: 'agent', employeeReleaseId: 'release-lead' }, roleId: 'lead' },
+        { actor: { kind: 'agent', employeeReleaseId: 'release-lead-old' }, roleId: 'lead' },
         { actor: { kind: 'agent', employeeReleaseId: 'release-verifier' }, roleId: 'verifier' },
       ]),
       verificationPolicy: expect.objectContaining({
