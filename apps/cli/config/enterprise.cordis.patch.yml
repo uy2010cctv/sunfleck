@@ -84,8 +84,6 @@
         maxEntries: 40
         maxChars: 12000
         autoSave: true
-        actorUserId: bootstrap-admin
-        allowOrganizationScope: true
 
     - id: enterprise-cordis-runtime
       name: '@deepseek-ai/dsh-enterprise-cordis-runtime'
