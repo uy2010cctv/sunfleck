@@ -24,6 +24,46 @@ function agentAt(cwd: string, name = 'memory-agent'): Agent {
   return { id, session } as unknown as Agent
 }
 
+function seedEnterpriseOrganization(
+  identity: EnterpriseIdentityRepository,
+  input: {
+    orgId: string
+    departmentId: string
+    workspaceId: string
+    rootPath: string
+    sessionId: string
+    adminUserId: string
+    memberUserId: string
+  },
+): { agent: Agent } {
+  identity.createOrganization({ id: input.orgId, name: input.orgId })
+  identity.createUser({
+    id: input.adminUserId, orgId: input.orgId, username: input.adminUserId,
+    displayName: input.adminUserId, disabled: false,
+  })
+  identity.setRoles(input.adminUserId, ['administrator'])
+  identity.createUser({
+    id: input.memberUserId, orgId: input.orgId, username: input.memberUserId,
+    displayName: input.memberUserId, disabled: false,
+  })
+  identity.saveDepartment({
+    id: input.departmentId, orgId: input.orgId, parentId: null, name: input.departmentId,
+    sortOrder: 0, expectedRevision: 0,
+  })
+  identity.saveWorkspaceGrant({
+    workspaceId: input.workspaceId, orgId: input.orgId, name: input.workspaceId, kind: 'department',
+    departmentId: input.departmentId, rootPath: input.rootPath, sandboxMode: 'workspace-write', expectedRevision: 0,
+  })
+  identity.bindSessionWorkspace({
+    sessionId: input.sessionId, workspaceId: input.workspaceId, orgId: input.orgId, ownerUserId: input.memberUserId,
+  })
+  identity.putResourcePolicy({
+    resourceType: 'enterprise-memory-autonomy', resourceId: `${input.orgId}:department:${input.departmentId}`,
+    orgId: input.orgId, creatorUserId: input.adminUserId, visibility: 'organization', allowedUserIds: [input.memberUserId],
+  })
+  return { agent: agentAt(input.rootPath, input.sessionId) }
+}
+
 describe('Agent automatic enterprise memory', () => {
   let root = ''
 
@@ -140,6 +180,37 @@ describe('Agent automatic enterprise memory', () => {
     expect(identity.listMemories({ orgId: 'org-a', departmentIds: ['dept-ops'] })).toEqual([
       expect.objectContaining({ status: 'approved' }),
     ])
+    identity.close()
+  })
+
+  it('isolates department auto-approval across organizations with independent Workspaces, Sessions, actors, and policies', async () => {
+    const { ctx, identity } = await setup({ autoApproval: true })
+    const organizationB = seedEnterpriseOrganization(identity, {
+      orgId: 'org-b', departmentId: 'dept-finance', workspaceId: 'workspace-finance', rootPath: '/managed/finance',
+      sessionId: 'finance-agent', adminUserId: 'admin-b', memberUserId: 'member-b',
+    })
+
+    const [organizationAResult, organizationBResult] = await Promise.all([
+      remember(ctx, { scope: 'department', kind: 'process', summary: '采购订单必须在入库前完成审批。' }),
+      remember(ctx, { scope: 'department', kind: 'process', summary: '付款申请必须关联已审批发票。' }, organizationB.agent),
+    ])
+
+    expect(organizationAResult.isError).toBe(false)
+    expect(organizationBResult.isError).toBe(false)
+    expect(identity.listMemories({ orgId: 'org-a', departmentIds: ['dept-ops'] })).toEqual([
+      expect.objectContaining({ departmentId: 'dept-ops', createdBy: 'member-1', reviewedBy: 'member-1', status: 'approved' }),
+    ])
+    expect(identity.listMemories({ orgId: 'org-b', departmentIds: ['dept-finance'] })).toEqual([
+      expect.objectContaining({ departmentId: 'dept-finance', createdBy: 'member-b', reviewedBy: 'member-b', status: 'approved' }),
+    ])
+    expect(await identity.resourcePolicy('enterprise-memory-autonomy', 'org-a:department:dept-ops')).toEqual(
+      expect.objectContaining({
+        orgId: 'org-a', creatorUserId: 'admin-1', allowedUserIds: expect.arrayContaining(['member-1', 'admin-1']),
+      }),
+    )
+    expect(await identity.resourcePolicy('enterprise-memory-autonomy', 'org-b:department:dept-finance')).toEqual(
+      expect.objectContaining({ orgId: 'org-b', creatorUserId: 'admin-b', allowedUserIds: ['member-b'] }),
+    )
     identity.close()
   })
 
