@@ -9,6 +9,7 @@ import {
   type EnterpriseMemoryEntry,
   type EnterpriseWorkspaceGrant,
 } from '@deepseek-ai/dsh-enterprise-identity'
+import type {} from '@deepseek-ai/dsh-enterprise-auth-web'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import z from '@deepseek-ai/schemastery'
@@ -29,7 +30,7 @@ export const Config: z<Config> = z.object({
   backgroundServiceUserId: z.string().default(''),
 })
 
-export const inject = ['enterprisePostgres', 'systemPrompt', 'tools']
+export const inject = ['enterprisePostgres', 'enterpriseRequestContext', 'systemPrompt', 'tools']
 
 const MEMORY_KINDS = ['business-fact', 'process', 'terminology', 'decision'] as const
 type MemoryKind = typeof MEMORY_KINDS[number]
@@ -80,8 +81,7 @@ async function existingMemory(
 type AutoMemoryActor = { userId: string; source: 'request-principal' | 'session-owner' | 'background-service' }
 
 function requestPrincipal(ctx: Context): { orgId: string; userId: string } | undefined {
-  const requestContext = (ctx.get.bind(ctx) as (name: string) => { current?: () => unknown } | undefined)('enterpriseRequestContext')
-  const current = requestContext?.current?.()
+  const current = ctx.enterpriseRequestContext.current()
   if (current === undefined || typeof current !== 'object') return undefined
   const value = current as { orgId?: unknown; userId?: unknown }
   return typeof value.orgId === 'string' && typeof value.userId === 'string'
@@ -120,7 +120,9 @@ async function permitsAutoApproval(
   identity: EnterpriseIdentityStore,
   input: { orgId: string; scope: MemoryScope; departmentId?: string; actorUserId: string },
 ): Promise<boolean> {
-  const resourceId = input.scope === 'organization' ? 'organization' : `department:${input.departmentId}`
+  const resourceId = input.scope === 'organization'
+    ? `${input.orgId}:organization`
+    : `${input.orgId}:department:${input.departmentId}`
   const policy = await identity.resourcePolicy(AUTO_MEMORY_POLICY_RESOURCE_TYPE, resourceId)
   if (policy === undefined || policy.orgId !== input.orgId || policy.visibility !== 'organization'
     || !policy.allowedUserIds.includes(input.actorUserId) || policy.creatorUserId === undefined) return false

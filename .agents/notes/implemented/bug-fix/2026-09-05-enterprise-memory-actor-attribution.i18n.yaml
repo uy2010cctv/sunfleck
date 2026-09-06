@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-09-05-enterprise-memory-actor-attribution.md
-2026-09-05-enterprise-memory-actor-attribution.md: 2a3510136e8eaf5f31af3757a6e58da8b91f1d5d
-2026-09-05-enterprise-memory-actor-attribution.zh.md: b0481c86023373192f121cbe9a931f2b7d3062ea
+2026-09-05-enterprise-memory-actor-attribution.md: 45ef589ba5b5c0d6ddcb20adcc1b338c5b46c34d
+2026-09-05-enterprise-memory-actor-attribution.zh.md: 938e0b28848308219b1ebf8058bd0f7f54e81149

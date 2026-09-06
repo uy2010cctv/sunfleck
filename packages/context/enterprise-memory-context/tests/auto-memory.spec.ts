@@ -4,12 +4,13 @@ import { tmpdir } from 'node:os'
 import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
+import { EnterpriseRequestContext } from '@deepseek-ai/dsh-enterprise-auth-web'
 import { EnterpriseIdentityRepository } from '@deepseek-ai/dsh-enterprise-identity'
 import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
-import { apply } from '../src/index.ts'
+import { apply, inject } from '../src/index.ts'
 
 const signal = new AbortController().signal
 
@@ -50,7 +51,7 @@ describe('Agent automatic enterprise memory', () => {
       sessionId: 'memory-agent', workspaceId: 'workspace-ops', orgId: 'org-a', ownerUserId: 'member-1',
     })
     if (options.autoApproval) {
-      for (const resourceId of ['department:dept-ops', 'organization']) {
+      for (const resourceId of ['org-a:department:dept-ops', 'org-a:organization']) {
         identity.putResourcePolicy({
           resourceType: 'enterprise-memory-autonomy', resourceId, orgId: 'org-a', creatorUserId: 'admin-1',
           visibility: 'organization', allowedUserIds: ['member-1', 'admin-1'],
@@ -61,11 +62,13 @@ describe('Agent automatic enterprise memory', () => {
     await ctx.plugin(SystemPrompt, { includeHarnessIdentity: false, includeRuntimeContext: true, persona: '' })
     await ctx.plugin(ToolRuntime)
     ctx.provide('enterprisePostgres' as never, { identity } as never)
+    const requestContext = new EnterpriseRequestContext()
+    ctx.provide('enterpriseRequestContext' as never, requestContext as never)
     apply(ctx, {
       maxEntries: 20, maxChars: 8_000, autoSave: true,
       ...(options.backgroundServiceUserId === undefined ? {} : { backgroundServiceUserId: options.backgroundServiceUserId }),
     })
-    return { ctx, identity }
+    return { ctx, identity, requestContext }
   }
 
   async function remember(ctx: Context, args: unknown, agent: Agent = agentAt('/managed/ops')) {
@@ -115,6 +118,65 @@ describe('Agent automatic enterprise memory', () => {
     identity.close()
   })
 
+  it('requires the enterprise request context dependency', () => {
+    expect(inject).toContain('enterpriseRequestContext')
+  })
+
+  it('keeps an organization policy valid after another organization configures the same scope', async () => {
+    const { ctx, identity } = await setup({ autoApproval: true })
+    identity.createOrganization({ id: 'org-b', name: 'Org B' })
+    identity.createUser({ id: 'admin-b', orgId: 'org-b', username: 'admin-b', displayName: 'Admin B', disabled: false })
+    identity.setRoles('admin-b', ['administrator'])
+    identity.putResourcePolicy({
+      resourceType: 'enterprise-memory-autonomy', resourceId: 'org-b:department:dept-ops', orgId: 'org-b',
+      creatorUserId: 'admin-b', visibility: 'organization', allowedUserIds: ['admin-b'],
+    })
+
+    const result = await remember(ctx, {
+      scope: 'department', kind: 'process', summary: '采购订单必须在入库前完成审批。',
+    })
+
+    expect(result.isError).toBe(false)
+    expect(identity.listMemories({ orgId: 'org-a', departmentIds: ['dept-ops'] })).toEqual([
+      expect.objectContaining({ status: 'approved' }),
+    ])
+    identity.close()
+  })
+
+  it('prefers an authenticated request principal over the bound Session owner', async () => {
+    const { ctx, identity, requestContext } = await setup({ autoApproval: true })
+    const result = await requestContext.run({ orgId: 'org-a', userId: 'admin-1', roles: ['administrator'] }, () =>
+      remember(ctx, { scope: 'department', kind: 'process', summary: '发票入账需关联采购订单。' }),
+    )
+
+    expect(result.isError).toBe(false)
+    expect(identity.listMemories({ orgId: 'org-a', departmentIds: ['dept-ops'] })).toEqual([
+      expect.objectContaining({ createdBy: 'admin-1', reviewedBy: 'admin-1' }),
+    ])
+    identity.close()
+  })
+
+  it('falls back to the bound Session owner when the request principal is outside the organization or disabled', async () => {
+    const { ctx, identity, requestContext } = await setup({ autoApproval: true })
+    identity.createOrganization({ id: 'org-b', name: 'Org B' })
+    identity.createUser({ id: 'member-b', orgId: 'org-b', username: 'member-b', displayName: 'Member B', disabled: false })
+    identity.createUser({ id: 'disabled-a', orgId: 'org-a', username: 'disabled', displayName: 'Disabled', disabled: true })
+    const outside = await requestContext.run({ orgId: 'org-b', userId: 'member-b', roles: ['member'] }, () =>
+      remember(ctx, { scope: 'department', kind: 'process', summary: '质检完成后才可入库。' }),
+    )
+    const disabled = await requestContext.run({ orgId: 'org-a', userId: 'disabled-a', roles: ['member'] }, () =>
+      remember(ctx, { scope: 'department', kind: 'process', summary: '供应商准入需要资质复核。' }),
+    )
+
+    expect(outside.isError).toBe(false)
+    expect(disabled.isError).toBe(false)
+    expect(identity.listMemories({ orgId: 'org-a', departmentIds: ['dept-ops'] })).toEqual([
+      expect.objectContaining({ createdBy: 'member-1', summary: '质检完成后才可入库。' }),
+      expect.objectContaining({ createdBy: 'member-1', summary: '供应商准入需要资质复核。' }),
+    ])
+    identity.close()
+  })
+
   it('defaults to a proposal when no validated organization autonomy policy permits approval', async () => {
     const { ctx, identity } = await setup()
     const result = await remember(ctx, {
@@ -142,6 +204,18 @@ describe('Agent automatic enterprise memory', () => {
     expect(identity.listMemories({ orgId: 'org-a', departmentIds: ['dept-ops'] })).toEqual([
       expect.objectContaining({ createdBy: 'service:memory-bot', status: 'proposed' }),
     ])
+    identity.close()
+  })
+
+  it('fails closed for unbound background automation without a service identity', async () => {
+    const { ctx, identity } = await setup()
+    const result = await remember(ctx, {
+      scope: 'department', kind: 'process', summary: '后台任务仅记录已确认的业务规则。',
+    }, agentAt('/managed/ops', 'background-agent'))
+
+    expect(result.isError).toBe(true)
+    expect(resultText(result)).toMatch(/Session owner.*service identity/iu)
+    expect(identity.listMemories({ orgId: 'org-a', departmentIds: ['dept-ops'] })).toEqual([])
     identity.close()
   })
 
