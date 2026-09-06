@@ -1,0 +1,73 @@
+.notice {
+  position: fixed;
+  z-index: 2147483647;
+  right: 16px;
+  bottom: 16px;
+  box-sizing: border-box;
+  display: grid;
+  gap: 4px;
+  max-width: min(360px, calc(100vw - 32px));
+  padding: 12px 14px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-layer-2);
+  box-shadow: var(--dsw-elevation-prominent);
+  color: var(--dsw-alias-label-primary);
+  font: inherit;
+}
+
+.title {
+  color: var(--dsw-alias-label-primary);
+  font: var(--dsw-font-sm-14, inherit);
+  font-weight: 600;
+}
+
+.body {
+  color: var(--dsw-alias-label-secondary);
+  font: var(--dsw-font-xs-13, inherit);
+}
+
+.action {
+  justify-self: start;
+  margin-top: 4px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 6px;
+  padding: 5px 9px;
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+  font: inherit;
+  cursor: pointer;
+}
+
+.action:is(:hover, :active) {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.action:focus-visible {
+  outline: 2px solid var(--dsw-alias-brand-primary-new-colorprimary-new-color);
+  outline-offset: 2px;
+}
+
+@media (forced-colors: active) {
+  .notice {
+    border-color: CanvasText;
+    background: Canvas;
+    box-shadow: none;
+    color: CanvasText;
+  }
+
+  .title,
+  .body {
+    color: CanvasText;
+  }
+
+  .action {
+    border-color: ButtonText;
+    background: ButtonFace;
+    color: ButtonText;
+  }
+
+  .action:focus-visible {
+    outline-color: Highlight;
+  }
+}

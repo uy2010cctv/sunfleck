@@ -9,6 +9,7 @@ import Loader from '@deepseek-ai/cordis-plugin-loader'
 import type {
   BootManifest, ClientModuleCreateOptions, ClientModuleSystem, DshWindow,
 } from '@deepseek-ai/dsh-client-modules/client'
+import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import { BootPage } from './boot-page.ts'
 import { ConnectionRecovery, type RecoverableConnection } from './connection-recovery.ts'
@@ -115,7 +116,9 @@ export class AppWebEntry {
     const candidate = ctx.get('connection') as Partial<RecoverableConnection> | undefined
     if (candidate?.state === undefined || typeof candidate.reconnect !== 'function') return
     if (typeof candidate.state.getSnapshot !== 'function' || typeof candidate.state.subscribe !== 'function') return
-    this.recovery = new ConnectionRecovery(candidate as RecoverableConnection)
+    const locale = ctx.get('locale')
+    if (locale === undefined) return
+    this.recovery = new ConnectionRecovery(candidate as RecoverableConnection, locale)
   }
 
   /** Prefetch stage-one bundles and their dynamic requests before concurrent plugin imports. */
