@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { BootPage } from '../src/boot-page.ts'
 
 afterEach(() => { document.body.innerHTML = '' })
@@ -51,6 +51,16 @@ describe('BootPage', () => {
     page.setState('a', 'active')
     expect(el.textContent).toContain(report)
     expect(el.textContent).not.toContain('Loading plugins…')
+  })
+
+  it('offers a recovery action after boot fails', () => {
+    const { el, page } = mount()
+    const retry = vi.fn()
+    page.fail('web boot: transport unavailable', { label: 'Retry connection', action: retry })
+    const button = el.querySelector<HTMLButtonElement>('[data-dsh-boot-retry]')
+    expect(button?.textContent).toBe('Retry connection')
+    button?.click()
+    expect(retry).toHaveBeenCalledOnce()
   })
 
   it('detaches on disposal', () => {

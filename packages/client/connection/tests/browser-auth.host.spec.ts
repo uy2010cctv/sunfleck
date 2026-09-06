@@ -159,12 +159,28 @@ describe('BrowserAuth', () => {
       expect(denied.state.status).toBe(401)
       expect(denied.state.headers).toEqual({
         'cache-control': 'no-store',
-        'content-type': 'text/plain; charset=utf-8',
+        'content-type': 'text/html; charset=utf-8',
       })
-      expect(denied.state.body).toBe(candidate.method === 'HEAD'
-        ? undefined
-        : 'dsh web authentication required; reopen the URL printed by dsh web.\n')
+      if (candidate.method === 'HEAD') expect(denied.state.body).toBeUndefined()
+      else expect(denied.state.body).toContain('Authentication required')
     }
+  })
+
+  it('renders an unauthenticated recovery page without exposing a launch token', async () => {
+    const auth = await createAuth(new RecordCredentials())
+    const denied = response()
+    expect(auth.authorizeIndex(request('/'), denied.value)).toBe(false)
+    expect(denied.state).toMatchObject({
+      status: 401,
+      headers: {
+        'cache-control': 'no-store',
+        'content-type': 'text/html; charset=utf-8',
+      },
+    })
+    expect(denied.state.body).toContain('Authentication required')
+    expect(denied.state.body).toContain('Reopen the URL printed by dsh web')
+    expect(denied.state.body).toContain('data-dsh-reopen')
+    expect(denied.state.body).not.toContain('token=')
   })
 
   it('rejects tampering, expiry, future issuance, and a longer lifetime than configured', async () => {

@@ -19,6 +19,11 @@ const STORED_SECRET_VERSION = 1
 const BASE64URL_PATTERN = /^[A-Za-z0-9_-]*$/
 const PROCESS_LAUNCH_TOKENS = new WeakMap<object, string>()
 
+// This document is intentionally self-contained: the normal client bundle is
+// unavailable until BrowserAuth admits index.html. It exposes neither the
+// process launch token nor a path that could mint one.
+const UNAUTHENTICATED_RECOVERY_PAGE = '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Authentication required</title><style>body{margin:0;font:15px/1.5 system-ui,sans-serif;background:#151517;color:#f9fafb}main{max-width:34rem;margin:16vh auto;padding:2rem}h1{font-size:1.25rem}button{margin-top:1rem;padding:.5rem .75rem;border:1px solid #666;border-radius:.375rem;background:transparent;color:inherit;font:inherit;cursor:pointer}</style></head><body><main><h1>Authentication required</h1><p>Reopen the URL printed by dsh web to sign in. The startup link is short-lived and is not stored in this browser.</p><button type="button" data-dsh-reopen onclick="location.reload()">Retry this page</button></main></body></html>'
+
 interface StoredSecretPayload {
   readonly version: typeof STORED_SECRET_VERSION
   readonly secret: string
@@ -304,10 +309,10 @@ export class BrowserAuth {
   private writeUnauthorized(req: ConnectionIndexRequest, res: ConnectionIndexResponse): void {
     res.writeHead(401, {
       'cache-control': 'no-store',
-      'content-type': 'text/plain; charset=utf-8',
+      'content-type': 'text/html; charset=utf-8',
     })
     res.end(req.method === 'HEAD'
       ? undefined
-      : 'dsh web authentication required; reopen the URL printed by dsh web.\n')
+      : UNAUTHENTICATED_RECOVERY_PAGE)
   }
 }
