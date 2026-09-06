@@ -11,6 +11,7 @@ import type {
 } from '@deepseek-ai/dsh-client-modules/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import { BootPage } from './boot-page.ts'
+import { ConnectionRecovery, type RecoverableConnection } from './connection-recovery.ts'
 import { getStaticModules } from './seed.ts'
 import { STATE_LABELS } from './loader-status.ts'
 import './base.css'
@@ -23,6 +24,7 @@ export class AppWebEntry {
   private readonly container: HTMLElement
   private readonly seams: BootSeams | undefined
   private readonly page: BootPage
+  private recovery: ConnectionRecovery | undefined
   private ctx: Context | undefined
   private modules!: ClientModuleSystem
   private manifest!: BootManifest
@@ -78,14 +80,22 @@ export class AppWebEntry {
       this.ctx = ctx
       await this.runPluginBoot(ctx, prefetching)
       await this.mountApp(ctx)
+      this.installConnectionRecovery(ctx)
     } catch (reason) {
       console.error(reason)
-      this.page.fail(reason instanceof Error ? reason.message : String(reason))
+      this.page.fail(reason instanceof Error ? reason.message : String(reason), {
+        label: 'Retry connection',
+        // Reloading the exact document preserves its route; draft persistence,
+        // when supplied by an application plugin, remains that plugin's owner.
+        action: () => { globalThis.location.reload() },
+      })
     }
   }
 
   /** Dispose the client plugin tree and whichever page owns the mount point. */
   async dispose(): Promise<void> {
+    this.recovery?.dispose()
+    this.recovery = undefined
     const ctx = this.ctx
     this.ctx = undefined
     if (ctx !== undefined) await ctx.fiber.dispose()
@@ -98,6 +108,14 @@ export class AppWebEntry {
       scope.effect(() => scope.uiRenderer.mount(this.container), 'web boot: application mount')
     })
     await mounted
+  }
+
+  /** Keep a recoverable transport failure visible without remounting the route. */
+  private installConnectionRecovery(ctx: Context): void {
+    const candidate = ctx.get('connection') as Partial<RecoverableConnection> | undefined
+    if (candidate?.state === undefined || typeof candidate.reconnect !== 'function') return
+    if (typeof candidate.state.getSnapshot !== 'function' || typeof candidate.state.subscribe !== 'function') return
+    this.recovery = new ConnectionRecovery(candidate as RecoverableConnection)
   }
 
   /** Prefetch stage-one bundles and their dynamic requests before concurrent plugin imports. */

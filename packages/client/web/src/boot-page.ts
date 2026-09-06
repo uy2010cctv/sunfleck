@@ -14,6 +14,14 @@ function div(className: string | undefined, text?: string): HTMLDivElement {
   return el
 }
 
+/** One safe, user-initiated route out of a failed boot screen. */
+export interface BootRecoveryAction {
+  /** Action text presented to the operator. */
+  label: string
+  /** Recovery work starts only after the operator selects the action. */
+  action(): void
+}
+
 /** Kernel-owned page mounted below the application's root element. */
 export class BootPage {
   private readonly root: HTMLDivElement
@@ -25,6 +33,7 @@ export class BootPage {
   private readonly active = new Set<string>()
   private total = 0
   private failure: string | undefined
+  private recovery: BootRecoveryAction | undefined
 
   /**
    * Build and attach the boot page.
@@ -69,8 +78,9 @@ export class BootPage {
    * Display the boot failure report.
    * @param message - Failure report text.
    */
-  fail(message: string): void {
+  fail(message: string, recovery?: BootRecoveryAction): void {
     this.failure = message
+    this.recovery = recovery
     this.render()
   }
 
@@ -92,6 +102,15 @@ export class BootPage {
     report.append(div(css.failedTitle, 'Failed to load plugins'))
     for (const id of failed) report.append(div(css.failedItem, id))
     if (this.failure !== undefined) report.append(div(css.failedItem, this.failure))
+    if (this.recovery !== undefined) {
+      const retry = document.createElement('button')
+      retry.type = 'button'
+      retry.className = css.recoveryAction ?? ''
+      retry.dataset.dshBootRetry = ''
+      retry.textContent = this.recovery.label
+      retry.addEventListener('click', () => { this.recovery?.action() })
+      report.append(retry)
+    }
     this.card.replaceChildren(this.wordmark, report)
   }
 
