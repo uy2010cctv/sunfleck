@@ -1,5 +1,8 @@
 /** Framework-free recovery notice for a lost Host transport. */
 
+import type { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
+import css from './connection-recovery.module.css'
+
 /** Browser-safe slice of the connection service used by the boot kernel. */
 export interface RecoverableConnection {
   reconnect(): void
@@ -8,6 +11,9 @@ export interface RecoverableConnection {
     subscribe(listener: () => void): () => void
   }
 }
+
+/** Locale face used by the recovery notice after the client plugin tree mounts. */
+type RecoveryLocale = Pick<LocaleRuntime, 'bind' | 'subscribe'>
 
 /**
  * Keeps recovery controls outside the application renderer so a Host restart
@@ -19,12 +25,17 @@ export class ConnectionRecovery {
   private readonly root = document.createElement('aside')
   private readonly unsubscribe: () => void
 
-  constructor(private readonly connection: RecoverableConnection) {
+  constructor(private readonly connection: RecoverableConnection, private readonly locale: RecoveryLocale) {
     this.root.dataset.dshConnectionRecovery = ''
+    this.root.className = css.notice ?? ''
     this.root.setAttribute('role', 'status')
     this.root.setAttribute('aria-live', 'polite')
-    this.root.style.cssText = 'position:fixed;right:16px;bottom:16px;z-index:2147483647;max-width:360px;padding:12px 14px;border:1px solid #555;border-radius:8px;background:#151517;color:#f9fafb;font:14px/1.45 system-ui,sans-serif;box-shadow:0 8px 24px rgb(0 0 0 / 28%)'
-    this.unsubscribe = connection.state.subscribe(() => { this.render() })
+    const stopConnection = connection.state.subscribe(() => { this.render() })
+    const stopLocale = locale.subscribe(() => { this.render() })
+    this.unsubscribe = () => {
+      stopConnection()
+      stopLocale()
+    }
     document.body.append(this.root)
     this.render()
   }
@@ -42,14 +53,17 @@ export class ConnectionRecovery {
     }
     this.root.hidden = false
     const title = document.createElement('strong')
-    title.textContent = 'Connection lost'
+    title.className = css.title ?? ''
+    const t = this.locale.bind('common')
+    title.textContent = t('connection.recovery.title')
     const body = document.createElement('div')
-    body.textContent = 'Your current page remains open. Reconnect when the Host is available.'
+    body.className = css.body ?? ''
+    body.textContent = t('connection.recovery.body')
     const button = document.createElement('button')
     button.type = 'button'
     button.dataset.dshConnectionRetry = ''
-    button.textContent = 'Reconnect'
-    button.style.cssText = 'margin-top:8px;border:1px solid #777;border-radius:6px;padding:5px 9px;background:transparent;color:inherit;font:inherit;cursor:pointer'
+    button.className = css.action ?? ''
+    button.textContent = t('connection.recovery.action')
     button.addEventListener('click', () => { this.connection.reconnect() })
     this.root.replaceChildren(title, body, button)
   }
