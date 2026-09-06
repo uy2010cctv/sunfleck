@@ -4321,6 +4321,9 @@ importers:
       '@deepseek-ai/dsh-agent':
         specifier: workspace:^
         version: link:../../core/agent
+      '@deepseek-ai/dsh-enterprise-auth-web':
+        specifier: workspace:^
+        version: link:../../identity/enterprise-auth-web
       '@deepseek-ai/dsh-enterprise-identity':
         specifier: workspace:^
         version: link:../../identity/enterprise-identity
