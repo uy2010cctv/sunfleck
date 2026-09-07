@@ -2,7 +2,7 @@ import { Context } from '@deepseek-ai/cordis'
 import { EnterpriseRequestContext } from '@deepseek-ai/dsh-enterprise-auth-web'
 import { describe, expect, it, vi } from 'vitest'
 import { EnterpriseWorkController } from '../src/index.ts'
-import { EnterpriseWorkStartService } from '../src/work-start.ts'
+import { type EnterpriseWorkStartDependencies, EnterpriseWorkStartService } from '../src/work-start.ts'
 const principal = { orgId: 'org-a', userId: 'user-a', roles: ['member'] as const }
 const release = (releaseId: string, presetId = 'preset-a', version = 1) => ({ releaseId, presetId, orgId: 'org-a', version, digest: `digest-${releaseId}`, snapshot: { profile: {}, bindings: [] }, publishedBy: 'user-a', publishedAt: 1 })
 function operationDriver(upsertWorkRecord: (input: Record<string, unknown>) => Promise<unknown> = async () => ({})) {
@@ -55,7 +55,7 @@ describe('enterprise work start', () => {
       deadline?: string
       state: 'starting' | 'completed'
     }
-    type ReservationInput = Reservation & { orgId: string; userId: string; idempotencyKey: string }
+    type ReservationInput = Parameters<EnterpriseWorkStartDependencies['reserveWorkStart']>[0]
     const reservations = new Map<string, Reservation>()
     let failRecord = true
     const reserveWorkStart = vi.fn(async (input: ReservationInput) => {
@@ -65,11 +65,11 @@ describe('enterprise work start', () => {
         if (prior.requestFingerprint !== input.requestFingerprint) throw new Error('idempotency key request digest mismatch')
         return prior
       }
-      const value = { ...input, state: 'starting' as const }
+      const value: Reservation = { ...input, state: 'starting' }
       reservations.set(key, value)
       return value
     })
-    const completeWorkStart = vi.fn(async (input: { orgId: string; userId: string; idempotencyKey: string }) => {
+    const completeWorkStart = vi.fn(async (input: Parameters<EnterpriseWorkStartDependencies['completeWorkStart']>[0]) => {
       const key = `${input.orgId}:${input.userId}:${input.idempotencyKey}`
       const reservation = reservations.get(key)
       if (reservation === undefined) throw new Error('missing reservation')
@@ -80,7 +80,7 @@ describe('enterprise work start', () => {
       getWorkStart: async input => reservations.get(`${input.orgId}:${input.principal.userId}:${input.idempotencyKey}`),
       completeWorkStart,
       upsertRecord: async () => { calls.records++; if (failRecord) { failRecord = false; throw new Error('record store unavailable') } },
-    } as Partial<ConstructorParameters<typeof EnterpriseWorkStartService>[0]>)
+    })
     const first = { objective: 'Close books', idempotencyKey: 'partial-start' }
     await expect(service.start(principal, first)).rejects.toThrow('record store unavailable')
     await expect(service.start(principal, { objective: 'Changed objective', idempotencyKey: 'partial-start' })).rejects.toThrow('idempotency key request digest mismatch')
@@ -99,7 +99,7 @@ describe('enterprise work start', () => {
       deadline?: string
       state: 'starting' | 'completed'
     }
-    type ReservationInput = Reservation & { orgId: string; userId: string; idempotencyKey: string }
+    type ReservationInput = Parameters<EnterpriseWorkStartDependencies['reserveWorkStart']>[0]
     const reservations = new Map<string, Reservation>()
     const reserveWorkStart = async (input: ReservationInput) => {
       const key = `${input.orgId}:${input.userId}:${input.idempotencyKey}`
@@ -108,18 +108,18 @@ describe('enterprise work start', () => {
         if (prior.requestFingerprint !== input.requestFingerprint) throw new Error('idempotency key request digest mismatch')
         return prior
       }
-      const value = { ...input, state: 'starting' as const }
+      const value: Reservation = { ...input, state: 'starting' }
       reservations.set(key, value)
       return value
     }
-    const completeWorkStart = async (input: { orgId: string; userId: string; idempotencyKey: string }) => {
+    const completeWorkStart = async (input: Parameters<EnterpriseWorkStartDependencies['completeWorkStart']>[0]) => {
       const value = reservations.get(`${input.orgId}:${input.userId}:${input.idempotencyKey}`)
       if (value === undefined) throw new Error('missing reservation')
       value.state = 'completed'
     }
-    const getWorkStart = async (input: { orgId: string; principal: typeof principal; idempotencyKey: string }) =>
+    const getWorkStart = async (input: Parameters<EnterpriseWorkStartDependencies['getWorkStart']>[0]) =>
       reservations.get(`${input.orgId}:${input.principal.userId}:${input.idempotencyKey}`)
-    const first = setup({ reserveWorkStart, getWorkStart, completeWorkStart, upsertRecord: async () => { throw new Error('record store unavailable') } } as Partial<ConstructorParameters<typeof EnterpriseWorkStartService>[0]>)
+    const first = setup({ reserveWorkStart, getWorkStart, completeWorkStart, upsertRecord: async () => { throw new Error('record store unavailable') } })
     const input = { objective: 'Close books', idempotencyKey: 'restart-resume' }
     await expect(first.service.start(principal, input)).rejects.toThrow('record store unavailable')
     const second = setup({
@@ -129,7 +129,7 @@ describe('enterprise work start', () => {
       releases: async () => [],
       personalWorkspaces: async () => [],
       workspaceGrant: async () => undefined,
-    } as Partial<ConstructorParameters<typeof EnterpriseWorkStartService>[0]>)
+    })
     await expect(second.service.start(principal, input)).resolves.toMatchObject({ sessionId: first.calls.sessionIds[0] })
     expect(second.calls.sessionIds).toEqual([first.calls.sessionIds[0]])
   })
