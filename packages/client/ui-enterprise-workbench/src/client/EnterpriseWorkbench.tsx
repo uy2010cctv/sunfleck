@@ -63,6 +63,9 @@ export interface EnterpriseWorkbenchInjected {
   archiveAsset: (asset: EnterpriseAsset) => Promise<void>
   saveTeam: (input: { teamId: string; leaderEmployeeReleaseId: string; members: readonly EnterpriseTeamMember[]; workflowTemplate: Readonly<Record<string, JsonValue>>; approvalPolicy: Readonly<Record<string, JsonValue>>; expectedRevision: number }) => Promise<boolean>
   saveTeamDefinition: (input: Omit<EnterpriseTeamDefinition, 'orgId' | 'revision' | 'createdAt' | 'updatedAt'> & { expectedRevision: number }) => Promise<boolean>
+  saveTeamDefinitionDraft: (input: Omit<EnterpriseTeamDefinition, 'orgId' | 'revision' | 'createdAt' | 'updatedAt' | 'state'> & { state?: 'needs-charter' | 'draft'; expectedRevision: number }) => Promise<EnterpriseTeamDefinition | undefined>
+  publishTeamDefinitionDraft: (input: { teamId: string; expectedRevision: number }) => Promise<EnterpriseTeamDefinition | undefined>
+  getTeamDefinitionDraft: (teamId: string) => Promise<EnterpriseTeamDefinition | undefined>
   saveChannelConfiguration: (input: { channelId: string; name: string; provider: EnterpriseChannelConfiguration['provider']; tenantId?: string; accountId: string; credentialRef?: string; defaultEmployeeReleaseId?: string; inboundEnabled: boolean; state: 'draft' | 'active' | 'paused'; expectedRevision: number }) => Promise<boolean>
   archiveChannelConfiguration: (channel: EnterpriseChannelConfiguration) => Promise<void>
   beginChannelBinding: (channel: EnterpriseChannelConfiguration, redirectUri: string) => Promise<EnterpriseChannelBindingSession>
@@ -636,13 +639,14 @@ function teamRunDot(state: EnterpriseTeamRun['state']): 'done' | 'error' | 'ongo
   return 'ongoing'
 }
 
-function CharterEditor({ definition, newerDefinition, releases, api, busy, onDirty, close, loadNewer, t }: {
+function CharterEditor({ definition, newerDefinition, releases, api, busy, onDirty, onClean, close, loadNewer, t }: {
   definition?: EnterpriseTeamDefinition
   newerDefinition?: EnterpriseTeamDefinition
   releases: readonly EnterpriseEmployeeRelease[]
   api: EnterpriseWorkbenchInjected
   busy: boolean
   onDirty: () => void
+  onClean: () => void
   close: () => void
   loadNewer: () => void
   t: Translate
@@ -669,6 +673,7 @@ function CharterEditor({ definition, newerDefinition, releases, api, busy, onDir
   const [workInProgressLimit, setWorkInProgressLimit] = useState(definition?.attentionPolicy.workInProgressLimit?.toString() ?? '')
   const [roleEdits, setRoleEdits] = useState(() => [...(definition?.roles ?? [])])
   const [dirty, setDirty] = useState(false)
+  const [savedDraft, setSavedDraft] = useState<EnterpriseTeamDefinition | null>(definition?.state === 'draft' ? definition : null)
   const mark = (): void => { setDirty(true); onDirty() }
   const requestClose = (): void => {
     if (dirty && !window.confirm(t('team.charter.discardConfirm'))) return
@@ -684,7 +689,12 @@ function CharterEditor({ definition, newerDefinition, releases, api, busy, onDir
     && (!verifierRequired || (verifier !== '' && rubricRefs.length > 0))
     && (visibility !== 'restricted' || allowedUserIds.length > 0)
     && roleEdits.every(role => role.roleId.trim() !== '' && role.name.trim() !== '' && role.responsibility.trim() !== '')
-  const save = async (state: 'needs-charter' | 'active'): Promise<void> => {
+  const save = async (activate: boolean): Promise<void> => {
+    if (activate && savedDraft !== null && !dirty) {
+      const published = await api.publishTeamDefinitionDraft({ teamId, expectedRevision: savedDraft.revision })
+      if (published !== undefined) { close() }
+      return
+    }
     const existingRoleByActor = new Map((definition?.roster ?? []).map(member => [
       member.actor.kind === 'human' ? `human:${member.actor.userId}` : `agent:${member.actor.employeeReleaseId}`,
       member.roleId,
@@ -712,25 +722,33 @@ function CharterEditor({ definition, newerDefinition, releases, api, busy, onDir
       const fallback = defaults.get(member.roleId)
       if (fallback !== undefined) rolesById.set(member.roleId, fallback)
     }
-    const preservedAttention = { ...definition?.attentionPolicy }
+    const baseDefinition = savedDraft ?? definition
+    const preservedAttention = { ...baseDefinition?.attentionPolicy }
     delete preservedAttention.openDecisionLimit
     delete preservedAttention.workInProgressLimit
-    const success = await api.saveTeamDefinition({
+    const draft = await api.saveTeamDefinitionDraft({
       teamId, name: name.trim(), northStar: northStar.trim(), ownerUserId: ownerUserId.trim(),
       ...(departmentId.trim() === '' ? {} : { departmentId: departmentId.trim() }), visibility,
       ...(visibility === 'restricted' ? { allowedUserIds } : {}), leaderEmployeeReleaseId: leader,
-      roster, roles: [...rolesById.values()], verificationPolicy: { ...definition?.verificationPolicy, verifierRequired, rubricRefs, highRiskHumanReviewRequired: true },
+      roster, roles: [...rolesById.values()], verificationPolicy: { ...baseDefinition?.verificationPolicy, verifierRequired, rubricRefs, highRiskHumanReviewRequired: true },
       attentionPolicy: {
         ...preservedAttention,
         decisionQueue: 'centralized',
         ...(Number(openDecisionLimit) > 0 ? { openDecisionLimit: Number(openDecisionLimit) } : {}),
         ...(Number(workInProgressLimit) > 0 ? { workInProgressLimit: Number(workInProgressLimit) } : {}),
       },
-      approvalPolicy: { ...definition?.approvalPolicy, highRiskApprovalRequired: true }, state, expectedRevision: definition?.revision ?? 0,
+      approvalPolicy: { ...baseDefinition?.approvalPolicy, highRiskApprovalRequired: true }, state: canActivate ? 'draft' : 'needs-charter', expectedRevision: baseDefinition?.revision ?? 0,
     })
-    if (success) { setDirty(false); close() }
+    if (draft === undefined) return
+    setSavedDraft(draft)
+    setDirty(false)
+    onClean()
+    if (activate) {
+      const published = await api.publishTeamDefinitionDraft({ teamId, expectedRevision: draft.revision })
+      if (published !== undefined) close()
+    }
   }
-  return <form className={css.charterEditor} aria-labelledby="charter-editor-title" onSubmit={(event) => { event.preventDefault(); if (canActivate) void save('active') }}>
+  return <form className={css.charterEditor} aria-labelledby="charter-editor-title" onSubmit={(event) => { event.preventDefault(); if (canActivate) void save(true) }}>
     {newerDefinition !== undefined && <div className={css.charterRevisionNotice} role="status"><span><strong>{t('team.charter.newerRevision')}</strong>{t('team.charter.newerRevisionHelp', { revision: newerDefinition.revision })}</span><button type="button" className={css.secondaryButton} onClick={requestLoadNewer}>{t('team.charter.loadServer')}</button></div>}
     <div className={css.charterEditorHeader}><div><span>{t(definition === undefined ? 'team.charter.createEyebrow' : 'team.charter.improveEyebrow')}</span><h3 id="charter-editor-title">{t(definition === undefined ? 'team.charter.createTitle' : 'team.charter.improveTitle')}</h3><p>{t('team.charter.editorHelp')}</p></div><button type="button" className={css.secondaryButton} onClick={requestClose}>{t('cancel')}</button></div>
     <div className={css.charterEditorGrid}>
@@ -748,7 +766,7 @@ function CharterEditor({ definition, newerDefinition, releases, api, busy, onDir
       <div className={`${css.fullField} ${css.charterSwitches}`}><label><input type="checkbox" checked={verifierRequired} disabled={busy} onChange={(event) => { setVerifierRequired(event.target.checked); mark() }}/><span><strong>{t('team.charter.verifierRequired')}</strong><small>{t('team.charter.verifierRequiredHelp')}</small></span></label><label data-enforced="true"><input type="checkbox" checked readOnly disabled/><span><strong>{t('team.charter.highRisk')}</strong><small>{t('team.charter.highRiskHelp')}</small></span></label></div>
       <details className={`${css.fullField} ${css.charterAdvanced}`}><summary>{t('team.charter.advanced')}</summary><div><label>{t('team.charter.decisionLimit')}<input type="number" min="1" disabled={busy} value={openDecisionLimit} onChange={(event) => { setOpenDecisionLimit(event.target.value); mark() }}/></label><label>{t('team.charter.wipLimit')}<input type="number" min="1" disabled={busy} value={workInProgressLimit} onChange={(event) => { setWorkInProgressLimit(event.target.value); mark() }}/></label></div></details>
     </div>
-    <div className={css.charterEditorActions}><span>{leader === '' ? t('team.charter.releaseRequired') : canActivate ? t('team.charter.ready') : t('team.charter.incomplete')}</span><div><button type="button" className={css.secondaryButton} disabled={busy || name.trim() === '' || leader === ''} onClick={() => { void save('needs-charter') }}>{t('team.charter.saveDraft')}</button><button type="submit" className={css.primaryButton} disabled={busy || !canActivate}>{t('team.charter.activate')}</button></div></div>
+    <div className={css.charterEditorActions}><span>{leader === '' ? t('team.charter.releaseRequired') : canActivate ? t('team.charter.ready') : t('team.charter.incomplete')}</span><div><button type="button" className={css.secondaryButton} disabled={busy || name.trim() === '' || leader === ''} onClick={() => { void save(false) }}>{t('team.charter.saveDraft')}</button><button type="submit" className={css.primaryButton} disabled={busy || !canActivate}>{t('team.charter.activate')}</button></div></div>
   </form>
 }
 
@@ -785,7 +803,7 @@ function TeamControlPanel({ definitions, runs, decisions, autonomy, workspaces, 
       </div>
     </header>
     {editing !== null
-      ? <CharterEditor key={editing === 'new' ? 'new' : `${editing.teamId}:${editing.revision}`} {...(editing === 'new' ? {} : { definition: editing })} {...(newerDefinition === undefined ? {} : { newerDefinition })} releases={releases} api={api} busy={busy} onDirty={onDirty} close={() => { setEditing(null); onClean() }} loadNewer={() => { if (newerDefinition !== undefined) setEditing(newerDefinition) }} t={t}/>
+      ? <CharterEditor key={editing === 'new' ? 'new' : `${editing.teamId}:${editing.revision}`} {...(editing === 'new' ? {} : { definition: editing })} {...(newerDefinition === undefined ? {} : { newerDefinition })} releases={releases} api={api} busy={busy} onDirty={onDirty} onClean={onClean} close={() => { setEditing(null); onClean() }} loadNewer={() => { if (newerDefinition !== undefined) setEditing(newerDefinition) }} t={t}/>
       : <div className={css.teamCommandGrid}>
         <section className={css.teamCharters} aria-labelledby="team-charters-title">
           <div className={css.sectionHead}><div><h3 id="team-charters-title">{t('team.charters')}</h3><p>{t('team.chartersHelp')}</p></div><div className={css.charterListActions}><span>{definitions.items.length}</span><button type="button" className={css.primaryButton} disabled={busy} onClick={() => { setEditing('new') }}><IconPlusOutline16 size={16}/>{t('team.charter.new')}</button></div></div>
@@ -797,7 +815,7 @@ function TeamControlPanel({ definitions, runs, decisions, autonomy, workspaces, 
               const agentCount = item.roster.filter(member => member.actor.kind === 'agent').length
               return <article className={css.charterRow} data-state={item.state} data-selected={isSelected} key={item.teamId}>
                 <button type="button" className={css.charterSelect} aria-pressed={isSelected} aria-label={t('team.selectCharterAria', { name: item.name || item.teamId })} disabled={item.state !== 'active'} onClick={() => { setTeamId(item.teamId) }}><span className={css.charterIdentity}><strong>{item.name || item.teamId}</strong><small>{t(`team.state.${item.state}`)} · {t('team.releaseFence', { revision: item.revision })}</small></span><span className={css.charterNorthStar}><small>{t('team.northStar')}</small><span>{item.northStar || t('team.charterRequired')}</span></span><span className={css.charterRoster}>{t('team.rosterSummary', { humans: humanCount, agents: agentCount })}</span></button>
-                <div className={css.charterRowActions}>{item.state === 'active' && <span>{isSelected ? t('team.selected') : t('team.launch')}</span>}{item.state === 'needs-charter' && <button type="button" className={css.secondaryButton} disabled={busy} onClick={() => { setEditing(item) }}>{t('team.charter.improve')}</button>}</div>
+                <div className={css.charterRowActions}>{item.state === 'active' && <><span>{isSelected ? t('team.selected') : t('team.launch')}</span><button type="button" className={css.secondaryButton} disabled={busy} onClick={() => { void api.getTeamDefinitionDraft(item.teamId).then(draft => { setEditing(draft ?? item) }) }}>{t('team.charter.improve')}</button></>}{item.state === 'needs-charter' && <button type="button" className={css.secondaryButton} disabled={busy} onClick={() => { setEditing(item) }}>{t('team.charter.improve')}</button>}</div>
               </article>
             })}</div>}
         </section>
@@ -1482,6 +1500,16 @@ export function EnterpriseWorkbench(props: EnterpriseWorkbenchProps) {
       const success = await injected.saveTeamDefinition(input)
       if (success) setLocalFormDirty(false)
       return success
+    },
+    saveTeamDefinitionDraft: async (input) => {
+      const saved = await injected.saveTeamDefinitionDraft(input)
+      if (saved !== undefined) setLocalFormDirty(false)
+      return saved
+    },
+    publishTeamDefinitionDraft: async (input) => {
+      const published = await injected.publishTeamDefinitionDraft(input)
+      if (published !== undefined) setLocalFormDirty(false)
+      return published
     },
     saveChannelConfiguration: async (input) => {
       const success = await injected.saveChannelConfiguration(input)

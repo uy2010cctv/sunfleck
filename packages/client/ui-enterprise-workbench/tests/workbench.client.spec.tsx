@@ -1136,12 +1136,14 @@ describe('EnterpriseWorkbench', () => {
   })
 
   it('creates a charter draft without exposing internal JSON or ids', async () => {
-    const saveTeamDefinition = vi.fn((_input: Parameters<EnterpriseWorkbenchProps['saveTeamDefinition']>[0]) => Promise.resolve(true))
+    const saveTeamDefinitionDraft = vi.fn((input: Parameters<EnterpriseWorkbenchProps['saveTeamDefinitionDraft']>[0]) => Promise.resolve({
+      ...input, orgId: 'org-a', revision: 1, createdAt: 1, updatedAt: 1,
+    } as never))
     render(<EnterpriseWorkbench {...workbenchProps({
       state: { mode: 'enterprise', page: 'teams', releases: [{
         releaseId: 'release-lead', presetId: 'lead', orgId: 'o', version: 1, digest: 'a',
         snapshot: { profile: { name: '采购领队' }, bindings: [] }, publishedBy: 'u', publishedAt: 1,
-      }] as never }, saveTeamDefinition,
+      }] as never }, saveTeamDefinitionDraft,
     } as never)} />)
 
     fireEvent.click(screen.getByRole('button', { name: '新建章程' }))
@@ -1153,8 +1155,8 @@ describe('EnterpriseWorkbench', () => {
     fireEvent.change(screen.getByLabelText('领队 Agent'), { target: { value: 'release-lead' } })
     fireEvent.click(screen.getByRole('button', { name: '保存草稿' }))
 
-    await waitFor(() => { expect(saveTeamDefinition).toHaveBeenCalledOnce() })
-    expect(saveTeamDefinition).toHaveBeenCalledWith(expect.objectContaining({
+    await waitFor(() => { expect(saveTeamDefinitionDraft).toHaveBeenCalledOnce() })
+    expect(saveTeamDefinitionDraft).toHaveBeenCalledWith(expect.objectContaining({
       teamId: expect.stringMatching(/^team-/u), name: '采购协同组', ownerUserId: 'owner-1',
       state: 'needs-charter', expectedRevision: 0,
       attentionPolicy: { decisionQueue: 'centralized' },
@@ -1176,7 +1178,10 @@ describe('EnterpriseWorkbench', () => {
   })
 
   it('improves a migrated charter and activates its governed Human-Agent roster', async () => {
-    const saveTeamDefinition = vi.fn(() => Promise.resolve(true))
+    const saveTeamDefinitionDraft = vi.fn((input: Parameters<EnterpriseWorkbenchProps['saveTeamDefinitionDraft']>[0]) => Promise.resolve({
+      ...input, orgId: 'org-a', revision: 2, createdAt: 2, updatedAt: 2,
+    } as never))
+    const publishTeamDefinitionDraft = vi.fn(() => Promise.resolve({ teamId: 'team-migrated', revision: 2 } as never))
     const releases = [{
       releaseId: 'release-lead-old', presetId: 'lead', orgId: 'o', version: 1, digest: 'old',
       snapshot: { profile: { name: '采购领队' }, bindings: [] }, publishedBy: 'u', publishedAt: 1,
@@ -1199,7 +1204,7 @@ describe('EnterpriseWorkbench', () => {
       state: {
         mode: 'enterprise', page: 'teams', releases,
         teamDefinitions: { phase: 'ready', items: [definition], error: null } as never,
-      }, saveTeamDefinition,
+      }, saveTeamDefinitionDraft, publishTeamDefinitionDraft,
     } as never)} />)
 
     fireEvent.click(screen.getByRole('button', { name: '完善章程' }))
@@ -1213,10 +1218,10 @@ describe('EnterpriseWorkbench', () => {
     fireEvent.change(screen.getByLabelText('验收标准'), { target: { value: '来源可追溯\n金额复核通过' } })
     fireEvent.click(screen.getByRole('button', { name: '保存并启用' }))
 
-    await waitFor(() => { expect(saveTeamDefinition).toHaveBeenCalledOnce() })
-    expect(saveTeamDefinition).toHaveBeenCalledWith(expect.objectContaining({
+    await waitFor(() => { expect(saveTeamDefinitionDraft).toHaveBeenCalledOnce() })
+    expect(saveTeamDefinitionDraft).toHaveBeenCalledWith(expect.objectContaining({
       teamId: 'team-migrated', northStar: '让每次采购交付都可验证、可追溯', ownerUserId: 'owner-1',
-      leaderEmployeeReleaseId: 'release-lead-old', state: 'active', expectedRevision: 1,
+      leaderEmployeeReleaseId: 'release-lead-old', state: 'draft', expectedRevision: 1,
       roster: expect.arrayContaining([
         { actor: { kind: 'human', userId: 'owner-1' }, roleId: 'owner' },
         { actor: { kind: 'agent', employeeReleaseId: 'release-lead-old' }, roleId: 'lead' },
@@ -1226,10 +1231,13 @@ describe('EnterpriseWorkbench', () => {
         verifierRequired: true, rubricRefs: ['来源可追溯', '金额复核通过'], highRiskHumanReviewRequired: true,
       }),
     }))
+    expect(publishTeamDefinitionDraft).toHaveBeenCalledWith({ teamId: 'team-migrated', expectedRevision: 2 })
   })
 
   it('preserves unexposed migrated governance and reloads a newer charter revision', async () => {
-    const saveTeamDefinition = vi.fn((_input: Parameters<EnterpriseWorkbenchProps['saveTeamDefinition']>[0]) => Promise.resolve(true))
+    const saveTeamDefinitionDraft = vi.fn((input: Parameters<EnterpriseWorkbenchProps['saveTeamDefinitionDraft']>[0]) => Promise.resolve({
+      ...input, orgId: 'org-a', revision: input.expectedRevision + 1, createdAt: 3, updatedAt: 3,
+    } as never))
     const baseDefinition = {
       teamId: 'team-roundtrip', orgId: 'org-a', name: '迁移团队', northStar: '', ownerUserId: '',
       visibility: 'organization', leaderEmployeeReleaseId: 'release-lead',
@@ -1253,7 +1261,7 @@ describe('EnterpriseWorkbench', () => {
       state: {
         mode: 'enterprise', page: 'teams', releases: release,
         teamDefinitions: { phase: 'ready', items: [definition], error: null } as never,
-      }, saveTeamDefinition,
+      }, saveTeamDefinitionDraft,
     } as never)
     const { rerender } = render(<EnterpriseWorkbench {...props(baseDefinition)}/>)
     fireEvent.click(screen.getByRole('button', { name: '完善章程' }))
@@ -1271,8 +1279,8 @@ describe('EnterpriseWorkbench', () => {
     fireEvent.change(screen.getByLabelText('待 Human 决策上限'), { target: { value: '' } })
     fireEvent.click(screen.getByRole('button', { name: '保存草稿' }))
 
-    await waitFor(() => { expect(saveTeamDefinition).toHaveBeenCalledOnce() })
-    expect(saveTeamDefinition).toHaveBeenCalledWith(expect.objectContaining({
+    await waitFor(() => { expect(saveTeamDefinitionDraft).toHaveBeenCalledOnce() })
+    expect(saveTeamDefinitionDraft).toHaveBeenCalledWith(expect.objectContaining({
       expectedRevision: 2,
       roster: expect.arrayContaining([
         { actor: { kind: 'human', userId: 'observer-1' }, roleId: 'observer' },
@@ -1284,7 +1292,7 @@ describe('EnterpriseWorkbench', () => {
       ]),
       approvalPolicy: expect.objectContaining({ retainCustomGate: true }),
     }))
-    expect(saveTeamDefinition.mock.calls[0]![0].attentionPolicy).not.toHaveProperty('openDecisionLimit')
+    expect(saveTeamDefinitionDraft.mock.calls[0]![0].attentionPolicy).not.toHaveProperty('openDecisionLimit')
   })
 
   it('offers a primary creation action when the managed employee roster is empty', () => {

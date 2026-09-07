@@ -95,7 +95,7 @@ Service 只负责 Host 边界与委派，不改变原生 DSH Session/Workflow �
 
 ## Known Limitations and Deferred Work
 
-- 本包不实现具体 Agent Teams runtime adapter、TeamRun UI、渠道 adapter、团队定义浏览器编辑器或真实调度 Worker。
+- 本包不实现具体 Agent Teams runtime adapter、TeamRun UI、渠道 adapter 或真实调度 Worker。
 - 固定团队有意排除 StaffDeck 的竞标、黑板和市场化唤醒。
 
 <a id="dev-note"></a>
