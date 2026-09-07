@@ -24,6 +24,8 @@ import type {
   WorkRecordInput,
   WorkRecordPage,
   WorkRecordView,
+  WorkStartReservation,
+  WorkStartReservationInput,
 } from './types.ts'
 import { LEGACY_TEAM_DEFINITION_OWNER_USER_ID, migrateEnterpriseOperations } from './schema.ts'
 import { assertTeamDefinitionExecutable, validateTeamDefinition } from './team-definition.ts'
@@ -35,7 +37,7 @@ export class EnterpriseOperationsError extends Error {
       | 'cursor-invalid' | 'idempotency-conflict' | 'invalid-state' | 'fencing-lost' | 'admission-rejected'
       | 'forbidden',
     readonly resourceType: 'work-record' | 'approval' | 'schedule' | 'team' | 'team-definition' | 'operation-outbox'
-      | 'team-run' | 'team-decision' | 'team-autonomy-grant' | 'channel',
+      | 'team-run' | 'team-decision' | 'team-autonomy-grant' | 'channel' | 'work-start-reservation',
     readonly resourceId?: string,
   ) {
     super(`enterprise operations ${code}`)
@@ -255,6 +257,21 @@ interface WorkRow extends Record<string, unknown> {
   created_at: number | string
   updated_at: number | string
 }
+interface WorkStartReservationRow extends Record<string, unknown> {
+  org_id: string
+  user_id: string
+  idempotency_key: string
+  request_fingerprint: string
+  session_id: string
+  workspace_id: string
+  employee_release_id: string
+  preset_id: string
+  deadline: string | null
+  deadline_digest: string | null
+  state: WorkStartReservation['state']
+  created_at: number | string
+  updated_at: number | string
+}
 interface ApprovalRow extends Record<string, unknown> {
   approval_id: string
   org_id: string
@@ -466,6 +483,53 @@ export class EnterpriseOperationsRepository {
       [orgId, operation, key, JSON.stringify({ requestDigest: requestDigest(request), result: value })],
     )
   }
+  async reserveWorkStart(input: WorkStartReservationInput): Promise<WorkStartReservation> {
+    await this.initialize()
+    return this.database.transaction(async (database) => {
+      await this.lock(database, `work-start:${input.orgId}:${input.userId}:${input.idempotencyKey}`)
+      const prior = await database.query<WorkStartReservationRow>(
+        'SELECT * FROM dsh_enterprise_work_start_reservations WHERE org_id=$1 AND user_id=$2 AND idempotency_key=$3 FOR UPDATE',
+        [input.orgId, input.userId, input.idempotencyKey],
+      )
+      if (prior.rows[0] !== undefined) {
+        const reservation = this.workStartReservation(prior.rows[0])
+        if (reservation.requestFingerprint !== input.requestFingerprint)
+          throw new EnterpriseOperationsError('idempotency-conflict', 'work-start-reservation', input.idempotencyKey)
+        return reservation
+      }
+      const now = this.now()
+      const inserted = await database.query<WorkStartReservationRow>(
+        `INSERT INTO dsh_enterprise_work_start_reservations(
+          org_id,user_id,idempotency_key,request_fingerprint,session_id,workspace_id,employee_release_id,preset_id,
+          deadline,deadline_digest,state,created_at,updated_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'starting',$11,$11) RETURNING *`,
+        [input.orgId, input.userId, input.idempotencyKey, input.requestFingerprint, input.sessionId, input.workspaceId,
+          input.employeeReleaseId, input.presetId, input.deadline ?? null, input.deadlineDigest ?? null, now],
+      )
+      return this.workStartReservation(required(inserted.rows[0], 'work start reservation'))
+    })
+  }
+  async getWorkStart(input: Pick<WorkStartReservationInput, 'orgId' | 'userId' | 'idempotencyKey'>): Promise<WorkStartReservation | undefined> {
+    await this.initialize()
+    const result = await this.database.query<WorkStartReservationRow>(
+      'SELECT * FROM dsh_enterprise_work_start_reservations WHERE org_id=$1 AND user_id=$2 AND idempotency_key=$3',
+      [input.orgId, input.userId, input.idempotencyKey],
+    )
+    return result.rows[0] === undefined ? undefined : this.workStartReservation(result.rows[0])
+  }
+  async completeWorkStart(input: Pick<WorkStartReservationInput, 'orgId' | 'userId' | 'idempotencyKey'>): Promise<WorkStartReservation> {
+    await this.initialize()
+    return this.database.transaction(async (database) => {
+      await this.lock(database, `work-start:${input.orgId}:${input.userId}:${input.idempotencyKey}`)
+      const updated = await database.query<WorkStartReservationRow>(
+        `UPDATE dsh_enterprise_work_start_reservations SET state='completed',updated_at=$4
+         WHERE org_id=$1 AND user_id=$2 AND idempotency_key=$3 RETURNING *`,
+        [input.orgId, input.userId, input.idempotencyKey, this.now()],
+      )
+      if (updated.rows[0] === undefined) throw new EnterpriseOperationsError('not-found', 'work-start-reservation', input.idempotencyKey)
+      return this.workStartReservation(updated.rows[0])
+    })
+  }
   async upsertWorkRecord(input: WorkRecordInput): Promise<WorkRecordView> {
     await this.initialize()
     return this.database.transaction(async (database) => {
@@ -532,6 +596,16 @@ export class EnterpriseOperationsRepository {
       await this.remember(database, input.orgId, 'work', input.idempotencyKey, input, view)
       return view
     })
+  }
+  private workStartReservation(row: WorkStartReservationRow): WorkStartReservation {
+    return {
+      orgId: row.org_id, userId: row.user_id, idempotencyKey: row.idempotency_key,
+      requestFingerprint: row.request_fingerprint, sessionId: row.session_id, workspaceId: row.workspace_id,
+      employeeReleaseId: row.employee_release_id, presetId: row.preset_id,
+      ...(row.deadline === null ? {} : { deadline: row.deadline }),
+      ...(row.deadline_digest === null ? {} : { deadlineDigest: row.deadline_digest }),
+      state: row.state, createdAt: Number(row.created_at), updatedAt: Number(row.updated_at),
+    }
   }
   async getWorkRecord(orgId: string, sessionId: string, employeeReleaseId: string): Promise<WorkRecordView | undefined> {
     await this.initialize()

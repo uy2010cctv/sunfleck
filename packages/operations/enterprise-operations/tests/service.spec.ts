@@ -26,6 +26,9 @@ function definition(overrides: Partial<EnterpriseTeamDefinition> = {}): Enterpri
 
 function driver(overrides: Partial<EnterpriseOperationsDriver> = {}): EnterpriseOperationsDriver {
   return {
+    reserveWorkStart: vi.fn(),
+    getWorkStart: vi.fn(),
+    completeWorkStart: vi.fn(),
     upsertWorkRecord: vi.fn(),
     getWorkRecord: vi.fn(),
     listWorkRecords: vi.fn().mockResolvedValue({ items: [] }),

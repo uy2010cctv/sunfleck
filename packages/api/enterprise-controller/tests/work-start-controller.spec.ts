@@ -5,7 +5,15 @@ import { EnterpriseWorkController } from '../src/index.ts'
 import { EnterpriseWorkStartService } from '../src/work-start.ts'
 const principal = { orgId: 'org-a', userId: 'user-a', roles: ['member'] as const }
 const release = (releaseId: string, presetId = 'preset-a', version = 1) => ({ releaseId, presetId, orgId: 'org-a', version, digest: `digest-${releaseId}`, snapshot: { profile: {}, bindings: [] }, publishedBy: 'user-a', publishedAt: 1 })
-function setup(overrides: Partial<ConstructorParameters<typeof EnterpriseWorkStartService>[0]> = {}) { const calls = { create: 0, records: 0, sessionIds: [] as string[] }; const service = new EnterpriseWorkStartService({ workspaceGrant: async id => ({ workspaceId: id, orgId: 'org-a' }), visibleWorkspace: async (_p, id) => id !== 'denied', sessionOwnedBy: async (_p, id) => id === 'owned-session', sessionWorkspace: async id => id === 'owned-session' ? 'session-workspace' : undefined, personalWorkspaces: async () => ['personal-workspace'], releases: async () => [release('release-a')], createSession: async (input) => { calls.create++; calls.sessionIds.push(input.sessionId); return { sessionId: input.sessionId } }, bindSession: async () => undefined, upsertRecord: async () => { calls.records++ }, ...overrides }); return { service, calls } }
+function operationDriver(upsertWorkRecord: (input: Record<string, unknown>) => Promise<unknown> = async () => ({})) {
+  return {
+    upsertWorkRecord,
+    reserveWorkStart: async (input: Record<string, unknown>) => ({ ...input, state: 'starting' }),
+    getWorkStart: async () => undefined,
+    completeWorkStart: async () => ({}),
+  }
+}
+function setup(overrides: Partial<ConstructorParameters<typeof EnterpriseWorkStartService>[0]> = {}) { const calls = { create: 0, records: 0, sessionIds: [] as string[] }; const service = new EnterpriseWorkStartService({ workspaceGrant: async id => ({ workspaceId: id, orgId: 'org-a' }), visibleWorkspace: async (_p, id) => id !== 'denied', sessionOwnedBy: async (_p, id) => id === 'owned-session', sessionWorkspace: async id => id === 'owned-session' ? 'session-workspace' : undefined, personalWorkspaces: async () => ['personal-workspace'], releases: async () => [release('release-a')], createSession: async (input) => { calls.create++; calls.sessionIds.push(input.sessionId); return { sessionId: input.sessionId } }, bindSession: async () => undefined, upsertRecord: async () => { calls.records++ }, reserveWorkStart: async input => ({ ...input, state: 'starting' as const }), getWorkStart: async () => undefined, completeWorkStart: async () => undefined, ...overrides }); return { service, calls } }
 describe('enterprise work start', () => {
   it('uses explicit authorized workspace ahead of all hints', async () => { const { service } = setup(); await expect(service.prepare(principal, { objective: 'Close books', workspaceId: 'explicit', currentSessionId: 'owned-session', recentWorkspaceId: 'recent' })).resolves.toMatchObject({ kind: 'ready', workspaceId: 'explicit' }) })
   it('uses the only authorized caller-owned personal workspace when no hint exists', async () => { const { service } = setup({ personalWorkspaces: async () => ['personal-only'] }); await expect(service.prepare(principal, { objective: 'Close books' })).resolves.toMatchObject({ kind: 'ready', workspaceId: 'personal-only' }) })
@@ -37,6 +45,94 @@ describe('enterprise work start', () => {
     await expect(service.start(principal, { objective: 'Reconcile receivables', idempotencyKey: 'conflicting-key' })).rejects.toThrow('idempotency key request digest mismatch')
     expect(calls.sessionIds).toEqual([calls.sessionIds[0], calls.sessionIds[0]])
   })
+  it('reserves before native side effects, resumes the same partial start, and rejects changed input', async () => {
+    type Reservation = {
+      requestFingerprint: string
+      sessionId: string
+      workspaceId: string
+      employeeReleaseId: string
+      presetId: string
+      deadline?: string
+      state: 'starting' | 'completed'
+    }
+    type ReservationInput = Reservation & { orgId: string; userId: string; idempotencyKey: string }
+    const reservations = new Map<string, Reservation>()
+    let failRecord = true
+    const reserveWorkStart = vi.fn(async (input: ReservationInput) => {
+      const key = `${input.orgId}:${input.userId}:${input.idempotencyKey}`
+      const prior = reservations.get(key)
+      if (prior !== undefined) {
+        if (prior.requestFingerprint !== input.requestFingerprint) throw new Error('idempotency key request digest mismatch')
+        return prior
+      }
+      const value = { ...input, state: 'starting' as const }
+      reservations.set(key, value)
+      return value
+    })
+    const completeWorkStart = vi.fn(async (input: { orgId: string; userId: string; idempotencyKey: string }) => {
+      const key = `${input.orgId}:${input.userId}:${input.idempotencyKey}`
+      const reservation = reservations.get(key)
+      if (reservation === undefined) throw new Error('missing reservation')
+      reservation.state = 'completed'
+    })
+    const { service, calls } = setup({
+      reserveWorkStart,
+      getWorkStart: async input => reservations.get(`${input.orgId}:${input.principal.userId}:${input.idempotencyKey}`),
+      completeWorkStart,
+      upsertRecord: async () => { calls.records++; if (failRecord) { failRecord = false; throw new Error('record store unavailable') } },
+    } as Partial<ConstructorParameters<typeof EnterpriseWorkStartService>[0]>)
+    const first = { objective: 'Close books', idempotencyKey: 'partial-start' }
+    await expect(service.start(principal, first)).rejects.toThrow('record store unavailable')
+    await expect(service.start(principal, { objective: 'Changed objective', idempotencyKey: 'partial-start' })).rejects.toThrow('idempotency key request digest mismatch')
+    expect(calls.create).toBe(1)
+    await expect(service.start(principal, first)).resolves.toMatchObject({ sessionId: calls.sessionIds[0] })
+    expect(calls.create).toBe(2)
+    expect(completeWorkStart).toHaveBeenCalledTimes(1)
+  })
+  it('recovers a starting reservation with a new service instance after persistence failure', async () => {
+    type Reservation = {
+      requestFingerprint: string
+      sessionId: string
+      workspaceId: string
+      employeeReleaseId: string
+      presetId: string
+      deadline?: string
+      state: 'starting' | 'completed'
+    }
+    type ReservationInput = Reservation & { orgId: string; userId: string; idempotencyKey: string }
+    const reservations = new Map<string, Reservation>()
+    const reserveWorkStart = async (input: ReservationInput) => {
+      const key = `${input.orgId}:${input.userId}:${input.idempotencyKey}`
+      const prior = reservations.get(key)
+      if (prior !== undefined) {
+        if (prior.requestFingerprint !== input.requestFingerprint) throw new Error('idempotency key request digest mismatch')
+        return prior
+      }
+      const value = { ...input, state: 'starting' as const }
+      reservations.set(key, value)
+      return value
+    }
+    const completeWorkStart = async (input: { orgId: string; userId: string; idempotencyKey: string }) => {
+      const value = reservations.get(`${input.orgId}:${input.userId}:${input.idempotencyKey}`)
+      if (value === undefined) throw new Error('missing reservation')
+      value.state = 'completed'
+    }
+    const getWorkStart = async (input: { orgId: string; principal: typeof principal; idempotencyKey: string }) =>
+      reservations.get(`${input.orgId}:${input.principal.userId}:${input.idempotencyKey}`)
+    const first = setup({ reserveWorkStart, getWorkStart, completeWorkStart, upsertRecord: async () => { throw new Error('record store unavailable') } } as Partial<ConstructorParameters<typeof EnterpriseWorkStartService>[0]>)
+    const input = { objective: 'Close books', idempotencyKey: 'restart-resume' }
+    await expect(first.service.start(principal, input)).rejects.toThrow('record store unavailable')
+    const second = setup({
+      reserveWorkStart,
+      getWorkStart,
+      completeWorkStart,
+      releases: async () => [],
+      personalWorkspaces: async () => [],
+      workspaceGrant: async () => undefined,
+    } as Partial<ConstructorParameters<typeof EnterpriseWorkStartService>[0]>)
+    await expect(second.service.start(principal, input)).resolves.toMatchObject({ sessionId: first.calls.sessionIds[0] })
+    expect(second.calls.sessionIds).toEqual([first.calls.sessionIds[0]])
+  })
 })
 
 describe('enterprise work Remote controller', () => {
@@ -54,7 +150,7 @@ describe('enterprise work Remote controller', () => {
         sessionWorkspaceGrant: async () => undefined,
       },
       catalog: { listDrafts: async () => ({ items: [{ presetId: 'preset-a', status: 'published' }] }), listReleases: async () => [release('release-a')] },
-      operations: { upsertWorkRecord: async () => ({}) },
+      operations: operationDriver(),
     } as never)
     ctx.provide('enterpriseSecurity' as never, {
       authorizeApiAsync: async () => ({ allowed: true, reason: 'role' }), auditApiAsync: async () => undefined,
@@ -79,7 +175,7 @@ describe('enterprise work Remote controller', () => {
     ctx.provide('enterprisePostgres' as never, {
       identity: { workspaceGrant: async (workspaceId: string) => ({ workspaceId, orgId: 'org-a' }), listWorkspaceGrants: async () => [{ workspaceId: 'personal-a', kind: 'personal', ownerUserId: 'user-a', orgId: 'org-a' }], sessionWorkspaceGrant: async () => undefined },
       catalog: { listDrafts, listReleases: async (presetId: string) => [release('release-later', presetId)] },
-      operations: { upsertWorkRecord: async () => ({}) },
+      operations: operationDriver(),
     } as never)
     ctx.provide('enterpriseSecurity' as never, { authorizeApiAsync: async () => ({ allowed: true, reason: 'role' }), auditApiAsync: async () => undefined, sessionOwnedBy: async () => false, bindSessionWorkspaceAsync: async () => undefined } as never)
     ctx.provide('enterpriseRequestContext' as never, requestContext as never)
@@ -102,7 +198,7 @@ describe('enterprise work Remote controller', () => {
     ctx.provide('enterprisePostgres' as never, {
       identity: { workspaceGrant: async (workspaceId: string) => ({ workspaceId, orgId: 'org-a' }), listWorkspaceGrants: async () => [{ workspaceId: 'personal-a', kind: 'personal', ownerUserId: 'admin-a', orgId: 'org-a' }], sessionWorkspaceGrant: async () => undefined },
       catalog: { listDrafts, listReleases: async (presetId: string) => [release(`release-${presetId}`, presetId)] },
-      operations: { upsertWorkRecord: async () => ({}) },
+      operations: operationDriver(),
     } as never)
     ctx.provide('enterpriseSecurity' as never, { authorizeApiAsync: async () => ({ allowed: true, reason: 'role' }), auditApiAsync: async () => undefined, sessionOwnedBy: async () => false, bindSessionWorkspaceAsync: async () => undefined } as never)
     ctx.provide('enterpriseRequestContext' as never, requestContext as never)
@@ -122,6 +218,8 @@ describe('enterprise work Remote controller', () => {
     const create = vi.fn(async (input: { sessionId: string }) => ({ sessionId: input.sessionId }))
     const bindSessionWorkspaceAsync = vi.fn(async () => undefined)
     const upsertWorkRecord = vi.fn(async (input: Record<string, unknown>) => ({ ...input, revision: 1, createdAt: 1, updatedAt: 1 }))
+    const reserveWorkStart = vi.fn(async (input: Record<string, unknown>) => ({ ...input, state: 'starting' }))
+    const completeWorkStart = vi.fn(async () => ({}))
     const authorizeApiAsync = vi.fn(async () => ({ allowed: true, reason: 'role' }))
     const auditApiAsync = vi.fn(async () => undefined)
     const ctx = new Context()
@@ -131,7 +229,7 @@ describe('enterprise work Remote controller', () => {
         listWorkspaceGrants: async () => [], sessionWorkspaceGrant: async () => undefined,
       },
       catalog: { listDrafts: async () => ({ items: [{ presetId: 'preset-a', status: 'published' }] }), listReleases: async () => [release('release-a')] },
-      operations: { upsertWorkRecord },
+      operations: { upsertWorkRecord, reserveWorkStart, getWorkStart: async () => undefined, completeWorkStart },
     } as never)
     ctx.provide('enterpriseSecurity' as never, {
       authorizeApiAsync, auditApiAsync,
@@ -144,11 +242,17 @@ describe('enterprise work Remote controller', () => {
       objective: 'Close books', workspaceId: 'workspace-a', preferredEmployeeReleaseId: 'release-a', idempotencyKey: 'remote-start',
     }))
     expect(create).toHaveBeenCalledWith({ sessionId: result.sessionId, workspaceId: 'workspace-a', agentPreset: 'preset-a' })
+    expect(reserveWorkStart.mock.invocationCallOrder[0]).toBeLessThan(create.mock.invocationCallOrder[0] as number)
+    expect(reserveWorkStart).toHaveBeenCalledWith(expect.objectContaining({
+      orgId: 'org-a', idempotencyKey: 'remote-start', sessionId: result.sessionId,
+      workspaceId: 'workspace-a', employeeReleaseId: 'release-a', presetId: 'preset-a',
+    }))
     expect(bindSessionWorkspaceAsync).toHaveBeenCalledWith(principal, result.sessionId, 'workspace-a')
     expect(upsertWorkRecord).toHaveBeenCalledWith(expect.objectContaining({
       orgId: 'org-a', sessionId: result.sessionId, employeeReleaseId: 'release-a', idempotencyKey: 'remote-start',
       sourceReferences: expect.objectContaining({ employeeReleaseId: 'release-a', releasePresetId: 'preset-a' }),
     }))
+    expect(completeWorkStart).toHaveBeenCalledWith(expect.objectContaining({ orgId: 'org-a', idempotencyKey: 'remote-start' }))
     expect(authorizeApiAsync).toHaveBeenCalledWith(principal, 'enterpriseWork.start', expect.objectContaining({ idempotencyKey: 'remote-start' }))
     expect(auditApiAsync).toHaveBeenCalledWith(principal, 'enterpriseWork.start', expect.objectContaining({ idempotencyKey: 'remote-start' }), { allowed: true, reason: 'role' }, expect.any(String))
   })

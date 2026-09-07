@@ -13,6 +13,15 @@ export type {
   EnterpriseWorkStartRequest,
   EnterpriseWorkStartValue,
 } from './contract/work.ts'
+interface WorkStartSnapshot {
+  readonly requestFingerprint: string
+  readonly sessionId: string
+  readonly workspaceId: string
+  readonly employeeReleaseId: string
+  readonly presetId: string
+  readonly deadline?: string
+  readonly state: 'starting' | 'completed'
+}
 export interface EnterpriseWorkStartDependencies {
   readonly workspaceGrant: (workspaceId: string) => Promise<{ orgId: string } | undefined>
   readonly visibleWorkspace: (principal: EnterprisePrincipal, workspaceId: string) => Promise<boolean>
@@ -34,6 +43,31 @@ export interface EnterpriseWorkStartDependencies {
     sourceReferences: Readonly<Record<string, string>>
     idempotencyKey: string
   }) => Promise<void>
+  readonly reserveWorkStart: (input: {
+    principal: EnterprisePrincipal
+    orgId: string
+    userId: string
+    idempotencyKey: string
+    requestFingerprint: string
+    sessionId: string
+    workspaceId: string
+    employeeReleaseId: string
+    presetId: string
+    deadline?: string
+    deadlineDigest?: string
+  }) => Promise<WorkStartSnapshot>
+  readonly getWorkStart: (input: {
+    principal: EnterprisePrincipal
+    orgId: string
+    userId: string
+    idempotencyKey: string
+  }) => Promise<WorkStartSnapshot | undefined>
+  readonly completeWorkStart: (input: {
+    principal: EnterprisePrincipal
+    orgId: string
+    userId: string
+    idempotencyKey: string
+  }) => Promise<unknown>
 }
 /** Narrow policy-first work-start orchestration; it deliberately does not route models or teams. */
 export class EnterpriseWorkStartService {
@@ -56,34 +90,69 @@ export class EnterpriseWorkStartService {
     return { kind: 'needs-selection', workspaceId, availableEmployeeReleaseIds: current.map(item => item.releaseId) }
   }
   async start(principal: EnterprisePrincipal, request: EnterpriseWorkStartRequest): Promise<EnterpriseWorkStartValue> {
+    const requestFingerprint = fingerprint(request)
+    const existing = await this.deps.getWorkStart({
+      principal, orgId: principal.orgId, userId: principal.userId, idempotencyKey: request.idempotencyKey,
+    })
+    if (existing !== undefined) {
+      const reservation = await this.deps.reserveWorkStart({
+        principal, orgId: principal.orgId, userId: principal.userId, idempotencyKey: request.idempotencyKey,
+        requestFingerprint,
+        sessionId: existing.sessionId, workspaceId: existing.workspaceId, employeeReleaseId: existing.employeeReleaseId,
+        presetId: existing.presetId,
+        ...(existing.deadline === undefined
+          ? {}
+          : { deadline: existing.deadline, deadlineDigest: digest(existing.deadline) }),
+      })
+      if (reservation.state === 'completed') return this.value(reservation)
+      return this.resume(principal, request, reservation)
+    }
     const prepared = await this.prepare(principal, request)
     if (prepared.kind === 'needs-workspace-selection') throw new Error('workspace selection is required')
     if (prepared.kind === 'needs-selection') throw new Error('employee selection is required')
     const release = (await this.deps.releases(principal)).find(item => item.releaseId === prepared.employeeReleaseId)
     if (release === undefined) throw new Error('employee release is not visible or published')
-    const requestFingerprint = fingerprint(request, prepared.workspaceId, release)
     const sessionId = deterministicSessionId(principal, request.idempotencyKey)
-    const created = await this.deps.createSession({
-      sessionId,
-      workspaceId: prepared.workspaceId,
-      employeeReleaseId: prepared.employeeReleaseId,
-      agentPresetId: release.presetId,
+    const reservation = await this.deps.reserveWorkStart({
+      principal, orgId: principal.orgId, userId: principal.userId, idempotencyKey: request.idempotencyKey,
+      requestFingerprint, sessionId, workspaceId: prepared.workspaceId, employeeReleaseId: prepared.employeeReleaseId,
+      presetId: release.presetId,
+      ...(request.deadline === undefined ? {} : { deadline: request.deadline, deadlineDigest: digest(request.deadline) }),
     })
-    await this.deps.bindSession(principal, created.sessionId, prepared.workspaceId)
+    return this.resume(principal, request, reservation)
+  }
+  private async resume(
+    principal: EnterprisePrincipal,
+    request: EnterpriseWorkStartRequest,
+    reservation: Pick<WorkStartSnapshot, 'sessionId' | 'workspaceId' | 'employeeReleaseId' | 'presetId' | 'deadline'>,
+  ): Promise<EnterpriseWorkStartValue> {
+    const created = await this.deps.createSession({
+      sessionId: reservation.sessionId,
+      workspaceId: reservation.workspaceId,
+      employeeReleaseId: reservation.employeeReleaseId,
+      agentPresetId: reservation.presetId,
+    })
+    await this.deps.bindSession(principal, created.sessionId, reservation.workspaceId)
     await this.deps.upsertRecord({
       principal,
       sessionId: created.sessionId,
-      employeeReleaseId: prepared.employeeReleaseId,
+      employeeReleaseId: reservation.employeeReleaseId,
       idempotencyKey: request.idempotencyKey,
       sourceReferences: {
-        requestFingerprint,
+        requestFingerprint: fingerprint(request),
         objectiveDigest: digest(request.objective),
-        employeeReleaseId: release.releaseId,
-        releasePresetId: release.presetId,
-        ...(request.deadline === undefined ? {} : { deadline: request.deadline }),
+        employeeReleaseId: reservation.employeeReleaseId,
+        releasePresetId: reservation.presetId,
+        ...(reservation.deadline === undefined ? {} : { deadline: reservation.deadline }),
       },
     })
-    return { sessionId: created.sessionId, workspaceId: prepared.workspaceId, employeeReleaseId: prepared.employeeReleaseId, executionSummary: 'Enterprise work Session created with the selected workspace and employee.' }
+    await this.deps.completeWorkStart({
+      principal, orgId: principal.orgId, userId: principal.userId, idempotencyKey: request.idempotencyKey,
+    })
+    return this.value(reservation)
+  }
+  private value(reservation: { sessionId: string; workspaceId: string; employeeReleaseId: string }): EnterpriseWorkStartValue {
+    return { sessionId: reservation.sessionId, workspaceId: reservation.workspaceId, employeeReleaseId: reservation.employeeReleaseId, executionSummary: 'Enterprise work Session created with the selected workspace and employee.' }
   }
   private async workspace(principal: EnterprisePrincipal, request: EnterpriseWorkPrepareRequest): Promise<string | Extract<EnterpriseWorkPreparation, { kind: 'needs-workspace-selection' }>> {
     const allowed = async (workspaceId: string) => {
@@ -110,13 +179,11 @@ export class EnterpriseWorkStartService {
 
 function digest(value: string): string { return createHash('sha256').update(value).digest('hex') }
 
-function fingerprint(request: EnterpriseWorkStartRequest, workspaceId: string, release: EnterpriseEmployeeRelease): string {
+function fingerprint(request: EnterpriseWorkStartRequest): string {
   return digest(JSON.stringify({
     objective: request.objective, deadline: request.deadline, workspaceId: request.workspaceId,
     currentSessionId: request.currentSessionId, recentWorkspaceId: request.recentWorkspaceId,
-    preferredEmployeeReleaseId: request.preferredEmployeeReleaseId, resolvedWorkspaceId: workspaceId,
-    releaseId: release.releaseId, releasePresetId: release.presetId, releaseVersion: release.version,
-    releaseDigest: release.digest,
+    preferredEmployeeReleaseId: request.preferredEmployeeReleaseId,
   }))
 }
 

@@ -23,6 +23,24 @@ export interface WorkRecordPage {
   readonly items: readonly WorkRecordView[]
   readonly nextCursor?: string
 }
+/** Durable admission snapshot written before an enterprise work start reaches native Session side effects. */
+export interface WorkStartReservationInput {
+  readonly orgId: string
+  readonly userId: string
+  readonly idempotencyKey: string
+  readonly requestFingerprint: string
+  readonly sessionId: string
+  readonly workspaceId: string
+  readonly employeeReleaseId: string
+  readonly presetId: string
+  readonly deadline?: string
+  readonly deadlineDigest?: string
+}
+export interface WorkStartReservation extends WorkStartReservationInput {
+  readonly state: 'starting' | 'completed'
+  readonly createdAt: number
+  readonly updatedAt: number
+}
 export interface ApprovalPage { readonly items: readonly ApprovalView[]; readonly nextCursor?: string }
 export interface FixedTeamPage { readonly items: readonly FixedTeamView[]; readonly nextCursor?: string }
 export interface SchedulePage { readonly items: readonly ScheduleView[]; readonly nextCursor?: string }

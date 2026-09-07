@@ -1,6 +1,6 @@
 /** PostgreSQL schema for work records, approvals, schedules, teams, and outbox. */
 import type { PostgresDatabase } from './types.ts'
-export const ENTERPRISE_OPERATIONS_SCHEMA_VERSION = 14
+export const ENTERPRISE_OPERATIONS_SCHEMA_VERSION = 15
 /** Owner placeholder for legacy fixed teams whose creator was never persisted. */
 export const LEGACY_TEAM_DEFINITION_OWNER_USER_ID = 'system:legacy-fixed-team-migration'
 const statements = [
@@ -58,6 +58,14 @@ const statements = [
   `CREATE TABLE IF NOT EXISTS dsh_enterprise_operations_idempotency (
     org_id TEXT NOT NULL, operation TEXT NOT NULL, key TEXT NOT NULL,
     result_json JSONB NOT NULL, PRIMARY KEY(org_id, operation, key)
+  )`,
+  `CREATE TABLE IF NOT EXISTS dsh_enterprise_work_start_reservations (
+    org_id TEXT NOT NULL, user_id TEXT NOT NULL, idempotency_key TEXT NOT NULL,
+    request_fingerprint TEXT NOT NULL, session_id TEXT NOT NULL, workspace_id TEXT NOT NULL,
+    employee_release_id TEXT NOT NULL, preset_id TEXT NOT NULL, deadline TEXT, deadline_digest TEXT,
+    state TEXT NOT NULL CHECK (state IN ('starting','completed')),
+    created_at BIGINT NOT NULL, updated_at BIGINT NOT NULL,
+    PRIMARY KEY(org_id,user_id,idempotency_key)
   )`,
   `CREATE TABLE IF NOT EXISTS dsh_enterprise_team_runs (
     run_id TEXT PRIMARY KEY, org_id TEXT NOT NULL, team_id TEXT NOT NULL,
@@ -288,6 +296,16 @@ export async function migrateEnterpriseOperations(database: PostgresDatabase): P
         await transaction.query('ALTER TABLE dsh_enterprise_channel_configurations ADD COLUMN IF NOT EXISTS verified_tenant_id TEXT')
         await transaction.query('ALTER TABLE dsh_enterprise_channel_configurations ADD COLUMN IF NOT EXISTS binding_verified_by TEXT')
         await transaction.query('ALTER TABLE dsh_enterprise_channel_configurations ADD COLUMN IF NOT EXISTS binding_verified_at BIGINT')
+      }
+      if (version < 15) {
+        await transaction.query(`CREATE TABLE IF NOT EXISTS dsh_enterprise_work_start_reservations (
+          org_id TEXT NOT NULL, user_id TEXT NOT NULL, idempotency_key TEXT NOT NULL,
+          request_fingerprint TEXT NOT NULL, session_id TEXT NOT NULL, workspace_id TEXT NOT NULL,
+          employee_release_id TEXT NOT NULL, preset_id TEXT NOT NULL, deadline TEXT, deadline_digest TEXT,
+          state TEXT NOT NULL CHECK (state IN ('starting','completed')),
+          created_at BIGINT NOT NULL, updated_at BIGINT NOT NULL,
+          PRIMARY KEY(org_id,user_id,idempotency_key)
+        )`)
       }
       if (version < ENTERPRISE_OPERATIONS_SCHEMA_VERSION) {
         await transaction.query("UPDATE dsh_enterprise_operations_meta SET value = $1 WHERE key = 'schema-version'", [String(ENTERPRISE_OPERATIONS_SCHEMA_VERSION)])
