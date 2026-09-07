@@ -1,5 +1,5 @@
 import { Context } from '@deepseek-ai/cordis'
-import { EnterpriseRequestContext } from '@deepseek-ai/dsh-enterprise-auth-web'
+import { EnterpriseRequestContext, EnterpriseSecurity } from '@deepseek-ai/dsh-enterprise-auth-web'
 import { describe, expect, it, vi } from 'vitest'
 import { EnterpriseWorkController } from '../src/index.ts'
 import { type EnterpriseWorkStartDependencies, EnterpriseWorkStartService } from '../src/work-start.ts'
@@ -260,6 +260,69 @@ describe('enterprise work Remote controller', () => {
         principal, endpoint, { idempotencyKey: 'remote-start' }, { allowed: true, reason: 'role' }, expect.any(String),
       )
     }
+  })
+  it('uses EnterpriseSecurity to authorize and audit a work-start reservation by idempotency key', async () => {
+    const requestContext = new EnterpriseRequestContext()
+    const create = vi.fn(async (input: { sessionId: string }) => ({ sessionId: input.sessionId }))
+    const audits: Record<string, unknown>[] = []
+    const security = new EnterpriseSecurity({
+      resourcePolicy: async () => undefined,
+      appendAudit: async (audit: Record<string, unknown>) => { audits.push(audit) },
+      bindSessionWorkspace: async () => undefined,
+    } as never, {
+      organizationId: 'org-a', sessionCookieName: 'dsh-enterprise-session', sessionTtlMs: 60_000,
+      secureCookies: false, autoProvisionSsoUsers: false,
+    })
+    const ctx = new Context()
+    ctx.provide('enterprisePostgres' as never, {
+      identity: {
+        workspaceGrant: async (workspaceId: string) => ({ workspaceId, orgId: 'org-a' }),
+        listWorkspaceGrants: async () => [], sessionWorkspaceGrant: async () => undefined,
+      },
+      catalog: { listDrafts: async () => ({ items: [{ presetId: 'preset-a', status: 'published' }] }), listReleases: async () => [release('release-a')] },
+      operations: operationDriver(),
+    } as never)
+    ctx.provide('enterpriseSecurity' as never, security)
+    ctx.provide('enterpriseRequestContext' as never, requestContext as never)
+    ctx.provide('sessionController' as never, { create } as never)
+    const controller = new EnterpriseWorkController(ctx)
+    const operator = { orgId: 'org-a', userId: 'operator-a', roles: ['operator'] as const }
+
+    await expect(security.authorizeApiAsync(operator, 'enterpriseWork.start', { idempotencyKey: 'authorized-start' }))
+      .resolves.toEqual({ allowed: true, reason: 'role' })
+    await expect(requestContext.run(operator, () => controller.start({
+      objective: 'Close books', workspaceId: 'workspace-a', preferredEmployeeReleaseId: 'release-a', idempotencyKey: 'authorized-start',
+    }))).resolves.toMatchObject({ employeeReleaseId: 'release-a' })
+    expect(create).toHaveBeenCalledTimes(1)
+    expect(audits).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        action: 'operation.manage', resourceType: 'work-start-reservation', resourceId: 'authorized-start', decision: 'allowed',
+      }),
+    ]))
+  })
+  it('uses EnterpriseSecurity to deny an unauthorized work start before native Session creation', async () => {
+    const requestContext = new EnterpriseRequestContext()
+    const create = vi.fn(async (input: { sessionId: string }) => ({ sessionId: input.sessionId }))
+    const security = new EnterpriseSecurity({
+      resourcePolicy: async () => undefined,
+      appendAudit: async () => undefined,
+      bindSessionWorkspace: async () => undefined,
+    } as never, {
+      organizationId: 'org-a', sessionCookieName: 'dsh-enterprise-session', sessionTtlMs: 60_000,
+      secureCookies: false, autoProvisionSsoUsers: false,
+    })
+    const ctx = new Context()
+    ctx.provide('enterprisePostgres' as never, {} as never)
+    ctx.provide('enterpriseSecurity' as never, security)
+    ctx.provide('enterpriseRequestContext' as never, requestContext as never)
+    ctx.provide('sessionController' as never, { create } as never)
+    const controller = new EnterpriseWorkController(ctx)
+    const member = { orgId: 'org-a', userId: 'member-a', roles: ['member'] as const }
+
+    await expect(requestContext.run(member, () => controller.start({
+      objective: 'Close books', idempotencyKey: 'unauthorized-start',
+    }))).rejects.toMatchObject({ code: 'enterprise-forbidden' })
+    expect(create).not.toHaveBeenCalled()
   })
   it('audits and rejects an unauthorized start before native Session creation', async () => {
     const requestContext = new EnterpriseRequestContext()

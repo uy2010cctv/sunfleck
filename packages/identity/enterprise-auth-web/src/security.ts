@@ -237,6 +237,7 @@ export function classifyApiEndpoint(endpoint: string, input: unknown): ApiClassi
     }
   }
   if (['enterpriseOperation.workRecords.list', 'enterpriseOperation.workRecords.get', 'enterpriseOperation.workRecords.update', 'enterpriseOperation.workRecords.upsert',
+    'enterpriseOperation.workStarts.reserve', 'enterpriseOperation.workStarts.get', 'enterpriseOperation.workStarts.complete',
     'enterpriseOperation.approvals.list', 'enterpriseOperation.approvals.get', 'enterpriseOperation.approvals.create', 'enterpriseOperation.approvals.transition', 'enterpriseOperation.approvals.cancel',
     'enterpriseOperation.schedules.list', 'enterpriseOperation.schedules.get', 'enterpriseOperation.schedules.create', 'enterpriseOperation.schedules.save', 'enterpriseOperation.schedules.transition', 'enterpriseOperation.schedules.fire',
     'enterpriseOperation.outbox.claim', 'enterpriseOperation.outbox.complete', 'enterpriseOperation.outbox.fail',
@@ -247,6 +248,13 @@ export function classifyApiEndpoint(endpoint: string, input: unknown): ApiClassi
     const operation = endpoint.slice('enterpriseOperation.'.length)
     if (operation.startsWith('workRecords.') && (operation.endsWith('.get') || operation.endsWith('.list'))) {
       return { action: 'operation.read', resourceType: 'work-record', ...sessionId === undefined ? {} : { resourceId: sessionId } }
+    }
+    if (operation.startsWith('workStarts.')) {
+      const resourceId = stringField(payload, 'idempotencyKey')
+      return {
+        action: 'operation.manage', resourceType: 'work-start-reservation',
+        ...(resourceId === undefined ? {} : { resourceId }),
+      }
     }
     if (operation.startsWith('workRecords.') || operation.startsWith('outbox.')) return { action: 'operation.manage', resourceType: 'work-record', ...sessionId === undefined ? {} : { resourceId: sessionId } }
     if (operation.startsWith('approvals.')) {
