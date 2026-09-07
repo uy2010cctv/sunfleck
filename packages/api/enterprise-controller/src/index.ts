@@ -235,7 +235,8 @@ function operations(ctx: Context): EnterpriseOperationsService {
         : event.resourceType === 'approval' ? 'approvalId'
           : event.resourceType === 'schedule' ? 'scheduleId'
             : event.resourceType === 'channel' ? 'channelId'
-              : event.resourceType === 'fixed-team' || event.resourceType === 'team-definition' ? 'teamId' : 'commandId'
+              : event.resourceType === 'work-start-reservation' ? 'idempotencyKey'
+                : event.resourceType === 'fixed-team' || event.resourceType === 'team-definition' ? 'teamId' : 'commandId'
       const input = event.resourceId === undefined ? {} : { [field]: event.resourceId }
       return ctx.enterpriseSecurity.auditApiAsync(
         event.principal, event.endpoint, input,
