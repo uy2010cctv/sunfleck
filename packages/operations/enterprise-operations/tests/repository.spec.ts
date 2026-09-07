@@ -354,12 +354,12 @@ class MemoryPostgresDatabase implements PostgresDatabase {
     }
     if (text.startsWith('SELECT ') && text.includes('FROM dsh_enterprise_team_definition_revisions')) {
       let rows = [...this.teamDefinitionRevisions.values()]
-        .filter(row => row.org_id === String(values[0]) && row.team_id === String(values[1]))
+        .filter(row => row.org_id === String(values[0]) && (text.includes('team_id=$2') ? row.team_id === String(values[1]) : true))
       if (text.includes('revision=$3')) rows = rows.filter(row => row.revision === Number(values[2]))
       if (text.includes("state='active'")) rows = rows.filter(row => row.state === 'active')
       else if (text.includes("state IN ('draft','needs-charter')")) rows = rows.filter(row => row.state === 'draft' || row.state === 'needs-charter')
-      if (text.includes('($3::boolean OR owner_user_id=$4)')) {
-        const administrator = Boolean(values[2]); const userId = String(values[3])
+      if (text.includes('($3::boolean OR owner_user_id=$4)') || text.includes('($2::boolean OR owner_user_id=$3)')) {
+        const administrator = Boolean(values[text.includes('($2::boolean') ? 1 : 2]); const userId = String(values[text.includes('($2::boolean') ? 2 : 3])
         rows = rows.filter(row => administrator || row.owner_user_id === userId)
       }
       if (text.includes('ORDER BY revision DESC')) rows.sort((left, right) => right.revision - left.revision)
@@ -1659,7 +1659,9 @@ describe('EnterpriseOperationsRepository team definitions', () => {
     })).rejects.toMatchObject({ code: 'conflict', resourceType: 'team-definition' })
     await expect(operations.getTeamDefinition('org-a', teamDefinition.teamId, adminReadScope)).resolves.toBeUndefined()
     await expect(operations.getTeamDefinition('org-b', teamDefinition.teamId, adminReadScope)).resolves.toBeUndefined()
-    await expect(operations.listTeamDefinitions({ orgId: 'org-a', readScope: adminReadScope, limit: 10 })).resolves.toEqual({ items: [] })
+    await expect(operations.listTeamDefinitions({ orgId: 'org-a', readScope: adminReadScope, limit: 10 })).resolves.toMatchObject({
+      items: [expect.objectContaining({ teamId: teamDefinition.teamId, state: 'draft', revision: created.revision })],
+    })
     await expect(operations.listTeamDefinitions({ orgId: 'org-b', readScope: adminReadScope, limit: 10 })).resolves.toEqual({ items: [] })
 
     const saved = await operations.saveTeamDefinition({
