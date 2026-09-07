@@ -1902,6 +1902,9 @@ export class EnterpriseWorkController extends TypertRemoteService {
         sessionId: input.sessionId, employeeReleaseId: input.employeeReleaseId, source: 'console', businessState: 'active',
         sourceReferences: input.sourceReferences, expectedRevision: 0, idempotencyKey: input.idempotencyKey,
       }) },
+      reserveWorkStart: ({ principal: actor, ...input }) => operations(ctx).reserveWorkStart(actor, input),
+      getWorkStart: ({ principal: actor, ...input }) => operations(ctx).getWorkStart(actor, input),
+      completeWorkStart: ({ principal: actor, ...input }) => operations(ctx).completeWorkStart(actor, input),
     })
   }
   /**

@@ -23,6 +23,7 @@ Durable DSH enterprise work records, approvals, schedules, team definitions, Tea
 Durable operation projections over native DSH execution:
 
 - Work records reference native Session IDs and employee releases without duplicating event bodies. Deployments may inject Session and release resolvers; when configured, each resolver must confirm its reference in the same organization before a write.
+- Enterprise work start first persists a PostgreSQL reservation keyed by organization, user, and idempotency key. Its immutable snapshot carries the canonical request fingerprint, deterministic Session ID, resolved Workspace, release, preset, and permitted deadline digest/value. Reusing the key with another fingerprint fails before native Session creation or binding; a `starting` reservation survives a WorkRecord persistence failure and a new Host instance resumes that same Session before marking it `completed` after the WorkRecord upsert.
 - Approval requests use optimistic revisions and auditable transitions.
 - Employee and fixed-team schedules create one idempotent start-session Outbox command per occurrence; retries with another request idempotency key return the original command.
 - Fixed teams bind a leader, members, Workflow template, and approval policy.

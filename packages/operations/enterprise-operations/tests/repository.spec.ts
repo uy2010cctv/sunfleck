@@ -22,6 +22,21 @@ interface WorkRecordRow {
   created_at: number
   updated_at: number
 }
+interface WorkStartReservationRow {
+  org_id: string
+  user_id: string
+  idempotency_key: string
+  request_fingerprint: string
+  session_id: string
+  workspace_id: string
+  employee_release_id: string
+  preset_id: string
+  deadline: string | null
+  deadline_digest: string | null
+  state: 'starting' | 'completed'
+  created_at: number
+  updated_at: number
+}
 
 interface ApprovalRow {
   approval_id: string
@@ -138,6 +153,7 @@ interface ChannelConfigurationRow {
 class MemoryPostgresDatabase implements PostgresDatabase {
   private readonly meta = new Map<string, string>()
   private readonly workRecords = new Map<string, WorkRecordRow>()
+  private readonly workStartReservations = new Map<string, WorkStartReservationRow>()
   private readonly approvals = new Map<string, ApprovalRow>()
   private readonly schedules = new Map<string, ScheduleRow>()
   private readonly teams = new Map<string, TeamRow>()
@@ -199,6 +215,7 @@ class MemoryPostgresDatabase implements PostgresDatabase {
       const checkpoint = structuredClone({
         meta: this.meta,
         workRecords: this.workRecords,
+        workStartReservations: this.workStartReservations,
         approvals: this.approvals,
         schedules: this.schedules,
         teams: this.teams,
@@ -244,6 +261,26 @@ class MemoryPostgresDatabase implements PostgresDatabase {
     if (text.startsWith('UPDATE dsh_enterprise_operations_meta')) {
       this.meta.set('schema-version', String(values[0]))
       return []
+    }
+    if (text.startsWith('SELECT * FROM dsh_enterprise_work_start_reservations')) {
+      const row = this.workStartReservations.get(`${String(values[0])}:${String(values[1])}:${String(values[2])}`)
+      return row === undefined ? [] : [clone(row)]
+    }
+    if (text.startsWith('INSERT INTO dsh_enterprise_work_start_reservations')) {
+      const row: WorkStartReservationRow = {
+        org_id: String(values[0]), user_id: String(values[1]), idempotency_key: String(values[2]),
+        request_fingerprint: String(values[3]), session_id: String(values[4]), workspace_id: String(values[5]),
+        employee_release_id: String(values[6]), preset_id: String(values[7]),
+        deadline: values[8] === null ? null : String(values[8]), deadline_digest: values[9] === null ? null : String(values[9]),
+        state: 'starting', created_at: Number(values[10]), updated_at: Number(values[10]),
+      }
+      this.workStartReservations.set(`${row.org_id}:${row.user_id}:${row.idempotency_key}`, row)
+      return [clone(row)]
+    }
+    if (text.startsWith("UPDATE dsh_enterprise_work_start_reservations SET state='completed'")) {
+      const row = this.workStartReservations.get(`${String(values[0])}:${String(values[1])}:${String(values[2])}`)
+      if (row === undefined) return []
+      row.state = 'completed'; row.updated_at = Number(values[3]); return [clone(row)]
     }
     if (text.startsWith("UPDATE dsh_enterprise_operation_outbox SET state='dead-letter'")) {
       for (const row of this.outbox.values()) {
@@ -721,6 +758,7 @@ class MemoryPostgresDatabase implements PostgresDatabase {
   private restore(snapshot: {
     meta: Map<string, string>
     workRecords: Map<string, WorkRecordRow>
+    workStartReservations: Map<string, WorkStartReservationRow>
     approvals: Map<string, ApprovalRow>
     schedules: Map<string, ScheduleRow>
     teams: Map<string, TeamRow>
@@ -733,6 +771,7 @@ class MemoryPostgresDatabase implements PostgresDatabase {
     const stores = [
       [this.meta, snapshot.meta],
       [this.workRecords, snapshot.workRecords],
+      [this.workStartReservations, snapshot.workStartReservations],
       [this.approvals, snapshot.approvals],
       [this.schedules, snapshot.schedules],
       [this.teams, snapshot.teams],
@@ -808,7 +847,24 @@ describe('EnterpriseOperationsRepository', () => {
       idempotencyKey: 'approval-migration-create',
     })
 
-    expect(database.schemaVersion).toBe('14')
+    expect(database.schemaVersion).toBe('15')
+  })
+
+  it('atomically persists and recovers a work-start reservation before native side effects', async () => {
+    const database = new MemoryPostgresDatabase()
+    const first = new EnterpriseOperationsRepository(database, { allowUnverifiedReferences: true })
+    const input = {
+      orgId: 'org-a', userId: 'user-a', idempotencyKey: 'work-start-a', requestFingerprint: 'fingerprint-a',
+      sessionId: 'session-work-a', workspaceId: 'workspace-a', employeeReleaseId: 'release-a', presetId: 'preset-a',
+      deadline: '2026-09-08T10:00:00.000Z', deadlineDigest: 'deadline-digest-a',
+    }
+    await expect(first.reserveWorkStart(input)).resolves.toMatchObject({ state: 'starting', sessionId: 'session-work-a' })
+    const restarted = new EnterpriseOperationsRepository(database, { allowUnverifiedReferences: true })
+    await expect(restarted.getWorkStart(input)).resolves.toMatchObject({ state: 'starting', workspaceId: 'workspace-a' })
+    await expect(restarted.reserveWorkStart(input)).resolves.toMatchObject({ state: 'starting', workspaceId: 'workspace-a' })
+    await expect(restarted.reserveWorkStart({ ...input, requestFingerprint: 'fingerprint-b', workspaceId: 'workspace-b' }))
+      .rejects.toMatchObject({ code: 'idempotency-conflict', resourceType: 'work-start-reservation' })
+    await expect(restarted.completeWorkStart(input)).resolves.toMatchObject({ state: 'completed' })
   })
 
   it('permits unverified local writes only through explicit configuration', async () => {
@@ -2045,7 +2101,7 @@ describe('EnterpriseOperationsRepository team definitions', () => {
       workerId: 'worker-a', leaseExpiresAt: 200,
     })
     await migrateEnterpriseOperations(database)
-    expect(database.schemaVersion).toBe('14')
+    expect(database.schemaVersion).toBe('15')
     expect(database.outboxState('legacy-null-revision')).toBe('dead-letter')
   })
 

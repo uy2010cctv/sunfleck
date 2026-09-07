@@ -24,10 +24,14 @@ import type {
   WorkRecordInput,
   WorkRecordPage,
   WorkRecordView,
+  WorkStartReservation,
 } from './types.ts'
 
 /** A structural repository contract, suitable for Host composition and tests. */
 export interface EnterpriseOperationsDriver {
+  readonly reserveWorkStart: EnterpriseOperationsRepository['reserveWorkStart']
+  readonly getWorkStart: EnterpriseOperationsRepository['getWorkStart']
+  readonly completeWorkStart: EnterpriseOperationsRepository['completeWorkStart']
   readonly upsertWorkRecord: EnterpriseOperationsRepository['upsertWorkRecord']
   readonly getWorkRecord: EnterpriseOperationsRepository['getWorkRecord']
   readonly listWorkRecords: EnterpriseOperationsRepository['listWorkRecords']
@@ -64,6 +68,9 @@ type DriverInput<Name extends keyof EnterpriseOperationsDriver> = Parameters<Ent
 type WithoutOrganization<T> = Omit<T, 'orgId'> & { readonly orgId?: string }
 
 export type EnterpriseWorkRecordInput = WithoutOrganization<DriverInput<'upsertWorkRecord'>>
+export type EnterpriseWorkStartReservationInput = WithoutOrganization<DriverInput<'reserveWorkStart'>>
+export type EnterpriseWorkStartLookup = WithoutOrganization<DriverInput<'getWorkStart'>>
+export type EnterpriseWorkStartCompletionInput = WithoutOrganization<DriverInput<'completeWorkStart'>>
 export interface EnterpriseWorkRecordLookup {
   readonly orgId?: string
   readonly sessionId: string
@@ -125,6 +132,9 @@ export type EnterpriseChannelBindingVerificationInput = Omit<
 >
 
 export type EnterpriseOperationsEndpoint =
+  | 'enterpriseOperation.workStarts.reserve'
+  | 'enterpriseOperation.workStarts.get'
+  | 'enterpriseOperation.workStarts.complete'
   | 'enterpriseOperation.workRecords.upsert'
   | 'enterpriseOperation.workRecords.get'
   | 'enterpriseOperation.workRecords.list'
@@ -203,6 +213,10 @@ function resource(endpoint: EnterpriseOperationsEndpoint, input: unknown): { res
   if (endpoint.startsWith('enterpriseOperation.workRecords.')) {
     const id = typeof payload.sessionId === 'string' ? payload.sessionId : undefined
     return { resourceType: 'work-record', ...(id === undefined ? {} : { resourceId: id }) }
+  }
+  if (endpoint.startsWith('enterpriseOperation.workStarts.')) {
+    const id = typeof payload.idempotencyKey === 'string' ? payload.idempotencyKey : undefined
+    return { resourceType: 'work-start-reservation', ...(id === undefined ? {} : { resourceId: id }) }
   }
   if (endpoint.startsWith('enterpriseOperation.approvals.')) {
     const id = typeof payload.approvalId === 'string' ? payload.approvalId : undefined
@@ -303,6 +317,21 @@ export class EnterpriseOperationsService {
 
   async upsertWorkRecord(principal: EnterprisePrincipal, input: EnterpriseWorkRecordInput): Promise<WorkRecordView> {
     return this.driver.upsertWorkRecord(await this.authorize(principal, 'enterpriseOperation.workRecords.upsert', input))
+  }
+  async reserveWorkStart(principal: EnterprisePrincipal, input: EnterpriseWorkStartReservationInput): Promise<WorkStartReservation> {
+    return this.driver.reserveWorkStart({
+      ...await this.authorize(principal, 'enterpriseOperation.workStarts.reserve', input), userId: principal.userId,
+    })
+  }
+  async getWorkStart(principal: EnterprisePrincipal, input: EnterpriseWorkStartLookup): Promise<WorkStartReservation | undefined> {
+    return this.driver.getWorkStart({
+      ...await this.authorize(principal, 'enterpriseOperation.workStarts.get', input), userId: principal.userId,
+    })
+  }
+  async completeWorkStart(principal: EnterprisePrincipal, input: EnterpriseWorkStartCompletionInput): Promise<WorkStartReservation> {
+    return this.driver.completeWorkStart({
+      ...await this.authorize(principal, 'enterpriseOperation.workStarts.complete', input), userId: principal.userId,
+    })
   }
 
   async getWorkRecord(principal: EnterprisePrincipal, input: EnterpriseWorkRecordLookup): Promise<WorkRecordView | undefined> {

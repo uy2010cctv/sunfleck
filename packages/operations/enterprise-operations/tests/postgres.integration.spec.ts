@@ -42,7 +42,7 @@ async function reset(): Promise<void> {
     dsh_enterprise_channel_configurations,
     dsh_enterprise_team_decisions, dsh_enterprise_team_autonomy_grants, dsh_enterprise_team_runs,
     dsh_enterprise_team_definitions, dsh_enterprise_fixed_team_members, dsh_enterprise_operation_outbox, dsh_enterprise_fixed_teams,
-    dsh_enterprise_schedules, dsh_enterprise_approval_requests, dsh_enterprise_work_records,
+    dsh_enterprise_schedules, dsh_enterprise_approval_requests, dsh_enterprise_work_records, dsh_enterprise_work_start_reservations,
     dsh_enterprise_operations_idempotency, dsh_enterprise_operations_meta CASCADE`)
 }
 
@@ -118,6 +118,22 @@ describe.skipIf(database === undefined)('enterprise operations PostgreSQL', () =
       occurrenceKey: 'three', sessionId: 'pg-rollback-session', firedAt: 3, nextRunAt: 4,
     })).rejects.toThrow()
     await expect(operations.getWorkRecord('pg-org', 'pg-rollback-session', 'pg-lead')).resolves.toBeUndefined()
+  })
+
+  it('persists one work-start reservation across repository instances and rejects changed fingerprints', async () => {
+    const first = new EnterpriseOperationsRepository(postgres, { allowUnverifiedReferences: true })
+    const input = {
+      orgId: 'pg-org', userId: 'user-a', idempotencyKey: 'start-a', requestFingerprint: 'request-a',
+      sessionId: 'session-a', workspaceId: 'workspace-a', employeeReleaseId: 'release-a', presetId: 'preset-a',
+      deadline: '2026-09-08T10:00:00.000Z', deadlineDigest: 'deadline-a',
+    }
+    await expect(first.reserveWorkStart(input)).resolves.toMatchObject({ state: 'starting', sessionId: 'session-a' })
+    const restarted = new EnterpriseOperationsRepository(postgres, { allowUnverifiedReferences: true })
+    await expect(restarted.getWorkStart(input)).resolves.toMatchObject({ state: 'starting', workspaceId: 'workspace-a' })
+    await expect(restarted.reserveWorkStart(input)).resolves.toMatchObject({ workspaceId: 'workspace-a' })
+    await expect(restarted.reserveWorkStart({ ...input, requestFingerprint: 'request-b' }))
+      .rejects.toMatchObject({ code: 'idempotency-conflict' })
+    await expect(restarted.completeWorkStart(input)).resolves.toMatchObject({ state: 'completed' })
   })
 
   it('persists organization-scoped channel configuration with CAS in PostgreSQL', async () => {
