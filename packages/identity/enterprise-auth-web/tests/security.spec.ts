@@ -77,6 +77,8 @@ describe('EnterpriseSecurity', () => {
     expect(classifyApiEndpoint('enterpriseWorkspace.create', {})).toEqual({
       action: 'session.create', resourceType: 'workspace-catalog',
     })
+    expect(classifyApiEndpoint('enterpriseWork.prepare', {})).toEqual({ action: 'operation.read', resourceType: 'work-record' })
+    expect(classifyApiEndpoint('enterpriseWork.start', { idempotencyKey: 'start-1' })).toEqual({ action: 'operation.manage', resourceType: 'work-record' })
   })
 
   it('classifies enterprise ApiProxy resources without prefix fallthrough', () => {

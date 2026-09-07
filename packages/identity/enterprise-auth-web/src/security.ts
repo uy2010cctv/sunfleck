@@ -154,6 +154,8 @@ export function classifyApiEndpoint(endpoint: string, input: unknown): ApiClassi
   }
   if (endpoint.startsWith('enterpriseAdmin.')) return { action: 'user.manage', resourceType: 'enterprise-admin' }
   if (endpoint === 'enterpriseAudit.list') return { action: 'audit.read', resourceType: 'audit' }
+  if (endpoint === 'enterpriseWork.prepare') return { action: 'operation.read', resourceType: 'work-record' }
+  if (endpoint === 'enterpriseWork.start') return { action: 'operation.manage', resourceType: 'work-record' }
   if (['enterpriseEmployee.list', 'enterpriseEmployee.getDraft', 'enterpriseEmployee.saveDraft', 'enterpriseEmployee.publish', 'enterpriseEmployee.listReleases', 'enterpriseEmployee.rollback', 'enterpriseEmployee.optimizePrompt'].includes(endpoint)) {
     const resourceId = stringField(payload, 'presetId', 'releaseId')
     const read = endpoint === 'enterpriseEmployee.list' || endpoint === 'enterpriseEmployee.getDraft' || endpoint === 'enterpriseEmployee.listReleases'
