@@ -29,6 +29,7 @@ import type {
   EnterpriseWorkRecord, WorkRecordState,
 } from './store.ts'
 import css from './EnterpriseWorkbench.module.css'
+import { StartWorkPanel } from './StartWorkPanel.tsx'
 import {
   CHANNEL_BINDING_BROADCAST_CHANNEL, CHANNEL_BINDING_PROFILES,
   channelBindingCallbackUri, channelBotInstallCallbackUri, officialChannelAuthorizationUrl, officialChannelBindingState,
@@ -50,6 +51,8 @@ export interface EnterpriseWorkbenchInjected {
   rollbackEmployee: (releaseId: string) => Promise<void>
   closeEmployeeEditor: () => void
   startEmployee: (employeeId: string) => Promise<void>
+  prepareWork: (input: { objective: string; deadline?: string; workspaceId?: string; preferredEmployeeReleaseId?: string }) => Promise<import('@deepseek-ai/dsh-api-enterprise-controller/types').EnterpriseWorkPreparation>
+  startPreparedWork: (input: import('@deepseek-ai/dsh-api-enterprise-controller/types').EnterpriseWorkStartRequest) => Promise<import('@deepseek-ai/dsh-api-enterprise-controller/types').EnterpriseWorkStartValue>
   openRecord: (sessionId: SessionId) => void
   updateWorkRecord: (record: OperationWorkRecord, state: EnterpriseBusinessState) => Promise<void>
   transitionApproval: (approval: EnterpriseApproval, state: 'approved' | 'rejected', reason?: string) => Promise<void>
@@ -1495,7 +1498,7 @@ export function EnterpriseWorkbench(props: EnterpriseWorkbenchProps) {
       <nav className={css.nav} aria-label={props.t('nav.aria')}>{NAV_GROUPS.map(group => <div className={css.navGroup} key={group.label}><span>{props.t(group.label)}</span>{group.items.map(([id, key]) => <button type="button" key={id} aria-current={page === id ? 'page' : undefined} onClick={() => { requestPage(id) }}>{props.t(key)}</button>)}</div>)}</nav>
       <main className={css.main}>
         {partial && <div className={css.notice} role="status">{props.t('partial')}</div>}
-        {page === 'employees' && <EmployeesPage state={state} api={api} guardDirty={guardDirty} t={props.t} />}
+        {page === 'employees' && <><StartWorkPanel workspaces={workspaces} releases={state.releases} prepareWork={props.prepareWork} startPreparedWork={props.startPreparedWork} onStarted={(sessionId) => { props.openRecord(sessionId as SessionId); props.close() }} t={props.t}/><EmployeesPage state={state} api={api} guardDirty={guardDirty} t={props.t} /></>}
         {page === 'work-records' && <WorkRecordsPage page={state.workRecords} update={props.updateWorkRecord} busy={mutationBusy} t={props.t} />}
         {page === 'approvals' && <ApprovalsPage page={state.approvals} api={api} busy={mutationBusy} t={props.t} />}
         {page === 'attention' && <TeamAttentionPage page={teamDecisions} runs={teamRuns} definitions={teamDefinitions} api={api} busy={mutationBusy} t={props.t} />}

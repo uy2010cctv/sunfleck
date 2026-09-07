@@ -9,7 +9,8 @@ import type {
   EnterpriseScheduleTarget, EnterpriseTeam, EnterpriseTeamMember,
   EnterpriseTeamAutonomyGrant, EnterpriseTeamDecision, EnterpriseTeamDefinition, EnterpriseTeamRun,
   EnterpriseVisibility, EnterpriseWorkRecord as EnterpriseOperationWorkRecord,
-  CordisPackageVersion, CordisReviewRequest, CordisScopeBinding,
+  CordisPackageVersion, CordisReviewRequest, CordisScopeBinding, EnterpriseWorkPreparation, EnterpriseWorkPrepareRequest,
+  EnterpriseWorkStartRequest, EnterpriseWorkStartValue,
 } from '@deepseek-ai/dsh-api-enterprise-controller/types'
 import type { AgentPresetRow } from '@deepseek-ai/dsh-agent-presets/types'
 import type { JsonValue } from '@deepseek-ai/dsh-session/types'
@@ -177,6 +178,7 @@ export interface EnterpriseWorkbenchRemote {
   readonly enterpriseTeamDecisions: ClientRemote['enterpriseTeamDecision']
   readonly enterpriseTeamAutonomy: ClientRemote['enterpriseTeamAutonomy']
   readonly enterpriseOperations: ClientRemote['enterpriseOperation']
+  readonly enterpriseWork: ClientRemote['enterpriseWork']
   readonly pluginInventory: ClientRemote['pluginInventory']
   readonly cordisWorkspace: ClientRemote['cordisWorkspace']
   readonly cordisReview: ClientRemote['cordisReview']
@@ -735,12 +737,28 @@ export class EnterpriseWorkbenchController {
   }
 
   private currentWorkspaceId(): string | undefined {
+    return this.currentSessionWorkspaceId() ?? this.workspaces.list.getSnapshot().items[0]?.workspaceId
+  }
+
+  /** Resolve only the Workspace actually containing the currently open native Session. */
+  private currentSessionWorkspaceId(): string | undefined {
     const currentSessionId = this.sessions.list.getSnapshot().current
-    const workspaces = this.workspaces.list.getSnapshot().items
-    return (currentSessionId === undefined
-      ? undefined
-      : workspaces.find(workspace => workspace.sessionIds.includes(currentSessionId))?.workspaceId)
-      ?? workspaces[0]?.workspaceId
+    if (currentSessionId === undefined) return undefined
+    return this.workspaces.list.getSnapshot().items.find(workspace => workspace.sessionIds.includes(currentSessionId))?.workspaceId
+  }
+
+  /** Prepare a goal-first work request using the current native Session when one is open. */
+  async prepareWork(input: Pick<EnterpriseWorkPrepareRequest, 'objective' | 'deadline' | 'workspaceId' | 'preferredEmployeeReleaseId'>): Promise<EnterpriseWorkPreparation> {
+    const currentSessionId = this.sessions.list.getSnapshot().current
+    return valueOf(await this.api.enterpriseWork.prepare({
+      ...input,
+      ...(currentSessionId === undefined ? {} : { currentSessionId }),
+    }))
+  }
+
+  /** Start one previously prepared goal-first work request. */
+  async startPreparedWork(input: EnterpriseWorkStartRequest): Promise<EnterpriseWorkStartValue> {
+    return valueOf(await this.api.enterpriseWork.start(input))
   }
 
   /** Stop one durable scope binding without removing immutable versions. */

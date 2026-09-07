@@ -119,6 +119,8 @@ function workbenchProps(overrides: Partial<EnterpriseWorkbenchProps> & {
     close: vi.fn(),
     refresh: vi.fn(() => Promise.resolve()),
     startEmployee: vi.fn(() => Promise.resolve()),
+    prepareWork: vi.fn(() => Promise.resolve({ kind: 'needs-workspace-selection', availableWorkspaceIds: [] })),
+    startPreparedWork: vi.fn(() => Promise.resolve({ sessionId: 'session-created', workspaceId: 'workspace-1', employeeReleaseId: 'release-1', executionSummary: 'Ready.' })),
     openRecord: vi.fn(),
     beginChannelBotInstall: vi.fn((provider: string) => Promise.resolve({
       status: provider === 'wechat' ? 'unsupported' : 'setup-required', provider,
@@ -1889,6 +1891,67 @@ describe('EnterpriseWorkbench', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '打开工作记录：供应商核验' }))
     expect(openRecord).toHaveBeenCalledWith('session-1')
+  })
+
+  it('starts prepared goal-first work, opens the native Session, and never exposes internal identifiers', async () => {
+    const prepareWork = vi.fn(() => Promise.resolve({ kind: 'ready', workspaceId: 'workspace-1', employeeReleaseId: 'release-buyer' }))
+    const startPreparedWork = vi.fn(() => Promise.resolve({ sessionId: 'session-created', workspaceId: 'workspace-1', employeeReleaseId: 'release-buyer', executionSummary: 'Work is ready.' }))
+    const openRecord = vi.fn()
+    const close = vi.fn()
+    render(<EnterpriseWorkbench {...workbenchProps({
+      prepareWork, startPreparedWork, openRecord, close,
+      state: { mode: 'enterprise', releases: [{ releaseId: 'release-buyer', presetId: 'buyer', orgId: 'org-a', version: 2, digest: 'digest', snapshot: { profile: { name: '采购专员' }, bindings: [] }, publishedBy: 'user-a', publishedAt: 1 }] },
+    } as never)} />)
+
+    fireEvent.change(screen.getByLabelText('工作目标'), { target: { value: '核验本周供应商报价' } })
+    fireEvent.click(screen.getByRole('button', { name: '开始工作' }))
+
+    await waitFor(() => { expect(startPreparedWork).toHaveBeenCalledOnce() })
+    expect(prepareWork).toHaveBeenCalledWith(expect.objectContaining({ objective: '核验本周供应商报价' }))
+    expect(startPreparedWork).toHaveBeenCalledWith(expect.objectContaining({ idempotencyKey: expect.stringMatching(/^enterprise-work:/u) }))
+    expect(openRecord).toHaveBeenCalledWith('session-created')
+    expect(close).toHaveBeenCalledOnce()
+    expect(screen.queryByText('workspace-1')).toBeNull()
+    expect(screen.queryByText('release-buyer')).toBeNull()
+  })
+
+  it('asks only for named workspace choices before preparing again', async () => {
+    const prepareWork = vi.fn()
+      .mockResolvedValueOnce({ kind: 'needs-workspace-selection', availableWorkspaceIds: ['workspace-1'] })
+      .mockResolvedValueOnce({ kind: 'needs-selection', workspaceId: 'workspace-1', availableEmployeeReleaseIds: [] })
+    render(<EnterpriseWorkbench {...workbenchProps({ prepareWork, startPreparedWork: vi.fn(), state: { mode: 'enterprise' } } as never)} />)
+    fireEvent.change(screen.getByLabelText('工作目标'), { target: { value: '准备采购周报' } })
+    fireEvent.click(screen.getByRole('button', { name: '开始工作' }))
+    await screen.findByRole('button', { name: '采购部' })
+    expect(screen.queryByText('workspace-1')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: '采购部' }))
+    await waitFor(() => { expect(prepareWork).toHaveBeenCalledTimes(2) })
+    expect(prepareWork).toHaveBeenLastCalledWith(expect.objectContaining({ workspaceId: 'workspace-1' }))
+  })
+
+  it('asks only for named employee releases before preparing again', async () => {
+    const release = { releaseId: 'release-buyer', presetId: 'buyer', orgId: 'org-a', version: 2, digest: 'digest', snapshot: { profile: { name: '采购专员' }, bindings: [] }, publishedBy: 'user-a', publishedAt: 1 }
+    const prepareWork = vi.fn()
+      .mockResolvedValueOnce({ kind: 'needs-selection', workspaceId: 'workspace-1', availableEmployeeReleaseIds: ['release-buyer'] })
+      .mockResolvedValueOnce({ kind: 'ready', workspaceId: 'workspace-1', employeeReleaseId: 'release-buyer' })
+    render(<EnterpriseWorkbench {...workbenchProps({ prepareWork, startPreparedWork: vi.fn(() => Promise.resolve({ sessionId: 'session-created', workspaceId: 'workspace-1', employeeReleaseId: 'release-buyer', executionSummary: 'Ready.' })), state: { mode: 'enterprise', releases: [release] } } as never)} />)
+    fireEvent.change(screen.getByLabelText('工作目标'), { target: { value: '准备采购周报' } })
+    fireEvent.click(screen.getByRole('button', { name: '开始工作' }))
+    await screen.findByRole('button', { name: '采购专员 · v2' })
+    expect(screen.queryByText('release-buyer')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: '采购专员 · v2' }))
+    await waitFor(() => { expect(prepareWork).toHaveBeenCalledTimes(2) })
+    expect(prepareWork).toHaveBeenLastCalledWith(expect.objectContaining({ preferredEmployeeReleaseId: 'release-buyer' }))
+  })
+
+  it('keeps a failed preparation recoverable with retry', async () => {
+    const prepareWork = vi.fn().mockRejectedValueOnce(new Error('network unavailable')).mockResolvedValueOnce({ kind: 'needs-workspace-selection', availableWorkspaceIds: [] })
+    render(<EnterpriseWorkbench {...workbenchProps({ prepareWork, startPreparedWork: vi.fn(), state: { mode: 'enterprise' } } as never)} />)
+    fireEvent.change(screen.getByLabelText('工作目标'), { target: { value: '准备采购周报' } })
+    fireEvent.click(screen.getByRole('button', { name: '开始工作' }))
+    await screen.findByRole('alert')
+    fireEvent.click(screen.getByRole('button', { name: '重试' }))
+    await waitFor(() => { expect(prepareWork).toHaveBeenCalledTimes(2) })
   })
 
   it('closes on Escape and exposes loading, empty, and error recovery states', () => {
