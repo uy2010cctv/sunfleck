@@ -55,10 +55,11 @@ export function StartWorkPanel({ workspaces, releases, prepareWork, startPrepare
       ...(releaseId === undefined ? {} : { preferredEmployeeReleaseId: releaseId }),
     }
   }
-  const reset = (): void => {
+  const clearAttempt = (): void => {
     setPreparation(undefined); setSelectedWorkspaceId(undefined); setSelectedReleaseId(undefined)
     setIdempotencyKey(undefined); setPhase('idle'); setError(undefined)
   }
+  const reset = (): void => { clearAttempt() }
   const start = async (ready: Extract<EnterpriseWorkPreparation, { kind: 'ready' }>, input: WorkInput): Promise<void> => {
     setPhase('starting'); setError(undefined)
     const key = idempotencyKey ?? `enterprise-work:${randomUUID()}`
@@ -93,8 +94,8 @@ export function StartWorkPanel({ workspaces, releases, prepareWork, startPrepare
   return <section className={css.startWorkPanel} aria-labelledby="enterprise-start-work-title">
     <div className={css.startWorkHeading}><h2 id="enterprise-start-work-title">{t('startWork.title')}</h2><p>{t('startWork.description')}</p></div>
     <form className={css.startWorkForm} onSubmit={(event) => { event.preventDefault(); void prepare() }}>
-      <label className={css.startWorkObjective}><span>{t('startWork.objective')}</span><textarea value={objective} onChange={(event) => { setObjective(event.target.value); if (phase === 'error') setPhase('idle') }} placeholder={t('startWork.objectivePlaceholder')} required disabled={busy}/></label>
-      <label className={css.startWorkDeadline}><span>{t('startWork.deadline')}</span><input type="datetime-local" value={deadline} onChange={(event) => { setDeadline(event.target.value) }} disabled={busy}/></label>
+      <label className={css.startWorkObjective}><span>{t('startWork.objective')}</span><textarea value={objective} onChange={(event) => { setObjective(event.target.value); clearAttempt() }} placeholder={t('startWork.objectivePlaceholder')} required disabled={busy}/></label>
+      <label className={css.startWorkDeadline}><span>{t('startWork.deadline')}</span><input type="datetime-local" value={deadline} onChange={(event) => { setDeadline(event.target.value); clearAttempt() }} disabled={busy}/></label>
       <div className={css.startWorkActions}><button type="submit" className={css.primaryButton} disabled={busy || objective.trim() === ''}>{busy ? t('startWork.preparing') : t('startWork.submit')}</button>{(preparation !== undefined || error !== undefined) && <button type="button" className={css.secondaryButton} disabled={busy} onClick={reset}>{t('startWork.reset')}</button>}</div>
     </form>
     <div className={css.startWorkFeedback} aria-live="polite">

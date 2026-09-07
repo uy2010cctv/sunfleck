@@ -1994,6 +1994,36 @@ describe('EnterpriseWorkbench', () => {
     expect(screen.getByRole('button', { name: '重试' })).toBeDefined()
   })
 
+  it('reuses an unchanged retry key but starts fresh after objective or deadline edits', async () => {
+    const prepareWork = vi.fn(() => Promise.resolve({ kind: 'ready', workspaceId: 'workspace-1', employeeReleaseId: 'release-safe' }))
+    const startPreparedWork = vi.fn<EnterpriseWorkbenchProps['startPreparedWork']>(() => Promise.reject(new Error('start unavailable')))
+    render(<EnterpriseWorkbench {...workbenchProps({ prepareWork, startPreparedWork, state: { mode: 'enterprise' } } as never)} />)
+
+    fireEvent.change(screen.getByLabelText('工作目标'), { target: { value: '准备采购周报' } })
+    fireEvent.click(screen.getByRole('button', { name: '开始工作' }))
+    await screen.findByRole('alert')
+
+    fireEvent.click(screen.getByRole('button', { name: '重试' }))
+    await waitFor(() => { expect(startPreparedWork).toHaveBeenCalledTimes(2) })
+    const retryKey = (startPreparedWork.mock.calls[0]?.[0] as { idempotencyKey: string }).idempotencyKey
+    expect((startPreparedWork.mock.calls[1]?.[0] as { idempotencyKey: string }).idempotencyKey).toBe(retryKey)
+
+    fireEvent.change(screen.getByLabelText('工作目标'), { target: { value: '复核采购周报' } })
+    expect(screen.queryByRole('alert')).toBeNull()
+    expect(screen.queryByText('工作已准备好。')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: '开始工作' }))
+    await waitFor(() => { expect(startPreparedWork).toHaveBeenCalledTimes(3) })
+    const objectiveEditKey = (startPreparedWork.mock.calls[2]?.[0] as { idempotencyKey: string }).idempotencyKey
+    expect(objectiveEditKey).not.toBe(retryKey)
+
+    fireEvent.change(screen.getByLabelText('截止时间（可选）'), { target: { value: '2026-09-07T12:00' } })
+    expect(screen.queryByRole('alert')).toBeNull()
+    expect(screen.queryByText('工作已准备好。')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: '开始工作' }))
+    await waitFor(() => { expect(startPreparedWork).toHaveBeenCalledTimes(4) })
+    expect((startPreparedWork.mock.calls[3]?.[0] as { idempotencyKey: string }).idempotencyKey).not.toBe(objectiveEditKey)
+  })
+
   it('closes on Escape and exposes loading, empty, and error recovery states', () => {
     const close = vi.fn()
     const { rerender } = render(
