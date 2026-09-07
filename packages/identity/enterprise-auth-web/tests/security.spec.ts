@@ -79,6 +79,15 @@ describe('EnterpriseSecurity', () => {
     })
     expect(classifyApiEndpoint('enterpriseWork.prepare', {})).toEqual({ action: 'operation.read', resourceType: 'work-record' })
     expect(classifyApiEndpoint('enterpriseWork.start', { idempotencyKey: 'start-1' })).toEqual({ action: 'operation.manage', resourceType: 'work-record' })
+    for (const endpoint of [
+      'enterpriseOperation.workStarts.reserve',
+      'enterpriseOperation.workStarts.get',
+      'enterpriseOperation.workStarts.complete',
+    ]) {
+      expect(classifyApiEndpoint(endpoint, { idempotencyKey: 'start-1' })).toEqual({
+        action: 'operation.manage', resourceType: 'work-start-reservation', resourceId: 'start-1',
+      })
+    }
   })
 
   it('classifies enterprise ApiProxy resources without prefix fallthrough', () => {
