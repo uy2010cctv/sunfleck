@@ -152,6 +152,15 @@ import type {
   CordisWorkspaceListRequest,
   CordisWorkspaceSaveRequest,
 } from './contract/cordis.ts'
+import {
+  EnterpriseWorkStartService,
+} from './work-start.ts'
+import type {
+  EnterpriseWorkPrepareRequest,
+  EnterpriseWorkPreparation,
+  EnterpriseWorkStartRequest,
+  EnterpriseWorkStartValue,
+} from './contract/work.ts'
 
 export type * from './contract/index.ts'
 
@@ -175,6 +184,8 @@ declare module '@deepseek-ai/cordis' {
     enterpriseTeamAutonomyController: EnterpriseTeamAutonomyController
     /** Enterprise channel-configuration Remote namespace owner. */
     enterpriseChannelController: EnterpriseChannelController
+    /** Goal-first authenticated enterprise work start. */
+    enterpriseWorkController: EnterpriseWorkController
     /** Optional Host-only provider app installer. Browser code never receives its credentials. */
     enterpriseChannelBotInstaller: EnterpriseChannelBotInstaller
     /** Optional provider that appends authoritative Team events to root Session logs. */
@@ -1847,6 +1858,48 @@ export class CordisGovernanceController extends TypertRemoteService {
   }
 }
 
+/** Goal-first enterprise work entry point. This slice deliberately does not route models, teams, tools, or budgets. */
+export class EnterpriseWorkController extends TypertRemoteService {
+  static inject = ['enterprisePostgres', 'enterpriseSecurity', 'enterpriseRequestContext', 'sessionController']
+  private readonly work: EnterpriseWorkStartService
+  constructor(ctx: Context) {
+    super(ctx, 'enterpriseWorkController', { namespace: 'enterpriseWork' })
+    const session = ctx.get('sessionController') as {
+      create(input: { sessionId: string; workspaceId: string; agentPreset?: string }): Promise<{ sessionId: string }>
+    } | undefined
+    if (session === undefined) throw new Error('session controller is required for enterprise work start')
+    this.work = new EnterpriseWorkStartService({
+      workspaceGrant: id => ctx.enterprisePostgres.identity.workspaceGrant(id),
+      visibleWorkspace: async (actor, id) => (await ctx.enterpriseSecurity.authorizeApiAsync(actor, 'session.create', { workspaceId: id })).allowed,
+      sessionOwnedBy: (actor, id) => ctx.enterpriseSecurity.sessionOwnedBy(actor, id),
+      sessionWorkspace: async id => (await ctx.enterprisePostgres.identity.sessionWorkspaceGrant(id))?.workspaceId,
+      personalWorkspace: async (actor) => {
+        const grants = await ctx.enterprisePostgres.identity.listWorkspaceGrants({ orgId: actor.orgId, userId: actor.userId })
+        const grant = grants.find(item => item.kind === 'personal' && item.ownerUserId === actor.userId)
+        if (grant === undefined) throw new Error('personal workspace is unavailable')
+        return grant.workspaceId
+      },
+      releases: async (actor) => {
+        const drafts = await ctx.enterprisePostgres.catalog.listDrafts({ orgId: actor.orgId, limit: 100, viewerUserId: actor.userId })
+        return (await Promise.all(drafts.items.filter(item => item.status === 'published').map(item => ctx.enterprisePostgres.catalog.listReleases(item.presetId, actor.orgId)))).flat() as EnterpriseEmployeeRelease[]
+      },
+      createSession: async ({ sessionId, workspaceId, agentPresetId }) =>
+        session.create({ sessionId, workspaceId, agentPreset: agentPresetId }),
+      bindSession: (actor, sessionId, workspaceId) => ctx.enterpriseSecurity.bindSessionWorkspaceAsync(actor, sessionId, workspaceId),
+      upsertRecord: async (input) => { await operations(ctx).upsertWorkRecord(input.principal, {
+        sessionId: input.sessionId, employeeReleaseId: input.employeeReleaseId, source: 'console', businessState: 'active',
+        sourceReferences: input.sourceReferences, expectedRevision: 0, idempotencyKey: input.idempotencyKey,
+      }) },
+    })
+  }
+  @Remote('prepare') async prepare(request: EnterpriseWorkPrepareRequest): Promise<EnterpriseWorkPreparation> {
+    return catalogCall(this.ctx, 'enterpriseWork.prepare', request, 'work-record', 'work-start', actor => this.work.prepare(actor, request))
+  }
+  @Remote('start') async start(request: EnterpriseWorkStartRequest): Promise<EnterpriseWorkStartValue> {
+    return catalogCall(this.ctx, 'enterpriseWork.start', request, 'work-record', request.idempotencyKey, actor => this.work.start(actor, request))
+  }
+}
+
 function enterpriseFailure(
   error: unknown, endpoint: string, resourceType: string, resourceId: string,
 ): RemoteError<EnterpriseRemoteErrorCode> {
@@ -1896,6 +1949,7 @@ export function apply(ctx: Context): void {
   new EnterpriseTeamController(ctx)
   new EnterpriseTeamDefinitionController(ctx)
   new EnterpriseOperationController(ctx)
+  new EnterpriseWorkController(ctx)
   new EnterpriseTeamRunController(ctx)
   new EnterpriseTeamDecisionController(ctx)
   new EnterpriseTeamAutonomyController(ctx)
