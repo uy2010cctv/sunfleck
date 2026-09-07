@@ -78,9 +78,14 @@ import type {
   EnterpriseTeamSaveRequest,
   EnterpriseTeamDefinition,
   EnterpriseTeamDefinitionArchiveRequest,
+  EnterpriseTeamDefinitionDiscardDraftRequest,
+  EnterpriseTeamDefinitionDraftLookup,
+  EnterpriseTeamDefinitionDraftRequest,
   EnterpriseTeamDefinitionListRequest,
   EnterpriseTeamDefinitionLookup,
   EnterpriseTeamDefinitionPage,
+  EnterpriseTeamDefinitionPublishRequest,
+  EnterpriseTeamDefinitionRevision,
   EnterpriseTeamDefinitionSaveRequest,
 } from './contract/teams.ts'
 import type {
@@ -1321,6 +1326,9 @@ export class EnterpriseTeamController extends TypertRemoteService {
    */
   @Remote('save')
   async save(request: EnterpriseTeamSaveRequest): Promise<EnterpriseTeam> {
+    if (request.expectedRevision === 0)
+      throw enterpriseFailure(new EnterpriseOperationsError('invalid-state', 'team', request.teamId),
+        'enterpriseTeam.save', 'fixed-team', request.teamId)
     return this.runOperations('enterpriseTeam.save', 'team', request.teamId, () =>
       operations(this.ctx).saveFixedTeam(principal(this.ctx), request) as Promise<EnterpriseTeam>)
   }
@@ -1366,6 +1374,16 @@ export class EnterpriseTeamDefinitionController extends TypertRemoteService {
     })
   }
 
+  /** Read an owner-visible draft without substituting it for the active charter. */
+  @Remote('getDraft')
+  async getDraft(request: EnterpriseTeamDefinitionDraftLookup): Promise<EnterpriseTeamDefinitionRevision> {
+    return this.run('enterpriseTeamDefinition.getDraft', request.teamId, async () => {
+      const value = await operations(this.ctx).getTeamDefinitionDraft(principal(this.ctx), request)
+      if (value === undefined) throw new EnterpriseOperationsError('not-found', 'team-definition', request.teamId)
+      return value as EnterpriseTeamDefinitionRevision
+    })
+  }
+
   /**
    * Create or CAS-save one non-archived definition in the authenticated organization.
    * @param request - definition and write guards; revision zero creates it and archive state is rejected.
@@ -1374,7 +1392,30 @@ export class EnterpriseTeamDefinitionController extends TypertRemoteService {
   @Remote('save')
   async save(request: EnterpriseTeamDefinitionSaveRequest): Promise<EnterpriseTeamDefinition> {
     return this.run('enterpriseTeamDefinition.save', request.teamId, () =>
-      operations(this.ctx).saveTeamDefinition(principal(this.ctx), request) as Promise<EnterpriseTeamDefinition>)
+      operations(this.ctx).saveTeamDefinitionDraft(principal(this.ctx), {
+        ...request, state: request.state === 'needs-charter' ? 'needs-charter' : 'draft',
+      }) as Promise<EnterpriseTeamDefinition>)
+  }
+
+  /** Save a draft without changing the active Team Definition used by TeamRuns. */
+  @Remote('draft')
+  async draft(request: EnterpriseTeamDefinitionDraftRequest): Promise<EnterpriseTeamDefinition> {
+    return this.run('enterpriseTeamDefinition.draft', request.teamId, () =>
+      operations(this.ctx).saveTeamDefinitionDraft(principal(this.ctx), request) as Promise<EnterpriseTeamDefinition>)
+  }
+
+  /** Validate and publish the currently selected draft for new TeamRuns. */
+  @Remote('publish')
+  async publish(request: EnterpriseTeamDefinitionPublishRequest): Promise<EnterpriseTeamDefinition> {
+    return this.run('enterpriseTeamDefinition.publish', request.teamId, () =>
+      operations(this.ctx).publishTeamDefinitionDraft(principal(this.ctx), request) as Promise<EnterpriseTeamDefinition>)
+  }
+
+  /** Discard a draft while retaining both the active definition and historical TeamRuns. */
+  @Remote('discardDraft')
+  async discardDraft(request: EnterpriseTeamDefinitionDiscardDraftRequest): Promise<EnterpriseTeamDefinitionRevision> {
+    return this.run('enterpriseTeamDefinition.discardDraft', request.teamId, () =>
+      operations(this.ctx).discardTeamDefinitionDraft(principal(this.ctx), request) as Promise<EnterpriseTeamDefinitionRevision>)
   }
 
   /**

@@ -3,7 +3,7 @@ import { EnterpriseRequestContext } from '@deepseek-ai/dsh-enterprise-auth-web'
 import { EnterpriseOperationsError } from '@deepseek-ai/dsh-enterprise-operations'
 import { RemoteError } from '@deepseek-ai/dsh-typert-protocol'
 import { describe, expect, it, vi } from 'vitest'
-import { EnterpriseTeamDefinitionController, type EnterpriseTeamDefinition } from '../src/index.ts'
+import { EnterpriseTeamController, EnterpriseTeamDefinitionController, type EnterpriseTeamDefinition } from '../src/index.ts'
 
 const saved: EnterpriseTeamDefinition = {
   teamId: 'team-a', orgId: 'org-a', name: 'Finance', northStar: 'Verified close.', ownerUserId: 'creator-a',
@@ -26,10 +26,15 @@ function setup(allowed = true, definition: EnterpriseTeamDefinition = saved) {
     saveTeamDefinition: vi.fn().mockResolvedValue(definition),
     getTeamDefinition: vi.fn().mockImplementation(async (_orgId, _teamId, readScope) =>
       visible(readScope) ? definition : undefined),
+    getTeamDefinitionDraft: vi.fn().mockImplementation(async (_orgId, _teamId, readScope) =>
+      readScope.isAdministrator || definition.ownerUserId === readScope.userId ? definition : undefined),
     listTeamDefinitions: vi.fn().mockImplementation(async ({ readScope }) => ({
       items: visible(readScope) ? [definition] : [],
     })),
     archiveTeamDefinition: vi.fn().mockResolvedValue({ ...definition, state: 'archived', revision: 2 }),
+    saveTeamDefinitionDraft: vi.fn().mockResolvedValue(definition),
+    publishTeamDefinitionDraft: vi.fn().mockResolvedValue(definition),
+    discardTeamDefinitionDraft: vi.fn().mockResolvedValue(definition),
   }
   const authorizeApiAsync = vi.fn().mockResolvedValue({
     allowed, reason: allowed ? 'role' : 'insufficient-role',
@@ -53,27 +58,40 @@ const request = {
 }
 
 describe('enterprise team-definition Remote controller', () => {
-  it('injects the authenticated organization and exposes list, get, save, and archive', async () => {
+  it('injects the authenticated organization and exposes list, get, draft reads, save, and archive', async () => {
     const app = setup()
     await app.requestContext.run(principal, async () => {
       await expect(app.controller.save(request)).resolves.toEqual(saved)
       await expect(app.controller.get({ teamId: 'team-a' })).resolves.toEqual(saved)
+      await expect(app.controller.getDraft({ teamId: 'team-a' })).resolves.toEqual(saved)
       await expect(app.controller.list({ limit: 20 })).resolves.toEqual({ items: [saved] })
       await expect(app.controller.archive({
         teamId: 'team-a', expectedRevision: 1, idempotencyKey: 'archive-a',
       })).resolves.toMatchObject({ state: 'archived', revision: 2 })
     })
 
-    expect(app.driver.saveTeamDefinition).toHaveBeenCalledWith({ ...request, orgId: 'org-a' })
+    expect(app.driver.saveTeamDefinitionDraft).toHaveBeenCalledWith({ ...request, orgId: 'org-a', state: 'draft' })
     expect(request).not.toHaveProperty('orgId')
     expect(request).not.toHaveProperty('actorUserId')
     expect(app.authorizeApiAsync).toHaveBeenCalledWith(
-      principal, 'enterpriseOperation.teamDefinitions.save', request,
+      principal, 'enterpriseOperation.teamDefinitions.draft', { ...request, state: 'draft' },
     )
     expect(app.auditApiAsync).toHaveBeenCalledWith(
-      principal, 'enterpriseOperation.teamDefinitions.save', { teamId: 'team-a' },
+      principal, 'enterpriseOperation.teamDefinitions.draft', { teamId: 'team-a' },
       { allowed: true, reason: 'role' }, expect.any(String),
     )
+  })
+
+  it('exposes draft, publish, and discard as explicit revision operations', async () => {
+    const app = setup()
+    await app.requestContext.run(principal, async () => {
+      await expect(app.controller.draft({ ...request, state: 'draft', expectedRevision: 1, idempotencyKey: 'draft-a' }))
+        .resolves.toEqual(saved)
+      await expect(app.controller.publish({ teamId: 'team-a', expectedRevision: 1, idempotencyKey: 'publish-a' }))
+        .resolves.toEqual(saved)
+      await expect(app.controller.discardDraft({ teamId: 'team-a', expectedRevision: 1, idempotencyKey: 'discard-a' }))
+        .resolves.toEqual(saved)
+    })
   })
 
   it('denies team management before invoking the repository and audits the denial', async () => {
@@ -81,16 +99,29 @@ describe('enterprise team-definition Remote controller', () => {
     const failure = await app.requestContext.run(principal, () => app.controller.save(request)).catch(error => error)
     expect(failure).toBeInstanceOf(RemoteError)
     expect(failure).toMatchObject({ code: 'enterprise-forbidden' })
-    expect(app.driver.saveTeamDefinition).not.toHaveBeenCalled()
+    expect(app.driver.saveTeamDefinitionDraft).not.toHaveBeenCalled()
     expect(app.auditApiAsync).toHaveBeenCalledWith(
-      principal, 'enterpriseOperation.teamDefinitions.save', { teamId: 'team-a' },
+      principal, 'enterpriseOperation.teamDefinitions.draft', { teamId: 'team-a' },
       { allowed: false, reason: 'insufficient-role' }, expect.any(String),
     )
   })
 
+  it('denies every draft lifecycle mutation before invoking the repository', async () => {
+    const app = setup(false)
+    const failures = await app.requestContext.run(principal, () => Promise.all([
+      app.controller.draft({ ...request, state: 'draft', expectedRevision: 1, idempotencyKey: 'draft-denied' }).catch(error => error),
+      app.controller.publish({ teamId: 'team-a', expectedRevision: 1, idempotencyKey: 'publish-denied' }).catch(error => error),
+      app.controller.discardDraft({ teamId: 'team-a', expectedRevision: 1, idempotencyKey: 'discard-denied' }).catch(error => error),
+    ]))
+    for (const failure of failures) expect(failure).toMatchObject({ code: 'enterprise-forbidden' })
+    expect(app.driver.saveTeamDefinitionDraft).not.toHaveBeenCalled()
+    expect(app.driver.publishTeamDefinitionDraft).not.toHaveBeenCalled()
+    expect(app.driver.discardTeamDefinitionDraft).not.toHaveBeenCalled()
+  })
+
   it('returns the stable conflict failure for a stale revision', async () => {
     const app = setup()
-    app.driver.saveTeamDefinition.mockRejectedValueOnce(
+    app.driver.saveTeamDefinitionDraft.mockRejectedValueOnce(
       new EnterpriseOperationsError('conflict', 'team-definition', 'team-a'),
     )
     const failure = await app.requestContext.run(principal, () => app.controller.save({
@@ -134,5 +165,26 @@ describe('enterprise team-definition Remote controller', () => {
     expect(failure).toBeInstanceOf(RemoteError)
     expect(failure).toMatchObject({ code: 'enterprise-forbidden' })
     expect(app.driver.listTeamDefinitions).not.toHaveBeenCalled()
+  })
+})
+
+describe('legacy fixed-team Remote controller', () => {
+  it('rejects browser attempts to create a new fixed team', async () => {
+    const ctx = new Context()
+    const requestContext = new EnterpriseRequestContext()
+    const saveFixedTeam = vi.fn()
+    ctx.provide('enterprisePostgres' as never, { operations: { saveFixedTeam } } as never)
+    ctx.provide('enterpriseSecurity' as never, {
+      authorizeApiAsync: vi.fn().mockResolvedValue({ allowed: true }), auditApiAsync: vi.fn(),
+    } as never)
+    ctx.provide('enterpriseRequestContext' as never, requestContext as never)
+    const controller = new EnterpriseTeamController(ctx)
+    const failure = await requestContext.run(principal, () => controller.save({
+      teamId: 'legacy-a', leaderEmployeeReleaseId: 'release-a', members: [], workflowTemplate: {}, approvalPolicy: {},
+      expectedRevision: 0, idempotencyKey: 'legacy-create-a',
+    })).catch(error => error)
+    expect(failure).toBeInstanceOf(RemoteError)
+    expect(failure).toMatchObject({ code: 'enterprise-invalid-state' })
+    expect(saveFixedTeam).not.toHaveBeenCalled()
   })
 })

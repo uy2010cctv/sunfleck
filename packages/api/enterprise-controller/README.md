@@ -24,6 +24,8 @@ English | [中文](README.zh.md)
 
 Mount the controller only in the enterprise profile after `enterprisePostgres`, `enterpriseSecurity`, `enterpriseRequestContext`, and `sessionController`. Clients consume its generated `enterpriseEmployee`, `enterpriseAsset`, `enterpriseTeam`, `enterpriseTeamDefinition`, `enterpriseTeamRun`, `enterpriseTeamDecision`, `enterpriseTeamAutonomy`, `enterpriseOperation`, and `enterpriseWork` namespaces through API Gateway. The TeamRun start and cancel namespaces use an optional `enterpriseTeamRuntimeDriver`; without a provider, start fails with a stable runtime-unavailable result. Host code injects organization and actor identity, while browser requests cannot write runtime revisions or event positions. The package does not replace DSH Workspace, Session, Workflow, Sandbox, Subagent, or Agent Loop identities.
 
+`enterpriseTeamDefinition` separates charter editing from executable history: `draft` appends an immutable revision, `getDraft` returns the current owner-visible draft without replacing the active charter, `publish` promotes one checked draft for future runs, and `discardDraft` archives only that draft. Each endpoint uses the existing `team.read` or `team.manage` policy and audit path; callers never supply organization or actor identity.
+
 <a id="model-experience"></a>
 ## Model Experience
 
