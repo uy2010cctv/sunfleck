@@ -14,6 +14,7 @@ export interface EnterpriseWorkStartRequest extends EnterpriseWorkPrepareRequest
 
 export type EnterpriseWorkPreparation =
   | { readonly kind: 'ready'; readonly workspaceId: string; readonly employeeReleaseId: string }
+  | { readonly kind: 'needs-workspace-selection'; readonly availableWorkspaceIds: readonly string[] }
   | { readonly kind: 'needs-selection'; readonly workspaceId: string; readonly availableEmployeeReleaseIds: readonly string[] }
 
 export interface EnterpriseWorkStartValue {

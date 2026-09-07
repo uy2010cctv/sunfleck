@@ -1873,15 +1873,24 @@ export class EnterpriseWorkController extends TypertRemoteService {
       visibleWorkspace: async (actor, id) => (await ctx.enterpriseSecurity.authorizeApiAsync(actor, 'session.create', { workspaceId: id })).allowed,
       sessionOwnedBy: (actor, id) => ctx.enterpriseSecurity.sessionOwnedBy(actor, id),
       sessionWorkspace: async id => (await ctx.enterprisePostgres.identity.sessionWorkspaceGrant(id))?.workspaceId,
-      personalWorkspace: async (actor) => {
+      personalWorkspaces: async (actor) => {
         const grants = await ctx.enterprisePostgres.identity.listWorkspaceGrants({ orgId: actor.orgId, userId: actor.userId })
-        const grant = grants.find(item => item.kind === 'personal' && item.ownerUserId === actor.userId)
-        if (grant === undefined) throw new Error('personal workspace is unavailable')
-        return grant.workspaceId
+        return grants
+          .filter(item => item.kind === 'personal' && item.ownerUserId === actor.userId)
+          .map(item => item.workspaceId)
       },
       releases: async (actor) => {
-        const drafts = await ctx.enterprisePostgres.catalog.listDrafts({ orgId: actor.orgId, limit: 100, viewerUserId: actor.userId })
-        return (await Promise.all(drafts.items.filter(item => item.status === 'published').map(item => ctx.enterprisePostgres.catalog.listReleases(item.presetId, actor.orgId)))).flat() as EnterpriseEmployeeRelease[]
+        const drafts = [] as { presetId: string; status: 'draft' | 'published' }[]
+        let cursor: string | undefined
+        do {
+          const page = await ctx.enterprisePostgres.catalog.listDrafts({
+            orgId: actor.orgId, limit: 100, viewerUserId: actor.userId,
+            ...(cursor === undefined ? {} : { cursor }),
+          })
+          drafts.push(...page.items)
+          cursor = page.nextCursor
+        } while (cursor !== undefined)
+        return (await Promise.all(drafts.filter(item => item.status === 'published').map(item => ctx.enterprisePostgres.catalog.listReleases(item.presetId, actor.orgId)))).flat() as EnterpriseEmployeeRelease[]
       },
       createSession: async ({ sessionId, workspaceId, agentPresetId }) =>
         session.create({ sessionId, workspaceId, agentPreset: agentPresetId }),
@@ -1892,9 +1901,19 @@ export class EnterpriseWorkController extends TypertRemoteService {
       }) },
     })
   }
+  /**
+   * Resolve the workspace and employee that would start enterprise work.
+   * @param request - Goal and optional workspace or employee choices.
+   * @returns a ready selection or the visible choices needed to continue.
+   */
   @Remote('prepare') async prepare(request: EnterpriseWorkPrepareRequest): Promise<EnterpriseWorkPreparation> {
     return catalogCall(this.ctx, 'enterpriseWork.prepare', request, 'work-record', 'work-start', actor => this.work.prepare(actor, request))
   }
+  /**
+   * Start enterprise work using the prepared, authorized workspace and employee.
+   * @param request - Goal, optional selections, and idempotency key.
+   * @returns the durable native Session and selected release.
+   */
   @Remote('start') async start(request: EnterpriseWorkStartRequest): Promise<EnterpriseWorkStartValue> {
     return catalogCall(this.ctx, 'enterpriseWork.start', request, 'work-record', request.idempotencyKey, actor => this.work.start(actor, request))
   }
