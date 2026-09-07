@@ -91,6 +91,32 @@ describe('enterprise work Remote controller', () => {
     expect(listDrafts).toHaveBeenNthCalledWith(2, expect.objectContaining({ cursor: 'page-2' }))
     expect(listDrafts).toHaveBeenNthCalledWith(4, expect.objectContaining({ cursor: 'page-2' }))
   })
+  it('requires administrator employee selection when another owner has a published preset on a later page', async () => {
+    const administrator = { orgId: 'org-a', userId: 'admin-a', roles: ['administrator'] as const }
+    const requestContext = new EnterpriseRequestContext()
+    const create = vi.fn(async (input: { sessionId: string }) => ({ sessionId: input.sessionId }))
+    const listDrafts = vi.fn(async (input: { cursor?: string }) => input.cursor === undefined
+      ? { items: [{ presetId: 'preset-admin', status: 'published' as const }], nextCursor: 'page-2' }
+      : { items: [{ presetId: 'preset-other-owner', status: 'published' as const }] })
+    const ctx = new Context()
+    ctx.provide('enterprisePostgres' as never, {
+      identity: { workspaceGrant: async (workspaceId: string) => ({ workspaceId, orgId: 'org-a' }), listWorkspaceGrants: async () => [{ workspaceId: 'personal-a', kind: 'personal', ownerUserId: 'admin-a', orgId: 'org-a' }], sessionWorkspaceGrant: async () => undefined },
+      catalog: { listDrafts, listReleases: async (presetId: string) => [release(`release-${presetId}`, presetId)] },
+      operations: { upsertWorkRecord: async () => ({}) },
+    } as never)
+    ctx.provide('enterpriseSecurity' as never, { authorizeApiAsync: async () => ({ allowed: true, reason: 'role' }), auditApiAsync: async () => undefined, sessionOwnedBy: async () => false, bindSessionWorkspaceAsync: async () => undefined } as never)
+    ctx.provide('enterpriseRequestContext' as never, requestContext as never)
+    ctx.provide('sessionController' as never, { create } as never)
+    const controller = new EnterpriseWorkController(ctx)
+
+    await expect(requestContext.run(administrator, () => controller.prepare({ objective: 'Close books' }))).resolves.toEqual({
+      kind: 'needs-selection', workspaceId: 'personal-a', availableEmployeeReleaseIds: ['release-preset-admin', 'release-preset-other-owner'],
+    })
+    expect(listDrafts).toHaveBeenCalledTimes(2)
+    expect(listDrafts).toHaveBeenNthCalledWith(1, expect.objectContaining({ includeAllVisible: true }))
+    expect(listDrafts).toHaveBeenNthCalledWith(2, expect.objectContaining({ includeAllVisible: true, cursor: 'page-2' }))
+    expect(create).not.toHaveBeenCalled()
+  })
   it('passes the deterministic Session id and published release preset through the native and durable seams', async () => {
     const requestContext = new EnterpriseRequestContext()
     const create = vi.fn(async (input: { sessionId: string }) => ({ sessionId: input.sessionId }))

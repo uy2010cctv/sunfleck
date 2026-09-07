@@ -1884,7 +1884,10 @@ export class EnterpriseWorkController extends TypertRemoteService {
         let cursor: string | undefined
         do {
           const page = await ctx.enterprisePostgres.catalog.listDrafts({
-            orgId: actor.orgId, limit: 100, viewerUserId: actor.userId,
+            orgId: actor.orgId, limit: 100,
+            ...(actor.roles.includes('administrator')
+              ? { includeAllVisible: true }
+              : { viewerUserId: actor.userId }),
             ...(cursor === undefined ? {} : { cursor }),
           })
           drafts.push(...page.items)
