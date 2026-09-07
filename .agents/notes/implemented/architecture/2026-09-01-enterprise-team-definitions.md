@@ -34,6 +34,7 @@ Active Definition writes project leader, non-leader Agent members with formal ro
 - Legacy records remain visible without fabricated charter content and require an explicit charter before they can become active.
 - FixedTeam CRUD and UI payloads remain compatible while team execution requires an active definition.
 - Editing a charter gives an active TeamRun a stable historical revision at the cost of retaining archival revision rows.
+- The workbench saves a draft before its separate publish action, so an active charter never changes merely because its editor was opened or saved.
 - The separate [enterprise team control plane](2026-09-01-enterprise-team-control-plane.md) owns TeamRun projections and the runtime-driver interface. The [team charter editor](../../../docs/superpowers/plans/2026-09-05-team-charter-editor.md) owns browser authoring; concrete Agent Teams adapter and provider delivery remain separate work.
 
 ## Verification

@@ -1162,6 +1162,41 @@ export class EnterpriseWorkbenchController {
     () => this.reloadPageConflict('teamDefinitions', () => this.refreshTeamDefinitions()))
   }
 
+  /** Append a charter draft and retain its immutable revision for an explicit publish. */
+  async saveTeamDefinitionDraft(input: Omit<EnterpriseTeamDefinition, 'orgId' | 'revision' | 'createdAt' | 'updatedAt' | 'state'> & {
+    state?: 'needs-charter' | 'draft'
+    expectedRevision: number
+  }): Promise<EnterpriseTeamDefinition | undefined> {
+    let saved: EnterpriseTeamDefinition | undefined
+    const success = await this.runMutation('team-definition-draft', async () => {
+      saved = valueOf(await this.api.enterpriseTeamDefinitions.draft({
+        ...input, idempotencyKey: mutationKey('team-definition-draft'),
+      }))
+      return saved
+    }, () => this.refreshTeamDefinitions(), undefined,
+    () => this.reloadPageConflict('teamDefinitions', () => this.refreshTeamDefinitions()))
+    return success ? saved : undefined
+  }
+
+  /** Promote a previously saved charter draft for future TeamRuns. */
+  async publishTeamDefinitionDraft(input: { teamId: string; expectedRevision: number }): Promise<EnterpriseTeamDefinition | undefined> {
+    let published: EnterpriseTeamDefinition | undefined
+    const success = await this.runMutation('team-definition-publish', async () => {
+      published = valueOf(await this.api.enterpriseTeamDefinitions.publish({
+        ...input, idempotencyKey: mutationKey('team-definition-publish'),
+      }))
+      return published
+    }, () => this.refreshTeamDefinitions(), undefined,
+    () => this.reloadPageConflict('teamDefinitions', () => this.refreshTeamDefinitions()))
+    return success ? published : undefined
+  }
+
+  /** Retrieve an owner-visible draft without replacing the active team catalog. */
+  async getTeamDefinitionDraft(teamId: string): Promise<EnterpriseTeamDefinition | undefined> {
+    try { return valueOf(await this.api.enterpriseTeamDefinitions.getDraft({ teamId })) }
+    catch { return undefined }
+  }
+
   /**
    * Save one channel configuration; secret values are never accepted here.
    * @param input - provider account, Credential reference, DSH route, and write guards.

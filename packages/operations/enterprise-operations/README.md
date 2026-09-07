@@ -95,7 +95,7 @@ None; operation state does not assemble provider requests.
 
 ## Known Limitations and Deferred Work
 
-- This package does not implement a concrete Agent Teams runtime adapter, TeamRun UI, channel adapter, team-definition browser editor, or a real scheduler worker.
+- This package does not implement a concrete Agent Teams runtime adapter, TeamRun UI, channel adapter, or a real scheduler worker.
 - Fixed teams intentionally exclude StaffDeck bidding, blackboards, and market wakeups.
 
 <a id="dev-note"></a>

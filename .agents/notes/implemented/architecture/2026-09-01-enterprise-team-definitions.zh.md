@@ -34,6 +34,7 @@ Active Definition 写入会将 leader、带 formal role ID 的非 leader Agent �
 - 旧记录可见，但不编造章程内容，必须显式补全章程才能转为 active。
 - FixedTeam CRUD 和 UI payload 保持兼容，团队执行需要 active 定义。
 - 编辑章程使 active TeamRun 始终保留稳定的历史修订，代价是保存归档修订行。
+- 工作台会先保存草稿，再执行独立发布动作；打开或保存编辑器不会修改 active 章程。
 - 独立的[企业团队控制面](2026-09-01-enterprise-team-control-plane.zh.md)负责 TeamRun 投影与 runtime-driver 接口；[团队章程编辑器](../../../docs/superpowers/plans/2026-09-05-team-charter-editor.md)负责浏览器编写，具体 Agent Teams adapter 和提供方投递仍是独立工作。
 
 ## 验证
