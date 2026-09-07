@@ -55,8 +55,12 @@ export interface EnterpriseOperationsDriver {
   readonly createTeamDefinition: EnterpriseOperationsRepository['createTeamDefinition']
   readonly saveTeamDefinition: EnterpriseOperationsRepository['saveTeamDefinition']
   readonly getTeamDefinition: EnterpriseOperationsRepository['getTeamDefinition']
+  readonly getTeamDefinitionDraft: EnterpriseOperationsRepository['getTeamDefinitionDraft']
   readonly listTeamDefinitions: EnterpriseOperationsRepository['listTeamDefinitions']
   readonly archiveTeamDefinition: EnterpriseOperationsRepository['archiveTeamDefinition']
+  readonly saveTeamDefinitionDraft: EnterpriseOperationsRepository['saveTeamDefinitionDraft']
+  readonly publishTeamDefinitionDraft: EnterpriseOperationsRepository['publishTeamDefinitionDraft']
+  readonly discardTeamDefinitionDraft: EnterpriseOperationsRepository['discardTeamDefinitionDraft']
   readonly saveChannelConfiguration: EnterpriseOperationsRepository['saveChannelConfiguration']
   readonly getChannelConfiguration: EnterpriseOperationsRepository['getChannelConfiguration']
   readonly listChannelConfigurations: EnterpriseOperationsRepository['listChannelConfigurations']
@@ -120,6 +124,9 @@ export type EnterpriseTeamDefinitionListInput = Omit<DriverInput<'listTeamDefini
 }
 /** Host input for terminal team-definition archival. */
 export type EnterpriseTeamDefinitionArchiveInput = WithoutOrganization<DriverInput<'archiveTeamDefinition'>>
+export type EnterpriseTeamDefinitionDraftInput = WithoutOrganization<DriverInput<'saveTeamDefinitionDraft'>>
+export type EnterpriseTeamDefinitionPublishInput = WithoutOrganization<DriverInput<'publishTeamDefinitionDraft'>>
+export type EnterpriseTeamDefinitionDiscardDraftInput = WithoutOrganization<DriverInput<'discardTeamDefinitionDraft'>>
 /** Host input for a secret-free revision-fenced channel configuration write. */
 export type EnterpriseChannelSaveInput = Omit<WithoutOrganization<DriverInput<'saveChannelConfiguration'>>, 'actorUserId'>
 /** Host-scoped channel configuration identity. */
@@ -158,8 +165,12 @@ export type EnterpriseOperationsEndpoint =
   | 'enterpriseOperation.teamDefinitions.create'
   | 'enterpriseOperation.teamDefinitions.save'
   | 'enterpriseOperation.teamDefinitions.get'
+  | 'enterpriseOperation.teamDefinitions.getDraft'
   | 'enterpriseOperation.teamDefinitions.list'
   | 'enterpriseOperation.teamDefinitions.archive'
+  | 'enterpriseOperation.teamDefinitions.draft'
+  | 'enterpriseOperation.teamDefinitions.publish'
+  | 'enterpriseOperation.teamDefinitions.discardDraft'
   | 'enterpriseChannel.save'
   | 'enterpriseChannel.get'
   | 'enterpriseChannel.list'
@@ -472,6 +483,16 @@ export class EnterpriseOperationsService {
       userId: principal.userId, isAdministrator: principal.roles.includes('administrator'),
     })
   }
+  /** Read the current owner-visible draft without exposing it through the active catalog. */
+  async getTeamDefinitionDraft(
+    principal: EnterprisePrincipal,
+    input: EnterpriseTeamDefinitionLookup,
+  ): Promise<EnterpriseTeamDefinition | undefined> {
+    const scoped = await this.authorize(principal, 'enterpriseOperation.teamDefinitions.getDraft', input)
+    return this.driver.getTeamDefinitionDraft(scoped.orgId, scoped.teamId, {
+      userId: principal.userId, isAdministrator: principal.roles.includes('administrator'),
+    })
+  }
   /**
    * @param principal - authenticated viewer.
    * @param input - page options.
@@ -499,6 +520,18 @@ export class EnterpriseOperationsService {
     return this.driver.archiveTeamDefinition(
       await this.authorize(principal, 'enterpriseOperation.teamDefinitions.archive', input),
     )
+  }
+  /** Save an isolated draft revision. */
+  async saveTeamDefinitionDraft(principal: EnterprisePrincipal, input: EnterpriseTeamDefinitionDraftInput) {
+    return this.driver.saveTeamDefinitionDraft(await this.authorize(principal, 'enterpriseOperation.teamDefinitions.draft', input))
+  }
+  /** Publish the draft revision atomically. */
+  async publishTeamDefinitionDraft(principal: EnterprisePrincipal, input: EnterpriseTeamDefinitionPublishInput) {
+    return this.driver.publishTeamDefinitionDraft(await this.authorize(principal, 'enterpriseOperation.teamDefinitions.publish', input))
+  }
+  /** Archive the current draft without changing the active revision. */
+  async discardTeamDefinitionDraft(principal: EnterprisePrincipal, input: EnterpriseTeamDefinitionDiscardDraftInput) {
+    return this.driver.discardTeamDefinitionDraft(await this.authorize(principal, 'enterpriseOperation.teamDefinitions.discardDraft', input))
   }
 
   /**

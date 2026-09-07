@@ -99,9 +99,26 @@ describe('EnterpriseSecurity', () => {
     expect(classifyApiEndpoint('enterpriseTeamDefinition.list', {})).toEqual({
       action: 'team.read', resourceType: 'team-definition',
     })
+    for (const endpoint of ['enterpriseTeamDefinition.getDraft', 'enterpriseOperation.teamDefinitions.getDraft']) {
+      expect(classifyApiEndpoint(endpoint, { teamId: 'team-1' })).toEqual({
+        action: 'team.read', resourceType: 'team-definition', resourceId: 'team-1',
+      })
+    }
     expect(classifyApiEndpoint('enterpriseTeamDefinition.archive', { teamId: 'team-1' })).toEqual({
       action: 'team.manage', resourceType: 'team-definition', resourceId: 'team-1',
     })
+    for (const endpoint of [
+      'enterpriseTeamDefinition.draft',
+      'enterpriseTeamDefinition.publish',
+      'enterpriseTeamDefinition.discardDraft',
+      'enterpriseOperation.teamDefinitions.draft',
+      'enterpriseOperation.teamDefinitions.publish',
+      'enterpriseOperation.teamDefinitions.discardDraft',
+    ]) {
+      expect(classifyApiEndpoint(endpoint, { teamId: 'team-1' })).toEqual({
+        action: 'team.manage', resourceType: 'team-definition', resourceId: 'team-1',
+      })
+    }
     expect(classifyApiEndpoint('enterpriseOperation.teamDefinitions.save', { teamId: 'team-1' })).toEqual({
       action: 'team.manage', resourceType: 'team-definition', resourceId: 'team-1',
     })

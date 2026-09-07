@@ -200,7 +200,10 @@ export interface TeamAttentionPolicy {
 }
 
 /** Definition lifecycle; archived definitions cannot return to another state. */
-export type TeamDefinitionState = 'needs-charter' | 'active' | 'archived'
+export type TeamDefinitionState = 'needs-charter' | 'draft' | 'active' | 'archived'
+
+/** Immutable revision lifecycle; drafts never admit a TeamRun. */
+export type TeamDefinitionRevisionState = 'needs-charter' | 'draft' | 'active' | 'archived'
 
 /** Durable charter and roster, separate from team execution state. */
 export interface EnterpriseTeamDefinition {
@@ -222,6 +225,11 @@ export interface EnterpriseTeamDefinition {
   readonly state: TeamDefinitionState
   readonly createdAt: number
   readonly updatedAt: number
+}
+
+/** One immutable charter revision. `teamId` remains the stable team identity. */
+export interface EnterpriseTeamDefinitionRevision extends EnterpriseTeamDefinition {
+  readonly revisionState: TeamDefinitionRevisionState
 }
 
 /** Stable keyset page of organization-scoped team definitions. */

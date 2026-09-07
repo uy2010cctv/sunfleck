@@ -54,7 +54,7 @@ export interface TeamAttentionPolicy {
   readonly workInProgressLimit?: number
 }
 /** Team charter lifecycle. */
-export type TeamDefinitionState = 'needs-charter' | 'active' | 'archived'
+export type TeamDefinitionState = 'needs-charter' | 'draft' | 'active' | 'archived'
 /** Durable team charter; runtime and TeamRun state are stored separately. */
 export interface EnterpriseTeamDefinition {
   readonly teamId: string
@@ -81,10 +81,14 @@ export interface EnterpriseTeamDefinitionPage {
   readonly items: readonly EnterpriseTeamDefinition[]
   readonly nextCursor?: string
 }
+/** Immutable historical charter revision, including drafts that are no longer current. */
+export interface EnterpriseTeamDefinitionRevision extends EnterpriseTeamDefinition {}
 /** Browser page request; Host supplies organization and actor identity. */
 export interface EnterpriseTeamDefinitionListRequest { readonly limit?: number; readonly cursor?: string }
 /** Browser lookup request; Host supplies organization and actor identity. */
 export interface EnterpriseTeamDefinitionLookup { readonly teamId: string }
+/** Read the current private draft of a team charter. */
+export interface EnterpriseTeamDefinitionDraftLookup { readonly teamId: string }
 /** Browser definition write; Host supplies organization and actor identity. */
 export interface EnterpriseTeamDefinitionSaveRequest
   extends Omit<EnterpriseTeamDefinition, 'orgId' | 'revision' | 'createdAt' | 'updatedAt'> {
@@ -97,4 +101,19 @@ export interface EnterpriseTeamDefinitionArchiveRequest {
   readonly expectedRevision: number
   readonly idempotencyKey: string
 }
-import type { JsonValue } from '@deepseek-ai/dsh-session/types'
+/** Explicit draft edit; it never mutates the active revision. */
+export interface EnterpriseTeamDefinitionDraftRequest
+  extends Omit<EnterpriseTeamDefinitionSaveRequest, 'state'> { readonly state?: 'needs-charter' | 'draft' }
+/** Atomically validate and promote the current draft for future runs. */
+export interface EnterpriseTeamDefinitionPublishRequest {
+  readonly teamId: string
+  readonly expectedRevision: number
+  readonly idempotencyKey: string
+}
+/** Explicitly remove the current draft while retaining published history. */
+export interface EnterpriseTeamDefinitionDiscardDraftRequest {
+  readonly teamId: string
+  readonly expectedRevision: number
+  readonly idempotencyKey: string
+}
+import type { JsonValue } from '@deepseek-ai/dsh-util-values'

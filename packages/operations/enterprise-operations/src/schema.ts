@@ -1,6 +1,6 @@
 /** PostgreSQL schema for work records, approvals, schedules, teams, and outbox. */
 import type { PostgresDatabase } from './types.ts'
-export const ENTERPRISE_OPERATIONS_SCHEMA_VERSION = 15
+export const ENTERPRISE_OPERATIONS_SCHEMA_VERSION = 16
 /** Owner placeholder for legacy fixed teams whose creator was never persisted. */
 export const LEGACY_TEAM_DEFINITION_OWNER_USER_ID = 'system:legacy-fixed-team-migration'
 const statements = [
@@ -46,6 +46,21 @@ const statements = [
     revision BIGINT NOT NULL, created_at BIGINT NOT NULL, updated_at BIGINT NOT NULL,
     PRIMARY KEY(org_id, team_id)
   )`,
+  `CREATE TABLE IF NOT EXISTS dsh_enterprise_team_definition_revisions (
+    org_id TEXT NOT NULL, team_id TEXT NOT NULL, revision BIGINT NOT NULL,
+    name TEXT NOT NULL, north_star TEXT NOT NULL, owner_user_id TEXT NOT NULL, department_id TEXT,
+    visibility TEXT NOT NULL CHECK (visibility IN ('organization', 'private', 'restricted')),
+    allowed_user_ids_json JSONB, leader_release_id TEXT NOT NULL,
+    roster_json JSONB NOT NULL, roles_json JSONB NOT NULL, verification_policy_json JSONB NOT NULL,
+    attention_policy_json JSONB NOT NULL, approval_policy_json JSONB NOT NULL,
+    state TEXT NOT NULL CHECK (state IN ('needs-charter', 'draft', 'active', 'archived')),
+    created_at BIGINT NOT NULL, updated_at BIGINT NOT NULL,
+    PRIMARY KEY(org_id, team_id, revision)
+  )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS dsh_enterprise_team_definition_one_active_idx
+    ON dsh_enterprise_team_definition_revisions(org_id,team_id) WHERE state='active'`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS dsh_enterprise_team_definition_one_draft_idx
+    ON dsh_enterprise_team_definition_revisions(org_id,team_id) WHERE state IN ('draft','needs-charter')`,
   `CREATE TABLE IF NOT EXISTS dsh_enterprise_operation_outbox (
     command_id TEXT PRIMARY KEY, org_id TEXT NOT NULL, schedule_id TEXT NOT NULL,
     occurrence_key TEXT NOT NULL, work_session_id TEXT NOT NULL, employee_release_id TEXT NOT NULL, team_id TEXT,
@@ -306,6 +321,28 @@ export async function migrateEnterpriseOperations(database: PostgresDatabase): P
           created_at BIGINT NOT NULL, updated_at BIGINT NOT NULL,
           PRIMARY KEY(org_id,user_id,idempotency_key)
         )`)
+      }
+      if (version < 16) {
+        await transaction.query(`CREATE TABLE IF NOT EXISTS dsh_enterprise_team_definition_revisions (
+          org_id TEXT NOT NULL, team_id TEXT NOT NULL, revision BIGINT NOT NULL,
+          name TEXT NOT NULL, north_star TEXT NOT NULL, owner_user_id TEXT NOT NULL, department_id TEXT,
+          visibility TEXT NOT NULL, allowed_user_ids_json JSONB, leader_release_id TEXT NOT NULL,
+          roster_json JSONB NOT NULL, roles_json JSONB NOT NULL, verification_policy_json JSONB NOT NULL,
+          attention_policy_json JSONB NOT NULL, approval_policy_json JSONB NOT NULL,
+          state TEXT NOT NULL, created_at BIGINT NOT NULL, updated_at BIGINT NOT NULL,
+          PRIMARY KEY(org_id,team_id,revision)
+        )`)
+        await transaction.query(`INSERT INTO dsh_enterprise_team_definition_revisions(
+          org_id,team_id,revision,name,north_star,owner_user_id,department_id,visibility,allowed_user_ids_json,
+          leader_release_id,roster_json,roles_json,verification_policy_json,attention_policy_json,approval_policy_json,
+          state,created_at,updated_at)
+          SELECT org_id,team_id,revision,name,north_star,owner_user_id,department_id,visibility,allowed_user_ids_json,
+            leader_release_id,roster_json,roles_json,verification_policy_json,attention_policy_json,approval_policy_json,
+            CASE WHEN state='active' THEN 'active' ELSE 'needs-charter' END,created_at,updated_at
+          FROM dsh_enterprise_team_definitions
+          ON CONFLICT (org_id,team_id,revision) DO NOTHING`)
+        await transaction.query("CREATE UNIQUE INDEX IF NOT EXISTS dsh_enterprise_team_definition_one_active_idx ON dsh_enterprise_team_definition_revisions(org_id,team_id) WHERE state='active'")
+        await transaction.query("CREATE UNIQUE INDEX IF NOT EXISTS dsh_enterprise_team_definition_one_draft_idx ON dsh_enterprise_team_definition_revisions(org_id,team_id) WHERE state IN ('draft','needs-charter')")
       }
       if (version < ENTERPRISE_OPERATIONS_SCHEMA_VERSION) {
         await transaction.query("UPDATE dsh_enterprise_operations_meta SET value = $1 WHERE key = 'schema-version'", [String(ENTERPRISE_OPERATIONS_SCHEMA_VERSION)])

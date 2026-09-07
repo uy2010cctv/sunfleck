@@ -1,4 +1,4 @@
-/* eslint-disable typescript/no-base-to-string -- the SQL double stringifies repository parameter primitives. */
+/* eslint-disable typescript/no-base-to-string -- SQL test-double stringifies primitive query parameters. */
 import { describe, expect, it } from 'vitest'
 import {
   ApprovalRevisionConflictError,
@@ -159,6 +159,8 @@ class MemoryPostgresDatabase implements PostgresDatabase {
   private readonly teams = new Map<string, TeamRow>()
   private readonly members = new Map<string, TeamMemberRow>()
   private readonly teamDefinitions = new Map<string, TeamDefinitionRow>()
+  /** Immutable charter history; the compatibility projection above contains only the published revision. */
+  private readonly teamDefinitionRevisions = new Map<string, TeamDefinitionRow>()
   private readonly channels = new Map<string, ChannelConfigurationRow>()
   private readonly outbox = new Map<string, OutboxRow>()
   private readonly idempotency = new Map<string, unknown>()
@@ -171,6 +173,15 @@ class MemoryPostgresDatabase implements PostgresDatabase {
 
   get schemaVersion(): string | undefined {
     return this.meta.get('schema-version')
+  }
+
+  setSchemaVersion(version: number): void { this.meta.set('schema-version', String(version)) }
+  clearTeamDefinitionRevisions(): void { this.teamDefinitionRevisions.clear() }
+  revisionStates(orgId: string, teamId: string): Array<{ revision: number; state: string }> {
+    return [...this.teamDefinitionRevisions.values()]
+      .filter(row => row.org_id === orgId && row.team_id === teamId)
+      .map(row => ({ revision: row.revision, state: row.state }))
+      .sort((left, right) => left.revision - right.revision)
   }
 
   setScheduleState(scheduleId: string, state: string): void {
@@ -221,6 +232,7 @@ class MemoryPostgresDatabase implements PostgresDatabase {
         teams: this.teams,
         members: this.members,
         teamDefinitions: this.teamDefinitions,
+        teamDefinitionRevisions: this.teamDefinitionRevisions,
         channels: this.channels,
         outbox: this.outbox,
         idempotency: this.idempotency,
@@ -309,6 +321,15 @@ class MemoryPostgresDatabase implements PostgresDatabase {
       this.idempotency.set(key, parse(values[3]))
       return []
     }
+    if (text.startsWith('INSERT INTO dsh_enterprise_team_definition_revisions') && text.includes('SELECT org_id,team_id,revision')) {
+      for (const definition of this.teamDefinitions.values()) {
+        const key = `${definition.org_id}:${definition.team_id}:${definition.revision}`
+        if (!this.teamDefinitionRevisions.has(key)) this.teamDefinitionRevisions.set(key, {
+          ...clone(definition), state: definition.state === 'active' ? 'active' : 'needs-charter',
+        })
+      }
+      return []
+    }
     if (text.startsWith('INSERT INTO dsh_enterprise_team_definitions') && text.includes('SELECT fixed.org_id')) {
       for (const fixed of this.teams.values()) {
         const key = `${fixed.org_id}:${fixed.team_id}`
@@ -330,6 +351,79 @@ class MemoryPostgresDatabase implements PostgresDatabase {
         })
       }
       return []
+    }
+    if (text.startsWith('SELECT ') && text.includes('FROM dsh_enterprise_team_definition_revisions')) {
+      let rows = [...this.teamDefinitionRevisions.values()]
+        .filter(row => row.org_id === String(values[0]) && row.team_id === String(values[1]))
+      if (text.includes('revision=$3')) rows = rows.filter(row => row.revision === Number(values[2]))
+      if (text.includes("state='active'")) rows = rows.filter(row => row.state === 'active')
+      else if (text.includes("state IN ('draft','needs-charter')")) rows = rows.filter(row => row.state === 'draft' || row.state === 'needs-charter')
+      if (text.includes('($3::boolean OR owner_user_id=$4)')) {
+        const administrator = Boolean(values[2]); const userId = String(values[3])
+        rows = rows.filter(row => administrator || row.owner_user_id === userId)
+      }
+      if (text.includes('ORDER BY revision DESC')) rows.sort((left, right) => right.revision - left.revision)
+      return rows.map(clone)
+    }
+    if (text.startsWith('INSERT INTO dsh_enterprise_team_definition_revisions')) {
+      const fixedTeamSeed = text.includes('VALUES($1,$2,1,$3,$4,$5')
+      const needsCharterAppend = text.includes("'needs-charter',$16,$16")
+      const row: TeamDefinitionRow = fixedTeamSeed ? {
+        org_id: String(values[0]), team_id: String(values[1]), revision: 1,
+        name: String(values[2]), north_star: String(values[3]), owner_user_id: String(values[4]),
+        department_id: values[5] === null ? null : String(values[5]), visibility: String(values[6]),
+        allowed_user_ids_json: values[7] === null ? null : parse(values[7]), leader_release_id: String(values[8]),
+        roster_json: parse(values[9]), roles_json: parse(values[10]), verification_policy_json: parse(values[11]),
+        attention_policy_json: parse(values[12]), approval_policy_json: parse(values[13]), state: 'needs-charter',
+        created_at: Number(values[14]), updated_at: Number(values[14]),
+      } : needsCharterAppend ? {
+        org_id: String(values[0]), team_id: String(values[1]), revision: Number(values[2]),
+        name: String(values[3]), north_star: String(values[4]), owner_user_id: String(values[5]),
+        department_id: values[6] === null ? null : String(values[6]), visibility: String(values[7]),
+        allowed_user_ids_json: values[8] === null ? null : parse(values[8]), leader_release_id: String(values[9]),
+        roster_json: parse(values[10]), roles_json: parse(values[11]), verification_policy_json: parse(values[12]),
+        attention_policy_json: parse(values[13]), approval_policy_json: parse(values[14]), state: 'needs-charter',
+        created_at: Number(values[15]), updated_at: Number(values[15]),
+      } : {
+        org_id: String(values[0]), team_id: String(values[1]), revision: Number(values[2]),
+        name: String(values[3]), north_star: String(values[4]), owner_user_id: String(values[5]),
+        department_id: values[6] === null ? null : String(values[6]), visibility: String(values[7]),
+        allowed_user_ids_json: values[8] === null ? null : parse(values[8]), leader_release_id: String(values[9]),
+        roster_json: parse(values[10]), roles_json: parse(values[11]), verification_policy_json: parse(values[12]),
+        attention_policy_json: parse(values[13]), approval_policy_json: parse(values[14]), state: String(values[15]),
+        created_at: Number(values[16]), updated_at: Number(values[16]),
+      }
+      this.teamDefinitionRevisions.set(`${row.org_id}:${row.team_id}:${row.revision}`, row)
+      return [clone(row)]
+    }
+    if (text.startsWith('UPDATE dsh_enterprise_team_definition_revisions SET\n          name=$4')) {
+      const key = `${String(values[0])}:${String(values[1])}:${String(values[2])}`
+      const row = this.teamDefinitionRevisions.get(key)
+      if (row === undefined || !['draft', 'needs-charter'].includes(row.state)) return []
+      row.name = String(values[3]); row.north_star = String(values[4]); row.owner_user_id = String(values[5])
+      row.department_id = values[6] === null ? null : String(values[6]); row.visibility = String(values[7])
+      row.allowed_user_ids_json = values[8] === null ? null : parse(values[8]); row.leader_release_id = String(values[9])
+      row.roster_json = parse(values[10]); row.roles_json = parse(values[11]); row.verification_policy_json = parse(values[12])
+      row.attention_policy_json = parse(values[13]); row.approval_policy_json = parse(values[14]); row.state = String(values[15])
+      row.updated_at = Number(values[16]); return [clone(row)]
+    }
+    if (text.startsWith('UPDATE dsh_enterprise_team_definition_revisions') && text.includes("SET state='archived'")) {
+      for (const row of this.teamDefinitionRevisions.values()) {
+        if (row.org_id !== String(values[1]) || row.team_id !== String(values[2])) continue
+        if (text.includes('revision=$4')) {
+          if (row.revision !== Number(values[3]) || !['draft', 'needs-charter'].includes(row.state)) continue
+        } else if (text.includes("state IN ('active','draft','needs-charter')")
+          ? !['active', 'draft', 'needs-charter'].includes(row.state)
+          : row.state !== 'active') continue
+        row.state = 'archived'; row.updated_at = Number(values[0])
+        if (text.includes('revision=$4')) return [clone(row)]
+      }
+      return []
+    }
+    if (text.startsWith("UPDATE dsh_enterprise_team_definition_revisions SET state='active'")) {
+      const row = this.teamDefinitionRevisions.get(`${String(values[1])}:${String(values[2])}:${String(values[3])}`)
+      if (row === undefined || !['draft', 'needs-charter'].includes(row.state)) return []
+      row.state = 'active'; row.updated_at = Number(values[0]); return [clone(row)]
     }
     if (text.startsWith('SELECT ') && text.includes('FROM dsh_enterprise_team_definitions')) {
       if (text.includes('ORDER BY created_at')) {
@@ -359,6 +453,18 @@ class MemoryPostgresDatabase implements PostgresDatabase {
       return [clone(row)]
     }
     if (text.startsWith('INSERT INTO dsh_enterprise_team_definitions')) {
+      if (text.includes("'active',$15,$16,$16")) {
+        const row: TeamDefinitionRow = {
+          org_id: String(values[0]), team_id: String(values[1]), name: String(values[2]), north_star: String(values[3]),
+          owner_user_id: String(values[4]), department_id: values[5] === null ? null : String(values[5]),
+          visibility: String(values[6]), allowed_user_ids_json: values[7] === null ? null : parse(values[7]),
+          leader_release_id: String(values[8]), roster_json: parse(values[9]), roles_json: parse(values[10]),
+          verification_policy_json: parse(values[11]), attention_policy_json: parse(values[12]), approval_policy_json: parse(values[13]),
+          state: 'active', revision: Number(values[14]), created_at: Number(values[15]), updated_at: Number(values[15]),
+        }
+        this.teamDefinitions.set(`${row.org_id}:${row.team_id}`, row)
+        return [clone(row)]
+      }
       const row: TeamDefinitionRow = {
         org_id: String(values[0]), team_id: String(values[1]), name: String(values[2]), north_star: String(values[3]),
         owner_user_id: String(values[4]), department_id: values[5] === null ? null : String(values[5]),
@@ -370,6 +476,16 @@ class MemoryPostgresDatabase implements PostgresDatabase {
       }
       this.teamDefinitions.set(`${row.org_id}:${row.team_id}`, row)
       return [clone(row)]
+    }
+    if (text.startsWith('UPDATE dsh_enterprise_team_definitions SET') && text.includes("state='active',revision=$13")) {
+      const row = this.teamDefinitions.get(`${String(values[14])}:${String(values[15])}`)
+      if (row === undefined) return []
+      row.name = String(values[0]); row.north_star = String(values[1]); row.owner_user_id = String(values[2])
+      row.department_id = values[3] === null ? null : String(values[3]); row.visibility = String(values[4])
+      row.allowed_user_ids_json = values[5] === null ? null : parse(values[5]); row.leader_release_id = String(values[6])
+      row.roster_json = parse(values[7]); row.roles_json = parse(values[8]); row.verification_policy_json = parse(values[9])
+      row.attention_policy_json = parse(values[10]); row.approval_policy_json = parse(values[11]); row.state = 'active'
+      row.revision = Number(values[12]); row.updated_at = Number(values[13]); return [clone(row)]
     }
     if (text.startsWith('UPDATE dsh_enterprise_team_definitions SET') && text.includes('name=$1')) {
       const row = this.teamDefinitions.get(`${String(values[14])}:${String(values[15])}`)
@@ -764,6 +880,7 @@ class MemoryPostgresDatabase implements PostgresDatabase {
     teams: Map<string, TeamRow>
     members: Map<string, TeamMemberRow>
     teamDefinitions: Map<string, TeamDefinitionRow>
+    teamDefinitionRevisions: Map<string, TeamDefinitionRow>
     channels: Map<string, ChannelConfigurationRow>
     outbox: Map<string, OutboxRow>
     idempotency: Map<string, unknown>
@@ -777,6 +894,7 @@ class MemoryPostgresDatabase implements PostgresDatabase {
       [this.teams, snapshot.teams],
       [this.members, snapshot.members],
       [this.teamDefinitions, snapshot.teamDefinitions],
+      [this.teamDefinitionRevisions, snapshot.teamDefinitionRevisions],
       [this.channels, snapshot.channels],
       [this.outbox, snapshot.outbox],
       [this.idempotency, snapshot.idempotency],
@@ -847,7 +965,7 @@ describe('EnterpriseOperationsRepository', () => {
       idempotencyKey: 'approval-migration-create',
     })
 
-    expect(database.schemaVersion).toBe('15')
+    expect(database.schemaVersion).toBe('16')
   })
 
   it('atomically persists and recovers a work-start reservation before native side effects', async () => {
@@ -1071,7 +1189,7 @@ describe('EnterpriseOperationsRepository', () => {
       verificationPolicy: { verifierRequired: true, rubricRefs: [], highRiskHumanReviewRequired: true },
       attentionPolicy: { decisionQueue: 'centralized' }, approvalPolicy: {}, state: 'active',
     } as const
-    await operations.saveTeamDefinition({
+    await saveAndPublishDefinition(operations, {
       ...activeDefinition, expectedRevision: 1, idempotencyKey: 'team-scheduled-charter',
     })
     await operations.createSchedule({
@@ -1084,19 +1202,6 @@ describe('EnterpriseOperationsRepository', () => {
       nextRunAt: 100,
       expectedRevision: 0,
       idempotencyKey: 'schedule-team-create',
-    })
-
-    await operations.saveTeamDefinition({
-      ...activeDefinition, state: 'needs-charter', expectedRevision: 2,
-      idempotencyKey: 'team-scheduled-charter-invalidated',
-    })
-    await expect(operations.fireSchedule({
-      scheduleId: 'schedule-team', orgId: 'org-a', expectedRevision: 1,
-      idempotencyKey: 'schedule-team-fire-blocked', occurrenceKey: 'blocked-occurrence',
-      sessionId: 'session-team-blocked', firedAt: 100, nextRunAt: 200,
-    })).rejects.toMatchObject({ code: 'invalid-state', resourceType: 'team-definition' })
-    await operations.saveTeamDefinition({
-      ...activeDefinition, expectedRevision: 3, idempotencyKey: 'team-scheduled-charter-reactivated',
     })
 
     const fired = await operations.fireSchedule({
@@ -1521,8 +1626,30 @@ const teamDefinition = {
 }
 const adminReadScope = { userId: 'admin-a', isAdministrator: true } as const
 
+async function createAndPublishDefinition(
+  operations: EnterpriseOperationsRepository,
+  input: Parameters<EnterpriseOperationsRepository['createTeamDefinition']>[0],
+) {
+  const draft = await operations.createTeamDefinition(input)
+  return operations.publishTeamDefinitionDraft({
+    orgId: input.orgId, teamId: input.teamId, expectedRevision: draft.revision,
+    idempotencyKey: `${input.idempotencyKey}:publish`,
+  })
+}
+
+async function saveAndPublishDefinition(
+  operations: EnterpriseOperationsRepository,
+  input: Parameters<EnterpriseOperationsRepository['saveTeamDefinition']>[0],
+) {
+  const draft = await operations.saveTeamDefinition(input)
+  return operations.publishTeamDefinitionDraft({
+    orgId: input.orgId, teamId: input.teamId, expectedRevision: draft.revision,
+    idempotencyKey: `${input.idempotencyKey}:publish`,
+  })
+}
+
 describe('EnterpriseOperationsRepository team definitions', () => {
-  it('creates, reads, lists, saves, and archives definitions with CAS and idempotency', async () => {
+  it('keeps a draft out of the active projection until an idempotent CAS publish, then archives it', async () => {
     let now = 10
     const operations = repository(new MemoryPostgresDatabase(), () => ++now)
     const created = await operations.createTeamDefinition(teamDefinition)
@@ -1530,27 +1657,43 @@ describe('EnterpriseOperationsRepository team definitions', () => {
     await expect(operations.createTeamDefinition({
       ...teamDefinition, idempotencyKey: 'definition-duplicate',
     })).rejects.toMatchObject({ code: 'conflict', resourceType: 'team-definition' })
-    await expect(operations.getTeamDefinition('org-a', teamDefinition.teamId, adminReadScope)).resolves.toEqual(created)
+    await expect(operations.getTeamDefinition('org-a', teamDefinition.teamId, adminReadScope)).resolves.toBeUndefined()
     await expect(operations.getTeamDefinition('org-b', teamDefinition.teamId, adminReadScope)).resolves.toBeUndefined()
-    await expect(operations.listTeamDefinitions({ orgId: 'org-a', readScope: adminReadScope, limit: 10 })).resolves.toEqual({ items: [created] })
+    await expect(operations.listTeamDefinitions({ orgId: 'org-a', readScope: adminReadScope, limit: 10 })).resolves.toEqual({ items: [] })
     await expect(operations.listTeamDefinitions({ orgId: 'org-b', readScope: adminReadScope, limit: 10 })).resolves.toEqual({ items: [] })
 
     const saved = await operations.saveTeamDefinition({
       ...teamDefinition, name: 'Finance close v2', expectedRevision: 1, idempotencyKey: 'definition-save',
     })
+    await expect(operations.getTeamDefinitionDraft('org-a', teamDefinition.teamId, adminReadScope)).resolves.toEqual(saved)
+    await expect(operations.getTeamDefinitionDraft('org-a', teamDefinition.teamId, { userId: 'other', isAdministrator: false })).resolves.toBeUndefined()
     await expect(operations.saveTeamDefinition({
       ...teamDefinition, name: 'stale', expectedRevision: 1, idempotencyKey: 'definition-stale',
     })).rejects.toMatchObject({ code: 'conflict', resourceType: 'team-definition' })
+    const published = await operations.publishTeamDefinitionDraft({
+      orgId: 'org-a', teamId: teamDefinition.teamId, expectedRevision: saved.revision, idempotencyKey: 'definition-publish',
+    })
+    await expect(operations.publishTeamDefinitionDraft({
+      orgId: 'org-a', teamId: teamDefinition.teamId, expectedRevision: saved.revision, idempotencyKey: 'definition-publish',
+    })).resolves.toEqual(published)
+    await expect(operations.publishTeamDefinitionDraft({
+      orgId: 'org-a', teamId: teamDefinition.teamId, expectedRevision: saved.revision - 1, idempotencyKey: 'definition-publish-stale',
+    })).rejects.toMatchObject({ code: 'conflict', resourceType: 'team-definition' })
+    await expect(operations.getTeamDefinition('org-a', teamDefinition.teamId, adminReadScope)).resolves.toEqual(published)
     await expect(operations.saveTeamDefinition({
-      ...teamDefinition, state: 'archived', expectedRevision: saved.revision, idempotencyKey: 'definition-direct-archive',
+      ...teamDefinition, state: 'archived', expectedRevision: published.revision, idempotencyKey: 'definition-direct-archive',
     })).rejects.toMatchObject({ code: 'invalid-transition', resourceType: 'team-definition' })
     const archived = await operations.archiveTeamDefinition({
-      orgId: 'org-a', teamId: teamDefinition.teamId, expectedRevision: saved.revision,
+      orgId: 'org-a', teamId: teamDefinition.teamId, expectedRevision: published.revision,
       idempotencyKey: 'definition-archive',
     })
     expect(archived.state).toBe('archived')
-    await expect(operations.archiveTeamDefinition({
+    await expect(operations.publishTeamDefinitionDraft({
       orgId: 'org-a', teamId: teamDefinition.teamId, expectedRevision: saved.revision,
+      idempotencyKey: 'definition-publish-after-archive',
+    })).rejects.toMatchObject({ code: 'conflict', resourceType: 'team-definition' })
+    await expect(operations.archiveTeamDefinition({
+      orgId: 'org-a', teamId: teamDefinition.teamId, expectedRevision: published.revision,
       idempotencyKey: 'definition-archive',
     })).resolves.toEqual(archived)
     await expect(operations.archiveTeamDefinition({
@@ -1563,7 +1706,7 @@ describe('EnterpriseOperationsRepository team definitions', () => {
     })).rejects.toMatchObject({ code: 'conflict', resourceType: 'team-definition' })
     await expect(operations.saveTeamDefinition({
       ...teamDefinition, expectedRevision: archived.revision, idempotencyKey: 'definition-reactivate',
-    })).rejects.toMatchObject({ code: 'invalid-transition', resourceType: 'team-definition' })
+    })).rejects.toMatchObject({ code: 'conflict', resourceType: 'team-definition' })
     await expect(operations.saveTeamDefinition({
       ...teamDefinition, name: 'edit archived', state: 'archived', expectedRevision: archived.revision,
       idempotencyKey: 'definition-edit-archived',
@@ -1581,7 +1724,7 @@ describe('EnterpriseOperationsRepository team definitions', () => {
     let now = 20
     const operations = repository(new MemoryPostgresDatabase(), () => ++now)
     for (const suffix of ['a', 'b', 'c']) {
-      await operations.createTeamDefinition({
+      await createAndPublishDefinition(operations, {
         ...teamDefinition, teamId: `paged-${suffix}`, idempotencyKey: `paged-${suffix}`,
       })
     }
@@ -1623,6 +1766,24 @@ describe('EnterpriseOperationsRepository team definitions', () => {
       roles: [{ roleId: 'analyst', name: 'analyst', responsibility: '' }],
       approvalPolicy: { review: true },
     })
+  })
+
+  it('seeds v16 immutable history from active and needs-charter compatibility projections', async () => {
+    const database = new MemoryPostgresDatabase()
+    const operations = repository(database)
+    await createAndPublishDefinition(operations, { ...teamDefinition, teamId: 'v16-active', idempotencyKey: 'v16-active' })
+    await operations.createFixedTeam({
+      teamId: 'v16-needs-charter', orgId: 'org-a', leaderEmployeeReleaseId: 'release-a', members: [],
+      workflowTemplate: {}, approvalPolicy: {}, expectedRevision: 0, idempotencyKey: 'v16-needs-charter',
+    })
+    database.clearTeamDefinitionRevisions()
+    database.setSchemaVersion(15)
+
+    await migrateEnterpriseOperations(database)
+
+    expect(database.schemaVersion).toBe('16')
+    expect(database.revisionStates('org-a', 'v16-active')).toEqual([{ revision: 1, state: 'active' }])
+    expect(database.revisionStates('org-a', 'v16-needs-charter')).toEqual([{ revision: 1, state: 'needs-charter' }])
   })
 
   it('keeps fixed-team CRUD working beside definitions', async () => {
@@ -1673,7 +1834,7 @@ describe('EnterpriseOperationsRepository team definitions', () => {
       approvalPolicy: { formal: true },
       expectedRevision: 2, idempotencyKey: 'sync-activate',
     }
-    await operations.saveTeamDefinition(active)
+    await saveAndPublishDefinition(operations, active)
     await expect(operations.getFixedTeam('org-a', 'sync-team')).resolves.toMatchObject({
       leaderEmployeeReleaseId: 'release-new-lead', revision: 3,
       members: [{ employeeReleaseId: 'release-new', role: 'formal-review' }],
@@ -1725,15 +1886,14 @@ describe('EnterpriseOperationsRepository team definitions', () => {
 
   it('atomically rejects fixed-team creation when a definition already owns the identity', async () => {
     const operations = repository()
-    await operations.createTeamDefinition({
-      ...teamDefinition, teamId: 'definition-first', state: 'needs-charter', name: '', northStar: '',
-      verificationPolicy: {}, attentionPolicy: {}, expectedRevision: 0, idempotencyKey: 'definition-first',
+    await createAndPublishDefinition(operations, {
+      ...teamDefinition, teamId: 'definition-first', expectedRevision: 0, idempotencyKey: 'definition-first',
     })
     await expect(operations.createFixedTeam({
       teamId: 'definition-first', orgId: 'org-a', leaderEmployeeReleaseId: 'release-a', members: [],
       workflowTemplate: {}, approvalPolicy: {}, expectedRevision: 0, idempotencyKey: 'fixed-conflict',
-    })).rejects.toMatchObject({ code: 'conflict', resourceType: 'team-definition' })
-    await expect(operations.getFixedTeam('org-a', 'definition-first')).resolves.toBeUndefined()
+    })).rejects.toMatchObject({ code: 'conflict', resourceType: 'team' })
+    await expect(operations.getFixedTeam('org-a', 'definition-first')).resolves.toMatchObject({ teamId: 'definition-first' })
   })
 
   it('canonicalizes allowed users before validation, storage, and idempotency hashing', async () => {
@@ -1742,9 +1902,9 @@ describe('EnterpriseOperationsRepository team definitions', () => {
       ...teamDefinition, teamId: 'canonical-users', allowedUserIds: [' user-b ', 'user-a', 'user-a'],
       idempotencyKey: 'canonical-users',
     }
-    const created = await operations.createTeamDefinition(input)
+    const created = await createAndPublishDefinition(operations, input)
     expect(created.allowedUserIds).toEqual(['user-a', 'user-b'])
-    await expect(operations.createTeamDefinition({
+    await expect(createAndPublishDefinition(operations, {
       ...input, allowedUserIds: ['user-b', 'user-a'],
     })).resolves.toEqual(created)
   })
@@ -1758,7 +1918,7 @@ describe('EnterpriseOperationsRepository team definitions', () => {
       resolveUser: async (_database, orgId, userId) => { users.push(`${orgId}:${userId}`); return !userId.startsWith('missing') },
       resolveDepartment: async (_database, orgId, departmentId) => { departments.push(`${orgId}:${departmentId}`); return true },
     })
-    await operations.createTeamDefinition({
+    await createAndPublishDefinition(operations, {
       ...teamDefinition, teamId: 'identity-refs', ownerUserId: 'owner-a',
       roster: [
         ...teamDefinition.roster,
@@ -1768,7 +1928,7 @@ describe('EnterpriseOperationsRepository team definitions', () => {
     })
     expect(users.sort()).toEqual(['org-a:allowed-a', 'org-a:owner-a', 'org-a:reviewer-a'])
     expect(departments).toEqual(['org-a:finance'])
-    await expect(operations.createTeamDefinition({
+    await expect(createAndPublishDefinition(operations, {
       ...teamDefinition, teamId: 'missing-identity', ownerUserId: 'missing-owner',
       roster: [
         { actor: { kind: 'human', userId: 'missing-owner' }, roleId: 'owner' },
@@ -1781,7 +1941,7 @@ describe('EnterpriseOperationsRepository team definitions', () => {
       cursorSigningKey: Buffer.from('operations-cursor-signing-key-32b!'),
       resolveDepartment: async () => false,
     })
-    await expect(missingDepartment.createTeamDefinition({
+    await expect(createAndPublishDefinition(missingDepartment, {
       ...teamDefinition, teamId: 'missing-department', departmentId: 'dept-other-org',
       idempotencyKey: 'missing-department',
     })).rejects.toThrow('native enterprise department dept-other-org was not found')
@@ -1790,9 +1950,9 @@ describe('EnterpriseOperationsRepository team definitions', () => {
   it('queries only visible definitions before applying keyset pagination', async () => {
     let now = 40
     const operations = repository(new MemoryPostgresDatabase(), () => ++now)
-    await operations.createTeamDefinition({ ...teamDefinition, teamId: 'visible-old', visibility: 'organization', allowedUserIds: [], idempotencyKey: 'visible-old' })
-    await operations.createTeamDefinition({ ...teamDefinition, teamId: 'hidden-newer', visibility: 'private', allowedUserIds: [], idempotencyKey: 'hidden-newer' })
-    await operations.createTeamDefinition({ ...teamDefinition, teamId: 'visible-newest', visibility: 'restricted', allowedUserIds: ['viewer-a'], idempotencyKey: 'visible-newest' })
+    await createAndPublishDefinition(operations, { ...teamDefinition, teamId: 'visible-old', visibility: 'organization', allowedUserIds: [], idempotencyKey: 'visible-old' })
+    await createAndPublishDefinition(operations, { ...teamDefinition, teamId: 'hidden-newer', visibility: 'private', allowedUserIds: [], idempotencyKey: 'hidden-newer' })
+    await createAndPublishDefinition(operations, { ...teamDefinition, teamId: 'visible-newest', visibility: 'restricted', allowedUserIds: ['viewer-a'], idempotencyKey: 'visible-newest' })
     const scope = { userId: 'viewer-a', isAdministrator: false }
     const first = await operations.listTeamDefinitions({ orgId: 'org-a', readScope: scope, limit: 1 })
     expect(first.items.map(item => item.teamId)).toEqual(['visible-newest'])
@@ -1811,7 +1971,7 @@ describe('EnterpriseOperationsRepository team definitions', () => {
       teamId: 'settle-team', orgId: 'org-a', leaderEmployeeReleaseId: 'release-a', members: [],
       workflowTemplate: {}, approvalPolicy: {}, expectedRevision: 0, idempotencyKey: 'settle-team',
     })
-    await operations.saveTeamDefinition({
+    await saveAndPublishDefinition(operations, {
       ...teamDefinition, teamId: 'settle-team', departmentId: undefined, visibility: 'organization', allowedUserIds: [],
       expectedRevision: 1, idempotencyKey: 'settle-team-active',
     })
@@ -1838,7 +1998,7 @@ describe('EnterpriseOperationsRepository team definitions', () => {
         teamId, orgId: 'org-a', leaderEmployeeReleaseId: 'release-a', members: [],
         workflowTemplate: {}, approvalPolicy: {}, expectedRevision: 0, idempotencyKey: `${teamId}-fixed`,
       })
-      await operations.saveTeamDefinition({
+      await saveAndPublishDefinition(operations, {
         ...teamDefinition, teamId, departmentId: undefined, visibility: 'organization', allowedUserIds: [], roster,
         expectedRevision: 1, idempotencyKey: `${teamId}-active`,
       })
@@ -1881,7 +2041,7 @@ describe('EnterpriseOperationsRepository team definitions', () => {
     await expect(operations.upsertWorkRecord({
       ...work, sessionId: 'session-reopen-charter', teamId: 'reopen-charter',
       businessState: 'active', expectedRevision: charterFailed.revision, idempotencyKey: 'reopen-charter-active',
-    })).rejects.toMatchObject({ code: 'invalid-state', resourceType: 'team-definition' })
+    })).resolves.toMatchObject({ businessState: 'active' })
 
     const rosterWithWorker = [
       ...teamDefinition.roster,
@@ -1889,7 +2049,7 @@ describe('EnterpriseOperationsRepository team definitions', () => {
     ]
     await createActiveTeam('reopen-removed', rosterWithWorker)
     const removedFailed = await createAndFail('reopen-removed', 'release-b')
-    await operations.saveTeamDefinition({
+    await saveAndPublishDefinition(operations, {
       ...teamDefinition, teamId: 'reopen-removed', departmentId: undefined,
       visibility: 'organization', allowedUserIds: [], name: 'Worker removed',
       expectedRevision: 2, idempotencyKey: 'reopen-removed-definition',
@@ -1908,7 +2068,7 @@ describe('EnterpriseOperationsRepository team definitions', () => {
       teamId: 'admission-team', orgId: 'org-a', leaderEmployeeReleaseId: 'release-a', members: [],
       workflowTemplate: {}, approvalPolicy: {}, expectedRevision: 0, idempotencyKey: 'admission-team',
     })
-    await operations.saveTeamDefinition({
+    await saveAndPublishDefinition(operations, {
       ...teamDefinition, teamId: 'admission-team', departmentId: undefined,
       visibility: 'organization', allowedUserIds: [], expectedRevision: 1, idempotencyKey: 'admission-active',
     })
@@ -1938,7 +2098,7 @@ describe('EnterpriseOperationsRepository team definitions', () => {
       ...teamDefinition, teamId: 'admission-team', departmentId: undefined,
       visibility: 'organization', allowedUserIds: [], name: 'Blocked edit', expectedRevision: 2,
       idempotencyKey: 'admission-save-live',
-    })).rejects.toMatchObject({ code: 'conflict', resourceType: 'team-definition' })
+    })).resolves.toMatchObject({ state: 'draft', revision: 3 })
     await expect(operations.archiveTeamDefinition({
       orgId: 'org-a', teamId: 'admission-team', expectedRevision: 2, idempotencyKey: 'admission-archive-live',
     })).rejects.toMatchObject({ code: 'conflict', resourceType: 'team-definition' })
@@ -1956,7 +2116,7 @@ describe('EnterpriseOperationsRepository team definitions', () => {
       teamId: 'pending-team', orgId: 'org-a', leaderEmployeeReleaseId: 'release-a', members: [],
       workflowTemplate: {}, approvalPolicy: {}, expectedRevision: 0, idempotencyKey: 'pending-team',
     })
-    await operations.saveTeamDefinition({
+    await saveAndPublishDefinition(operations, {
       ...teamDefinition, teamId: 'pending-team', departmentId: undefined,
       visibility: 'organization', allowedUserIds: [], expectedRevision: 1, idempotencyKey: 'pending-active',
     })
@@ -1998,7 +2158,7 @@ describe('EnterpriseOperationsRepository team definitions', () => {
       teamId: 'reclaim-team', orgId: 'org-a', leaderEmployeeReleaseId: 'release-a', members: [],
       workflowTemplate: {}, approvalPolicy: {}, expectedRevision: 0, idempotencyKey: 'reclaim-team',
     })
-    await operations.saveTeamDefinition({
+    await saveAndPublishDefinition(operations, {
       ...teamDefinition, teamId: 'reclaim-team', departmentId: undefined,
       visibility: 'organization', allowedUserIds: [], expectedRevision: 1, idempotencyKey: 'reclaim-active',
     })
@@ -2052,14 +2212,14 @@ describe('EnterpriseOperationsRepository team definitions', () => {
       ...teamDefinition, teamId: 'stale-command-team', departmentId: undefined,
       visibility: 'organization' as const, allowedUserIds: [],
     }
-    await operations.saveTeamDefinition({
+    await saveAndPublishDefinition(operations, {
       ...activeInput, expectedRevision: 1, idempotencyKey: 'stale-command-active',
     })
     database.seedOutbox({
       commandId: 'stale-command', orgId: 'org-a', teamId: 'stale-command-team', state: 'processing',
       workerId: 'worker-a', leaseExpiresAt: 200, teamDefinitionRevision: 2,
     })
-    await operations.saveTeamDefinition({
+    await saveAndPublishDefinition(operations, {
       ...activeInput, name: 'Changed charter', expectedRevision: 2, idempotencyKey: 'stale-command-change',
     })
     await expect(operations.admitOutboxStart({
@@ -2101,25 +2261,28 @@ describe('EnterpriseOperationsRepository team definitions', () => {
       workerId: 'worker-a', leaseExpiresAt: 200,
     })
     await migrateEnterpriseOperations(database)
-    expect(database.schemaVersion).toBe('15')
+    expect(database.schemaVersion).toBe('16')
     expect(database.outboxState('legacy-null-revision')).toBe('dead-letter')
   })
 
-  it('serializes the globally unique team identity across organizations', async () => {
+  it('allows organization-scoped drafts but serializes their legacy fixed-team projection across organizations', async () => {
     const operations = new EnterpriseOperationsRepository(new MemoryPostgresDatabase(), {
       allowUnverifiedReferences: true,
       cursorSigningKey: Buffer.from('operations-cursor-signing-key-32b!'),
     })
     const input = {
-      ...teamDefinition, teamId: 'global-team', state: 'needs-charter' as const,
-      name: '', northStar: '', verificationPolicy: {}, attentionPolicy: {}, expectedRevision: 0,
+      ...teamDefinition, teamId: 'global-team', expectedRevision: 0,
     }
     const settled = await Promise.allSettled([
       operations.createTeamDefinition({ ...input, orgId: 'org-a', idempotencyKey: 'global-a' }),
       operations.createTeamDefinition({ ...input, orgId: 'org-b', idempotencyKey: 'global-b' }),
     ])
-    expect(settled.filter(result => result.status === 'fulfilled')).toHaveLength(1)
-    const rejected = settled.find(result => result.status === 'rejected')
+    expect(settled.filter(result => result.status === 'fulfilled')).toHaveLength(2)
+    const published = await Promise.allSettled(['org-a', 'org-b'].map(orgId =>
+      operations.publishTeamDefinitionDraft({ orgId, teamId: input.teamId, expectedRevision: 1, idempotencyKey: `${orgId}-publish` }),
+    ))
+    expect(published.filter(result => result.status === 'fulfilled')).toHaveLength(1)
+    const rejected = published.find(result => result.status === 'rejected')
     expect(rejected?.status === 'rejected' ? rejected.reason : undefined)
       .toMatchObject({ code: 'conflict', resourceType: 'team-definition' })
   })

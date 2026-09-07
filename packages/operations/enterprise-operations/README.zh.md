@@ -28,7 +28,7 @@ kind: "package-reference"
 - 员工和固定团队调度每次 occurrence 只创建一条幂等的启动 Session Outbox 命令；即使重试使用另一个请求幂等键，也会返回原命令。
 - 固定团队绑定负责人、成员、Workflow 模板和审批策略。
 - 固定团队与定义写入共用同一个全局 team-id advisory lock。旧 save 会同步 `needs-charter` 定义的 leader 和 Agent 名册。进入 active 后，兼容判定只比较 request 与已持久 FixedTeam 的 leader、members 和 approval policy；typed role ID 与 formal definition policy 不反向投影到旧记录。Active 定义允许精确 no-op 和仅 Workflow 更新，archived 定义只允许精确 no-op。
-- 团队定义增加类型化的人类与 Agent 名册、角色职责、验证策略、集中决策队列、可见性、所有权和章程生命周期，但不存储 TeamRun 状态。
+- 团队定义保存不可变章程修订：每次草稿保存都会归档前一份草稿并追加新的 `draft` 修订；发布会原子归档原 active 修订并刷新 active 兼容投影；丢弃只归档选定草稿。TeamRun 保留其启动时固定的修订，绝不把后续草稿读成历史。
 - `EnterpriseTeamControlService` 通过注入的 `EnterpriseTeamRuntimeDriver` 启动和取消以 runtime 为权威的 TeamRun。PostgreSQL 仅存储带 revision fence 的 TeamRun 和 TeamDecision 查询投影；driver 将权威事件追加到 root Session log，并用同一稳定 operation identity 对未知结果做 reconcile。
 - Browser 启动请求只包含 team revision fence、Workspace、prompt、source 和幂等键。Host principal 注入组织与创建人，固定定义 revision 和 roster snapshot，检查当前可见性与 Workspace 授权，并写审计。
 - TeamDecision 只能由 Host runtime ingest 创建。仅被指派人类、团队 owner 或管理员可响应；driver 先追加答案，PostgreSQL 再投影 `answered`。自主权授权仅允许团队 owner 或管理员保存和撤销。
@@ -41,7 +41,7 @@ kind: "package-reference"
 - Cursor v2 使用不可变的 `created_at` 和稳定 ID 进行 seek；`updatedAt` 仅作展示元数据。因此，分页之间更新记录不会把它移到 cursor 前方并导致遗漏。
 - 工作记录可按业务状态、来源和固定团队过滤；审批可按类型、状态和申请人过滤；调度可按状态过滤。
 - 固定团队和调度支持 compare-and-swap 更新。团队更新会在校验所有发布版的组织归属后整体替换成员集合。已归档调度为终态，不可编辑或恢复。
-- 团队定义写入使用 compare-and-swap revision 和绑定请求的幂等键。只有 archive 操作可进入 `archived`；之后的所有 save 都被拒绝，而完全相同的 archive 重试返回已记录的幂等结果。
+- 团队定义写入使用 compare-and-swap revision 和绑定请求的幂等键。只有 draft 生命周期可编辑；发布和丢弃必须指定准确的草稿修订，archive 会原子封存所有 active 或 draft 修订以及 active 兼容投影。已启动的 active TeamRun 独立于之后的所有章程操作。
 - Restricted allowlist 在校验、摘要和存储前统一 trim、去重并排序。Active save 会在同一组织内解析 owner、所有人类名册成员、所有 allowlist 用户和可选部门。
 - Active save 会将 Definition leader、非 leader Agent 名册成员及 role ID、approval policy 投影到 FixedTeam，同时保留其 Workflow template。新 team work 只接受当前名册中的 Agent release；调度命令记录 Definition revision，仅当 revision 和 leader 仍匹配时才能 admit。
 - WorkRecord 每次进入 `active` 都复验当前 Definition 与 Agent 名册；已运行工作仍可更新为终态或 waiting。确定性 admission 失败进入 `dead-letter` 且不再被 claim，可重试失败返回正常 claim 路径。迁移会将没有已记录 Definition revision 的旧 team command 转为 dead-letter。

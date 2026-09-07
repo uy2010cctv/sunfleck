@@ -171,10 +171,11 @@ export function classifyApiEndpoint(endpoint: string, input: unknown): ApiClassi
     const resourceId = stringField(payload, 'teamId')
     return { action: endpoint === 'enterpriseTeam.list' || endpoint === 'enterpriseTeam.get' ? 'team.read' : 'team.manage', resourceType: 'fixed-team', ...(resourceId === undefined ? {} : { resourceId }) }
   }
-  if (['enterpriseTeamDefinition.list', 'enterpriseTeamDefinition.get', 'enterpriseTeamDefinition.save',
+  if (['enterpriseTeamDefinition.list', 'enterpriseTeamDefinition.get', 'enterpriseTeamDefinition.getDraft', 'enterpriseTeamDefinition.save',
+    'enterpriseTeamDefinition.draft', 'enterpriseTeamDefinition.publish', 'enterpriseTeamDefinition.discardDraft',
     'enterpriseTeamDefinition.archive'].includes(endpoint)) {
     const resourceId = stringField(payload, 'teamId')
-    const read = endpoint === 'enterpriseTeamDefinition.list' || endpoint === 'enterpriseTeamDefinition.get'
+    const read = endpoint === 'enterpriseTeamDefinition.list' || endpoint === 'enterpriseTeamDefinition.get' || endpoint === 'enterpriseTeamDefinition.getDraft'
     return {
       action: read ? 'team.read' : 'team.manage', resourceType: 'team-definition',
       ...(resourceId === undefined ? {} : { resourceId }),
@@ -242,9 +243,10 @@ export function classifyApiEndpoint(endpoint: string, input: unknown): ApiClassi
     'enterpriseOperation.schedules.list', 'enterpriseOperation.schedules.get', 'enterpriseOperation.schedules.create', 'enterpriseOperation.schedules.save', 'enterpriseOperation.schedules.transition', 'enterpriseOperation.schedules.fire',
     'enterpriseOperation.outbox.claim', 'enterpriseOperation.outbox.complete', 'enterpriseOperation.outbox.fail',
     'enterpriseOperation.teams.list', 'enterpriseOperation.teams.get', 'enterpriseOperation.teams.create', 'enterpriseOperation.teams.save',
-    'enterpriseOperation.teamDefinitions.list', 'enterpriseOperation.teamDefinitions.get',
+    'enterpriseOperation.teamDefinitions.list', 'enterpriseOperation.teamDefinitions.get', 'enterpriseOperation.teamDefinitions.getDraft',
     'enterpriseOperation.teamDefinitions.create', 'enterpriseOperation.teamDefinitions.save',
-    'enterpriseOperation.teamDefinitions.archive'].includes(endpoint)) {
+    'enterpriseOperation.teamDefinitions.draft', 'enterpriseOperation.teamDefinitions.publish',
+    'enterpriseOperation.teamDefinitions.discardDraft', 'enterpriseOperation.teamDefinitions.archive'].includes(endpoint)) {
     const operation = endpoint.slice('enterpriseOperation.'.length)
     if (operation.startsWith('workRecords.') && (operation.endsWith('.get') || operation.endsWith('.list'))) {
       return { action: 'operation.read', resourceType: 'work-record', ...sessionId === undefined ? {} : { resourceId: sessionId } }
@@ -274,7 +276,7 @@ export function classifyApiEndpoint(endpoint: string, input: unknown): ApiClassi
     }
     if (operation.startsWith('teamDefinitions.')) {
       const resourceId = stringField(payload, 'teamId')
-      const read = operation === 'teamDefinitions.get' || operation === 'teamDefinitions.list'
+      const read = operation === 'teamDefinitions.get' || operation === 'teamDefinitions.getDraft' || operation === 'teamDefinitions.list'
       return {
         action: read ? 'team.read' : 'team.manage', resourceType: 'team-definition',
         ...(resourceId === undefined ? {} : { resourceId }),
