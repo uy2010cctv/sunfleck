@@ -48,7 +48,7 @@ kind: "package-reference"
 - 企业实时失效事件不能替代重连后读取权威 Repository。
 - 本包不提供具体 Agent Teams runtime driver、TeamRun UI 或渠道 adapter。
 - 公开的 `EnterpriseWorkPrepareRequest`、`EnterpriseWorkStartRequest`、`EnterpriseWorkPreparation` 和 `EnterpriseWorkStartValue` contract 从包根和 `./types` 导出。
-- `enterpriseWork.prepare` 按显式、调用者拥有的 Session、已授权最近提示、个人工作区的顺序解析已授权工作区；单个已发布 preset 时自动选择其最新 release，多个 preset 时返回 `needs-selection`。`start` 从组织、用户和幂等键派生不透明 SHA-256 Session ID，并使用原生 Session 收养、幂等的企业绑定和持久工作记录幂等性。记录保留选中的 release 和完整请求/release 指纹，因此复用幂等键时变更输入会冲突，而不会悄然复用工作；它只保存目标摘要和可选截止日期，不做模型或能力路由、不创建团队、不接收附件、不分配预算，也不创建自主权授权。
+- `enterpriseWork.prepare` 按显式、调用者拥有的 Session、已授权最近提示、个人工作区的顺序解析已授权工作区。隐式个人工作区仅在恰有一个调用者拥有且仍然已授权、可见的工作区时自动采用；否则返回含已授权可见工作区 ID 的 `needs-workspace-selection`。单个已发布 preset 时自动选择其最新 release，多个 preset 时返回 `needs-selection`。`start` 从组织、用户和幂等键派生不透明 SHA-256 Session ID，并使用原生 Session 收养、幂等的企业绑定和持久工作记录幂等性。记录保留选中的 release 和完整请求/release 指纹，因此复用幂等键时变更输入会冲突，而不会悄然复用工作；它只保存目标摘要和可选截止日期，不做模型或能力路由、不创建团队、不接收附件、不分配预算，也不创建自主权授权。
 
 <a id="dev-note"></a>
 ### 开发备注

@@ -18,7 +18,7 @@ export interface EnterpriseWorkStartDependencies {
   readonly visibleWorkspace: (principal: EnterprisePrincipal, workspaceId: string) => Promise<boolean>
   readonly sessionOwnedBy: (principal: EnterprisePrincipal, sessionId: string) => Promise<boolean>
   readonly sessionWorkspace: (sessionId: string) => Promise<string | undefined>
-  readonly personalWorkspace: (principal: EnterprisePrincipal) => Promise<string>
+  readonly personalWorkspaces: (principal: EnterprisePrincipal) => Promise<readonly string[]>
   readonly releases: (principal: EnterprisePrincipal) => Promise<readonly EnterpriseEmployeeRelease[]>
   readonly createSession: (input: {
     sessionId: string
@@ -41,7 +41,9 @@ export class EnterpriseWorkStartService {
   async prepare(principal: EnterprisePrincipal, request: EnterpriseWorkPrepareRequest): Promise<EnterpriseWorkPreparation> {
     if (request.objective.trim() === '') throw new Error('objective is required')
     if (request.deadline !== undefined && Number.isNaN(Date.parse(request.deadline))) throw new Error('deadline must be ISO date')
-    const workspaceId = await this.workspace(principal, request)
+    const workspace = await this.workspace(principal, request)
+    if (typeof workspace !== 'string') return workspace
+    const workspaceId = workspace
     const releases = await this.deps.releases(principal)
     const preferred = request.preferredEmployeeReleaseId === undefined
       ? undefined
@@ -55,6 +57,7 @@ export class EnterpriseWorkStartService {
   }
   async start(principal: EnterprisePrincipal, request: EnterpriseWorkStartRequest): Promise<EnterpriseWorkStartValue> {
     const prepared = await this.prepare(principal, request)
+    if (prepared.kind === 'needs-workspace-selection') throw new Error('workspace selection is required')
     if (prepared.kind === 'needs-selection') throw new Error('employee selection is required')
     const release = (await this.deps.releases(principal)).find(item => item.releaseId === prepared.employeeReleaseId)
     if (release === undefined) throw new Error('employee release is not visible or published')
@@ -82,7 +85,7 @@ export class EnterpriseWorkStartService {
     })
     return { sessionId: created.sessionId, workspaceId: prepared.workspaceId, employeeReleaseId: prepared.employeeReleaseId, executionSummary: 'Enterprise work Session created with the selected workspace and employee.' }
   }
-  private async workspace(principal: EnterprisePrincipal, request: EnterpriseWorkPrepareRequest): Promise<string> {
+  private async workspace(principal: EnterprisePrincipal, request: EnterpriseWorkPrepareRequest): Promise<string | Extract<EnterpriseWorkPreparation, { kind: 'needs-workspace-selection' }>> {
     const allowed = async (workspaceId: string) => {
       const grant = await this.deps.workspaceGrant(workspaceId)
       return grant?.orgId === principal.orgId && await this.deps.visibleWorkspace(principal, workspaceId)
@@ -96,7 +99,12 @@ export class EnterpriseWorkStartService {
       if (workspaceId !== undefined && await allowed(workspaceId)) return workspaceId
     }
     if (request.recentWorkspaceId !== undefined && await allowed(request.recentWorkspaceId)) return request.recentWorkspaceId
-    return this.deps.personalWorkspace(principal)
+    const workspaces = await this.deps.personalWorkspaces(principal)
+    const authorized = await Promise.all(workspaces.map(async workspaceId => await allowed(workspaceId) ? workspaceId : undefined))
+    const availableWorkspaceIds = authorized.filter((workspaceId): workspaceId is string => workspaceId !== undefined)
+    const [only] = availableWorkspaceIds
+    if (availableWorkspaceIds.length === 1 && only !== undefined) return only
+    return { kind: 'needs-workspace-selection', availableWorkspaceIds }
   }
 }
 
