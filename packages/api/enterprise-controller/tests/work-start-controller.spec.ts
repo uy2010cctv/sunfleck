@@ -255,6 +255,11 @@ describe('enterprise work Remote controller', () => {
     expect(completeWorkStart).toHaveBeenCalledWith(expect.objectContaining({ orgId: 'org-a', idempotencyKey: 'remote-start' }))
     expect(authorizeApiAsync).toHaveBeenCalledWith(principal, 'enterpriseWork.start', expect.objectContaining({ idempotencyKey: 'remote-start' }))
     expect(auditApiAsync).toHaveBeenCalledWith(principal, 'enterpriseWork.start', expect.objectContaining({ idempotencyKey: 'remote-start' }), { allowed: true, reason: 'role' }, expect.any(String))
+    for (const endpoint of ['enterpriseOperation.workStarts.reserve', 'enterpriseOperation.workStarts.complete']) {
+      expect(auditApiAsync).toHaveBeenCalledWith(
+        principal, endpoint, { idempotencyKey: 'remote-start' }, { allowed: true, reason: 'role' }, expect.any(String),
+      )
+    }
   })
   it('audits and rejects an unauthorized start before native Session creation', async () => {
     const requestContext = new EnterpriseRequestContext()
