@@ -234,6 +234,38 @@ function controllerServices() {
 }
 
 describe('EnterpriseWorkbenchController enterprise read models', () => {
+  it('prepares goal-first work without inferring a workspace from list order', async () => {
+    const enterpriseWork = {
+      prepare: vi.fn(() => ok({ kind: 'needs-workspace-selection', availableWorkspaceIds: ['workspace-1'] })), start: vi.fn(),
+    }
+    const services = {
+      sessions: { list: { getSnapshot: () => sessions([]), subscribe: () => () => {} } },
+      workspaces: { list: { getSnapshot: () => workspaces(), subscribe: () => () => {} } },
+    }
+    const controller = new EnterpriseWorkbenchController(
+      controllerApi({ enterpriseWork }) as never, services.sessions as never, services.workspaces as never,
+    )
+
+    await expect(controller.prepareWork({ objective: 'Prepare weekly report' })).resolves.toMatchObject({ kind: 'needs-workspace-selection' })
+    expect(enterpriseWork.prepare).toHaveBeenCalledWith({ objective: 'Prepare weekly report' })
+  })
+
+  it('prepares goal-first work with the actually open native Session', async () => {
+    const enterpriseWork = {
+      prepare: vi.fn(() => ok({ kind: 'needs-workspace-selection', availableWorkspaceIds: [] })), start: vi.fn(),
+    }
+    const services = {
+      sessions: { list: { getSnapshot: () => ({ ...sessions([{ id: 'current-session' }]), current: 'current-session' as SessionId }), subscribe: () => () => {} } },
+      workspaces: { list: { getSnapshot: () => workspaces(), subscribe: () => () => {} } },
+    }
+    const controller = new EnterpriseWorkbenchController(
+      controllerApi({ enterpriseWork }) as never, services.sessions as never, services.workspaces as never,
+    )
+
+    await controller.prepareWork({ objective: 'Prepare weekly report' })
+    expect(enterpriseWork.prepare).toHaveBeenCalledWith({ objective: 'Prepare weekly report', currentSessionId: 'current-session' })
+  })
+
   it('loads and mutates Workspace Cordis projections through typed remotes', async () => {
     const base = controllerApi()
     const binding = {

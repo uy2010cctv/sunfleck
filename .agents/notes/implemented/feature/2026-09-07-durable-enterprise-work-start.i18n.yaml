@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-07-durable-enterprise-work-start.md
-2026-09-07-durable-enterprise-work-start.md: bd69ffecd782bc803bd306d14cc756cf2a09a628
-2026-09-07-durable-enterprise-work-start.zh.md: 4459c0d2cadff88e47c8076def52873962fe77b3
+2026-09-07-durable-enterprise-work-start.md: f4bcc98495940dca37e325aca4794c3d467046b6
+2026-09-07-durable-enterprise-work-start.zh.md: 974da93a767161f1ead643bd41b45a0538a31530
