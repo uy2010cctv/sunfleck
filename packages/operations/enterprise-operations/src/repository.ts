@@ -1552,12 +1552,25 @@ export class EnterpriseOperationsRepository {
         ORDER BY created_at DESC,team_id DESC LIMIT $${String(values.length)}`,
       values,
     )
-    const page = result.rows.slice(0, limit)
+    const drafts = cursor === undefined
+      ? await this.database.query<TeamDefinitionRevisionRow>(
+        `SELECT * FROM dsh_enterprise_team_definition_revisions WHERE org_id=$1
+          AND state IN ('draft','needs-charter') AND ($2::boolean OR owner_user_id=$3)
+          ORDER BY created_at DESC,team_id DESC,revision DESC LIMIT $4`,
+        [input.orgId, input.readScope.isAdministrator, input.readScope.userId, limit],
+      )
+      : { rows: [] as TeamDefinitionRevisionRow[] }
+    const candidates = [
+      ...result.rows.map(row => this.teamDefinition(row)),
+      ...drafts.rows.map(row => this.teamDefinitionRevision(row)),
+    ].sort((left, right) => right.createdAt - left.createdAt || right.revision - left.revision
+      || right.teamId.localeCompare(left.teamId))
+    const page = candidates.slice(0, limit)
     const last = page.at(-1)
     return {
-      items: page.map(row => this.teamDefinition(row)),
-      ...(result.rows.length <= limit || last === undefined ? {} : {
-        nextCursor: encodeCursor(scope, Number(last.created_at), [last.team_id], this.cursorSigningKey),
+      items: page,
+      ...(drafts.rows.length > 0 || result.rows.length <= limit || last === undefined ? {} : {
+        nextCursor: encodeCursor(scope, last.createdAt, [last.teamId], this.cursorSigningKey),
       }),
     }
   }
