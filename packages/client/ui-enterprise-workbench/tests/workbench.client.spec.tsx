@@ -1944,6 +1944,22 @@ describe('EnterpriseWorkbench', () => {
     expect(prepareWork).toHaveBeenLastCalledWith(expect.objectContaining({ preferredEmployeeReleaseId: 'release-buyer' }))
   })
 
+  it('uses a localized human-safe employee label when a release has no profile name', async () => {
+    const release = { releaseId: 'release-internal-42', presetId: 'buyer', orgId: 'org-a', version: 2, digest: 'digest', snapshot: { profile: {}, bindings: [] }, publishedBy: 'user-a', publishedAt: 1 }
+    const prepareWork = vi.fn(() => Promise.resolve({ kind: 'needs-selection', workspaceId: 'workspace-1', availableEmployeeReleaseIds: ['release-internal-42'] }))
+    const { rerender } = render(<EnterpriseWorkbench {...workbenchProps({ prepareWork, state: { mode: 'enterprise', releases: [release] } } as never)} />)
+    fireEvent.change(screen.getByLabelText('工作目标'), { target: { value: '准备采购周报' } })
+    fireEvent.click(screen.getByRole('button', { name: '开始工作' }))
+    await screen.findByRole('button', { name: '数字员工 · 版本 2' })
+    expect(screen.queryByText('release-internal-42')).toBeNull()
+
+    rerender(<EnterpriseWorkbench {...workbenchProps({ t: makeTranslate(en), prepareWork, state: { mode: 'enterprise', releases: [release] } } as never)} />)
+    fireEvent.change(screen.getByLabelText('Work objective'), { target: { value: 'Prepare procurement report' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Start work' }))
+    await screen.findByRole('button', { name: 'Digital employee · version 2' })
+    expect(screen.queryByText('release-internal-42')).toBeNull()
+  })
+
   it('keeps a failed preparation recoverable with retry', async () => {
     const prepareWork = vi.fn().mockRejectedValueOnce(new Error('network unavailable')).mockResolvedValueOnce({ kind: 'needs-workspace-selection', availableWorkspaceIds: [] })
     render(<EnterpriseWorkbench {...workbenchProps({ prepareWork, startPreparedWork: vi.fn(), state: { mode: 'enterprise' } } as never)} />)
@@ -1952,6 +1968,30 @@ describe('EnterpriseWorkbench', () => {
     await screen.findByRole('alert')
     fireEvent.click(screen.getByRole('button', { name: '重试' }))
     await waitFor(() => { expect(prepareWork).toHaveBeenCalledTimes(2) })
+  })
+
+  it('shows localized safe errors for failed preparation and start attempts', async () => {
+    const internalFailure = new Error('{"code":"REQUEST_EXTENSION","releaseId":"release-internal-42","request":{"workspaceId":"workspace-secret"}}')
+    const prepareWork = vi.fn()
+      .mockRejectedValueOnce(internalFailure)
+      .mockResolvedValueOnce({ kind: 'ready', workspaceId: 'workspace-1', employeeReleaseId: 'release-safe' })
+    const startPreparedWork = vi.fn(() => Promise.reject(internalFailure))
+    render(<EnterpriseWorkbench {...workbenchProps({ prepareWork, startPreparedWork, state: { mode: 'enterprise' } } as never)} />)
+    fireEvent.change(screen.getByLabelText('工作目标'), { target: { value: '准备采购周报' } })
+    fireEvent.click(screen.getByRole('button', { name: '开始工作' }))
+    const prepareError = await screen.findByRole('alert')
+    expect(prepareError.textContent).toContain('暂时无法准备这项工作，请重试。')
+    expect(prepareError.textContent).not.toContain('REQUEST_EXTENSION')
+    expect(prepareError.textContent).not.toContain('release-internal-42')
+    expect(prepareError.textContent).not.toContain('workspace-secret')
+
+    fireEvent.click(screen.getByRole('button', { name: '重试' }))
+    const startError = await screen.findByRole('alert')
+    expect(startError.textContent).toContain('暂时无法开始这项工作，请重试。')
+    expect(startError.textContent).not.toContain('REQUEST_EXTENSION')
+    expect(startError.textContent).not.toContain('release-internal-42')
+    expect(startError.textContent).not.toContain('workspace-secret')
+    expect(screen.getByRole('button', { name: '重试' })).toBeDefined()
   })
 
   it('closes on Escape and exposes loading, empty, and error recovery states', () => {
