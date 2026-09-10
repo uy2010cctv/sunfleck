@@ -217,6 +217,7 @@
     { "path": "./packages/settings/settings" },
     { "path": "./packages/settings/settings-file" },
     { "path": "./packages/credentials/credentials" },
+    { "path": "./packages/credentials/credentials-encrypted" },
     { "path": "./packages/credentials/credentials-local" },
     { "path": "./packages/credentials/authorization" },
     { "path": "./packages/session-query/tool-session-query" },

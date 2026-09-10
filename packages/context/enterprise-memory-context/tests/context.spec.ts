@@ -41,7 +41,7 @@ describe('enterprise memory prompt context', () => {
       })
     }
     const ctx = new Context()
-    await ctx.plugin(SystemPrompt, { includeHarnessIdentity: false, includeRuntimeContext: true, persona: '' })
+    await ctx.plugin(SystemPrompt, { includeHarnessIdentity: false, includeRuntimeContext: true })
     ctx.provide('enterprisePostgres' as never, { identity } as never)
     apply(ctx, { maxEntries: 20, maxChars: 8_000 })
     const assembly = await ctx.systemPrompt.assemble({

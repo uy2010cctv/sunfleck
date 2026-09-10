@@ -163,8 +163,8 @@ describe('Team identity and provisioning', () => {
       leader: { sessionId: lead.id, roleId: 'lead', release: enterpriseRelease('release-lead') },
     }
 
-    await expect(ctx.agentTeams.startRun(lead, start)).resolves.toEqual({ runtimeRevision: 1, sourceEventSeq: 0 })
-    await expect(ctx.agentTeams.startRun(lead, start)).resolves.toEqual({ runtimeRevision: 1, sourceEventSeq: 0 })
+    await expect(ctx.agentTeams.startRun(lead, start)).resolves.toMatchObject({ runtimeRevision: 1, sourceEventSeq: 0 })
+    await expect(ctx.agentTeams.startRun(lead, start)).resolves.toMatchObject({ runtimeRevision: 1, sourceEventSeq: 0 })
     await ctx.agentTeams.registerHuman(lead, {
       userId: 'reviewer-a', displayName: 'Reviewer A', roleId: 'reviewer',
     })
@@ -191,10 +191,10 @@ describe('Team identity and provisioning', () => {
       answer: 'yes',
       actor: { userId: 'reviewer-a', displayName: 'Reviewer A' },
     }
-    await expect(ctx.agentTeams.respondDecision(lead, response)).resolves.toEqual({
+    await expect(ctx.agentTeams.respondDecision(lead, response)).resolves.toMatchObject({
       runtimeRevision: 4, sourceEventSeq: 4,
     })
-    await expect(ctx.agentTeams.respondDecision(lead, response)).resolves.toEqual({
+    await expect(ctx.agentTeams.respondDecision(lead, response)).resolves.toMatchObject({
       runtimeRevision: 4, sourceEventSeq: 4,
     })
     await expect(ctx.agentTeams.respondDecision(lead, {

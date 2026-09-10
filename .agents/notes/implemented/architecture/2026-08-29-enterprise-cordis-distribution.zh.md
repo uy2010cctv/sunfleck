@@ -1,8 +1,8 @@
-# Agent Note：企业 Cordis 发行与用户扩展
+# Agent Note: 企业 Cordis 发行与用户扩展
 
-状态：已实施
+Status: implemented
 
-[英文](2026-08-29-enterprise-cordis-distribution.md) | 中文
+[English](2026-08-29-enterprise-cordis-distribution.md) | 中文
 
 ## 问题
 

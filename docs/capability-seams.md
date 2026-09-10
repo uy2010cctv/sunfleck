@@ -224,10 +224,49 @@ flowchart LR
   pkg_cordis_host_runner["cordis-host-runner"]
   svc_dynamicCordisRunner["ctx.dynamicCordisRunner<br/>Dynamic Cordis package host runner"]
   svc_cordisInspect["ctx.cordisInspect<br/>Dynamic Cordis inspect registry"]
+  pkg_enterprise_postgres["enterprise-postgres"]
+  svc_enterprisePostgres["ctx.enterprisePostgres<br/>Enterprise PostgreSQL composition"]
+  pkg_api_enterprise_controller["api-enterprise-controller"]
+  pkg_enterprise_cordis_runtime["enterprise-cordis-runtime"]
+  pkg_enterprise_auth_web["enterprise-auth-web"]
+  svc_enterpriseRequestContext["ctx.enterpriseRequestContext<br/>Enterprise request principal context"]
+  svc_enterpriseSecurity["ctx.enterpriseSecurity<br/>Enterprise authorization service"]
+  svc_enterpriseEmployeeController["ctx.enterpriseEmployeeController<br/>Enterprise employee controller"]
+  pkg_client_ui_enterprise_workbench["client-ui-enterprise-workbench"]
+  svc_enterpriseAssetController["ctx.enterpriseAssetController<br/>Enterprise capability asset controller"]
+  svc_enterpriseChannelBotInstaller["ctx.enterpriseChannelBotInstaller<br/>Enterprise channel Bot installer"]
+  svc_enterpriseChannelController["ctx.enterpriseChannelController<br/>Enterprise channel controller"]
+  svc_enterpriseTeamController["ctx.enterpriseTeamController<br/>Enterprise fixed-team controller"]
+  svc_enterpriseTeamDefinitionController["ctx.enterpriseTeamDefinitionController<br/>Enterprise team charter controller"]
+  svc_enterpriseTeamRunController["ctx.enterpriseTeamRunController<br/>Enterprise TeamRun controller"]
+  svc_enterpriseTeamDecisionController["ctx.enterpriseTeamDecisionController<br/>Enterprise team decision controller"]
+  svc_enterpriseTeamAutonomyController["ctx.enterpriseTeamAutonomyController<br/>Enterprise autonomy controller"]
+  svc_enterpriseOperationController["ctx.enterpriseOperationController<br/>Enterprise operations controller"]
+  svc_enterpriseWorkController["ctx.enterpriseWorkController<br/>Enterprise goal-first work controller"]
+  pkg_enterprise_cordis["enterprise-cordis"]
+  svc_enterpriseCordis["ctx.enterpriseCordis<br/>Enterprise Cordis governance"]
+  svc_cordisWorkspaceController["ctx.cordisWorkspaceController<br/>Enterprise Cordis workspace controller"]
+  pkg_client_ui_enterprise_governance["client-ui-enterprise-governance"]
+  svc_cordisReviewController["ctx.cordisReviewController<br/>Enterprise Cordis review controller"]
+  svc_cordisGovernanceController["ctx.cordisGovernanceController<br/>Enterprise Cordis governance controller"]
   pkg_agent --> svc_agents
   pkg_agent_default_model --> svc_agentDefaultModel
   pkg_agent_loop --> svc_agentLoop
   pkg_agent_presets --> svc_agentPresets
+  pkg_api_enterprise_controller --> svc_cordisGovernanceController
+  pkg_api_enterprise_controller --> svc_cordisReviewController
+  pkg_api_enterprise_controller --> svc_cordisWorkspaceController
+  pkg_api_enterprise_controller --> svc_enterpriseAssetController
+  pkg_api_enterprise_controller --> svc_enterpriseChannelBotInstaller
+  pkg_api_enterprise_controller --> svc_enterpriseChannelController
+  pkg_api_enterprise_controller --> svc_enterpriseEmployeeController
+  pkg_api_enterprise_controller --> svc_enterpriseOperationController
+  pkg_api_enterprise_controller --> svc_enterpriseTeamAutonomyController
+  pkg_api_enterprise_controller --> svc_enterpriseTeamController
+  pkg_api_enterprise_controller --> svc_enterpriseTeamDecisionController
+  pkg_api_enterprise_controller --> svc_enterpriseTeamDefinitionController
+  pkg_api_enterprise_controller --> svc_enterpriseTeamRunController
+  pkg_api_enterprise_controller --> svc_enterpriseWorkController
   pkg_api_gateway --> svc_typertGateway
   pkg_api_session_controller --> svc_sessionController
   pkg_api_session_controller --> svc_sessionFileReferences
@@ -257,6 +296,10 @@ flowchart LR
   pkg_credentials_local --> svc_credentials
   pkg_deepseek_llm_api_extensions --> svc_deepseekLlmApiExtensions
   pkg_e2b --> svc_e2b
+  pkg_enterprise_auth_web --> svc_enterpriseRequestContext
+  pkg_enterprise_auth_web --> svc_enterpriseSecurity
+  pkg_enterprise_cordis --> svc_enterpriseCordis
+  pkg_enterprise_postgres --> svc_enterprisePostgres
   pkg_experimental_agent_team --> svc_agentTeams
   pkg_experimental_code_runtime_python --> svc_codeRuntime
   pkg_file_reference --> svc_fileReferences
@@ -363,7 +406,10 @@ flowchart LR
   svc_clientModules --> pkg_client_hmr
   svc_codeRuntime --> pkg_tools
   svc_compaction --> pkg_compaction_basic
+  svc_cordisGovernanceController --> pkg_client_ui_enterprise_governance
   svc_cordisInspect --> pkg_tool_cordis
+  svc_cordisReviewController --> pkg_client_ui_enterprise_governance
+  svc_cordisWorkspaceController --> pkg_client_ui_enterprise_governance
   svc_credentials --> pkg_api_settings_controller
   svc_credentials --> pkg_llm_deepseek
   svc_credentials --> pkg_llm_pi_ai
@@ -372,6 +418,25 @@ flowchart LR
   svc_dynamicCordisRunner --> pkg_tool_cordis
   svc_e2b --> pkg_fs_e2b
   svc_e2b --> pkg_subprocess_e2b
+  svc_enterpriseAssetController --> pkg_client_ui_enterprise_workbench
+  svc_enterpriseChannelBotInstaller --> pkg_api_enterprise_controller
+  svc_enterpriseChannelController --> pkg_client_ui_enterprise_workbench
+  svc_enterpriseCordis --> pkg_api_enterprise_controller
+  svc_enterpriseCordis --> pkg_enterprise_cordis_runtime
+  svc_enterpriseEmployeeController --> pkg_client_ui_enterprise_workbench
+  svc_enterpriseOperationController --> pkg_client_ui_enterprise_workbench
+  svc_enterprisePostgres --> pkg_api_enterprise_controller
+  svc_enterprisePostgres --> pkg_enterprise_cordis_runtime
+  svc_enterpriseRequestContext --> pkg_api_enterprise_controller
+  svc_enterpriseRequestContext --> pkg_api_gateway
+  svc_enterpriseSecurity --> pkg_api_enterprise_controller
+  svc_enterpriseSecurity --> pkg_api_gateway
+  svc_enterpriseTeamAutonomyController --> pkg_client_ui_enterprise_workbench
+  svc_enterpriseTeamController --> pkg_client_ui_enterprise_workbench
+  svc_enterpriseTeamDecisionController --> pkg_client_ui_enterprise_workbench
+  svc_enterpriseTeamDefinitionController --> pkg_client_ui_enterprise_workbench
+  svc_enterpriseTeamRunController --> pkg_client_ui_enterprise_workbench
+  svc_enterpriseWorkController --> pkg_client_ui_enterprise_workbench
   svc_fileReferences --> pkg_api_session_controller
   svc_fileUploads --> pkg_api_session_controller
   svc_fs --> pkg_tool_fs
@@ -546,5 +611,23 @@ flowchart LR
 | `ctx.lsp` | `seam` | [`lsp`](../packages/lsp/lsp) | [`lsp-stdio`](../packages/lsp/lsp-stdio) | [`tool-lsp`](../packages/lsp/tool-lsp) | - | Provider registration and selection plus normalized query execution over exactly four operations; the seam offers no protocol escape hatch, so a backend translates into the normalized request and result. |
 | `ctx.dynamicCordisRunner` | `core` | [`cordis-host-runner`](../packages/extensions/cordis-host-runner) | - | [`tool-cordis`](../packages/extensions/tool-cordis) | - | Owns the in-memory definition registry, the vm sandbox for host halves, and the request-run round trip; browser pages reach the same service over the wire through its remote namespace. |
 | `ctx.cordisInspect` | `core` | [`cordis-host-runner`](../packages/extensions/cordis-host-runner) | - | [`tool-cordis`](../packages/extensions/tool-cordis) | - | Registers host inspect providers, mirrors the client provider manifest, and routes client queries through the dynamic Cordis transport. |
+| `ctx.enterprisePostgres` | `core` | [`enterprise-postgres`](../packages/enterprise/enterprise-postgres) | - | [`api-enterprise-controller`](../packages/api/enterprise-controller), [`enterprise-cordis-runtime`](../packages/enterprise/enterprise-cordis-runtime) | - | Owns the enterprise PostgreSQL connection and migrations used by governed identity, operations, and knowledge projections. |
+| `ctx.enterpriseRequestContext` | `core` | [`enterprise-auth-web`](../packages/identity/enterprise-auth-web) | - | [`api-enterprise-controller`](../packages/api/enterprise-controller), [`api-gateway`](../packages/api/gateway) | - | Carries the authenticated enterprise principal through one Host request without placing identity in browser payloads. |
+| `ctx.enterpriseSecurity` | `core` | [`enterprise-auth-web`](../packages/identity/enterprise-auth-web) | - | [`api-gateway`](../packages/api/gateway), [`api-enterprise-controller`](../packages/api/enterprise-controller) | - | Authenticates browser sessions, evaluates resource policy, and records attributable authorization decisions. |
+| `ctx.enterpriseEmployeeController` | `core` | [`api-enterprise-controller`](../packages/api/enterprise-controller) | - | [`client-ui-enterprise-workbench`](../packages/client/ui-enterprise-workbench) | - | Publishes immutable employee releases and exposes governed employee authoring over authenticated Remote methods. |
+| `ctx.enterpriseAssetController` | `core` | [`api-enterprise-controller`](../packages/api/enterprise-controller) | - | [`client-ui-enterprise-workbench`](../packages/client/ui-enterprise-workbench) | - | Owns versioned enterprise capability asset reads and writes. |
+| `ctx.enterpriseChannelBotInstaller` | `core` | [`api-enterprise-controller`](../packages/api/enterprise-controller) | - | [`api-enterprise-controller`](../packages/api/enterprise-controller) | - | Performs Host-only provider Bot installation and keeps provider credentials outside browser state. |
+| `ctx.enterpriseChannelController` | `core` | [`api-enterprise-controller`](../packages/api/enterprise-controller) | - | [`client-ui-enterprise-workbench`](../packages/client/ui-enterprise-workbench) | - | Persists governed channel routing and binding evidence without treating setup as delivery proof. |
+| `ctx.enterpriseTeamController` | `core` | [`api-enterprise-controller`](../packages/api/enterprise-controller) | - | [`client-ui-enterprise-workbench`](../packages/client/ui-enterprise-workbench) | - | Maintains legacy fixed-team compatibility records. |
+| `ctx.enterpriseTeamDefinitionController` | `core` | [`api-enterprise-controller`](../packages/api/enterprise-controller) | - | [`client-ui-enterprise-workbench`](../packages/client/ui-enterprise-workbench) | - | Owns immutable charter drafts, publication, and archive operations. |
+| `ctx.enterpriseTeamRunController` | `core` | [`api-enterprise-controller`](../packages/api/enterprise-controller) | - | [`client-ui-enterprise-workbench`](../packages/client/ui-enterprise-workbench) | - | Starts and queries Session-authoritative TeamRuns through the governed runtime driver. |
+| `ctx.enterpriseTeamDecisionController` | `core` | [`api-enterprise-controller`](../packages/api/enterprise-controller) | - | [`client-ui-enterprise-workbench`](../packages/client/ui-enterprise-workbench) | - | Exposes the attributed Human decision queue for TeamRuns. |
+| `ctx.enterpriseTeamAutonomyController` | `core` | [`api-enterprise-controller`](../packages/api/enterprise-controller) | - | [`client-ui-enterprise-workbench`](../packages/client/ui-enterprise-workbench) | - | Stores explicit scoped autonomy grants and terminal revocations. |
+| `ctx.enterpriseOperationController` | `core` | [`api-enterprise-controller`](../packages/api/enterprise-controller) | - | [`client-ui-enterprise-workbench`](../packages/client/ui-enterprise-workbench) | - | Provides governed work records, approvals, schedules, and operational projections. |
+| `ctx.enterpriseWorkController` | `core` | [`api-enterprise-controller`](../packages/api/enterprise-controller) | - | [`client-ui-enterprise-workbench`](../packages/client/ui-enterprise-workbench) | - | Prepares and starts idempotent work after Host-side workspace and release resolution. |
+| `ctx.enterpriseCordis` | `core` | [`enterprise-cordis`](../packages/enterprise/enterprise-cordis) | - | [`enterprise-cordis-runtime`](../packages/enterprise/enterprise-cordis-runtime), [`api-enterprise-controller`](../packages/api/enterprise-controller) | - | Owns scoped enterprise Cordis package versions, reviews, activation, and audit projections. |
+| `ctx.cordisWorkspaceController` | `core` | [`api-enterprise-controller`](../packages/api/enterprise-controller) | - | [`client-ui-enterprise-governance`](../packages/client/ui-enterprise-governance) | - | Exposes personal Workspace Cordis package operations. |
+| `ctx.cordisReviewController` | `core` | [`api-enterprise-controller`](../packages/api/enterprise-controller) | - | [`client-ui-enterprise-governance`](../packages/client/ui-enterprise-governance) | - | Exposes department and organization Cordis review operations. |
+| `ctx.cordisGovernanceController` | `core` | [`api-enterprise-controller`](../packages/api/enterprise-controller) | - | [`client-ui-enterprise-governance`](../packages/client/ui-enterprise-governance) | - | Exposes administrator Cordis trust and manager governance operations. |
 
 Maintenance mode: hybrid: services are discovered from Cordis declarations; interface/implementation/consumer roles are classified in `scripts/gen-doc-graphs.ts` with a completeness guard.

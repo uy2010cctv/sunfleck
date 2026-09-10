@@ -15,7 +15,7 @@ import * as runtime from '../src/index.ts'
 
 function agent(id = 'session-1', cwd = '/managed/personal'): Agent {
   const sessionId = SessionId(id)
-  const session = Session.create(sessionId, [], { version: 0, id: sessionId, createdAt: 1, cwd })
+  const session = Session.create(sessionId, [], { version: 3, id: sessionId, createdAt: 1, cwd, isSeeded: false })
   return { id: sessionId, session, steer() {}, inject() {} } as unknown as Agent
 }
 

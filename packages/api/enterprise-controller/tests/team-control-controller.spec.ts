@@ -1,6 +1,6 @@
 import { Context } from '@deepseek-ai/cordis'
 import { EnterpriseRequestContext } from '@deepseek-ai/dsh-enterprise-auth-web'
-import { TypertRemoteFailure } from '@deepseek-ai/dsh-typert-protocol'
+import { RemoteError } from '@deepseek-ai/dsh-typert-protocol'
 import { describe, expect, it, vi } from 'vitest'
 import {
   EnterpriseTeamAutonomyController,
@@ -121,8 +121,8 @@ describe('enterprise team-control Remote namespaces', () => {
       teamId: 'team-a', expectedTeamRevision: 4, workspaceId: 'workspace-a', prompt: 'Close.',
       source: 'console', idempotencyKey: 'denied-a',
     })).catch((error: unknown) => error)
-    expect(failure).toBeInstanceOf(TypertRemoteFailure)
-    expect((failure as TypertRemoteFailure).failure.code).toBe('enterprise-forbidden')
+    expect(failure).toBeInstanceOf(RemoteError)
+    expect((failure as RemoteError).code).toBe('enterprise-forbidden')
     expect(app.teamControl.createTeamRunStarting).not.toHaveBeenCalled()
     expect(app.auditApiResourceAsync).toHaveBeenCalledWith(
       principal, 'enterpriseTeamRun.start', expect.objectContaining({ teamId: 'team-a' }),
@@ -148,8 +148,8 @@ describe('enterprise team-control Remote namespaces', () => {
       }).catch((error: unknown) => error),
     ]))
     for (const failure of failures) {
-      expect(failure).toBeInstanceOf(TypertRemoteFailure)
-      expect((failure as TypertRemoteFailure).failure.code).toBe('enterprise-forbidden')
+      expect(failure).toBeInstanceOf(RemoteError)
+      expect((failure as RemoteError).code).toBe('enterprise-forbidden')
     }
     expect(app.runtime.respondDecision).not.toHaveBeenCalled()
     expect(app.teamControl.saveAutonomyGrant).not.toHaveBeenCalled()
@@ -176,7 +176,7 @@ describe('enterprise team-control Remote namespaces', () => {
       teamId: 'team-a', expectedTeamRevision: 4, workspaceId: 'workspace-denied', prompt: 'Close.',
       source: 'console', idempotencyKey: 'workspace-denied',
     })).catch((error: unknown) => error)
-    expect((failure as TypertRemoteFailure).failure.code).toBe('enterprise-forbidden')
+    expect((failure as RemoteError).code).toBe('enterprise-forbidden')
     expect(app.auditApiResourceAsync).toHaveBeenCalledWith(
       principal, 'enterpriseTeamRun.start', { teamId: 'team-a' },
       { allowed: false, reason: 'workspace-forbidden' }, 'team-run:start:workspace-denied',

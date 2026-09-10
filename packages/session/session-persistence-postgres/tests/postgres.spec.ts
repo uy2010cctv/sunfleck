@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest'
+import { Context } from '@deepseek-ai/cordis'
+import { SESSION_FORMAT_VERSION } from '@deepseek-ai/dsh-session'
 import { PostgresSessionPersistence } from '../src/index.ts'
 import { PostgresSessionStore } from '../src/store.ts'
 import type { PostgresDatabase, PostgresQueryResult } from '../src/types.ts'
@@ -149,6 +151,21 @@ const turnEnd = { type: 'turn/end', seq: 1, time: 2, data: { turn: 1, reason: { 
 describe('PostgresSessionStore', () => {
   it('exposes a SessionPersistence service provider', () => {
     expect(PostgresSessionPersistence.name).toBe('PostgresSessionPersistence')
+  })
+
+  it('provides v0.1.5 write and read handles over durable PostgreSQL events', async () => {
+    const database = new MemoryPostgresDatabase()
+    const persistence = new PostgresSessionPersistence(new Context(), { database })
+    const currentHeader = { ...header, version: SESSION_FORMAT_VERSION }
+
+    const writer = await persistence.create(currentHeader)
+    await writer.append([turnStart])
+    await writer.flush()
+    await writer.close()
+
+    const reader = await persistence.open(currentHeader.id, 'read')
+    expect(await reader.read()).toMatchObject({ events: [turnStart] })
+    await reader.close()
   })
 
   it('creates the durable session schema before the first append', async () => {

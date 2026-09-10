@@ -4,10 +4,7 @@ import { randomUUID } from 'node:crypto'
 import type { SessionEvent, SessionHeader, SessionId } from '@deepseek-ai/dsh-session'
 import {
   SessionPersistenceRevision,
-  type PersistenceBackend,
   type SessionPersistenceSnapshot,
-  type StoredPrefix,
-  type StoredSuffix,
 } from '@deepseek-ai/dsh-session-persistence'
 import { migratePostgresSessionPersistence } from './schema.ts'
 import type { PostgresDatabase, PostgresQueryable } from './types.ts'
@@ -24,8 +21,16 @@ interface EventRow extends Record<string, unknown> {
   readonly event_json: unknown
 }
 
-/** PostgreSQL implementation of the persistence coordinator's durable hooks. */
-export class PostgresSessionStore implements PersistenceBackend<number> {
+/** One validated durable PostgreSQL session prefix. */
+export interface PostgresStoredPrefix {
+  readonly meta: SessionHeader
+  readonly events: readonly SessionEvent[]
+  readonly revision: SessionPersistenceRevision
+  readonly tornMarker?: number
+}
+
+/** PostgreSQL implementation of the persistence service's durable primitives. */
+export class PostgresSessionStore {
   readonly name: string = 'session-persistence-postgres'
   private initialized: Promise<void> | undefined
   private storeIdentity: string | undefined
@@ -61,7 +66,7 @@ export class PostgresSessionStore implements PersistenceBackend<number> {
     return this.initialized
   }
 
-  async loadStored(id: SessionId, signal?: AbortSignal): Promise<StoredPrefix<number> | undefined> {
+  async loadStored(id: SessionId, signal?: AbortSignal): Promise<PostgresStoredPrefix | undefined> {
     await this.observe(signal)
     return this.database.transaction(async (transaction) => {
       await transaction.query('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY')
@@ -94,7 +99,7 @@ export class PostgresSessionStore implements PersistenceBackend<number> {
     return header === undefined ? undefined : this.revision(header)
   }
 
-  async loadStoredFrom(id: SessionId, fromSeq: number, signal?: AbortSignal): Promise<StoredSuffix | undefined> {
+  async loadStoredFrom(id: SessionId, fromSeq: number, signal?: AbortSignal): Promise<{ meta: SessionHeader; events: readonly SessionEvent[] } | undefined> {
     await this.observe(signal)
     return this.database.transaction(async (transaction) => {
       await transaction.query('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY')
@@ -153,6 +158,21 @@ export class PostgresSessionStore implements PersistenceBackend<number> {
          RETURNING id, header_json, incarnation, revision`, [meta.id],
       )
       if (revised.rows.length !== 1) throw new Error(`session ${meta.id} metadata row is missing`)
+    })
+  }
+
+  /** Materialize an empty session and report whether its id was newly claimed. */
+  async createStored(meta: SessionHeader): Promise<boolean> {
+    await this.initialize()
+    return this.database.transaction(async (transaction) => {
+      const inserted = await transaction.query<HeaderRow>(
+        `INSERT INTO dsh_session_headers(id, header_json, incarnation, revision, created_at)
+         VALUES ($1, $2::jsonb, $3::uuid, 0, $4)
+         ON CONFLICT (id) DO NOTHING
+         RETURNING id, header_json, incarnation, revision`,
+        [meta.id, JSON.stringify(meta), randomUUID(), meta.createdAt],
+      )
+      return inserted.rows.length === 1
     })
   }
 

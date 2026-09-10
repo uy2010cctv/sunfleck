@@ -1,7 +1,7 @@
 import { Context } from '@deepseek-ai/cordis'
 import { EnterpriseRequestContext } from '@deepseek-ai/dsh-enterprise-auth-web'
 import { EnterpriseOperationsError } from '@deepseek-ai/dsh-enterprise-operations'
-import { TypertRemoteFailure } from '@deepseek-ai/dsh-typert-protocol'
+import { RemoteError } from '@deepseek-ai/dsh-typert-protocol'
 import { describe, expect, it, vi } from 'vitest'
 import { EnterpriseTeamController, EnterpriseTeamDefinitionController, type EnterpriseTeamDefinition } from '../src/index.ts'
 
@@ -97,8 +97,8 @@ describe('enterprise team-definition Remote controller', () => {
   it('denies team management before invoking the repository and audits the denial', async () => {
     const app = setup(false)
     const failure = await app.requestContext.run(principal, () => app.controller.save(request)).catch(error => error)
-    expect(failure).toBeInstanceOf(TypertRemoteFailure)
-    expect((failure as TypertRemoteFailure).failure).toMatchObject({ code: 'enterprise-forbidden' })
+    expect(failure).toBeInstanceOf(RemoteError)
+    expect(failure).toMatchObject({ code: 'enterprise-forbidden' })
     expect(app.driver.saveTeamDefinitionDraft).not.toHaveBeenCalled()
     expect(app.auditApiAsync).toHaveBeenCalledWith(
       principal, 'enterpriseOperation.teamDefinitions.draft', { teamId: 'team-a' },
@@ -127,8 +127,8 @@ describe('enterprise team-definition Remote controller', () => {
     const failure = await app.requestContext.run(principal, () => app.controller.save({
       ...request, expectedRevision: 1, idempotencyKey: 'stale-a',
     })).catch(error => error)
-    expect(failure).toBeInstanceOf(TypertRemoteFailure)
-    expect((failure as TypertRemoteFailure).failure).toEqual({
+    expect(failure).toBeInstanceOf(RemoteError)
+    expect(failure).toMatchObject({
       code: 'enterprise-conflict', message: 'enterprise operations conflict',
       details: { endpoint: 'enterpriseTeamDefinition.save', resourceType: 'team-definition', resourceId: 'team-a' },
     })
@@ -143,8 +143,8 @@ describe('enterprise team-definition Remote controller', () => {
         .catch(error => error),
     ]))
     for (const failure of failures) {
-      expect(failure).toBeInstanceOf(TypertRemoteFailure)
-      expect((failure as TypertRemoteFailure).failure).toMatchObject({ code: 'enterprise-forbidden' })
+      expect(failure).toBeInstanceOf(RemoteError)
+      expect(failure).toMatchObject({ code: 'enterprise-forbidden' })
     }
     expect(app.driver.listTeamDefinitions).not.toHaveBeenCalled()
     expect(app.driver.getTeamDefinition).not.toHaveBeenCalled()
@@ -155,15 +155,15 @@ describe('enterprise team-definition Remote controller', () => {
     const app = setup(true, { ...saved, ownerUserId: 'other-a', visibility: 'private' })
     const failure = await app.requestContext.run(principal, () => app.controller.get({ teamId: 'team-a' }))
       .catch(error => error)
-    expect(failure).toBeInstanceOf(TypertRemoteFailure)
-    expect((failure as TypertRemoteFailure).failure).toMatchObject({ code: 'enterprise-not-found' })
+    expect(failure).toBeInstanceOf(RemoteError)
+    expect(failure).toMatchObject({ code: 'enterprise-not-found' })
   })
 
   it('fails closed without an authenticated request principal', async () => {
     const app = setup()
     const failure = await app.controller.list({}).catch(error => error)
-    expect(failure).toBeInstanceOf(TypertRemoteFailure)
-    expect((failure as TypertRemoteFailure).failure).toMatchObject({ code: 'enterprise-forbidden' })
+    expect(failure).toBeInstanceOf(RemoteError)
+    expect(failure).toMatchObject({ code: 'enterprise-forbidden' })
     expect(app.driver.listTeamDefinitions).not.toHaveBeenCalled()
   })
 })

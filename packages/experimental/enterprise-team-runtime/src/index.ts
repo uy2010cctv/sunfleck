@@ -15,15 +15,13 @@ import {
   type EnterpriseTeamRuntimeReconciliation,
   type EnterpriseTeamRuntimeStart,
 } from '@deepseek-ai/dsh-enterprise-operations'
-import {
-  foldTeam,
-  type TeamReleaseSnapshot,
-} from '@deepseek-ai/dsh-experimental-agent-team'
+import type { TeamReleaseSnapshot } from '@deepseek-ai/dsh-experimental-agent-team'
+import { teamProjectionDefinition } from '@deepseek-ai/dsh-experimental-agent-team/src/projection.ts'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
-import { SessionId } from '@deepseek-ai/dsh-session'
+import { SessionId, type SessionEvent, type SessionHeader } from '@deepseek-ai/dsh-session'
 import { SessionPersistenceNotFoundError } from '@deepseek-ai/dsh-session-persistence'
 import type {} from '@deepseek-ai/dsh-subagent'
-import { PERSONA_ORDER, PERSONA_SECTION } from '@deepseek-ai/dsh-system-prompt'
+import { PERSONA_PREFIX_SECTION } from '@deepseek-ai/dsh-system-prompt'
 import { WorkspaceId } from '@deepseek-ai/dsh-workspace'
 
 declare module '@deepseek-ai/cordis' {
@@ -50,6 +48,13 @@ interface ResolvedRelease {
   readonly agentOptions: AgentOptions
   readonly persona: string
   readonly presetId: string
+}
+
+/** Fold durable Team events through the public Team projection contract. */
+function projectTeam(header: SessionHeader, events: readonly SessionEvent[]) {
+  let state = teamProjectionDefinition.init(header)
+  for (const event of events) state = teamProjectionDefinition.apply(state, event)
+  return state
 }
 
 function deterministicRootSessionId(runId: string): SessionId {
@@ -110,7 +115,7 @@ export class EnterpriseTeamRuntimeAdapter implements EnterpriseTeamRuntimeDriver
     const rootId = deterministicRootSessionId(input.runId)
     const persisted = await this.inspect(rootId)
     if (persisted !== undefined) {
-      const folded = foldTeam(rootId, persisted.events)
+      const folded = projectTeam(persisted.header, persisted.events)
       if (folded.run?.runId !== input.runId || folded.run.operationId !== input.operationId) {
         this.fail('team-run-identity-conflict')
       }
@@ -186,7 +191,7 @@ export class EnterpriseTeamRuntimeAdapter implements EnterpriseTeamRuntimeDriver
           || memberActor.employeeReleaseId === input.definition.leaderEmployeeReleaseId) continue
         const resolved = releases.get(memberActor.employeeReleaseId)
         if (resolved === undefined) this.fail('agent-release-not-found')
-        const current = foldTeam(root.id, root.session.events)
+        const current = projectTeam(root.session.header, root.session.snapshotEvents())
         const existing = [...current.members.values()].find(member =>
           member.employeeReleaseId === memberActor.employeeReleaseId && member.roleId === rosterMember.roleId)
         if (existing !== undefined) { agentIndex++; continue }
@@ -230,7 +235,7 @@ export class EnterpriseTeamRuntimeAdapter implements EnterpriseTeamRuntimeDriver
             actor: { userId: input.actor.userId, displayName: actorUser.displayName },
             failure: { code: failure },
           }))
-          const children = [...foldTeam(failedRoot.id, failedRoot.session.events).members.keys()]
+          const children = projectTeam(failedRoot.session.header, failedRoot.session.snapshotEvents()).members.map(member => member.id)
           await this.ctx.enterpriseRequestContext.withoutPrincipal(() =>
             this.ctx.subagents.drainContinuableChildren(failedRoot, children))
         } catch {
@@ -251,7 +256,7 @@ export class EnterpriseTeamRuntimeAdapter implements EnterpriseTeamRuntimeDriver
     this.assertOrganization(input.actor, input.run.orgId, input.run.orgId)
     const rootId = this.rootIdFor(input.run.runId, input.run.rootSessionId)
     const root = await this.ctx.enterpriseRequestContext.withoutPrincipal(() => this.resumeFromLog(rootId))
-    const before = foldTeam(root.id, root.session.events)
+    const before = projectTeam(root.session.header, root.session.snapshotEvents())
     const repeated = before.operations.get(input.operationId)
     if (repeated !== undefined) return repeated
     const user = await this.requireUser(input.actor)
@@ -263,7 +268,7 @@ export class EnterpriseTeamRuntimeAdapter implements EnterpriseTeamRuntimeDriver
     this.ctx.enterpriseRequestContext.withoutPrincipal(() => {
       root.cancel({ kind: 'user' }, { keepInbox: true })
     })
-    const children = [...foldTeam(root.id, root.session.events).members.keys()]
+    const children = projectTeam(root.session.header, root.session.snapshotEvents()).members.map(member => member.id)
     for (const childId of children) {
       this.ctx.enterpriseRequestContext.withoutPrincipal(() => {
         this.ctx.subagents.interrupt(childId, { kind: 'user', parentSessionId: root.id })
@@ -286,7 +291,7 @@ export class EnterpriseTeamRuntimeAdapter implements EnterpriseTeamRuntimeDriver
     this.assertOrganization(input.actor, input.decision.orgId, input.decision.orgId)
     const root = await this.ctx.enterpriseRequestContext.withoutPrincipal(() =>
       this.resumeFromLog(deterministicRootSessionId(input.decision.runId)))
-    const before = foldTeam(root.id, root.session.events)
+    const before = projectTeam(root.session.header, root.session.snapshotEvents())
     const repeated = before.operations.get(input.operationId)
     if (repeated !== undefined) return repeated
     const user = await this.requireUser(input.actor)
@@ -313,7 +318,7 @@ export class EnterpriseTeamRuntimeAdapter implements EnterpriseTeamRuntimeDriver
     const rootId = this.rootIdFor(input.run.runId, input.run.rootSessionId)
     const stored = await this.inspect(rootId)
     if (stored === undefined) return { state: 'starting', runtimeRevision: 0 }
-    const state = foldTeam(rootId, stored.events)
+    const state = projectTeam(stored.header, stored.events)
     if (state.run === undefined || state.run.runId !== input.run.runId) {
       throw new EnterpriseTeamRuntimeError('deterministic', 'team-run-log-mismatch')
     }
@@ -383,7 +388,11 @@ export class EnterpriseTeamRuntimeAdapter implements EnterpriseTeamRuntimeDriver
     if (preset.id !== release.presetId) this.fail('employee-preset-mismatch')
     return async (agentCtx: Context): Promise<void> => {
       await this.ctx.agentPresets.mount(agentCtx, release.presetId)
-      agentCtx.systemPrompt.section({ name: PERSONA_SECTION, order: PERSONA_ORDER, text: release.persona })
+      agentCtx.systemPrompt.section({
+        name: PERSONA_PREFIX_SECTION,
+        order: agentCtx.systemPrompt.getSectionOrder('DEPLOYMENT_PERSONA_PREFIX'),
+        text: release.persona,
+      })
     }
   }
 
@@ -402,8 +411,9 @@ export class EnterpriseTeamRuntimeAdapter implements EnterpriseTeamRuntimeDriver
   private async resumeFromLog(rootId: SessionId): Promise<Agent> {
     const live = this.ctx.agents.get(rootId)
     if (live !== undefined) return live
-    const stored = await this.ctx.sessionPersistence.inspect(rootId)
-    const state = foldTeam(rootId, stored.events)
+    const stored = await this.inspect(rootId)
+    if (stored === undefined) this.fail('team-run-not-found')
+    const state = projectTeam(stored.header, stored.events)
     const run = state.run
     if (run === undefined) this.fail('team-run-not-found')
     const release = await this.resolveRelease(run.leader.release.releaseId, run.orgId)
@@ -413,9 +423,15 @@ export class EnterpriseTeamRuntimeAdapter implements EnterpriseTeamRuntimeDriver
 
   private async inspect(rootId: SessionId) {
     const live = this.ctx.sessions.get(rootId)
-    if (live !== undefined) return { meta: live.header, events: live.events }
+    if (live !== undefined) return { header: live.header, events: live.snapshotEvents() }
     try {
-      return await this.ctx.sessionPersistence.inspect(rootId)
+      const handle = await this.ctx.sessionPersistence.open(rootId, 'read')
+      try {
+        const { events } = await handle.read()
+        return { header: handle.header, events }
+      } finally {
+        await handle.close()
+      }
     } catch (error: unknown) {
       if (error instanceof SessionPersistenceNotFoundError) return undefined
       throw error

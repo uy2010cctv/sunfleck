@@ -2,7 +2,7 @@
 import { createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto'
 import { Context } from '@deepseek-ai/cordis'
 import { registerApp as officialRegisterLarkApp } from '@larksuiteoapi/node-sdk'
-import { Remote, TypertRemoteFailure, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
+import { Remote, RemoteError, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 import type { EnterprisePrincipal } from '@deepseek-ai/dsh-enterprise-governance'
 import type {} from '@deepseek-ai/dsh-enterprise-auth-web'
 import type {} from '@deepseek-ai/dsh-enterprise-postgres'
@@ -351,6 +351,7 @@ export async function optimizeEmployeePromptWithLlm(
   return { prompt: optimized }
 }
 
+/** Enterprise employee Draft and Release Remote service. */
 export class EnterpriseEmployeeController extends TypertRemoteService {
   static inject = ['enterprisePostgres', 'enterpriseSecurity', 'enterpriseRequestContext', 'agentPresets', 'llm']
   /** @param ctx - authenticated enterprise Host context. */
@@ -388,7 +389,11 @@ export class EnterpriseEmployeeController extends TypertRemoteService {
     })
   }
 
-  /** Improve one unsaved responsibility prompt through a caller-selected configured model. */
+  /**
+   * Improve one unsaved responsibility prompt through a caller-selected configured model.
+   * @param request - employee prompt and selected model route.
+   * @returns the optimized prompt without saving a Draft.
+   */
   @Remote('optimizePrompt')
   async optimizePrompt(
     request: EnterpriseEmployeeOptimizePromptRequest,
@@ -585,10 +590,20 @@ export interface EnterpriseInstalledChannelBot {
 
 /** Host-only seam implemented by approved WeCom, Feishu, or DingTalk provider-app adapters. */
 export interface EnterpriseChannelBotInstaller {
+  /**
+   * Start the provider authorization flow for one authenticated installation.
+   * @param input - signed pending installation state and provider callback details.
+   * @returns provider authorization URL and expiry matching the pending installation.
+   */
   begin(input: PendingChannelBotInstall & { readonly state: string }): Promise<{
     readonly authorizationUrl: string
     readonly expiresAt: number
   }>
+  /**
+   * Exchange a completed provider authorization for verified Bot metadata.
+   * @param input - signed pending installation state and provider authorization code.
+   * @returns verified Bot metadata and the credential reference to persist.
+   */
   complete(input: PendingChannelBotInstall & {
     readonly state: string
     readonly code: string
@@ -778,6 +793,8 @@ export class EnterpriseChannelController extends TypertRemoteService {
   /**
    * Start installation of a provider-hosted DSH Bot before a channel exists.
    * Self-hosted builds fail visibly until an approved provider app installer is deployed.
+   * @param request - provider and redirect URI for the installation session.
+   * @returns setup instructions or an expiring provider authorization session.
    */
   @Remote('beginBotInstall')
   async beginBotInstall(request: EnterpriseChannelBeginBotInstallRequest): Promise<EnterpriseChannelBotInstallResult> {
@@ -835,7 +852,11 @@ export class EnterpriseChannelController extends TypertRemoteService {
     })
   }
 
-  /** Poll an official Device Authorization Grant and create the channel after provider confirmation. */
+  /**
+   * Poll an official Device Authorization Grant and create the channel after provider confirmation.
+   * @param request - installation identity, idempotency key, and optional verification code.
+   * @returns pending, verification-required, or completed installation state.
+   */
   @Remote('pollBotInstall')
   async pollBotInstall(request: EnterpriseChannelPollBotInstallRequest): Promise<EnterpriseChannelPollBotInstallResult> {
     return catalogCall(this.ctx, 'enterpriseChannel.pollBotInstall', {}, 'channel', 'bot-install', async (actor) => {
@@ -887,7 +908,11 @@ export class EnterpriseChannelController extends TypertRemoteService {
     })
   }
 
-  /** Complete a signed provider-app installation and create the governed channel automatically. */
+  /**
+   * Complete a signed provider-app installation and create the governed channel automatically.
+   * @param request - signed installation callback, authorization code, and idempotency key.
+   * @returns the created secret-free channel configuration.
+   */
   @Remote('completeBotInstall')
   async completeBotInstall(request: EnterpriseChannelCompleteBotInstallRequest): Promise<EnterpriseChannelConfiguration> {
     return catalogCall(this.ctx, 'enterpriseChannel.completeBotInstall', {}, 'channel', 'bot-install', async (actor) => {
@@ -1374,7 +1399,11 @@ export class EnterpriseTeamDefinitionController extends TypertRemoteService {
     })
   }
 
-  /** Read an owner-visible draft without substituting it for the active charter. */
+  /**
+   * Read an owner-visible draft without substituting it for the active charter.
+   * @param request - team identity for the requested draft.
+   * @returns the owner-visible draft revision.
+   */
   @Remote('getDraft')
   async getDraft(request: EnterpriseTeamDefinitionDraftLookup): Promise<EnterpriseTeamDefinitionRevision> {
     return this.run('enterpriseTeamDefinition.getDraft', request.teamId, async () => {
@@ -1397,21 +1426,33 @@ export class EnterpriseTeamDefinitionController extends TypertRemoteService {
       }) as Promise<EnterpriseTeamDefinition>)
   }
 
-  /** Save a draft without changing the active Team Definition used by TeamRuns. */
+  /**
+   * Save a draft without changing the active Team Definition used by TeamRuns.
+   * @param request - team identity, draft payload, and write guards.
+   * @returns the definition containing the saved draft.
+   */
   @Remote('draft')
   async draft(request: EnterpriseTeamDefinitionDraftRequest): Promise<EnterpriseTeamDefinition> {
     return this.run('enterpriseTeamDefinition.draft', request.teamId, () =>
       operations(this.ctx).saveTeamDefinitionDraft(principal(this.ctx), request) as Promise<EnterpriseTeamDefinition>)
   }
 
-  /** Validate and publish the currently selected draft for new TeamRuns. */
+  /**
+   * Validate and publish the currently selected draft for new TeamRuns.
+   * @param request - team identity and expected draft revision.
+   * @returns the definition with its newly active charter.
+   */
   @Remote('publish')
   async publish(request: EnterpriseTeamDefinitionPublishRequest): Promise<EnterpriseTeamDefinition> {
     return this.run('enterpriseTeamDefinition.publish', request.teamId, () =>
       operations(this.ctx).publishTeamDefinitionDraft(principal(this.ctx), request) as Promise<EnterpriseTeamDefinition>)
   }
 
-  /** Discard a draft while retaining both the active definition and historical TeamRuns. */
+  /**
+   * Discard a draft while retaining both the active definition and historical TeamRuns.
+   * @param request - team identity and expected draft revision.
+   * @returns the retained active definition revision.
+   */
   @Remote('discardDraft')
   async discardDraft(request: EnterpriseTeamDefinitionDiscardDraftRequest): Promise<EnterpriseTeamDefinitionRevision> {
     return this.run('enterpriseTeamDefinition.discardDraft', request.teamId, () =>
@@ -1969,7 +2010,7 @@ export class EnterpriseWorkController extends TypertRemoteService {
 
 function enterpriseFailure(
   error: unknown, endpoint: string, resourceType: string, resourceId: string,
-): TypertRemoteFailure {
+): RemoteError {
   let code = 'internal'
   let message = 'enterprise repository operation failed'
   if (error instanceof EnterpriseOperationsAuthorizationError) {
@@ -2005,7 +2046,7 @@ function enterpriseFailure(
   } else if (error instanceof Error && /revision conflict/iu.test(error.message)) {
     code = 'enterprise-conflict'; message = error.message
   }
-  return new TypertRemoteFailure({ code, message, details: { endpoint, resourceType, resourceId } })
+  return new RemoteError(code as never, message, { endpoint, resourceType, resourceId } as never)
 }
 
 /** Install all enterprise Remote namespace owners. */

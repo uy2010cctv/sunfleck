@@ -686,6 +686,96 @@ const SERVICE_ROLES: ServiceRole[] = [
     consumers: ['tool-cordis'],
     note: 'Registers host inspect providers, mirrors the client provider manifest, and routes client queries through the dynamic Cordis transport.',
   },
+  {
+    key: 'enterprisePostgres', pkg: 'enterprise-postgres', title: 'Enterprise PostgreSQL composition', mode: 'core',
+    consumers: ['api-enterprise-controller', 'enterprise-cordis-runtime'],
+    note: 'Owns the enterprise PostgreSQL connection and migrations used by governed identity, operations, and knowledge projections.',
+  },
+  {
+    key: 'enterpriseRequestContext', pkg: 'enterprise-auth-web', title: 'Enterprise request principal context', mode: 'core',
+    consumers: ['api-enterprise-controller', 'api-gateway'],
+    note: 'Carries the authenticated enterprise principal through one Host request without placing identity in browser payloads.',
+  },
+  {
+    key: 'enterpriseSecurity', pkg: 'enterprise-auth-web', title: 'Enterprise authorization service', mode: 'core',
+    consumers: ['api-gateway', 'api-enterprise-controller'],
+    note: 'Authenticates browser sessions, evaluates resource policy, and records attributable authorization decisions.',
+  },
+  {
+    key: 'enterpriseEmployeeController', pkg: 'api-enterprise-controller', title: 'Enterprise employee controller', mode: 'core',
+    consumers: ['client-ui-enterprise-workbench'],
+    note: 'Publishes immutable employee releases and exposes governed employee authoring over authenticated Remote methods.',
+  },
+  {
+    key: 'enterpriseAssetController', pkg: 'api-enterprise-controller', title: 'Enterprise capability asset controller', mode: 'core',
+    consumers: ['client-ui-enterprise-workbench'],
+    note: 'Owns versioned enterprise capability asset reads and writes.',
+  },
+  {
+    key: 'enterpriseChannelBotInstaller', pkg: 'api-enterprise-controller', title: 'Enterprise channel Bot installer', mode: 'core',
+    consumers: ['api-enterprise-controller'],
+    note: 'Performs Host-only provider Bot installation and keeps provider credentials outside browser state.',
+  },
+  {
+    key: 'enterpriseChannelController', pkg: 'api-enterprise-controller', title: 'Enterprise channel controller', mode: 'core',
+    consumers: ['client-ui-enterprise-workbench'],
+    note: 'Persists governed channel routing and binding evidence without treating setup as delivery proof.',
+  },
+  {
+    key: 'enterpriseTeamController', pkg: 'api-enterprise-controller', title: 'Enterprise fixed-team controller', mode: 'core',
+    consumers: ['client-ui-enterprise-workbench'],
+    note: 'Maintains legacy fixed-team compatibility records.',
+  },
+  {
+    key: 'enterpriseTeamDefinitionController', pkg: 'api-enterprise-controller', title: 'Enterprise team charter controller', mode: 'core',
+    consumers: ['client-ui-enterprise-workbench'],
+    note: 'Owns immutable charter drafts, publication, and archive operations.',
+  },
+  {
+    key: 'enterpriseTeamRunController', pkg: 'api-enterprise-controller', title: 'Enterprise TeamRun controller', mode: 'core',
+    consumers: ['client-ui-enterprise-workbench'],
+    note: 'Starts and queries Session-authoritative TeamRuns through the governed runtime driver.',
+  },
+  {
+    key: 'enterpriseTeamDecisionController', pkg: 'api-enterprise-controller', title: 'Enterprise team decision controller', mode: 'core',
+    consumers: ['client-ui-enterprise-workbench'],
+    note: 'Exposes the attributed Human decision queue for TeamRuns.',
+  },
+  {
+    key: 'enterpriseTeamAutonomyController', pkg: 'api-enterprise-controller', title: 'Enterprise autonomy controller', mode: 'core',
+    consumers: ['client-ui-enterprise-workbench'],
+    note: 'Stores explicit scoped autonomy grants and terminal revocations.',
+  },
+  {
+    key: 'enterpriseOperationController', pkg: 'api-enterprise-controller', title: 'Enterprise operations controller', mode: 'core',
+    consumers: ['client-ui-enterprise-workbench'],
+    note: 'Provides governed work records, approvals, schedules, and operational projections.',
+  },
+  {
+    key: 'enterpriseWorkController', pkg: 'api-enterprise-controller', title: 'Enterprise goal-first work controller', mode: 'core',
+    consumers: ['client-ui-enterprise-workbench'],
+    note: 'Prepares and starts idempotent work after Host-side workspace and release resolution.',
+  },
+  {
+    key: 'enterpriseCordis', pkg: 'enterprise-cordis', title: 'Enterprise Cordis governance', mode: 'core',
+    consumers: ['enterprise-cordis-runtime', 'api-enterprise-controller'],
+    note: 'Owns scoped enterprise Cordis package versions, reviews, activation, and audit projections.',
+  },
+  {
+    key: 'cordisWorkspaceController', pkg: 'api-enterprise-controller', title: 'Enterprise Cordis workspace controller', mode: 'core',
+    consumers: ['client-ui-enterprise-governance'],
+    note: 'Exposes personal Workspace Cordis package operations.',
+  },
+  {
+    key: 'cordisReviewController', pkg: 'api-enterprise-controller', title: 'Enterprise Cordis review controller', mode: 'core',
+    consumers: ['client-ui-enterprise-governance'],
+    note: 'Exposes department and organization Cordis review operations.',
+  },
+  {
+    key: 'cordisGovernanceController', pkg: 'api-enterprise-controller', title: 'Enterprise Cordis governance controller', mode: 'core',
+    consumers: ['client-ui-enterprise-governance'],
+    note: 'Exposes administrator Cordis trust and manager governance operations.',
+  },
 ]
 
 function generatedHeader(title: string): string[] {

@@ -1,5 +1,7 @@
 # Agent Auto Memory Implementation Plan
 
+English | [中文](2026-08-28-agent-auto-memory.zh.md)
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Let a DSH Agent autonomously evaluate durable business knowledge, save it into the current enterprise or department scope, and make it immediately available to subsequent Agents.

@@ -608,7 +608,12 @@ export class EnterpriseSecurity {
     }
   }
 
-  /** Project a Session list to rows created by the authenticated user. */
+  /**
+   * Project a Session list to rows created by the authenticated user.
+   * @param principal - authenticated user whose Session ownership is enforced.
+   * @param value - untrusted Session-list projection returned by the Host.
+   * @returns the projection with non-owned Session rows removed.
+   */
   async filterSessionList(principal: EnterprisePrincipal, value: unknown): Promise<unknown> {
     if (!record(value)) return { items: [] }
     const items = Array.isArray(value['items']) ? value['items'] : []
@@ -620,7 +625,12 @@ export class EnterpriseSecurity {
     return { ...value, items: visible }
   }
 
-  /** Project Host-wide queue, job, and projection frames to the current user's Sessions. */
+  /**
+   * Project Host-wide queue, job, and projection frames to the current user's Sessions.
+   * @param principal - authenticated user whose Session ownership is enforced.
+   * @param frames - unfiltered Host control-frame stream.
+   * @returns a stream containing only frames and Session slices the user owns.
+   */
   async *filterSessionControl(
     principal: EnterprisePrincipal,
     frames: AsyncIterable<unknown>,
@@ -651,7 +661,12 @@ export class EnterpriseSecurity {
     }
   }
 
-  /** Decide whether one ordinary Session belongs to the authenticated user. */
+  /**
+   * Decide whether one ordinary Session belongs to the authenticated user.
+   * @param principal - authenticated user to compare with the Session owner.
+   * @param sessionId - canonical Session identity.
+   * @returns whether the Session is owned by that user.
+   */
   async sessionOwnedBy(principal: EnterprisePrincipal, sessionId: string): Promise<boolean> {
     return await this.repository.sessionOwnerUserId(sessionId) === principal.userId
   }

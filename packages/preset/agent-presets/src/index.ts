@@ -57,6 +57,10 @@ export type {
 /** Settings namespace carrying the user's chosen default preset. */
 export const SETTINGS_NAMESPACE = 'agent-presets'
 
+// Compatibility fence for defaults shipped by older DSH releases whose
+// preset directories no longer exist in the current distribution.
+const RETIRED_DEFAULT_PRESETS = new Set(['code'])
+
 /** Refuse an empty preset id before invoking a domain operation. */
 function validatePresetId(value: string, field: 'agentPreset' | 'from'): void {
   if (value.length === 0) {
@@ -563,7 +567,11 @@ export class AgentPresets extends TypertRemoteService {
     this.standing.delete(id)
   }
 
-  /** Compile a published enterprise employee identity into one user-authored preset. */
+  /**
+   * Compile a published enterprise employee identity into one user-authored preset.
+   * @param id - the published employee's preset id.
+   * @param input - published employee identity and composition definition.
+   */
   async configureEmployee(id: string, input: EmployeePresetDefinition): Promise<void> {
     await configureEmployeeComposition(this.resolvedRoots, await this.resolve(id), input)
     this.standing.delete(id)

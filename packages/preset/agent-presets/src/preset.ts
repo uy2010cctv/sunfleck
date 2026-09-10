@@ -1,6 +1,5 @@
 /** Agent-preset vocabulary shared by discovery, mounting, and consumers. */
 
-import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { EmployeeMetadata } from './metadata.ts'
 /**
  * Where a preset's composition came from. A `system` preset ships with the

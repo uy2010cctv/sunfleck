@@ -147,13 +147,13 @@ export class TeamEnterpriseRuntime {
 
   private async appendRun(root: Agent, run: TeamRunSnapshot): Promise<TeamRuntimeMutationReceipt> {
     await this.journal.appendAndFlush(root, 'team/run', { version: 1, teamId: TeamId(root.id), run })
-    return { runtimeRevision: run.runtimeRevision, sourceEventSeq: root.session.events.length - 1 }
+    return { runtimeRevision: run.runtimeRevision, sourceEventSeq: Number(root.session.seq) - 1 }
   }
 
   private async appendDecision(root: Agent, decision: TeamDecisionSnapshot): Promise<TeamRuntimeMutationReceipt> {
     await this.journal.appendAndFlush(root, 'team/decision', {
       version: 1, teamId: TeamId(root.id), decision,
     })
-    return { runtimeRevision: decision.runtimeRevision, sourceEventSeq: root.session.events.length - 1 }
+    return { runtimeRevision: decision.runtimeRevision, sourceEventSeq: Number(root.session.seq) - 1 }
   }
 }

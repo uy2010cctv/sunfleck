@@ -114,6 +114,53 @@ membership(agent: Agent): TeamMembership
 listMembers(agent: Agent): TeamMemberView[]
 
 /**
+ * Return the Agent and Human roster without granting Humans Agent authority.
+ * @param agent - exact live Team member used to resolve the root Team.
+ * @returns Agent and Human rows in durable roster order.
+ */
+listRoster(agent: Agent): TeamRosterMemberView[]
+
+/**
+ * Append or recover the authoritative starting TeamRun mutation.
+ * @param root - exact live Team Lead whose Session owns the run.
+ * @param request - immutable run identity, Release evidence, actor, and operation id.
+ * @returns committed runtime revision and root event position.
+ */
+startRun(root: Agent, request: TeamRunStartRequest): Promise<TeamRuntimeMutationReceipt>
+
+/**
+ * Register a Human in the shared roster without Agent mailbox authority.
+ * @param root - exact live Team Lead whose Session owns the roster.
+ * @param member - immutable Human identity, display name, and Team role.
+ * @returns once the Human roster event is durable.
+ */
+registerHuman(root: Agent, member: TeamHumanMemberSnapshot): Promise<void>
+
+/**
+ * Append one authoritative TeamRun transition.
+ * @param root - exact live Team Lead whose Session owns the run.
+ * @param request - target state, Human attribution, failure, and operation id.
+ * @returns committed runtime revision and root event position.
+ */
+setRunState(root: Agent, request: TeamRunStateRequest): Promise<TeamRuntimeMutationReceipt>
+
+/**
+ * Append one runtime-projected Human decision.
+ * @param root - exact live Team Lead whose Session owns the decision.
+ * @param request - immutable open-decision fields and projection operation id.
+ * @returns committed runtime revision and root event position.
+ */
+projectDecision(root: Agent, request: TeamDecisionProjectRequest): Promise<TeamRuntimeMutationReceipt>
+
+/**
+ * Append one CAS-protected Human answer.
+ * @param root - exact live Team Lead whose Session owns the decision.
+ * @param request - decision revision, answer, Human attribution, and operation id.
+ * @returns committed runtime revision and root event position.
+ */
+respondDecision(root: Agent, request: TeamDecisionResponseRequest): Promise<TeamRuntimeMutationReceipt>
+
+/**
  * Create one named, continuable direct child of the Team Lead.
  * @param caller - exact live Lead Agent.
  * @param request - immutable name, description, prompt, context mode, provider, and cancellation.
@@ -211,4 +258,97 @@ tryMembership(agent: Agent): TeamMembership | undefined
 Types: [Agent](core.md)
 
 Source: [`packages/experimental/agent-team/src/index.ts`](../../packages/experimental/agent-team/src/index.ts)
+
+<a id="ctxenterpriseteamautonomycontroller--enterpriseteamautonomycontroller"></a>
+
+### `ctx.enterpriseTeamAutonomyController` — `EnterpriseTeamAutonomyController`
+
+Enterprise explicit autonomy-grant Remote service.
+
+```ts cordis-catalog
+/**
+ * List visible explicit autonomy grants.
+ * @param request - visible autonomy-grant filters.
+ * @returns visible grant page.
+ */
+@Remote('list') async list(request: EnterpriseTeamAutonomyListRequest): Promise<EnterpriseTeamAutonomyGrantPage>
+
+/**
+ * Save an explicit human-authored autonomy grant.
+ * @param request - explicit human grant and CAS fields.
+ * @returns active grant.
+ */
+@Remote('save') async save(request: EnterpriseTeamAutonomySaveRequest): Promise<EnterpriseTeamAutonomyGrant>
+
+/**
+ * Revoke an autonomy grant terminally.
+ * @param request - grant identity, CAS, and idempotency fields.
+ * @returns terminal revoked grant.
+ */
+@Remote('revoke') async revoke(request: EnterpriseTeamAutonomyRevokeRequest): Promise<EnterpriseTeamAutonomyGrant>
+```
+
+Source: [`packages/api/enterprise-controller/src/index.ts`](../../packages/api/enterprise-controller/src/index.ts)
+
+<a id="ctxenterpriseteamdecisioncontroller--enterpriseteamdecisioncontroller"></a>
+
+### `ctx.enterpriseTeamDecisionController` — `EnterpriseTeamDecisionController`
+
+Enterprise TeamDecision query and human-response Remote service.
+
+```ts cordis-catalog
+/**
+ * List visible runtime-emitted decisions.
+ * @param request - visible decision filters.
+ * @returns visible decision page.
+ */
+@Remote('list') async list(request: EnterpriseTeamDecisionListRequest): Promise<EnterpriseTeamDecisionPage>
+
+/**
+ * Append and project a permitted human answer.
+ * @param request - answer, CAS, and idempotency fields.
+ * @returns answered decision projection.
+ */
+@Remote('respond') async respond(request: EnterpriseTeamDecisionRespondRequest): Promise<EnterpriseTeamDecision>
+```
+
+Source: [`packages/api/enterprise-controller/src/index.ts`](../../packages/api/enterprise-controller/src/index.ts)
+
+<a id="ctxenterpriseteamruncontroller--enterpriseteamruncontroller"></a>
+
+### `ctx.enterpriseTeamRunController` — `EnterpriseTeamRunController`
+
+Enterprise TeamRun query and command Remote service.
+
+```ts cordis-catalog
+/**
+ * List visible TeamRun projections.
+ * @param request - visible run page filters.
+ * @returns visible TeamRun page.
+ */
+@Remote('list') async list(request: EnterpriseTeamRunListRequest): Promise<EnterpriseTeamRunPage>
+
+/**
+ * Read one visible TeamRun projection.
+ * @param request - TeamRun identity.
+ * @returns visible TeamRun projection.
+ */
+@Remote('get') async get(request: EnterpriseTeamRunLookup): Promise<EnterpriseTeamRun>
+
+/**
+ * Start a runtime-authoritative TeamRun.
+ * @param request - browser-safe definition fence, Workspace, prompt, source, and idempotency.
+ * @returns started or reconcilable TeamRun.
+ */
+@Remote('start') async start(request: EnterpriseTeamRunStartRequest): Promise<EnterpriseTeamRun>
+
+/**
+ * Cancel a runtime-authoritative TeamRun.
+ * @param request - TeamRun CAS and idempotency fields.
+ * @returns cancelled or reconcilable TeamRun.
+ */
+@Remote('cancel') async cancel(request: EnterpriseTeamRunCancelRequest): Promise<EnterpriseTeamRun>
+```
+
+Source: [`packages/api/enterprise-controller/src/index.ts`](../../packages/api/enterprise-controller/src/index.ts)
 <!-- END GENERATED cordis-surface -->

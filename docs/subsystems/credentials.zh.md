@@ -269,6 +269,13 @@ Carries the server-authenticated principal through asynchronous Host work. Calle
 run<T>(principal: EnterprisePrincipal, callback: () => T): T
 
 /**
+ * Run Agent-owned work without inheriting the active authenticated Human.
+ * @param callback - Work whose asynchronous descendants must carry no request principal.
+ * @returns the callback result while the surrounding request store is restored afterwards.
+ */
+withoutPrincipal<T>(callback: () => T): T
+
+/**
  * Return the principal for the active request, if any.
  * @returns the active principal, or `undefined` outside a live request.
  */
@@ -387,6 +394,30 @@ async authorizeApiAsync(principal: EnterprisePrincipal, endpoint: string, input:
 async *filterWorkspaceFollow( principal: EnterprisePrincipal, frames: AsyncIterable<unknown>, ): AsyncIterable<unknown>
 
 /**
+ * Project a Session list to rows created by the authenticated user.
+ * @param principal - authenticated user whose Session ownership is enforced.
+ * @param value - untrusted Session-list projection returned by the Host.
+ * @returns the projection with non-owned Session rows removed.
+ */
+async filterSessionList(principal: EnterprisePrincipal, value: unknown): Promise<unknown>
+
+/**
+ * Project Host-wide queue, job, and projection frames to the current user's Sessions.
+ * @param principal - authenticated user whose Session ownership is enforced.
+ * @param frames - unfiltered Host control-frame stream.
+ * @returns a stream containing only frames and Session slices the user owns.
+ */
+async *filterSessionControl( principal: EnterprisePrincipal, frames: AsyncIterable<unknown>, ): AsyncIterable<unknown>
+
+/**
+ * Decide whether one ordinary Session belongs to the authenticated user.
+ * @param principal - authenticated user to compare with the Session owner.
+ * @param sessionId - canonical Session identity.
+ * @returns whether the Session is owned by that user.
+ */
+async sessionOwnedBy(principal: EnterprisePrincipal, sessionId: string): Promise<boolean>
+
+/**
  * Persist the ownership grant for a Workspace created through the native API.
  * @param principal - authenticated creator.
  * @param result - native Workspace create result.
@@ -417,7 +448,18 @@ async workspaceSandboxModeAsync( principal: EnterprisePrincipal, workspaceId: st
  * @param decision - Previously computed authorization decision.
  * @param correlationId - Request-scoped correlation identity.
  */
-async auditApiAsync( principal: EnterprisePrincipal, endpoint: string, input: unknown, decision: EnterpriseAuthorizationDecision, correlationId: string, ): Promise<void>
+async auditApiAsync( principal: EnterprisePrincipal, endpoint: string, input: unknown, decision: EnterpriseApiAuditDecision, correlationId: string, ): Promise<void>
+
+/**
+ * Append an API audit decision with a Host-resolved resource address.
+ * @param principal - Authenticated caller.
+ * @param endpoint - Closed Host API endpoint name used to classify the action.
+ * @param input - Parsed request fields used only for action classification.
+ * @param decision - Previously computed authorization decision.
+ * @param correlationId - Request or operation correlation identity.
+ * @param resource - Explicit resource type, identity, and safe details.
+ */
+async auditApiResourceAsync( principal: EnterprisePrincipal, endpoint: string, input: unknown, decision: EnterpriseApiAuditDecision, correlationId: string, resource: EnterpriseApiAuditResource, ): Promise<void>
 
 /**
  * Resolve resource scope and authorize one synchronous Host API operation.

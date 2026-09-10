@@ -626,6 +626,13 @@ async read(id: string): Promise<string>
 async copy(from: string, id: string, name?: string): Promise<void>
 
 /**
+ * Compile a published enterprise employee identity into one user-authored preset.
+ * @param id - the published employee's preset id.
+ * @param input - published employee identity and composition definition.
+ */
+async configureEmployee(id: string, input: EmployeePresetDefinition): Promise<void>
+
+/**
  * Copy one preset through the Remote API.
  * @param from - the source preset id.
  * @param id - the new preset id.
@@ -942,11 +949,109 @@ Capability asset Remote service.
 
 Source: [`packages/api/enterprise-controller/src/index.ts`](../../packages/api/enterprise-controller/src/index.ts)
 
+<a id="ctxenterprisechannelbotinstaller--enterprisechannelbotinstaller"></a>
+
+### `ctx.enterpriseChannelBotInstaller` — `EnterpriseChannelBotInstaller`
+
+Host-only seam implemented by approved WeCom, Feishu, or DingTalk provider-app adapters.
+
+```ts cordis-catalog
+/**
+ * Start the provider authorization flow for one authenticated installation.
+ * @param input - signed pending installation state and provider callback details.
+ * @returns provider authorization URL and expiry matching the pending installation.
+ */
+begin(input: PendingChannelBotInstall & { readonly state: string }): Promise<{ readonly authorizationUrl: string readonly expiresAt: number }>
+
+/**
+ * Exchange a completed provider authorization for verified Bot metadata.
+ * @param input - signed pending installation state and provider authorization code.
+ * @returns verified Bot metadata and the credential reference to persist.
+ */
+complete(input: PendingChannelBotInstall & { readonly state: string readonly code: string }): Promise<EnterpriseInstalledChannelBot>
+```
+
+Source: [`packages/api/enterprise-controller/src/index.ts`](../../packages/api/enterprise-controller/src/index.ts)
+
+<a id="ctxenterprisechannelcontroller--enterprisechannelcontroller"></a>
+
+### `ctx.enterpriseChannelController` — `EnterpriseChannelController`
+
+Enterprise channel-configuration Remote service.
+
+```ts cordis-catalog
+/**
+ * List channel configurations visible to the authenticated organization administrator.
+ * @param request - optional archived-record filter.
+ * @returns secret-free channel configuration projections.
+ */
+@Remote('list') async list(request: EnterpriseChannelListRequest): Promise<EnterpriseChannelPage>
+
+/**
+ * Read one organization-scoped channel configuration.
+ * @param request - stable channel identity.
+ * @returns the secret-free channel configuration projection.
+ */
+@Remote('get') async get(request: EnterpriseChannelLookup): Promise<EnterpriseChannelConfiguration>
+
+/**
+ * Create or revision-fence an administrator-managed channel configuration.
+ * @param request - provider account, Credential reference, route, and lifecycle state.
+ * @returns the saved secret-free channel configuration projection.
+ */
+@Remote('save') async save(request: EnterpriseChannelSaveRequest): Promise<EnterpriseChannelConfiguration>
+
+/**
+ * Terminally archive one channel configuration.
+ * @param request - channel identity, expected revision, and idempotency key.
+ * @returns the archived secret-free channel configuration projection.
+ */
+@Remote('archive') async archive(request: EnterpriseChannelArchiveRequest): Promise<EnterpriseChannelConfiguration>
+
+/**
+ * Start installation of a provider-hosted DSH Bot before a channel exists.
+ * Self-hosted builds fail visibly until an approved provider app installer is deployed.
+ * @param request - provider and redirect URI for the installation session.
+ * @returns setup instructions or an expiring provider authorization session.
+ */
+@Remote('beginBotInstall') async beginBotInstall(request: EnterpriseChannelBeginBotInstallRequest): Promise<EnterpriseChannelBotInstallResult>
+
+/**
+ * Poll an official Device Authorization Grant and create the channel after provider confirmation.
+ * @param request - installation identity, idempotency key, and optional verification code.
+ * @returns pending, verification-required, or completed installation state.
+ */
+@Remote('pollBotInstall') async pollBotInstall(request: EnterpriseChannelPollBotInstallRequest): Promise<EnterpriseChannelPollBotInstallResult>
+
+/**
+ * Complete a signed provider-app installation and create the governed channel automatically.
+ * @param request - signed installation callback, authorization code, and idempotency key.
+ * @returns the created secret-free channel configuration.
+ */
+@Remote('completeBotInstall') async completeBotInstall(request: EnterpriseChannelCompleteBotInstallRequest): Promise<EnterpriseChannelConfiguration>
+
+/**
+ * Begin a ten-minute process-bound official provider authorization session.
+ * @param request - channel identity, exact revision, and registered callback URI.
+ * @returns signed secret-free authorization session metadata.
+ */
+@Remote('beginBinding') async beginBinding(request: EnterpriseChannelBeginBindingRequest): Promise<EnterpriseChannelBindingSession>
+
+/**
+ * Consume a pending callback, exchange its code, and persist secret-free identity evidence.
+ * @param request - provider callback values and write idempotency key.
+ * @returns the verified secret-free channel configuration.
+ */
+@Remote('completeBinding') async completeBinding(request: EnterpriseChannelCompleteBindingRequest): Promise<EnterpriseChannelConfiguration>
+```
+
+Source: [`packages/api/enterprise-controller/src/index.ts`](../../packages/api/enterprise-controller/src/index.ts)
+
 <a id="ctxenterpriseemployeecontroller--enterpriseemployeecontroller"></a>
 
 ### `ctx.enterpriseEmployeeController` — `EnterpriseEmployeeController`
 
-Employee Draft/Release Remote service.
+Enterprise employee Draft and Release Remote service.
 
 ```ts cordis-catalog
 /**
@@ -962,6 +1067,13 @@ Employee Draft/Release Remote service.
  * @returns current mutable Draft.
  */
 @Remote('getDraft') async getDraft(request: EnterpriseEmployeeLookup): Promise<EnterpriseEmployeeDraft>
+
+/**
+ * Improve one unsaved responsibility prompt through a caller-selected configured model.
+ * @param request - employee prompt and selected model route.
+ * @returns the optimized prompt without saving a Draft.
+ */
+@Remote('optimizePrompt') async optimizePrompt( request: EnterpriseEmployeeOptimizePromptRequest, ): Promise<EnterpriseEmployeeOptimizePromptResult>
 
 /**
  * Execute one authenticated enterprise operation.
@@ -1141,6 +1253,13 @@ Enterprise team-definition Remote service.
 @Remote('get') async get(request: EnterpriseTeamDefinitionLookup): Promise<EnterpriseTeamDefinition>
 
 /**
+ * Read an owner-visible draft without substituting it for the active charter.
+ * @param request - team identity for the requested draft.
+ * @returns the owner-visible draft revision.
+ */
+@Remote('getDraft') async getDraft(request: EnterpriseTeamDefinitionDraftLookup): Promise<EnterpriseTeamDefinitionRevision>
+
+/**
  * Create or CAS-save one non-archived definition in the authenticated organization.
  * @param request - definition and write guards; revision zero creates it and archive state is rejected.
  * @returns saved definition.
@@ -1148,11 +1267,56 @@ Enterprise team-definition Remote service.
 @Remote('save') async save(request: EnterpriseTeamDefinitionSaveRequest): Promise<EnterpriseTeamDefinition>
 
 /**
+ * Save a draft without changing the active Team Definition used by TeamRuns.
+ * @param request - team identity, draft payload, and write guards.
+ * @returns the definition containing the saved draft.
+ */
+@Remote('draft') async draft(request: EnterpriseTeamDefinitionDraftRequest): Promise<EnterpriseTeamDefinition>
+
+/**
+ * Validate and publish the currently selected draft for new TeamRuns.
+ * @param request - team identity and expected draft revision.
+ * @returns the definition with its newly active charter.
+ */
+@Remote('publish') async publish(request: EnterpriseTeamDefinitionPublishRequest): Promise<EnterpriseTeamDefinition>
+
+/**
+ * Discard a draft while retaining both the active definition and historical TeamRuns.
+ * @param request - team identity and expected draft revision.
+ * @returns the retained active definition revision.
+ */
+@Remote('discardDraft') async discardDraft(request: EnterpriseTeamDefinitionDiscardDraftRequest): Promise<EnterpriseTeamDefinitionRevision>
+
+/**
  * Archive one definition; only this operation enters the terminal archived state.
  * @param request - team identity and write guards.
  * @returns archived definition.
  */
 @Remote('archive') async archive(request: EnterpriseTeamDefinitionArchiveRequest): Promise<EnterpriseTeamDefinition>
+```
+
+Source: [`packages/api/enterprise-controller/src/index.ts`](../../packages/api/enterprise-controller/src/index.ts)
+
+<a id="ctxenterpriseworkcontroller--enterpriseworkcontroller"></a>
+
+### `ctx.enterpriseWorkController` — `EnterpriseWorkController`
+
+Goal-first enterprise work entry point. This slice deliberately does not route models, teams, tools, or budgets.
+
+```ts cordis-catalog
+/**
+ * Resolve the workspace and employee that would start enterprise work.
+ * @param request - Goal and optional workspace or employee choices.
+ * @returns a ready selection or the visible choices needed to continue.
+ */
+@Remote('prepare') async prepare(request: EnterpriseWorkPrepareRequest): Promise<EnterpriseWorkPreparation>
+
+/**
+ * Start enterprise work using the prepared, authorized workspace and employee.
+ * @param request - Goal, optional selections, and idempotency key.
+ * @returns the durable native Session and selected release.
+ */
+@Remote('start') async start(request: EnterpriseWorkStartRequest): Promise<EnterpriseWorkStartValue>
 ```
 
 Source: [`packages/api/enterprise-controller/src/index.ts`](../../packages/api/enterprise-controller/src/index.ts)

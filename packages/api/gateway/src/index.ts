@@ -551,13 +551,13 @@ export class TypertGatewayService extends Service implements TypertGateway {
     if (security === undefined && requestContext === undefined) return {}
     if (security === undefined || requestContext === undefined) {
       throw new TypertGatewayError(
-        'service-unavailable', REMOTE_EVENT_STREAM_ENDPOINT, 'enterprise event security is unavailable',
+        'gateway/service-unavailable', REMOTE_EVENT_STREAM_ENDPOINT, 'enterprise event security is unavailable',
       )
     }
     const principal = requestContext.current()
     if (principal === undefined) {
       throw new TypertGatewayError(
-        'service-unavailable', REMOTE_EVENT_STREAM_ENDPOINT, 'authenticated enterprise principal is required',
+        'gateway/service-unavailable', REMOTE_EVENT_STREAM_ENDPOINT, 'authenticated enterprise principal is required',
       )
     }
     return { enterprise: { endpoint: REMOTE_EVENT_STREAM_ENDPOINT, principal, security } }
@@ -714,11 +714,7 @@ export class TypertGatewayService extends Service implements TypertGateway {
         const sessionId = stringProperty(value, 'sessionId')
         const workspaceId = stringProperty(input, 'workspaceId')
         if (sessionId === undefined || workspaceId === undefined) {
-          throw new TypertRemoteFailure({
-            code: 'enterprise-unavailable',
-            message: 'enterprise Session binding result is incomplete',
-            details: {},
-          })
+          throw new RemoteError('enterprise-unavailable' as never, 'enterprise Session binding result is incomplete', {} as never)
         }
         await enterprise.security.bindSessionWorkspaceAsync(enterprise.principal, sessionId, workspaceId)
       }
@@ -742,25 +738,20 @@ export class TypertGatewayService extends Service implements TypertGateway {
     const { security, requestContext } = optionalEnterpriseServices(this.ctx)
     if (security === undefined && requestContext === undefined) return undefined
     if (security === undefined || requestContext === undefined) {
-      throw new TypertRemoteFailure({
-        code: 'enterprise-unavailable', message: 'enterprise Workspace security is unavailable', details: {},
-      })
+      throw new RemoteError('enterprise-unavailable' as never, 'enterprise Workspace security is unavailable', {} as never)
     }
     const principal = requestContext.current()
     if (principal === undefined) {
-      throw new TypertRemoteFailure({
-        code: 'enterprise-unauthorized', message: 'authenticated enterprise principal is required', details: {},
-      })
+      throw new RemoteError('enterprise-unauthorized' as never, 'authenticated enterprise principal is required', {} as never)
     }
     const endpoint = wireEndpoint.replace('/', '.')
     const input = enterpriseWorkspaceInput(payload)
     const decision = await security.authorizeApiAsync(principal, endpoint, input)
     await security.auditApiAsync(principal, endpoint, input, decision, randomUUID())
     if (!decision.allowed) {
-      throw new TypertRemoteFailure({
-        code: 'enterprise-forbidden', message: 'enterprise Workspace operation is forbidden',
-        details: { endpoint, reason: decision.reason },
-      })
+      throw new RemoteError('enterprise-forbidden' as never, 'enterprise Workspace operation is forbidden', {
+        endpoint, reason: decision.reason,
+      } as never)
     }
     return { endpoint, principal, security }
   }

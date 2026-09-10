@@ -151,7 +151,7 @@ describe('PluginInventoryGateway', () => {
       protectedEntryIds: ['cordis:protected'],
     })
 
-    const rows = (ctx.get('pluginInventory') as PluginInventoryGateway).list().entries
+    const rows = (await (ctx.get('pluginInventory') as PluginInventoryGateway).list()).entries
     expect(rows).toEqual(expect.arrayContaining([
       expect.objectContaining({ moduleName: 'cordis:orders', installSource: { kind: 'registry' } }),
       expect.objectContaining({ moduleName: 'cordis:audit', installSource: { kind: 'tgz' } }),

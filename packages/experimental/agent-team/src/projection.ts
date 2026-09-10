@@ -14,7 +14,6 @@ import type {
   TeamMessageSnapshot,
   TeamRunSnapshot,
   TeamRuntimeMutationReceipt,
-  TeamTaskId,
   TeamTaskSnapshot,
 } from './types.ts'
 import {
@@ -247,12 +246,12 @@ export function emptyTeamState(rootId: SessionId): TeamProjectionState {
   return {
     id: toTeamId(rootId),
     members: [],
-    humans: lookupArray([], member => member.userId),
+    humans: lookupArray<TeamHumanMemberSnapshot>([], member => member.userId),
     tasks: [],
     messages: [],
     delivered: [],
-    decisions: lookupArray([], decision => decision.decisionId),
-    operations: lookupArray([], operation => operation.operationId),
+    decisions: lookupArray<TeamDecisionSnapshot>([], decision => decision.decisionId),
+    operations: lookupArray<TeamRuntimeOperation>([], operation => operation.operationId),
     run: undefined,
     runtimeRevision: 0,
     nextTaskNumber: 1,
