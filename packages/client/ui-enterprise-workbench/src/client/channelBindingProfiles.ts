@@ -1,27 +1,42 @@
 import type { EnterpriseChannelProvider } from '@deepseek-ai/dsh-api-enterprise-controller/types'
 
+/** Value exported as `CHANNEL_BINDING_CALLBACK_PARAM`. */
 export const CHANNEL_BINDING_CALLBACK_PARAM = 'dsh_channel_binding'
+/** Value exported as `CHANNEL_BOT_INSTALL_CALLBACK_PARAM`. */
 export const CHANNEL_BOT_INSTALL_CALLBACK_PARAM = 'dsh_channel_bot_install'
+/** Value exported as `CHANNEL_BINDING_BROADCAST_CHANNEL`. */
 export const CHANNEL_BINDING_BROADCAST_CHANNEL = 'dsh-channel-binding'
 const CHANNEL_BINDING_SIGNED_STATE = /^[A-Za-z0-9_-]{43}\.[A-Za-z0-9_-]{43}$/u
 
-/** Fixed callback URI registered with every provider; correlation lives in signed OAuth state. */
+/** Fixed callback URI registered with every provider; correlation lives in signed OAuth state.
+ * @param location - Input value used by this API.
+ * @returns Result produced by this API.
+ */
 export function channelBindingCallbackUri(location: Pick<Location, 'origin' | 'pathname'>): string {
   return `${location.origin}${location.pathname}?${CHANNEL_BINDING_CALLBACK_PARAM}=1`
 }
 
-/** Fixed callback URI reserved for provider-app installation and automatic channel creation. */
+/** Fixed callback URI reserved for provider-app installation and automatic channel creation.
+ * @param location - Input value used by this API.
+ * @returns Result produced by this API.
+ */
 export function channelBotInstallCallbackUri(location: Pick<Location, 'origin' | 'pathname'>): string {
   return `${location.origin}${location.pathname}?${CHANNEL_BOT_INSTALL_CALLBACK_PARAM}=1`
 }
 
-/** Extract the controller-issued nonce.signature state used for cross-window correlation. */
+/** Extract the controller-issued nonce.signature state used for cross-window correlation.
+ * @param authorizationUrl - Input value used by this API.
+ * @returns Result produced by this API.
+ */
 export function officialChannelBindingState(authorizationUrl: URL): string | null {
   const state = authorizationUrl.searchParams.get('state')
   return isOfficialChannelBindingState(state) ? state : null
 }
 
-/** Whether a callback state has the exact controller-issued nonce.signature grammar. */
+/** Whether a callback state has the exact controller-issued nonce.signature grammar.
+ * @param state - Input value used by this API.
+ * @returns Result produced by this API.
+ */
 export function isOfficialChannelBindingState(state: string | null): state is string {
   return state !== null && CHANNEL_BINDING_SIGNED_STATE.test(state)
 }
@@ -37,6 +52,7 @@ export interface ChannelBindingClientProfile {
   readonly identityOnly: boolean
 }
 
+/** Value exported as `CHANNEL_BINDING_PROFILES`. */
 export const CHANNEL_BINDING_PROFILES: Readonly<Record<EnterpriseChannelProvider, ChannelBindingClientProfile>> = Object.freeze({
   wecom: Object.freeze({
     officialDocsUrl: 'https://developer.work.weixin.qq.com/document/path/98152',
@@ -64,7 +80,11 @@ export const CHANNEL_BINDING_PROFILES: Readonly<Record<EnterpriseChannelProvider
   }),
 })
 
-/** Parse and pin one server-returned authorization URL to the provider's exact official HTTPS endpoint. */
+/** Parse and pin one server-returned authorization URL to the provider's exact official HTTPS endpoint.
+ * @param authorizationUrl - Input value used by this API.
+ * @param provider - Input value used by this API.
+ * @returns Result produced by this API.
+ */
 export function officialChannelAuthorizationUrl(
   provider: EnterpriseChannelProvider,
   authorizationUrl: string,

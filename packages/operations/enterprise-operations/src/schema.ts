@@ -1,5 +1,6 @@
 /** PostgreSQL schema for work records, approvals, schedules, teams, and outbox. */
 import type { PostgresDatabase } from './types.ts'
+/** Value exported as `ENTERPRISE_OPERATIONS_SCHEMA_VERSION`. */
 export const ENTERPRISE_OPERATIONS_SCHEMA_VERSION = 16
 /** Owner placeholder for legacy fixed teams whose creator was never persisted. */
 export const LEGACY_TEAM_DEFINITION_OWNER_USER_ID = 'system:legacy-fixed-team-migration'
@@ -184,6 +185,9 @@ const statements = [
   `CREATE INDEX IF NOT EXISTS dsh_enterprise_channel_configurations_idx
     ON dsh_enterprise_channel_configurations(org_id, provider, state, created_at DESC, channel_id DESC)`,
 ] as const
+/** Executes `migrateEnterpriseOperations`.
+ * @param database - Input value used by this API.
+*/
 export async function migrateEnterpriseOperations(database: PostgresDatabase): Promise<void> {
   await database.transaction(async (transaction) => {
     await transaction.query('SELECT pg_advisory_xact_lock($1)', [0x4453484f])

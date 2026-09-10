@@ -2,6 +2,7 @@
 
 import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto'
 
+/** Data used by `EncryptedCredentialEnvelope`. */
 export interface EncryptedCredentialEnvelope {
   readonly keyId: string
   readonly iv: string
@@ -13,6 +14,14 @@ function assertKey(key: Buffer): void {
   if (key.byteLength !== 32) throw new Error('enterprise credential master key must be exactly 32 bytes')
 }
 
+/** Executes `encryptCredentialValue`.
+ * @param aad - Input value used by this API.
+ * @param iv - Input value used by this API.
+ * @param key - Input value used by this API.
+ * @param keyId - Input value used by this API.
+ * @param value - Input value used by this API.
+ * @returns Result produced by this API.
+ */
 export function encryptCredentialValue(
   value: unknown,
   aad: string,
@@ -33,6 +42,12 @@ export function encryptCredentialValue(
   }
 }
 
+/** Executes `decryptCredentialValue`.
+ * @param aad - Input value used by this API.
+ * @param envelope - Input value used by this API.
+ * @param keys - Input value used by this API.
+ * @returns Result produced by this API.
+ */
 export function decryptCredentialValue(
   envelope: EncryptedCredentialEnvelope,
   aad: string,

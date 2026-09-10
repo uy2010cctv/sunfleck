@@ -36,7 +36,10 @@ const statements = [
   'CREATE INDEX IF NOT EXISTS dsh_session_events_session_time ON dsh_session_events(session_id, event_time, seq)',
 ] as const
 
-/** Create or validate the schema in the caller-owned transaction. */
+/**
+ * Create or validate the schema in the caller-owned transaction.
+ * @param database - Transactional PostgreSQL query interface that owns the migration commit or rollback.
+ */
 export async function migratePostgresSessionPersistence(database: PostgresQueryable): Promise<void> {
   for (const statement of statements) await database.query(statement)
   const current = await database.query<{ value: string }>(

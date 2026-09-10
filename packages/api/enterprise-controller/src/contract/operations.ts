@@ -1,4 +1,6 @@
+/** Allowed values for `EnterpriseBusinessState`. */
 export type EnterpriseBusinessState = 'active' | 'waiting-approval' | 'completed' | 'failed'
+/** Data used by `EnterpriseWorkRecord`. */
 export interface EnterpriseWorkRecord {
   orgId: string
   sessionId: string
@@ -11,6 +13,7 @@ export interface EnterpriseWorkRecord {
   createdAt: number
   updatedAt: number
 }
+/** Data used by `EnterpriseApproval`. */
 export interface EnterpriseApproval {
   approvalId: string
   orgId: string
@@ -25,9 +28,11 @@ export interface EnterpriseApproval {
   createdAt: number
   updatedAt: number
 }
+/** Allowed values for `EnterpriseScheduleTarget`. */
 export type EnterpriseScheduleTarget =
   | { kind: 'employee'; employeeReleaseId: string }
   | { kind: 'team'; teamId: string }
+/** Data used by `EnterpriseSchedule`. */
 export interface EnterpriseSchedule {
   scheduleId: string
   orgId: string
@@ -42,10 +47,12 @@ export interface EnterpriseSchedule {
   createdAt: number
   updatedAt: number
 }
+/** Data used by `EnterprisePage`. */
 export interface EnterprisePage<T> {
   items: readonly T[]
   nextCursor?: string
 }
+/** Data used by `EnterpriseWorkRecordListRequest`. */
 export interface EnterpriseWorkRecordListRequest {
   readonly businessState?: EnterpriseBusinessState
   readonly source?: EnterpriseWorkRecord['source']
@@ -53,10 +60,12 @@ export interface EnterpriseWorkRecordListRequest {
   readonly limit?: number
   readonly cursor?: string
 }
+/** Data used by `EnterpriseWorkRecordLookup`. */
 export interface EnterpriseWorkRecordLookup {
   readonly sessionId: string
   readonly employeeReleaseId: string
 }
+/** Data used by `EnterpriseWorkRecordUpdateRequest`. */
 export interface EnterpriseWorkRecordUpdateRequest {
   readonly sessionId: string
   readonly employeeReleaseId: string
@@ -67,6 +76,7 @@ export interface EnterpriseWorkRecordUpdateRequest {
   readonly expectedRevision: number
   readonly idempotencyKey: string
 }
+/** Data used by `EnterpriseApprovalListRequest`. */
 export interface EnterpriseApprovalListRequest {
   readonly kind?: EnterpriseApproval['kind']
   readonly state?: EnterpriseApproval['state']
@@ -74,7 +84,9 @@ export interface EnterpriseApprovalListRequest {
   readonly limit?: number
   readonly cursor?: string
 }
+/** Data used by `EnterpriseApprovalLookup`. */
 export interface EnterpriseApprovalLookup { readonly approvalId: string }
+/** Data used by `EnterpriseApprovalCreateRequest`. */
 export interface EnterpriseApprovalCreateRequest {
   readonly approvalId: string
   readonly kind: EnterpriseApproval['kind']
@@ -83,6 +95,7 @@ export interface EnterpriseApprovalCreateRequest {
   readonly expectedRevision: number
   readonly idempotencyKey: string
 }
+/** Data used by `EnterpriseApprovalTransitionRequest`. */
 export interface EnterpriseApprovalTransitionRequest {
   readonly approvalId: string
   readonly state: 'approved' | 'rejected'
@@ -90,18 +103,22 @@ export interface EnterpriseApprovalTransitionRequest {
   readonly expectedRevision: number
   readonly idempotencyKey: string
 }
+/** Data used by `EnterpriseApprovalCancelRequest`. */
 export interface EnterpriseApprovalCancelRequest {
   readonly approvalId: string
   readonly reason?: string
   readonly expectedRevision: number
   readonly idempotencyKey: string
 }
+/** Data used by `EnterpriseScheduleListRequest`. */
 export interface EnterpriseScheduleListRequest {
   readonly state?: EnterpriseSchedule['state']
   readonly limit?: number
   readonly cursor?: string
 }
+/** Data used by `EnterpriseScheduleLookup`. */
 export interface EnterpriseScheduleLookup { readonly scheduleId: string }
+/** Data used by `EnterpriseScheduleSaveRequest`. */
 export interface EnterpriseScheduleSaveRequest {
   readonly scheduleId: string
   readonly target: EnterpriseScheduleTarget
@@ -112,6 +129,7 @@ export interface EnterpriseScheduleSaveRequest {
   readonly expectedRevision: number
   readonly idempotencyKey: string
 }
+/** Data used by `EnterpriseScheduleTransitionRequest`. */
 export interface EnterpriseScheduleTransitionRequest {
   readonly scheduleId: string
   readonly state: EnterpriseSchedule['state']

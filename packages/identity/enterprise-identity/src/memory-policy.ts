@@ -2,6 +2,7 @@
 
 import { createHash } from 'node:crypto'
 
+/** Allowed values for `EnterpriseMemoryPrivacyFinding`. */
 export type EnterpriseMemoryPrivacyFinding =
   | 'email-address'
   | 'telephone-number'
@@ -11,6 +12,7 @@ export type EnterpriseMemoryPrivacyFinding =
   | 'prompt-injection'
   | 'summary-too-long'
 
+/** Data used by `EnterpriseMemoryInspection`. */
 export interface EnterpriseMemoryInspection {
   readonly allowed: boolean
   readonly findings: readonly EnterpriseMemoryPrivacyFinding[]
@@ -25,7 +27,10 @@ const RULES: ReadonlyArray<readonly [EnterpriseMemoryPrivacyFinding, RegExp]> = 
   ['prompt-injection', /(?:ignore\s+(?:all\s+)?previous\s+instructions|system\s+prompt|忽略(?:以上|之前|所有)指令|系统提示词)/iu],
 ]
 
-/** Inspect only a proposed summary and return finding names without matched values. */
+/** Inspect only a proposed summary and return finding names without matched values.
+ * @param summary - Input value used by this API.
+ * @returns Result produced by this API.
+ */
 export function inspectEnterpriseMemory(summary: string): EnterpriseMemoryInspection {
   const findings: EnterpriseMemoryPrivacyFinding[] = []
   if (summary.length > 2_000) findings.push('summary-too-long')
@@ -33,7 +38,10 @@ export function inspectEnterpriseMemory(summary: string): EnterpriseMemoryInspec
   return { allowed: findings.length === 0, findings }
 }
 
-/** Produce an immutable source reference without retaining the source body. */
+/** Produce an immutable source reference without retaining the source body.
+ * @param source - Input value used by this API.
+ * @returns Result produced by this API.
+ */
 export function memorySourceDigest(source: string): string {
   return createHash('sha256').update(source).digest('hex')
 }

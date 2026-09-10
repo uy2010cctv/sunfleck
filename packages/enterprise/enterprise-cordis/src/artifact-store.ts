@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import { chmod, link, mkdir, readFile, unlink, writeFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 
+/** Data used by `CordisArtifactPayload`. */
 export interface CordisArtifactPayload {
   readonly orgId: string
   readonly pluginId: string
@@ -11,6 +12,7 @@ export interface CordisArtifactPayload {
   readonly clientCode?: string
 }
 
+/** Data used by `CordisArtifactReceipt`. */
 export interface CordisArtifactReceipt {
   readonly artifactRef: string
   readonly digest: string
@@ -18,6 +20,7 @@ export interface CordisArtifactReceipt {
   readonly storageUri: string
 }
 
+/** Data used by `EnterpriseCordisArtifactStore`. */
 export interface EnterpriseCordisArtifactStore {
   put(payload: CordisArtifactPayload): Promise<CordisArtifactReceipt>
   read(artifactRef: string): Promise<CordisArtifactPayload>

@@ -76,6 +76,7 @@ function number(value: number | string | undefined, message: string): number {
   return result
 }
 
+/** Provides `KnowledgeRevisionConflictError` capabilities. */
 export class KnowledgeRevisionConflictError extends Error {
   constructor(readonly documentId: string, readonly expected: number, readonly actual: number) {
     super(`knowledge document ${documentId} revision conflict: expected ${String(expected)}, actual ${String(actual)}`)
@@ -126,6 +127,7 @@ function permissionEvidence(value: string | undefined, userId: string): Knowledg
   return { kind: 'acl', principalType: match[1] as KnowledgeAclEntry['principalType'], principalId: match[2] }
 }
 
+/** Provides `EnterpriseKnowledgeRepository` capabilities. */
 export class EnterpriseKnowledgeRepository implements KnowledgeRepository {
   private initialized: Promise<void> | undefined
 
@@ -367,7 +369,10 @@ function vectorDimensions(value: unknown): number {
   return 0
 }
 
-/** Stable digest helper for callers that persist embedding manifests. */
+/** Stable digest helper for callers that persist embedding manifests.
+ * @param embedding - Input value used by this API.
+ * @returns Result produced by this API.
+ */
 export function knowledgeEmbeddingDigest(embedding: readonly number[]): string {
   return createHash('sha256').update(vector(embedding)).digest('hex')
 }

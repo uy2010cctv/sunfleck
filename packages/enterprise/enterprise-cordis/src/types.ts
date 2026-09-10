@@ -1,17 +1,20 @@
 import type { EnterpriseRole } from '@deepseek-ai/dsh-enterprise-governance'
 
+/** Allowed values for `CordisPluginScope`. */
 export type CordisPluginScope =
   | { type: 'session'; sessionId: string }
   | { type: 'personal-workspace'; workspaceId: string; ownerUserId: string }
   | { type: 'department'; departmentId: string }
   | { type: 'organization'; organizationId: string }
 
+/** Data used by `EnterpriseCordisPrincipal`. */
 export interface EnterpriseCordisPrincipal {
   readonly orgId: string
   readonly userId: string
   readonly roles: readonly EnterpriseRole[]
 }
 
+/** Data used by `DshPluginManifestV1`. */
 export interface DshPluginManifestV1 {
   readonly apiVersion: 'dsh-plugin/v1'
   readonly runtime: 'in-process' | 'isolated-realm' | 'sandboxed-iframe'
@@ -21,6 +24,7 @@ export interface DshPluginManifestV1 {
   readonly dependencies?: readonly DshPluginDependency[]
 }
 
+/** Data used by `DshPluginDependency`. */
 export interface DshPluginDependency {
   readonly name: string
   readonly version: string
@@ -28,6 +32,7 @@ export interface DshPluginDependency {
   readonly license: string
 }
 
+/** Data used by `CordisValidationCheck`. */
 export interface CordisValidationCheck {
   readonly id: 'manifest' | 'permissions' | 'isolation' | 'secrets' | 'host-api' | 'ui-lifecycle' | 'rollback'
     | 'malware' | 'license' | 'supply-chain'
@@ -35,6 +40,7 @@ export interface CordisValidationCheck {
   readonly message: string
 }
 
+/** Data used by `CordisValidationReport`. */
 export interface CordisValidationReport {
   readonly reportRef: string
   readonly orgId: string
@@ -44,6 +50,7 @@ export interface CordisValidationReport {
   readonly createdAt: number
 }
 
+/** Data used by `CordisArtifactMetadata`. */
 export interface CordisArtifactMetadata {
   readonly artifactRef: string
   readonly orgId: string
@@ -53,6 +60,7 @@ export interface CordisArtifactMetadata {
   readonly createdAt: number
 }
 
+/** Data used by `CordisPackageDraft`. */
 export interface CordisPackageDraft {
   readonly pluginId: string
   readonly dynamicPackageId: string
@@ -65,6 +73,7 @@ export interface CordisPackageDraft {
   readonly validationReportRef: string
 }
 
+/** Data used by `CordisPackageVersion`. */
 export interface CordisPackageVersion extends CordisPackageDraft {
   readonly packageId: string
   readonly orgId: string
@@ -77,6 +86,7 @@ export interface CordisPackageVersion extends CordisPackageDraft {
   readonly createdAt: number
 }
 
+/** Data used by `CordisScopeBinding`. */
 export interface CordisScopeBinding {
   readonly bindingId: string
   readonly orgId: string
@@ -92,6 +102,7 @@ export interface CordisScopeBinding {
   readonly updatedAt: number
 }
 
+/** Data used by `CordisSessionGenerationEntry`. */
 export interface CordisSessionGenerationEntry {
   readonly pluginId: string
   readonly packageId: string
@@ -110,6 +121,7 @@ export interface CordisSessionGeneration {
   readonly createdAt: number
 }
 
+/** Allowed values for `CordisReviewStatus`. */
 export type CordisReviewStatus =
   | 'pending'
   | 'changes-requested'
@@ -118,6 +130,7 @@ export type CordisReviewStatus =
   | 'superseded'
   | 'revoked'
 
+/** Data used by `CordisReviewRequest`. */
 export interface CordisReviewRequest {
   readonly reviewId: string
   readonly orgId: string
@@ -134,6 +147,7 @@ export interface CordisReviewRequest {
   readonly updatedAt: number
 }
 
+/** Data used by `EnterpriseCordisWorkspaceView`. */
 export interface EnterpriseCordisWorkspaceView {
   readonly workspaceId: string
   readonly orgId: string
@@ -142,12 +156,14 @@ export interface EnterpriseCordisWorkspaceView {
   readonly departmentId?: string
 }
 
+/** Data used by `EnterpriseCordisDirectory`. */
 export interface EnterpriseCordisDirectory {
   workspace(workspaceId: string): Promise<EnterpriseCordisWorkspaceView | undefined>
   userDepartments(orgId: string, userId: string): Promise<readonly string[]>
   isDepartmentManager(orgId: string, departmentId: string, userId: string): Promise<boolean>
 }
 
+/** Data used by `EnterpriseCordisAuditEvent`. */
 export interface EnterpriseCordisAuditEvent {
   readonly id: string
   readonly orgId: string
@@ -160,6 +176,7 @@ export interface EnterpriseCordisAuditEvent {
   readonly details: Readonly<Record<string, unknown>>
 }
 
+/** Data used by `DepartmentManagerSet`. */
 export interface DepartmentManagerSet {
   readonly orgId: string
   readonly departmentId: string
@@ -169,20 +186,24 @@ export interface DepartmentManagerSet {
   readonly updatedAt: number
 }
 
+/** Data used by `DerivedCordisPackage`. */
 export interface DerivedCordisPackage extends CordisPackageVersion {
   readonly reviewRevision: number
 }
 
+/** Data used by `PublishedCordisReview`. */
 export interface PublishedCordisReview extends CordisReviewRequest {
   readonly publishedBy: string
   readonly organizationBinding: CordisScopeBinding
 }
 
+/** Data used by `CordisWorkspaceProjection`. */
 export interface CordisWorkspaceProjection {
   readonly packages: readonly CordisPackageVersion[]
   readonly bindings: readonly CordisScopeBinding[]
 }
 
+/** Allowed values for `EnterpriseCordisEventName`. */
 export type EnterpriseCordisEventName =
   | 'enterprise/cordis-package-saved'
   | 'enterprise/cordis-review-requested'
@@ -192,6 +213,7 @@ export type EnterpriseCordisEventName =
   | 'enterprise/cordis-run-health-updated'
   | 'enterprise/cordis-plugin-disabled'
 
+/** Data used by `EnterpriseCordisEvent`. */
 export interface EnterpriseCordisEvent {
   readonly orgId: string
   readonly pluginId: string

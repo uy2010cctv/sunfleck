@@ -19,7 +19,11 @@ import type {
 export class TeamEnterpriseRuntime {
   constructor(private readonly journal: TeamJournal) {}
 
-  /** Append the starting TeamRun edge or return the receipt committed by a retry. */
+  /** Append the starting TeamRun edge or return the receipt committed by a retry.
+   * @param request - Input value used by this API.
+   * @param root - Input value used by this API.
+   * @returns Result produced by this API.
+   */
   start(root: Agent, request: TeamRunStartRequest): Promise<TeamRuntimeMutationReceipt> {
     return this.journal.transact(root.id, async () => {
       const state = this.journal.state(root)
@@ -40,7 +44,10 @@ export class TeamEnterpriseRuntime {
     })
   }
 
-  /** Add one immutable Human row without granting Agent membership or mailbox access. */
+  /** Add one immutable Human row without granting Agent membership or mailbox access.
+   * @param member - Input value used by this API.
+   * @param root - Input value used by this API.
+   */
   registerHuman(root: Agent, member: TeamHumanMemberSnapshot): Promise<void> {
     return this.journal.transact(root.id, async () => {
       const prior = this.journal.state(root).humans.get(member.userId)
@@ -56,7 +63,11 @@ export class TeamEnterpriseRuntime {
     })
   }
 
-  /** Apply one TeamRun transition with root-wide runtime revision assignment. */
+  /** Apply one TeamRun transition with root-wide runtime revision assignment.
+   * @param request - Input value used by this API.
+   * @param root - Input value used by this API.
+   * @returns Result produced by this API.
+   */
   setState(root: Agent, request: TeamRunStateRequest): Promise<TeamRuntimeMutationReceipt> {
     return this.journal.transact(root.id, async () => {
       const state = this.journal.state(root)
@@ -84,7 +95,11 @@ export class TeamEnterpriseRuntime {
     })
   }
 
-  /** Append one open Human decision with service-owned revisions. */
+  /** Append one open Human decision with service-owned revisions.
+   * @param request - Input value used by this API.
+   * @param root - Input value used by this API.
+   * @returns Result produced by this API.
+   */
   projectDecision(root: Agent, request: TeamDecisionProjectRequest): Promise<TeamRuntimeMutationReceipt> {
     return this.journal.transact(root.id, async () => {
       const state = this.journal.state(root)
@@ -108,7 +123,11 @@ export class TeamEnterpriseRuntime {
     })
   }
 
-  /** Answer one open decision with revision CAS and operation idempotency. */
+  /** Answer one open decision with revision CAS and operation idempotency.
+   * @param request - Input value used by this API.
+   * @param root - Input value used by this API.
+   * @returns Result produced by this API.
+   */
   respondDecision(root: Agent, request: TeamDecisionResponseRequest): Promise<TeamRuntimeMutationReceipt> {
     return this.journal.transact(root.id, async () => {
       const state = this.journal.state(root)

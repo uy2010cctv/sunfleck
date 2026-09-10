@@ -2,8 +2,10 @@
 
 export const NS = 'enterprise.workbench' as const
 
+/** Allowed values for `EnterpriseWorkbenchKey`. */
 export type EnterpriseWorkbenchKey = keyof typeof en
 
+/** Value exported as `en`. */
 export const en = {
   'trigger.label': 'Digital employees',
   'trigger.open': 'Open digital employee workbench',
@@ -657,6 +659,7 @@ export const en = {
   'enum.target.team': 'Team',
 } as const
 
+/** Value exported as `zh`. */
 export const zh: Record<EnterpriseWorkbenchKey, string> = {
   'trigger.label': '数字员工',
   'trigger.open': '打开数字员工工作台',

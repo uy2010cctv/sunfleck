@@ -1,5 +1,7 @@
+/** Value exported as `NS`. */
 export const NS = 'enterprise.governance' as const
 
+/** Value exported as `zh`. */
 export const zh: Record<string, string> = {
   'settings.label': '企业管理',
   'account.logoutLabel': '退出登录：{name}',
@@ -20,6 +22,7 @@ export const zh: Record<string, string> = {
   'visibility.restrictedCount': '指定 {count} 位成员', 'policy.editAria': '编辑权限：{name}',
 }
 
+/** Value exported as `en`. */
 export const en: Record<string, string> = {
   'settings.label': 'Enterprise management',
   'account.logoutLabel': 'Log out: {name}',
@@ -40,8 +43,13 @@ export const en: Record<string, string> = {
   'visibility.restrictedCount': '{count} selected members', 'policy.editAria': 'Edit access: {name}',
 }
 
+/** Allowed values for `GovernanceTranslate`. */
 export type GovernanceTranslate = (key: string, params?: Record<string, string | number>) => string
 
+/** Value exported as `defaultGovernanceTranslate`.
+ * @param key - Input value used by this API.
+ * @param params - Input value used by this API.
+ */
 export const defaultGovernanceTranslate: GovernanceTranslate = (key, params) => {
   let text = zh[key] ?? key
   for (const [name, value] of Object.entries(params ?? {})) text = text.replaceAll(`{${name}}`, String(value))

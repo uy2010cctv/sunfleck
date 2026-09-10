@@ -14,6 +14,7 @@ import type {} from '@deepseek-ai/dsh-system-prompt'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import z from '@deepseek-ai/schemastery'
 
+/** Data used by `Config`. */
 export interface Config {
   /** Maximum approved and proposed memory entries injected into one Agent context. */
   readonly maxEntries?: number
@@ -144,7 +145,11 @@ function renderEntry(entry: EnterpriseMemoryEntry): string {
   return `- [${entry.id}] ${entry.kind}: ${JSON.stringify(entry.summary)}`
 }
 
-/** Render a bounded, non-authoritative context block from already approved entries. */
+/** Render a bounded, non-authoritative context block from already approved entries.
+ * @param entries - Input value used by this API.
+ * @param maxChars - Input value used by this API.
+ * @returns Result produced by this API.
+ */
 export function renderEnterpriseMemory(entries: readonly EnterpriseMemoryEntry[], maxChars: number): string {
   const organization = entries.filter(entry => entry.scope === 'organization')
   const department = entries.filter(entry => entry.scope === 'department')
@@ -161,7 +166,10 @@ export function renderEnterpriseMemory(entries: readonly EnterpriseMemoryEntry[]
   return rendered.length <= maxChars ? rendered : `${rendered.slice(0, Math.max(0, maxChars - 22))}\n[context truncated]\n`
 }
 
-/** Register the async workspace-scoped memory projection. */
+/** Register the async workspace-scoped memory projection.
+ * @param config - Input value used by this API.
+ * @param ctx - Input value used by this API.
+*/
 export function apply(ctx: Context, config: Config): void {
   const maxEntries = config.maxEntries ?? 40
   const maxChars = config.maxChars ?? 12_000

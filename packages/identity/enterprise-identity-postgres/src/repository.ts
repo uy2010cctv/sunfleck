@@ -148,14 +148,21 @@ export class PgEnterpriseIdentityRepository {
     this.now = options.now ?? Date.now
   }
 
+  /** Executes `PgEnterpriseIdentityRepository.close` for this instance. */
   async close(): Promise<void> {
     await this.database.end?.()
   }
 
+  /** Executes `PgEnterpriseIdentityRepository.createOrganization` for this instance.
+   * @param organization - Input value used by this API.
+   */
   async createOrganization(organization: EnterpriseOrganization): Promise<void> {
     await this.database.query('INSERT INTO organizations(id, name) VALUES ($1, $2)', [organization.id, organization.name])
   }
 
+  /** Executes `PgEnterpriseIdentityRepository.listOrganizations` for this instance.
+   * @returns Result produced by this API.
+   */
   async listOrganizations(): Promise<EnterpriseOrganization[]> {
     const result = await this.database.query<{ id: string; name: string }>(
       'SELECT id, name FROM organizations ORDER BY name, id',
@@ -163,6 +170,10 @@ export class PgEnterpriseIdentityRepository {
     return result.rows.map(row => ({ id: row.id, name: row.name }))
   }
 
+  /** Executes `PgEnterpriseIdentityRepository.createUser` for this instance.
+   * @param options - Input value used by this API.
+   * @param user - Input value used by this API.
+   */
   async createUser(user: EnterpriseUserInput, options: CreateEnterpriseUserOptions = {}): Promise<void> {
     if (options.passwordVerifier === undefined) {
       await this.database.query(
@@ -178,6 +189,10 @@ export class PgEnterpriseIdentityRepository {
     )
   }
 
+  /** Executes `PgEnterpriseIdentityRepository.listUsers` for this instance.
+   * @param orgId - Input value used by this API.
+   * @returns Result produced by this API.
+   */
   async listUsers(orgId: string): Promise<EnterpriseUserView[]> {
     const users = await this.database.query<UserRow>(
       'SELECT id, org_id, username, display_name, disabled, department_revision FROM users WHERE org_id = $1 ORDER BY username, id',
@@ -190,6 +205,11 @@ export class PgEnterpriseIdentityRepository {
     })))
   }
 
+  /** Executes `PgEnterpriseIdentityRepository.findUser` for this instance.
+   * @param orgId - Input value used by this API.
+   * @param username - Input value used by this API.
+   * @returns Result produced by this API.
+   */
   async findUser(orgId: string, username: string): Promise<EnterpriseUserView | undefined> {
     const result = await this.database.query<UserRow>(
       'SELECT id, org_id, username, display_name, disabled, department_revision FROM users WHERE org_id = $1 AND username = $2',
@@ -198,6 +218,9 @@ export class PgEnterpriseIdentityRepository {
     return result.rows[0] === undefined ? undefined : this.userFromRow(result.rows[0])
   }
 
+  /** Executes `PgEnterpriseIdentityRepository.updateUserProfile` for this instance.
+   * @param input - Input value used by this API.
+   */
   async updateUserProfile(input: UpdateEnterpriseUserProfileInput): Promise<void> {
     const username = input.username.trim()
     const displayName = input.displayName.trim()
@@ -245,6 +268,10 @@ export class PgEnterpriseIdentityRepository {
     }
   }
 
+  /** Executes `PgEnterpriseIdentityRepository.setRoles` for this instance.
+   * @param roles - Input value used by this API.
+   * @param userId - Input value used by this API.
+   */
   async setRoles(userId: string, roles: readonly EnterpriseRole[]): Promise<void> {
     await this.transaction(async (database) => {
       await database.query('DELETE FROM user_roles WHERE user_id = $1', [userId])
@@ -254,6 +281,10 @@ export class PgEnterpriseIdentityRepository {
     })
   }
 
+  /** Executes `PgEnterpriseIdentityRepository.setUserDisabled` for this instance.
+   * @param disabled - Input value used by this API.
+   * @param userId - Input value used by this API.
+   */
   async setUserDisabled(userId: string, disabled: boolean): Promise<void> {
     await this.transaction(async (database) => {
       await database.query('UPDATE users SET disabled = $1 WHERE id = $2', [disabled, userId])
@@ -266,6 +297,10 @@ export class PgEnterpriseIdentityRepository {
     })
   }
 
+  /** Executes `PgEnterpriseIdentityRepository.saveDepartment` for this instance.
+   * @param input - Input value used by this API.
+   * @returns Result produced by this API.
+   */
   async saveDepartment(input: SaveEnterpriseDepartmentInput): Promise<EnterpriseDepartment> {
     if (!input.id.trim() || !input.name.trim() || !Number.isSafeInteger(input.sortOrder)) {
       throw new Error('enterprise department id, name, and integer sort order are required')
@@ -314,6 +349,10 @@ export class PgEnterpriseIdentityRepository {
     }
   }
 
+  /** Executes `PgEnterpriseIdentityRepository.listDepartments` for this instance.
+   * @param orgId - Input value used by this API.
+   * @returns Result produced by this API.
+   */
   async listDepartments(orgId: string): Promise<EnterpriseDepartment[]> {
     const result = await this.database.query<DepartmentRow>(`SELECT * FROM departments WHERE org_id = $1
       ORDER BY parent_id NULLS FIRST, sort_order, name, id`, [orgId])
@@ -327,6 +366,10 @@ export class PgEnterpriseIdentityRepository {
     }
   }
 
+  /** Executes `PgEnterpriseIdentityRepository.setUserDepartments` for this instance.
+   * @param input - Input value used by this API.
+   * @returns Result produced by this API.
+   */
   async setUserDepartments(input: SetUserDepartmentsInput): Promise<EnterpriseUserView> {
     const departmentIds = [...new Set(input.departmentIds)].sort()
     if (input.primaryDepartmentId !== undefined && !departmentIds.includes(input.primaryDepartmentId)) {
@@ -366,6 +409,10 @@ export class PgEnterpriseIdentityRepository {
     return result.rows.map(row => row.role)
   }
 
+  /** Executes `PgEnterpriseIdentityRepository.saveWorkspaceGrant` for this instance.
+   * @param input - Input value used by this API.
+   * @returns Result produced by this API.
+   */
   async saveWorkspaceGrant(input: SaveEnterpriseWorkspaceGrantInput): Promise<EnterpriseWorkspaceGrant> {
     this.assertWorkspaceGrantShape(input)
     return this.transaction(async (database) => {
@@ -412,11 +459,19 @@ export class PgEnterpriseIdentityRepository {
     }
   }
 
+  /** Executes `PgEnterpriseIdentityRepository.workspaceGrant` for this instance.
+   * @param workspaceId - Input value used by this API.
+   * @returns Result produced by this API.
+   */
   async workspaceGrant(workspaceId: string): Promise<EnterpriseWorkspaceGrant | undefined> {
     const result = await this.database.query<WorkspaceGrantRow>('SELECT * FROM enterprise_workspace_grants WHERE workspace_id = $1', [workspaceId])
     return result.rows[0] === undefined ? undefined : this.workspaceGrantFromRow(result.rows[0])
   }
 
+  /** Executes `PgEnterpriseIdentityRepository.workspaceGrantByRootPath` for this instance.
+   * @param rootPath - Input value used by this API.
+   * @returns Result produced by this API.
+   */
   async workspaceGrantByRootPath(rootPath: string): Promise<EnterpriseWorkspaceGrant | undefined> {
     const result = await this.database.query<WorkspaceGrantRow>(
       'SELECT * FROM enterprise_workspace_grants WHERE root_path = $1', [rootPath],
@@ -424,6 +479,10 @@ export class PgEnterpriseIdentityRepository {
     return result.rows[0] === undefined ? undefined : this.workspaceGrantFromRow(result.rows[0])
   }
 
+  /** Executes `PgEnterpriseIdentityRepository.listWorkspaceGrants` for this instance.
+   * @param input - Input value used by this API.
+   * @returns Result produced by this API.
+   */
   async listWorkspaceGrants(input: { orgId: string; userId: string }): Promise<EnterpriseWorkspaceGrant[]> {
     const result = await this.database.query<WorkspaceGrantRow>(`SELECT workspace.* FROM enterprise_workspace_grants workspace
       LEFT JOIN user_departments membership ON membership.department_id = workspace.department_id AND membership.user_id = $1
@@ -433,6 +492,10 @@ export class PgEnterpriseIdentityRepository {
     return result.rows.map(row => this.workspaceGrantFromRow(row))
   }
 
+  /** Executes `PgEnterpriseIdentityRepository.listOrganizationWorkspaceGrants` for this instance.
+   * @param orgId - Input value used by this API.
+   * @returns Result produced by this API.
+   */
   async listOrganizationWorkspaceGrants(orgId: string): Promise<EnterpriseWorkspaceGrant[]> {
     const result = await this.database.query<WorkspaceGrantRow>(`SELECT * FROM enterprise_workspace_grants WHERE org_id = $1
       ORDER BY kind, name, workspace_id`, [orgId])
@@ -449,6 +512,9 @@ export class PgEnterpriseIdentityRepository {
     }
   }
 
+  /** Executes `PgEnterpriseIdentityRepository.bindSessionWorkspace` for this instance.
+   * @param input - Input value used by this API.
+   */
   async bindSessionWorkspace(input: {
     sessionId: string
     workspaceId: string
@@ -486,6 +552,10 @@ export class PgEnterpriseIdentityRepository {
     })
   }
 
+  /** Executes `PgEnterpriseIdentityRepository.sessionWorkspaceGrant` for this instance.
+   * @param sessionId - Input value used by this API.
+   * @returns Result produced by this API.
+   */
   async sessionWorkspaceGrant(sessionId: string): Promise<EnterpriseWorkspaceGrant | undefined> {
     const result = await this.database.query<WorkspaceGrantRow>(`SELECT workspace.*
       FROM enterprise_session_workspaces binding
@@ -494,6 +564,10 @@ export class PgEnterpriseIdentityRepository {
     return result.rows[0] === undefined ? undefined : this.workspaceGrantFromRow(result.rows[0])
   }
 
+  /** Executes `PgEnterpriseIdentityRepository.sessionOwnerUserId` for this instance.
+   * @param sessionId - Input value used by this API.
+   * @returns Result produced by this API.
+   */
   async sessionOwnerUserId(sessionId: string): Promise<string | undefined> {
     const result = await this.database.query<{ owner_user_id: string | null }>(
       'SELECT owner_user_id FROM enterprise_session_workspaces WHERE session_id = $1', [sessionId],
@@ -501,6 +575,10 @@ export class PgEnterpriseIdentityRepository {
     return result.rows[0]?.owner_user_id ?? undefined
   }
 
+  /** Executes `PgEnterpriseIdentityRepository.proposeMemory` for this instance.
+   * @param input - Input value used by this API.
+   * @returns Result produced by this API.
+   */
   async proposeMemory(input: ProposeEnterpriseMemoryInput): Promise<EnterpriseMemoryEntry> {
     const summary = input.summary.trim()
     const inspection = inspectEnterpriseMemory(summary)
@@ -529,6 +607,10 @@ export class PgEnterpriseIdentityRepository {
     })
   }
 
+  /** Executes `PgEnterpriseIdentityRepository.reviewMemory` for this instance.
+   * @param input - Input value used by this API.
+   * @returns Result produced by this API.
+   */
   async reviewMemory(input: ReviewEnterpriseMemoryInput): Promise<EnterpriseMemoryEntry> {
     if (!input.reason.trim()) throw new Error('enterprise memory review reason is required')
     return this.transaction(async (database) => {
@@ -559,6 +641,10 @@ export class PgEnterpriseIdentityRepository {
     })
   }
 
+  /** Executes `PgEnterpriseIdentityRepository.listMemories` for this instance.
+   * @param input - Input value used by this API.
+   * @returns Result produced by this API.
+   */
   async listMemories(input: {
     orgId: string
     departmentIds?: readonly string[]
@@ -605,10 +691,19 @@ export class PgEnterpriseIdentityRepository {
     }
   }
 
+  /** Executes `PgEnterpriseIdentityRepository.setPasswordVerifier` for this instance.
+   * @param userId - Input value used by this API.
+   * @param verifier - Input value used by this API.
+   */
   async setPasswordVerifier(userId: string, verifier: string): Promise<void> {
     await this.database.query('UPDATE users SET password_verifier = $1 WHERE id = $2', [verifier, userId])
   }
 
+  /** Executes `PgEnterpriseIdentityRepository.passwordLoginRecord` for this instance.
+   * @param orgId - Input value used by this API.
+   * @param username - Input value used by this API.
+   * @returns Result produced by this API.
+   */
   async passwordLoginRecord(orgId: string, username: string): Promise<{
     userId: string
     disabled: boolean
@@ -627,6 +722,9 @@ export class PgEnterpriseIdentityRepository {
     return row === undefined ? undefined : { userId: row.id, disabled: row.disabled, verifier: row.password_verifier }
   }
 
+  /** Executes `PgEnterpriseIdentityRepository.bindExternalIdentity` for this instance.
+   * @param binding - Input value used by this API.
+   */
   async bindExternalIdentity(binding: ExternalIdentityBinding): Promise<void> {
     await this.database.query(
       'INSERT INTO external_identities(provider_id, subject, user_id) VALUES ($1, $2, $3)',
@@ -634,6 +732,11 @@ export class PgEnterpriseIdentityRepository {
     )
   }
 
+  /** Executes `PgEnterpriseIdentityRepository.resolveExternalIdentity` for this instance.
+   * @param providerId - Input value used by this API.
+   * @param subject - Input value used by this API.
+   * @returns Result produced by this API.
+   */
   async resolveExternalIdentity(providerId: string, subject: string): Promise<EnterpriseUserView | undefined> {
     const result = await this.database.query<{ user_id: string }>(
       'SELECT user_id FROM external_identities WHERE provider_id = $1 AND subject = $2', [providerId, subject],
@@ -641,6 +744,9 @@ export class PgEnterpriseIdentityRepository {
     return result.rows[0] === undefined ? undefined : this.user(result.rows[0].user_id)
   }
 
+  /** Executes `PgEnterpriseIdentityRepository.createSession` for this instance.
+   * @param input - Input value used by this API.
+   */
   async createSession(input: { token: string; userId: string; expiresAt: number }): Promise<void> {
     const at = this.now()
     await this.database.query(
@@ -650,6 +756,10 @@ export class PgEnterpriseIdentityRepository {
     )
   }
 
+  /** Executes `PgEnterpriseIdentityRepository.authenticateSession` for this instance.
+   * @param token - Input value used by this API.
+   * @returns Result produced by this API.
+   */
   async authenticateSession(token: string): Promise<EnterprisePrincipalView | undefined> {
     const at = this.now()
     const tokenHash = sessionTokenHash(token)
@@ -673,6 +783,9 @@ export class PgEnterpriseIdentityRepository {
     }
   }
 
+  /** Executes `PgEnterpriseIdentityRepository.revokeSession` for this instance.
+   * @param token - Input value used by this API.
+   */
   async revokeSession(token: string): Promise<void> {
     await this.database.query(
       'UPDATE auth_sessions SET revoked_at = $1 WHERE token_hash = $2 AND revoked_at IS NULL',
@@ -680,6 +793,9 @@ export class PgEnterpriseIdentityRepository {
     )
   }
 
+  /** Executes `PgEnterpriseIdentityRepository.putResourcePolicy` for this instance.
+   * @param policy - Input value used by this API.
+   */
   async putResourcePolicy(policy: EnterpriseResourcePolicy): Promise<void> {
     await this.database.query(
       `INSERT INTO resource_policies(resource_type, resource_id, org_id, creator_user_id, visibility, allowed_user_ids)
@@ -692,6 +808,11 @@ export class PgEnterpriseIdentityRepository {
     )
   }
 
+  /** Executes `PgEnterpriseIdentityRepository.resourcePolicy` for this instance.
+   * @param resourceId - Input value used by this API.
+   * @param resourceType - Input value used by this API.
+   * @returns Result produced by this API.
+   */
   async resourcePolicy(resourceType: string, resourceId: string): Promise<EnterpriseResourcePolicy | undefined> {
     const result = await this.database.query<PolicyRow>(
       `SELECT resource_type, resource_id, org_id, creator_user_id, visibility, allowed_user_ids
@@ -701,6 +822,10 @@ export class PgEnterpriseIdentityRepository {
     return result.rows[0] === undefined ? undefined : this.policyFromRow(result.rows[0])
   }
 
+  /** Executes `PgEnterpriseIdentityRepository.listResourcePolicies` for this instance.
+   * @param orgId - Input value used by this API.
+   * @returns Result produced by this API.
+   */
   async listResourcePolicies(orgId: string): Promise<EnterpriseResourcePolicy[]> {
     const result = await this.database.query<PolicyRow>(
       `SELECT resource_type, resource_id, org_id, creator_user_id, visibility, allowed_user_ids
@@ -717,6 +842,9 @@ export class PgEnterpriseIdentityRepository {
     }
   }
 
+  /** Executes `PgEnterpriseIdentityRepository.putManagedAsset` for this instance.
+   * @param asset - Input value used by this API.
+   */
   async putManagedAsset(asset: EnterpriseManagedAsset): Promise<void> {
     assertNoSecretFields(asset.config)
     await this.database.query(
@@ -726,6 +854,10 @@ export class PgEnterpriseIdentityRepository {
     )
   }
 
+  /** Executes `PgEnterpriseIdentityRepository.listManagedAssets` for this instance.
+   * @param orgId - Input value used by this API.
+   * @returns Result produced by this API.
+   */
   async listManagedAssets(orgId: string): Promise<EnterpriseManagedAsset[]> {
     const result = await this.database.query<AssetRow>(
       'SELECT org_id, type, id, name, config_json FROM managed_assets WHERE org_id = $1 ORDER BY type, id', [orgId],
@@ -735,6 +867,9 @@ export class PgEnterpriseIdentityRepository {
     }))
   }
 
+  /** Executes `PgEnterpriseIdentityRepository.appendAudit` for this instance.
+   * @param event - Input value used by this API.
+   */
   async appendAudit(event: EnterpriseAuditRecord): Promise<void> {
     await this.database.query(
       `INSERT INTO audit_events(id, org_id, actor_user_id, action, resource_type, resource_id,
@@ -745,6 +880,10 @@ export class PgEnterpriseIdentityRepository {
     )
   }
 
+  /** Executes `PgEnterpriseIdentityRepository.listAudit` for this instance.
+   * @param query - Input value used by this API.
+   * @returns Result produced by this API.
+   */
   async listAudit(query: AuditQuery): Promise<EnterpriseAuditRecord[]> {
     const clauses = ['org_id = $1']
     const values: unknown[] = [query.orgId]

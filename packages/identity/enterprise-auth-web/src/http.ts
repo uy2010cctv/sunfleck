@@ -16,6 +16,7 @@ interface OidcProviderLike extends Pick<EnterpriseOidcProvider, 'id' | 'label' |
 interface SamlProviderLike extends Pick<EnterpriseSamlProvider, 'id' | 'label' | 'begin' | 'complete'> {}
 interface LdapProviderLike extends Pick<EnterpriseLdapProvider, 'id' | 'label' | 'authenticate'> {}
 
+/** Data used by `EnterpriseAuthProviders`. */
 export interface EnterpriseAuthProviders {
   readonly localEnabled: boolean
   readonly oidc: readonly OidcProviderLike[]
@@ -23,6 +24,7 @@ export interface EnterpriseAuthProviders {
   readonly ldap: readonly LdapProviderLike[]
 }
 
+/** Data used by `EnterpriseAuthHttpOptions`. */
 export interface EnterpriseAuthHttpOptions {
   readonly workspaceProvisioner?: Partial<Pick<
     EnterpriseWorkspaceProvisioner,
@@ -89,6 +91,10 @@ export class EnterpriseAuthHttpHandler {
     for (const provider of providers.ldap) this.ldap.set(provider.id, provider)
   }
 
+  /** Executes `EnterpriseAuthHttpHandler.fetch` for this instance.
+   * @param request - Input value used by this API.
+   * @returns Result produced by this API.
+   */
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url)
     const path = url.pathname.split('/').filter(Boolean)

@@ -10,11 +10,13 @@ import type {
   EnterpriseCordisAuditEvent,
 } from './types.ts'
 
+/** Data used by `EnterpriseCordisPostgresResult`. */
 export interface EnterpriseCordisPostgresResult<Row extends Record<string, unknown> = Record<string, unknown>> {
   readonly rows: readonly Row[]
   readonly rowCount: number | null
 }
 
+/** Data used by `EnterpriseCordisPostgresDatabase`. */
 export interface EnterpriseCordisPostgresDatabase {
   query<Row extends Record<string, unknown> = Record<string, unknown>>(
     text: string,
@@ -141,6 +143,9 @@ const SCHEMA = [
   'CREATE INDEX IF NOT EXISTS dsh_enterprise_cordis_audit_org_time ON dsh_enterprise_cordis_audit(org_id, created_at DESC)',
 ] as const
 
+/** Executes `migrateEnterpriseCordis`.
+ * @param database - Input value used by this API.
+ */
 export async function migrateEnterpriseCordis(database: EnterpriseCordisPostgresDatabase): Promise<void> {
   for (const statement of SCHEMA) await database.query(statement)
 }
@@ -241,6 +246,27 @@ function bindingFromRow(row: BindingRow): CordisScopeBinding {
   }
 }
 
+/** Provides `PostgresEnterpriseCordisRepository` capabilities.
+ * @param row - Input value used by this API.
+
+ * @param row - Input value used by this API.
+
+ * @param resultValue - Input value used by this API.
+
+ * @param row - Input value used by this API.
+
+ * @param row - Input value used by this API.
+
+ * @param row - Input value used by this API.
+
+ * @param key - Input value used by this API.
+
+ * @param row - Input value used by this API.
+
+ * @param row - Input value used by this API.
+
+ * @param row - Input value used by this API.
+ */
 export class PostgresEnterpriseCordisRepository implements EnterpriseCordisRepository {
   constructor(private readonly database: EnterpriseCordisPostgresDatabase) {}
 
@@ -259,6 +285,7 @@ export class PostgresEnterpriseCordisRepository implements EnterpriseCordisRepos
     return result.rows.map(packageFromRow)
   }
 
+  /** @param row - Immutable Package version to persist. */
   async putPackage(row: CordisPackageVersion): Promise<void> {
     await this.database.query(`INSERT INTO dsh_enterprise_cordis_packages(
       package_id, org_id, plugin_id, dynamic_package_id, version, scope_key, scope_json,
@@ -273,6 +300,7 @@ export class PostgresEnterpriseCordisRepository implements EnterpriseCordisRepos
     ])
   }
 
+  /** @param row - Package version that references the artifact. */
   async putPackageWithArtifact(row: CordisPackageVersion, artifact: CordisArtifactMetadata): Promise<void> {
     await this.database.transaction(async (database) => {
       const result = await database.query(`INSERT INTO dsh_enterprise_cordis_artifacts(
@@ -318,6 +346,7 @@ export class PostgresEnterpriseCordisRepository implements EnterpriseCordisRepos
     return result.rows[0] === undefined ? undefined : reviewFromRow(result.rows[0])
   }
 
+  /** @param row - Review request to insert or update. */
   async putReview(row: CordisReviewRequest, expectedRevision: number): Promise<void> {
     const result = expectedRevision === 0
       ? await this.database.query(`INSERT INTO dsh_enterprise_cordis_reviews(
@@ -372,6 +401,7 @@ export class PostgresEnterpriseCordisRepository implements EnterpriseCordisRepos
     return result.rows[0] === undefined ? undefined : bindingFromRow(result.rows[0])
   }
 
+  /** @param key - Canonical scope key for the binding lookup. */
   async bindingForScope(orgId: string, key: string, pluginId: string): Promise<CordisScopeBinding | undefined> {
     const result = await this.database.query<BindingRow>(
       'SELECT * FROM dsh_enterprise_cordis_bindings WHERE org_id = $1 AND scope_key = $2 AND plugin_id = $3',
@@ -380,6 +410,7 @@ export class PostgresEnterpriseCordisRepository implements EnterpriseCordisRepos
     return result.rows[0] === undefined ? undefined : bindingFromRow(result.rows[0])
   }
 
+  /** @param row - Scope binding to insert or compare-and-swap update. */
   async putBinding(row: CordisScopeBinding, expectedRevision: number): Promise<void> {
     const result = expectedRevision === 0
       ? await this.database.query(`INSERT INTO dsh_enterprise_cordis_bindings(
@@ -417,6 +448,7 @@ export class PostgresEnterpriseCordisRepository implements EnterpriseCordisRepos
     }
   }
 
+  /** @param row - Session generation pinned to durable Package versions. */
   async putSessionGeneration(row: CordisSessionGeneration): Promise<void> {
     const result = await this.database.query(`INSERT INTO dsh_enterprise_cordis_session_generations(
       session_id,org_id,workspace_id,entries_json,created_at
@@ -439,6 +471,7 @@ export class PostgresEnterpriseCordisRepository implements EnterpriseCordisRepos
     }
   }
 
+  /** @param row - Validation report to persist once for its report reference. */
   async putValidationReport(row: CordisValidationReport): Promise<void> {
     const result = await this.database.query(`INSERT INTO dsh_enterprise_cordis_validation_reports(
       report_ref,org_id,package_id,status,report_json,created_at
@@ -456,6 +489,7 @@ export class PostgresEnterpriseCordisRepository implements EnterpriseCordisRepos
     return result.rows[0] === undefined ? undefined : value(result.rows[0].result_json)
   }
 
+  /** @param resultValue - Idempotent command result serialized for later replay. */
   async putCommand<T>(scope: string, idempotencyKey: string, resultValue: T): Promise<void> {
     await this.database.query(`INSERT INTO dsh_enterprise_cordis_commands(command_scope, idempotency_key, result_json)
       VALUES ($1,$2,$3::jsonb) ON CONFLICT (command_scope, idempotency_key) DO NOTHING`, [
@@ -463,6 +497,7 @@ export class PostgresEnterpriseCordisRepository implements EnterpriseCordisRepos
     ])
   }
 
+  /** @param row - Auditable Cordis governance event to append. */
   async appendAudit(row: EnterpriseCordisAuditEvent): Promise<void> {
     await this.database.query(`INSERT INTO dsh_enterprise_cordis_audit(
       id, org_id, actor_user_id, action, plugin_id, package_id, review_id, created_at, details_json
@@ -499,6 +534,7 @@ export class PostgresEnterpriseCordisRepository implements EnterpriseCordisRepos
     }
   }
 
+  /** @param row - Department manager set to persist under the expected revision. */
   async putDepartmentManagers(row: DepartmentManagerSet, expectedRevision: number): Promise<void> {
     const result = expectedRevision === 0
       ? await this.database.query(`INSERT INTO dsh_enterprise_department_manager_sets(

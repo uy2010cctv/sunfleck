@@ -40,7 +40,10 @@ function parseOptions(argv: readonly string[]): CliOptions {
   return { sqliteFilename, databaseUrl, backupFilename, dryRun, targetBackupConfirmed, sourceQuiesced }
 }
 
-/** Runs the migration CLI and writes only counts/checksums, never database secrets or tokens. */
+/** Runs the migration CLI and writes only counts/checksums, never database secrets or tokens.
+ * @param argv - Input value used by this API.
+ * @param write - Input value used by this API.
+ */
 export async function runMigrationCli(argv: readonly string[], write: (line: string) => void = console.log): Promise<void> {
   const options = parseOptions(argv)
   if (options.dryRun) {

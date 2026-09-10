@@ -106,6 +106,7 @@ export interface EnterpriseEmployeeDraftFields {
   readonly bindings: readonly EnterpriseEmployeeAssetRef[]
 }
 
+/** Data used by `EnterpriseModelOption`. */
 export interface EnterpriseModelOption {
   readonly value: string
   readonly provider: string
@@ -185,6 +186,7 @@ export interface EnterpriseWorkbenchRemote {
   readonly cordisGovernance: ClientRemote['cordisGovernance']
 }
 
+/** Allowed values for `EnterpriseHostEventName`. */
 export type EnterpriseHostEventName =
   | 'enterprise/employee-updated'
   | 'enterprise/asset-updated'
@@ -193,6 +195,7 @@ export type EnterpriseHostEventName =
   | 'enterprise/approval-requested'
   | 'enterprise/operation-updated'
 
+/** Data used by `EnterpriseHostFrame`. */
 export interface EnterpriseHostFrame {
   readonly type: 'enterprise/event'
   readonly event: EnterpriseHostEventName
@@ -202,12 +205,18 @@ export interface EnterpriseHostFrame {
   readonly resourceId?: string
 }
 
-/** True when a session has a user decision pending. */
+/** True when a session has a user decision pending.
+ * @param _session - Input value used by this API.
+ * @returns Result produced by this API.
+*/
 function needsAttention(_session: SessionSummary): boolean {
   return (_session as SessionSummary & { readonly pendingInteraction?: unknown }).pendingInteraction !== undefined
 }
 
-/** Work-record status projected from existing session facts. */
+/** Work-record status projected from existing session facts.
+ * @param session - Input value used by this API.
+ * @returns Result produced by this API.
+*/
 function recordState(session: SessionSummary): WorkRecordState {
   if (needsAttention(session)) return 'attention'
   if (session.running) return 'running'
@@ -390,7 +399,10 @@ function draftFields(draft: EnterpriseEmployeeDraft): EnterpriseEmployeeDraftFie
   }
 }
 
-/** Pure editor validation; strings are stable keys rendered by the UI dictionaries. */
+/** Pure editor validation; strings are stable keys rendered by the UI dictionaries.
+ * @param fields - Input value used by this API.
+ * @returns Result produced by this API.
+ */
 export function validateEmployeeDraft(fields: EnterpriseEmployeeDraftFields): readonly string[] {
   const errors: string[] = []
   if (fields.name.trim() === '') errors.push('name-required')
@@ -444,13 +456,17 @@ export class EnterpriseWorkbenchController {
     this.store.set({ ...state, open: false, busyEmployee: null })
   }
 
-  /** Change the overlay-local page. Dirty-editor confirmation stays in the view layer. */
+  /** Change the overlay-local page. Dirty-editor confirmation stays in the view layer.
+   * @param page - Input value used by this API.
+   */
   setPage(page: EnterpriseWorkbenchPage): void {
     if (page !== this.store.getSnapshot().page) this.editorGeneration++
     this.store.set({ ...this.store.getSnapshot(), page })
   }
 
-  /** Replace server-side roster filters; the next refresh starts from the first cursor. */
+  /** Replace server-side roster filters; the next refresh starts from the first cursor.
+   * @param filters - Input value used by this API.
+   */
   setEmployeeFilters(filters: EnterpriseEmployeeFilters): void {
     this.employeeRequestGeneration++
     this.store.set({ ...this.store.getSnapshot(), employeeFilters: filters })
@@ -525,7 +541,9 @@ export class EnterpriseWorkbenchController {
     }
   }
 
-  /** Load the first filtered employee page. */
+  /** Load the first filtered employee page.
+   * @returns Result produced by this API.
+   */
   async refreshEmployees(): Promise<boolean> {
     const generation = ++this.employeeRequestGeneration
     const state = this.store.getSnapshot()
@@ -552,7 +570,9 @@ export class EnterpriseWorkbenchController {
     }
   }
 
-  /** Append the next roster page using the current filters. */
+  /** Append the next roster page using the current filters.
+   * @returns Result produced by this API.
+   */
   async loadMoreEmployees(): Promise<boolean> {
     const before = this.store.getSnapshot()
     if (before.employees.nextCursor === undefined || before.employees.phase === 'loading') return false
@@ -610,27 +630,37 @@ export class EnterpriseWorkbenchController {
     }
   }
 
-  /** Refresh one PostgreSQL operations page. */
+  /** Refresh one PostgreSQL operations page.
+   * @returns Result produced by this API.
+   */
   refreshWorkRecords(): Promise<boolean> {
     return this.loadPage('workRecords', async () => valueOf(await this.api.enterpriseOperations.listWorkRecords({ limit: 50 })))
   }
 
-  /** Refresh approvals. */
+  /** Refresh approvals.
+   * @returns Result produced by this API.
+   */
   refreshApprovals(): Promise<boolean> {
     return this.loadPage('approvals', async () => valueOf(await this.api.enterpriseOperations.listApprovals({ limit: 50 })))
   }
 
-  /** Refresh schedules. */
+  /** Refresh schedules.
+   * @returns Result produced by this API.
+   */
   refreshSchedules(): Promise<boolean> {
     return this.loadPage('schedules', async () => valueOf(await this.api.enterpriseOperations.listSchedules({ limit: 50 })))
   }
 
-  /** Refresh capability assets. */
+  /** Refresh capability assets.
+   * @returns Result produced by this API.
+   */
   refreshAssets(): Promise<boolean> {
     return this.loadPage('assets', async () => valueOf(await this.api.enterpriseAssets.list({ limit: 50 })))
   }
 
-  /** Refresh fixed teams. */
+  /** Refresh fixed teams.
+   * @returns Result produced by this API.
+   */
   refreshTeams(): Promise<boolean> {
     return this.loadPage('teams', async () => valueOf(await this.api.enterpriseTeams.list({ limit: 50 })))
   }
@@ -643,7 +673,11 @@ export class EnterpriseWorkbenchController {
     return this.loadPage('channels', async () => valueOf(await this.api.enterpriseChannels.list({})))
   }
 
-  /** Begin provider-owned authorization for one persisted channel revision. */
+  /** Begin provider-owned authorization for one persisted channel revision.
+   * @param channel - Input value used by this API.
+   * @param redirectUri - Input value used by this API.
+   * @returns Result produced by this API.
+   */
   async beginChannelBinding(
     channel: EnterpriseChannelConfiguration,
     redirectUri: string,
@@ -655,7 +689,11 @@ export class EnterpriseWorkbenchController {
     }))
   }
 
-  /** Start provider-app installation before a channel configuration exists. */
+  /** Start provider-app installation before a channel configuration exists.
+   * @param provider - Input value used by this API.
+   * @param redirectUri - Input value used by this API.
+   * @returns Result produced by this API.
+   */
   async beginChannelBotInstall(
     provider: EnterpriseChannelConfiguration['provider'],
     redirectUri: string,
@@ -663,7 +701,11 @@ export class EnterpriseWorkbenchController {
     return valueOf(await this.api.enterpriseChannels.beginBotInstall({ provider, redirectUri }))
   }
 
-  /** Poll a provider Device Grant and return only secret-free progress. */
+  /** Poll a provider Device Grant and return only secret-free progress.
+   * @param installId - Input value used by this API.
+   * @param verificationCode - Input value used by this API.
+   * @returns Result produced by this API.
+   */
   async pollChannelBotInstall(installId: string, verificationCode?: string): Promise<EnterpriseChannelPollBotInstallResult> {
     return valueOf(await this.api.enterpriseChannels.pollBotInstall({
       installId, ...(verificationCode === undefined ? {} : { verificationCode }),
@@ -671,40 +713,54 @@ export class EnterpriseWorkbenchController {
     }))
   }
 
-  /** Refresh typed Team Definitions. */
+  /** Refresh typed Team Definitions.
+   * @returns Result produced by this API.
+   */
   refreshTeamDefinitions(): Promise<boolean> {
     return this.loadPage('teamDefinitions', async () => valueOf(await this.api.enterpriseTeamDefinitions.list({ limit: 50 })))
   }
 
-  /** Refresh visible TeamRun projections. */
+  /** Refresh visible TeamRun projections.
+   * @returns Result produced by this API.
+   */
   refreshTeamRuns(): Promise<boolean> {
     return this.loadPage('teamRuns', async () => valueOf(await this.api.enterpriseTeamRuns.list({ limit: 50 })))
   }
 
-  /** Refresh the current Human decision queue. */
+  /** Refresh the current Human decision queue.
+   * @returns Result produced by this API.
+   */
   refreshTeamDecisions(): Promise<boolean> {
     return this.loadPage('teamDecisions', async () => valueOf(await this.api.enterpriseTeamDecisions.list({ limit: 50 })))
   }
 
-  /** Refresh explicit scoped autonomy grants. */
+  /** Refresh explicit scoped autonomy grants.
+   * @returns Result produced by this API.
+   */
   refreshTeamAutonomy(): Promise<boolean> {
     return this.loadPage('teamAutonomy', async () => valueOf(await this.api.enterpriseTeamAutonomy.list({ limit: 50 })))
   }
 
-  /** Read formally installed Registry/tgz/Profile plugins from the live Loader inventory. */
+  /** Read formally installed Registry/tgz/Profile plugins from the live Loader inventory.
+   * @returns Result produced by this API.
+   */
   refreshFormalPlugins(): Promise<boolean> {
     return this.loadPage('formalPlugins', async () => ({
       items: valueOf(await this.api.pluginInventory.list()).entries,
     }))
   }
 
-  /** Select the Workspace whose personal or department extensions are projected. */
+  /** Select the Workspace whose personal or department extensions are projected.
+   * @param workspaceId - Input value used by this API.
+   */
   setExtensionWorkspace(workspaceId: string): void {
     this.store.set({ ...this.store.getSnapshot(), extensionWorkspaceId: workspaceId })
     void this.refreshExtensions()
   }
 
-  /** Load visible personal, department, organization, and review projections. */
+  /** Load visible personal, department, organization, and review projections.
+   * @returns Result produced by this API.
+   */
   async refreshExtensions(): Promise<boolean> {
     const before = this.store.getSnapshot()
     const workspaceId = before.extensionWorkspaceId
@@ -740,14 +796,19 @@ export class EnterpriseWorkbenchController {
     return this.currentSessionWorkspaceId() ?? this.workspaces.list.getSnapshot().items[0]?.workspaceId
   }
 
-  /** Resolve only the Workspace actually containing the currently open native Session. */
+  /** Resolve only the Workspace actually containing the currently open native Session.
+   * @returns Result produced by this API.
+  */
   private currentSessionWorkspaceId(): string | undefined {
     const currentSessionId = this.sessions.list.getSnapshot().current
     if (currentSessionId === undefined) return undefined
     return this.workspaces.list.getSnapshot().items.find(workspace => workspace.sessionIds.includes(currentSessionId))?.workspaceId
   }
 
-  /** Prepare a goal-first work request using the current native Session when one is open. */
+  /** Prepare a goal-first work request using the current native Session when one is open.
+   * @param input - Input value used by this API.
+   * @returns Result produced by this API.
+   */
   async prepareWork(input: Pick<EnterpriseWorkPrepareRequest, 'objective' | 'deadline' | 'workspaceId' | 'preferredEmployeeReleaseId'>): Promise<EnterpriseWorkPreparation> {
     const currentSessionId = this.sessions.list.getSnapshot().current
     return valueOf(await this.api.enterpriseWork.prepare({
@@ -756,12 +817,18 @@ export class EnterpriseWorkbenchController {
     }))
   }
 
-  /** Start one previously prepared goal-first work request. */
+  /** Start one previously prepared goal-first work request.
+   * @param input - Input value used by this API.
+   * @returns Result produced by this API.
+   */
   async startPreparedWork(input: EnterpriseWorkStartRequest): Promise<EnterpriseWorkStartValue> {
     return valueOf(await this.api.enterpriseWork.start(input))
   }
 
-  /** Stop one durable scope binding without removing immutable versions. */
+  /** Stop one durable scope binding without removing immutable versions.
+   * @param binding - Input value used by this API.
+   * @param reason - Input value used by this API.
+   */
   async stopExtension(binding: CordisScopeBinding, reason: string): Promise<void> {
     await this.runMutation('cordis-stop', async () => valueOf(await this.api.cordisWorkspace.stop({
       bindingId: binding.bindingId, pluginId: binding.pluginId, expectedRevision: binding.revision,
@@ -769,7 +836,11 @@ export class EnterpriseWorkbenchController {
     })), async () => { await this.refreshExtensions() })
   }
 
-  /** Roll a binding back by atomically moving its active pointer. */
+  /** Roll a binding back by atomically moving its active pointer.
+   * @param binding - Input value used by this API.
+   * @param packageId - Input value used by this API.
+   * @param reason - Input value used by this API.
+   */
   async rollbackExtension(binding: CordisScopeBinding, packageId: string, reason: string): Promise<void> {
     await this.runMutation('cordis-rollback', async () => valueOf(await this.api.cordisWorkspace.rollback({
       bindingId: binding.bindingId, pluginId: binding.pluginId, packageId,
@@ -777,7 +848,11 @@ export class EnterpriseWorkbenchController {
     })), async () => { await this.refreshExtensions() })
   }
 
-  /** Apply one department-manager review action. */
+  /** Apply one department-manager review action.
+   * @param action - Input value used by this API.
+   * @param reason - Input value used by this API.
+   * @param review - Input value used by this API.
+   */
   async reviewExtension(review: CordisReviewRequest, action: 'approve' | 'return' | 'publish', reason: string): Promise<void> {
     const request = {
       reviewId: review.reviewId, pluginId: review.pluginId, packageId: review.packageId,
@@ -804,7 +879,9 @@ export class EnterpriseWorkbenchController {
     })
   }
 
-  /** Load an employee draft and its immutable release history into the single-page editor. */
+  /** Load an employee draft and its immutable release history into the single-page editor.
+   * @param presetId - Input value used by this API.
+   */
   async openEmployeeDraft(presetId: string): Promise<void> {
     const generation = ++this.editorGeneration
     this.store.set({ ...this.store.getSnapshot(), employeeEditor: {
@@ -847,7 +924,9 @@ export class EnterpriseWorkbenchController {
     } })
   }
 
-  /** Patch local fields only; no write occurs until saveEmployeeDraft. */
+  /** Patch local fields only; no write occurs until saveEmployeeDraft.
+   * @param patch - Input value used by this API.
+   */
   patchEmployeeDraft(patch: Partial<EnterpriseEmployeeDraftFields>): void {
     const state = this.store.getSnapshot()
     const editor = state.employeeEditor
@@ -1016,7 +1095,9 @@ export class EnterpriseWorkbenchController {
     }
   }
 
-  /** Roll back by publishing a historical release as a new release. */
+  /** Roll back by publishing a historical release as a new release.
+   * @param releaseId - Input value used by this API.
+   */
   async rollbackEmployee(releaseId: string): Promise<void> {
     const editor = this.store.getSnapshot().employeeEditor
     if (editor?.fields === undefined || editor.revision === undefined) return
@@ -1052,7 +1133,10 @@ export class EnterpriseWorkbenchController {
     } })
   }
 
-  /** Update the real business state of one work record. */
+  /** Update the real business state of one work record.
+   * @param businessState - Input value used by this API.
+   * @param record - Input value used by this API.
+   */
   async updateWorkRecord(record: EnterpriseOperationWorkRecord, businessState: EnterpriseBusinessState): Promise<void> {
     const idempotencyKey = mutationKey('work-record')
     await this.runMutation('work-record-update', async () => valueOf(await this.api.enterpriseOperations.updateWorkRecord({
@@ -1064,7 +1148,11 @@ export class EnterpriseWorkbenchController {
     () => this.reloadPageConflict('workRecords', () => this.refreshWorkRecords()))
   }
 
-  /** Approve or reject a pending enterprise approval. */
+  /** Approve or reject a pending enterprise approval.
+   * @param approval - Input value used by this API.
+   * @param reason - Input value used by this API.
+   * @param state - Input value used by this API.
+   */
   async transitionApproval(approval: EnterpriseApproval, state: 'approved' | 'rejected', reason?: string): Promise<void> {
     const idempotencyKey = mutationKey('approval-transition')
     await this.runMutation('approval-transition', async () => valueOf(await this.api.enterpriseOperations.transitionApproval({
@@ -1074,7 +1162,10 @@ export class EnterpriseWorkbenchController {
     () => this.reloadPageConflict('approvals', () => this.refreshApprovals()))
   }
 
-  /** Cancel an approval request. */
+  /** Cancel an approval request.
+   * @param approval - Input value used by this API.
+   * @param reason - Input value used by this API.
+   */
   async cancelApproval(approval: EnterpriseApproval, reason?: string): Promise<void> {
     const idempotencyKey = mutationKey('approval-cancel')
     await this.runMutation('approval-cancel', async () => valueOf(await this.api.enterpriseOperations.cancelApproval({
@@ -1084,7 +1175,10 @@ export class EnterpriseWorkbenchController {
     () => this.reloadPageConflict('approvals', () => this.refreshApprovals()))
   }
 
-  /** Create or edit a schedule. */
+  /** Create or edit a schedule.
+   * @param input - Input value used by this API.
+   * @returns Result produced by this API.
+   */
   async saveSchedule(input: {
     scheduleId: string
     target: EnterpriseScheduleTarget
@@ -1101,7 +1195,10 @@ export class EnterpriseWorkbenchController {
     () => this.reloadPageConflict('schedules', () => this.refreshSchedules()))
   }
 
-  /** Pause, resume, or archive a schedule. */
+  /** Pause, resume, or archive a schedule.
+   * @param schedule - Input value used by this API.
+   * @param state - Input value used by this API.
+   */
   async transitionSchedule(schedule: EnterpriseSchedule, state: EnterpriseSchedule['state']): Promise<void> {
     const idempotencyKey = mutationKey('schedule-transition')
     await this.runMutation('schedule-transition', async () => valueOf(await this.api.enterpriseOperations.transitionSchedule({
@@ -1111,7 +1208,10 @@ export class EnterpriseWorkbenchController {
     () => this.reloadPageConflict('schedules', () => this.refreshSchedules()))
   }
 
-  /** Save a versioned capability asset. */
+  /** Save a versioned capability asset.
+   * @param input - Input value used by this API.
+   * @returns Result produced by this API.
+   */
   async saveAssetVersion(input: {
     assetId: string
     kind: EnterpriseAssetKind
@@ -1126,7 +1226,9 @@ export class EnterpriseWorkbenchController {
     () => this.reloadPageConflict('assets', () => this.refreshAssets()))
   }
 
-  /** Archive a capability asset. */
+  /** Archive a capability asset.
+   * @param asset - Input value used by this API.
+   */
   async archiveAsset(asset: EnterpriseAsset): Promise<void> {
     const idempotencyKey = mutationKey('asset-archive')
     await this.runMutation('asset-archive', async () => valueOf(await this.api.enterpriseAssets.archive({
@@ -1135,7 +1237,10 @@ export class EnterpriseWorkbenchController {
     () => this.reloadPageConflict('assets', () => this.refreshAssets()))
   }
 
-  /** Save a fixed employee team. */
+  /** Save a fixed employee team.
+   * @param input - Input value used by this API.
+   * @returns Result produced by this API.
+   */
   async saveTeam(input: {
     teamId: string
     leaderEmployeeReleaseId: string
@@ -1151,7 +1256,10 @@ export class EnterpriseWorkbenchController {
     () => this.reloadPageConflict('teams', () => this.refreshTeams()))
   }
 
-  /** Save a versioned Human-Agent team charter. */
+  /** Save a versioned Human-Agent team charter.
+   * @param input - Input value used by this API.
+   * @returns Result produced by this API.
+   */
   async saveTeamDefinition(input: Omit<EnterpriseTeamDefinition, 'orgId' | 'revision' | 'createdAt' | 'updatedAt'> & {
     expectedRevision: number
   }): Promise<boolean> {
@@ -1162,7 +1270,10 @@ export class EnterpriseWorkbenchController {
     () => this.reloadPageConflict('teamDefinitions', () => this.refreshTeamDefinitions()))
   }
 
-  /** Append a charter draft and retain its immutable revision for an explicit publish. */
+  /** Append a charter draft and retain its immutable revision for an explicit publish.
+   * @param input - Input value used by this API.
+   * @returns Result produced by this API.
+   */
   async saveTeamDefinitionDraft(input: Omit<EnterpriseTeamDefinition, 'orgId' | 'revision' | 'createdAt' | 'updatedAt' | 'state'> & {
     state?: 'needs-charter' | 'draft'
     expectedRevision: number
@@ -1178,7 +1289,10 @@ export class EnterpriseWorkbenchController {
     return success ? saved : undefined
   }
 
-  /** Promote a previously saved charter draft for future TeamRuns. */
+  /** Promote a previously saved charter draft for future TeamRuns.
+   * @param input - Input value used by this API.
+   * @returns Result produced by this API.
+   */
   async publishTeamDefinitionDraft(input: { teamId: string; expectedRevision: number }): Promise<EnterpriseTeamDefinition | undefined> {
     let published: EnterpriseTeamDefinition | undefined
     const success = await this.runMutation('team-definition-publish', async () => {
@@ -1191,7 +1305,10 @@ export class EnterpriseWorkbenchController {
     return success ? published : undefined
   }
 
-  /** Retrieve an owner-visible draft without replacing the active team catalog. */
+  /** Retrieve an owner-visible draft without replacing the active team catalog.
+   * @param teamId - Input value used by this API.
+   * @returns Result produced by this API.
+   */
   async getTeamDefinitionDraft(teamId: string): Promise<EnterpriseTeamDefinition | undefined> {
     try { return valueOf(await this.api.enterpriseTeamDefinitions.getDraft({ teamId })) }
     catch { return undefined }
@@ -1232,7 +1349,10 @@ export class EnterpriseWorkbenchController {
     () => this.reloadPageConflict('channels', () => this.refreshChannels()))
   }
 
-  /** Start one immutable Team Definition revision in an explicit Workspace. */
+  /** Start one immutable Team Definition revision in an explicit Workspace.
+   * @param input - Input value used by this API.
+   * @returns Result produced by this API.
+   */
   async startTeamRun(input: {
     teamId: string
     expectedTeamRevision: number
@@ -1247,14 +1367,19 @@ export class EnterpriseWorkbenchController {
     })
   }
 
-  /** Cancel one non-terminal TeamRun. */
+  /** Cancel one non-terminal TeamRun.
+   * @param run - Input value used by this API.
+   */
   async cancelTeamRun(run: EnterpriseTeamRun): Promise<void> {
     await this.runMutation('team-run-cancel', async () => valueOf(await this.api.enterpriseTeamRuns.cancel({
       runId: run.runId, expectedRevision: run.revision, idempotencyKey: mutationKey('team-run-cancel'),
     })), () => this.refreshTeamRuns())
   }
 
-  /** Answer one assigned Human decision. */
+  /** Answer one assigned Human decision.
+   * @param answer - Input value used by this API.
+   * @param decision - Input value used by this API.
+   */
   async respondTeamDecision(decision: EnterpriseTeamDecision, answer: string): Promise<void> {
     await this.runMutation('team-decision-respond', async () => valueOf(await this.api.enterpriseTeamDecisions.respond({
       decisionId: decision.decisionId, answer, expectedRevision: decision.revision,
@@ -1368,7 +1493,9 @@ export class EnterpriseWorkbenchController {
     })
   }
 
-  /** Fold one legacy enterprise event while transports migrate to typed Remote events. */
+  /** Fold one legacy enterprise event while transports migrate to typed Remote events.
+   * @param frame - Input value used by this API.
+   */
   async handleHostFrame(frame: EnterpriseHostFrame): Promise<void> {
     if (this.seenEventIds.has(frame.eventId)) return
     const refreshByEvent: Record<Exclude<EnterpriseHostEventName, 'enterprise/operation-updated'>, () => Promise<boolean>> = {
@@ -1388,7 +1515,9 @@ export class EnterpriseWorkbenchController {
     if (this.seenEventIds.size > 256) this.seenEventIds.delete(this.seenEventIds.values().next().value as string)
   }
 
-  /** Create and open work under one Agent Preset. */
+  /** Create and open work under one Agent Preset.
+   * @param employeeId - Input value used by this API.
+   */
   async startEmployee(employeeId: string): Promise<void> {
     const existing = this.employeeStarts.get(employeeId)
     if (existing !== undefined) return existing
@@ -1421,7 +1550,9 @@ export class EnterpriseWorkbenchController {
     }
   }
 
-  /** Open an existing work record in the native DSH conversation surface. */
+  /** Open an existing work record in the native DSH conversation surface.
+   * @param sessionId - Input value used by this API.
+   */
   openRecord(sessionId: SessionId): void {
     this.sessions.open(sessionId)
     this.close()

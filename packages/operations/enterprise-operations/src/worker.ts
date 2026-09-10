@@ -2,12 +2,14 @@
 import type { ScheduleFireView } from './types.ts'
 import { EnterpriseOperationsError } from './repository.ts'
 
+/** Data used by `ClaimedOperationCommand`. */
 export interface ClaimedOperationCommand {
   readonly commandId: string
   readonly attempt: number
   readonly command: ScheduleFireView['command']
 }
 
+/** Data used by `OperationCommandFailure`. */
 export interface OperationCommandFailure {
   readonly commandId: string
   readonly attempt: number
@@ -16,6 +18,7 @@ export interface OperationCommandFailure {
   readonly retryable: boolean
 }
 
+/** Data used by `EnterpriseOperationsWorkerOptions`. */
 export interface EnterpriseOperationsWorkerOptions {
   readonly claimOutbox: (now: number) => Promise<ClaimedOperationCommand | undefined>
   readonly admit: (commandId: string, command: ScheduleFireView['command']) => Promise<void>
@@ -30,6 +33,10 @@ export interface EnterpriseOperationsWorkerOptions {
 export class EnterpriseOperationsWorker {
   constructor(private readonly options: EnterpriseOperationsWorkerOptions) {}
 
+  /** Executes `EnterpriseOperationsWorker.runOnce` for this instance.
+   * @param now - Input value used by this API.
+   * @returns Result produced by this API.
+  */
   async runOnce(now: number): Promise<boolean> {
     const claimed = await this.options.claimOutbox(now)
     if (claimed === undefined) return false

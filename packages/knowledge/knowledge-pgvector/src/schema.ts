@@ -2,6 +2,7 @@
 
 import type { PostgresDatabase } from './types.ts'
 
+/** Value exported as `KNOWLEDGE_SCHEMA_VERSION`. */
 export const KNOWLEDGE_SCHEMA_VERSION = 1
 
 const statements = [
@@ -40,6 +41,9 @@ const statements = [
   'CREATE INDEX IF NOT EXISTS dsh_knowledge_documents_org_idx ON dsh_knowledge_documents (org_id, archived)',
 ] as const
 
+/** Executes `migrateKnowledge`.
+ * @param database - Input value used by this API.
+ */
 export async function migrateKnowledge(database: PostgresDatabase): Promise<void> {
   await database.transaction(async (transaction) => {
     await transaction.query('SELECT pg_advisory_xact_lock($1)', [0x4453484b])

@@ -47,7 +47,11 @@ function boundedCallbackValue(value: string | null, limit: number): value is str
   return value !== null && value.trim().length > 0 && new TextEncoder().encode(value).byteLength <= limit
 }
 
-/** Complete one marked provider callback and remove authorization material from browser history. */
+/** Complete one marked provider callback and remove authorization material from browser history.
+ * @param browser - Input value used by this API.
+ * @param remote - Input value used by this API.
+ * @returns Result produced by this API.
+ */
 export async function completeChannelBindingCallback(
   remote: Pick<ClientRemote['enterpriseChannel'], 'completeBinding'>,
   browser: BindingCallbackWindow,
@@ -103,7 +107,11 @@ export async function completeChannelBindingCallback(
   }
 }
 
-/** Complete a provider-app installation and announce the automatically created channel. */
+/** Complete a provider-app installation and announce the automatically created channel.
+ * @param browser - Input value used by this API.
+ * @param remote - Input value used by this API.
+ * @returns Result produced by this API.
+ */
 export async function completeChannelBotInstallCallback(
   remote: Pick<ClientRemote['enterpriseChannel'], 'completeBotInstall'>,
   browser: BindingCallbackWindow,
@@ -169,7 +177,9 @@ export const inject = [
   'remote.cordisWorkspace', 'remote.cordisReview', 'remote.cordisGovernance',
 ]
 
-/** Mount the enterprise trigger, overlay, and live projection subscriptions. */
+/** Mount the enterprise trigger, overlay, and live projection subscriptions.
+ * @param ctx - Input value used by this API.
+*/
 export function apply(ctx: Context): void {
   if (typeof window !== 'undefined') {
     void completeChannelBindingCallback(ctx.remote.enterpriseChannel, window)

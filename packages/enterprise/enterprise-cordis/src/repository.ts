@@ -9,6 +9,7 @@ import type {
   EnterpriseCordisAuditEvent,
 } from './types.ts'
 
+/** Data used by `EnterpriseCordisRepository`. */
 export interface EnterpriseCordisRepository {
   package(packageId: string): Promise<CordisPackageVersion | undefined>
   packages(pluginId: string, orgId: string): Promise<readonly CordisPackageVersion[]>

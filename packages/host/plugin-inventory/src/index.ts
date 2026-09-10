@@ -18,6 +18,7 @@ import type {
 
 export type * from './types.ts'
 
+/** Data used by `Config`. */
 export interface Config {
   /** Optional profile manifest whose declared dependencies enrich installation-source metadata. */
   readonly profileManifestPath?: string
@@ -44,7 +45,10 @@ function dependencies(path: string | undefined): Readonly<Record<string, string>
   }
 }
 
-/** Brand an existing Loader-tree entry id at the owning boundary. */
+/** Brand an existing Loader-tree entry id at the owning boundary.
+ * @param value - Input value used by this API.
+ * @returns Result produced by this API.
+*/
 function pluginEntryId(value: string): PluginEntryId {
   return value as PluginEntryId
 }

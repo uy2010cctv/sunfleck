@@ -10,11 +10,13 @@ import type {
 import { inspectEnterpriseMemory, type EnterpriseMemoryPrivacyFinding } from './memory-policy.ts'
 import { migrateEnterpriseIdentity } from './schema.ts'
 
+/** Data used by `EnterpriseOrganization`. */
 export interface EnterpriseOrganization {
   readonly id: string
   readonly name: string
 }
 
+/** Data used by `EnterpriseUserInput`. */
 export interface EnterpriseUserInput {
   readonly id: string
   readonly orgId: string
@@ -23,6 +25,7 @@ export interface EnterpriseUserInput {
   readonly disabled: boolean
 }
 
+/** Data used by `EnterpriseUserView`. */
 export interface EnterpriseUserView extends EnterpriseUserInput {
   readonly roles: readonly EnterpriseRole[]
   readonly departmentIds: readonly string[]
@@ -30,11 +33,13 @@ export interface EnterpriseUserView extends EnterpriseUserInput {
   readonly departmentRevision: number
 }
 
+/** Data used by `CreateEnterpriseUserOptions`. */
 export interface CreateEnterpriseUserOptions {
   /** One-way verifier only; plaintext passwords never cross the repository seam. */
   readonly passwordVerifier?: string
 }
 
+/** Data used by `UpdateEnterpriseUserProfileInput`. */
 export interface UpdateEnterpriseUserProfileInput {
   readonly orgId: string
   readonly userId: string
@@ -44,6 +49,7 @@ export interface UpdateEnterpriseUserProfileInput {
   readonly passwordVerifier?: string
 }
 
+/** Data used by `EnterpriseDepartment`. */
 export interface EnterpriseDepartment {
   readonly id: string
   readonly orgId: string
@@ -55,6 +61,7 @@ export interface EnterpriseDepartment {
   readonly updatedAt: number
 }
 
+/** Data used by `SaveEnterpriseDepartmentInput`. */
 export interface SaveEnterpriseDepartmentInput {
   readonly id: string
   readonly orgId: string
@@ -64,6 +71,7 @@ export interface SaveEnterpriseDepartmentInput {
   readonly expectedRevision: number
 }
 
+/** Data used by `SetUserDepartmentsInput`. */
 export interface SetUserDepartmentsInput {
   readonly orgId: string
   readonly userId: string
@@ -72,6 +80,7 @@ export interface SetUserDepartmentsInput {
   readonly expectedRevision: number
 }
 
+/** Data used by `EnterpriseWorkspaceGrant`. */
 export interface EnterpriseWorkspaceGrant {
   readonly workspaceId: string
   readonly orgId: string
@@ -86,10 +95,12 @@ export interface EnterpriseWorkspaceGrant {
   readonly updatedAt: number
 }
 
+/** Data used by `SaveEnterpriseWorkspaceGrantInput`. */
 export interface SaveEnterpriseWorkspaceGrantInput extends Omit<EnterpriseWorkspaceGrant, 'revision' | 'createdAt' | 'updatedAt'> {
   readonly expectedRevision: number
 }
 
+/** Data used by `EnterpriseMemoryEntry`. */
 export interface EnterpriseMemoryEntry {
   readonly id: string
   readonly orgId: string
@@ -108,6 +119,7 @@ export interface EnterpriseMemoryEntry {
   readonly updatedAt: number
 }
 
+/** Data used by `ProposeEnterpriseMemoryInput`. */
 export interface ProposeEnterpriseMemoryInput {
   readonly id: string
   readonly orgId: string
@@ -119,6 +131,7 @@ export interface ProposeEnterpriseMemoryInput {
   readonly createdBy: string
 }
 
+/** Data used by `ReviewEnterpriseMemoryInput`. */
 export interface ReviewEnterpriseMemoryInput {
   readonly id: string
   readonly orgId: string
@@ -128,6 +141,7 @@ export interface ReviewEnterpriseMemoryInput {
   readonly expectedRevision: number
 }
 
+/** Data used by `EnterprisePrincipalView`. */
 export interface EnterprisePrincipalView {
   readonly userId: string
   readonly orgId: string
@@ -136,18 +150,21 @@ export interface EnterprisePrincipalView {
   readonly roles: readonly EnterpriseRole[]
 }
 
+/** Data used by `ExternalIdentityBinding`. */
 export interface ExternalIdentityBinding {
   readonly providerId: string
   readonly subject: string
   readonly userId: string
 }
 
+/** Data used by `EnterpriseResourcePolicy`. */
 export interface EnterpriseResourcePolicy extends EnterpriseResource {
   readonly resourceType: string
   readonly resourceId: string
   readonly allowedUserIds: readonly string[]
 }
 
+/** Data used by `EnterpriseManagedAsset`. */
 export interface EnterpriseManagedAsset {
   readonly orgId: string
   readonly type: 'channel' | 'model' | 'capability'
@@ -156,6 +173,7 @@ export interface EnterpriseManagedAsset {
   readonly config: Readonly<Record<string, unknown>>
 }
 
+/** Data used by `EnterpriseAuditRecord`. */
 export interface EnterpriseAuditRecord {
   readonly id: string
   readonly orgId: string
@@ -170,6 +188,7 @@ export interface EnterpriseAuditRecord {
   readonly details: Readonly<Record<string, unknown>>
 }
 
+/** Data used by `AuditQuery`. */
 export interface AuditQuery {
   readonly orgId: string
   readonly actorUserId?: string
@@ -177,6 +196,7 @@ export interface AuditQuery {
   readonly limit: number
 }
 
+/** Data used by `RepositoryOptions`. */
 export interface RepositoryOptions {
   readonly now?: () => number
 }
@@ -230,6 +250,7 @@ interface SqliteMemoryRow {
  * adapter owned by the deployment; callers must not depend on SQLite internals.
  */
 export type IdentityAwaitable<T> = T | Promise<T>
+/** Data used by `EnterpriseIdentityStore`. */
 export interface EnterpriseIdentityStore {
   close(): IdentityAwaitable<void>
   createOrganization(organization: EnterpriseOrganization): IdentityAwaitable<void>
@@ -283,7 +304,10 @@ export interface EnterpriseIdentityStore {
   listAudit(query: AuditQuery): IdentityAwaitable<EnterpriseAuditRecord[]>
 }
 
-/** One-way bearer-token representation stored in the database. */
+/** One-way bearer-token representation stored in the database.
+ * @param token - Input value used by this API.
+ * @returns Result produced by this API.
+ */
 export function sessionTokenHash(token: string): string {
   return createHash('sha256').update(token).digest('hex')
 }

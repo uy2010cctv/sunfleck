@@ -190,6 +190,7 @@ export interface EnterpriseTeamControlProjectionDriver {
   }): Promise<EnterpriseTeamAutonomyGrant>
 }
 
+/** Allowed values for `EnterpriseTeamControlEndpoint`. */
 export type EnterpriseTeamControlEndpoint =
   | 'enterpriseTeamRun.list' | 'enterpriseTeamRun.get' | 'enterpriseTeamRun.start' | 'enterpriseTeamRun.cancel'
   | 'enterpriseTeamDecision.list' | 'enterpriseTeamDecision.respond'
@@ -221,6 +222,7 @@ export interface EnterpriseTeamControlServiceOptions {
   readonly runId?: () => string
 }
 
+/** Data used by `EnterpriseTeamRunStartInput`. */
 export interface EnterpriseTeamRunStartInput {
   readonly teamId: string
   readonly expectedTeamRevision: number
@@ -229,23 +231,27 @@ export interface EnterpriseTeamRunStartInput {
   readonly source: EnterpriseTeamRun['source']
   readonly idempotencyKey: string
 }
+/** Data used by `EnterpriseTeamRunCancelInput`. */
 export interface EnterpriseTeamRunCancelInput {
   readonly runId: string
   readonly expectedRevision: number
   readonly idempotencyKey: string
 }
+/** Data used by `EnterpriseTeamRunListInput`. */
 export interface EnterpriseTeamRunListInput {
   readonly teamId?: string
   readonly state?: EnterpriseTeamRun['state']
   readonly limit?: number
   readonly cursor?: string
 }
+/** Data used by `EnterpriseTeamDecisionRespondInput`. */
 export interface EnterpriseTeamDecisionRespondInput {
   readonly decisionId: string
   readonly answer: string
   readonly expectedRevision: number
   readonly idempotencyKey: string
 }
+/** Data used by `EnterpriseTeamDecisionListInput`. */
 export interface EnterpriseTeamDecisionListInput {
   readonly runId?: string
   readonly state?: TeamDecision['state']
@@ -253,6 +259,7 @@ export interface EnterpriseTeamDecisionListInput {
   readonly limit?: number
   readonly cursor?: string
 }
+/** Data used by `EnterpriseTeamAutonomySaveInput`. */
 export interface EnterpriseTeamAutonomySaveInput {
   readonly teamId: string
   readonly employeeReleaseId: string
@@ -263,6 +270,7 @@ export interface EnterpriseTeamAutonomySaveInput {
   readonly expectedRevision: number
   readonly idempotencyKey: string
 }
+/** Data used by `EnterpriseTeamAutonomyRevokeInput`. */
 export interface EnterpriseTeamAutonomyRevokeInput {
   readonly teamId: string
   readonly employeeReleaseId: string
@@ -271,6 +279,7 @@ export interface EnterpriseTeamAutonomyRevokeInput {
   readonly expectedRevision: number
   readonly idempotencyKey: string
 }
+/** Data used by `EnterpriseTeamAutonomyListInput`. */
 export interface EnterpriseTeamAutonomyListInput {
   readonly teamId?: string
   readonly employeeReleaseId?: string
@@ -338,7 +347,12 @@ export class EnterpriseTeamControlService {
     if (!result.allowed) this.deny(endpoint)
   }
 
-  /** @param principal - authenticated Host actor. @param input - browser-safe start fields. @returns runtime-backed run projection. */
+  /**
+    * Documents this public API. @param principal - authenticated Host actor. @param input - browser-safe start fields. @returns runtime-backed run projection.
+   * @param input - Input value used by this API.
+   * @param principal - Input value used by this API.
+   * @returns Result produced by this API.
+  */
   async startRun(principal: EnterprisePrincipal, input: EnterpriseTeamRunStartInput): Promise<EnterpriseTeamRun> {
     const correlationId = `team-run:start:${input.idempotencyKey}`
     const definitionDetails = {
@@ -560,7 +574,12 @@ export class EnterpriseTeamControlService {
     }
   }
 
-  /** @param principal - authenticated Host actor. @param input - run CAS and idempotency fields. @returns cancelled projection. */
+  /**
+    * Documents this public API. @param principal - authenticated Host actor. @param input - run CAS and idempotency fields. @returns cancelled projection.
+   * @param input - Input value used by this API.
+   * @param principal - Input value used by this API.
+   * @returns Result produced by this API.
+  */
   async cancelRun(principal: EnterprisePrincipal, input: EnterpriseTeamRunCancelInput): Promise<EnterpriseTeamRun> {
     const correlationId = `team-run:cancel:${input.runId}:${input.idempotencyKey}`
     const auditCancel = async (
@@ -615,13 +634,23 @@ export class EnterpriseTeamControlService {
     }
   }
 
-  /** @param principal - authenticated viewer. @param input - visible page filters. @returns visible run page. */
+  /**
+    * Documents this public API. @param principal - authenticated viewer. @param input - visible page filters. @returns visible run page.
+   * @param input - Input value used by this API.
+   * @param principal - Input value used by this API.
+   * @returns Result produced by this API.
+  */
   async listRuns(principal: EnterprisePrincipal, input: EnterpriseTeamRunListInput = {}): Promise<EnterpriseTeamRunPage> {
     await this.requireAuthorized(principal, 'enterpriseTeamRun.list', input, 'team-run', input.teamId ?? 'catalog')
     return this.projections.listTeamRuns({ orgId: principal.orgId, readScope: this.scope(principal), ...input })
   }
 
-  /** @param principal - authenticated viewer. @param runId - run identity. @returns visible run. */
+  /**
+    * Documents this public API. @param principal - authenticated viewer. @param runId - run identity. @returns visible run.
+   * @param principal - Input value used by this API.
+   * @param runId - Input value used by this API.
+   * @returns Result produced by this API.
+  */
   async getRun(principal: EnterprisePrincipal, runId: string): Promise<EnterpriseTeamRun> {
     await this.requireAuthorized(principal, 'enterpriseTeamRun.get', { runId }, 'team-run', runId)
     const run = await this.projections.getTeamRun(principal.orgId, runId, this.scope(principal))
@@ -629,16 +658,29 @@ export class EnterpriseTeamControlService {
     return run
   }
 
-  /** Host-only ingestion of a runtime-emitted decision projection. */
+  /** Host-only ingestion of a runtime-emitted decision projection.
+   * @param input - Input value used by this API.
+   * @returns Result produced by this API.
+  */
   async projectDecision(input: TeamDecision): Promise<TeamDecision> { return this.projections.projectDecision(input) }
 
-  /** @param principal - authenticated viewer. @param input - visible decision filters. @returns decision page. */
+  /**
+    * Documents this public API. @param principal - authenticated viewer. @param input - visible decision filters. @returns decision page.
+   * @param input - Input value used by this API.
+   * @param principal - Input value used by this API.
+   * @returns Result produced by this API.
+  */
   async listDecisions(principal: EnterprisePrincipal, input: EnterpriseTeamDecisionListInput = {}): Promise<TeamDecisionPage> {
     await this.requireAuthorized(principal, 'enterpriseTeamDecision.list', input, 'team-decision', input.runId ?? 'catalog')
     return this.projections.listDecisions({ orgId: principal.orgId, readScope: this.scope(principal), ...input })
   }
 
-  /** @param principal - assigned human, team owner, or administrator. @param input - answer CAS. @returns answered projection. */
+  /**
+    * Documents this public API. @param principal - assigned human, team owner, or administrator. @param input - answer CAS. @returns answered projection.
+   * @param input - Input value used by this API.
+   * @param principal - Input value used by this API.
+   * @returns Result produced by this API.
+  */
   async respondDecision(principal: EnterprisePrincipal, input: EnterpriseTeamDecisionRespondInput): Promise<TeamDecision> {
     const requestCorrelation = `team-decision:respond:${input.decisionId}:${input.idempotencyKey}`
     let correlationId = requestCorrelation
@@ -758,7 +800,12 @@ export class EnterpriseTeamControlService {
     return { definition, authorizationDecision: { allowed: true, reason } }
   }
 
-  /** @param principal - authenticated viewer. @param input - grant filters. @returns visible grant page. */
+  /**
+    * Documents this public API. @param principal - authenticated viewer. @param input - grant filters. @returns visible grant page.
+   * @param input - Input value used by this API.
+   * @param principal - Input value used by this API.
+   * @returns Result produced by this API.
+  */
   async listAutonomyGrants(
     principal: EnterprisePrincipal,
     input: EnterpriseTeamAutonomyListInput = {},
@@ -769,7 +816,12 @@ export class EnterpriseTeamControlService {
     })
   }
 
-  /** @param principal - explicit human grantor. @param input - grant fields and CAS. @returns active grant. */
+  /**
+    * Documents this public API. @param principal - explicit human grantor. @param input - grant fields and CAS. @returns active grant.
+   * @param input - Input value used by this API.
+   * @param principal - Input value used by this API.
+   * @returns Result produced by this API.
+  */
   async saveAutonomyGrant(principal: EnterprisePrincipal, input: EnterpriseTeamAutonomySaveInput): Promise<EnterpriseTeamAutonomyGrant> {
     const taskType = input.taskType.trim(); const capabilityScope = input.capabilityScope.trim()
     const resourceId = `${input.teamId}:${input.employeeReleaseId}:${taskType}:${capabilityScope}`
@@ -806,7 +858,12 @@ export class EnterpriseTeamControlService {
     }
   }
 
-  /** @param principal - explicit human revoker. @param input - grant identity and CAS. @returns terminal revoked grant. */
+  /**
+    * Documents this public API. @param principal - explicit human revoker. @param input - grant identity and CAS. @returns terminal revoked grant.
+   * @param input - Input value used by this API.
+   * @param principal - Input value used by this API.
+   * @returns Result produced by this API.
+  */
   async revokeAutonomyGrant(
     principal: EnterprisePrincipal,
     input: EnterpriseTeamAutonomyRevokeInput,

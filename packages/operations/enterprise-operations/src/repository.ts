@@ -236,6 +236,7 @@ function assertBusinessTransition(before: BusinessState, after: BusinessState): 
   }
   if (!allowed[before].includes(after)) throw new EnterpriseOperationsError('invalid-transition', 'work-record')
 }
+/** Provides `ApprovalRevisionConflictError` capabilities. */
 export class ApprovalRevisionConflictError extends Error {
   constructor(
     readonly approvalId: string,
@@ -376,6 +377,7 @@ interface ChannelConfigurationRow extends Record<string, unknown> {
   updated_at: number | string
 }
 
+/** Provides `EnterpriseOperationsRepository` capabilities. */
 export class EnterpriseOperationsRepository {
   private initialized: Promise<void> | undefined
   private readonly cursorSigningKey: Buffer | undefined
@@ -486,6 +488,10 @@ export class EnterpriseOperationsRepository {
       [orgId, operation, key, JSON.stringify({ requestDigest: requestDigest(request), result: value })],
     )
   }
+  /** Executes `EnterpriseOperationsRepository.reserveWorkStart` for this instance.
+   * @param input - Input value used by this API.
+   * @returns Result produced by this API.
+   */
   async reserveWorkStart(input: WorkStartReservationInput): Promise<WorkStartReservation> {
     await this.initialize()
     return this.database.transaction(async (database) => {
@@ -512,6 +518,10 @@ export class EnterpriseOperationsRepository {
       return this.workStartReservation(required(inserted.rows[0], 'work start reservation'))
     })
   }
+  /** Executes `EnterpriseOperationsRepository.getWorkStart` for this instance.
+   * @param input - Input value used by this API.
+   * @returns Result produced by this API.
+   */
   async getWorkStart(input: Pick<WorkStartReservationInput, 'orgId' | 'userId' | 'idempotencyKey'>): Promise<WorkStartReservation | undefined> {
     await this.initialize()
     const result = await this.database.query<WorkStartReservationRow>(
@@ -520,6 +530,10 @@ export class EnterpriseOperationsRepository {
     )
     return result.rows[0] === undefined ? undefined : this.workStartReservation(result.rows[0])
   }
+  /** Executes `EnterpriseOperationsRepository.completeWorkStart` for this instance.
+   * @param input - Input value used by this API.
+   * @returns Result produced by this API.
+   */
   async completeWorkStart(input: Pick<WorkStartReservationInput, 'orgId' | 'userId' | 'idempotencyKey'>): Promise<WorkStartReservation> {
     await this.initialize()
     return this.database.transaction(async (database) => {
@@ -533,6 +547,10 @@ export class EnterpriseOperationsRepository {
       return this.workStartReservation(updated.rows[0])
     })
   }
+  /** Executes `EnterpriseOperationsRepository.upsertWorkRecord` for this instance.
+   * @param input - Input value used by this API.
+   * @returns Result produced by this API.
+   */
   async upsertWorkRecord(input: WorkRecordInput): Promise<WorkRecordView> {
     await this.initialize()
     return this.database.transaction(async (database) => {
@@ -610,6 +628,12 @@ export class EnterpriseOperationsRepository {
       state: row.state, createdAt: Number(row.created_at), updatedAt: Number(row.updated_at),
     }
   }
+  /** Executes `EnterpriseOperationsRepository.getWorkRecord` for this instance.
+   * @param employeeReleaseId - Input value used by this API.
+   * @param orgId - Input value used by this API.
+   * @param sessionId - Input value used by this API.
+   * @returns Result produced by this API.
+   */
   async getWorkRecord(orgId: string, sessionId: string, employeeReleaseId: string): Promise<WorkRecordView | undefined> {
     await this.initialize()
     const result = await this.database.query<WorkRow>(
@@ -619,6 +643,10 @@ export class EnterpriseOperationsRepository {
     const row = result.rows[0]
     return row === undefined || row.org_id !== orgId ? undefined : this.work(row)
   }
+  /** Executes `EnterpriseOperationsRepository.listWorkRecords` for this instance.
+   * @param input - Input value used by this API.
+   * @returns Result produced by this API.
+   */
   async listWorkRecords(input: {
     orgId: string
     businessState?: BusinessState
@@ -655,6 +683,10 @@ export class EnterpriseOperationsRepository {
       }),
     }
   }
+  /** Executes `EnterpriseOperationsRepository.createApprovalRequest` for this instance.
+   * @param input - Input value used by this API.
+   * @returns Result produced by this API.
+   */
   async createApprovalRequest(input: {
     approvalId: string
     orgId: string
@@ -681,6 +713,11 @@ export class EnterpriseOperationsRepository {
       return view
     })
   }
+  /** Executes `EnterpriseOperationsRepository.getApproval` for this instance.
+   * @param approvalId - Input value used by this API.
+   * @param orgId - Input value used by this API.
+   * @returns Result produced by this API.
+   */
   async getApproval(orgId: string, approvalId: string): Promise<ApprovalView | undefined> {
     await this.initialize()
     const result = await this.database.query<ApprovalRow>(
@@ -689,6 +726,10 @@ export class EnterpriseOperationsRepository {
     const row = result.rows[0]
     return row === undefined || row.org_id !== orgId ? undefined : this.approval(row)
   }
+  /** Executes `EnterpriseOperationsRepository.listApprovals` for this instance.
+   * @param input - Input value used by this API.
+   * @returns Result produced by this API.
+   */
   async listApprovals(input: {
     orgId: string
     kind?: ApprovalKind
@@ -722,6 +763,10 @@ export class EnterpriseOperationsRepository {
       nextCursor: encodeCursor(scope, Number(last.created_at), [last.approval_id], this.cursorSigningKey),
     }) }
   }
+  /** Executes `EnterpriseOperationsRepository.transitionApproval` for this instance.
+   * @param input - Input value used by this API.
+   * @returns Result produced by this API.
+   */
   async transitionApproval(input: {
     approvalId: string
     orgId: string
@@ -763,6 +808,10 @@ export class EnterpriseOperationsRepository {
       return view
     })
   }
+  /** Executes `EnterpriseOperationsRepository.createSchedule` for this instance.
+   * @param input - Input value used by this API.
+   * @returns Result produced by this API.
+   */
   async createSchedule(input: {
     scheduleId: string
     orgId: string
@@ -803,6 +852,10 @@ export class EnterpriseOperationsRepository {
       return view
     })
   }
+  /** Executes `EnterpriseOperationsRepository.saveSchedule` for this instance.
+   * @param input - Input value used by this API.
+   * @returns Result produced by this API.
+   */
   async saveSchedule(input: {
     scheduleId: string
     orgId: string
@@ -842,9 +895,18 @@ export class EnterpriseOperationsRepository {
       return view
     })
   }
+  /** Executes `EnterpriseOperationsRepository.updateSchedule` for this instance.
+   * @param input - Input value used by this API.
+   * @returns Result produced by this API.
+   */
   async updateSchedule(input: Parameters<EnterpriseOperationsRepository['saveSchedule']>[0]): Promise<ScheduleView> {
     return this.saveSchedule(input)
   }
+  /** Executes `EnterpriseOperationsRepository.getSchedule` for this instance.
+   * @param orgId - Input value used by this API.
+   * @param scheduleId - Input value used by this API.
+   * @returns Result produced by this API.
+  */
   async getSchedule(orgId: string, scheduleId: string): Promise<ScheduleView | undefined> {
     await this.initialize()
     const result = await this.database.query<ScheduleRow>('SELECT * FROM dsh_enterprise_schedules WHERE schedule_id = $1 AND org_id = $2', [
@@ -854,7 +916,15 @@ export class EnterpriseOperationsRepository {
     const row = result.rows[0]
     return row === undefined || row.org_id !== orgId ? undefined : this.schedule(row)
   }
+  /** Executes `EnterpriseOperationsRepository.listSchedules` for this instance.
+   * @param orgId - Input value used by this API.
+   * @returns Result produced by this API.
+  */
   async listSchedules(orgId: string): Promise<readonly ScheduleView[]>
+  /** Executes `EnterpriseOperationsRepository.listSchedules` for this instance.
+   * @param input - Input value used by this API.
+   * @returns Result produced by this API.
+  */
   async listSchedules(input: { orgId: string; state?: ScheduleView['state']; limit?: number; cursor?: string }): Promise<SchedulePage>
   async listSchedules(input: string | { orgId: string; state?: ScheduleView['state']; limit?: number; cursor?: string }): Promise<readonly ScheduleView[] | SchedulePage> {
     await this.initialize()
@@ -887,6 +957,10 @@ export class EnterpriseOperationsRepository {
       nextCursor: encodeCursor(scope, Number(last.created_at), [last.schedule_id], this.cursorSigningKey),
     }) }
   }
+  /** Executes `EnterpriseOperationsRepository.transitionSchedule` for this instance.
+   * @param input - Input value used by this API.
+   * @returns Result produced by this API.
+  */
   async transitionSchedule(input: {
     orgId: string
     scheduleId: string
@@ -919,6 +993,10 @@ export class EnterpriseOperationsRepository {
       return view
     })
   }
+  /** Executes `EnterpriseOperationsRepository.fireSchedule` for this instance.
+   * @param input - Input value used by this API.
+   * @returns Result produced by this API.
+  */
   async fireSchedule(input: {
     scheduleId: string
     orgId: string
@@ -1018,7 +1096,10 @@ export class EnterpriseOperationsRepository {
       return view
     })
   }
-  /** Claim pending or expired outbox commands using a worker lease (fencing token). */
+  /** Claim pending or expired outbox commands using a worker lease (fencing token).
+   * @param input - Input value used by this API.
+   * @returns Result produced by this API.
+  */
   async claimOutbox(input: { orgId: string; workerId: string; leaseMs: number; limit?: number }): Promise<readonly OutboxCommandView[]> {
     await this.initialize()
     return this.database.transaction(async (database) => {
@@ -1039,6 +1120,10 @@ export class EnterpriseOperationsRepository {
       return claimed
     })
   }
+  /** Executes `EnterpriseOperationsRepository.admitOutboxStart` for this instance.
+   * @param input - Input value used by this API.
+   * @returns Result produced by this API.
+  */
   async admitOutboxStart(input: { orgId: string; commandId: string; workerId: string }): Promise<OutboxCommandView> {
     await this.initialize()
     return this.database.transaction(async (database) => {
@@ -1068,6 +1153,10 @@ export class EnterpriseOperationsRepository {
       return this.outbox(admitted.rows[0])
     })
   }
+  /** Executes `EnterpriseOperationsRepository.completeOutbox` for this instance.
+   * @param input - Input value used by this API.
+   * @returns Result produced by this API.
+  */
   async completeOutbox(input: { orgId: string; commandId: string; workerId: string }): Promise<OutboxCommandView> {
     await this.initialize()
     return this.database.transaction(async (database) => {
@@ -1078,6 +1167,10 @@ export class EnterpriseOperationsRepository {
       return this.outbox(required(result.rows[0], 'outbox command'))
     })
   }
+  /** Executes `EnterpriseOperationsRepository.failOutbox` for this instance.
+   * @param input - Input value used by this API.
+   * @returns Result produced by this API.
+  */
   async failOutbox(input: {
     orgId: string
     commandId: string
@@ -1095,6 +1188,10 @@ export class EnterpriseOperationsRepository {
       return this.outbox(required(result.rows[0], 'outbox command'))
     })
   }
+  /** Executes `EnterpriseOperationsRepository.createFixedTeam` for this instance.
+   * @param input - Input value used by this API.
+   * @returns Result produced by this API.
+  */
   async createFixedTeam(input: {
     teamId: string
     orgId: string
@@ -1146,6 +1243,10 @@ export class EnterpriseOperationsRepository {
       return view
     })
   }
+  /** Executes `EnterpriseOperationsRepository.saveFixedTeam` for this instance.
+   * @param input - Input value used by this API.
+   * @returns Result produced by this API.
+  */
   async saveFixedTeam(input: {
     teamId: string
     orgId: string
@@ -1253,9 +1354,18 @@ export class EnterpriseOperationsRepository {
       return view
     })
   }
+  /** Executes `EnterpriseOperationsRepository.updateFixedTeam` for this instance.
+   * @param input - Input value used by this API.
+   * @returns Result produced by this API.
+  */
   async updateFixedTeam(input: Parameters<EnterpriseOperationsRepository['saveFixedTeam']>[0]): Promise<FixedTeamView> {
     return this.saveFixedTeam(input)
   }
+  /** Executes `EnterpriseOperationsRepository.getFixedTeam` for this instance.
+   * @param orgId - Input value used by this API.
+   * @param teamId - Input value used by this API.
+   * @returns Result produced by this API.
+  */
   async getFixedTeam(orgId: string, teamId: string): Promise<FixedTeamView | undefined> {
     await this.initialize()
     const result = await this.database.query<TeamRow>(
@@ -1268,6 +1378,10 @@ export class EnterpriseOperationsRepository {
     )
     return this.team(row, members.rows.map(member => ({ employeeReleaseId: member.employee_release_id, role: member.role })))
   }
+  /** Executes `EnterpriseOperationsRepository.listFixedTeams` for this instance.
+   * @param input - Input value used by this API.
+   * @returns Result produced by this API.
+  */
   async listFixedTeams(input: { orgId: string; limit?: number; cursor?: string }): Promise<FixedTeamPage> {
     await this.initialize()
     const limit = listLimit(input.limit)
@@ -1297,6 +1411,10 @@ export class EnterpriseOperationsRepository {
       nextCursor: encodeCursor(scope, Number(last.created_at), [last.team_id], this.cursorSigningKey),
     }) }
   }
+  /** Executes `EnterpriseOperationsRepository.createTeamDefinition` for this instance.
+   * @param input - Input value used by this API.
+   * @returns Result produced by this API.
+  */
   async createTeamDefinition(input: Omit<EnterpriseTeamDefinition, 'revision' | 'createdAt' | 'updatedAt'> & {
     expectedRevision: number
     idempotencyKey: string
@@ -1308,6 +1426,10 @@ export class EnterpriseOperationsRepository {
       state: input.state === 'needs-charter' ? 'needs-charter' : 'draft',
     })
   }
+  /** Executes `EnterpriseOperationsRepository.saveTeamDefinition` for this instance.
+   * @param input - Input value used by this API.
+   * @returns Result produced by this API.
+  */
   async saveTeamDefinition(input: Omit<EnterpriseTeamDefinition, 'revision' | 'createdAt' | 'updatedAt'> & {
     expectedRevision: number
     idempotencyKey: string
@@ -1321,7 +1443,10 @@ export class EnterpriseOperationsRepository {
   /**
    * Save the sole draft revision. The active projection is intentionally untouched,
    * so TeamRuns already admitted from it retain their exact charter snapshot.
-   */
+
+   * @param input - Input value used by this API.
+   * @returns Result produced by this API.
+  */
   async saveTeamDefinitionDraft(input: Omit<EnterpriseTeamDefinition, 'revision' | 'createdAt' | 'updatedAt' | 'state'> & {
     expectedRevision: number
     idempotencyKey: string
@@ -1384,7 +1509,10 @@ export class EnterpriseOperationsRepository {
     })
   }
 
-  /** Validate and atomically promote the draft before refreshing the compatibility projection. */
+  /** Validate and atomically promote the draft before refreshing the compatibility projection.
+   * @param input - Input value used by this API.
+   * @returns Result produced by this API.
+  */
   async publishTeamDefinitionDraft(input: {
     orgId: string
     teamId: string
@@ -1440,7 +1568,10 @@ export class EnterpriseOperationsRepository {
     })
   }
 
-  /** Discard a draft by archiving its immutable revision; the active revision remains executable. */
+  /** Discard a draft by archiving its immutable revision; the active revision remains executable.
+   * @param input - Input value used by this API.
+   * @returns Result produced by this API.
+  */
   async discardTeamDefinitionDraft(input: {
     orgId: string
     teamId: string
@@ -1463,6 +1594,10 @@ export class EnterpriseOperationsRepository {
     })
   }
 
+  /** Executes `EnterpriseOperationsRepository.archiveTeamDefinition` for this instance.
+   * @param input - Input value used by this API.
+   * @returns Result produced by this API.
+  */
   async archiveTeamDefinition(input: {
     orgId: string
     teamId: string
@@ -1500,6 +1635,12 @@ export class EnterpriseOperationsRepository {
       return view
     })
   }
+  /** Executes `EnterpriseOperationsRepository.getTeamDefinition` for this instance.
+   * @param orgId - Input value used by this API.
+   * @param readScope - Input value used by this API.
+   * @param teamId - Input value used by this API.
+   * @returns Result produced by this API.
+  */
   async getTeamDefinition(
     orgId: string,
     teamId: string,
@@ -1514,7 +1655,12 @@ export class EnterpriseOperationsRepository {
     )
     return result.rows[0] === undefined ? undefined : this.teamDefinition(result.rows[0])
   }
-  /** Return only the team's current draft to its owner or an administrator. */
+  /** Return only the team's current draft to its owner or an administrator.
+   * @param orgId - Input value used by this API.
+   * @param readScope - Input value used by this API.
+   * @param teamId - Input value used by this API.
+   * @returns Result produced by this API.
+  */
   async getTeamDefinitionDraft(
     orgId: string,
     teamId: string,
@@ -1529,6 +1675,10 @@ export class EnterpriseOperationsRepository {
     )
     return result.rows[0] === undefined ? undefined : this.teamDefinitionRevision(result.rows[0])
   }
+  /** Executes `EnterpriseOperationsRepository.listTeamDefinitions` for this instance.
+   * @param input - Input value used by this API.
+   * @returns Result produced by this API.
+  */
   async listTeamDefinitions(input: {
     orgId: string
     readScope: TeamDefinitionReadScope

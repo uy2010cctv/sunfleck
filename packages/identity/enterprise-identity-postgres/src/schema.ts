@@ -2,6 +2,7 @@
 
 import type { PostgresDatabase } from './types.ts'
 
+/** Value exported as `ENTERPRISE_IDENTITY_POSTGRES_SCHEMA_VERSION`. */
 export const ENTERPRISE_IDENTITY_POSTGRES_SCHEMA_VERSION = 5
 
 const STATEMENTS = [
@@ -142,7 +143,9 @@ const STATEMENTS = [
   )`,
 ] as const
 
-/** Creates the schema in the current transaction; callers own commit or rollback. */
+/** Creates the schema in the current transaction; callers own commit or rollback.
+ * @param database - Input value used by this API.
+ */
 export async function migrateEnterpriseIdentityPostgres(database: PostgresDatabase): Promise<void> {
   for (const statement of STATEMENTS) await database.query(statement)
   const current = await database.query<{ value: string }>(

@@ -2,9 +2,12 @@
 
 import type { DatabaseSync } from 'node:sqlite'
 
+/** Value exported as `ENTERPRISE_IDENTITY_SCHEMA_VERSION`. */
 export const ENTERPRISE_IDENTITY_SCHEMA_VERSION = 5
 
-/** Create or validate the enterprise identity schema. */
+/** Create or validate the enterprise identity schema.
+ * @param database - Input value used by this API.
+ */
 export function migrateEnterpriseIdentity(database: DatabaseSync): void {
   database.exec('PRAGMA foreign_keys = ON')
   database.exec('PRAGMA journal_mode = WAL')

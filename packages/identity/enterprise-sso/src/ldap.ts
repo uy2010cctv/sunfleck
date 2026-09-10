@@ -10,6 +10,7 @@ import {
   type SsoProfileMapping,
 } from './security.ts'
 
+/** Data used by `EnterpriseLdapConfig`. */
 export interface EnterpriseLdapConfig extends LdapProviderConfig {
   readonly label: string
   readonly subjectAttribute: string
@@ -19,6 +20,7 @@ export interface EnterpriseLdapConfig extends LdapProviderConfig {
   readonly mapping: SsoProfileMapping
 }
 
+/** Data used by `LdapClientSeam`. */
 export interface LdapClientSeam {
   startTLS(options?: object): Promise<void>
   bind(dn: string, password?: string): Promise<void>
@@ -26,13 +28,17 @@ export interface LdapClientSeam {
   unbind(): Promise<void>
 }
 
+/** Data used by `LdapDependencies`. */
 export interface LdapDependencies {
   readonly clientFactory?: (url: string) => LdapClientSeam
   readonly resolveCredential: (ref: string) => Promise<string | undefined>
 }
 
+/** Provides `EnterpriseLdapProvider` capabilities. */
 export class EnterpriseLdapProvider {
+  /** Current `EnterpriseLdapProvider.id` value. */
   readonly id: string
+  /** Current `EnterpriseLdapProvider.label` value. */
   readonly label: string
   private readonly clientFactory: (url: string) => LdapClientSeam
 
@@ -50,6 +56,11 @@ export class EnterpriseLdapProvider {
     if (this.config.startTls) await client.startTLS({ minVersion: 'TLSv1.2', rejectUnauthorized: true })
   }
 
+  /** Executes `EnterpriseLdapProvider.authenticate` for this instance.
+   * @param password - Input value used by this API.
+   * @param username - Input value used by this API.
+   * @returns Result produced by this API.
+   */
   async authenticate(username: string, password: string): Promise<SsoMappedIdentity> {
     if (username === '' || password === '') throw new Error('LDAP username and password are required')
     const bindPassword = await this.deps.resolveCredential(this.config.bindPasswordRef)

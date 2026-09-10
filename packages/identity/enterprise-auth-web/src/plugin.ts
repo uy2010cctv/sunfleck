@@ -23,6 +23,7 @@ import {
   EnterpriseWorkspaceProvisioner, backfillSessionWorkspaceBindings,
 } from './workspace-provisioner.ts'
 
+/** Data used by `BootstrapAdminConfig`. */
 export interface BootstrapAdminConfig {
   readonly userId: string
   readonly username: string
@@ -30,10 +31,12 @@ export interface BootstrapAdminConfig {
   readonly passwordRef: string
 }
 
+/** Data used by `OidcPluginConfig`. */
 export interface OidcPluginConfig extends Omit<EnterpriseOidcConfig, 'clientSecret'> {
   readonly clientSecretRef?: string
 }
 
+/** Data used by `EnterpriseAuthWebConfig`. */
 export interface EnterpriseAuthWebConfig extends EnterpriseSecurityConfig {
   /** Existing SQLite fallback. Omit when `identityStore` is supplied. */
   readonly databasePath?: string
@@ -83,7 +86,10 @@ async function writeResponse(res: ServerResponse, response: Response): Promise<v
   res.end()
 }
 
-/** Mount the persistent identity service and authentication endpoints. */
+/** Mount the persistent identity service and authentication endpoints.
+ * @param config - Input value used by this API.
+ * @param ctx - Input value used by this API.
+*/
 export async function apply(ctx: Context, config: EnterpriseAuthWebConfig): Promise<void> {
   const databasePath = config.databasePath
   const postgres = ctx.get('enterprisePostgres') as {

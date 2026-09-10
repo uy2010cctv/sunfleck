@@ -7,6 +7,7 @@ export interface PostgresQueryResult<Row extends Record<string, unknown> = Recor
   readonly rowCount: number | null
 }
 
+/** Data used by `PostgresQueryable`. */
 export interface PostgresQueryable {
   query<Row extends Record<string, unknown> = Record<string, unknown>>(
     text: string,

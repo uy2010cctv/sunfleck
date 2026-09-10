@@ -29,6 +29,7 @@ interface EncryptedCredentialDocument {
   readonly records: Record<string, EncryptedCredentialEnvelope>
 }
 
+/** Data used by `EncryptedCredentialConfig`. */
 export interface EncryptedCredentialConfig {
   /** Owner-only path to the encrypted credential document. */
   readonly path: string

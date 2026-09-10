@@ -78,7 +78,10 @@ for (const profile of Object.values(CHANNEL_BINDING_PROFILES)) {
 }
 Object.freeze(CHANNEL_BINDING_PROFILES)
 
-/** Return credential-free official authorization metadata for one provider. */
+/** Return credential-free official authorization metadata for one provider.
+ * @param provider - Input value used by this API.
+ * @returns Result produced by this API.
+ */
 export function channelBindingProfile(provider: ChannelProvider): ChannelBindingProfile {
   return CHANNEL_BINDING_PROFILES[provider]
 }
@@ -118,7 +121,10 @@ function validatedCallbackUrl(callbackUrl: string): string {
   return parsed.toString()
 }
 
-/** Build the exact provider-owned OAuth URL without logging or persisting configuration. */
+/** Build the exact provider-owned OAuth URL without logging or persisting configuration.
+ * @param input - Input value used by this API.
+ * @returns Result produced by this API.
+ */
 export function channelAuthorizationUrl(input: ChannelAuthorizationUrlInput): string {
   const accountId = requiredAuthorizationValue(input.accountId, 'accountId')
   const callbackUrl = validatedCallbackUrl(input.callbackUrl)
@@ -292,6 +298,10 @@ function identityResult(
 /**
  * Exchange a one-time code through official provider APIs and return identity only.
  * Access and refresh tokens remain local temporaries and are never returned or retained.
+
+ * @param fetchImpl - Input value used by this API.
+ * @param input - Input value used by this API.
+ * @returns Result produced by this API.
  */
 export async function exchangeChannelAuthorizationCode(
   input: ChannelAuthorizationCodeInput,
@@ -395,13 +405,20 @@ export interface ChannelIntentPolicy {
   readonly mutation: boolean
 }
 
-/** Resolve provider policy; personal Weixin chat cannot mutate DSH business state. */
+/** Resolve provider policy; personal Weixin chat cannot mutate DSH business state.
+ * @param intent - Input value used by this API.
+ * @param provider - Input value used by this API.
+ * @returns Result produced by this API.
+ */
 export function channelIntentPolicy(provider: ChannelProvider, intent: ChannelEnvelopeIntent): ChannelIntentPolicy {
   const mutation = intent === 'team-start' || intent === 'decision-response'
   return { allowed: provider !== 'wechat' || !mutation, mutation }
 }
 
-/** Hash the provider account and message identity into one stable DSH operation id. */
+/** Hash the provider account and message identity into one stable DSH operation id.
+ * @param envelope - Input value used by this API.
+ * @returns Result produced by this API.
+ */
 export function channelEnvelopeIdempotencyKey(
   envelope: Pick<ChannelEnvelope, 'provider' | 'tenantId' | 'accountId' | 'messageId'>,
 ): string {
@@ -417,7 +434,10 @@ function channelIdentifier(value: string, field: string): string {
   return normalized
 }
 
-/** Validate and normalize one envelope before an adapter submits it to DSH. */
+/** Validate and normalize one envelope before an adapter submits it to DSH.
+ * @param input - Input value used by this API.
+ * @returns Result produced by this API.
+ */
 export function normalizeChannelEnvelope(
   input: Omit<ChannelEnvelope, 'operationId'>,
 ): ChannelEnvelope {
@@ -440,6 +460,7 @@ export function normalizeChannelEnvelope(
   return { ...normalized, operationId: channelEnvelopeIdempotencyKey(normalized) }
 }
 
+/** Data used by `ChannelBinding`. */
 export interface ChannelBinding {
   readonly channelId: string
   readonly kind: ChannelKind
@@ -447,11 +468,13 @@ export interface ChannelBinding {
   readonly defaultEmployeeId?: string | undefined
 }
 
+/** Allowed values for `ChannelCommand`. */
 export type ChannelCommand =
   | { readonly kind: 'list-employees' }
   | { readonly kind: 'switch-employee'; readonly employeeId: string }
   | { readonly kind: 'message' }
 
+/** Allowed values for `ChannelRoutingDecision`. */
 export type ChannelRoutingDecision =
   | { readonly kind: 'list-employees'; readonly employeeIds: readonly string[] }
   | { readonly kind: 'switch-employee'; readonly employeeId: string }
@@ -459,6 +482,7 @@ export type ChannelRoutingDecision =
   | { readonly kind: 'blocked'; readonly reason: 'employee-not-bound'; readonly employeeId: string }
   | { readonly kind: 'blocked'; readonly reason: 'no-employee' }
 
+/** Data used by `ChannelRoutingInput`. */
 export interface ChannelRoutingInput {
   readonly binding: ChannelBinding
   readonly text: string
@@ -466,7 +490,10 @@ export interface ChannelRoutingInput {
   readonly intentEmployeeId?: string
 }
 
-/** Parse the stable cross-channel employee command vocabulary. */
+/** Parse the stable cross-channel employee command vocabulary.
+ * @param text - Input value used by this API.
+ * @returns Result produced by this API.
+ */
 export function parseChannelCommand(text: string): ChannelCommand {
   const normalized = text.trim()
   if (normalized === '/员工' || normalized === '/employees') return { kind: 'list-employees' }
@@ -475,7 +502,10 @@ export function parseChannelCommand(text: string): ChannelCommand {
   return { kind: 'message' }
 }
 
-/** Route one normalized inbound message without touching transport or Session storage. */
+/** Route one normalized inbound message without touching transport or Session storage.
+ * @param input - Input value used by this API.
+ * @returns Result produced by this API.
+ */
 export function routeInbound(input: ChannelRoutingInput): ChannelRoutingDecision {
   const command = parseChannelCommand(input.text)
   if (command.kind === 'list-employees') {
@@ -500,35 +530,46 @@ export function routeInbound(input: ChannelRoutingInput): ChannelRoutingDecision
   return { kind: 'blocked', reason: 'no-employee' }
 }
 
+/** Data used by `ChannelActorIdentity`. */
 export interface ChannelActorIdentity {
   readonly channelId: string
   readonly channelUserId: string
   readonly canonicalUserId?: string
 }
 
+/** Data used by `ChannelIdentityAlias`. */
 export interface ChannelIdentityAlias {
   readonly channelId: string
   readonly channelUserId: string
 }
 
+/** Data used by `ChannelIdentityBinding`. */
 export interface ChannelIdentityBinding {
   readonly canonicalUserId: string
   readonly aliases: readonly ChannelIdentityAlias[]
 }
 
+/** Data used by `ResolvedChannelActor`. */
 export interface ResolvedChannelActor {
   readonly actorKey: string
   readonly canonicalUserId?: string
 }
 
-/** Resolve a cross-channel canonical actor, falling back to one channel-local identity. */
+/** Resolve a cross-channel canonical actor, falling back to one channel-local identity.
+ * @param identity - Input value used by this API.
+ * @returns Result produced by this API.
+ */
 export function channelActorKey(identity: ChannelActorIdentity): string {
   return identity.canonicalUserId === undefined
     ? `channel:${identity.channelId}:${identity.channelUserId}`
     : `enterprise:${identity.canonicalUserId}`
 }
 
-/** Resolve a channel alias through reviewed account bindings, rejecting conflicting ownership. */
+/** Resolve a channel alias through reviewed account bindings, rejecting conflicting ownership.
+ * @param alias - Input value used by this API.
+ * @param bindings - Input value used by this API.
+ * @returns Result produced by this API.
+ */
 export function resolveChannelActor(
   alias: ChannelIdentityAlias,
   bindings: readonly ChannelIdentityBinding[],
@@ -543,30 +584,40 @@ export function resolveChannelActor(
     : { actorKey: channelActorKey({ ...alias, canonicalUserId }), canonicalUserId }
 }
 
+/** Data used by `ChannelInboundIdentity`. */
 export interface ChannelInboundIdentity {
   readonly channelId: string
   readonly accountId: string
   readonly externalMessageId: string
 }
 
-/** Hash provider identity fields into a stable, non-guessable inbound idempotency key. */
+/** Hash provider identity fields into a stable, non-guessable inbound idempotency key.
+ * @param message - Input value used by this API.
+ * @returns Result produced by this API.
+ */
 export function inboundIdempotencyKey(message: ChannelInboundIdentity): string {
   return createHash('sha256')
     .update(JSON.stringify([message.channelId, message.accountId, message.externalMessageId]))
     .digest('hex')
 }
 
+/** Data used by `InboundIdempotencyStore`. */
 export interface InboundIdempotencyStore {
   /** Atomically claim a key; true only for the first committed claimant. */
   claim(key: string): Promise<boolean>
 }
 
+/** Data used by `InboundAdmission`. */
 export interface InboundAdmission {
   readonly admitted: boolean
   readonly key: string
 }
 
-/** Atomically admit one provider message through a deployment-owned durable claim store. */
+/** Atomically admit one provider message through a deployment-owned durable claim store.
+ * @param message - Input value used by this API.
+ * @param store - Input value used by this API.
+ * @returns Result produced by this API.
+ */
 export async function admitInbound(
   message: ChannelInboundIdentity,
   store: InboundIdempotencyStore,
@@ -575,7 +626,12 @@ export async function admitInbound(
   return { admitted: await store.claim(key), key }
 }
 
-/** Deterministic capped exponential retry delay; jitter belongs to the durable dispatcher. */
+/** Deterministic capped exponential retry delay; jitter belongs to the durable dispatcher.
+ * @param attempt - Input value used by this API.
+ * @param baseMs - Input value used by this API.
+ * @param maxMs - Input value used by this API.
+ * @returns Result produced by this API.
+ */
 export function retryDelayMs(attempt: number, baseMs = 1_000, maxMs = 60_000): number {
   if (!Number.isSafeInteger(attempt) || attempt < 1) throw new RangeError('attempt must be a positive integer')
   if (!Number.isFinite(baseMs) || baseMs <= 0) throw new RangeError('baseMs must be positive')
@@ -583,6 +639,7 @@ export function retryDelayMs(attempt: number, baseMs = 1_000, maxMs = 60_000): n
   return Math.min(maxMs, baseMs * 2 ** Math.min(attempt - 1, 30))
 }
 
+/** Data used by `ChannelHealthInput`. */
 export interface ChannelHealthInput {
   readonly now: number
   readonly tokenExpiresAt?: number
@@ -591,13 +648,17 @@ export interface ChannelHealthInput {
   readonly staleAfterMs?: number
 }
 
+/** Allowed values for `ChannelHealth`. */
 export type ChannelHealth =
   | { readonly state: 'healthy' }
   | { readonly state: 'token-expired'; readonly tokenExpiresAt: number }
   | { readonly state: 'token-expiring'; readonly tokenExpiresAt: number }
   | { readonly state: 'reconnect-required'; readonly staleForMs: number }
 
-/** Project token and inbound-heartbeat facts into an operator-facing channel health state. */
+/** Project token and inbound-heartbeat facts into an operator-facing channel health state.
+ * @param input - Input value used by this API.
+ * @returns Result produced by this API.
+ */
 export function channelHealth(input: ChannelHealthInput): ChannelHealth {
   if (input.tokenExpiresAt !== undefined && input.tokenExpiresAt <= input.now) {
     return { state: 'token-expired', tokenExpiresAt: input.tokenExpiresAt }
@@ -613,10 +674,15 @@ export function channelHealth(input: ChannelHealthInput): ChannelHealth {
   return { state: 'healthy' }
 }
 
+/** Allowed values for `ChannelSessionState`. */
 export type ChannelSessionState = 'healthy' | 'disconnected' | 'missing' | 'corrupt'
+/** Allowed values for `ChannelRecoveryAction`. */
 export type ChannelRecoveryAction = 'none' | 'resume' | 'recreate' | 'quarantine'
 
-/** Select a fail-closed recovery action; corrupt history is never silently replaced. */
+/** Select a fail-closed recovery action; corrupt history is never silently replaced.
+ * @param state - Input value used by this API.
+ * @returns Result produced by this API.
+ */
 export function sessionRecoveryAction(state: ChannelSessionState): ChannelRecoveryAction {
   switch (state) {
     case 'healthy': return 'none'
@@ -626,6 +692,7 @@ export function sessionRecoveryAction(state: ChannelSessionState): ChannelRecove
   }
 }
 
+/** Data used by `ChannelAuditInput`. */
 export interface ChannelAuditInput {
   readonly direction: 'inbound' | 'outbound'
   readonly channelId: string
@@ -637,6 +704,7 @@ export interface ChannelAuditInput {
   readonly at: number
 }
 
+/** Data used by `ChannelAuditEvent`. */
 export interface ChannelAuditEvent {
   readonly type: 'channel/message'
   readonly direction: 'inbound' | 'outbound'
@@ -650,7 +718,10 @@ export interface ChannelAuditEvent {
   readonly at: number
 }
 
-/** Build message audit metadata while excluding raw message bodies and credentials. */
+/** Build message audit metadata while excluding raw message bodies and credentials.
+ * @param input - Input value used by this API.
+ * @returns Result produced by this API.
+ */
 export function channelAuditEvent(input: ChannelAuditInput): ChannelAuditEvent {
   return {
     type: 'channel/message',

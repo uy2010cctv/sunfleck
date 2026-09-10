@@ -1,7 +1,9 @@
+/** Data used by `EnterpriseTeamMember`. */
 export interface EnterpriseTeamMember {
   employeeReleaseId: string
   role: string
 }
+/** Data used by `EnterpriseTeam`. */
 export interface EnterpriseTeam {
   teamId: string
   orgId: string
@@ -13,12 +15,16 @@ export interface EnterpriseTeam {
   createdAt: number
   updatedAt: number
 }
+/** Data used by `EnterpriseTeamPage`. */
 export interface EnterpriseTeamPage {
   items: readonly EnterpriseTeam[]
   nextCursor?: string
 }
+/** Data used by `EnterpriseTeamListRequest`. */
 export interface EnterpriseTeamListRequest { readonly limit?: number; readonly cursor?: string }
+/** Data used by `EnterpriseTeamLookup`. */
 export interface EnterpriseTeamLookup { readonly teamId: string }
+/** Data used by `EnterpriseTeamSaveRequest`. */
 export interface EnterpriseTeamSaveRequest {
   readonly teamId: string
   readonly leaderEmployeeReleaseId: string

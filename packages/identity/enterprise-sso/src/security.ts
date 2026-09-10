@@ -5,7 +5,11 @@ import { randomUUID } from '@deepseek-ai/dsh-util-crypto'
 
 const LOOPBACK_HOSTS = new Set(['127.0.0.1', '::1', 'localhost'])
 
-/** Require HTTPS for every non-loopback SSO endpoint. */
+/** Require HTTPS for every non-loopback SSO endpoint.
+ * @param label - Input value used by this API.
+ * @param value - Input value used by this API.
+ * @returns Result produced by this API.
+ */
 export function assertSecureSsoUrl(value: string, label: string): URL {
   const url = new URL(value)
   if (url.username !== '' || url.password !== '') throw new Error(`${label} URL must not contain credentials`)
@@ -15,6 +19,7 @@ export function assertSecureSsoUrl(value: string, label: string): URL {
   return url
 }
 
+/** Data used by `OidcTransaction`. */
 export interface OidcTransaction {
   readonly providerId: string
   readonly state: string
@@ -24,6 +29,7 @@ export interface OidcTransaction {
   readonly expiresAt: number
 }
 
+/** Data used by `OidcTransactionStoreOptions`. */
 export interface OidcTransactionStoreOptions {
   readonly now?: () => number
   readonly random?: () => string
@@ -43,6 +49,11 @@ export class OidcTransactionStore {
     this.ttlMs = options.ttlMs ?? 10 * 60_000
   }
 
+  /** Executes `OidcTransactionStore.create` for this instance.
+   * @param providerId - Input value used by this API.
+   * @param returnTo - Input value used by this API.
+   * @returns Result produced by this API.
+   */
   create(providerId: string, returnTo: string): OidcTransaction {
     if (!returnTo.startsWith('/') || returnTo.startsWith('//')) throw new Error('OIDC returnTo must be an absolute local path')
     const transaction = {
@@ -57,6 +68,10 @@ export class OidcTransactionStore {
     return transaction
   }
 
+  /** Executes `OidcTransactionStore.consume` for this instance.
+   * @param state - Input value used by this API.
+   * @returns Result produced by this API.
+   */
   consume(state: string): OidcTransaction | undefined {
     const transaction = this.transactions.get(state)
     this.transactions.delete(state)
@@ -64,6 +79,7 @@ export class OidcTransactionStore {
   }
 }
 
+/** Data used by `SamlProviderConfig`. */
 export interface SamlProviderConfig {
   readonly id: string
   readonly entryPoint: string
@@ -72,6 +88,9 @@ export interface SamlProviderConfig {
   readonly idpCert: string
 }
 
+/** Executes `validateSamlConfig`.
+ * @param config - Input value used by this API.
+ */
 export function validateSamlConfig(config: SamlProviderConfig): void {
   assertSecureSsoUrl(config.entryPoint, 'SAML entry point')
   assertSecureSsoUrl(config.callbackUrl, 'SAML callback')
@@ -79,6 +98,7 @@ export function validateSamlConfig(config: SamlProviderConfig): void {
   if (!config.idpCert.includes('BEGIN CERTIFICATE')) throw new Error('SAML IdP certificate is required')
 }
 
+/** Data used by `LdapProviderConfig`. */
 export interface LdapProviderConfig {
   readonly id: string
   readonly url: string
@@ -89,6 +109,9 @@ export interface LdapProviderConfig {
   readonly userFilter: string
 }
 
+/** Executes `validateLdapConfig`.
+ * @param config - Input value used by this API.
+ */
 export function validateLdapConfig(config: LdapProviderConfig): void {
   const url = new URL(config.url)
   if (url.protocol !== 'ldaps:' && !(url.protocol === 'ldap:' && config.startTls)) {
@@ -100,11 +123,15 @@ export function validateLdapConfig(config: LdapProviderConfig): void {
   if (config.bindPasswordRef.trim() === '') throw new Error('LDAP bindPasswordRef is required')
 }
 
-/** RFC 4515 filter assertion-value escaping. */
+/** RFC 4515 filter assertion-value escaping.
+ * @param value - Input value used by this API.
+ * @returns Result produced by this API.
+ */
 export function escapeLdapFilterValue(value: string): string {
   return value.replace(/[\0()*\\]/gu, character => `\\${character.codePointAt(0)?.toString(16).padStart(2, '0')}`)
 }
 
+/** Data used by `SsoProfileMapping`. */
 export interface SsoProfileMapping {
   readonly organizationId: string
   readonly usernameClaim: string
@@ -113,6 +140,7 @@ export interface SsoProfileMapping {
   readonly roleByGroup: Readonly<Record<string, EnterpriseRole>>
 }
 
+/** Data used by `SsoMappedIdentity`. */
 export interface SsoMappedIdentity {
   readonly providerId: string
   readonly subject: string
@@ -122,11 +150,15 @@ export interface SsoMappedIdentity {
   readonly roles: readonly EnterpriseRole[]
 }
 
+/** Data used by `SsoLoginResult`. */
 export interface SsoLoginResult extends SsoMappedIdentity {
   readonly returnTo: string
 }
 
-/** Normalize OIDC/SAML/LDAP attributes into the canonical external-identity shape. */
+/** Normalize OIDC/SAML/LDAP attributes into the canonical external-identity shape.
+ * @param input - Input value used by this API.
+ * @returns Result produced by this API.
+ */
 export function mapSsoProfile(input: {
   providerId: string
   profile: Readonly<Record<string, unknown>>

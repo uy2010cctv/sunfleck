@@ -14,6 +14,7 @@ import { verifyPassword } from '@deepseek-ai/dsh-enterprise-sso'
 import type { SsoMappedIdentity } from '@deepseek-ai/dsh-enterprise-sso'
 import { parseSessionCookie, serializeSessionCookie } from './cookies.ts'
 
+/** Data used by `EnterpriseSecurityConfig`. */
 export interface EnterpriseSecurityConfig {
   readonly organizationId: string
   readonly sessionCookieName: string
@@ -22,6 +23,7 @@ export interface EnterpriseSecurityConfig {
   readonly autoProvisionSsoUsers: boolean
 }
 
+/** Data used by `EnterpriseSecurityOptions`. */
 export interface EnterpriseSecurityOptions {
   readonly now?: () => number
   readonly randomToken?: () => string
@@ -34,6 +36,7 @@ export interface EnterpriseSecurityOptions {
   ) => Promise<EnterpriseResource | null | undefined>
 }
 
+/** Data used by `ApiClassification`. */
 export interface ApiClassification {
   readonly action: EnterpriseAction
   readonly resourceType: string
@@ -109,7 +112,11 @@ const MODEL_WRITE = new Set([
   'host.pickDirectory', 'host.createDirectory', 'host.openPath',
 ])
 
-/** Closed endpoint-to-policy map. Anything not classified is denied. */
+/** Closed endpoint-to-policy map. Anything not classified is denied.
+ * @param endpoint - Input value used by this API.
+ * @param input - Input value used by this API.
+ * @returns Result produced by this API.
+ */
 export function classifyApiEndpoint(endpoint: string, input: unknown): ApiClassification | undefined {
   const payload = payloadOf(input)
   if (endpoint === 'dynamicCordisRunner.inventory' || endpoint === 'dynamicCordisRunner.syncInspectManifest') {
@@ -286,6 +293,7 @@ export function classifyApiEndpoint(endpoint: string, input: unknown): ApiClassi
   return undefined
 }
 
+/** Data used by `LoginResult`. */
 export interface LoginResult {
   readonly principal: EnterprisePrincipalView
   readonly token: string

@@ -24,19 +24,23 @@ type TableName =
 
 type MigrationRow = Record<string, unknown>
 
+/** Data used by `MigrationTableSummary`. */
 export interface MigrationTableSummary {
   readonly count: number
   readonly checksum: string
 }
 
+/** Allowed values for `EnterpriseIdentityMigrationSummary`. */
 export type EnterpriseIdentityMigrationSummary = Readonly<Record<TableName, MigrationTableSummary>>
 
+/** Data used by `EnterpriseIdentityMigrationReport`. */
 export interface EnterpriseIdentityMigrationReport {
   readonly dryRun: boolean
   readonly source: EnterpriseIdentityMigrationSummary
   readonly destination: EnterpriseIdentityMigrationSummary | undefined
 }
 
+/** Data used by `SqliteToPostgresMigrationOptions`. */
 export interface SqliteToPostgresMigrationOptions {
   readonly sqliteFilename: string
   readonly target: PostgresDatabase
@@ -435,6 +439,9 @@ async function assertEmptyTarget(target: PostgresDatabase): Promise<void> {
  * Imports a complete SQLite identity database into an empty PostgreSQL target.
  * Dry run opens SQLite only; the target is untouched. Import runs as one transaction,
  * so any failed row leaves no partial identity/control-plane state behind.
+
+ * @param options - Input value used by this API.
+ * @returns Result produced by this API.
  */
 export async function migrateSqliteEnterpriseIdentityToPostgres(
   options: SqliteToPostgresMigrationOptions,

@@ -157,8 +157,21 @@ export class PostgresSessionPersistence extends SessionPersistence {
     return snapshots.map(snapshot => ({ ...snapshot, header: decodeStoredPrefix(snapshot.header).header }))
   }
 
+  /** Executes `PostgresSessionPersistence.read` for this instance.
+   * @param id - Input value used by this API.
+   * @param signal - Input value used by this API.
+   * @returns Result produced by this API.
+  */
   async read(id: SessionId, signal?: AbortSignal): Promise<readonly SessionEvent[]> { return (await this.requireStored(id, signal)).events }
+  /** Executes `PostgresSessionPersistence.append` for this instance.
+   * @param events - Input value used by this API.
+   * @param header - Input value used by this API.
+   * @param inheritedEventCount - Input value used by this API.
+  */
   append(header: SessionHeader, inheritedEventCount: number, events: readonly SessionEvent[]): Promise<void> { return this.store.appendBatch(withStoredPrefix(header, inheritedEventCount), events, true) }
+  /** Executes `PostgresSessionPersistence.release` for this instance.
+   * @param handle - Input value used by this API.
+  */
   release(handle: PostgresSessionHandle): void { this.handles.delete(handle); if (this.writers.get(handle.id) === handle) this.writers.delete(handle.id) }
   private adopt(handle: PostgresSessionHandle): PostgresSessionHandle { this.handles.add(handle); if (handle.access === 'write') this.writers.set(handle.id, handle); return handle }
   private async requireStored(id: SessionId, signal?: AbortSignal) {

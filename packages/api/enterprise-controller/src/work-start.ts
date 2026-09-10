@@ -22,6 +22,7 @@ interface WorkStartSnapshot {
   readonly deadline?: string
   readonly state: 'starting' | 'completed'
 }
+/** Data used by `EnterpriseWorkStartDependencies`. */
 export interface EnterpriseWorkStartDependencies {
   readonly workspaceGrant: (workspaceId: string) => Promise<{ orgId: string } | undefined>
   readonly visibleWorkspace: (principal: EnterprisePrincipal, workspaceId: string) => Promise<boolean>
@@ -72,6 +73,11 @@ export interface EnterpriseWorkStartDependencies {
 /** Narrow policy-first work-start orchestration; it deliberately does not route models or teams. */
 export class EnterpriseWorkStartService {
   constructor(private readonly deps: EnterpriseWorkStartDependencies) {}
+  /** Executes `EnterpriseWorkStartService.prepare` for this instance.
+   * @param principal - Input value used by this API.
+   * @param request - Input value used by this API.
+   * @returns Result produced by this API.
+   */
   async prepare(principal: EnterprisePrincipal, request: EnterpriseWorkPrepareRequest): Promise<EnterpriseWorkPreparation> {
     if (request.objective.trim() === '') throw new Error('objective is required')
     if (request.deadline !== undefined && Number.isNaN(Date.parse(request.deadline))) throw new Error('deadline must be ISO date')
@@ -89,6 +95,11 @@ export class EnterpriseWorkStartService {
     if (only !== undefined && current.length === 1) return { kind: 'ready', workspaceId, employeeReleaseId: only.releaseId }
     return { kind: 'needs-selection', workspaceId, availableEmployeeReleaseIds: current.map(item => item.releaseId) }
   }
+  /** Executes `EnterpriseWorkStartService.start` for this instance.
+   * @param principal - Input value used by this API.
+   * @param request - Input value used by this API.
+   * @returns Result produced by this API.
+   */
   async start(principal: EnterprisePrincipal, request: EnterpriseWorkStartRequest): Promise<EnterpriseWorkStartValue> {
     const requestFingerprint = fingerprint(request)
     const existing = await this.deps.getWorkStart({

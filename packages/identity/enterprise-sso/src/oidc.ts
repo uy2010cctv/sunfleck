@@ -9,6 +9,7 @@ import {
   type SsoProfileMapping,
 } from './security.ts'
 
+/** Data used by `EnterpriseOidcConfig`. */
 export interface EnterpriseOidcConfig {
   readonly id: string
   readonly label: string
@@ -24,6 +25,7 @@ interface OidcTokenResponse {
   claims(): Readonly<Record<string, unknown>> | undefined
 }
 
+/** Data used by `OidcClientSeam`. */
 export interface OidcClientSeam {
   discovery(server: URL, clientId: string, clientSecret?: string): Promise<unknown>
   calculatePKCECodeChallenge(verifier: string): Promise<string>
@@ -44,13 +46,17 @@ const defaultOidcSeam: OidcClientSeam = {
     oidc.authorizationCodeGrant(configuration as oidc.Configuration, callbackUrl, checks),
 }
 
+/** Data used by `OidcBeginResult`. */
 export interface OidcBeginResult {
   readonly url: URL
   readonly state: string
 }
 
+/** Provides `EnterpriseOidcProvider` capabilities. */
 export class EnterpriseOidcProvider {
+  /** Current `EnterpriseOidcProvider.id` value. */
   readonly id: string
+  /** Current `EnterpriseOidcProvider.label` value. */
   readonly label: string
   private configuration: Promise<unknown> | undefined
 
@@ -72,6 +78,10 @@ export class EnterpriseOidcProvider {
     return this.configuration
   }
 
+  /** Executes `EnterpriseOidcProvider.begin` for this instance.
+   * @param returnTo - Input value used by this API.
+   * @returns Result produced by this API.
+   */
   async begin(returnTo: string): Promise<OidcBeginResult> {
     const transaction = this.transactions.create(this.id, returnTo)
     const codeChallenge = await this.client.calculatePKCECodeChallenge(transaction.codeVerifier)
@@ -90,6 +100,10 @@ export class EnterpriseOidcProvider {
     }
   }
 
+  /** Executes `EnterpriseOidcProvider.complete` for this instance.
+   * @param callbackUrl - Input value used by this API.
+   * @returns Result produced by this API.
+   */
   async complete(callbackUrl: URL): Promise<SsoLoginResult> {
     const state = callbackUrl.searchParams.get('state')
     const transaction = state === null ? undefined : this.transactions.consume(state)

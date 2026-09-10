@@ -2,6 +2,7 @@
 
 export type EnterpriseRole = 'administrator' | 'creator' | 'operator' | 'auditor' | 'member'
 
+/** Allowed values for `EnterpriseAction`. */
 export type EnterpriseAction =
   | 'api.unknown'
   | 'system.inspect'
@@ -35,12 +36,14 @@ export type EnterpriseAction =
   | 'plugin.publish'
   | 'plugin.manage'
 
+/** Data used by `EnterprisePrincipal`. */
 export interface EnterprisePrincipal {
   readonly userId: string
   readonly orgId: string
   readonly roles: readonly EnterpriseRole[]
 }
 
+/** Data used by `EnterpriseResource`. */
 export interface EnterpriseResource {
   readonly orgId: string
   readonly creatorUserId?: string
@@ -48,12 +51,14 @@ export interface EnterpriseResource {
   readonly allowedUserIds?: readonly string[]
 }
 
+/** Data used by `EnterpriseAuthorizationInput`. */
 export interface EnterpriseAuthorizationInput {
   readonly principal: EnterprisePrincipal
   readonly action: EnterpriseAction
   readonly resource?: EnterpriseResource
 }
 
+/** Allowed values for `EnterpriseAuthorizationReason`. */
 export type EnterpriseAuthorizationReason =
   | 'administrator'
   | 'auditor'
@@ -64,6 +69,7 @@ export type EnterpriseAuthorizationReason =
   | 'resource-hidden'
   | 'insufficient-role'
 
+/** Data used by `EnterpriseAuthorizationDecision`. */
 export interface EnterpriseAuthorizationDecision {
   readonly allowed: boolean
   readonly reason: EnterpriseAuthorizationReason
@@ -82,7 +88,10 @@ function resourceVisible(principal: EnterprisePrincipal, resource: EnterpriseRes
   }
 }
 
-/** Authorize one enterprise action; organization mismatch always wins over role. */
+/** Authorize one enterprise action; organization mismatch always wins over role.
+ * @param input - Input value used by this API.
+ * @returns Result produced by this API.
+ */
 export function authorizeEnterprise(input: EnterpriseAuthorizationInput): EnterpriseAuthorizationDecision {
   const { principal, action, resource } = input
   if (resource !== undefined && resource.orgId !== principal.orgId) {
@@ -143,7 +152,9 @@ export function authorizeEnterprise(input: EnterpriseAuthorizationInput): Enterp
   return { allowed: false, reason: 'insufficient-role' }
 }
 
+/** Allowed values for `EnterpriseDeploymentMode`. */
 export type EnterpriseDeploymentMode = 'desktop' | 'lan' | 'public'
+/** Allowed values for `EnterpriseDeploymentIssue`. */
 export type EnterpriseDeploymentIssue =
   | 'identity-provider-required'
   | 'rbac-required'
@@ -152,6 +163,7 @@ export type EnterpriseDeploymentIssue =
   | 'tls-required'
   | 'single-port-required'
 
+/** Data used by `EnterpriseDeploymentInput`. */
 export interface EnterpriseDeploymentInput {
   readonly mode: EnterpriseDeploymentMode
   readonly authenticatedIdentity: boolean
@@ -162,12 +174,16 @@ export interface EnterpriseDeploymentInput {
   readonly singlePort: boolean
 }
 
+/** Data used by `EnterpriseDeploymentReadiness`. */
 export interface EnterpriseDeploymentReadiness {
   readonly ready: boolean
   readonly issues: readonly EnterpriseDeploymentIssue[]
 }
 
-/** Evaluate explicit deployment evidence instead of treating intranet reachability as security. */
+/** Evaluate explicit deployment evidence instead of treating intranet reachability as security.
+ * @param input - Input value used by this API.
+ * @returns Result produced by this API.
+ */
 export function deploymentReadiness(input: EnterpriseDeploymentInput): EnterpriseDeploymentReadiness {
   const issues: EnterpriseDeploymentIssue[] = []
   if (input.mode !== 'desktop') {
@@ -181,6 +197,7 @@ export function deploymentReadiness(input: EnterpriseDeploymentInput): Enterpris
   return { ready: issues.length === 0, issues }
 }
 
+/** Data used by `GovernanceAuditInput`. */
 export interface GovernanceAuditInput {
   readonly orgId: string
   readonly actorUserId: string
@@ -193,11 +210,15 @@ export interface GovernanceAuditInput {
   readonly at: number
 }
 
+/** Data used by `GovernanceAuditEvent`. */
 export interface GovernanceAuditEvent extends GovernanceAuditInput {
   readonly type: 'governance/action'
 }
 
-/** Create an attributable governance decision record with no free-form or secret payload field. */
+/** Create an attributable governance decision record with no free-form or secret payload field.
+ * @param input - Input value used by this API.
+ * @returns Result produced by this API.
+ */
 export function governanceAuditEvent(input: GovernanceAuditInput): GovernanceAuditEvent {
   return { type: 'governance/action', ...input }
 }

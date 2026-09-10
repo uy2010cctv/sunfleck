@@ -18,6 +18,8 @@ import { guardedPlugin } from './guard.ts'
  * @param plugin - the plugin the sandbox returned; wrapped with the registration guard before starting.
  * @param reportGuardFailure - reports post-activation Host guard rejections to the owning Agent.
  * @returns the settled child fiber (possibly pending on unsatisfied `inject`).
+
+ * @param trusted - Input value used by this API.
  */
 export async function startHostHalf(
   group: Fiber,

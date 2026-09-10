@@ -30,6 +30,7 @@ const POLICY = [
   'Do not persist experiments, failed Packages, or capabilities the user did not ask to keep.',
 ].join(' ')
 
+/** Data used by `Config`. */
 export interface Config {
   /** Host-owned directory for durable approved Cordis Package artifacts. */
   readonly artifactRoot?: string
@@ -120,7 +121,10 @@ async function restoreWorkspaceGeneration(
   }
 }
 
-/** Provide the shared service and register persistence/review tools. */
+/** Provide the shared service and register persistence/review tools.
+ * @param config - Input value used by this API.
+ * @param ctx - Input value used by this API.
+*/
 export function apply(ctx: Context, config: Config = {}): void {
   const composition = ctx.enterprisePostgres
   const artifactStore = config.artifactRoot === undefined

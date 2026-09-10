@@ -25,6 +25,7 @@ import type {
   PublishedCordisReview,
 } from './types.ts'
 
+/** Allowed values for `EnterpriseCordisErrorCode`. */
 export type EnterpriseCordisErrorCode =
   | 'workspace-not-found'
   | 'organization-mismatch'
@@ -40,10 +41,12 @@ export type EnterpriseCordisErrorCode =
   | 'revision-conflict'
   | 'validation-failed'
 
+/** Provides `EnterpriseCordisError` capabilities. */
 export class EnterpriseCordisError extends Error {
   constructor(readonly code: EnterpriseCordisErrorCode, message: string) { super(message) }
 }
 
+/** Data used by `EnterpriseCordisServiceOptions`. */
 export interface EnterpriseCordisServiceOptions {
   readonly directory: EnterpriseCordisDirectory
   readonly now?: () => number

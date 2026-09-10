@@ -18,12 +18,18 @@ interface WorkspaceLike {
   setTitle?(title: string): Promise<void>
 }
 
+/** Data used by `EnterpriseWorkspaceRegistry`. */
 export interface EnterpriseWorkspaceRegistry {
   create(path: string, title?: string): Promise<WorkspaceLike>
   ensure?(id: string, path: string, title: string): Promise<WorkspaceLike>
   get?(id: string): WorkspaceLike | undefined
 }
 
+/** Executes `backfillSessionWorkspaceBindings`.
+ * @param orgId - Input value used by this API.
+ * @param registry - Input value used by this API.
+ * @param repository - Input value used by this API.
+ */
 export async function backfillSessionWorkspaceBindings(
   repository: EnterpriseIdentityStore,
   registry: EnterpriseWorkspaceRegistry,
@@ -42,6 +48,7 @@ export async function backfillSessionWorkspaceBindings(
   }
 }
 
+/** Data used by `EnterpriseWorkspaceProvisionerOptions`. */
 export interface EnterpriseWorkspaceProvisionerOptions {
   readonly root: string
   readonly registry: EnterpriseWorkspaceRegistry
@@ -63,6 +70,10 @@ export class EnterpriseWorkspaceProvisioner {
     this.root = resolve(options.root)
   }
 
+  /** Executes `EnterpriseWorkspaceProvisioner.ensurePersonal` for this instance.
+   * @param user - Input value used by this API.
+   * @returns Result produced by this API.
+   */
   async ensurePersonal(user: EnterpriseUserView): Promise<EnterpriseWorkspaceGrant> {
     const existing = (await this.repository.listOrganizationWorkspaceGrants(user.orgId))
       .find(grant => grant.kind === 'personal' && grant.ownerUserId === user.id)
@@ -80,6 +91,12 @@ export class EnterpriseWorkspaceProvisioner {
     })
   }
 
+  /** Executes `EnterpriseWorkspaceProvisioner.createPersonal` for this instance.
+   * @param idempotencyKey - Input value used by this API.
+   * @param name - Input value used by this API.
+   * @param user - Input value used by this API.
+   * @returns Result produced by this API.
+   */
   async createPersonal(
     user: EnterpriseUserView,
     name: string,
@@ -96,6 +113,11 @@ export class EnterpriseWorkspaceProvisioner {
     })
   }
 
+  /** Executes `EnterpriseWorkspaceProvisioner.ensureDepartment` for this instance.
+   * @param department - Input value used by this API.
+   * @param previousDepartmentName - Input value used by this API.
+   * @returns Result produced by this API.
+   */
   async ensureDepartment(
     department: EnterpriseDepartment,
     previousDepartmentName?: string,
@@ -127,6 +149,9 @@ export class EnterpriseWorkspaceProvisioner {
     })
   }
 
+  /** Executes `EnterpriseWorkspaceProvisioner.ensureWorkspace` for this instance.
+   * @param grant - Input value used by this API.
+   */
   async ensureWorkspace(grant: EnterpriseWorkspaceGrant): Promise<void> {
     const workspace = await this.options.registry.ensure?.(grant.workspaceId, grant.rootPath, grant.name)
     if (workspace !== undefined && workspace.title !== grant.name) await workspace.setTitle?.(grant.name)

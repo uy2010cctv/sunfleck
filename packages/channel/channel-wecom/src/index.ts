@@ -38,12 +38,21 @@ export interface WeComSignatureInput {
   readonly signature: string
 }
 
-/** Calculate the SHA-1 callback signature required by WeCom. */
+/** Calculate the SHA-1 callback signature required by WeCom.
+ * @param encrypt - Input value used by this API.
+ * @param nonce - Input value used by this API.
+ * @param timestamp - Input value used by this API.
+ * @param token - Input value used by this API.
+ * @returns Result produced by this API.
+ */
 export function computeWeComSignature(token: string, timestamp: string, nonce: string, encrypt: string): string {
   return createHash('sha1').update([token, timestamp, nonce, encrypt].sort().join('')).digest('hex')
 }
 
-/** Verify a callback signature using a constant-time comparison. */
+/** Verify a callback signature using a constant-time comparison.
+ * @param input - Input value used by this API.
+ * @returns Result produced by this API.
+ */
 export function verifyWeComSignature(input: WeComSignatureInput): boolean {
   if (!input.token || !input.timestamp || !input.nonce || !input.encrypt
     || !input.signature || !/^[a-f0-9]{40}$/iu.test(input.signature)) return false
@@ -52,7 +61,10 @@ export function verifyWeComSignature(input: WeComSignatureInput): boolean {
   return expected.length === supplied.length && timingSafeEqual(expected, supplied)
 }
 
-/** Decode and validate the exact 256-bit AES key used by WeCom. */
+/** Decode and validate the exact 256-bit AES key used by WeCom.
+ * @param config - Input value used by this API.
+ * @returns Result produced by this API.
+*/
 function aesKey(config: WeComAppConfig): Buffer {
   const applicationType: unknown = config.applicationType
   if (applicationType !== 'enterprise-app') {
@@ -68,7 +80,10 @@ function aesKey(config: WeComAppConfig): Buffer {
   return key
 }
 
-/** Remove the WeCom-specific 32-byte-block PKCS#7 padding. */
+/** Remove the WeCom-specific 32-byte-block PKCS#7 padding.
+ * @param buffer - Input value used by this API.
+ * @returns Result produced by this API.
+*/
 function unpadWeCom(buffer: Buffer): Buffer {
   if (buffer.length === 0 || buffer.length % 32 !== 0) throw new Error('invalid WeCom AES padding length')
   const padding = buffer[buffer.length - 1]
@@ -79,13 +94,20 @@ function unpadWeCom(buffer: Buffer): Buffer {
   return buffer.subarray(0, buffer.length - padding)
 }
 
-/** Add the WeCom-specific 32-byte-block PKCS#7 padding. */
+/** Add the WeCom-specific 32-byte-block PKCS#7 padding.
+ * @param buffer - Input value used by this API.
+ * @returns Result produced by this API.
+*/
 function padWeCom(buffer: Buffer): Buffer {
   const padding = 32 - (buffer.length % 32)
   return Buffer.concat([buffer, Buffer.alloc(padding, padding)])
 }
 
-/** Decode a UTF-8 field without silently replacing malformed bytes. */
+/** Decode a UTF-8 field without silently replacing malformed bytes.
+ * @param buffer - Input value used by this API.
+ * @param field - Input value used by this API.
+ * @returns Result produced by this API.
+*/
 function decodeUtf8(buffer: Buffer, field: string): string {
   try {
     return new TextDecoder('utf-8', { fatal: true }).decode(buffer)
@@ -100,7 +122,11 @@ export interface WeComDecryptedPayload {
   readonly receiveId: string
 }
 
-/** Decrypt and authenticate a WeCom AES-CBC callback payload. */
+/** Decrypt and authenticate a WeCom AES-CBC callback payload.
+ * @param config - Input value used by this API.
+ * @param encrypted - Input value used by this API.
+ * @returns Result produced by this API.
+ */
 export function decryptWeComPayload(encrypted: string, config: WeComAppConfig): WeComDecryptedPayload {
   if (!encrypted) throw new Error('WeCom encrypted payload is required')
   const key = aesKey(config)
@@ -125,7 +151,11 @@ export function decryptWeComPayload(encrypted: string, config: WeComAppConfig): 
   return { message, receiveId }
 }
 
-/** Encrypt an XML/JSON callback response using the same WeCom envelope. */
+/** Encrypt an XML/JSON callback response using the same WeCom envelope.
+ * @param config - Input value used by this API.
+ * @param message - Input value used by this API.
+ * @returns Result produced by this API.
+ */
 export function encryptWeComPayload(message: string, config: WeComAppConfig): string {
   const key = aesKey(config)
   const messageBytes = Buffer.from(message, 'utf8')
@@ -150,7 +180,11 @@ export interface WeComUrlChallenge {
   readonly echostr: string
 }
 
-/** Verify and decrypt the callback URL challenge. */
+/** Verify and decrypt the callback URL challenge.
+ * @param challenge - Input value used by this API.
+ * @param config - Input value used by this API.
+ * @returns Result produced by this API.
+ */
 export function verifyWeComUrl(challenge: WeComUrlChallenge, config: WeComAppConfig): string {
   if (!verifyWeComSignature({ ...challenge, token: config.token, encrypt: challenge.echostr })) throw new Error('invalid WeCom callback signature')
   return decryptWeComPayload(challenge.echostr, config).message
@@ -162,7 +196,11 @@ export interface WeComFastAck {
   readonly body: 'success'
 }
 
-/** Validate only the cheap signature and return the immediate provider ACK. */
+/** Validate only the cheap signature and return the immediate provider ACK.
+ * @param callback - Input value used by this API.
+ * @param config - Input value used by this API.
+ * @returns Result produced by this API.
+ */
 export function acknowledgeWeComCallback(
   callback: Omit<WeComSignatureInput, 'token'>,
   config: WeComAppConfig,
@@ -205,7 +243,10 @@ export interface WeComInboundMessage {
   readonly event?: string
 }
 
-/** Normalize a provider message without persisting its raw envelope. */
+/** Normalize a provider message without persisting its raw envelope.
+ * @param input - Input value used by this API.
+ * @returns Result produced by this API.
+ */
 export function normalizeWeComInbound(input: WeComInboundInput): WeComInboundMessage {
   if (!input.channelId) throw new Error('WeCom channelId is required')
   if (!input.accountId) throw new Error('WeCom accountId is required')
@@ -246,6 +287,10 @@ export interface WeComTokenHealth {
   }
 }
 
+/** Executes `evaluateWeComTokenHealth`.
+ * @param input - Input value used by this API.
+ * @returns Result produced by this API.
+ */
 export function evaluateWeComTokenHealth(input: ChannelHealthInput): WeComTokenHealth {
   const health = channelHealth(input)
   if (health.state !== 'token-expiring' && health.state !== 'token-expired') return { health }
@@ -274,12 +319,14 @@ export interface WeComDeliveryAttemptState {
   readonly now: number
 }
 
+/** Data used by `WeComRetryPolicy`. */
 export interface WeComRetryPolicy {
   readonly maxAttempts?: number
   readonly baseMs?: number
   readonly maxMs?: number
 }
 
+/** Allowed values for `WeComDeliveryDecision`. */
 export type WeComDeliveryDecision =
   | { readonly action: 'retry'; readonly attempt: number; readonly nextAttemptAt: number; readonly delayMs: number; readonly reason: 'transient' | 'provider-retry-after' }
   | { readonly action: 'dead-letter'; readonly attempt: number; readonly reason: 'max-attempts' | 'non-retryable' }
@@ -294,7 +341,12 @@ function isTransient(error: WeComDeliveryError): boolean {
     ))
 }
 
-/** Calculate the next durable delivery action without retaining provider body text. */
+/** Calculate the next durable delivery action without retaining provider body text.
+ * @param error - Input value used by this API.
+ * @param policy - Input value used by this API.
+ * @param state - Input value used by this API.
+ * @returns Result produced by this API.
+ */
 export function nextWeComDeliveryAttempt(
   state: WeComDeliveryAttemptState,
   error: WeComDeliveryError,

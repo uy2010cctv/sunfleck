@@ -5,6 +5,7 @@ import type { ClientRemote } from '@deepseek-ai/dsh-api-remotes/client'
 import type { DepartmentManagerSet } from '@deepseek-ai/dsh-api-enterprise-controller/types'
 import { randomUUID } from '@deepseek-ai/dsh-util-crypto'
 
+/** Data used by `GovernancePrincipal`. */
 export interface GovernancePrincipal {
   readonly userId: string
   readonly orgId: string
@@ -13,6 +14,7 @@ export interface GovernancePrincipal {
   readonly roles: readonly string[]
 }
 
+/** Data used by `GovernanceAuthStatus`. */
 export interface GovernanceAuthStatus {
   readonly authenticated: boolean
   readonly organizationId?: string
@@ -20,6 +22,7 @@ export interface GovernanceAuthStatus {
   readonly providers: readonly { id: string; kind: string; label: string }[]
 }
 
+/** Data used by `GovernanceUser`. */
 export interface GovernanceUser {
   readonly id: string
   readonly username: string
@@ -31,6 +34,7 @@ export interface GovernanceUser {
   readonly departmentRevision?: number
 }
 
+/** Data used by `GovernanceDepartment`. */
 export interface GovernanceDepartment {
   readonly id: string
   readonly orgId: string
@@ -42,6 +46,7 @@ export interface GovernanceDepartment {
   readonly updatedAt: number
 }
 
+/** Data used by `GovernanceWorkspace`. */
 export interface GovernanceWorkspace {
   readonly workspaceId: string
   readonly orgId: string
@@ -56,6 +61,7 @@ export interface GovernanceWorkspace {
   readonly updatedAt: number
 }
 
+/** Data used by `GovernanceMemory`. */
 export interface GovernanceMemory {
   readonly id: string
   readonly orgId: string
@@ -74,11 +80,13 @@ export interface GovernanceMemory {
   readonly updatedAt: number
 }
 
+/** Data used by `GovernanceOrganization`. */
 export interface GovernanceOrganization {
   readonly id: string
   readonly name: string
 }
 
+/** Data used by `GovernancePolicy`. */
 export interface GovernancePolicy {
   readonly resourceType: string
   readonly resourceId: string
@@ -87,6 +95,7 @@ export interface GovernancePolicy {
   readonly allowedUserIds: readonly string[]
 }
 
+/** Data used by `GovernanceAsset`. */
 export interface GovernanceAsset {
   readonly type: 'channel' | 'model' | 'capability'
   readonly id: string
@@ -94,6 +103,7 @@ export interface GovernanceAsset {
   readonly config: Readonly<Record<string, unknown>>
 }
 
+/** Data used by `GovernanceAudit`. */
 export interface GovernanceAudit {
   readonly id: string
   readonly actorUserId: string
@@ -104,6 +114,7 @@ export interface GovernanceAudit {
   readonly at: number
 }
 
+/** Data used by `EnterpriseGovernanceState`. */
 export interface EnterpriseGovernanceState {
   readonly phase: 'loading' | 'ready' | 'error'
   readonly error: string | null
@@ -136,7 +147,9 @@ function remoteValue<T>(response: { ok: true; value: T } | { ok: false; error: {
   return result.value
 }
 
+/** Provides `EnterpriseGovernanceController` capabilities. */
 export class EnterpriseGovernanceController {
+  /** Current `EnterpriseGovernanceController.store` value. */
   readonly store: SnapshotStore<EnterpriseGovernanceState> = createSnapshotStore(INITIAL)
   private readonly fetcher: Fetcher
 
@@ -144,6 +157,7 @@ export class EnterpriseGovernanceController {
     this.fetcher = fetcher ?? ((input, init) => globalThis.fetch(input, init))
   }
 
+  /** Executes `EnterpriseGovernanceController.refreshAuth` for this instance. */
   async refreshAuth(): Promise<void> {
     try {
       const auth = await this.get<GovernanceAuthStatus>('/auth/status')
@@ -153,6 +167,9 @@ export class EnterpriseGovernanceController {
     }
   }
 
+  /** Executes `EnterpriseGovernanceController.loginLocal` for this instance.
+   * @param input - Input value used by this API.
+   */
   async loginLocal(input: { organizationId: string; username: string; password: string }): Promise<void> {
     this.store.set({ ...this.store.getSnapshot(), phase: 'loading', error: null })
     try {
@@ -164,12 +181,14 @@ export class EnterpriseGovernanceController {
     }
   }
 
+  /** Executes `EnterpriseGovernanceController.logout` for this instance. */
   async logout(): Promise<void> {
     await this.request('/auth/logout', { method: 'POST' })
     this.store.set({ ...INITIAL, phase: 'ready', auth: { authenticated: false, providers: [] } })
     await this.refreshAuth()
   }
 
+  /** Executes `EnterpriseGovernanceController.loadAdmin` for this instance. */
   async loadAdmin(): Promise<void> {
     try {
       const [organizations, users, departments, workspaces, memories, assets, policies, audit] = await Promise.all([
@@ -199,6 +218,11 @@ export class EnterpriseGovernanceController {
     }
   }
 
+  /** Executes `EnterpriseGovernanceController.setDepartmentManagers` for this instance.
+   * @param departmentId - Input value used by this API.
+   * @param expectedRevision - Input value used by this API.
+   * @param managerUserIds - Input value used by this API.
+   */
   async setDepartmentManagers(
     departmentId: string,
     managerUserIds: readonly string[],
@@ -216,6 +240,9 @@ export class EnterpriseGovernanceController {
     })
   }
 
+  /** Executes `EnterpriseGovernanceController.createUser` for this instance.
+   * @param input - Input value used by this API.
+   */
   async createUser(input: {
     id: string
     username: string
@@ -227,11 +254,18 @@ export class EnterpriseGovernanceController {
     await this.loadAdmin()
   }
 
+  /** Executes `EnterpriseGovernanceController.createOrganization` for this instance.
+   * @param input - Input value used by this API.
+   */
   async createOrganization(input: GovernanceOrganization): Promise<void> {
     await this.request('/auth/admin/organizations', { method: 'POST', body: JSON.stringify(input) })
     await this.loadAdmin()
   }
 
+  /** Executes `EnterpriseGovernanceController.updateUser` for this instance.
+   * @param input - Input value used by this API.
+   * @param userId - Input value used by this API.
+   */
   async updateUser(userId: string, input: {
     roles?: readonly string[]
     disabled?: boolean
@@ -251,6 +285,9 @@ export class EnterpriseGovernanceController {
     }
   }
 
+  /** Executes `EnterpriseGovernanceController.saveDepartment` for this instance.
+   * @param input - Input value used by this API.
+   */
   async saveDepartment(input: {
     id: string
     name: string
@@ -262,11 +299,18 @@ export class EnterpriseGovernanceController {
     await this.loadAdmin()
   }
 
+  /** Executes `EnterpriseGovernanceController.createWorkspace` for this instance.
+   * @param input - Input value used by this API.
+   */
   async createWorkspace(input: { name: string; idempotencyKey: string }): Promise<void> {
     await this.request('/auth/workspaces', { method: 'POST', body: JSON.stringify(input) })
     await this.loadAdmin()
   }
 
+  /** Executes `EnterpriseGovernanceController.updateWorkspace` for this instance.
+   * @param input - Input value used by this API.
+   * @param workspaceId - Input value used by this API.
+   */
   async updateWorkspace(workspaceId: string, input: {
     name?: string
     sandboxMode?: GovernanceWorkspace['sandboxMode']
@@ -278,6 +322,9 @@ export class EnterpriseGovernanceController {
     await this.loadAdmin()
   }
 
+  /** Executes `EnterpriseGovernanceController.proposeMemory` for this instance.
+   * @param input - Input value used by this API.
+   */
   async proposeMemory(input: {
     id: string
     scope: GovernanceMemory['scope']
@@ -290,6 +337,10 @@ export class EnterpriseGovernanceController {
     await this.loadAdmin()
   }
 
+  /** Executes `EnterpriseGovernanceController.reviewMemory` for this instance.
+   * @param input - Input value used by this API.
+   * @param memoryId - Input value used by this API.
+   */
   async reviewMemory(memoryId: string, input: {
     decision: 'approved' | 'rejected' | 'retired'
     reason: string
@@ -301,16 +352,25 @@ export class EnterpriseGovernanceController {
     await this.loadAdmin()
   }
 
+  /** Executes `EnterpriseGovernanceController.savePolicy` for this instance.
+   * @param input - Input value used by this API.
+   */
   async savePolicy(input: GovernancePolicy): Promise<void> {
     await this.request('/auth/admin/resource-policies', { method: 'POST', body: JSON.stringify(input) })
     await this.loadAdmin()
   }
 
+  /** Executes `EnterpriseGovernanceController.createAsset` for this instance.
+   * @param input - Input value used by this API.
+   */
   async createAsset(input: GovernanceAsset): Promise<void> {
     await this.request('/auth/admin/assets', { method: 'POST', body: JSON.stringify(input) })
     await this.loadAdmin()
   }
 
+  /** Executes `EnterpriseGovernanceController.filterAudit` for this instance.
+   * @param input - Input value used by this API.
+   */
   async filterAudit(input: { actorUserId?: string; action?: string }): Promise<void> {
     const params = new URLSearchParams({ limit: '200' })
     if (input.actorUserId !== undefined && input.actorUserId !== '') params.set('actorUserId', input.actorUserId)

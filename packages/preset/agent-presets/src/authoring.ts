@@ -22,6 +22,7 @@ import { RemoteError } from '@deepseek-ai/dsh-typert-protocol'
 import { METADATA_FILE, renderPresetMetadata } from './metadata.ts'
 import { PRESET_ID, type AgentPreset, type PresetRoot } from './preset.ts'
 
+/** Data used by `EmployeePresetDefinition`. */
 export interface EmployeePresetDefinition {
   readonly name: string
   readonly description?: string
@@ -81,7 +82,10 @@ export async function readComposition(preset: AgentPreset): Promise<string> {
   return await readFile(preset.path, 'utf8')
 }
 
-/** Whether anything occupies the path (cp's own errorOnExist backstops races). */
+/** Whether anything occupies the path (cp's own errorOnExist backstops races).
+ * @param path - Input value used by this API.
+ * @returns Result produced by this API.
+*/
 async function occupied(path: string): Promise<boolean> {
   let present = true
   try {
@@ -99,7 +103,9 @@ async function occupied(path: string): Promise<boolean> {
  * in its install and `cp` preserves that; the copy carries the same weight as
  * the settings document beside it, so group/other access is stripped. A
  * file's owner-execute bit survives — a preset may ship runnable helpers.
- */
+
+ * @param dir - Input value used by this API.
+*/
 async function tightenModes(dir: string): Promise<void> {
   await chmod(dir, 0o700)
   for (const entry of await readdir(dir, { withFileTypes: true })) {
@@ -196,6 +202,11 @@ function employeePersona(input: EmployeePresetDefinition): string {
   return `${identity}.\n\n${input.prompt.trim()}\n\nIdentity consistency: when asked who you are or to introduce yourself, answer from this digital-employee identity, position, and responsibilities. Do not describe yourself as a generic coding agent or as the DSH system itself.`
 }
 
+/** Executes `configureEmployeeComposition`.
+ * @param input - Input value used by this API.
+ * @param preset - Input value used by this API.
+ * @param roots - Input value used by this API.
+*/
 export async function configureEmployeeComposition(
   roots: readonly PresetRoot[],
   preset: AgentPreset,

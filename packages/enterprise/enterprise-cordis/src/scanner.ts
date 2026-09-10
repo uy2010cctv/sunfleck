@@ -1,5 +1,6 @@
 import type { CordisPackageDraft, CordisValidationCheck, DshPluginDependency } from './types.ts'
 
+/** Data used by `EnterpriseCordisScanner`. */
 export interface EnterpriseCordisScanner {
   readonly id: string
   scan(draft: CordisPackageDraft): Promise<readonly CordisValidationCheck[]>

@@ -31,6 +31,7 @@ export interface PostgresStoredPrefix {
 
 /** PostgreSQL implementation of the persistence service's durable primitives. */
 export class PostgresSessionStore {
+  /** Current `PostgresSessionStore.name` value. */
   readonly name: string = 'session-persistence-postgres'
   private initialized: Promise<void> | undefined
   private storeIdentity: string | undefined
@@ -66,6 +67,11 @@ export class PostgresSessionStore {
     return this.initialized
   }
 
+  /** Executes `PostgresSessionStore.loadStored` for this instance.
+   * @param id - Input value used by this API.
+   * @param signal - Input value used by this API.
+   * @returns Result produced by this API.
+  */
   async loadStored(id: SessionId, signal?: AbortSignal): Promise<PostgresStoredPrefix | undefined> {
     await this.observe(signal)
     return this.database.transaction(async (transaction) => {
@@ -86,6 +92,11 @@ export class PostgresSessionStore {
     })
   }
 
+  /** Executes `PostgresSessionStore.readStoredRevision` for this instance.
+   * @param id - Input value used by this API.
+   * @param signal - Input value used by this API.
+   * @returns Result produced by this API.
+  */
   async readStoredRevision(
     id: SessionId,
     signal?: AbortSignal,
@@ -99,6 +110,12 @@ export class PostgresSessionStore {
     return header === undefined ? undefined : this.revision(header)
   }
 
+  /** Executes `PostgresSessionStore.loadStoredFrom` for this instance.
+   * @param fromSeq - Input value used by this API.
+   * @param id - Input value used by this API.
+   * @param signal - Input value used by this API.
+   * @returns Result produced by this API.
+  */
   async loadStoredFrom(id: SessionId, fromSeq: number, signal?: AbortSignal): Promise<{ meta: SessionHeader; events: readonly SessionEvent[] } | undefined> {
     await this.observe(signal)
     return this.database.transaction(async (transaction) => {
@@ -117,6 +134,11 @@ export class PostgresSessionStore {
     })
   }
 
+  /** Executes `PostgresSessionStore.appendBatch` for this instance.
+   * @param events - Input value used by this API.
+   * @param isMaterialized - Input value used by this API.
+   * @param meta - Input value used by this API.
+  */
   async appendBatch(meta: SessionHeader, events: readonly SessionEvent[], isMaterialized: boolean): Promise<void> {
     await this.initialize()
     if (events.length === 0) return
@@ -161,7 +183,10 @@ export class PostgresSessionStore {
     })
   }
 
-  /** Materialize an empty session and report whether its id was newly claimed. */
+  /** Materialize an empty session and report whether its id was newly claimed.
+   * @param meta - Input value used by this API.
+   * @returns Result produced by this API.
+  */
   async createStored(meta: SessionHeader): Promise<boolean> {
     await this.initialize()
     return this.database.transaction(async (transaction) => {
@@ -176,6 +201,11 @@ export class PostgresSessionStore {
     })
   }
 
+  /** Executes `PostgresSessionStore.commitRepair` for this instance.
+   * @param closers - Input value used by this API.
+   * @param meta - Input value used by this API.
+   * @param tornMarker - Input value used by this API.
+  */
   async commitRepair(
     meta: SessionHeader,
     tornMarker: number | undefined,
@@ -215,6 +245,10 @@ export class PostgresSessionStore {
     })
   }
 
+  /** Executes `PostgresSessionStore.list` for this instance.
+   * @param signal - Input value used by this API.
+   * @returns Result produced by this API.
+  */
   async list(signal?: AbortSignal): Promise<SessionHeader[]> {
     await this.observe(signal)
     const result = await this.database.query<HeaderRow>(
@@ -224,6 +258,10 @@ export class PostgresSessionStore {
     return result.rows.map(row => parseHeader(row.header_json))
   }
 
+  /** Executes `PostgresSessionStore.listSnapshots` for this instance.
+   * @param signal - Input value used by this API.
+   * @returns Result produced by this API.
+  */
   async listSnapshots(signal?: AbortSignal): Promise<SessionPersistenceSnapshot[]> {
     await this.observe(signal)
     const result = await this.database.query<HeaderRow>(
@@ -233,6 +271,7 @@ export class PostgresSessionStore {
     return result.rows.map(row => ({ header: parseHeader(row.header_json), revision: this.revision(row) }))
   }
 
+  /** Executes `PostgresSessionStore.close` for this instance. */
   async close(): Promise<void> {
     await this.database.end?.()
   }

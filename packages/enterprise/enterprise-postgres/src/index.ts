@@ -25,7 +25,9 @@ import type {
 
 type AnyResult = IdentityResult & SessionResult & CatalogResult & OperationsResult & KnowledgeResult & CordisResult
 
-/** One transaction-aware wrapper shared by all enterprise PG adapters. */
+/** One transaction-aware wrapper shared by all enterprise PG adapters.
+ * @param operation - Input value used by this API.
+ */
 export class EnterprisePostgresDatabase implements
   IdentityDatabase, SessionDatabase, CatalogDatabase, OperationsDatabase, KnowledgeDatabase, CordisDatabase {
   private ending: Promise<void> | undefined
@@ -47,6 +49,7 @@ export class EnterprisePostgresDatabase implements
 
   async end(): Promise<void> { await (this.ending ??= this.pool.end()) }
 
+  /** @param operation - Work executed atomically against one checked-out database connection. */
   async transaction<T>(operation: (database: EnterprisePostgresDatabase) => Promise<T>): Promise<T> {
     const transaction = this.client === undefined ? await this.connect() : this
     const owner = transaction === this
@@ -63,6 +66,9 @@ export class EnterprisePostgresDatabase implements
     }
   }
 
+  /** Executes `EnterprisePostgresDatabase.health` for this instance.
+   * @returns Result produced by this API.
+   */
   async health(): Promise<{ ok: true; serverVersion: string }> {
     const result = await this.query<{ server_version: string }>('SELECT current_setting(\'server_version\') AS server_version')
     const serverVersion = result.rows[0]?.server_version
@@ -71,6 +77,7 @@ export class EnterprisePostgresDatabase implements
   }
 }
 
+/** Data used by `EnterprisePostgresConfig`. */
 export interface EnterprisePostgresConfig {
   /** PostgreSQL connection string; supplied by the Host rather than a browser client. */
   readonly connectionString: string
@@ -130,7 +137,10 @@ function poolConfig(config: EnterprisePostgresConfig): PoolConfig {
   }
 }
 
-/** Create, health-check, migrate, and expose every enterprise PostgreSQL adapter. */
+/** Create, health-check, migrate, and expose every enterprise PostgreSQL adapter.
+ * @param config - Input value used by this API.
+ * @returns Result produced by this API.
+ */
 export async function createEnterprisePostgresComposition(config: EnterprisePostgresConfig): Promise<EnterprisePostgresComposition> {
   const rootCursorSigningKey = Buffer.isBuffer(config.cursorSigningKey)
     ? Buffer.from(config.cursorSigningKey)
@@ -193,7 +203,10 @@ export async function createEnterprisePostgresComposition(config: EnterprisePost
   }
 }
 
-/** Cordis plugin entrypoint used by the enterprise deployment patch. */
+/** Cordis plugin entrypoint used by the enterprise deployment patch.
+ * @param config - Input value used by this API.
+ * @param ctx - Input value used by this API.
+*/
 export async function apply(ctx: Context, config: EnterprisePostgresConfig): Promise<void> {
   const composition = await createEnterprisePostgresComposition(config)
   ctx.provide('enterprisePostgres', composition)

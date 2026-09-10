@@ -1,8 +1,11 @@
 /** Driver-neutral contracts for DSH enterprise operations. */
 export type OperationSource = 'console' | 'schedule' | 'wecom'
+/** Allowed values for `BusinessState`. */
 export type BusinessState = 'active' | 'waiting-approval' | 'completed' | 'failed'
+/** Allowed values for `ApprovalKind`. */
 export type ApprovalKind = 'publish' | 'tool' | 'business' | 'handoff'
 
+/** Data used by `WorkRecordInput`. */
 export interface WorkRecordInput {
   readonly orgId: string
   readonly sessionId: string
@@ -14,11 +17,13 @@ export interface WorkRecordInput {
   readonly expectedRevision: number
   readonly idempotencyKey: string
 }
+/** Data used by `WorkRecordView`. */
 export interface WorkRecordView extends Omit<WorkRecordInput, 'expectedRevision' | 'idempotencyKey'> {
   readonly revision: number
   readonly createdAt: number
   readonly updatedAt: number
 }
+/** Data used by `WorkRecordPage`. */
 export interface WorkRecordPage {
   readonly items: readonly WorkRecordView[]
   readonly nextCursor?: string
@@ -36,15 +41,20 @@ export interface WorkStartReservationInput {
   readonly deadline?: string
   readonly deadlineDigest?: string
 }
+/** Data used by `WorkStartReservation`. */
 export interface WorkStartReservation extends WorkStartReservationInput {
   readonly state: 'starting' | 'completed'
   readonly createdAt: number
   readonly updatedAt: number
 }
+/** Data used by `ApprovalPage`. */
 export interface ApprovalPage { readonly items: readonly ApprovalView[]; readonly nextCursor?: string }
+/** Data used by `FixedTeamPage`. */
 export interface FixedTeamPage { readonly items: readonly FixedTeamView[]; readonly nextCursor?: string }
+/** Data used by `SchedulePage`. */
 export interface SchedulePage { readonly items: readonly ScheduleView[]; readonly nextCursor?: string }
 
+/** Data used by `ApprovalView`. */
 export interface ApprovalView {
   readonly approvalId: string
   readonly orgId: string
@@ -59,9 +69,11 @@ export interface ApprovalView {
   readonly createdAt: number
   readonly updatedAt: number
 }
+/** Allowed values for `ScheduleTarget`. */
 export type ScheduleTarget =
   | { readonly kind: 'employee'; readonly employeeReleaseId: string }
   | { readonly kind: 'team'; readonly teamId: string }
+/** Data used by `ScheduleView`. */
 export interface ScheduleView {
   readonly scheduleId: string
   readonly orgId: string
@@ -76,6 +88,7 @@ export interface ScheduleView {
   readonly createdAt: number
   readonly updatedAt: number
 }
+/** Data used by `ScheduleFireView`. */
 export interface ScheduleFireView {
   readonly workRecord: WorkRecordView
   readonly command: {
@@ -85,7 +98,9 @@ export interface ScheduleFireView {
     readonly teamId?: string
   }
 }
+/** Allowed values for `OutboxState`. */
 export type OutboxState = 'pending' | 'processing' | 'completed' | 'failed' | 'dead-letter'
+/** Data used by `OutboxCommandView`. */
 export interface OutboxCommandView {
   readonly commandId: string
   readonly orgId: string
@@ -105,6 +120,7 @@ export interface OutboxCommandView {
   readonly teamDefinitionRevision?: number
   readonly createdAt: number
 }
+/** Data used by `FixedTeamView`. */
 export interface FixedTeamView {
   readonly teamId: string
   readonly orgId: string
@@ -316,15 +332,18 @@ export interface EnterpriseTeamAutonomyGrantPage {
   readonly items: readonly EnterpriseTeamAutonomyGrant[]
   readonly nextCursor?: string
 }
+/** Data used by `PostgresQueryResult`. */
 export interface PostgresQueryResult<Row extends Record<string, unknown> = Record<string, unknown>> {
   readonly rows: readonly Row[]
   readonly rowCount: number | null
 }
+/** Data used by `PostgresDatabase`. */
 export interface PostgresDatabase {
   query<Row extends Record<string, unknown>>(text: string, values?: readonly unknown[]): Promise<PostgresQueryResult<Row>>
   transaction<T>(operation: (database: PostgresDatabase) => Promise<T>): Promise<T>
 }
 
+/** Data used by `EnterpriseOperationsRepositoryOptions`. */
 export interface EnterpriseOperationsRepositoryOptions {
   readonly now?: () => number
   /** HMAC-SHA256 key used for scope-bound opaque list cursors. Must be at least 32 bytes. */

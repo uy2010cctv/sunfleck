@@ -6,7 +6,11 @@
 import type { LoaderEntryState } from './loader-status.ts'
 import css from './boot-page.module.css'
 
-/** Create a div with one module class and optional text. */
+/** Create a div with one module class and optional text.
+ * @param className - Input value used by this API.
+ * @param text - Input value used by this API.
+ * @returns Result produced by this API.
+*/
 function div(className: string | undefined, text?: string): HTMLDivElement {
   const el = document.createElement('div')
   el.className = className ?? ''
@@ -77,6 +81,8 @@ export class BootPage {
   /**
    * Display the boot failure report.
    * @param message - Failure report text.
+
+   * @param recovery - Input value used by this API.
    */
   fail(message: string, recovery?: BootRecoveryAction): void {
     this.failure = message

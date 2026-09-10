@@ -8,15 +8,18 @@ export interface EnterpriseWorkPrepareRequest {
   readonly preferredEmployeeReleaseId?: string
 }
 
+/** Data used by `EnterpriseWorkStartRequest`. */
 export interface EnterpriseWorkStartRequest extends EnterpriseWorkPrepareRequest {
   readonly idempotencyKey: string
 }
 
+/** Allowed values for `EnterpriseWorkPreparation`. */
 export type EnterpriseWorkPreparation =
   | { readonly kind: 'ready'; readonly workspaceId: string; readonly employeeReleaseId: string }
   | { readonly kind: 'needs-workspace-selection'; readonly availableWorkspaceIds: readonly string[] }
   | { readonly kind: 'needs-selection'; readonly workspaceId: string; readonly availableEmployeeReleaseIds: readonly string[] }
 
+/** Data used by `EnterpriseWorkStartValue`. */
 export interface EnterpriseWorkStartValue {
   readonly sessionId: string
   readonly workspaceId: string

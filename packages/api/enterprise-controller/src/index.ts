@@ -204,12 +204,23 @@ declare module '@deepseek-ai/cordis' {
   }
 }
 
-/** Resolve the request-scoped authenticated enterprise principal. */
+/** Resolve the request-scoped authenticated enterprise principal.
+ * @param ctx - Input value used by this API.
+ * @returns Result produced by this API.
+*/
 function principal(ctx: Context): EnterprisePrincipal {
   return ctx.enterpriseRequestContext.requirePrincipal()
 }
 
-/** Authorize and audit one enterprise catalog operation. */
+/** Authorize and audit one enterprise catalog operation.
+ * @param ctx - Input value used by this API.
+ * @param endpoint - Input value used by this API.
+ * @param input - Input value used by this API.
+ * @param operation - Input value used by this API.
+ * @param resourceId - Input value used by this API.
+ * @param resourceType - Input value used by this API.
+ * @returns Result produced by this API.
+*/
 async function catalogCall<T>(
   ctx: Context,
   endpoint: string,
@@ -231,7 +242,10 @@ async function catalogCall<T>(
   }
 }
 
-/** Build the enterprise operations service over the shared PostgreSQL composition. */
+/** Build the enterprise operations service over the shared PostgreSQL composition.
+ * @param ctx - Input value used by this API.
+ * @returns Result produced by this API.
+*/
 function operations(ctx: Context): EnterpriseOperationsService {
   return new EnterpriseOperationsService(ctx.enterprisePostgres.operations, {
     authorize: (actor, endpoint, input) => ctx.enterpriseSecurity.authorizeApiAsync(actor, endpoint, input),
@@ -320,6 +334,11 @@ interface EmployeePromptLlm {
   stream(options: GenerateOptions): AsyncIterable<StreamChunk>
 }
 
+/** Executes `optimizeEmployeePromptWithLlm`.
+ * @param llm - Input value used by this API.
+ * @param request - Input value used by this API.
+ * @returns Result produced by this API.
+ */
 export async function optimizeEmployeePromptWithLlm(
   llm: EmployeePromptLlm,
   request: EnterpriseEmployeeOptimizePromptRequest,
@@ -2049,7 +2068,9 @@ function enterpriseFailure(
   return new RemoteError(code as never, message, { endpoint, resourceType, resourceId } as never)
 }
 
-/** Install all enterprise Remote namespace owners. */
+/** Install all enterprise Remote namespace owners.
+ * @param ctx - Input value used by this API.
+*/
 export function apply(ctx: Context): void {
   new EnterpriseEmployeeController(ctx)
   new EnterpriseAssetController(ctx)

@@ -10,12 +10,15 @@ import type {
   PublishedCordisReview,
 } from '@deepseek-ai/dsh-enterprise-cordis'
 
+/** Data used by `CordisWorkspaceListRequest`. */
 export interface CordisWorkspaceListRequest { readonly workspaceId: string }
+/** Data used by `CordisWorkspaceSaveRequest`. */
 export interface CordisWorkspaceSaveRequest {
   readonly workspaceId: string
   readonly draft: CordisPackageDraft
   readonly idempotencyKey: string
 }
+/** Data used by `CordisWorkspaceActivateRequest`. */
 export interface CordisWorkspaceActivateRequest {
   readonly workspaceId: string
   readonly pluginId: string
@@ -23,6 +26,7 @@ export interface CordisWorkspaceActivateRequest {
   readonly expectedRevision: number
   readonly idempotencyKey: string
 }
+/** Data used by `CordisWorkspaceStopRequest`. */
 export interface CordisWorkspaceStopRequest {
   readonly bindingId: string
   readonly pluginId: string
@@ -30,20 +34,25 @@ export interface CordisWorkspaceStopRequest {
   readonly reason: string
   readonly idempotencyKey: string
 }
+/** Data used by `CordisWorkspaceRollbackRequest`. */
 export interface CordisWorkspaceRollbackRequest extends CordisWorkspaceStopRequest {
   readonly packageId: string
 }
+/** Data used by `CordisWorkspacePinGenerationRequest`. */
 export interface CordisWorkspacePinGenerationRequest {
   readonly workspaceId: string
   readonly sessionId: string
 }
+/** Data used by `CordisReviewSubmitRequest`. */
 export interface CordisReviewSubmitRequest {
   readonly workspaceId: string
   readonly sourceSessionId: string
   readonly draft: CordisPackageDraft
   readonly idempotencyKey: string
 }
+/** Data used by `CordisReviewListRequest`. */
 export interface CordisReviewListRequest { readonly status?: CordisReviewRequest['status'] }
+/** Data used by `CordisReviewDeriveRequest`. */
 export interface CordisReviewDeriveRequest {
   readonly reviewId: string
   readonly pluginId: string
@@ -51,6 +60,7 @@ export interface CordisReviewDeriveRequest {
   readonly draft: CordisPackageDraft
   readonly idempotencyKey: string
 }
+/** Data used by `CordisReviewTransitionRequest`. */
 export interface CordisReviewTransitionRequest {
   readonly reviewId: string
   readonly pluginId: string
@@ -59,6 +69,7 @@ export interface CordisReviewTransitionRequest {
   readonly expectedRevision: number
   readonly idempotencyKey: string
 }
+/** Data used by `CordisReviewPublishRequest`. */
 export interface CordisReviewPublishRequest {
   readonly reviewId: string
   readonly pluginId: string
@@ -66,12 +77,15 @@ export interface CordisReviewPublishRequest {
   readonly expectedRevision: number
   readonly idempotencyKey: string
 }
+/** Data used by `CordisDepartmentManagersRequest`. */
 export interface CordisDepartmentManagersRequest { readonly departmentId: string }
+/** Data used by `CordisDepartmentManagersSaveRequest`. */
 export interface CordisDepartmentManagersSaveRequest extends CordisDepartmentManagersRequest {
   readonly managerUserIds: readonly string[]
   readonly expectedRevision: number
   readonly idempotencyKey: string
 }
+/** Data used by `CordisGovernanceDisableRequest`. */
 export interface CordisGovernanceDisableRequest {
   readonly bindingId: string
   readonly pluginId: string
@@ -79,6 +93,7 @@ export interface CordisGovernanceDisableRequest {
   readonly reason: string
   readonly idempotencyKey: string
 }
+/** Data used by `CordisGovernanceSetTrustRequest`. */
 export interface CordisGovernanceSetTrustRequest extends CordisGovernanceDisableRequest {
   readonly trustLevel: CordisScopeBinding['trustLevel']
 }

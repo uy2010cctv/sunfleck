@@ -47,7 +47,10 @@ export const HOST_BUILTIN_INSPECTION = [
  * id. Write-through (host stdout/stderr), NOT buffered into the tool result:
  * a registered listener fires long after the run call returned, and its output
  * must land somewhere the user can see — for a terminal entry point, the host terminal.
- */
+
+ * @param id - Input value used by this API.
+ * @returns Result produced by this API.
+*/
 function taggedConsole(id: string): Record<'log' | 'info' | 'warn' | 'error' | 'debug', (...args: unknown[]) => void> {
   const tag = `[cordis:${id}]`
   const log = (...args: unknown[]): void => { console.log(tag, ...args) }
@@ -75,7 +78,9 @@ const DUAL_REALM_INSTANCEOF_PRELUDE = `
 }
 `
 
-/** Run {@link DUAL_REALM_INSTANCEOF_PRELUDE} in a freshly created sandbox, handing it the host intrinsics to pair up. */
+/** Run {@link DUAL_REALM_INSTANCEOF_PRELUDE} in a freshly created sandbox, handing it the host intrinsics to pair up.
+ * @param sandbox - Input value used by this API.
+*/
 function patchDualRealmInstanceof(sandbox: object): void {
   const patch = runInContext(DUAL_REALM_INSTANCEOF_PRELUDE, sandbox) as (intrinsics: Record<string, unknown>) => void
   patch({ Object, Array, Function, Error, TypeError, RangeError, SyntaxError, Promise, RegExp, Date, Map, Set })
@@ -107,7 +112,9 @@ const NODE_API_REDIRECTS: Record<string, string> = {
     + '(query Host Service.listService with cordis_inspect_query for its methods).',
 }
 
-/** Build the trap functions for {@link NODE_API_REDIRECTS}: calling one throws the redirect. */
+/** Build the trap functions for {@link NODE_API_REDIRECTS}: calling one throws the redirect.
+ * @returns Result produced by this API.
+*/
 function nodeApiTraps(): Record<string, () => never> {
   const traps: Record<string, () => never> = {}
   for (const [name, redirect] of Object.entries(NODE_API_REDIRECTS)) {
@@ -148,7 +155,10 @@ export function createSandbox(id: string, harnessExtras: Record<string, unknown>
  * Cross-realm SyntaxError detection: a compile failure inside `runInContext`
  * constructs its error in the SANDBOX realm, so a host `instanceof
  * SyntaxError` is silently false — the `name` property is the realm-safe tag.
- */
+
+ * @param error - Input value used by this API.
+ * @returns Result produced by this API.
+*/
 function isSyntaxError(error: unknown): error is Error {
   return typeof error === 'object' && error !== null && (error as { name?: unknown }).name === 'SyntaxError'
 }
@@ -264,7 +274,11 @@ export async function evaluateHostCode(sandbox: object, code: string, id: string
   }
 }
 
-/** Evaluate a governance-approved Host body in the process realm with the ordinary Node globals. */
+/** Evaluate a governance-approved Host body in the process realm with the ordinary Node globals.
+ * @param code - Input value used by this API.
+ * @param harness - Input value used by this API.
+ * @returns Result produced by this API.
+ */
 export async function evaluateTrustedHostCode(code: string, harness: Record<string, unknown>): Promise<unknown> {
   const AsyncFunction = Object.getPrototypeOf(async function () {})['constructor'] as new (
     ...args: string[]
