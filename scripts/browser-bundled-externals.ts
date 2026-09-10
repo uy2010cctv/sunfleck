@@ -2,7 +2,7 @@
 
 import { globSync, readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
-import { dirname, resolve } from 'node:path'
+import { dirname, isAbsolute, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { Rolldown, type UserConfigExport } from 'tsdown'
 import ts from 'typescript'
@@ -43,7 +43,18 @@ function recorder(seen: Set<string>, workspaceNames: ReadonlySet<string>, follow
         const parts = source.split('/')
         const name = source.startsWith('@') ? parts.slice(0, 2).join('/') : parts[0]
         if (name !== undefined && workspaceNames.has(name)) {
-          return followWorkspace ? null : { id: source, external: true }
+          if (!followWorkspace) return { id: source, external: true }
+          const resolvedWorkspace = await this.resolve(source, importer, { skipSelf: true })
+          if (resolvedWorkspace === null) throw new Error(`browser notices: cannot resolve ${source} from ${importer}`)
+          // Browser package aliases are source-plane imports that must remain
+          // visible to this walk. A Host or vendored workspace package may be
+          // mentioned by a browser-facing type facade but cannot enter a Vite
+          // bundle (for example it imports node:module); retain it as a direct
+          // external dependency rather than crossing the runtime boundary.
+          const normalized = resolvedWorkspace.id.replaceAll('\\', '/')
+          return normalized.includes('/packages/client/') || normalized.includes('/apps/web/')
+            ? resolvedWorkspace
+            : { id: source, external: true }
         }
         const resolved = await this.resolve(source, importer, { skipSelf: true })
         if (resolved === null) throw new Error(`browser notices: cannot resolve ${source} from ${importer}`)
@@ -137,7 +148,21 @@ async function collectShell(
     const entries = typeof input === 'string' ? [input] : Object.values(input ?? {})
     const pages = entries.filter(entry => entry.endsWith('.html'))
     if (pages.length === 0) throw new Error(`browser notices: ${manifest.name} has no HTML build entry`)
+    // Vite 6 treats an absolute HTML entry as its emitted asset name. This is
+    // a dependency walk, so start at each document's module scripts instead:
+    // it follows the identical browser graph without rendering an HTML asset.
+    const scriptInputs = pages.flatMap((entry) => {
+      const page = isAbsolute(entry) ? entry : resolve(dir, entry)
+      const source = readFileSync(page, 'utf8')
+      return [...source.matchAll(/<script\b[^>]*\bsrc=["']([^"']+)["'][^>]*>/giu)]
+        .map(match => match[1])
+        .filter((src): src is string => src !== undefined && !/^(?:https?:|data:)/iu.test(src))
+        .map(src => resolve(dirname(page), src))
+    })
+    if (scriptInputs.length === 0) throw new Error(`browser notices: ${manifest.name} has no module-script build entry`)
+    const namedInputs = Object.fromEntries(scriptInputs.map((entry, index) => [`page-${String(index)}`, entry]))
     await vite.build({
+      configFile: false,
       root: dir,
       logLevel: 'error',
       plugins: [recorder(seen, workspaceNames, true)],
@@ -148,7 +173,7 @@ async function collectShell(
         sourcemap: false,
         reportCompressedSize: false,
         rollupOptions: {
-          input: pages.length === 1 ? pages[0] : pages,
+          input: namedInputs,
           // Chunk coloring expects full third-party bodies; the disclosure walk stops at their imports.
           output: { manualChunks: () => undefined },
         },

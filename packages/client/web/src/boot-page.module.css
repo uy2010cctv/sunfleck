@@ -107,7 +107,7 @@
 .recoveryAction {
   align-self: flex-start;
   margin-top: 4px;
-  border: 1px solid var(--dsw-alias-border-l2, var(--dsh-boot-border));
+  border: 0.5px solid var(--dsw-alias-border-l2, var(--dsh-boot-border));
   border-radius: 6px;
   padding: 6px 10px;
   background: transparent;

@@ -8,7 +8,7 @@
   gap: 4px;
   max-width: min(360px, calc(100vw - 32px));
   padding: 12px 14px;
-  border: 1px solid var(--dsw-alias-border-l2);
+  border: 0;
   border-radius: 8px;
   background: var(--dsw-alias-bg-layer-2);
   box-shadow: var(--dsw-elevation-prominent);
@@ -30,7 +30,7 @@
 .action {
   justify-self: start;
   margin-top: 4px;
-  border: 1px solid var(--dsw-alias-border-l2);
+  border: 0.5px solid var(--dsw-alias-border-l2);
   border-radius: 6px;
   padding: 5px 9px;
   background: transparent;

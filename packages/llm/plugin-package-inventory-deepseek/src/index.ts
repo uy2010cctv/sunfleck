@@ -96,7 +96,9 @@ function nearestManifest(modulePath: string): string | undefined {
 
 /** Resolve the manifest from the exact module URL already selected by the Loader. */
 function loaderResolvedPackageManifest(entry: Entry, packageName: string, baseUrl: string): string | undefined {
-  const internal = entry.loader.internal
+  // Synthetic and Worker-resolved entries can retain provenance without a
+  // Loader instance. They still have ordinary package resolution fallbacks.
+  const internal = entry.loader?.internal
   if (internal === undefined || typeof Reflect.get(internal, 'resolveSync') !== 'function') return undefined
   let moduleUrl: string
   try {

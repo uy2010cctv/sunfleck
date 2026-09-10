@@ -84,7 +84,7 @@ describe('enterprise TeamRun projection schema', () => {
     await migrateEnterpriseOperations(database)
     await migrateEnterpriseOperations(database)
     const sql = database.statements.join('\n')
-    expect(ENTERPRISE_OPERATIONS_SCHEMA_VERSION).toBe(14)
+    expect(ENTERPRISE_OPERATIONS_SCHEMA_VERSION).toBe(16)
     expect(sql).toContain('dsh_enterprise_team_runs')
     expect(sql).toContain('dsh_enterprise_team_decisions')
     expect(sql).toContain('dsh_enterprise_team_autonomy_grants')
@@ -93,7 +93,7 @@ describe('enterprise TeamRun projection schema', () => {
     expect(sql).toMatch(/legacy-definition-snapshot-unavailable/)
     expect(sql).toMatch(/definition_snapshot_json SET NOT NULL/)
     expect(sql).toMatch(/CREATE INDEX IF NOT EXISTS dsh_enterprise_team_runs_created_page_idx/)
-    expect(database.meta).toBe('14')
+    expect(database.meta).toBe('16')
   })
 
   it('rejects invalid limits before querying a projection page', async () => {
