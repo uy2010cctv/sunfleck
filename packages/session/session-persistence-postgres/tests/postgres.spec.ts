@@ -62,8 +62,12 @@ class MemoryPostgresDatabase implements PostgresDatabase {
     this.events.get(id)?.delete(seq)
   }
 
+  seedSchemaVersion(version: number): void {
+    this.meta.set('schema-version', String(version))
+  }
+
   private rows(text: string, values: readonly unknown[]): Record<string, unknown>[] {
-    if (text.startsWith('CREATE ') || text.startsWith('CREATE INDEX') || text.startsWith('SET TRANSACTION') || text.startsWith('SELECT pg_advisory_xact_lock')) return []
+    if (text.startsWith('CREATE ') || text.startsWith('CREATE INDEX') || text.startsWith('ALTER TABLE') || text.startsWith('SET TRANSACTION') || text.startsWith('SELECT pg_advisory_xact_lock')) return []
     if (text.startsWith('SELECT value FROM dsh_session_persistence_meta')) {
       const key = text.includes("'schema-version'") ? 'schema-version' : 'store-id'
       const value = this.meta.get(key)
@@ -74,6 +78,10 @@ class MemoryPostgresDatabase implements PostgresDatabase {
       const value = this.meta.get(key) ?? values[0] as string
       this.meta.set(key, value)
       return text.includes('RETURNING value') ? [{ value }] : []
+    }
+    if (text.startsWith('UPDATE dsh_session_persistence_meta SET value')) {
+      this.meta.set('schema-version', values[0] as string)
+      return []
     }
     if (text.startsWith('INSERT INTO dsh_session_headers')) {
       const id = values[0] as string
@@ -175,6 +183,15 @@ describe('PostgresSessionStore', () => {
 
     expect(database.queries.join('\n')).toContain('CREATE TABLE IF NOT EXISTS dsh_session_headers')
     expect(database.queries.join('\n')).toContain('CREATE TABLE IF NOT EXISTS dsh_session_events')
+  })
+
+  it('upgrades the previous v1 session schema without rejecting existing enterprise data', async () => {
+    const database = new MemoryPostgresDatabase()
+    database.seedSchemaVersion(1)
+
+    await expect(new PostgresSessionStore(database).initialize()).resolves.toBeUndefined()
+
+    expect(database.queries.join('\n')).toContain('ADD COLUMN IF NOT EXISTS inherited_event_count')
   })
 
   it('persists ordered events and advances one source-qualified revision per append', async () => {

@@ -157,7 +157,7 @@ export interface PresetRoot {
 export type PresetTrust = 'system' | 'user'
 ```
 
-Source: [`packages/preset/agent-presets/src/preset.ts:52`](../packages/preset/agent-presets/src/preset.ts)
+Source: [`packages/preset/agent-presets/src/preset.ts:55`](../packages/preset/agent-presets/src/preset.ts)
 
 <a id="deepseek-aidsh-agent-tool-presentation"></a>
 
@@ -197,7 +197,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/api/gateway/src/index.ts:119`](../packages/api/gateway/src/index.ts)
+Source: [`packages/api/gateway/src/index.ts:180`](../packages/api/gateway/src/index.ts)
 
 <a id="deepseek-aidsh-api-session-controller"></a>
 
@@ -518,7 +518,26 @@ export interface Config {
 }
 ```
 
-Source: [`packages/extensions/cordis-host-runner/src/index.ts:88`](../packages/extensions/cordis-host-runner/src/index.ts)
+Source: [`packages/extensions/cordis-host-runner/src/index.ts:90`](../packages/extensions/cordis-host-runner/src/index.ts)
+
+<a id="deepseek-aidsh-credentials-encrypted"></a>
+
+## `@deepseek-ai/dsh-credentials-encrypted`
+
+```ts config-catalog
+export interface EncryptedCredentialConfig {
+  /** Owner-only path to the encrypted credential document. */
+  readonly path: string
+  /** Identifier of the AES-GCM key used for newly written values. */
+  readonly currentKeyId: string
+  /** In-memory 32-byte master keys indexed by identifier; never sourced from declarative config. */
+  readonly keys: Readonly<Record<string, Buffer>>
+  /** Optional environment overlay used only when resolving configured references. */
+  readonly environment?: Readonly<Record<string, string | undefined>>
+}
+```
+
+Source: [`packages/credentials/credentials-encrypted/src/index.ts:32`](../packages/credentials/credentials-encrypted/src/index.ts)
 
 <a id="deepseek-aidsh-credentials-local"></a>
 
@@ -558,6 +577,65 @@ export interface Config {
 
 Source: [`packages/e2b/e2b/src/index.ts:45`](../packages/e2b/e2b/src/index.ts)
 
+<a id="deepseek-aidsh-enterprise-cordis-runtime"></a>
+
+## `@deepseek-ai/dsh-enterprise-cordis-runtime`
+
+Requires: `tools` · `systemPrompt` · `dynamicCordisRunner` · `enterprisePostgres` · `enterpriseRequestContext`
+
+```ts config-catalog
+export interface Config {
+  /** Host-owned directory for durable approved Cordis Package artifacts. */
+  readonly artifactRoot?: string
+}
+```
+
+Source: [`packages/enterprise/enterprise-cordis-runtime/src/index.ts:33`](../packages/enterprise/enterprise-cordis-runtime/src/index.ts)
+
+<a id="deepseek-aidsh-enterprise-memory-context"></a>
+
+## `@deepseek-ai/dsh-enterprise-memory-context`
+
+Requires: `enterprisePostgres` · `enterpriseRequestContext` · `systemPrompt` · `tools`
+
+```ts config-catalog
+export interface Config {
+  /** Maximum approved and proposed memory entries injected into one Agent context. */
+  readonly maxEntries?: number
+  /** Maximum total characters injected from approved and proposed enterprise memory. */
+  readonly maxChars?: number
+  /** Allow the model to propose evaluated business knowledge. Activation still requires a validated organization policy. */
+  readonly autoSave?: boolean
+  /** Explicit non-human enterprise identity for unbound background automation, e.g. `service:memory-bot`. */
+  readonly backgroundServiceUserId?: string
+}
+```
+
+Source: [`packages/context/enterprise-memory-context/src/index.ts:17`](../packages/context/enterprise-memory-context/src/index.ts)
+
+<a id="deepseek-aidsh-enterprise-postgres"></a>
+
+## `@deepseek-ai/dsh-enterprise-postgres`
+
+```ts config-catalog
+export interface EnterprisePostgresConfig {
+  /** PostgreSQL connection string; supplied by the Host rather than a browser client. */
+  readonly connectionString: string
+  /** Stable catalog cursor key; production derives it from deployment-owned secret material. */
+  readonly cursorSigningKey: Buffer | string
+  /** Maximum open PostgreSQL connections for the shared enterprise pool. */
+  readonly poolMax?: number
+  /** Idle connection timeout in milliseconds. */
+  readonly idleTimeoutMs?: number
+  /** New connection timeout in milliseconds. */
+  readonly connectionTimeoutMs?: number
+  /** TLS mode or driver TLS options for the PostgreSQL connection. */
+  readonly ssl?: boolean | object
+}
+```
+
+Source: [`packages/enterprise/enterprise-postgres/src/index.ts:74`](../packages/enterprise/enterprise-postgres/src/index.ts)
+
 <a id="deepseek-aidsh-experimental-agent-team"></a>
 
 ## `@deepseek-ai/dsh-experimental-agent-team`
@@ -580,7 +658,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/experimental/agent-team/src/types.ts:130`](../packages/experimental/agent-team/src/types.ts)
+Source: [`packages/experimental/agent-team/src/types.ts:261`](../packages/experimental/agent-team/src/types.ts)
 
 <a id="deepseek-aidsh-experimental-code-runtime-python"></a>
 
@@ -951,6 +1029,23 @@ export interface Config {
 ```
 
 Source: [`packages/host/open-in-app/src/index.ts:50`](../packages/host/open-in-app/src/index.ts)
+
+<a id="deepseek-aidsh-host-plugin-inventory"></a>
+
+## `@deepseek-ai/dsh-host-plugin-inventory`
+
+Requires: `loader`
+
+```ts config-catalog
+export interface Config {
+  /** Optional profile manifest whose declared dependencies enrich installation-source metadata. */
+  readonly profileManifestPath?: string
+  /** Loader entry ids the inventory exposes but refuses to remove or reload. */
+  readonly protectedEntryIds?: readonly string[]
+}
+```
+
+Source: [`packages/host/plugin-inventory/src/index.ts:21`](../packages/host/plugin-inventory/src/index.ts)
 
 <a id="deepseek-aidsh-host-webserver"></a>
 
@@ -1943,6 +2038,48 @@ export type JsonlCompression = 'zstd' | 'none'
 ```
 
 Source: [`packages/session/session-persistence-jsonl/src/index.ts:88`](../packages/session/session-persistence-jsonl/src/index.ts)
+
+<a id="deepseek-aidsh-session-persistence-postgres"></a>
+
+## `@deepseek-ai/dsh-session-persistence-postgres`
+
+Requires: `sessions` · `enterprisePostgres`
+
+```ts config-catalog
+/** Plugin configuration. A database object is available only to programmatic composition. */
+export interface Config {
+  /** PostgreSQL connection string. Required unless programmatic `database` is supplied. */
+  connectionString?: string
+  /** Programmatic driver-neutral database injection; not accepted from declarative config. */
+  database?: PostgresDatabase
+  /** When set, resolve the database from the enterprise PostgreSQL composition. */
+  databaseMode?: 'postgres' | 'standalone'
+}
+
+/** A database that can execute one callback under one PostgreSQL transaction. */
+export interface PostgresDatabase extends PostgresQueryable {
+  transaction<T>(action: (transaction: PostgresQueryable) => Promise<T>): Promise<T>
+  end?(): Promise<void>
+}
+
+export interface PostgresQueryable {
+  query<Row extends Record<string, unknown> = Record<string, unknown>>(
+    text: string,
+    values?: readonly unknown[],
+  ): Promise<PostgresQueryResult<Row>>
+}
+
+/** Driver-neutral asynchronous PostgreSQL primitives used by session storage. */
+
+export interface PostgresQueryResult<Row extends Record<string, unknown> = Record<string, unknown>> {
+  /** Rows returned by a PostgreSQL query, typed by the caller's selected shape. */
+  readonly rows: readonly Row[]
+  /** Number of affected rows, or null when the PostgreSQL driver does not report it. */
+  readonly rowCount: number | null
+}
+```
+
+Source: [`packages/session/session-persistence-postgres/src/index.ts:41`](../packages/session/session-persistence-postgres/src/index.ts)
 
 <a id="deepseek-aidsh-session-projection-cache"></a>
 
@@ -3444,6 +3581,7 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 
 - `@deepseek-ai/dsh-acp-app` — requires `cmdlineArgs` ([`packages/bundle/acp-app/src/index.ts`](../packages/bundle/acp-app/src/index.ts))
 - `@deepseek-ai/dsh-agent` ([`packages/core/agent/src/index.ts`](../packages/core/agent/src/index.ts))
+- `@deepseek-ai/dsh-api-enterprise-controller` — requires `enterprisePostgres` · `enterpriseSecurity` · `enterpriseRequestContext` · `enterpriseCordis` · `credentials` · `llm` ([`packages/api/enterprise-controller/src/index.ts`](../packages/api/enterprise-controller/src/index.ts))
 - `@deepseek-ai/dsh-api-remotes` — requires `typertGateway` ([`packages/api/remotes/src/index.ts`](../packages/api/remotes/src/index.ts))
 - `@deepseek-ai/dsh-api-workspace-controller` — requires `typert` · `workspaceRegistry` ([`packages/api/workspace-controller/src/index.ts`](../packages/api/workspace-controller/src/index.ts))
 - `@deepseek-ai/dsh-authorization` — requires `credentials` ([`packages/credentials/authorization/src/index.ts`](../packages/credentials/authorization/src/index.ts))
@@ -3462,6 +3600,8 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 - `@deepseek-ai/dsh-client-ui-deliverables` — requires `systemPrompt` · `connection` · `sessionQuery` · `sessionController` · `workspaceFiles` · `fs` · `sandboxPolicy` ([`packages/client/ui-deliverables/src/index.ts`](../packages/client/ui-deliverables/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-directory-picker-browse` ([`packages/client/ui-directory-picker-browse/src/index.ts`](../packages/client/ui-directory-picker-browse/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-directory-picker-native` ([`packages/client/ui-directory-picker-native/src/index.ts`](../packages/client/ui-directory-picker-native/src/index.ts))
+- `@deepseek-ai/dsh-client-ui-enterprise-governance` ([`packages/client/ui-enterprise-governance/src/index.ts`](../packages/client/ui-enterprise-governance/src/index.ts))
+- `@deepseek-ai/dsh-client-ui-enterprise-workbench` ([`packages/client/ui-enterprise-workbench/src/index.ts`](../packages/client/ui-enterprise-workbench/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-goal` ([`packages/client/ui-goal/src/index.ts`](../packages/client/ui-goal/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-input-trigger` ([`packages/client/ui-input-trigger/src/index.ts`](../packages/client/ui-input-trigger/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-jobs` ([`packages/client/ui-jobs/src/index.ts`](../packages/client/ui-jobs/src/index.ts))
@@ -3499,12 +3639,12 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 - `@deepseek-ai/dsh-cordis-client-runner` ([`packages/extensions/cordis-client-runner/src/index.ts`](../packages/extensions/cordis-client-runner/src/index.ts))
 - `@deepseek-ai/dsh-deepseek-llm-api-extensions` ([`packages/llm/deepseek-llm-api-extensions/src/index.ts`](../packages/llm/deepseek-llm-api-extensions/src/index.ts))
 - `@deepseek-ai/dsh-experimental-client-ui-agent-team` ([`packages/experimental/client-ui-agent-team/src/index.ts`](../packages/experimental/client-ui-agent-team/src/index.ts))
+- `@deepseek-ai/dsh-experimental-enterprise-team-runtime` — requires `agents` · `agentTeams` · `agentPresets` · `enterprisePostgres` · `enterpriseRequestContext` · `sessionPersistence` · `sessions` · `subagents` · `workspaceRegistry` ([`packages/experimental/enterprise-team-runtime/src/index.ts`](../packages/experimental/enterprise-team-runtime/src/index.ts))
 - `@deepseek-ai/dsh-fs-e2b` — requires `e2b` ([`packages/e2b/fs-e2b/src/index.ts`](../packages/e2b/fs-e2b/src/index.ts))
 - `@deepseek-ai/dsh-fs-observation-policy` ([`packages/fs/fs-observation-policy/src/index.ts`](../packages/fs/fs-observation-policy/src/index.ts))
 - `@deepseek-ai/dsh-goal-round-driver` — requires `agents` · `goals` · `sessions` ([`packages/goal/goal-round-driver/src/index.ts`](../packages/goal/goal-round-driver/src/index.ts))
 - `@deepseek-ai/dsh-host-directory-picker-auto` — requires `webServer` · `loader` ([`packages/host/directory-picker-auto/src/index.ts`](../packages/host/directory-picker-auto/src/index.ts))
 - `@deepseek-ai/dsh-host-directory-picker-native` ([`packages/host/directory-picker-native/src/index.ts`](../packages/host/directory-picker-native/src/index.ts))
-- `@deepseek-ai/dsh-host-plugin-inventory` — requires `loader` ([`packages/host/plugin-inventory/src/index.ts`](../packages/host/plugin-inventory/src/index.ts))
 - `@deepseek-ai/dsh-llm` ([`packages/llm/llm/src/index.ts`](../packages/llm/llm/src/index.ts))
 - `@deepseek-ai/dsh-lsp` ([`packages/lsp/lsp/src/index.ts`](../packages/lsp/lsp/src/index.ts))
 - `@deepseek-ai/dsh-schedule` — requires `agents` · `sessions` · `tools` · `sessionPersistence` ([`packages/schedule/schedule/src/index.ts`](../packages/schedule/schedule/src/index.ts))
@@ -3557,6 +3697,8 @@ Imported as libraries by other packages; a `cordis.yml` cannot load them.
 - `@deepseek-ai/dsh-atomic-write` ([`packages/util/atomic-write/src/index.ts`](../packages/util/atomic-write/src/index.ts))
 - `@deepseek-ai/dsh-base` ([`packages/bundle/base/src/index.ts`](../packages/bundle/base/src/index.ts))
 - `@deepseek-ai/dsh-brand` ([`packages/util/brand/src/index.ts`](../packages/util/brand/src/index.ts))
+- `@deepseek-ai/dsh-channel-kernel` ([`packages/channel/channel-kernel/src/index.ts`](../packages/channel/channel-kernel/src/index.ts))
+- `@deepseek-ai/dsh-channel-wecom` ([`packages/channel/channel-wecom/src/index.ts`](../packages/channel/channel-wecom/src/index.ts))
 - `@deepseek-ai/dsh-chunked-list` ([`packages/util/chunked-list/src/index.ts`](../packages/util/chunked-list/src/index.ts))
 - `@deepseek-ai/dsh-client-store` ([`packages/client/store/src/index.ts`](../packages/client/store/src/index.ts))
 - `@deepseek-ai/dsh-client-test-runtime` ([`packages/test-support/client-runtime/src/index.ts`](../packages/test-support/client-runtime/src/index.ts))
@@ -3566,6 +3708,14 @@ Imported as libraries by other packages; a `cordis.yml` cannot load them.
 - `@deepseek-ai/dsh-client-web` ([`packages/client/web/src/index.ts`](../packages/client/web/src/index.ts))
 - `@deepseek-ai/dsh-cmdline` ([`packages/boot/cmdline/src/index.ts`](../packages/boot/cmdline/src/index.ts))
 - `@deepseek-ai/dsh-deque` ([`packages/util/deque/src/index.ts`](../packages/util/deque/src/index.ts))
+- `@deepseek-ai/dsh-enterprise-auth-web` ([`packages/identity/enterprise-auth-web/src/index.ts`](../packages/identity/enterprise-auth-web/src/index.ts))
+- `@deepseek-ai/dsh-enterprise-catalog` ([`packages/catalog/enterprise-catalog/src/index.ts`](../packages/catalog/enterprise-catalog/src/index.ts))
+- `@deepseek-ai/dsh-enterprise-cordis` ([`packages/enterprise/enterprise-cordis/src/index.ts`](../packages/enterprise/enterprise-cordis/src/index.ts))
+- `@deepseek-ai/dsh-enterprise-governance` ([`packages/governance/enterprise-governance/src/index.ts`](../packages/governance/enterprise-governance/src/index.ts))
+- `@deepseek-ai/dsh-enterprise-identity` ([`packages/identity/enterprise-identity/src/index.ts`](../packages/identity/enterprise-identity/src/index.ts))
+- `@deepseek-ai/dsh-enterprise-identity-postgres` ([`packages/identity/enterprise-identity-postgres/src/index.ts`](../packages/identity/enterprise-identity-postgres/src/index.ts))
+- `@deepseek-ai/dsh-enterprise-operations` ([`packages/operations/enterprise-operations/src/index.ts`](../packages/operations/enterprise-operations/src/index.ts))
+- `@deepseek-ai/dsh-enterprise-sso` ([`packages/identity/enterprise-sso/src/index.ts`](../packages/identity/enterprise-sso/src/index.ts))
 - `@deepseek-ai/dsh-experimental-agent-team-profile` ([`packages/experimental/agent-team-profile/src/index.ts`](../packages/experimental/agent-team-profile/src/index.ts))
 - `@deepseek-ai/dsh-experimental-agent-team-web-profile` ([`packages/experimental/agent-team-web-profile/src/index.ts`](../packages/experimental/agent-team-web-profile/src/index.ts))
 - `@deepseek-ai/dsh-experimental-webworker-packer` ([`packages/experimental/webworker-packer/src/index.ts`](../packages/experimental/webworker-packer/src/index.ts))
@@ -3573,6 +3723,7 @@ Imported as libraries by other packages; a `cordis.yml` cannot load them.
 - `@deepseek-ai/dsh-home-paths` ([`packages/util/home-paths/src/index.ts`](../packages/util/home-paths/src/index.ts))
 - `@deepseek-ai/dsh-hook-protocol` ([`packages/hooks/hook-protocol/src/index.ts`](../packages/hooks/hook-protocol/src/index.ts))
 - `@deepseek-ai/dsh-http-proxy` ([`packages/util/http-proxy/src/index.ts`](../packages/util/http-proxy/src/index.ts))
+- `@deepseek-ai/dsh-knowledge-pgvector` ([`packages/knowledge/knowledge-pgvector/src/index.ts`](../packages/knowledge/knowledge-pgvector/src/index.ts))
 - `@deepseek-ai/dsh-launch-environment` ([`packages/util/launch-environment/src/index.ts`](../packages/util/launch-environment/src/index.ts))
 - `@deepseek-ai/dsh-llm-mock-server` ([`packages/test-support/llm-mock-server/src/index.ts`](../packages/test-support/llm-mock-server/src/index.ts))
 - `@deepseek-ai/dsh-loader-smoke` ([`packages/test-support/loader-smoke/src/index.ts`](../packages/test-support/loader-smoke/src/index.ts))

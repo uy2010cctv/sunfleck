@@ -1,7 +1,9 @@
 /** Driver-neutral asynchronous PostgreSQL primitives used by session storage. */
 
 export interface PostgresQueryResult<Row extends Record<string, unknown> = Record<string, unknown>> {
+  /** Rows returned by a PostgreSQL query, typed by the caller's selected shape. */
   readonly rows: readonly Row[]
+  /** Number of affected rows, or null when the PostgreSQL driver does not report it. */
   readonly rowCount: number | null
 }
 

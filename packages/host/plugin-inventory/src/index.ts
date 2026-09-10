@@ -19,7 +19,9 @@ import type {
 export type * from './types.ts'
 
 export interface Config {
+  /** Optional profile manifest whose declared dependencies enrich installation-source metadata. */
   readonly profileManifestPath?: string
+  /** Loader entry ids the inventory exposes but refuses to remove or reload. */
   readonly protectedEntryIds?: readonly string[]
 }
 

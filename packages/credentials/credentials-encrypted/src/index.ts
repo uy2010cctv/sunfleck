@@ -30,9 +30,13 @@ interface EncryptedCredentialDocument {
 }
 
 export interface EncryptedCredentialConfig {
+  /** Owner-only path to the encrypted credential document. */
   readonly path: string
+  /** Identifier of the AES-GCM key used for newly written values. */
   readonly currentKeyId: string
+  /** In-memory 32-byte master keys indexed by identifier; never sourced from declarative config. */
   readonly keys: Readonly<Record<string, Buffer>>
+  /** Optional environment overlay used only when resolving configured references. */
   readonly environment?: Readonly<Record<string, string | undefined>>
 }
 

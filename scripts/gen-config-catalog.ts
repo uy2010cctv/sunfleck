@@ -172,6 +172,12 @@ function resolveTypeName(
 
 /** Collect every type NAME referenced in type positions under a node. */
 function collectTypeNames(node: ts.Node, out: Set<string>): void {
+  const boundTypeParameters = new Set<string>()
+  const collectBoundParameters = (n: ts.Node): void => {
+    if (ts.isTypeParameterDeclaration(n)) boundTypeParameters.add(n.name.text)
+    ts.forEachChild(n, collectBoundParameters)
+  }
+  collectBoundParameters(node)
   const visit = (n: ts.Node): void => {
     if (ts.isTypeReferenceNode(n)) {
       let head: ts.EntityName = n.typeName
@@ -183,6 +189,7 @@ function collectTypeNames(node: ts.Node, out: Set<string>): void {
     ts.forEachChild(n, visit)
   }
   visit(node)
+  for (const name of boundTypeParameters) out.delete(name)
 }
 
 /** The verbatim paste text of a declaration: leading JSDoc through the end. */

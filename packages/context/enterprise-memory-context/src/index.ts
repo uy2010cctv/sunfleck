@@ -15,7 +15,9 @@ import { defineTool } from '@deepseek-ai/dsh-tools'
 import z from '@deepseek-ai/schemastery'
 
 export interface Config {
+  /** Maximum approved and proposed memory entries injected into one Agent context. */
   readonly maxEntries?: number
+  /** Maximum total characters injected from approved and proposed enterprise memory. */
   readonly maxChars?: number
   /** Allow the model to propose evaluated business knowledge. Activation still requires a validated organization policy. */
   readonly autoSave?: boolean

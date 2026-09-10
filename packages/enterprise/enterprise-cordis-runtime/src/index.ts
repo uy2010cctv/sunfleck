@@ -31,6 +31,7 @@ const POLICY = [
 ].join(' ')
 
 export interface Config {
+  /** Host-owned directory for durable approved Cordis Package artifacts. */
   readonly artifactRoot?: string
 }
 

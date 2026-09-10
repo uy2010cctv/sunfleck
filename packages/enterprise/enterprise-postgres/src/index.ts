@@ -72,12 +72,17 @@ export class EnterprisePostgresDatabase implements
 }
 
 export interface EnterprisePostgresConfig {
+  /** PostgreSQL connection string; supplied by the Host rather than a browser client. */
   readonly connectionString: string
   /** Stable catalog cursor key; production derives it from deployment-owned secret material. */
   readonly cursorSigningKey: Buffer | string
+  /** Maximum open PostgreSQL connections for the shared enterprise pool. */
   readonly poolMax?: number
+  /** Idle connection timeout in milliseconds. */
   readonly idleTimeoutMs?: number
+  /** New connection timeout in milliseconds. */
   readonly connectionTimeoutMs?: number
+  /** TLS mode or driver TLS options for the PostgreSQL connection. */
   readonly ssl?: boolean | object
 }
 

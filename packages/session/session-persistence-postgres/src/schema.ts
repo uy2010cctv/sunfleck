@@ -2,7 +2,14 @@
 
 import type { PostgresQueryable } from './types.ts'
 
-export const SESSION_PERSISTENCE_POSTGRES_SCHEMA_VERSION = 1
+/**
+ * Version 2 added the inherited-event offset used by forked durable sessions.
+ *
+ * Keep the column even though v0.1.5 now stores the offset inside the header
+ * JSONB payload: deployed enterprise databases already own this schema, and a
+ * downgrade would make an otherwise compatible release refuse to start.
+ */
+export const SESSION_PERSISTENCE_POSTGRES_SCHEMA_VERSION = 2
 
 const statements = [
   `CREATE TABLE IF NOT EXISTS dsh_session_persistence_meta (
@@ -14,7 +21,8 @@ const statements = [
     header_json JSONB NOT NULL,
     incarnation UUID NOT NULL,
     revision BIGINT NOT NULL DEFAULT 0,
-    created_at BIGINT NOT NULL
+    created_at BIGINT NOT NULL,
+    inherited_event_count BIGINT NOT NULL DEFAULT 0
   )`,
   `CREATE TABLE IF NOT EXISTS dsh_session_events (
     session_id TEXT NOT NULL REFERENCES dsh_session_headers(id) ON DELETE CASCADE,
@@ -38,6 +46,16 @@ export async function migratePostgresSessionPersistence(database: PostgresQuerya
   if (version === undefined) {
     await database.query(
       "INSERT INTO dsh_session_persistence_meta(key, value) VALUES ('schema-version', $1)",
+      [String(SESSION_PERSISTENCE_POSTGRES_SCHEMA_VERSION)],
+    )
+    return
+  }
+  if (Number(version) === 1) {
+    await database.query(
+      'ALTER TABLE dsh_session_headers ADD COLUMN IF NOT EXISTS inherited_event_count BIGINT NOT NULL DEFAULT 0',
+    )
+    await database.query(
+      "UPDATE dsh_session_persistence_meta SET value = $1 WHERE key = 'schema-version'",
       [String(SESSION_PERSISTENCE_POSTGRES_SCHEMA_VERSION)],
     )
     return
