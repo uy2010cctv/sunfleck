@@ -1,7 +1,7 @@
 import { Context } from '@deepseek-ai/cordis'
 import { EnterpriseRequestContext, EnterpriseSecurity } from '@deepseek-ai/dsh-enterprise-auth-web'
 import { describe, expect, it, vi } from 'vitest'
-import { EnterpriseWorkController } from '../src/index.ts'
+import { EnterpriseWorkController, inject } from '../src/index.ts'
 import { type EnterpriseWorkStartDependencies, EnterpriseWorkStartService } from '../src/work-start.ts'
 const principal = { orgId: 'org-a', userId: 'user-a', roles: ['member'] as const }
 const release = (releaseId: string, presetId = 'preset-a', version = 1) => ({ releaseId, presetId, orgId: 'org-a', version, digest: `digest-${releaseId}`, snapshot: { profile: {}, bindings: [] }, publishedBy: 'user-a', publishedAt: 1 })
@@ -15,6 +15,9 @@ function operationDriver(upsertWorkRecord: (input: Record<string, unknown>) => P
 }
 function setup(overrides: Partial<ConstructorParameters<typeof EnterpriseWorkStartService>[0]> = {}) { const calls = { create: 0, records: 0, sessionIds: [] as string[] }; const service = new EnterpriseWorkStartService({ workspaceGrant: async id => ({ workspaceId: id, orgId: 'org-a' }), visibleWorkspace: async (_p, id) => id !== 'denied', sessionOwnedBy: async (_p, id) => id === 'owned-session', sessionWorkspace: async id => id === 'owned-session' ? 'session-workspace' : undefined, personalWorkspaces: async () => ['personal-workspace'], releases: async () => [release('release-a')], createSession: async (input) => { calls.create++; calls.sessionIds.push(input.sessionId); return { sessionId: input.sessionId } }, bindSession: async () => undefined, upsertRecord: async () => { calls.records++ }, reserveWorkStart: async input => ({ ...input, state: 'starting' as const }), getWorkStart: async () => undefined, completeWorkStart: async () => undefined, ...overrides }); return { service, calls } }
 describe('enterprise work start', () => {
+  it('declares the native Session controller as a plugin dependency before enterprise work starts', () => {
+    expect(inject).toContain('sessionController')
+  })
   it('uses explicit authorized workspace ahead of all hints', async () => { const { service } = setup(); await expect(service.prepare(principal, { objective: 'Close books', workspaceId: 'explicit', currentSessionId: 'owned-session', recentWorkspaceId: 'recent' })).resolves.toMatchObject({ kind: 'ready', workspaceId: 'explicit' }) })
   it('uses the only authorized caller-owned personal workspace when no hint exists', async () => { const { service } = setup({ personalWorkspaces: async () => ['personal-only'] }); await expect(service.prepare(principal, { objective: 'Close books' })).resolves.toMatchObject({ kind: 'ready', workspaceId: 'personal-only' }) })
   it('returns every authorized personal workspace when implicit selection is ambiguous', async () => { const { service, calls } = setup({ personalWorkspaces: async () => ['personal-z', 'personal-a'] }); await expect(service.prepare(principal, { objective: 'Close books' })).resolves.toEqual({ kind: 'needs-workspace-selection', availableWorkspaceIds: ['personal-z', 'personal-a'] }); await expect(service.start(principal, { objective: 'Close books', idempotencyKey: 'ambiguous-workspace' })).rejects.toThrow('workspace selection is required'); expect(calls.create).toBe(0) })

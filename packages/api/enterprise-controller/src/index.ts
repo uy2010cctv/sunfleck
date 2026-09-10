@@ -2066,5 +2066,5 @@ export function apply(ctx: Context): void {
   new CordisGovernanceController(ctx)
 }
 
-export const inject = ['enterprisePostgres', 'enterpriseSecurity', 'enterpriseRequestContext', 'enterpriseCordis', 'credentials', 'llm']
+export const inject = ['enterprisePostgres', 'enterpriseSecurity', 'enterpriseRequestContext', 'enterpriseCordis', 'credentials', 'llm', 'sessionController']
 export { name } from './invariant.ts'
