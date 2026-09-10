@@ -22,10 +22,7 @@ Persistent enterprise organizations, users, sessions, resource policies, and aud
 
 SQLite persistence for organizations, nested departments, users and memberships, roles, external identities, hashed login sessions, managed Workspace grants, Session-to-Workspace bindings, reviewed organizational memory, resource policies, and attributable audit records. Bearer tokens, passwords, and raw memory source conversations are never stored directly.
 
-`EnterpriseIdentityStore` is the Host-facing persistence contract. The SQLite
-`EnterpriseIdentityRepository` is one implementation; deployments may inject a
-transactional PostgreSQL-backed implementation without coupling authentication
-to SQLite file paths.
+`EnterpriseIdentityStore` is the Host-facing persistence contract. The SQLite `EnterpriseIdentityRepository` is one implementation; deployments may inject a transactional PostgreSQL-backed implementation without coupling authentication to SQLite file paths.
 
 ## Model Experience
 
@@ -45,10 +42,7 @@ None; identity persistence does not assemble provider requests.
 
 ## Known Limitations and Deferred Work
 
-- SQLite is the local implementation; enterprise PostgreSQL deployments use the
-  separate `@deepseek-ai/dsh-enterprise-identity-postgres` adapter through the
-  `EnterpriseIdentityStore` composition seam. Clustered deployments require a
-  shared transactional backend.
+- SQLite is the local implementation; enterprise PostgreSQL deployments use the separate `@deepseek-ai/dsh-enterprise-identity-postgres` adapter through the `EnterpriseIdentityStore` composition seam. Clustered deployments require a shared transactional backend.
 - External IdP and LDAP live validation requires deployment-owned endpoints and certificates.
 - Memory privacy screening is a deterministic pre-review gate, not a complete DLP product; a human reviewer remains required before shared use.
 

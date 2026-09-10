@@ -40,7 +40,7 @@ Production repositories provide a stable `cursorSigningKey` as a `Buffer` or str
 
 #### What the model sees
 
-Nothing. The catalog stores control-plane metadata and release snapshots; it does not add prompts, messages, tools, or model calls.
+Nothing. The catalog stores control-plane metadata and `EmployeePreset` release snapshots; it does not add prompts, messages, tools, or model calls.
 
 #### Token effect
 

@@ -32,10 +32,7 @@ Enterprise Web authentication, session cookies, central API RBAC, and audit。
 
 企业 HTTP RPC payload 保留顶层 `principal` 键。会话认证后，传输层会在授权、审计或 dispatch 之前以 HTTP 400 拒绝该键，因此无效请求不会被记录为已允许，下游代码也只从 `ctx.enterpriseRequestContext.requirePrincipal()` 读取身份。未启用企业安全的 Profile 保持普通传输契约，仍可把该键作为应用数据使用。Plugin 卸载会禁用请求上下文，因此未完成的异步工作无法在卸载或重载之间保留 principal。
 
-Web 插件接受部署方提供的 `EnterpriseIdentityStore` 实现。`databasePath`
-仍可作为本地部署的可选 SQLite 后备；PostgreSQL 组合应通过该注入边界提供
-仓库，Web 包本身不会再强制打开 SQLite。
-该插件只关闭自己创建的 SQLite 仓库。外部提供的 `identityStore` 或 `enterprisePostgres.identity` 在 auth 卸载或初始化失败后仍归部署方所有。
+Web 插件接受部署方提供的 `EnterpriseIdentityStore` 实现。`databasePath` 仍可作为本地部署的可选 SQLite 后备；PostgreSQL 组合应通过该注入边界提供 仓库，Web 包本身不会再强制打开 SQLite。 该插件只关闭自己创建的 SQLite 仓库。外部提供的 `identityStore` 或 `enterprisePostgres.identity` 在 auth 卸载或初始化失败后仍归部署方所有。
 
 ## Model Experience
 

@@ -22,9 +22,7 @@ Persistent enterprise organizations, users, sessions, resource policies, and aud
 
 为组织、树状部门、用户成员关系、角色、外部身份、哈希登录会话、受管 Workspace 授权、Session-Workspace 绑定、已审核组织记忆、资源策略和可归因审计记录提供 SQLite 持久化。不直接存储 Bearer Token、密码或记忆来源的原始对话。
 
-`EnterpriseIdentityStore` 是 Host 使用的持久化契约。SQLite
-`EnterpriseIdentityRepository` 只是其中一种实现；部署方可以注入事务型
-PostgreSQL 实现，而不让认证逻辑依赖 SQLite 文件路径。
+`EnterpriseIdentityStore` 是 Host 使用的持久化契约。SQLite `EnterpriseIdentityRepository` 只是其中一种实现；部署方可以注入事务型 PostgreSQL 实现，而不让认证逻辑依赖 SQLite 文件路径。
 
 ## Model Experience
 
@@ -44,9 +42,7 @@ PostgreSQL 实现，而不让认证逻辑依赖 SQLite 文件路径。
 
 ## Known Limitations and Deferred Work
 
-- SQLite 是本地实现；企业 PostgreSQL 部署通过 `EnterpriseIdentityStore`
-  组合边界使用独立的 `@deepseek-ai/dsh-enterprise-identity-postgres` 适配器。
-  集群部署需要共享事务后端。
+- SQLite 是本地实现；企业 PostgreSQL 部署通过 `EnterpriseIdentityStore` 组合边界使用独立的 `@deepseek-ai/dsh-enterprise-identity-postgres` 适配器。 集群部署需要共享事务后端。
 - 外部 IdP 和 LDAP 实时验证需要部署方提供的端点和证书。
 - 记忆隐私筛查是人工审核之前的确定性门禁，不是完整 DLP 产品；共享前仍必须人工审核。
 

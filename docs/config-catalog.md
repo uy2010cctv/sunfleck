@@ -525,6 +525,7 @@ Source: [`packages/extensions/cordis-host-runner/src/index.ts:90`](../packages/e
 ## `@deepseek-ai/dsh-credentials-encrypted`
 
 ```ts config-catalog
+/** Data used by `EncryptedCredentialConfig`. */
 export interface EncryptedCredentialConfig {
   /** Owner-only path to the encrypted credential document. */
   readonly path: string
@@ -537,7 +538,7 @@ export interface EncryptedCredentialConfig {
 }
 ```
 
-Source: [`packages/credentials/credentials-encrypted/src/index.ts:32`](../packages/credentials/credentials-encrypted/src/index.ts)
+Source: [`packages/credentials/credentials-encrypted/src/index.ts:33`](../packages/credentials/credentials-encrypted/src/index.ts)
 
 <a id="deepseek-aidsh-credentials-local"></a>
 
@@ -584,13 +585,14 @@ Source: [`packages/e2b/e2b/src/index.ts:45`](../packages/e2b/e2b/src/index.ts)
 Requires: `tools` · `systemPrompt` · `dynamicCordisRunner` · `enterprisePostgres` · `enterpriseRequestContext`
 
 ```ts config-catalog
+/** Data used by `Config`. */
 export interface Config {
   /** Host-owned directory for durable approved Cordis Package artifacts. */
   readonly artifactRoot?: string
 }
 ```
 
-Source: [`packages/enterprise/enterprise-cordis-runtime/src/index.ts:33`](../packages/enterprise/enterprise-cordis-runtime/src/index.ts)
+Source: [`packages/enterprise/enterprise-cordis-runtime/src/index.ts:34`](../packages/enterprise/enterprise-cordis-runtime/src/index.ts)
 
 <a id="deepseek-aidsh-enterprise-memory-context"></a>
 
@@ -599,6 +601,7 @@ Source: [`packages/enterprise/enterprise-cordis-runtime/src/index.ts:33`](../pac
 Requires: `enterprisePostgres` · `enterpriseRequestContext` · `systemPrompt` · `tools`
 
 ```ts config-catalog
+/** Data used by `Config`. */
 export interface Config {
   /** Maximum approved and proposed memory entries injected into one Agent context. */
   readonly maxEntries?: number
@@ -611,13 +614,14 @@ export interface Config {
 }
 ```
 
-Source: [`packages/context/enterprise-memory-context/src/index.ts:17`](../packages/context/enterprise-memory-context/src/index.ts)
+Source: [`packages/context/enterprise-memory-context/src/index.ts:18`](../packages/context/enterprise-memory-context/src/index.ts)
 
 <a id="deepseek-aidsh-enterprise-postgres"></a>
 
 ## `@deepseek-ai/dsh-enterprise-postgres`
 
 ```ts config-catalog
+/** Data used by `EnterprisePostgresConfig`. */
 export interface EnterprisePostgresConfig {
   /** PostgreSQL connection string; supplied by the Host rather than a browser client. */
   readonly connectionString: string
@@ -634,7 +638,7 @@ export interface EnterprisePostgresConfig {
 }
 ```
 
-Source: [`packages/enterprise/enterprise-postgres/src/index.ts:74`](../packages/enterprise/enterprise-postgres/src/index.ts)
+Source: [`packages/enterprise/enterprise-postgres/src/index.ts:81`](../packages/enterprise/enterprise-postgres/src/index.ts)
 
 <a id="deepseek-aidsh-experimental-agent-team"></a>
 
@@ -1037,6 +1041,7 @@ Source: [`packages/host/open-in-app/src/index.ts:50`](../packages/host/open-in-a
 Requires: `loader`
 
 ```ts config-catalog
+/** Data used by `Config`. */
 export interface Config {
   /** Optional profile manifest whose declared dependencies enrich installation-source metadata. */
   readonly profileManifestPath?: string
@@ -1045,7 +1050,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/host/plugin-inventory/src/index.ts:21`](../packages/host/plugin-inventory/src/index.ts)
+Source: [`packages/host/plugin-inventory/src/index.ts:22`](../packages/host/plugin-inventory/src/index.ts)
 
 <a id="deepseek-aidsh-host-webserver"></a>
 
@@ -2062,6 +2067,7 @@ export interface PostgresDatabase extends PostgresQueryable {
   end?(): Promise<void>
 }
 
+/** Data used by `PostgresQueryable`. */
 export interface PostgresQueryable {
   query<Row extends Record<string, unknown> = Record<string, unknown>>(
     text: string,
@@ -3581,7 +3587,7 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 
 - `@deepseek-ai/dsh-acp-app` — requires `cmdlineArgs` ([`packages/bundle/acp-app/src/index.ts`](../packages/bundle/acp-app/src/index.ts))
 - `@deepseek-ai/dsh-agent` ([`packages/core/agent/src/index.ts`](../packages/core/agent/src/index.ts))
-- `@deepseek-ai/dsh-api-enterprise-controller` — requires `enterprisePostgres` · `enterpriseSecurity` · `enterpriseRequestContext` · `enterpriseCordis` · `credentials` · `llm` ([`packages/api/enterprise-controller/src/index.ts`](../packages/api/enterprise-controller/src/index.ts))
+- `@deepseek-ai/dsh-api-enterprise-controller` — requires `enterprisePostgres` · `enterpriseSecurity` · `enterpriseRequestContext` · `enterpriseCordis` · `credentials` · `llm` · `sessionController` ([`packages/api/enterprise-controller/src/index.ts`](../packages/api/enterprise-controller/src/index.ts))
 - `@deepseek-ai/dsh-api-remotes` — requires `typertGateway` ([`packages/api/remotes/src/index.ts`](../packages/api/remotes/src/index.ts))
 - `@deepseek-ai/dsh-api-workspace-controller` — requires `typert` · `workspaceRegistry` ([`packages/api/workspace-controller/src/index.ts`](../packages/api/workspace-controller/src/index.ts))
 - `@deepseek-ai/dsh-authorization` — requires `credentials` ([`packages/credentials/authorization/src/index.ts`](../packages/credentials/authorization/src/index.ts))

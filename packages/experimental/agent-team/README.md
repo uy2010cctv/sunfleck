@@ -9,9 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-`dsh-experimental-agent-team` turns one coding session into a small working team: the session's agent becomes the Lead, creates named teammates for delegated work, exchanges durable messages with them, and tracks shared tasks on a common board. Messages and task state survive crashes, reloads, and interruptions, so a teammate that was offline receives its queued messages when it resumes. It provides no tools of its own — mount the sibling `dsh-experimental-tool-agent-team` so the model can create teammates, message them, and use the task board. It is published under its experimental name, carries no stability promise, and needs durable session storage to activate.
-
-The same root log can carry an enterprise TeamRun, Human roster rows, immutable employee Release evidence, and Human decisions. Those Host-only mutations are used by the private [enterprise Team runtime adapter](../enterprise-team-runtime/README.md); they do not grant Humans Agent mailbox or tool authority.
+`dsh-experimental-agent-team` lets a Lead create named teammates, exchange durable messages, and coordinate a shared task board in one Session. State survives restart; pair it with `dsh-experimental-tool-agent-team` for model tools and with durable Session storage. The package is experimental. Its root log can also hold enterprise TeamRun, Human roster, immutable Release, and Human-decision evidence through the private [enterprise Team runtime adapter](../enterprise-team-runtime/README.md), without granting Humans Agent mailbox or tool authority.
 
 ## Table of Contents
 

@@ -16,14 +16,14 @@ English | [中文](2026-09-01-enterprise-human-agent-team-runtime.zh.md)
 
 **Files:**
 - Modify: `packages/experimental/agent-team/src/types.ts`
-- Modify: `packages/experimental/agent-team/src/fold.ts`
+- Modify: `packages/experimental/agent-team/src/projection.ts`
 - Modify: `packages/experimental/agent-team/src/index.ts`
 - Modify: `packages/experimental/agent-team/src/roster.ts`
-- Test: `packages/experimental/agent-team/tests/fold.spec.ts`
+- Test: `packages/experimental/agent-team/tests/projection-events.spec.ts`
 - Test: `packages/experimental/agent-team/tests/team.spec.ts`
 
 - [ ] Write failing replay tests for legacy agent-member events, human and agent roster projection, run state revisions and operation idempotency, decision CAS/idempotency, and cold fold output.
-- [ ] Run `pnpm exec vitest run packages/experimental/agent-team/tests/fold.spec.ts packages/experimental/agent-team/tests/team.spec.ts` and confirm failures name missing TeamRun/Human/Decision behavior.
+- [ ] Run `pnpm exec vitest run packages/experimental/agent-team/tests/projection-events.spec.ts packages/experimental/agent-team/tests/team.spec.ts` and confirm failures name missing TeamRun/Human/Decision behavior.
 - [ ] Add versioned `team/run`, `team/human-member`, and `team/decision` events; retain the existing `team/member` payload as a backwards-compatible agent record with optional enterprise release metadata.
 - [ ] Add Team service methods that mutate root Session state under the existing Team journal serializer and expose run/decision metadata through `TeamView`; do not authorize Human callers through agent-only methods.
 - [ ] Re-run the focused tests and retain green output.

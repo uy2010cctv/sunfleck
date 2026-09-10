@@ -33,13 +33,29 @@ DSH 的企业微信企业应用适配器合同。本包只支持企业微信企�
 
 本包不包含 HTTP 客户端、Webhook 服务、Token 缓存、数据库或消息发送器。Host 必须在持久化接纳前完成验签并返回快速 ACK，然后由 PostgreSQL 入站／出站 Worker 异步处理解密信封。凭据值必须来自 DSH Credentials，不得写入审计记录。
 
-## Model Experience
-
-适配器不贡献 Prompt 分区、Tool Schema、模型调用或 Token 用量，只负责把提供方线格式转换为与提供方无关的 Channel Kernel 和 Host 合同。
-
 ## 可靠性边界
 
 `nextWeComDeliveryAttempt` 只返回决策，不休眠也不发送。持久化 Worker 负责租约／fencing、幂等 Outbox 认领、重试持久化、提供方回执和死信回放。提供方 `Retry-After` 最长遵循 24 小时；非瞬态 HTTP 错误失败关闭。
+
+## Model Experience
+
+### 提供方线格式转换
+
+#### 模型可见内容
+
+无。适配器把提供方回调转换为 `ChannelEnvelope` 记录，不添加 Prompt 分区或 Tool Schema。
+
+#### Token 影响
+
+零 Token；回调校验和投递决策都在 Host 上执行。
+
+#### KV Cache 影响
+
+无；适配器不组装提供方模型请求。
+
+## Known Limitations and Deferred Work
+
+- 本包只实现企业微信线格式合同；认证 Host 仍必须提供持久接纳、凭据解析、投递与提供方回执对账。
 
 <a id="dev-note"></a>
 ### 开发备注

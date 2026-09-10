@@ -14,6 +14,12 @@ Workspace sharing does not imply conversation sharing. Each enterprise Session b
 
 Personal Workspace bindings are backfilled from the Workspace owner during the schema v4 to v5 migration. Legacy department bindings have no trustworthy creator fact, so migration leaves them unowned and therefore hidden instead of guessing and leaking a conversation. New department Sessions always receive an owner at `session.create` commit time.
 
+## Alternatives considered
+
+**Filter only the Sidebar.** Rejected because direct Session APIs and live events could still expose another member's conversation.
+
+**Infer legacy department owners.** Rejected because an unverified owner assignment would create a privacy leak; legacy rows remain hidden until trustworthy ownership exists.
+
 ## Consequences
 
 - Users see their own Sessions in personal and department Workspaces.

@@ -24,6 +24,8 @@ Provider-neutral enterprise channel contracts. [`channel-kernel`](channel-kernel
 
 The supported GA provider adapter is [`channel-wecom`](channel-wecom/README.md), which implements the wire-format and security contracts for a WeCom enterprise application only. It intentionally excludes personal WeChat. HTTP serving, PostgreSQL inbox/outbox persistence, credentials, leases, and actual delivery remain Host responsibilities.
 
+The [Webhook subsystem](../../docs/subsystems/webhook.md) describes the shared inbound HTTP and delivery lifecycle that provider adapters compose.
+
 <a id="dev-note"></a>
 ### Dev Note
 

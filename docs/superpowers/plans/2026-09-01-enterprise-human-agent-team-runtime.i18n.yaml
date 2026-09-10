@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write docs/superpowers/plans/2026-09-01-enterprise-human-agent-team-runtime.md
-2026-09-01-enterprise-human-agent-team-runtime.md: e7ee6be1554d3961fe4377d83d8f015cf95780c1
-2026-09-01-enterprise-human-agent-team-runtime.zh.md: f67419aa8a6aa38dc89f9ec846798c1e5beaff77
+2026-09-01-enterprise-human-agent-team-runtime.md: 854b12b6fe596da51a47d87f20ca16851fb79af2
+2026-09-01-enterprise-human-agent-team-runtime.zh.md: 8b6851dcefab052a2c53f9d94a3239cce3e1b842

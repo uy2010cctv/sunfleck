@@ -26,6 +26,26 @@ When automatic business-memory capture is enabled, writes belong to the authenti
 
 Memory values are rendered as quoted factual context with stable ids and an explicit privacy/access policy. Repository review and privacy screening remain the authority; this package does not extract or approve memory.
 
+## Model Experience
+
+### Approved enterprise memory
+
+#### What the model sees
+
+Only approved organization or department summaries that match the current Workspace authorization. Each injected item carries its stable `memoryId` and scope; personal preferences and raw conversation content are excluded.
+
+#### Token effect
+
+Injected summaries consume prompt tokens within the configured entry and character limits.
+
+#### KV Cache effect
+
+Stable approved memory may improve reuse when its ordered summaries remain unchanged; the provider owns actual cache behavior.
+
+## Known Limitations and Deferred Work
+
+- This package does not extract, embed, or approve source material; repository review and organization policy remain required.
+
 <a id="dev-note"></a>
 ### Dev Note
 

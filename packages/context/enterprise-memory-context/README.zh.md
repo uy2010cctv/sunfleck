@@ -26,6 +26,26 @@ Reviewed organization and department memory context for DSH Enterprise。
 
 记忆值以带稳定 ID 的事实背景呈现，并附带明确的隐私与访问规范。仓储审核和隐私筛查仍是权威；本包不负责抽取或批准记忆。
 
+## Model Experience
+
+### 已批准的企业记忆
+
+#### What the model sees
+
+只呈现符合当前 Workspace 授权的已批准组织或部门摘要。每项注入内容带稳定 `memoryId` 和范围；个人偏好与原始对话内容被排除。
+
+#### Token effect
+
+注入摘要在配置的条目与字符上限内消耗 Prompt Token。
+
+#### KV Cache effect
+
+已批准记忆保持有序且未变化时可能提高复用；实际缓存行为由 provider 决定。
+
+## Known Limitations and Deferred Work
+
+- 本包不负责抽取、embedding 或批准源材料；仍需要仓储审核和组织策略。
+
 <a id="dev-note"></a>
 ### 开发备注
 

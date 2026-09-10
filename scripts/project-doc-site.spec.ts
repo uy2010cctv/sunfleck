@@ -449,8 +449,11 @@ describe('docsPages locale routes', () => {
     ))
     const translated = rootPages.filter(page => page.contentLocale === 'zh-CN')
     const fallbacks = rootPages.filter(page => page.contentLocale === 'en-US')
+    const englishSubsystemPages = docsPages.filter(page => (
+      page.locale === 'en' && page.route.startsWith('en/reference/subsystems/')
+    ))
 
-    expect(translated).toHaveLength(48)
+    expect(translated).toHaveLength(englishSubsystemPages.length)
     expect(translated.every(page => page.source.endsWith('.zh.md'))).toBe(true)
     expect(fallbacks).toEqual([])
   })

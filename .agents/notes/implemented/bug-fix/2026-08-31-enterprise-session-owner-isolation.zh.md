@@ -14,6 +14,12 @@ Status: implemented
 
 Schema v4 升级到 v5 时，个人 Workspace 中的历史绑定可以从 Workspace 所有者安全回填。历史部门绑定没有可信的创建者事实，因此迁移保留其未归属状态并默认隐藏，不猜测创建者而造成泄露。新部门 Session 在 `session.create` 提交时必须写入所有者。
 
+## Alternatives considered
+
+**只过滤 Sidebar。** 拒绝，因为直接 Session API 和实时事件仍可能暴露其他成员的对话。
+
+**推断旧部门会话 owner。** 拒绝，因为未经验证的 owner 归属会造成隐私泄露；旧记录保持隐藏，直到出现可信 owner。
+
 ## 影响
 
 - 用户在个人和部门 Workspace 中只看到自己的 Session。

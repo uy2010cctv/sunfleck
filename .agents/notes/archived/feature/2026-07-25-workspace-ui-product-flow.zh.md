@@ -75,8 +75,6 @@ Host 记账保持手动的 `Workspace.sessionIds` 顺序：新 attach 的 Sessio
 
 当前空白 Session 会显示为一条「New session」行，但不显示数量、时间标签或行菜单；其他空白 Session 保持隐藏，并可由对应 Workspace 复用。搜索会排除空白行。
 
-Session 归档是一项非破坏性、Registry 全局的显示操作：Session 日志和 Workspace 记账槽继续持久保留，该行从分组、单列和搜索视图隐藏。企业模式下，`session.create({ workspaceId })` 在原生创建成功后提交 Session-to-Workspace 身份绑定；启动时则会在资源策略查询前，根据每个受管原生 Workspace 的持久 `sessionIds` 记账回填历史绑定。侧边栏会立即显示进行中状态、可见的成功确认，以及持续保留的 Host 失败原因与重试/关闭操作。归档失败不得只写入 console warning，否则会让已授权操作表现得像没有反应。
-
 无法归入任何 Workspace 的真实 Session 进入 Ungrouped。Host `session-added` 与 `workspace-changed` 可以任意顺序到达，列表合并不依赖 frame 顺序。
 
 删除 Workspace 注册记录会移除其分组，但不会删除或关闭任何 Session。已记账的 Session（包括当前 Session）会立即进入 Ungrouped；刷新后，独立的 Workspace 与 Session 基线会重建出相同结果。

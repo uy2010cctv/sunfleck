@@ -24,6 +24,12 @@ The enterprise workbench exposes Workspace extensions as operational rows: runni
 
 Domain, PostgreSQL, authentication classification, Host controller, dynamic runner, runtime restoration, controller-store, and browser component tests cover the new chain. The root build validates Typert generation, Host/Client packages, and the production Web bundle.
 
+## Alternatives considered
+
+**Separate enterprise low-code builder.** Rejected because it would create a second authoring, execution, and audit model beside native Cordis Packages.
+
+**Immediate in-process execution for every published Package.** Rejected because user- and department-authored code must remain isolated until an administrator explicitly promotes an organization-scoped release.
+
 ## Consequences
 
 - Session-temporary Packages remain temporary until an explicit save or department submission.

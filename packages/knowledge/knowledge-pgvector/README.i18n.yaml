@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/knowledge/knowledge-pgvector/README.md
-README.md: 9ecf1b2f7857e6267711dc27b88fde17f79c6de8
+README.md: b98fe8cd1fdf7cb5b8f23bf92155b8d0ccc9e1df
 README.zh.md: 23d22cbebe0283b0861004153e181d2865605897

@@ -24,6 +24,12 @@ Package 源码以 SHA-256 内容寻址形式写入受控 Artifact Store，Postgr
 
 领域、PostgreSQL、认证分类、Host Controller、动态 Runner、运行时恢复、前端 Controller Store 和浏览器组件测试覆盖了新链路。根目录完整构建验证 Typert 生成、Host/Client Package 以及生产 Web Bundle。
 
+## Alternatives considered
+
+**单独的企业低代码构建器。** 拒绝，因为它会在原生 Cordis Package 之外再建立一套作者、执行和审计模型。
+
+**所有已发布 Package 立即进程内执行。** 拒绝，因为用户和部门作者代码必须保持隔离，直到管理员明确提升组织范围 Release。
+
 ## 影响
 
 - Session 临时 Package 在用户明确保存或提交部门前始终不持久化。

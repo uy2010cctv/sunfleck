@@ -35,7 +35,7 @@ PostgreSQL and pgvector persistence for DSH enterprise knowledge:
 
 #### What the model sees
 
-Only chunks returned by an ACL-filtered search supplied by the host. The repository never assembles provider prompts or calls a model.
+Only chunks returned by an ACL-filtered `knowledge_search` supplied by the host. The repository never assembles provider prompts or calls a model.
 
 #### Token effect
 

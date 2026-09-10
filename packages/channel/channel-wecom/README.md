@@ -33,13 +33,29 @@ It provides:
 
 The package has no HTTP client, webhook server, token cache, database, or message sender. The Host must perform signature verification before durable admission, return the quick ACK, and then process the decrypted envelope through a PostgreSQL inbox/outbox worker. Credential values must come from DSH Credentials and must not be written to audit records.
 
-## Model Experience
-
-The adapter contributes no prompt section, tool schema, model call, or token usage. It only translates provider wire data into the provider-neutral Channel Kernel and Host contracts.
-
 ## Reliability boundary
 
 `nextWeComDeliveryAttempt` returns a decision; it does not sleep or send. A durable worker owns leases/fencing, idempotent outbox claims, retry persistence, provider receipts, and dead-letter replay. A provider `Retry-After` is honored up to 24 hours, while non-transient HTTP errors fail closed.
+
+## Model Experience
+
+### Provider wire translation
+
+#### What the model sees
+
+Nothing. The adapter translates provider callbacks into `ChannelEnvelope` records and adds no prompt section or tool schema.
+
+#### Token effect
+
+Zero tokens; callback validation and delivery decisions run on the Host.
+
+#### KV Cache effect
+
+None; the adapter does not assemble a provider model request.
+
+## Known Limitations and Deferred Work
+
+- The package implements WeCom wire contracts only; an authenticated Host must supply durable admission, credential resolution, delivery, and provider receipt reconciliation.
 
 <a id="dev-note"></a>
 ### Dev Note

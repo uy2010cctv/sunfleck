@@ -23,8 +23,7 @@ Enterprise login gate and identity, role, asset-policy, and audit administration
 Enterprise login and administration surface:
 
 - Full-frame authentication gate with local and configured SSO providers.
-- Organization and tree-structured department editing, user membership, primary department,
-  role changes, and enable/disable controls.
+- Organization and tree-structured department editing, user membership, primary department, role changes, and enable/disable controls.
 - Personal and department Workspace inventory with governed sandbox modes.
 - Privacy-screened memory proposals, review queue, and the approved enterprise awareness stream.
 - Visibility policy management for employees, models, capabilities, and channels.

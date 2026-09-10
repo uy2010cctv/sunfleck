@@ -18,7 +18,11 @@ export const GROUPS_WITHOUT_SUBSYSTEM_PAGE: Readonly<Record<string, string>> = {
   acp: 'Protocol transport entry point; the server package README owns its interoperability contract.',
   boot: 'Shared application-bin boot library rather than a runtime subsystem.',
   bundle: 'Composition patch carriers whose mounted packages own all runtime contracts.',
+  catalog: 'Enterprise catalog packages are domain repositories whose child READMEs own their query, release, and visibility behavior.',
+  enterprise: 'Enterprise composition packages combine documented native services; each child README owns its storage and runtime behavior.',
   hooks: 'External hook-protocol bridges over existing interception points, not a new Harness service.',
+  knowledge: 'Knowledge adapters are domain-specific storage and retrieval implementations; their child READMEs own supported query behavior.',
+  operations: 'Enterprise operations packages are application-domain repositories and controllers, not a standalone reusable DSH subsystem.',
   sdk: 'Out-of-process protocol and client packages whose package READMEs own the SDK contracts.',
   util: 'Low-level primitives whose business semantics remain with their consuming subsystems.',
 }

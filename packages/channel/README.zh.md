@@ -24,6 +24,8 @@ kind: "package-group"
 
 当前 GA 支持的提供方适配器是 [`channel-wecom`](channel-wecom/README.zh.md)，只实现企业微信企业应用的线格式和安全合同，明确排除个人微信。HTTP 服务、PostgreSQL 入站／出站持久化、凭据、租约和实际投递仍由 Host 负责。
 
+[Webhook 子系统](../../docs/subsystems/webhook.zh.md)说明提供方适配器组合的统一入站 HTTP 与投递生命周期。
+
 <a id="dev-note"></a>
 ### 开发备注
 

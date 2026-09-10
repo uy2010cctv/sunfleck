@@ -75,8 +75,6 @@ The Host account remains the manual `Workspace.sessionIds` order: a newly attach
 
 The current blank Session appears as a “New session” row without a count, time label, or row menu; other blank Sessions remain hidden and eligible for per-Workspace reuse. Search excludes blank rows.
 
-Session archive is a non-destructive, registry-global display operation: the Session log and Workspace accounting slot remain durable while the row is hidden from grouped, flat, and search views. In enterprise mode, successful `session.create({ workspaceId })` commits the Session-to-Workspace identity binding after native creation, and startup backfills historical bindings from each managed native Workspace's durable `sessionIds` account before resource-policy lookup. The Sidebar shows an immediate pending state, a visible success confirmation, and a persistent failure with the Host reason plus retry and dismiss actions. Archive failures must never be reduced to a console warning because that makes an authorized action appear inert.
-
 Real Sessions that cannot be assigned to any Workspace appear under Ungrouped. Host `session-added` and `workspace-changed` events may arrive in either order; list merging does not depend on frame order.
 
 Deleting a Workspace registration removes its group without deleting or closing any Session. Its accounted Sessions immediately join Ungrouped, including the current Session; a reload reconstructs the same result from the independent Workspace and Session baselines.

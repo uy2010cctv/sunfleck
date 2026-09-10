@@ -16,14 +16,14 @@
 
 **文件：**
 - 修改：`packages/experimental/agent-team/src/types.ts`
-- 修改：`packages/experimental/agent-team/src/fold.ts`
+- 修改：`packages/experimental/agent-team/src/projection.ts`
 - 修改：`packages/experimental/agent-team/src/index.ts`
 - 修改：`packages/experimental/agent-team/src/roster.ts`
-- 测试：`packages/experimental/agent-team/tests/fold.spec.ts`
+- 测试：`packages/experimental/agent-team/tests/projection-events.spec.ts`
 - 测试：`packages/experimental/agent-team/tests/team.spec.ts`
 
 - [ ] 为旧版 agent 成员事件、Human 与 agent 名册投影、运行状态 revision 与操作幂等性、决策 CAS/幂等性和冷 fold 输出编写失败的回放测试。
-- [ ] 运行 `pnpm exec vitest run packages/experimental/agent-team/tests/fold.spec.ts packages/experimental/agent-team/tests/team.spec.ts`，确认失败指向缺失的 TeamRun/Human/Decision 行为。
+- [ ] 运行 `pnpm exec vitest run packages/experimental/agent-team/tests/projection-events.spec.ts packages/experimental/agent-team/tests/team.spec.ts`，确认失败指向缺失的 TeamRun/Human/Decision 行为。
 - [ ] 添加带版本的 `team/run`、`team/human-member` 和 `team/decision` 事件；保留现有 `team/member` payload 作为向后兼容的 agent 记录，并允许携带可选企业 Release 元数据。
 - [ ] 添加 Team 服务方法，在现有 Team journal 序列化器下变更根 Session 状态，并通过 `TeamView` 暴露运行/决策元数据；不得通过仅限 agent 的方法授权 Human 调用方。
 - [ ] 重新运行聚焦测试并保持通过。

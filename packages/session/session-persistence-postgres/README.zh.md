@@ -20,19 +20,13 @@ PostgreSQL durable session persistence for DSH event logs。
 <a id="package-details"></a>
 ## 包详情
 
-这是一个可选的 PostgreSQL `SessionPersistence` 提供方，用于原生 DSH 事件日志。它保持现有
-`SessionPersistence` 合同：会话头与首批事件在同一事务中惰性物化，事件仅可连续追加，并由协调器
-在不改写已提交历史的前提下关闭中断回合。
+这是一个可选的 PostgreSQL `SessionPersistence` 提供方，用于原生 DSH 事件日志。它保持现有 `SessionPersistence` 合同：会话头与首批事件在同一事务中惰性物化，事件仅可连续追加，并由协调器 在不改写已提交历史的前提下关闭中断回合。
 
 ## 存储模型
 
-`dsh_session_headers` 保存不可变 JSON 会话头、持久化 incarnation 和单调 revision。
-`dsh_session_events` 为每个 `(session_id, seq)` 保存一个 JSON 事件。PostgreSQL 会在读取尾部、
-插入批次或修复最后一条损坏记录前锁定会话头行，因此独立写入方不能同时占用同一下一序号。revision
-由数据库本地 UUID、会话头 incarnation 和 revision 计数器共同限定来源。
+`dsh_session_headers` 保存不可变 JSON 会话头、持久化 incarnation 和单调 revision。 `dsh_session_events` 为每个 `(session_id, seq)` 保存一个 JSON 事件。PostgreSQL 会在读取尾部、 插入批次或修复最后一条损坏记录前锁定会话头行，因此独立写入方不能同时占用同一下一序号。revision 由数据库本地 UUID、会话头 incarnation 和 revision 计数器共同限定来源。
 
-该包公开驱动无关的 `PostgresDatabase` 接口。声明式 Cordis 组合使用 `connectionString`；集成测试
-或嵌入式 Host 可以直接提供事务数据库对象。任何密钥或连接字符串都不会写入会话记录。
+该包公开驱动无关的 `PostgresDatabase` 接口。声明式 Cordis 组合使用 `connectionString`；集成测试 或嵌入式 Host 可以直接提供事务数据库对象。任何密钥或连接字符串都不会写入会话记录。
 
 ## 配置
 
@@ -44,8 +38,7 @@ interface Config {
 }
 ```
 
-请使用仅拥有该包 `dsh_session_*` 表权限的专用 PostgreSQL 角色。服务启动时会在事务中初始化 schema。
-会话没有单独的原始文件，因此 `locate()` 返回 `undefined`，且不支持 `readRaw()`。
+请使用仅拥有该包 `dsh_session_*` 表权限的专用 PostgreSQL 角色。服务启动时会在事务中初始化 schema。 会话没有单独的原始文件，因此 `locate()` 返回 `undefined`，且不支持 `readRaw()`。
 
 ## Model Experience
 
@@ -53,8 +46,7 @@ interface Config {
 
 #### What the model sees
 
-模型不会看到 PostgreSQL 特有内容。恢复时重放与 JSONL、SQLite 提供方相同的逻辑
-`SessionEvent[]`；会话头、revision、锁和行布局不会进入 Prompt 或 Tool 调用。
+模型不会看到 PostgreSQL 特有内容。恢复时重放与 JSONL、SQLite 提供方相同的逻辑 `SessionEvent[]`；会话头、revision、锁和行布局不会进入 Prompt 或 Tool 调用。
 
 #### Token effect
 

@@ -20,22 +20,13 @@ PostgreSQL durable session persistence for DSH event logs.
 <a id="package-details"></a>
 ## Package Details
 
-An opt-in PostgreSQL `SessionPersistence` provider for native DSH event logs. It preserves the
-existing `SessionPersistence` contract: session headers are lazily materialized with their first
-event batch in one transaction, events are append-only and contiguous, and coordinator-owned
-recovery closes interrupted turns without changing committed history.
+An opt-in PostgreSQL `SessionPersistence` provider for native DSH event logs. It preserves the existing `SessionPersistence` contract: session headers are lazily materialized with their first event batch in one transaction, events are append-only and contiguous, and coordinator-owned recovery closes interrupted turns without changing committed history.
 
 ## Storage model
 
-`dsh_session_headers` stores the immutable JSON header, a durable incarnation, and a monotonic
-revision. `dsh_session_events` stores one JSON event per `(session_id, seq)`. PostgreSQL locks the
-header row before reading the tail, inserting a batch, or repairing a final torn row; independent
-writers therefore cannot both claim the same next sequence. Revisions are source-qualified by a
-database-local UUID, header incarnation, and revision counter.
+`dsh_session_headers` stores the immutable JSON header, a durable incarnation, and a monotonic revision. `dsh_session_events` stores one JSON event per `(session_id, seq)`. PostgreSQL locks the header row before reading the tail, inserting a batch, or repairing a final torn row; independent writers therefore cannot both claim the same next sequence. Revisions are source-qualified by a database-local UUID, header incarnation, and revision counter.
 
-The package exposes a driver-neutral `PostgresDatabase` interface. Declarative Cordis composition
-uses `connectionString`; integration tests and embedded hosts may supply a transactional database
-object directly. No secret or connection string enters session records.
+The package exposes a driver-neutral `PostgresDatabase` interface. Declarative Cordis composition uses `connectionString`; integration tests and embedded hosts may supply a transactional database object directly. No secret or connection string enters session records.
 
 ## Configuration
 
@@ -47,9 +38,7 @@ interface Config {
 }
 ```
 
-Use a dedicated PostgreSQL role with rights only to the package-owned `dsh_session_*` tables. The
-schema is initialized inside a transaction on service startup. Session data has no per-session raw
-artifact, so `locate()` returns `undefined` and `readRaw()` is unsupported.
+Use a dedicated PostgreSQL role with rights only to the package-owned `dsh_session_*` tables. The schema is initialized inside a transaction on service startup. Session data has no per-session raw artifact, so `locate()` returns `undefined` and `readRaw()` is unsupported.
 
 ## Model Experience
 
@@ -57,8 +46,7 @@ artifact, so `locate()` returns `undefined` and `readRaw()` is unsupported.
 
 #### What the model sees
 
-Nothing PostgreSQL-specific. Resume replays the same logical `SessionEvent[]` used by JSONL and
-SQLite providers; headers, revisions, locks, and row layout never enter prompts or tool calls.
+Nothing PostgreSQL-specific. Resume replays the same logical `SessionEvent[]` used by JSONL and SQLite providers; headers, revisions, locks, and row layout never enter prompts or tool calls.
 
 #### Token effect
 
@@ -70,12 +58,9 @@ None. The reconstructed logical history and active provider request determine ca
 
 ## Known Limitations and Deferred Work
 
-- Driver-shape tests cover ordering, conflict rejection, rollback, and tail repair. A live
-  PostgreSQL integration suite is deferred until a deployment-owned test service is available.
-- The initial schema has no SQLite migration command yet; migration must be added as a separately
-  verified operation before a production cutover.
-- This provider owns event durability only. Full-text and vector indexes remain separate read-model
-  concerns and are not implemented by this package.
+- Driver-shape tests cover ordering, conflict rejection, rollback, and tail repair. A live PostgreSQL integration suite is deferred until a deployment-owned test service is available.
+- The initial schema has no SQLite migration command yet; migration must be added as a separately verified operation before a production cutover.
+- This provider owns event durability only. Full-text and vector indexes remain separate read-model concerns and are not implemented by this package.
 
 <a id="dev-note"></a>
 ### Dev Note
