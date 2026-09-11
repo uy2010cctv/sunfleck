@@ -8,6 +8,7 @@ import type {} from '@deepseek-ai/dsh-enterprise-auth-web'
 import type {} from '@deepseek-ai/dsh-enterprise-postgres'
 import type { EmployeePresetDefinition } from '@deepseek-ai/dsh-agent-presets'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
+import { PostgresDevicePlaneRepository } from '@deepseek-ai/dsh-enterprise-device-plane'
 import {
   channelAuthorizationUrl,
   channelBindingProfile,
@@ -166,6 +167,7 @@ import type {
   EnterpriseWorkStartRequest,
   EnterpriseWorkStartValue,
 } from './contract/work.ts'
+import type { EnterpriseDevicePairRequest } from './contract/devices.ts'
 
 export type * from './contract/index.ts'
 
@@ -191,6 +193,7 @@ declare module '@deepseek-ai/cordis' {
     enterpriseChannelController: EnterpriseChannelController
     /** Goal-first authenticated enterprise work start. */
     enterpriseWorkController: EnterpriseWorkController
+    enterpriseDeviceController: EnterpriseDeviceController
     /** Optional Host-only provider app installer. Browser code never receives its credentials. */
     enterpriseChannelBotInstaller: EnterpriseChannelBotInstaller
     /** Optional provider that appends authoritative Team events to root Session logs. */
@@ -368,6 +371,32 @@ export async function optimizeEmployeePromptWithLlm(
   const optimized = blocks.flatMap(block => block.type === 'text' ? [block.text] : []).join('\n').trim()
   if (optimized === '') throw new Error('prompt optimizer returned no text')
   return { prompt: optimized }
+}
+
+/** Authenticated Device Plane pairing and heartbeat service. */
+export class EnterpriseDeviceController extends TypertRemoteService {
+  static inject = ['enterprisePostgres', 'enterpriseSecurity', 'enterpriseRequestContext']
+  constructor(ctx: Context) { super(ctx, 'enterpriseDeviceController', { namespace: 'enterpriseDevice' }) }
+
+  @Remote('pair') async pair(request: EnterpriseDevicePairRequest): Promise<{ deviceId: string }> {
+    return catalogCall(this.ctx, 'enterpriseDevice.pair', request, 'device', 'new', async (actor) => {
+      const deviceId = `device-${randomUUID()}`
+      await this.repository().heartbeat({
+        deviceId, orgId: actor.orgId, userId: actor.userId, deviceName: request.deviceName,
+        platform: request.platform, publicKey: request.publicKey, status: 'online',
+      })
+      return { deviceId }
+    })
+  }
+
+  @Remote('heartbeat') async heartbeat(request: { deviceId: string }): Promise<void> {
+    await catalogCall(this.ctx, 'enterpriseDevice.heartbeat', request, 'device', request.deviceId, async (actor) => {
+      const device = await this.repository().device(request.deviceId)
+      if (device === undefined || device.orgId !== actor.orgId || device.userId !== actor.userId) throw new Error('device principal mismatch')
+      await this.repository().heartbeat({ ...device, status: 'online' })
+    })
+  }
+  private repository(): PostgresDevicePlaneRepository { return this.ctx.enterprisePostgres.devicePlane }
 }
 
 /** Enterprise employee Draft and Release Remote service. */
@@ -2072,6 +2101,7 @@ function enterpriseFailure(
  * @param ctx - Input value used by this API.
 */
 export function apply(ctx: Context): void {
+  new EnterpriseDeviceController(ctx)
   new EnterpriseEmployeeController(ctx)
   new EnterpriseAssetController(ctx)
   new EnterpriseChannelController(ctx)

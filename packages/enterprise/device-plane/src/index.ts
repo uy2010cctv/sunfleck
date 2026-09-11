@@ -9,7 +9,7 @@ export interface Device {
   orgId: string
   userId: string
   deviceName: string
-  platform: 'macos'
+  platform: 'macos' | 'windows' | 'linux'
   publicKey: string
   status: 'online' | 'offline'
 }

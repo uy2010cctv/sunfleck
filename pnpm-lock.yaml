@@ -843,6 +843,9 @@ importers:
 
   packages/api/enterprise-controller:
     dependencies:
+      '@deepseek-ai/dsh-enterprise-device-plane':
+        specifier: workspace:^
+        version: link:../../enterprise/device-plane
       '@larksuiteoapi/node-sdk':
         specifier: 1.73.2
         version: 1.73.2
