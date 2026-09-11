@@ -1,5 +1,7 @@
 import { randomUUID } from 'node:crypto'
 
+export { PostgresDevicePlaneRepository } from './postgres.ts'
+
 export type DeviceCapability = 'browser.observe' | 'browser.control' | 'desktop.observe' | 'desktop.control'
 export type ComputerUseMode = 'observe' | 'confirm-each' | 'delegated'
 export interface Device {
