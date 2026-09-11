@@ -1,9 +1,16 @@
-import type { DeviceAction, DeviceActionResult, DeviceAdapter, PermitConsumer } from './protocol.ts'
+import type { DeviceAction, DeviceActionResult, DeviceAdapter, LocalConfirmator, PermitConsumer } from './protocol.ts'
 
 export class DeviceActionExecutor {
   private readonly aborters = new Map<string, AbortController>()
-  constructor(private readonly permits: PermitConsumer, private readonly adapters: readonly DeviceAdapter[]) {}
+  constructor(
+    private readonly permits: PermitConsumer,
+    private readonly adapters: readonly DeviceAdapter[],
+    private readonly confirmator: LocalConfirmator,
+  ) {}
   async execute(action: DeviceAction): Promise<DeviceActionResult> {
+    if (action.capability.endsWith('.control') && !(await this.confirmator.confirm(action))) {
+      return { operationId: action.operationId, state: 'rejected', summary: 'Local user declined device control.' }
+    }
     if (!(await this.permits.consume(action))) return { operationId: action.operationId, state: 'rejected', summary: 'Operation permit was rejected.' }
     const adapter = this.adapters.find(candidate => candidate.kind === action.adapter)
     if (adapter === undefined) return { operationId: action.operationId, state: 'rejected', summary: 'Requested device adapter is unavailable.' }

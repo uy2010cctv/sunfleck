@@ -20,3 +20,6 @@ export interface DeviceAdapter {
   readonly kind: AdapterKind
   execute(action: DeviceAction, signal: AbortSignal): Promise<DeviceActionResult>
 }
+export interface LocalConfirmator {
+  confirm(action: DeviceAction): Promise<boolean>
+}
