@@ -175,6 +175,7 @@ export const inject = [
   'remote.enterpriseTeamDefinition', 'remote.enterpriseTeamRun',
   'remote.enterpriseTeamDecision', 'remote.enterpriseTeamAutonomy',
   'remote.enterpriseChannel',
+  'remote.enterpriseDevice',
   'remote.pluginInventory',
   'remote.cordisWorkspace', 'remote.cordisReview', 'remote.cordisGovernance',
 ]
