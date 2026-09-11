@@ -167,7 +167,7 @@ import type {
   EnterpriseWorkStartRequest,
   EnterpriseWorkStartValue,
 } from './contract/work.ts'
-import type { EnterpriseDevicePairRequest } from './contract/devices.ts'
+import type { EnterpriseComputerUseStartRequest, EnterpriseDevicePairRequest, EnterpriseDevicePermitRequest } from './contract/devices.ts'
 
 export type * from './contract/index.ts'
 
@@ -395,6 +395,28 @@ export class EnterpriseDeviceController extends TypertRemoteService {
       if (device === undefined || device.orgId !== actor.orgId || device.userId !== actor.userId) throw new Error('device principal mismatch')
       await this.repository().heartbeat({ ...device, status: 'online' })
     })
+  }
+  @Remote('startRun') async startRun(request: EnterpriseComputerUseStartRequest): Promise<{ runId: string }> {
+    return catalogCall(this.ctx, 'enterpriseDevice.startRun', request, 'computer-use-run', request.deviceId, async (actor) => {
+      await this.requireDevice(actor, request.deviceId)
+      const runId = `computer-use-${randomUUID()}`
+      await this.repository().saveRun({ runId, orgId: actor.orgId, userId: actor.userId, deviceId: request.deviceId,
+        workspaceId: request.workspaceId, sessionId: request.sessionId, mode: request.mode, status: 'active' })
+      return { runId }
+    })
+  }
+  @Remote('issuePermit') async issuePermit(request: EnterpriseDevicePermitRequest): Promise<{ permitId: string }> {
+    return catalogCall(this.ctx, 'enterpriseDevice.issuePermit', request, 'computer-use-permit', request.operationId, async (actor) => {
+      await this.requireDevice(actor, request.deviceId)
+      const permitId = `permit-${randomUUID()}`
+      await this.repository().savePermit({ permitId, orgId: actor.orgId, userId: actor.userId, deviceId: request.deviceId,
+        runId: request.runId, operationId: request.operationId, capability: request.capability, consumed: false }, Date.now() + 60_000)
+      return { permitId }
+    })
+  }
+  private async requireDevice(actor: EnterprisePrincipal, deviceId: string): Promise<void> {
+    const device = await this.repository().device(deviceId)
+    if (device === undefined || device.orgId !== actor.orgId || device.userId !== actor.userId || device.status !== 'online') throw new Error('device principal mismatch')
   }
   private repository(): PostgresDevicePlaneRepository { return this.ctx.enterprisePostgres.devicePlane }
 }
