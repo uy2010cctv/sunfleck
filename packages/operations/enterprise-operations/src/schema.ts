@@ -1,7 +1,7 @@
 /** PostgreSQL schema for work records, approvals, schedules, teams, and outbox. */
 import type { PostgresDatabase } from './types.ts'
 /** Value exported as `ENTERPRISE_OPERATIONS_SCHEMA_VERSION`. */
-export const ENTERPRISE_OPERATIONS_SCHEMA_VERSION = 16
+export const ENTERPRISE_OPERATIONS_SCHEMA_VERSION = 17
 /** Owner placeholder for legacy fixed teams whose creator was never persisted. */
 export const LEGACY_TEAM_DEFINITION_OWNER_USER_ID = 'system:legacy-fixed-team-migration'
 const statements = [
@@ -121,6 +121,26 @@ const statements = [
     binding_verified_by TEXT, binding_verified_at BIGINT,
     created_by TEXT NOT NULL, revision BIGINT NOT NULL, created_at BIGINT NOT NULL, updated_at BIGINT NOT NULL,
     PRIMARY KEY(org_id,channel_id)
+  )`,
+  `CREATE TABLE IF NOT EXISTS dsh_enterprise_devices (
+    device_id TEXT PRIMARY KEY, org_id TEXT NOT NULL, user_id TEXT NOT NULL,
+    device_name TEXT NOT NULL, platform TEXT NOT NULL CHECK (platform IN ('macos','windows','linux')),
+    public_key TEXT NOT NULL, status TEXT NOT NULL CHECK (status IN ('online','offline','revoked')),
+    last_heartbeat_at BIGINT, created_at BIGINT NOT NULL, updated_at BIGINT NOT NULL,
+    UNIQUE(org_id,user_id,public_key)
+  )`,
+  `CREATE TABLE IF NOT EXISTS dsh_enterprise_computer_use_runs (
+    run_id TEXT PRIMARY KEY, org_id TEXT NOT NULL, user_id TEXT NOT NULL, device_id TEXT NOT NULL,
+    workspace_id TEXT NOT NULL, session_id TEXT NOT NULL,
+    mode TEXT NOT NULL CHECK (mode IN ('observe','confirm-each','delegated')),
+    state TEXT NOT NULL CHECK (state IN ('active','paused','stopped','failed')),
+    revision BIGINT NOT NULL, created_at BIGINT NOT NULL, updated_at BIGINT NOT NULL
+  )`,
+  `CREATE TABLE IF NOT EXISTS dsh_enterprise_computer_use_permits (
+    permit_id TEXT PRIMARY KEY, org_id TEXT NOT NULL, user_id TEXT NOT NULL, device_id TEXT NOT NULL,
+    run_id TEXT NOT NULL REFERENCES dsh_enterprise_computer_use_runs(run_id) ON DELETE CASCADE,
+    operation_id TEXT NOT NULL, capability TEXT NOT NULL, expires_at BIGINT NOT NULL,
+    consumed_at BIGINT, created_at BIGINT NOT NULL, UNIQUE(org_id,run_id,operation_id)
   )`,
   `CREATE INDEX IF NOT EXISTS dsh_enterprise_work_records_page_idx
     ON dsh_enterprise_work_records(org_id, updated_at DESC, session_id DESC, employee_release_id DESC)`,
