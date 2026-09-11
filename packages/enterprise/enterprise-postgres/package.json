@@ -19,6 +19,7 @@
     "@deepseek-ai/dsh-session-persistence-postgres": "workspace:^",
     "@deepseek-ai/dsh-enterprise-catalog": "workspace:^",
     "@deepseek-ai/dsh-enterprise-operations": "workspace:^",
+    "@deepseek-ai/dsh-enterprise-device-plane": "workspace:^",
     "@deepseek-ai/dsh-enterprise-cordis": "workspace:^",
     "@deepseek-ai/dsh-knowledge-pgvector": "workspace:^",
     "pg": "^8.16.3"

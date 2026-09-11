@@ -13,6 +13,7 @@ import {
 } from '@deepseek-ai/dsh-enterprise-operations'
 import { PostgresEnterpriseCordisRepository, migrateEnterpriseCordis } from '@deepseek-ai/dsh-enterprise-cordis'
 import { EnterpriseKnowledgeRepository, migrateKnowledge } from '@deepseek-ai/dsh-knowledge-pgvector'
+import { PostgresDevicePlaneRepository } from '@deepseek-ai/dsh-enterprise-device-plane'
 import type { PostgresDatabase as IdentityDatabase, PostgresQueryResult as IdentityResult } from '@deepseek-ai/dsh-enterprise-identity-postgres'
 import type { PostgresDatabase as SessionDatabase, PostgresQueryResult as SessionResult } from '@deepseek-ai/dsh-session-persistence-postgres'
 import type { PostgresDatabase as CatalogDatabase, PostgresQueryResult as CatalogResult } from '@deepseek-ai/dsh-enterprise-catalog'
@@ -118,6 +119,7 @@ export interface EnterprisePostgresComposition {
   readonly teamControl: EnterpriseTeamControlRepository
   readonly knowledge: EnterpriseKnowledgeRepository
   readonly cordis: PostgresEnterpriseCordisRepository
+  readonly devicePlane: PostgresDevicePlaneRepository
   readonly close: () => Promise<void>
 }
 
@@ -196,7 +198,8 @@ export async function createEnterprisePostgresComposition(config: EnterprisePost
     })
     const knowledge = new EnterpriseKnowledgeRepository(database)
     const cordis = new PostgresEnterpriseCordisRepository(database)
-    return { database, identity, session, catalog, operations, teamControl, knowledge, cordis, close: () => database.end() }
+    const devicePlane = new PostgresDevicePlaneRepository(database)
+    return { database, identity, session, catalog, operations, teamControl, knowledge, cordis, devicePlane, close: () => database.end() }
   } catch (error) {
     await database.end()
     throw error
