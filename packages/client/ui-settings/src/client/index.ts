@@ -53,8 +53,9 @@ export const inject = ['remote', 'remote.settings']
  */
 export function apply(ctx: Context): void {
   const schema = new SettingsSchemaService(ctx)
-  // Resolved once here, where `remote` is declared in this plugin's own
-  // `inject`; the binder hands the same answer to every scope it binds.
+  // Remote browsers keep ordinary user preferences process-local. Enterprise
+  // model administration uses its own server-authorized read path rather than
+  // turning unrelated settings namespaces into shared Host state.
   const persistence = ctx.remote.$host.isLoopback ? 'host' : 'memory'
   const mirror = new SettingsDescribeMirror(ctx, persistence)
   ctx.effect(() => {

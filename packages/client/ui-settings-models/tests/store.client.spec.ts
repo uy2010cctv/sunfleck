@@ -272,7 +272,7 @@ describe('edge joins', () => {
     expect(store.store.getSnapshot()).toMatchObject({ status: 'error', error: 'settings down' })
   })
 
-  it('reports a terminally unavailable settings mirror precisely', async () => {
+  it('uses the server-authorized settings read when a remote browser mirror is memory-only', async () => {
     const { ctx } = api()
     const store = new ModelsSettingsStore(
       ctx,
@@ -281,8 +281,9 @@ describe('edge joins', () => {
     )
     await store.load()
     expect(store.store.getSnapshot()).toMatchObject({
-      status: 'error',
-      error: 'settings are unavailable in this browser',
+      status: 'ready',
+      writable: true,
+      error: null,
     })
   })
 

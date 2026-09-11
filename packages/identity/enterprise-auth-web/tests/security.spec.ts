@@ -63,6 +63,7 @@ describe('EnterpriseSecurity', () => {
     expect(classifyApiEndpoint('sessions.history', { sessionId: 'session-1' }))
       .toMatchObject({ action: 'session.read', resourceType: 'session', resourceId: 'session-1' })
     expect(classifyApiEndpoint('credentials.set', {})).toMatchObject({ action: 'credential.manage' })
+    expect(classifyApiEndpoint('settings.describe', {})).toEqual({ action: 'model.manage', resourceType: 'model-settings' })
     expect(classifyApiEndpoint('agentPreset.copy', {})).toMatchObject({ action: 'employee.create' })
     expect(classifyApiEndpoint('unknown.execute', {})).toBeUndefined()
     expect(classifyApiEndpoint('workspace.list', { workspaceId: 'workspace-1' })).toEqual({
@@ -164,6 +165,16 @@ describe('EnterpriseSecurity', () => {
     expect(classifyApiEndpoint('dynamicCordisRunner.syncInspectManifest', {})).toEqual({
       action: 'system.inspect', resourceType: 'system-inspection',
     })
+  })
+
+  it('allows only an administrator to read the remote model settings directory', async () => {
+    const administrator = { userId: 'admin-1', orgId: 'org-a', roles: ['administrator'] as const }
+    const member = { userId: 'member-1', orgId: 'org-a', roles: ['member'] as const }
+
+    await expect(security.authorizeApiAsync(administrator, 'settings.describe', {}))
+      .resolves.toEqual({ allowed: true, reason: 'administrator' })
+    await expect(security.authorizeApiAsync(member, 'settings.describe', {}))
+      .resolves.toEqual({ allowed: false, reason: 'insufficient-role' })
   })
 
   it('enforces endpoint roles and restricted resource visibility', () => {

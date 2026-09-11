@@ -106,7 +106,7 @@ const SESSION_WRITE = new Set([
   'sessions.updateQueue', 'sessions.cancel', 'goals.create', 'goals.edit', 'goals.pause', 'goals.resume',
   'goals.complete', 'goals.clear', 'subagents.prompt', 'subagents.interrupt',
 ])
-const MODEL_READ = new Set(['llm.providers', 'llm.models', 'settings.describe', 'agentPreset.list'])
+const MODEL_READ = new Set(['llm.providers', 'llm.models', 'agentPreset.list'])
 const MODEL_WRITE = new Set([
   'settings.openDocument', 'settings.update', 'settings.replace', 'settings.mutate', 'llm.discoverModels',
   'host.pickDirectory', 'host.createDirectory', 'host.openPath',
@@ -143,6 +143,7 @@ export function classifyApiEndpoint(endpoint: string, input: unknown): ApiClassi
   const sessionId = stringField(payload, 'sessionId', 'parentSessionId', 'childSessionId')
   if (SESSION_READ.has(endpoint)) return { action: 'session.read', resourceType: 'session', ...sessionId === undefined ? {} : { resourceId: sessionId } }
   if (SESSION_WRITE.has(endpoint)) return { action: 'session.create', resourceType: 'session', ...sessionId === undefined ? {} : { resourceId: sessionId } }
+  if (endpoint === 'settings.describe') return { action: 'model.manage', resourceType: 'model-settings' }
   if (MODEL_READ.has(endpoint)) return { action: 'employee.read', resourceType: 'enterprise-catalog' }
   if (MODEL_WRITE.has(endpoint)) return { action: 'model.manage', resourceType: 'model-settings' }
   if (endpoint === 'agentPreset.read') {

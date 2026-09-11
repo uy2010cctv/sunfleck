@@ -188,13 +188,25 @@ export class ModelsSettingsStore {
     if (!registered.ok) { this.failLoad(generation, registered.error.message); return }
     if (!declared.ok) { this.failLoad(generation, declared.error.message); return }
     const mirrored = this.describeFace.getSnapshot()
-    if (mirrored.view === undefined) {
+    let settingsView = mirrored.view
+    // Ordinary remote preferences deliberately remain process-local. The
+    // Models page is different: the Host authorization gateway admits its
+    // redacted settings directory only to an enterprise model administrator.
+    if (settingsView === undefined && mirrored.status === 'unavailable') {
+      const response = await this.ctx.remote.settings.describe()
+      if (response.ok) settingsView = response.value
+      else {
+        this.failLoad(generation, response.error.message)
+        return
+      }
+    }
+    if (settingsView === undefined) {
       this.failLoad(generation, mirrored.error ?? 'settings are unavailable in this browser')
       return
     }
     const providers = joinProviderDirectory(registered.value, declared.value)
-    const writable = mirrored.view.writable
-    const views: readonly SettingsNamespaceView[] = mirrored.view.namespaces
+    const writable = settingsView.writable
+    const views: readonly SettingsNamespaceView[] = settingsView.namespaces
     const namespaces = new Map(views.map(view => [view.ns, view]))
     const rows: ProviderRow[] = providers.map((entry) => {
       const namespace = namespaces.get(entry.settingsNs)
