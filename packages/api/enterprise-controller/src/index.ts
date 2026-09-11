@@ -414,6 +414,13 @@ export class EnterpriseDeviceController extends TypertRemoteService {
       return { permitId }
     })
   }
+  @Remote('consumePermit') async consumePermit(request: Pick<EnterpriseDevicePermitRequest, 'deviceId' | 'runId' | 'operationId'>): Promise<void> {
+    await catalogCall(this.ctx, 'enterpriseDevice.consumePermit', request, 'computer-use-permit', request.operationId, async (actor) => {
+      if (!(await this.repository().consumePermit({ orgId: actor.orgId, userId: actor.userId, ...request }))) {
+        throw new Error('operation permit is missing, expired, consumed, or belongs to another principal')
+      }
+    })
+  }
   private async requireDevice(actor: EnterprisePrincipal, deviceId: string): Promise<void> {
     const device = await this.repository().device(deviceId)
     if (device === undefined || device.orgId !== actor.orgId || device.userId !== actor.userId || device.status !== 'online') throw new Error('device principal mismatch')
