@@ -160,6 +160,16 @@ export function classifyApiEndpoint(endpoint: string, input: unknown): ApiClassi
     const resourceId = stringField(payload, 'channelId')
     return { action: 'channel.manage', resourceType: 'channel', ...(resourceId === undefined ? {} : { resourceId }) }
   }
+  if (endpoint.startsWith('enterpriseDevice.')) {
+    const resourceId = stringField(payload, 'deviceId')
+    const action = endpoint === 'enterpriseDevice.list' || endpoint === 'enterpriseDevice.get'
+      || endpoint === 'enterpriseDevice.getAction'
+      ? 'device.read'
+      : endpoint === 'enterpriseDevice.pair' || endpoint === 'enterpriseDevice.heartbeat'
+        ? 'device.manage'
+        : 'device.execute'
+    return { action, resourceType: 'device', ...(resourceId === undefined ? {} : { resourceId }) }
+  }
   if (endpoint.startsWith('enterpriseAdmin.')) return { action: 'user.manage', resourceType: 'enterprise-admin' }
   if (endpoint === 'enterpriseAudit.list') return { action: 'audit.read', resourceType: 'audit' }
   if (endpoint === 'enterpriseWork.prepare') return { action: 'operation.read', resourceType: 'work-record' }

@@ -1,0 +1,25 @@
+{
+  "name": "@deepseek-ai/dsh-tool-computer-use",
+  "description": "Permit-gated model tool for a user's paired computer",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "lib/index.js",
+  "types": "lib/types/index.d.ts",
+  "exports": { ".": { "types": "./lib/types/index.d.ts", "default": "./lib/index.js" }, "./src/*": "./src/*" },
+  "scripts": { "bundle": "tsdown" },
+  "license": "MIT",
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "workspace:^",
+    "@deepseek-ai/schemastery": "workspace:^",
+    "@deepseek-ai/dsh-tools": "workspace:^",
+    "@deepseek-ai/dsh-enterprise-device-plane": "workspace:^",
+    "@deepseek-ai/dsh-enterprise-postgres": "workspace:^"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "workspace:^",
+    "@deepseek-ai/schemastery": "workspace:^",
+    "@deepseek-ai/dsh-tools": "workspace:^",
+    "@deepseek-ai/dsh-enterprise-device-plane": "workspace:^",
+    "@deepseek-ai/dsh-enterprise-postgres": "workspace:^"
+  }
+}

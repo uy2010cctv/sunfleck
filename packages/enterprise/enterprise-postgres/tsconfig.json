@@ -7,6 +7,7 @@
     { "path": "../../session/session-persistence-postgres" },
     { "path": "../../catalog/enterprise-catalog" },
     { "path": "../../operations/enterprise-operations" },
+    { "path": "../device-plane" },
     { "path": "../enterprise-cordis" },
     { "path": "../../knowledge/knowledge-pgvector" },
     { "path": "../../runtime-diagnostics/invariants" },

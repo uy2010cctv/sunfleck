@@ -18,6 +18,7 @@ import type {
   EnterpriseChannelBindingSession, EnterpriseChannelBotInstallResult, EnterpriseChannelConfiguration, EnterpriseChannelPollBotInstallResult, EnterpriseEmployeeDraft, EnterpriseEmployeeRelease, EnterpriseSchedule, EnterpriseScheduleTarget, EnterpriseTeam,
   EnterpriseTeamAutonomyGrant, EnterpriseTeamDecision, EnterpriseTeamDefinition, EnterpriseTeamMember,
   EnterpriseTeamRun, EnterpriseVisibility, EnterpriseWorkRecord as OperationWorkRecord,
+  EnterpriseComputerUseRun, EnterpriseDeviceActionView, EnterpriseDeviceView,
   CordisPackageVersion, CordisReviewRequest, CordisScopeBinding,
 } from '@deepseek-ai/dsh-api-enterprise-controller/types'
 import type { WorkspaceSnapshot } from '@deepseek-ai/dsh-api-workspace-controller/client'
@@ -72,6 +73,11 @@ export interface EnterpriseWorkbenchInjected {
   beginChannelBotInstall: (provider: EnterpriseChannelConfiguration['provider'], redirectUri: string) => Promise<EnterpriseChannelBotInstallResult>
   pollChannelBotInstall: (installId: string, verificationCode?: string) => Promise<EnterpriseChannelPollBotInstallResult>
   refreshChannels: () => Promise<boolean>
+  refreshDevices: () => Promise<boolean>
+  pairLocalDevice: (dshOrigin: string) => Promise<boolean>
+  testLocalDevice: (deviceId: string) => Promise<import('@deepseek-ai/dsh-api-enterprise-controller/types').EnterpriseDeviceActionView>
+  loadDeviceActivity?: () => Promise<{ runs: readonly EnterpriseComputerUseRun[]; actions: readonly EnterpriseDeviceActionView[] }>
+  transitionDeviceRun?: (run: EnterpriseComputerUseRun, state: 'active' | 'paused' | 'stopped') => Promise<EnterpriseComputerUseRun>
   startTeamRun: (input: { teamId: string; expectedTeamRevision: number; workspaceId: string; prompt: string }) => Promise<boolean>
   cancelTeamRun: (run: EnterpriseTeamRun) => Promise<void>
   respondTeamDecision: (decision: EnterpriseTeamDecision, answer: string) => Promise<void>
@@ -92,7 +98,7 @@ export type EnterpriseWorkbenchProps = PropsRuntime<'shell.overlay'> & PropsLoca
 type Translate = (key: EnterpriseWorkbenchKey, params?: Record<string, string | number>) => string
 const LEGACY_TEAM_OWNER_SENTINEL = 'system:legacy-fixed-team-migration'
 const NAV_GROUPS: readonly { label: EnterpriseWorkbenchKey; items: readonly [EnterpriseWorkbenchPage, EnterpriseWorkbenchKey][] }[] = [
-  { label: 'nav.use', items: [['employees', 'nav.employees'], ['work-records', 'nav.work-records'], ['approvals', 'nav.approvals'], ['attention', 'nav.attention']] },
+  { label: 'nav.use', items: [['employees', 'nav.employees'], ['devices', 'nav.devices'], ['work-records', 'nav.work-records'], ['approvals', 'nav.approvals'], ['attention', 'nav.attention']] },
   { label: 'nav.manage', items: [['schedules', 'nav.schedules'], ['assets', 'nav.assets'], ['teams', 'nav.teams'], ['channels', 'nav.channels'], ['extensions', 'nav.extensions']] },
 ]
 
@@ -464,6 +470,87 @@ function WorkRecordsPage({ page, update, busy, t }: { page: EnterprisePageState<
   return <section aria-labelledby="work-page-title"><div className={css.sectionHead}><h2 id="work-page-title">{t('nav.work-records')}</h2><span>{page.items.length}</span></div><PageBoundary page={page} t={t}><div className={css.rows}>{page.items.map(record => <div className={css.row} key={`${record.sessionId}:${record.employeeReleaseId}`}><div><strong>{typeof record.sourceReferences.title === 'string' ? record.sourceReferences.title : record.sessionId}</strong><span>{record.employeeReleaseId} · {t(SOURCE_KEYS[record.source])} · {formatDate(record.updatedAt)}</span></div><label className={css.inlineField}>{t('work.state')}<select value={record.businessState} disabled={busy} onChange={(event) => { void update(record, event.target.value as EnterpriseBusinessState) }}><option value="active">{t(WORK_KEYS.active)}</option><option value="waiting-approval">{t(WORK_KEYS['waiting-approval'])}</option><option value="completed">{t(WORK_KEYS.completed)}</option><option value="failed">{t(WORK_KEYS.failed)}</option></select></label></div>)}</div></PageBoundary></section>
 }
 
+function DevicesPage({ page, api, busy, t }: {
+  page: EnterprisePageState<EnterpriseDeviceView>
+  api: EnterpriseWorkbenchInjected
+  busy: boolean
+  t: Translate
+}) {
+  const [testState, setTestState] = useState<{ deviceId: string; message: string; ok: boolean }>()
+  const [activity, setActivity] = useState<{ phase: 'loading' | 'ready' | 'error'; runs: readonly EnterpriseComputerUseRun[]; actions: readonly EnterpriseDeviceActionView[] }>({ phase: 'loading', runs: [], actions: [] })
+  const refreshActivity = (): void => {
+    if (api.loadDeviceActivity === undefined) {
+      setActivity({ phase: 'ready', runs: [], actions: [] })
+      return
+    }
+    setActivity(current => ({ ...current, phase: 'loading' }))
+    void api.loadDeviceActivity()
+      .then((value) => { setActivity({ phase: 'ready', ...value }) })
+      .catch(() => { setActivity(current => ({ ...current, phase: 'error' })) })
+  }
+  useEffect(refreshActivity, [page.items])
+  const transition = (run: EnterpriseComputerUseRun, state: 'active' | 'paused' | 'stopped'): void => {
+    if (api.transitionDeviceRun !== undefined) void api.transitionDeviceRun(run, state).then(refreshActivity)
+  }
+  return <section aria-labelledby="devices-page-title">
+    <div className={css.sectionHead}>
+      <div><h2 id="devices-page-title">{t('device.title')}</h2><p>{t('device.description')}</p></div>
+      <button type="button" className={css.primaryButton} disabled={busy} onClick={() => {
+        void api.pairLocalDevice(window.location.origin)
+      }}>{busy ? t('device.connecting') : t('device.connect')}</button>
+    </div>
+    <PageBoundary page={page} t={t} empty={<div className={css.empty}>
+      <strong>{t('device.emptyTitle')}</strong><span>{t('device.emptyBody')}</span>
+    </div>}>
+      <div className={css.rows}>{page.items.map(device => <div className={css.row} key={device.deviceId}>
+        <div><strong>{device.deviceName}</strong><span>{t(`device.platform.${device.platform}`)} · {
+          device.lastHeartbeatAt === undefined
+            ? t('device.neverSeen')
+            : t('device.lastSeen', { time: formatDate(device.lastHeartbeatAt) })
+        }</span></div>
+        <div className={css.inlineActions}>
+          <div className={css.status}><StateDot state={device.status === 'online' ? 'done' : 'idle'}/>
+            <span>{t(`device.status.${device.status}`)}</span></div>
+          <button type="button" className={css.secondaryButton} disabled={busy || device.status !== 'online'} onClick={() => {
+            setTestState({ deviceId: device.deviceId, message: t('device.testing'), ok: false })
+            void api.testLocalDevice(device.deviceId).then((action) => {
+              const ok = action.state === 'completed'
+              setTestState({ deviceId: device.deviceId,
+                message: ok ? t('device.testPassed') : t('device.testFailed', { state: action.state }), ok })
+              refreshActivity()
+            }).catch(() => {
+              setTestState({ deviceId: device.deviceId, message: t('device.testFailed', { state: 'error' }), ok: false })
+            })
+          }}>{t('device.test')}</button>
+        </div>
+        {testState?.deviceId === device.deviceId && <span role="status" className={testState.ok ? css.successText : css.mutedText}>
+          {testState.message}
+        </span>}
+      </div>)}</div>
+    </PageBoundary>
+    <div className={css.deviceActivity}>
+      <div className={css.sectionHead}><div><h3>{t('device.runsTitle')}</h3><p>{t('device.runsBody')}</p></div></div>
+      {activity.runs.filter(run => run.status === 'active' || run.status === 'paused').length === 0
+        ? <div className={css.compactEmpty}>{t('device.noActiveRuns')}</div>
+        : <div className={css.rows}>{activity.runs.filter(run => run.status === 'active' || run.status === 'paused').map(run => <div className={css.row} key={run.runId}>
+          <div><strong>{run.status === 'active' ? t('device.runActive') : t('device.runPaused')}</strong><span>{t(`device.mode.${run.mode}`)} · {run.updatedAt === undefined ? '' : formatDate(run.updatedAt)}</span></div>
+          <div className={css.inlineActions}>
+            {run.status === 'active' && <button type="button" className={css.secondaryButton} disabled={busy} onClick={() => { transition(run, 'paused') }}>{t('device.pause')}</button>}
+            {run.status === 'paused' && <button type="button" className={css.primaryButton} disabled={busy} onClick={() => { transition(run, 'active') }}>{t('device.resume')}</button>}
+            <button type="button" className={css.secondaryButton} disabled={busy} onClick={() => { transition(run, 'stopped') }}>{t('device.stop')}</button>
+          </div>
+        </div>)}</div>}
+      <div className={css.sectionHead}><div><h3>{t('device.actionsTitle')}</h3><p>{t('device.actionsBody')}</p></div></div>
+      {activity.phase === 'error' ? <div className={css.compactEmpty}>{t('device.activityError')}</div>
+        : activity.actions.length === 0 ? <div className={css.compactEmpty}>{t('device.noActions')}</div>
+          : <div className={css.rows}>{activity.actions.slice(0, 12).map(action => <div className={css.row} key={action.actionId}>
+            <div><strong>{t(`device.operation.${action.operation.kind}`)}</strong><span>{action.summary ?? t('device.actionWaiting')} · {formatDate(action.updatedAt)}</span></div>
+            <div className={css.status}><StateDot state={action.state === 'completed' ? 'done' : action.state === 'failed' || action.state === 'rejected' ? 'error' : 'idle'}/><span>{t(`device.action.${action.state}`)}</span></div>
+          </div>)}</div>}
+    </div>
+  </section>
+}
+
 function ApprovalsPage({ page, api, busy, t }: { page: EnterprisePageState<EnterpriseApproval>; api: EnterpriseWorkbenchInjected; busy: boolean; t: Translate }) {
   return <section aria-labelledby="approvals-page-title"><div className={css.sectionHead}><h2 id="approvals-page-title">{t('nav.approvals')}</h2><span>{page.items.length}</span></div><PageBoundary page={page} t={t}><div className={css.rows}>{page.items.map(item => <div className={css.row} key={item.approvalId}><div><strong>{t(APPROVAL_KIND_KEYS[item.kind])} · {item.subjectType}</strong><span>{item.subjectId} · {t(APPROVAL_STATE_KEYS[item.state])} · {formatDate(item.updatedAt)}</span></div>{item.state === 'pending' && <div className={css.inlineActions}><button className={css.primaryButton} type="button" disabled={busy} onClick={() => { void api.transitionApproval(item, 'approved') }}>{t('approval.approve')}</button><button className={css.secondaryButton} type="button" disabled={busy} onClick={() => { void api.transitionApproval(item, 'rejected') }}>{t('approval.reject')}</button><button className={css.secondaryButton} type="button" disabled={busy} onClick={() => { void api.cancelApproval(item) }}>{t('approval.cancel')}</button></div>}</div>)}</div></PageBoundary></section>
 }
@@ -815,7 +902,7 @@ function TeamControlPanel({ definitions, runs, decisions, autonomy, workspaces, 
               const agentCount = item.roster.filter(member => member.actor.kind === 'agent').length
               return <article className={css.charterRow} data-state={item.state} data-selected={isSelected} key={`${item.teamId}:${item.revision}`}>
                 <button type="button" className={css.charterSelect} aria-pressed={isSelected} aria-label={t('team.selectCharterAria', { name: item.name || item.teamId })} disabled={item.state !== 'active'} onClick={() => { setTeamId(item.teamId) }}><span className={css.charterIdentity}><strong>{item.name || item.teamId}</strong><small>{t(`team.state.${item.state}`)} · {t('team.releaseFence', { revision: item.revision })}</small></span><span className={css.charterNorthStar}><small>{t('team.northStar')}</small><span>{item.northStar || t('team.charterRequired')}</span></span><span className={css.charterRoster}>{t('team.rosterSummary', { humans: humanCount, agents: agentCount })}</span></button>
-                <div className={css.charterRowActions}>{item.state === 'active' && <><span>{isSelected ? t('team.selected') : t('team.launch')}</span><button type="button" className={css.secondaryButton} disabled={busy} onClick={() => { void api.getTeamDefinitionDraft(item.teamId).then(draft => { setEditing(draft ?? item) }) }}>{t('team.charter.improve')}</button></>}{(item.state === 'needs-charter' || item.state === 'draft') && <button type="button" className={css.secondaryButton} disabled={busy} onClick={() => { setEditing(item) }}>{t('team.charter.improve')}</button>}</div>
+                <div className={css.charterRowActions}>{item.state === 'active' && <><span>{isSelected ? t('team.selected') : t('team.launch')}</span><button type="button" className={css.secondaryButton} disabled={busy} onClick={() => { void api.getTeamDefinitionDraft(item.teamId).then((draft) => { setEditing(draft ?? item) }) }}>{t('team.charter.improve')}</button></>}{(item.state === 'needs-charter' || item.state === 'draft') && <button type="button" className={css.secondaryButton} disabled={busy} onClick={() => { setEditing(item) }}>{t('team.charter.improve')}</button>}</div>
               </article>
             })}</div>}
         </section>
@@ -1451,12 +1538,14 @@ export function EnterpriseWorkbench(props: EnterpriseWorkbenchProps) {
     readonly teamDecisions?: EnterprisePageState<EnterpriseTeamDecision>
     readonly teamAutonomy?: EnterprisePageState<EnterpriseTeamAutonomyGrant>
     readonly channels?: EnterprisePageState<EnterpriseChannelConfiguration>
+    readonly devices?: EnterprisePageState<EnterpriseDeviceView>
   }
   const teamDefinitions = compatibleState.teamDefinitions ?? emptyControlPage
   const teamRuns = compatibleState.teamRuns ?? emptyControlPage
   const teamDecisions = compatibleState.teamDecisions ?? emptyControlPage
   const teamAutonomy = compatibleState.teamAutonomy ?? emptyControlPage
   const channels = compatibleState.channels ?? emptyControlPage
+  const devices = compatibleState.devices ?? emptyControlPage
   const [localFormDirty, setLocalFormDirty] = useState(false)
   const mutationBusy = state.mutationPhase === 'running'
   const dirty = state.employeeEditor?.dirty === true || localFormDirty
@@ -1474,7 +1563,7 @@ export function EnterpriseWorkbench(props: EnterpriseWorkbenchProps) {
   useEffect(() => { if (!dirty) return; const warn = (event: BeforeUnloadEvent): void => { event.preventDefault() }; window.addEventListener('beforeunload', warn); return () => { window.removeEventListener('beforeunload', warn) } }, [dirty])
   if (!state.open) return null
   const onKeyDown = (event: React.KeyboardEvent<HTMLElement>): void => { if (event.key === 'Escape') { requestClose(); return } if (event.key !== 'Tab') return; const controls = [...dialogRef.current?.querySelectorAll<HTMLElement>('button:not(:disabled), [href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])') ?? []]; const first = controls[0]; const last = controls.at(-1); if (first === undefined || last === undefined) return; if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus() } else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus() } }
-  const pages = [state.employees, state.workRecords, state.approvals, teamDefinitions, teamRuns,
+  const pages = [state.employees, devices, state.workRecords, state.approvals, teamDefinitions, teamRuns,
     teamDecisions, teamAutonomy, state.schedules, state.assets, state.teams, channels,
     state.extensions, state.extensionReviews, state.formalPlugins]
   const partial = state.mode === 'enterprise' && pages.some(value => value.phase === 'error' || value.phase === 'permission') && pages.some(value => value.phase === 'ready')
@@ -1527,6 +1616,7 @@ export function EnterpriseWorkbench(props: EnterpriseWorkbenchProps) {
       <main className={css.main}>
         {partial && <div className={css.notice} role="status">{props.t('partial')}</div>}
         {page === 'employees' && <><StartWorkPanel workspaces={workspaces} releases={state.releases} prepareWork={props.prepareWork} startPreparedWork={props.startPreparedWork} onStarted={(sessionId) => { props.openRecord(sessionId as SessionId); props.close() }} t={props.t}/><EmployeesPage state={state} api={api} guardDirty={guardDirty} t={props.t} /></>}
+        {page === 'devices' && <DevicesPage page={devices} api={api} busy={mutationBusy} t={props.t}/>}
         {page === 'work-records' && <WorkRecordsPage page={state.workRecords} update={props.updateWorkRecord} busy={mutationBusy} t={props.t} />}
         {page === 'approvals' && <ApprovalsPage page={state.approvals} api={api} busy={mutationBusy} t={props.t} />}
         {page === 'attention' && <TeamAttentionPage page={teamDecisions} runs={teamRuns} definitions={teamDefinitions} api={api} busy={mutationBusy} t={props.t} />}

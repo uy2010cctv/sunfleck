@@ -1,5 +1,6 @@
 /** Authenticated enterprise Typert Remote controllers. */
 import { createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto'
+import type { IncomingMessage, ServerResponse } from 'node:http'
 import { Context } from '@deepseek-ai/cordis'
 import { registerApp as officialRegisterLarkApp } from '@larksuiteoapi/node-sdk'
 import { Remote, RemoteError, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
@@ -8,7 +9,10 @@ import type {} from '@deepseek-ai/dsh-enterprise-auth-web'
 import type {} from '@deepseek-ai/dsh-enterprise-postgres'
 import type { EmployeePresetDefinition } from '@deepseek-ai/dsh-agent-presets'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
-import { PostgresDevicePlaneRepository } from '@deepseek-ai/dsh-enterprise-device-plane'
+import {
+  normalizeDevicePublicKey, PostgresDevicePlaneRepository, validateQueuedDeviceAction,
+} from '@deepseek-ai/dsh-enterprise-device-plane'
+import type {} from '@deepseek-ai/dsh-host-webserver'
 import {
   channelAuthorizationUrl,
   channelBindingProfile,
@@ -167,7 +171,20 @@ import type {
   EnterpriseWorkStartRequest,
   EnterpriseWorkStartValue,
 } from './contract/work.ts'
-import type { EnterpriseComputerUseStartRequest, EnterpriseDevicePairRequest, EnterpriseDevicePermitRequest } from './contract/devices.ts'
+import type {
+  EnterpriseComputerUseRunListRequest,
+  EnterpriseComputerUseStartRequest,
+  EnterpriseComputerUseTransitionRequest,
+  EnterpriseComputerUseRun,
+  EnterpriseDeviceActionListRequest,
+  EnterpriseDeviceActionView,
+  EnterpriseDeviceActionLookup,
+  EnterpriseDeviceListRequest,
+  EnterpriseDevicePairRequest,
+  EnterpriseDevicePermitRequest,
+  EnterpriseDeviceView,
+} from './contract/devices.ts'
+import { DeviceAgentHttpHandler } from './device-agent-http.ts'
 
 export type * from './contract/index.ts'
 
@@ -378,17 +395,80 @@ export class EnterpriseDeviceController extends TypertRemoteService {
   static inject = ['enterprisePostgres', 'enterpriseSecurity', 'enterpriseRequestContext']
   constructor(ctx: Context) { super(ctx, 'enterpriseDeviceController', { namespace: 'enterpriseDevice' }) }
 
+  /**
+   * List devices paired to the authenticated user.
+   * @param request - Device visibility filters.
+   * @returns Paired devices with derived online status.
+   */
+  @Remote('list') async list(request: EnterpriseDeviceListRequest): Promise<EnterpriseDeviceView[]> {
+    return catalogCall(this.ctx, 'enterpriseDevice.list', request, 'device', 'catalog', async (actor) => {
+      const devices = await this.repository().listDevices(actor.orgId, actor.userId)
+      return devices
+        .filter(device => request.includeRevoked === true || device.status !== 'revoked')
+        .map(device => ({
+          deviceId: device.deviceId, deviceName: device.deviceName, platform: device.platform,
+          status: device.status,
+          ...(device.lastHeartbeatAt === undefined ? {} : { lastHeartbeatAt: device.lastHeartbeatAt }),
+        }))
+    })
+  }
+
+  /**
+   * List recent Computer Use runs owned by the authenticated user.
+   * @param request - Optional bounded result limit.
+   * @returns Recent run snapshots in update order.
+   */
+  @Remote('listRuns') async listRuns(request: EnterpriseComputerUseRunListRequest): Promise<EnterpriseComputerUseRun[]> {
+    return catalogCall(this.ctx, 'enterpriseDevice.listRuns', request, 'computer-use-run', 'recent', async actor =>
+      this.repository().listRuns(actor.orgId, actor.userId, request.limit ?? 20))
+  }
+
+  /**
+   * List recent Computer Use actions owned by the authenticated user.
+   * @param request - Optional bounded result limit.
+   * @returns Recent actions and retained evidence metadata.
+   */
+  @Remote('listActions') async listActions(request: EnterpriseDeviceActionListRequest): Promise<EnterpriseDeviceActionView[]> {
+    return catalogCall(this.ctx, 'enterpriseDevice.listActions', request, 'computer-use-action', 'recent', async actor =>
+      this.repository().listActions(actor.orgId, actor.userId, request.limit ?? 50))
+  }
+
+  /**
+   * Read one action result owned by the authenticated user.
+   * @param request - Stable operation lookup.
+   * @returns Current action state and retained evidence metadata.
+   */
+  @Remote('getAction') async getAction(request: EnterpriseDeviceActionLookup): Promise<EnterpriseDeviceActionView> {
+    return catalogCall(this.ctx, 'enterpriseDevice.getAction', request, 'computer-use-action', request.operationId,
+      async (actor) => {
+        const action = await this.repository().action(actor.orgId, actor.userId, request.operationId)
+        if (action === undefined) throw new Error('computer use action not found')
+        return action
+      })
+  }
+
+  /**
+   * Pair a local device identity with the authenticated user.
+   * @param request - Local device name, platform, and public key.
+   * @returns The server-assigned device identity.
+   */
   @Remote('pair') async pair(request: EnterpriseDevicePairRequest): Promise<{ deviceId: string }> {
     return catalogCall(this.ctx, 'enterpriseDevice.pair', request, 'device', 'new', async (actor) => {
+      const deviceName = request.deviceName.trim()
+      if (deviceName === '' || deviceName.length > 120) throw new Error('device name must contain 1 to 120 characters')
       const deviceId = `device-${randomUUID()}`
       await this.repository().heartbeat({
-        deviceId, orgId: actor.orgId, userId: actor.userId, deviceName: request.deviceName,
-        platform: request.platform, publicKey: request.publicKey, status: 'online',
+        deviceId, orgId: actor.orgId, userId: actor.userId, deviceName,
+        platform: request.platform, publicKey: normalizeDevicePublicKey(request.publicKey), status: 'online',
       })
       return { deviceId }
     })
   }
 
+  /**
+   * Refresh the online status of an owned device.
+   * @param request - Owned device identity.
+   */
   @Remote('heartbeat') async heartbeat(request: { deviceId: string }): Promise<void> {
     await catalogCall(this.ctx, 'enterpriseDevice.heartbeat', request, 'device', request.deviceId, async (actor) => {
       const device = await this.repository().device(request.deviceId)
@@ -396,29 +476,70 @@ export class EnterpriseDeviceController extends TypertRemoteService {
       await this.repository().heartbeat({ ...device, status: 'online' })
     })
   }
+  /**
+   * Start one governed Computer Use run.
+   * @param request - Device, workspace, session, and confirmation mode.
+   * @returns The new run identity.
+   */
   @Remote('startRun') async startRun(request: EnterpriseComputerUseStartRequest): Promise<{ runId: string }> {
     return catalogCall(this.ctx, 'enterpriseDevice.startRun', request, 'computer-use-run', request.deviceId, async (actor) => {
       await this.requireDevice(actor, request.deviceId)
+      const [workspace, session] = await Promise.all([
+        this.ctx.enterpriseSecurity.authorizeApiAsync(actor, 'session.create', { workspaceId: request.workspaceId }),
+        this.ctx.enterpriseSecurity.authorizeApiAsync(actor, 'sessions.history', { sessionId: request.sessionId }),
+      ])
+      if (!workspace.allowed || !session.allowed) throw new Error('computer use workspace or session is forbidden')
       const runId = `computer-use-${randomUUID()}`
       await this.repository().saveRun({ runId, orgId: actor.orgId, userId: actor.userId, deviceId: request.deviceId,
         workspaceId: request.workspaceId, sessionId: request.sessionId, mode: request.mode, status: 'active' })
       return { runId }
     })
   }
-  @Remote('issuePermit') async issuePermit(request: EnterpriseDevicePermitRequest): Promise<{ permitId: string }> {
+  /**
+   * Validate and queue one short-lived device operation action.
+   * @param request - Governed adapter operation and required capability.
+   * @returns The permit and queued action identities.
+   */
+  @Remote('issuePermit') async issuePermit(request: EnterpriseDevicePermitRequest): Promise<{ permitId: string; actionId: string }> {
     return catalogCall(this.ctx, 'enterpriseDevice.issuePermit', request, 'computer-use-permit', request.operationId, async (actor) => {
       await this.requireDevice(actor, request.deviceId)
+      const run = await this.repository().run(request.runId)
+      if (run === undefined || run.orgId !== actor.orgId || run.userId !== actor.userId
+        || run.deviceId !== request.deviceId || run.status !== 'active') {
+        throw new Error('computer use run is unavailable')
+      }
+      validateQueuedDeviceAction({
+        mode: run.mode, capability: request.capability, adapter: request.adapter, operation: request.operation,
+      })
       const permitId = `permit-${randomUUID()}`
-      await this.repository().savePermit({ permitId, orgId: actor.orgId, userId: actor.userId, deviceId: request.deviceId,
-        runId: request.runId, operationId: request.operationId, capability: request.capability, consumed: false }, Date.now() + 60_000)
-      return { permitId }
+      const queued = await this.repository().enqueueAction({
+        permitId, orgId: actor.orgId, userId: actor.userId, deviceId: request.deviceId,
+        runId: request.runId, operationId: request.operationId, capability: request.capability, consumed: false,
+      }, Date.now() + 60_000, { adapter: request.adapter, operation: request.operation })
+      return { permitId, actionId: queued.actionId }
     })
   }
+  /**
+   * Consume a permit exactly once before local execution.
+   * @param request - Operation ownership tuple.
+   */
   @Remote('consumePermit') async consumePermit(request: Pick<EnterpriseDevicePermitRequest, 'deviceId' | 'runId' | 'operationId'>): Promise<void> {
     await catalogCall(this.ctx, 'enterpriseDevice.consumePermit', request, 'computer-use-permit', request.operationId, async (actor) => {
       if (!(await this.repository().consumePermit({ orgId: actor.orgId, userId: actor.userId, ...request }))) {
         throw new Error('operation permit is missing, expired, consumed, or belongs to another principal')
       }
+    })
+  }
+  /**
+   * Pause, resume, or stop a Computer Use run using optimistic concurrency.
+   * @param request - Target state and expected run revision.
+   * @returns The transitioned run snapshot.
+   */
+  @Remote('transitionRun') async transitionRun(request: EnterpriseComputerUseTransitionRequest): Promise<EnterpriseComputerUseRun> {
+    return catalogCall(this.ctx, 'enterpriseDevice.transitionRun', request, 'computer-use-run', request.runId, async (actor) => {
+      const value = await this.repository().transitionRun({ orgId: actor.orgId, userId: actor.userId, ...request })
+      if (value === undefined) throw new Error('computer use run revision conflict or principal mismatch')
+      return value
     })
   }
   private async requireDevice(actor: EnterprisePrincipal, deviceId: string): Promise<void> {
@@ -2126,10 +2247,43 @@ function enterpriseFailure(
   return new RemoteError(code as never, message, { endpoint, resourceType, resourceId } as never)
 }
 
+async function deviceAgentRequest(req: IncomingMessage): Promise<Request> {
+  const chunks: Buffer[] = []
+  let bytes = 0
+  for await (const chunk of req) {
+    const buffer = chunk as Buffer
+    bytes += buffer.byteLength
+    if (bytes > 64 * 1024) throw new Error('device agent payload too large')
+    chunks.push(buffer)
+  }
+  const host = typeof req.headers.host === 'string' ? req.headers.host : 'dsh.internal'
+  return new Request(`http://${host}${req.url ?? '/device-agent/v1'}`, {
+    method: req.method ?? 'GET',
+    headers: Object.fromEntries(Object.entries(req.headers).filter((entry): entry is [string, string] =>
+      typeof entry[1] === 'string')),
+    ...(chunks.length === 0 ? {} : { body: Buffer.concat(chunks) }),
+  })
+}
+
+async function writeDeviceAgentResponse(res: ServerResponse, response: Response): Promise<void> {
+  res.writeHead(response.status, Object.fromEntries(response.headers.entries()))
+  if (response.body === null) { res.end(); return }
+  for await (const chunk of response.body) res.write(chunk)
+  res.end()
+}
+
 /** Install all enterprise Remote namespace owners.
  * @param ctx - Input value used by this API.
 */
 export function apply(ctx: Context): void {
+  const deviceAgent = new DeviceAgentHttpHandler(ctx.enterprisePostgres.devicePlane)
+  ctx.effect(() => ctx.webServer.register({
+    kind: 'prefix', path: '/device-agent/v1',
+    handler: async (req, res) => {
+      try { await writeDeviceAgentResponse(res, await deviceAgent.fetch(await deviceAgentRequest(req))) }
+      catch { await writeDeviceAgentResponse(res, Response.json({ error: 'invalid-request' }, { status: 400 })) }
+    },
+  }), 'enterprise-device: signed device agent route')
   new EnterpriseDeviceController(ctx)
   new EnterpriseEmployeeController(ctx)
   new EnterpriseAssetController(ctx)
@@ -2146,5 +2300,8 @@ export function apply(ctx: Context): void {
   new CordisGovernanceController(ctx)
 }
 
-export const inject = ['enterprisePostgres', 'enterpriseSecurity', 'enterpriseRequestContext', 'enterpriseCordis', 'credentials', 'llm', 'sessionController']
+export const inject = [
+  'enterprisePostgres', 'enterpriseSecurity', 'enterpriseRequestContext', 'enterpriseCordis',
+  'credentials', 'llm', 'sessionController', 'webServer',
+]
 export { name } from './invariant.ts'

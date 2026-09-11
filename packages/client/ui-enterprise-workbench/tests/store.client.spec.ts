@@ -196,6 +196,7 @@ function controllerApi(overrides: Record<string, unknown> = {}) {
       list: () => ok({ items: [] }), get: () => ok({}), save: () => ok({}), archive: () => ok({}),
       beginBinding: () => ok({}), completeBinding: () => ok({}),
     },
+    enterpriseDevices: { list: () => ok([]), pair: () => ok({ deviceId: 'device-1' }) },
     enterpriseOperations: {
       listWorkRecords: () => ok({ items: [{
         orgId: 'server-org', sessionId: 'session-1', employeeReleaseId: 'release-2', source: 'console',
@@ -234,6 +235,28 @@ function controllerServices() {
 }
 
 describe('EnterpriseWorkbenchController enterprise read models', () => {
+  it('pairs a local Device Agent without exposing private key material', async () => {
+    const pair = vi.fn(() => ok({ deviceId: 'device-1' }))
+    const list = vi.fn(() => ok([{ deviceId: 'device-1', deviceName: 'Kris Mac', platform: 'macos', status: 'online' }]))
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce(Response.json({
+        publicKey: 'public-key', deviceName: 'Kris Mac', platform: 'macos', challenge: 'challenge-12345678',
+      }))
+      .mockResolvedValueOnce(new Response(null, { status: 204 }))
+    const services = controllerServices()
+    const controller = new EnterpriseWorkbenchController(controllerApi({
+      enterpriseDevices: { pair, list },
+    }) as never, services.sessions as never, services.workspaces as never)
+
+    await expect(controller.pairLocalDevice('http://dsh.example', 'http://127.0.0.1:47631', fetcher)).resolves.toBe(true)
+    expect(pair).toHaveBeenCalledWith({ publicKey: 'public-key', deviceName: 'Kris Mac', platform: 'macos' })
+    expect(JSON.parse(String(fetcher.mock.calls[1]?.[1]?.body))).toEqual({
+      challenge: 'challenge-12345678', deviceId: 'device-1', dshOrigin: 'http://dsh.example',
+    })
+    expect(controller.store.getSnapshot().devices.items).toEqual([
+      expect.objectContaining({ deviceId: 'device-1', status: 'online' }),
+    ])
+  })
   it('prepares goal-first work without inferring a workspace from list order', async () => {
     const enterpriseWork = {
       prepare: vi.fn(() => ok({ kind: 'needs-workspace-selection', availableWorkspaceIds: ['workspace-1'] })), start: vi.fn(),

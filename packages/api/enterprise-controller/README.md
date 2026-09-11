@@ -8,7 +8,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-`@deepseek-ai/dsh-api-enterprise-controller` owns the authenticated Typert Remote namespaces for enterprise employees, capability assets, fixed teams, typed team definitions, TeamRuns, TeamDecisions, autonomy grants, work records, approvals, schedules, and goal-first work start. Every operation resolves an `EnterprisePrincipal`, applies organization and role policy, records an audit decision, and delegates to the enterprise control plane.
+`@deepseek-ai/dsh-api-enterprise-controller` owns the authenticated Typert Remote namespaces for enterprise employees, capability assets, fixed teams, typed team definitions, TeamRuns, TeamDecisions, autonomy grants, work records, approvals, schedules, goal-first work start, and paired user devices. Every operation resolves an `EnterprisePrincipal`, applies organization and role policy, records an audit decision, and delegates to the enterprise control plane.
 
 ## Table of Contents
 
@@ -22,7 +22,7 @@ English | [中文](README.zh.md)
 <a id="use-this-package"></a>
 ## Use this package
 
-Mount the controller only in the enterprise profile after `enterprisePostgres`, `enterpriseSecurity`, `enterpriseRequestContext`, and `sessionController`. Clients consume its generated `enterpriseEmployee`, `enterpriseAsset`, `enterpriseTeam`, `enterpriseTeamDefinition`, `enterpriseTeamRun`, `enterpriseTeamDecision`, `enterpriseTeamAutonomy`, `enterpriseOperation`, and `enterpriseWork` namespaces through API Gateway. The TeamRun start and cancel namespaces use an optional `enterpriseTeamRuntimeDriver`; without a provider, start fails with a stable runtime-unavailable result. Host code injects organization and actor identity, while browser requests cannot write runtime revisions or event positions. The package does not replace DSH Workspace, Session, Workflow, Sandbox, Subagent, or Agent Loop identities.
+Mount the controller only in the enterprise profile after `enterprisePostgres`, `enterpriseSecurity`, `enterpriseRequestContext`, and `sessionController`. Clients consume its generated `enterpriseEmployee`, `enterpriseAsset`, `enterpriseTeam`, `enterpriseTeamDefinition`, `enterpriseTeamRun`, `enterpriseTeamDecision`, `enterpriseTeamAutonomy`, `enterpriseOperation`, `enterpriseWork`, and `enterpriseDevice` namespaces through API Gateway. The TeamRun start and cancel namespaces use an optional `enterpriseTeamRuntimeDriver`; without a provider, start fails with a stable runtime-unavailable result. Device pairing and Computer Use requests are bound to the authenticated user, Workspace, Session, short-lived operation permit, and device signature. Host code injects organization and actor identity, while browser requests cannot write runtime revisions or event positions. The package does not replace DSH Workspace, Session, Workflow, Sandbox, Subagent, or Agent Loop identities.
 
 `enterpriseTeamDefinition` separates charter editing from executable history: `draft` appends an immutable revision, `getDraft` returns the current owner-visible draft without replacing the active charter, `publish` promotes one checked draft for future runs, and `discardDraft` archives only that draft. Each endpoint uses the existing `team.read` or `team.manage` policy and audit path; callers never supply organization or actor identity.
 

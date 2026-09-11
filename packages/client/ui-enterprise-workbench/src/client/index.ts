@@ -13,7 +13,9 @@ import { EnterpriseTrigger } from './EnterpriseTrigger.tsx'
 import { EnterpriseWorkbench } from './EnterpriseWorkbench.tsx'
 import type { EnterpriseWorkbenchInjected } from './EnterpriseWorkbench.tsx'
 import { en, NS, zh, type EnterpriseWorkbenchKey } from './locales.ts'
-import { EnterpriseWorkbenchController, type EnterpriseWorkbenchState } from './store.ts'
+import {
+  EnterpriseWorkbenchController, type EnterpriseWorkbenchRemote, type EnterpriseWorkbenchState,
+} from './store.ts'
 import {
   CHANNEL_BINDING_BROADCAST_CHANNEL, CHANNEL_BINDING_CALLBACK_PARAM,
   CHANNEL_BOT_INSTALL_CALLBACK_PARAM, channelBindingCallbackUri, channelBotInstallCallbackUri,
@@ -185,6 +187,9 @@ export function apply(ctx: Context): void {
     void completeChannelBindingCallback(ctx.remote.enterpriseChannel, window)
     void completeChannelBotInstallCallback(ctx.remote.enterpriseChannel, window)
   }
+  const enterpriseDevice = (ctx.remote as unknown as {
+    enterpriseDevice?: NonNullable<EnterpriseWorkbenchRemote['enterpriseDevices']>
+  }).enterpriseDevice
   const controller = new EnterpriseWorkbenchController({
     agentPresets: ctx.remote.agentPresets,
     session: ctx.remote.session,
@@ -196,6 +201,7 @@ export function apply(ctx: Context): void {
     enterpriseTeamDecisions: ctx.remote.enterpriseTeamDecision,
     enterpriseTeamAutonomy: ctx.remote.enterpriseTeamAutonomy,
     enterpriseChannels: ctx.remote.enterpriseChannel,
+    ...(enterpriseDevice === undefined ? {} : { enterpriseDevices: enterpriseDevice }),
     enterpriseOperations: ctx.remote.enterpriseOperation,
     enterpriseWork: ctx.remote.enterpriseWork,
     pluginInventory: ctx.remote.pluginInventory,
@@ -262,6 +268,9 @@ export function apply(ctx: Context): void {
     beginChannelBotInstall: (provider, redirectUri) => controller.beginChannelBotInstall(provider, redirectUri),
     pollChannelBotInstall: installId => controller.pollChannelBotInstall(installId),
     refreshChannels: () => controller.refreshChannels(),
+    refreshDevices: () => controller.refreshDevices(),
+    pairLocalDevice: dshOrigin => controller.pairLocalDevice(dshOrigin),
+    testLocalDevice: deviceId => controller.testLocalDevice(deviceId),
     setExtensionWorkspace: (workspaceId) => { controller.setExtensionWorkspace(workspaceId) },
     refreshExtensions: () => controller.refreshExtensions(),
     stopExtension: (binding, reason) => controller.stopExtension(binding, reason),

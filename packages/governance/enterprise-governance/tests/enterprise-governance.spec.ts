@@ -13,6 +13,19 @@ const resource = {
 }
 
 describe('enterprise authorization', () => {
+  it('lets members pair and use only their own devices', () => {
+    const member = { userId: 'member-1', orgId: 'org-a', roles: ['member'] as const }
+    expect(authorizeEnterprise({ principal: member, action: 'device.manage' }))
+      .toEqual({ allowed: true, reason: 'role' })
+    expect(authorizeEnterprise({
+      principal: member, action: 'device.execute',
+      resource: { orgId: 'org-a', creatorUserId: member.userId, visibility: 'private' },
+    })).toEqual({ allowed: true, reason: 'creator-owner' })
+    expect(authorizeEnterprise({
+      principal: member, action: 'device.execute',
+      resource: { orgId: 'org-a', creatorUserId: 'other-user', visibility: 'private' },
+    })).toEqual({ allowed: false, reason: 'insufficient-role' })
+  })
   it('denies cross-organization access before considering roles', () => {
     expect(authorizeEnterprise({
       principal: { userId: 'admin-b', orgId: 'org-b', roles: ['administrator'] },

@@ -95,6 +95,7 @@ export async function apply(ctx: Context, config: EnterpriseAuthWebConfig): Prom
   const postgres = ctx.get('enterprisePostgres') as {
     identity: EnterpriseIdentityStore
     catalog?: { getDraft(presetId: string, orgId: string): Promise<{ ownerUserId: string; visibility: EnterpriseResource['visibility'] } | undefined> }
+    devicePlane?: { device(deviceId: string): Promise<{ orgId: string; userId: string } | undefined> }
   } | undefined
   let ownsRepository = false
   const repository: EnterpriseIdentityStore = config.identityStore
@@ -173,6 +174,12 @@ export async function apply(ctx: Context, config: EnterpriseAuthWebConfig): Prom
             .filter(user => grant.departmentId !== undefined && user.departmentIds.includes(grant.departmentId))
             .map(user => user.id)
           return { orgId: grant.orgId, visibility: 'restricted', allowedUserIds }
+        }
+        if (resourceType === 'device') {
+          const device = await postgres?.devicePlane?.device(resourceId)
+          return device === undefined ? null : {
+            orgId: device.orgId, creatorUserId: device.userId, visibility: 'private',
+          }
         }
         if (resourceType === 'session') {
           const grant = await repository.sessionWorkspaceGrant(resourceId)

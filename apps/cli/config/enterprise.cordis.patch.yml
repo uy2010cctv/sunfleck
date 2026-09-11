@@ -35,6 +35,7 @@
       - ui-agent-team
       - enterprise-team-runtime
       - enterprise-controller
+      - tool-computer-use
 
 - insert:
     - id: enterprise-postgres
@@ -106,6 +107,9 @@
 
     - id: enterprise-controller
       name: '@deepseek-ai/dsh-api-enterprise-controller'
+
+    - id: tool-computer-use
+      name: '@deepseek-ai/dsh-tool-computer-use'
 
     - id: ui-enterprise-governance
       name: '@deepseek-ai/dsh-client-ui-enterprise-governance'

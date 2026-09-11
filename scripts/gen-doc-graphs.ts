@@ -722,6 +722,11 @@ const SERVICE_ROLES: ServiceRole[] = [
     note: 'Persists governed channel routing and binding evidence without treating setup as delivery proof.',
   },
   {
+    key: 'enterpriseDeviceController', pkg: 'api-enterprise-controller', title: 'Enterprise Device Plane controller', mode: 'core',
+    consumers: ['client-ui-enterprise-workbench', 'device-agent'],
+    note: 'Pairs user-owned devices and governs scoped Computer Use runs, one-time permits, and action evidence.',
+  },
+  {
     key: 'enterpriseTeamController', pkg: 'api-enterprise-controller', title: 'Enterprise fixed-team controller', mode: 'core',
     consumers: ['client-ui-enterprise-workbench'],
     note: 'Maintains legacy fixed-team compatibility records.',

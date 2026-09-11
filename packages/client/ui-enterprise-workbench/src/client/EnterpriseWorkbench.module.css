@@ -461,6 +461,10 @@
 .employeeNameRow h3 { min-inline-size: 0; overflow-wrap: anywhere; font-size: 1rem; line-height: 1.35; }
 .employeeMeta { display: flex; flex-wrap: wrap; gap: var(--dse-space-2xs); margin-block-start: var(--dse-space-3xs); color: var(--dse-color-muted); font-size: 0.75rem; }
 .status { flex: none; display: inline-flex; align-items: center; gap: var(--dse-space-3xs); color: var(--dse-color-muted); font-size: 0.75rem; white-space: nowrap; }
+.mutedText,
+.successText { font-size: 0.75rem; line-height: 1.4; }
+.mutedText { color: var(--dse-color-muted); }
+.successText { color: var(--dse-color-success); }
 .rosterStatus { flex: none; display: inline-flex; align-items: center; gap: var(--dse-space-3xs); color: var(--dse-color-muted); font-size: 0.6875rem; white-space: nowrap; }
 .badge { padding: var(--dse-space-3xs) var(--dse-space-2xs); border-radius: 999px; corner-shape: round; background: var(--dse-color-surface-raised); color: var(--dse-color-muted); font-size: 0.6875rem; white-space: nowrap; }
 .description { min-block-size: 3.8rem; margin-block-start: var(--dse-space-sm); overflow: hidden; color: var(--dse-color-muted); font-size: 0.8125rem; line-height: 1.55; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; }
@@ -1076,6 +1080,24 @@
   .channelBindingBanner, .channelActions { align-items: stretch; flex-direction: column; }
   .channelActions > span { flex-basis: 100%; margin-inline-end: 0; }
   .channelActions button { inline-size: 100%; flex: 1; }
+}
+
+.deviceActivity {
+  display: grid;
+  gap: var(--dse-space-sm);
+  margin-block-start: var(--dse-space-lg);
+  padding-block-start: var(--dse-space-md);
+  border-block-start: 1px solid var(--dse-color-border);
+}
+.deviceActivity .sectionHead { margin-block-start: var(--dse-space-sm); }
+.deviceActivity .sectionHead h3 { margin: 0; color: var(--dse-color-ink); font-size: 0.9375rem; }
+.deviceActivity .sectionHead p { margin: 2px 0 0; color: var(--dse-color-muted); font-size: 0.8125rem; }
+.compactEmpty {
+  padding: var(--dse-space-md);
+  border: 1px dashed var(--dse-color-border);
+  border-radius: var(--dse-radius-card);
+  color: var(--dse-color-muted);
+  font-size: 0.8125rem;
 }
 
 @media (prefers-reduced-motion: reduce) {

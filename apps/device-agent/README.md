@@ -1,7 +1,16 @@
 # dsh-device-agent
 
-本机 Device Plane 代理。它只接受由 DSH Server 签发且尚未消费的操作许可；浏览器与桌面 Adapter 必须在本机用户授权范围内运行。
+English | [中文](README.zh.md)
 
-首期 Adapter：`cua`（桌面）、`agent-browser`（隔离浏览器 Profile）、`playwright-mcp`（兼容模式）。
+The local Device Plane process accepts only unconsumed operation permits signed by DSH Server. Browser and desktop Adapters execute within the local user's OS authorization.
 
-代理不得上传 Cookie、密码、剪贴板或完整屏幕录像；只回传操作摘要、哈希化证据和经用户同意的截图。
+The first adapters are Cua for desktop work, agent-browser with an isolated browser profile, and Playwright MCP for compatibility. The Agent never uploads cookies, passwords, clipboard contents, or full screen recordings. It returns bounded operation summaries and evidence hashes.
+
+Build and start it with:
+
+```bash
+pnpm --filter @deepseek-ai/dsh-device-agent bundle
+node apps/device-agent/lib/bin.js --server https://your-dsh-host
+```
+
+Then open **Digital employees → My computer → Connect this computer**. Pairing is handled through loopback and requires no device ID or key entry.

@@ -1,1 +1,16 @@
-{"name":"@deepseek-ai/dsh-enterprise-device-plane","version":"0.1.0","type":"module","main":"src/index.ts","license":"MIT","dependencies":{"@deepseek-ai/dsh-enterprise-operations":"workspace:^"}}
+{
+  "name": "@deepseek-ai/dsh-enterprise-device-plane",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "lib/index.js",
+  "types": "lib/types/index.d.ts",
+  "exports": {
+    ".": { "types": "./lib/types/index.d.ts", "default": "./lib/index.js" },
+    "./src/*": "./src/*",
+    "./package.json": "./package.json"
+  },
+  "scripts": { "bundle": "tsc -b && tsdown --config tsdown.config.ts" },
+  "files": ["lib/index.js", "lib/types/**/*.d.ts"],
+  "license": "MIT",
+  "dependencies": { "@deepseek-ai/dsh-enterprise-operations": "workspace:^" }
+}

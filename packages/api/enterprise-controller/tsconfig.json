@@ -12,6 +12,7 @@
     { "path": "../../governance/enterprise-governance" },
     { "path": "../../operations/enterprise-operations" },
     { "path": "../../enterprise/enterprise-cordis" },
+    { "path": "../../enterprise/device-plane" },
     { "path": "../../enterprise/enterprise-postgres" },
     { "path": "../../preset/agent-presets" },
     { "path": "../../core/session" },

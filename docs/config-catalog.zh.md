@@ -640,7 +640,7 @@ export interface EnterprisePostgresConfig {
 }
 ```
 
-Source: [`packages/enterprise/enterprise-postgres/src/index.ts:81`](../packages/enterprise/enterprise-postgres/src/index.ts)
+Source: [`packages/enterprise/enterprise-postgres/src/index.ts:82`](../packages/enterprise/enterprise-postgres/src/index.ts)
 
 <a id="deepseek-aidsh-experimental-agent-team"></a>
 
@@ -2889,6 +2889,22 @@ export interface Config {
 
 Source: [`packages/shell/tool-bash-persistent/src/index.ts:435`](../packages/shell/tool-bash-persistent/src/index.ts)
 
+<a id="deepseek-aidsh-tool-computer-use"></a>
+
+## `@deepseek-ai/dsh-tool-computer-use`
+
+依赖：`tools` · `enterprisePostgres`
+
+```ts config-catalog
+/** Model-facing Computer Use tool configuration. */
+export interface Config {
+  /** Maximum time to wait for the local device to persist a terminal action result. */
+  readonly resultTimeoutMs?: number
+}
+```
+
+源码：[`packages/device/tool-computer-use/src/index.ts:12`](../packages/device/tool-computer-use/src/index.ts)
+
 <a id="deepseek-aidsh-tool-fs"></a>
 
 ## `@deepseek-ai/dsh-tool-fs`
@@ -3589,7 +3605,7 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 
 - `@deepseek-ai/dsh-acp-app` — requires `cmdlineArgs` ([`packages/bundle/acp-app/src/index.ts`](../packages/bundle/acp-app/src/index.ts))
 - `@deepseek-ai/dsh-agent` ([`packages/core/agent/src/index.ts`](../packages/core/agent/src/index.ts))
-- `@deepseek-ai/dsh-api-enterprise-controller` — requires `enterprisePostgres` · `enterpriseSecurity` · `enterpriseRequestContext` · `enterpriseCordis` · `credentials` · `llm` · `sessionController` ([`packages/api/enterprise-controller/src/index.ts`](../packages/api/enterprise-controller/src/index.ts))
+- `@deepseek-ai/dsh-api-enterprise-controller` — requires `enterprisePostgres` · `enterpriseSecurity` · `enterpriseRequestContext` · `enterpriseCordis` · `credentials` · `llm` · `sessionController` · `webServer` ([`packages/api/enterprise-controller/src/index.ts`](../packages/api/enterprise-controller/src/index.ts))
 - `@deepseek-ai/dsh-api-remotes` — requires `typertGateway` ([`packages/api/remotes/src/index.ts`](../packages/api/remotes/src/index.ts))
 - `@deepseek-ai/dsh-api-workspace-controller` — requires `typert` · `workspaceRegistry` ([`packages/api/workspace-controller/src/index.ts`](../packages/api/workspace-controller/src/index.ts))
 - `@deepseek-ai/dsh-authorization` — requires `credentials` ([`packages/credentials/authorization/src/index.ts`](../packages/credentials/authorization/src/index.ts))
@@ -3719,6 +3735,7 @@ Imported as libraries by other packages; a `cordis.yml` cannot load them.
 - `@deepseek-ai/dsh-enterprise-auth-web` ([`packages/identity/enterprise-auth-web/src/index.ts`](../packages/identity/enterprise-auth-web/src/index.ts))
 - `@deepseek-ai/dsh-enterprise-catalog` ([`packages/catalog/enterprise-catalog/src/index.ts`](../packages/catalog/enterprise-catalog/src/index.ts))
 - `@deepseek-ai/dsh-enterprise-cordis` ([`packages/enterprise/enterprise-cordis/src/index.ts`](../packages/enterprise/enterprise-cordis/src/index.ts))
+- `@deepseek-ai/dsh-enterprise-device-plane` ([`packages/enterprise/device-plane/src/index.ts`](../packages/enterprise/device-plane/src/index.ts))
 - `@deepseek-ai/dsh-enterprise-governance` ([`packages/governance/enterprise-governance/src/index.ts`](../packages/governance/enterprise-governance/src/index.ts))
 - `@deepseek-ai/dsh-enterprise-identity` ([`packages/identity/enterprise-identity/src/index.ts`](../packages/identity/enterprise-identity/src/index.ts))
 - `@deepseek-ai/dsh-enterprise-identity-postgres` ([`packages/identity/enterprise-identity-postgres/src/index.ts`](../packages/identity/enterprise-identity-postgres/src/index.ts))

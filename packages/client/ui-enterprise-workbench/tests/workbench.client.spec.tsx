@@ -98,6 +98,7 @@ const BASE_STATE: EnterpriseWorkbenchState = {
   assets: EMPTY_PAGE, teams: EMPTY_PAGE,
   channels: EMPTY_PAGE,
   teamDefinitions: EMPTY_PAGE, teamRuns: EMPTY_PAGE, teamDecisions: EMPTY_PAGE, teamAutonomy: EMPTY_PAGE,
+  devices: EMPTY_PAGE,
   modelOptions: [],
   extensions: EMPTY_PAGE, extensionBindings: [], extensionReviews: EMPTY_PAGE, formalPlugins: EMPTY_PAGE,
   releases: [],
@@ -156,6 +157,25 @@ describe('EnterpriseTrigger', () => {
 })
 
 describe('EnterpriseWorkbench', () => {
+  it('connects the current computer without exposing device ids or key fields', () => {
+    const pairLocalDevice = vi.fn(() => Promise.resolve(true))
+    render(<EnterpriseWorkbench {...workbenchProps({
+      state: {
+        mode: 'enterprise', page: 'devices', devices: { phase: 'ready', error: null, items: [{
+          deviceId: 'device-secret-id', deviceName: 'Kris Mac', platform: 'macos', status: 'online',
+          lastHeartbeatAt: Date.now(),
+        }] },
+      },
+      pairLocalDevice,
+    } as never)} />)
+    expect(screen.getByText('Kris Mac')).toBeTruthy()
+    expect(screen.getByText('在线')).toBeTruthy()
+    expect(screen.queryByText('device-secret-id')).toBeNull()
+    expect(screen.queryByRole('textbox')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: '连接此电脑' }))
+    expect(pairLocalDevice).toHaveBeenCalledWith(window.location.origin)
+  })
+
   it('keeps provider identifiers and Credential references out of the user channel flow', async () => {
     vi.spyOn(window, 'open').mockReturnValue({
       closed: false, close: vi.fn(), opener: window, location: { href: 'about:blank' },

@@ -1,0 +1,17 @@
+{
+  "name": "@deepseek-ai/dsh-device-agent",
+  "description": "Local permit-gated browser and desktop execution agent for DSH",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "lib/index.js",
+  "types": "lib/types/index.d.ts",
+  "bin": { "dsh-device-agent": "lib/bin.js" },
+  "scripts": { "bundle": "tsc -b && tsdown --config tsdown.config.ts" },
+  "dependencies": {
+    "@deepseek-ai/dsh-enterprise-device-plane": "workspace:^",
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@playwright/mcp": "0.0.80",
+    "@trycua/cua-driver": "0.27.0"
+  },
+  "license": "MIT"
+}

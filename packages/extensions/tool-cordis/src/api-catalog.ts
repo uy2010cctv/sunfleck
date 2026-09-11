@@ -1285,6 +1285,71 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'enterpriseDeviceController',
+    summary: 'Authenticated Device Plane pairing and heartbeat service.',
+    description: 'Authenticated Device Plane pairing and heartbeat service.',
+    methods: [
+      {
+        signature: '@Remote(\'list\') async list(request: EnterpriseDeviceListRequest): Promise<EnterpriseDeviceView[]>',
+        description: 'List devices paired to the authenticated user.',
+        parameters: [{ name: 'request', description: 'Device visibility filters.' }],
+        returns: 'Paired devices with derived online status.',
+      },
+      {
+        signature: '@Remote(\'listRuns\') async listRuns(request: EnterpriseComputerUseRunListRequest): Promise<EnterpriseComputerUseRun[]>',
+        description: 'List recent Computer Use runs owned by the authenticated user.',
+        parameters: [{ name: 'request', description: 'Optional bounded result limit.' }],
+        returns: 'Recent run snapshots in update order.',
+      },
+      {
+        signature: '@Remote(\'listActions\') async listActions(request: EnterpriseDeviceActionListRequest): Promise<EnterpriseDeviceActionView[]>',
+        description: 'List recent Computer Use actions owned by the authenticated user.',
+        parameters: [{ name: 'request', description: 'Optional bounded result limit.' }],
+        returns: 'Recent actions and retained evidence metadata.',
+      },
+      {
+        signature: '@Remote(\'getAction\') async getAction(request: EnterpriseDeviceActionLookup): Promise<EnterpriseDeviceActionView>',
+        description: 'Read one action result owned by the authenticated user.',
+        parameters: [{ name: 'request', description: 'Stable operation lookup.' }],
+        returns: 'Current action state and retained evidence metadata.',
+      },
+      {
+        signature: '@Remote(\'pair\') async pair(request: EnterpriseDevicePairRequest): Promise<{ deviceId: string }>',
+        description: 'Pair a local device identity with the authenticated user.',
+        parameters: [{ name: 'request', description: 'Local device name, platform, and public key.' }],
+        returns: 'The server-assigned device identity.',
+      },
+      {
+        signature: '@Remote(\'heartbeat\') async heartbeat(request: { deviceId: string }): Promise<void>',
+        description: 'Refresh the online status of an owned device.',
+        parameters: [{ name: 'request', description: 'Owned device identity.' }],
+      },
+      {
+        signature: '@Remote(\'startRun\') async startRun(request: EnterpriseComputerUseStartRequest): Promise<{ runId: string }>',
+        description: 'Start one governed Computer Use run.',
+        parameters: [{ name: 'request', description: 'Device, workspace, session, and confirmation mode.' }],
+        returns: 'The new run identity.',
+      },
+      {
+        signature: '@Remote(\'issuePermit\') async issuePermit(request: EnterpriseDevicePermitRequest): Promise<{ permitId: string; actionId: string }>',
+        description: 'Validate and queue one short-lived device operation action.',
+        parameters: [{ name: 'request', description: 'Governed adapter operation and required capability.' }],
+        returns: 'The permit and queued action identities.',
+      },
+      {
+        signature: '@Remote(\'consumePermit\') async consumePermit(request: Pick<EnterpriseDevicePermitRequest, \'deviceId\' | \'runId\' | \'operationId\'>): Promise<void>',
+        description: 'Consume a permit exactly once before local execution.',
+        parameters: [{ name: 'request', description: 'Operation ownership tuple.' }],
+      },
+      {
+        signature: '@Remote(\'transitionRun\') async transitionRun(request: EnterpriseComputerUseTransitionRequest): Promise<EnterpriseComputerUseRun>',
+        description: 'Pause, resume, or stop a Computer Use run using optimistic concurrency.',
+        parameters: [{ name: 'request', description: 'Target state and expected run revision.' }],
+        returns: 'The transitioned run snapshot.',
+      },
+    ],
+  },
+  {
     key: 'enterpriseEmployeeController',
     summary: 'Enterprise employee Draft and Release Remote service.',
     description: 'Enterprise employee Draft and Release Remote service.',
@@ -5368,6 +5433,22 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface EnterpriseChannelSaveRequest {\n    readonly channelId: string;\n    readonly name: string;\n    readonly provider: EnterpriseChannelProvider;\n    readonly tenantId?: string;\n    readonly accountId: string;\n    readonly credentialRef?: string;\n    readonly defaultEmployeeReleaseId?: string;\n    readonly inboundEnabled: boolean;\n    readonly state: Exclude<EnterpriseChannelState, \'archived\'>;\n    readonly expectedRevision: number;\n    readonly idempotencyKey: string;\n}',
   },
   {
+    name: 'EnterpriseComputerUseRun',
+    declaration: 'export interface EnterpriseComputerUseRun {\n    readonly runId: string;\n    readonly orgId: string;\n    readonly userId: string;\n    readonly deviceId: string;\n    readonly workspaceId: string;\n    readonly sessionId: string;\n    readonly mode: \'observe\' | \'confirm-each\' | \'delegated\';\n    readonly status: \'active\' | \'paused\' | \'stopped\' | \'failed\';\n    readonly revision?: number;\n    readonly createdAt?: number;\n    readonly updatedAt?: number;\n}',
+  },
+  {
+    name: 'EnterpriseComputerUseRunListRequest',
+    declaration: 'export interface EnterpriseComputerUseRunListRequest {\n    readonly limit?: number;\n}',
+  },
+  {
+    name: 'EnterpriseComputerUseStartRequest',
+    declaration: 'export interface EnterpriseComputerUseStartRequest {\n    readonly deviceId: string;\n    readonly workspaceId: string;\n    readonly sessionId: string;\n    readonly mode: \'observe\' | \'confirm-each\' | \'delegated\';\n}',
+  },
+  {
+    name: 'EnterpriseComputerUseTransitionRequest',
+    declaration: 'export interface EnterpriseComputerUseTransitionRequest {\n    readonly runId: string;\n    readonly state: \'active\' | \'paused\' | \'stopped\';\n    readonly expectedRevision: number;\n}',
+  },
+  {
     name: 'EnterpriseCordisAuditEvent',
     declaration: 'export interface EnterpriseCordisAuditEvent {\n    readonly id: string;\n    readonly orgId: string;\n    readonly actorUserId: string;\n    readonly action: string;\n    readonly pluginId: string;\n    readonly packageId?: string;\n    readonly reviewId?: string;\n    readonly at: number;\n    readonly details: Readonly<Record<string, unknown>>;\n}',
   },
@@ -5378,6 +5459,42 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'EnterpriseCordisPrincipal',
     declaration: 'export interface EnterpriseCordisPrincipal {\n    readonly orgId: string;\n    readonly userId: string;\n    readonly roles: readonly EnterpriseRole[];\n}',
+  },
+  {
+    name: 'EnterpriseDeviceActionListRequest',
+    declaration: 'export interface EnterpriseDeviceActionListRequest {\n    readonly limit?: number;\n}',
+  },
+  {
+    name: 'EnterpriseDeviceActionLookup',
+    declaration: 'export interface EnterpriseDeviceActionLookup {\n    readonly operationId: string;\n}',
+  },
+  {
+    name: 'EnterpriseDeviceActionView',
+    declaration: 'export interface EnterpriseDeviceActionView {\n    readonly actionId: string;\n    readonly operationId: string;\n    readonly runId: string;\n    readonly deviceId: string;\n    readonly capability: \'browser.observe\' | \'browser.control\' | \'desktop.observe\' | \'desktop.control\';\n    readonly adapter: EnterpriseDeviceAdapterKind;\n    readonly operation: EnterpriseDeviceOperation;\n    readonly state: \'pending\' | \'claimed\' | \'completed\' | \'rejected\' | \'paused\' | \'failed\' | \'unknown\';\n    readonly summary?: string;\n    readonly evidenceHash?: string;\n    readonly createdAt: number;\n    readonly updatedAt: number;\n}',
+  },
+  {
+    name: 'EnterpriseDeviceAdapterKind',
+    declaration: 'export type EnterpriseDeviceAdapterKind = \'cua\' | \'agent-browser\' | \'playwright-mcp\';',
+  },
+  {
+    name: 'EnterpriseDeviceListRequest',
+    declaration: 'export interface EnterpriseDeviceListRequest {\n    readonly includeRevoked?: boolean;\n}',
+  },
+  {
+    name: 'EnterpriseDeviceOperation',
+    declaration: 'export type EnterpriseDeviceOperation = {\n    readonly kind: \'browser.open\';\n    readonly url: string;\n} | {\n    readonly kind: \'browser.snapshot\';\n} | {\n    readonly kind: \'browser.click\';\n    readonly selector: string;\n} | {\n    readonly kind: \'browser.fill\';\n    readonly selector: string;\n    readonly value: string;\n} | {\n    readonly kind: \'desktop.screen-size\';\n};',
+  },
+  {
+    name: 'EnterpriseDevicePairRequest',
+    declaration: 'export interface EnterpriseDevicePairRequest {\n    readonly deviceName: string;\n    readonly platform: \'macos\' | \'windows\' | \'linux\';\n    readonly publicKey: string;\n}',
+  },
+  {
+    name: 'EnterpriseDevicePermitRequest',
+    declaration: 'export interface EnterpriseDevicePermitRequest {\n    readonly deviceId: string;\n    readonly runId: string;\n    readonly operationId: string;\n    readonly capability: \'browser.observe\' | \'browser.control\' | \'desktop.observe\' | \'desktop.control\';\n    readonly adapter: EnterpriseDeviceAdapterKind;\n    readonly operation: EnterpriseDeviceOperation;\n}',
+  },
+  {
+    name: 'EnterpriseDeviceView',
+    declaration: 'export interface EnterpriseDeviceView {\n    readonly deviceId: string;\n    readonly deviceName: string;\n    readonly platform: \'macos\' | \'windows\' | \'linux\';\n    readonly status: \'online\' | \'offline\' | \'revoked\';\n    readonly lastHeartbeatAt?: number;\n}',
   },
   {
     name: 'EnterpriseEmployeeAssetRef',

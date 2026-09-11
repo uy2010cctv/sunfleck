@@ -168,6 +168,14 @@ The Team surface makes Human authority and Agent execution visible without creat
 - Task DAG relationships have an equivalent keyboard-readable dependency list, and batched decisions announce selection count, consequence, and partial failure.
 - Chinese and English locale dictionaries ship together.
 
+## Device Plane surfaces
+
+- `我的电脑` / `My computer` is an Operate page in the existing enterprise workbench. Its primary action is `连接此电脑`; users never enter device ids, public keys, Adapter names, or credentials.
+- Each device row shows the human device name, platform, online state, last heartbeat, and a real connection test. Internal ids remain outside the ordinary UI.
+- Pairing discovers the loopback Device Agent, reads only its public identity, and completes through the authenticated DSH Remote. A failed or missing local Agent remains a recoverable error.
+- Control requests are confirmed on the user's computer. The confirmation names the concrete browser or desktop action. Rejecting it does not consume the Permit.
+- The work timeline distinguishes queued, claimed, completed, rejected, paused, failed, and unknown outcomes. Success requires an Adapter result and evidence hash, never heartbeat alone.
+
 ## What surfaces must share
 
 - Cobalt action/focus accent and restrained status palette.

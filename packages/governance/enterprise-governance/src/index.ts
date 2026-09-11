@@ -30,6 +30,9 @@ export type EnterpriseAction =
   | 'team.execute'
   | 'team.decision.respond'
   | 'team.autonomy.manage'
+  | 'device.read'
+  | 'device.manage'
+  | 'device.execute'
   | 'plugin.read'
   | 'plugin.create'
   | 'plugin.review'
@@ -99,6 +102,11 @@ export function authorizeEnterprise(input: EnterpriseAuthorizationInput): Enterp
   }
   if (hasRole(principal, 'administrator')) return { allowed: true, reason: 'administrator' }
 
+  if ((action === 'device.read' || action === 'device.manage') && resource === undefined
+    && principal.roles.some(role => role === 'creator' || role === 'operator' || role === 'member')) {
+    return { allowed: true, reason: 'role' }
+  }
+
   if (hasRole(principal, 'auditor')) {
     return action === 'audit.read' || action === 'employee.read' || action === 'session.read' || action === 'operation.read'
       || action === 'capability.read' || action === 'approval.read' || action === 'schedule.read' || action === 'team.read'
@@ -135,6 +143,10 @@ export function authorizeEnterprise(input: EnterpriseAuthorizationInput): Enterp
     return { allowed: true, reason: 'creator-owner' }
   }
   if (action === 'team.execute'
+    && resource?.creatorUserId === principal.userId) {
+    return { allowed: true, reason: 'creator-owner' }
+  }
+  if ((action === 'device.read' || action === 'device.manage' || action === 'device.execute')
     && resource?.creatorUserId === principal.userId) {
     return { allowed: true, reason: 'creator-owner' }
   }

@@ -108,6 +108,16 @@ The governance plane decides who may perform an enterprise action; it does not a
 
 `@deepseek-ai/dsh-enterprise-governance` implements authorization policy. The enterprise overlay composes SQLite identity/audit persistence, local and OIDC/SAML/LDAP login adapters, central Host transport enforcement, AES-256-GCM credentials, and the governance administration UI. Real external SSO readiness remains deployment evidence: an enterprise must still validate its own endpoints, metadata, certificate chain, directory, TLS, and secret-manager custody.
 
+## Device Plane
+
+DSH may execute approved browser and desktop actions on an authenticated user's own computer through a local `dsh-device-agent`. The Server owns device registration, Run scope, permission policy, durable action state, audit, and one-time Permits. The local Agent owns the device private key, operating-system permissions, Adapter processes, local confirmation, and execution.
+
+- Device requests use Ed25519 signatures bound to method, path, timestamp, nonce, and body. They do not reuse browser cookies.
+- Every Run is bound to one organization, user, device, Workspace, and Session. Every action is bound to one Run, typed capability, Adapter, operation, expiry, and one-time Permit.
+- Browser actions use an isolated `agent-browser` or Playwright MCP session. Cua handles native desktop actions. Arbitrary commands and server-supplied module paths are not accepted.
+- Control actions default to local confirmation. Device private keys, cookies, passwords, clipboard contents, and raw screen recordings are never stored by the Server.
+- Action summaries and evidence hashes are durable. A claimed action with an unknown result is not blindly replayed.
+
 ## Accessibility & Inclusion
 
 The workbench must support keyboard navigation, visible focus, reduced motion, light and dark themes, responsive layouts, Chinese and English copy, and status communication that does not depend on color alone.

@@ -1,12 +1,9 @@
-export type AdapterKind = 'cua' | 'agent-browser' | 'playwright-mcp'
-export interface DeviceAction {
-  readonly operationId: string
-  readonly runId: string
-  readonly deviceId: string
-  readonly capability: 'browser.observe' | 'browser.control' | 'desktop.observe' | 'desktop.control'
-  readonly adapter: AdapterKind
-  readonly payload: Readonly<Record<string, unknown>>
-}
+import type {
+  DeviceAdapterKind as AdapterKind, DeviceOperation, QueuedDeviceAction,
+} from '@deepseek-ai/dsh-enterprise-device-plane'
+
+export type { AdapterKind, DeviceOperation }
+export interface DeviceAction extends QueuedDeviceAction {}
 export interface DeviceActionResult {
   readonly operationId: string
   readonly state: 'completed' | 'rejected' | 'paused' | 'failed'

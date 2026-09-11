@@ -2581,8 +2581,18 @@ class FaceAnalyzer {
     const target = packageExportTargets(registration.manifest)
       .find(([subpath]) => subpath === module.subpath)?.[1]
     if (target === undefined) return undefined
-    const sourceFile = this.sourceFiles.get(realPath(sourcePathForExport(registration.root, target))) as ts.SourceFile
-    const moduleSymbol = this.checker.getSymbolAtLocation(sourceFile) as ts.Symbol
+    const sourcePath = realPath(sourcePathForExport(registration.root, target))
+    const declarationPath = realPath(resolve(registration.root, target.replace(/^\.\//, '')))
+    const sourceFile = this.sourceFiles.get(sourcePath) ?? this.sourceFiles.get(declarationPath)
+    if (sourceFile === undefined) {
+      this.fail(symbol.valueDeclaration ?? preferredDeclaration(symbol) as ts.Node,
+        `package export ${module.package} at ${module.subpath} resolves to unloaded source ${sourcePath} `
+        + `and declaration ${declarationPath}`)
+    }
+    const moduleSymbol = this.checker.getSymbolAtLocation(sourceFile)
+    if (moduleSymbol === undefined) {
+      this.fail(sourceFile, `package export ${module.package} at ${module.subpath} has no module symbol`)
+    }
     const exported = this.checker.getExportsOfModule(moduleSymbol)
       .find(candidate => candidate.name === requestedName && this.resolveSymbol(candidate) === symbol)
     return exported?.name

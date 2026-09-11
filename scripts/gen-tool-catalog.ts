@@ -40,6 +40,7 @@ import SkillRegistry from '@deepseek-ai/dsh-skill'
 import * as SkillFileSystem from '@deepseek-ai/dsh-skill-filesystem'
 import LocalJobRegistry from '@deepseek-ai/dsh-jobs-local'
 import * as ToolAskUser from '@deepseek-ai/dsh-tool-ask-user'
+import * as ToolComputerUse from '@deepseek-ai/dsh-tool-computer-use'
 import * as ToolBash from '@deepseek-ai/dsh-tool-bash'
 import * as ToolPwsh from '@deepseek-ai/dsh-tool-pwsh'
 import * as ToolBashPersistent from '@deepseek-ai/dsh-tool-bash-persistent'
@@ -188,6 +189,18 @@ export interface ToolPackage {
  * guard proves it is exhaustive against the on-disk glob.
  */
 const TOOL_PACKAGES: ToolPackage[] = [
+  {
+    pkg: '@deepseek-ai/dsh-tool-computer-use',
+    dir: 'tool-computer-use',
+    source: 'packages/device/tool-computer-use/src/index.ts',
+    requires: ['ctx.tools', 'ctx.enterprisePostgres', 'an authenticated enterprise Session at execution time'],
+    writes: ['tool/call', 'durable Computer Use run, permit, action, evidence metadata', 'tool/result'],
+    async mount(ctx) {
+      ctx.provide('enterprisePostgres', {} as never)
+      await ctx.plugin(ToolComputerUse, {})
+    },
+    note: 'The local device keeps its private key and executes only fixed permit-gated operations. Browser and desktop adapters remain separate.',
+  },
   {
     pkg: '@deepseek-ai/dsh-tool-ask-user',
     dir: 'tool-ask-user',

@@ -236,6 +236,8 @@ flowchart LR
   svc_enterpriseAssetController["ctx.enterpriseAssetController<br/>Enterprise capability asset controller"]
   svc_enterpriseChannelBotInstaller["ctx.enterpriseChannelBotInstaller<br/>Enterprise channel Bot installer"]
   svc_enterpriseChannelController["ctx.enterpriseChannelController<br/>Enterprise channel controller"]
+  svc_enterpriseDeviceController["ctx.enterpriseDeviceController<br/>Enterprise Device Plane controller"]
+  pkg_device_agent["device-agent"]
   svc_enterpriseTeamController["ctx.enterpriseTeamController<br/>Enterprise fixed-team controller"]
   svc_enterpriseTeamDefinitionController["ctx.enterpriseTeamDefinitionController<br/>Enterprise team charter controller"]
   svc_enterpriseTeamRunController["ctx.enterpriseTeamRunController<br/>Enterprise TeamRun controller"]
@@ -259,6 +261,7 @@ flowchart LR
   pkg_api_enterprise_controller --> svc_enterpriseAssetController
   pkg_api_enterprise_controller --> svc_enterpriseChannelBotInstaller
   pkg_api_enterprise_controller --> svc_enterpriseChannelController
+  pkg_api_enterprise_controller --> svc_enterpriseDeviceController
   pkg_api_enterprise_controller --> svc_enterpriseEmployeeController
   pkg_api_enterprise_controller --> svc_enterpriseOperationController
   pkg_api_enterprise_controller --> svc_enterpriseTeamAutonomyController
@@ -423,6 +426,8 @@ flowchart LR
   svc_enterpriseChannelController --> pkg_client_ui_enterprise_workbench
   svc_enterpriseCordis --> pkg_api_enterprise_controller
   svc_enterpriseCordis --> pkg_enterprise_cordis_runtime
+  svc_enterpriseDeviceController --> pkg_client_ui_enterprise_workbench
+  svc_enterpriseDeviceController --> pkg_device_agent
   svc_enterpriseEmployeeController --> pkg_client_ui_enterprise_workbench
   svc_enterpriseOperationController --> pkg_client_ui_enterprise_workbench
   svc_enterprisePostgres --> pkg_api_enterprise_controller
@@ -618,6 +623,7 @@ flowchart LR
 | `ctx.enterpriseAssetController` | `core` | [`api-enterprise-controller`](../packages/api/enterprise-controller) | - | [`client-ui-enterprise-workbench`](../packages/client/ui-enterprise-workbench) | - | Owns versioned enterprise capability asset reads and writes. |
 | `ctx.enterpriseChannelBotInstaller` | `core` | [`api-enterprise-controller`](../packages/api/enterprise-controller) | - | [`api-enterprise-controller`](../packages/api/enterprise-controller) | - | Performs Host-only provider Bot installation and keeps provider credentials outside browser state. |
 | `ctx.enterpriseChannelController` | `core` | [`api-enterprise-controller`](../packages/api/enterprise-controller) | - | [`client-ui-enterprise-workbench`](../packages/client/ui-enterprise-workbench) | - | Persists governed channel routing and binding evidence without treating setup as delivery proof. |
+| `ctx.enterpriseDeviceController` | `core` | [`api-enterprise-controller`](../packages/api/enterprise-controller) | - | [`client-ui-enterprise-workbench`](../packages/client/ui-enterprise-workbench), `device-agent` | - | Pairs user-owned devices and governs scoped Computer Use runs, one-time permits, and action evidence. |
 | `ctx.enterpriseTeamController` | `core` | [`api-enterprise-controller`](../packages/api/enterprise-controller) | - | [`client-ui-enterprise-workbench`](../packages/client/ui-enterprise-workbench) | - | Maintains legacy fixed-team compatibility records. |
 | `ctx.enterpriseTeamDefinitionController` | `core` | [`api-enterprise-controller`](../packages/api/enterprise-controller) | - | [`client-ui-enterprise-workbench`](../packages/client/ui-enterprise-workbench) | - | Owns immutable charter drafts, publication, and archive operations. |
 | `ctx.enterpriseTeamRunController` | `core` | [`api-enterprise-controller`](../packages/api/enterprise-controller) | - | [`client-ui-enterprise-workbench`](../packages/client/ui-enterprise-workbench) | - | Starts and queries Session-authoritative TeamRuns through the governed runtime driver. |

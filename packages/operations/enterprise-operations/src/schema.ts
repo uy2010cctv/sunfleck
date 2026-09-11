@@ -1,7 +1,7 @@
 /** PostgreSQL schema for work records, approvals, schedules, teams, and outbox. */
 import type { PostgresDatabase } from './types.ts'
 /** Value exported as `ENTERPRISE_OPERATIONS_SCHEMA_VERSION`. */
-export const ENTERPRISE_OPERATIONS_SCHEMA_VERSION = 17
+export const ENTERPRISE_OPERATIONS_SCHEMA_VERSION = 19
 /** Owner placeholder for legacy fixed teams whose creator was never persisted. */
 export const LEGACY_TEAM_DEFINITION_OWNER_USER_ID = 'system:legacy-fixed-team-migration'
 const statements = [
@@ -142,6 +142,24 @@ const statements = [
     operation_id TEXT NOT NULL, capability TEXT NOT NULL, expires_at BIGINT NOT NULL,
     consumed_at BIGINT, created_at BIGINT NOT NULL, UNIQUE(org_id,run_id,operation_id)
   )`,
+  `CREATE TABLE IF NOT EXISTS dsh_enterprise_device_nonces (
+    device_id TEXT NOT NULL REFERENCES dsh_enterprise_devices(device_id) ON DELETE CASCADE,
+    nonce TEXT NOT NULL, expires_at BIGINT NOT NULL, PRIMARY KEY(device_id,nonce)
+  )`,
+  `CREATE INDEX IF NOT EXISTS dsh_enterprise_device_nonces_expiry_idx
+    ON dsh_enterprise_device_nonces(expires_at)`,
+  `CREATE TABLE IF NOT EXISTS dsh_enterprise_computer_use_actions (
+    action_id TEXT PRIMARY KEY, org_id TEXT NOT NULL, user_id TEXT NOT NULL, device_id TEXT NOT NULL,
+    run_id TEXT NOT NULL REFERENCES dsh_enterprise_computer_use_runs(run_id) ON DELETE CASCADE,
+    operation_id TEXT NOT NULL, capability TEXT NOT NULL, adapter TEXT NOT NULL,
+    operation_json JSONB NOT NULL,
+    state TEXT NOT NULL CHECK (state IN ('pending','claimed','completed','rejected','paused','failed','unknown')),
+    result_summary TEXT, evidence_hash TEXT, claimed_at BIGINT, completed_at BIGINT,
+    created_at BIGINT NOT NULL, updated_at BIGINT NOT NULL,
+    UNIQUE(org_id,operation_id)
+  )`,
+  `CREATE INDEX IF NOT EXISTS dsh_enterprise_computer_use_actions_claim_idx
+    ON dsh_enterprise_computer_use_actions(device_id,state,created_at,action_id)`,
   `CREATE INDEX IF NOT EXISTS dsh_enterprise_work_records_page_idx
     ON dsh_enterprise_work_records(org_id, updated_at DESC, session_id DESC, employee_release_id DESC)`,
   `CREATE INDEX IF NOT EXISTS dsh_enterprise_work_records_filter_idx

@@ -11,6 +11,7 @@ import type {
   EnterpriseVisibility, EnterpriseWorkRecord as EnterpriseOperationWorkRecord,
   CordisPackageVersion, CordisReviewRequest, CordisScopeBinding, EnterpriseWorkPreparation, EnterpriseWorkPrepareRequest,
   EnterpriseWorkStartRequest, EnterpriseWorkStartValue,
+  EnterpriseComputerUseRun, EnterpriseDeviceActionView, EnterpriseDeviceListRequest, EnterpriseDevicePairRequest, EnterpriseDeviceView,
 } from '@deepseek-ai/dsh-api-enterprise-controller/types'
 import type { AgentPresetRow } from '@deepseek-ai/dsh-agent-presets/types'
 import type { JsonValue } from '@deepseek-ai/dsh-util-values'
@@ -73,7 +74,8 @@ export interface EnterpriseView {
 
 /** Overlay-local route. Governance deliberately remains in Settings. */
 export type EnterpriseWorkbenchPage =
-  | 'employees' | 'work-records' | 'approvals' | 'attention' | 'schedules' | 'assets' | 'teams' | 'channels' | 'extensions'
+  | 'employees' | 'devices' | 'work-records' | 'approvals' | 'attention'
+  | 'schedules' | 'assets' | 'teams' | 'channels' | 'extensions'
 
 /** Shared asynchronous page state for enterprise PostgreSQL read models. */
 export interface EnterprisePageState<T> {
@@ -149,6 +151,7 @@ export interface EnterpriseWorkbenchState {
   readonly assets: EnterprisePageState<EnterpriseAsset>
   readonly teams: EnterprisePageState<EnterpriseTeam>
   readonly channels: EnterprisePageState<EnterpriseChannelConfiguration>
+  readonly devices: EnterprisePageState<EnterpriseDeviceView>
   readonly teamDefinitions: EnterprisePageState<EnterpriseTeamDefinition>
   readonly teamRuns: EnterprisePageState<EnterpriseTeamRun>
   readonly teamDecisions: EnterprisePageState<EnterpriseTeamDecision>
@@ -174,6 +177,41 @@ export interface EnterpriseWorkbenchRemote {
   readonly enterpriseAssets: ClientRemote['enterpriseAsset']
   readonly enterpriseTeams: ClientRemote['enterpriseTeam']
   readonly enterpriseChannels: ClientRemote['enterpriseChannel']
+  readonly enterpriseDevices?: {
+    list(request: EnterpriseDeviceListRequest): Promise<EnterpriseApiResult<EnterpriseDeviceView[]> | {
+      readonly result: EnterpriseApiResult<EnterpriseDeviceView[]>
+    }>
+    listRuns?(request: { limit?: number }): Promise<EnterpriseApiResult<EnterpriseComputerUseRun[]> | {
+      readonly result: EnterpriseApiResult<EnterpriseComputerUseRun[]>
+    }>
+    listActions?(request: { limit?: number }): Promise<EnterpriseApiResult<EnterpriseDeviceActionView[]> | {
+      readonly result: EnterpriseApiResult<EnterpriseDeviceActionView[]>
+    }>
+    pair(request: EnterpriseDevicePairRequest): Promise<EnterpriseApiResult<{ deviceId: string }> | {
+      readonly result: EnterpriseApiResult<{ deviceId: string }>
+    }>
+    startRun(request: {
+      deviceId: string
+      workspaceId: string
+      sessionId: string
+      mode: 'observe' | 'confirm-each' | 'delegated'
+    }): Promise<EnterpriseApiResult<{ runId: string }> | { readonly result: EnterpriseApiResult<{ runId: string }> }>
+    issuePermit(request: {
+      deviceId: string
+      runId: string
+      operationId: string
+      capability: 'desktop.observe'
+      adapter: 'cua'
+      operation: { kind: 'desktop.screen-size' }
+    }): Promise<EnterpriseApiResult<{ permitId: string; actionId: string }> | {
+      readonly result: EnterpriseApiResult<{ permitId: string; actionId: string }>
+    }>
+    getAction(request: { operationId: string }): Promise<EnterpriseApiResult<EnterpriseDeviceActionView> | {
+      readonly result: EnterpriseApiResult<EnterpriseDeviceActionView>
+    }>
+    transitionRun?(request: { runId: string; state: 'active' | 'paused' | 'stopped'; expectedRevision: number }):
+    Promise<EnterpriseApiResult<EnterpriseComputerUseRun> | { readonly result: EnterpriseApiResult<EnterpriseComputerUseRun> }>
+  }
   readonly enterpriseTeamDefinitions: ClientRemote['enterpriseTeamDefinition']
   readonly enterpriseTeamRuns: ClientRemote['enterpriseTeamRun']
   readonly enterpriseTeamDecisions: ClientRemote['enterpriseTeamDecision']
@@ -325,6 +363,7 @@ const INITIAL_STATE: EnterpriseWorkbenchState = {
   assets: emptyPage(),
   teams: emptyPage(),
   channels: emptyPage(),
+  devices: emptyPage(),
   teamDefinitions: emptyPage(),
   teamRuns: emptyPage(),
   teamDecisions: emptyPage(),
@@ -487,7 +526,7 @@ export class EnterpriseWorkbenchController {
       await Promise.all([
         this.refreshWorkRecords(), this.refreshApprovals(), this.refreshSchedules(),
         this.refreshAssets(), this.refreshTeams(), this.refreshTeamDefinitions(),
-        this.refreshChannels(),
+        this.refreshChannels(), this.refreshDevices(),
         this.refreshTeamRuns(), this.refreshTeamDecisions(), this.refreshTeamAutonomy(),
         this.refreshExtensions(), this.refreshFormalPlugins(), this.refreshModelOptions(),
       ])
@@ -600,7 +639,7 @@ export class EnterpriseWorkbenchController {
     }
   }
 
-  private async loadPage<K extends 'workRecords' | 'approvals' | 'schedules' | 'assets' | 'teams' | 'channels' | 'teamDefinitions' | 'teamRuns' | 'teamDecisions' | 'teamAutonomy' | 'formalPlugins'>(
+  private async loadPage<K extends 'workRecords' | 'approvals' | 'schedules' | 'assets' | 'teams' | 'channels' | 'devices' | 'teamDefinitions' | 'teamRuns' | 'teamDecisions' | 'teamAutonomy' | 'formalPlugins'>(
     key: K,
     load: () => Promise<{ items: EnterpriseWorkbenchState[K]['items']; nextCursor?: string }>,
   ): Promise<boolean> {
@@ -671,6 +710,113 @@ export class EnterpriseWorkbenchController {
    */
   refreshChannels(): Promise<boolean> {
     return this.loadPage('channels', async () => valueOf(await this.api.enterpriseChannels.list({})))
+  }
+
+  /** Refresh devices paired to the authenticated user.
+   * @returns whether the page projection was replaced.
+   */
+  refreshDevices(): Promise<boolean> {
+    const enterpriseDevices = this.api.enterpriseDevices
+    if (enterpriseDevices === undefined) {
+      this.store.set({ ...this.store.getSnapshot(), devices: { phase: 'ready', items: [], error: null } })
+      return Promise.resolve(true)
+    }
+    return this.loadPage('devices', async () => ({ items: valueOf(await enterpriseDevices.list({})) }))
+  }
+
+  /** Pair the loopback Device Agent without exposing identifiers or keys to manual entry.
+   * @param dshOrigin - Public DSH origin saved by the local Agent.
+   * @param localBase - Loopback pairing endpoint.
+   * @param fetcher - Browser fetch implementation.
+   * @returns whether pairing and projection refresh succeeded.
+   */
+  async pairLocalDevice(
+    dshOrigin: string,
+    localBase = 'http://127.0.0.1:47631',
+    fetcher: typeof globalThis.fetch = globalThis.fetch,
+  ): Promise<boolean> {
+    const enterpriseDevices = this.api.enterpriseDevices
+    if (enterpriseDevices === undefined) throw new Error('Device Plane is unavailable')
+    return this.runMutation('device-pair', async () => {
+      const identityResponse = await fetcher(`${localBase}/v1/identity`, { headers: { accept: 'application/json' } })
+      if (!identityResponse.ok) throw new Error('本机 Device Agent 未运行')
+      const identity = await identityResponse.json() as Record<string, unknown>
+      if (typeof identity['publicKey'] !== 'string' || typeof identity['deviceName'] !== 'string'
+        || typeof identity['challenge'] !== 'string'
+        || !['macos', 'windows', 'linux'].includes(String(identity['platform']))) {
+        throw new Error('本机 Device Agent 身份无效')
+      }
+      const paired = valueOf(await enterpriseDevices.pair({
+        publicKey: identity['publicKey'], deviceName: identity['deviceName'],
+        platform: identity['platform'] as EnterpriseDevicePairRequest['platform'],
+      }))
+      const completion = await fetcher(`${localBase}/v1/complete`, {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ challenge: identity['challenge'], deviceId: paired.deviceId, dshOrigin }),
+      })
+      if (!completion.ok) throw new Error('本机 Device Agent 未确认配对')
+      return paired
+    }, () => this.refreshDevices())
+  }
+
+  /** Queue a harmless desktop observation and wait for persisted local evidence.
+   * @param deviceId - Owned online device selected by the user.
+   * @returns terminal or timed-out action projection.
+   */
+  async testLocalDevice(deviceId: string): Promise<EnterpriseDeviceActionView> {
+    const enterpriseDevices = this.api.enterpriseDevices
+    if (enterpriseDevices === undefined) throw new Error('Device Plane is unavailable')
+    const sessionId = this.sessions.list.getSnapshot().current
+    const workspaceId = this.currentSessionWorkspaceId()
+    if (sessionId === undefined || workspaceId === undefined) {
+      throw new Error('Open a work record before testing this computer')
+    }
+    const started = valueOf(await enterpriseDevices.startRun({
+      deviceId, workspaceId, sessionId, mode: 'observe',
+    }))
+    const operationId = `device-test:${randomUUID()}`
+    await enterpriseDevices.issuePermit({
+      deviceId, runId: started.runId, operationId, capability: 'desktop.observe',
+      adapter: 'cua', operation: { kind: 'desktop.screen-size' },
+    }).then(valueOf)
+    let action = valueOf(await enterpriseDevices.getAction({ operationId }))
+    for (let attempt = 0; attempt < 20 && (action.state === 'pending' || action.state === 'claimed'); attempt++) {
+      await new Promise(resolve => setTimeout(resolve, 500))
+      action = valueOf(await enterpriseDevices.getAction({ operationId }))
+    }
+    return action
+  }
+
+  /** Load recent run and action projections for the Device Plane control surface.
+   * @returns recent user-owned runs and actions.
+   */
+  async loadDeviceActivity(): Promise<{
+    runs: readonly EnterpriseComputerUseRun[]
+    actions: readonly EnterpriseDeviceActionView[]
+  }> {
+    const enterpriseDevices = this.api.enterpriseDevices
+    if (enterpriseDevices?.listRuns === undefined || enterpriseDevices.listActions === undefined) return { runs: [], actions: [] }
+    const [runs, actions] = await Promise.all([
+      enterpriseDevices.listRuns({ limit: 20 }).then(valueOf),
+      enterpriseDevices.listActions({ limit: 50 }).then(valueOf),
+    ])
+    return { runs, actions }
+  }
+
+  /** Pause, resume, or stop one user-owned Computer Use run.
+   * @param run - Current run snapshot carrying its revision.
+   * @param state - Requested next lifecycle state.
+   * @returns transitioned server snapshot.
+   */
+  async transitionDeviceRun(
+    run: EnterpriseComputerUseRun,
+    state: 'active' | 'paused' | 'stopped',
+  ): Promise<EnterpriseComputerUseRun> {
+    const enterpriseDevices = this.api.enterpriseDevices
+    if (enterpriseDevices?.transitionRun === undefined) throw new Error('Device Plane run control is unavailable')
+    return valueOf(await enterpriseDevices.transitionRun({
+      runId: run.runId, state, expectedRevision: run.revision ?? 1,
+    }))
   }
 
   /** Begin provider-owned authorization for one persisted channel revision.
