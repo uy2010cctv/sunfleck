@@ -80,6 +80,39 @@ describe('enterprise auth Web plugin', () => {
     expect(routes).toHaveLength(0)
   })
 
+  it('does not recreate an established bootstrap administrator when its configured username changes', async () => {
+    root = await mkdtemp(join(tmpdir(), 'dsh-enterprise-auth-bootstrap-restart-'))
+    const ctx = new Context()
+    ctx.provide('workspaceRegistry', {} as never)
+    ctx.provide('webServer', { register: () => () => {} } as unknown as WebServer)
+    ctx.provide('credentials', {
+      resolve: () => Promise.resolve({ value: 'enterprise-password', source: 'test' }),
+    } as unknown as CredentialProvider)
+    ctx.provide('enterprisePostgres', {} as never)
+    const base = {
+      databasePath: join(root, 'identity.sqlite'), organizationId: 'org-a', organizationName: 'Example',
+      sessionCookieName: 'dsh_session', sessionTtlMs: 60_000, secureCookies: false,
+      autoProvisionSsoUsers: true, localEnabled: true, oidc: [], saml: [], ldap: [],
+    }
+    const first = ctx.plugin({ inject: [...inject], apply }, {
+      ...base,
+      bootstrapAdmin: {
+        userId: 'admin-1', username: 'former-admin', displayName: 'Former Admin', passwordRef: 'DSH_ADMIN_PASSWORD',
+      },
+    })
+    await first.await()
+    await first.dispose()
+
+    const restarted = ctx.plugin({ inject: [...inject], apply }, {
+      ...base,
+      bootstrapAdmin: {
+        userId: 'admin-1', username: 'admin', displayName: 'Enterprise Administrator', passwordRef: 'DSH_ADMIN_PASSWORD',
+      },
+    })
+    await restarted.await()
+    await restarted.dispose()
+  })
+
   it('accepts an injected identity store without opening a SQLite database', async () => {
     root = await mkdtemp(join(tmpdir(), 'dsh-enterprise-auth-injected-'))
     const routes: WebRoute[] = []

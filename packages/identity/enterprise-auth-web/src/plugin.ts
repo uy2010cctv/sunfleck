@@ -119,19 +119,27 @@ export async function apply(ctx: Context, config: EnterpriseAuthWebConfig): Prom
     if (!(await repository.listOrganizations()).some(org => org.id === config.organizationId)) {
       await repository.createOrganization({ id: config.organizationId, name: config.organizationName })
     }
-    if (config.bootstrapAdmin !== undefined
-      && await repository.findUser(config.organizationId, config.bootstrapAdmin.username) === undefined) {
-      const resolved = await ctx.credentials.resolve(credentialRef(config.bootstrapAdmin.passwordRef))
+    // The bootstrap identity is stable by user id. A later display/login-name
+    // configuration change must not turn a restart into a second INSERT with
+    // that same primary key. Keep the established account intact; changing a
+    // real user's profile or credentials remains an explicit admin action.
+    const bootstrapAdmin = config.bootstrapAdmin
+    const existingBootstrap = bootstrapAdmin === undefined
+      ? undefined
+      : (await repository.listUsers(config.organizationId)).find(user =>
+        user.id === bootstrapAdmin.userId || user.username === bootstrapAdmin.username)
+    if (bootstrapAdmin !== undefined && existingBootstrap === undefined) {
+      const resolved = await ctx.credentials.resolve(credentialRef(bootstrapAdmin.passwordRef))
       if (resolved === undefined) throw new Error('enterprise bootstrap administrator password is not configured')
       await repository.createUser({
-        id: config.bootstrapAdmin.userId,
+        id: bootstrapAdmin.userId,
         orgId: config.organizationId,
-        username: config.bootstrapAdmin.username,
-        displayName: config.bootstrapAdmin.displayName,
+        username: bootstrapAdmin.username,
+        displayName: bootstrapAdmin.displayName,
         disabled: false,
       })
-      await repository.setRoles(config.bootstrapAdmin.userId, ['administrator'])
-      await repository.setPasswordVerifier(config.bootstrapAdmin.userId, createPasswordVerifier(resolved.value))
+      await repository.setRoles(bootstrapAdmin.userId, ['administrator'])
+      await repository.setPasswordVerifier(bootstrapAdmin.userId, createPasswordVerifier(resolved.value))
     }
     if (workspaceProvisioner !== undefined) {
       for (const user of await repository.listUsers(config.organizationId)) {
