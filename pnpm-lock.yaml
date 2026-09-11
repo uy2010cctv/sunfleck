@@ -5714,6 +5714,8 @@ importers:
         specifier: workspace:^
         version: link:../../util/timeout
 
+  packages/enterprise/device-plane: {}
+
   packages/enterprise/enterprise-cordis:
     devDependencies:
       '@deepseek-ai/cordis':
