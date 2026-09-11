@@ -157,7 +157,15 @@ function sessionVisible(session: SessionSummary, current: SessionId | undefined,
  * and the renderer localizes its display label.
  */
 function sessionTitle(session: SessionSummary): string {
-  return session.blank ? '' : session.displayTitle
+  // `displayTitle` intentionally has a directory-basename fallback for
+  // protocol consumers. That basename can be an opaque managed Workspace id;
+  // the navigation UI must never present it as a user-facing conversation
+  // title. Until the Session has a durable title, Rows renders the localized
+  // “New Session” fallback instead.
+  const opaqueManagedWorkspaceId = /^[a-f\d]{24,}$/iu.test(session.displayTitle)
+  return session.blank || (session.title === undefined && opaqueManagedWorkspaceId)
+    ? ''
+    : session.displayTitle
 }
 
 /** The list projection alone owns the best-effort active-Schedule indicator. */

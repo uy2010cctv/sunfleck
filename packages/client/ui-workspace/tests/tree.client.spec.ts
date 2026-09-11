@@ -57,6 +57,17 @@ describe('deriveGroups', () => {
     expect(groups[0]!.sessions.map(session => session.id)).toEqual([sid('older'), sid('newer')])
   })
 
+  it('does not expose a workspace directory id as the title of an untitled session', () => {
+    const untitled: SessionSummary = {
+      ...summary('internal-session', 1, '/managed/users/605c2092b1f9dd3167855400'),
+      displayTitle: '605c2092b1f9dd3167855400',
+    }
+    const groups = deriveGroups(
+      list(untitled), [workspace('personal', ['internal-session'])], noArchive, noAttention, view(['personal']),
+    )
+    expect(groups[0]!.sessions[0]!.title).toBe('')
+  })
+
   it('projects pending-interaction state into grouped and flat rows', () => {
     const awaiting = { ...summary('awaiting', 10), running: true }
     const sessions = list(awaiting)

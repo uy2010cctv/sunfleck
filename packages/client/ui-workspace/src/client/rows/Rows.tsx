@@ -24,7 +24,7 @@ type RowTranslate = WorkspaceBrowserProps['t']
 
 /** Row display title: blank rows show the localized New Session label. */
 function displayTitle(node: SessionNode, t: RowTranslate): string {
-  return node.blank ? t('session.new') : node.title
+  return node.blank || node.title === '' ? t('session.new') : node.title
 }
 
 /** Localized compact relative time ("刚刚"/"5分钟" in zh, "now"/"5min" in en). */
