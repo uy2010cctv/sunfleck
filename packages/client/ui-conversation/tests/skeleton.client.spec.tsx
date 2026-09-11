@@ -601,6 +601,26 @@ describe('ConversationRoot resident composer', () => {
     expect(b.view.getByText('one')).toBeTruthy()
   })
 
+  it('shows an in-progress status while a new-session workspace is opening', async () => {
+    let resolve!: () => void
+    const selectWorkspace = vi.fn(() => new Promise<void>((done) => { resolve = done }))
+    const b = mount(
+      sessionSnapshotOf({ blank: true }),
+      [
+        { ...workspace('one'), sessionIds: [SID] },
+        { ...workspace('second'), title: 'Selected Folder' },
+      ],
+      selectWorkspace,
+    )
+    fireEvent.click(b.view.getByRole('button', { name: '选择工作区' }))
+    const owner = b.pickerOwner() as { onPick(id: WorkspaceId): void }
+    act(() => { owner.onPick(wid('second')) })
+
+    expect(b.view.getByRole('status').textContent).toContain('正在打开 Selected Folder')
+
+    await act(async () => { resolve(); await Promise.resolve() })
+  })
+
   it('blank session keeps the interactive picker chip (workspace switchable until the first message)', () => {
     const b = mount(sessionSnapshotOf({ blank: true }))
     const chip = b.view.getByRole('button', { name: '选择工作区' })

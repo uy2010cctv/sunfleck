@@ -462,6 +462,27 @@
   padding: 0 16px 0 20px;
 }
 
+/* Workspace selection can need a Host round trip before its blank Session is
+   ready. Keep that work visible beside the picker instead of leaving the
+   user with a menu that simply disappears. */
+.workspaceSelectionStatus,
+.workspaceSelectionError {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.workspaceSelectionStatus {
+  color: var(--dsw-alias-label-caption);
+}
+
+.workspaceSelectionError {
+  color: var(--dsw-alias-label-error);
+}
+
 /* Hero: the composer sits inside the session scroll body; center there so
    the tree seat matches active (sticky footer) without a Root remount. */
 .root[data-phase='hero'] .scrollBody {

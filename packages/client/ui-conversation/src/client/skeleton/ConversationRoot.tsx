@@ -151,6 +151,8 @@ export function ConversationRoot({
 
   const [pickerOpen, setPickerOpen] = useState(false)
   const [pendingWorkspaceId, setPendingWorkspaceId] = useState<WorkspaceId | undefined>()
+  const [switchingWorkspaceId, setSwitchingWorkspaceId] = useState<WorkspaceId | undefined>()
+  const [workspaceSelectionError, setWorkspaceSelectionError] = useState<string | undefined>()
   const pickerAnchor = useRef<HTMLButtonElement>(null)
 
   // Publishes the two live measurements floating View chrome reads off the
@@ -296,7 +298,9 @@ export function ConversationRoot({
         buttonRef={pickerAnchor}
         label={chipTitle}
         menuOpen={pickerOpen}
-        onClick={() => { setPickerOpen(open => !open) }}
+        onClick={() => {
+          if (switchingWorkspaceId === undefined) setPickerOpen(open => !open)
+        }}
         t={t}
       />
       {renderSlot('conversation.hero.workspace', {
@@ -304,14 +308,32 @@ export function ConversationRoot({
         anchorRef: pickerAnchor,
         selectedId: pendingWorkspaceId ?? sessionWorkspace?.workspaceId,
         onPick: (workspaceId) => {
+          if (switchingWorkspaceId !== undefined) return
           setPickerOpen(false)
           setPendingWorkspaceId(workspaceId)
-          void selectWorkspace(workspaceId).catch(() => {
-            setPendingWorkspaceId(current => current === workspaceId ? undefined : current)
-          })
+          setWorkspaceSelectionError(undefined)
+          setSwitchingWorkspaceId(workspaceId)
+          void selectWorkspace(workspaceId)
+            .catch((reason: unknown) => {
+              setPendingWorkspaceId(current => current === workspaceId ? undefined : current)
+              setWorkspaceSelectionError(reason instanceof Error ? reason.message : String(reason))
+            })
+            .finally(() => {
+              setSwitchingWorkspaceId(current => current === workspaceId ? undefined : current)
+            })
         },
         onClose: () => { setPickerOpen(false) },
       })}
+      {switchingWorkspaceId !== undefined && pendingWorkspace !== undefined && (
+        <span className={css.workspaceSelectionStatus} role="status">
+          {t('hero.openingWorkspace', { workspace: pendingWorkspace.title })}
+        </span>
+      )}
+      {workspaceSelectionError !== undefined && (
+        <span className={css.workspaceSelectionError} role="alert">
+          {t('hero.workspaceOpenFailed', { reason: workspaceSelectionError })}
+        </span>
+      )}
       {renderSlot('conversation.hero.agentPreset', {})}
     </div>
   )
