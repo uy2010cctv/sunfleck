@@ -11,6 +11,16 @@ export class PostgresDevicePlaneRepository {
       ON CONFLICT(device_id) DO UPDATE SET status=EXCLUDED.status,last_heartbeat_at=EXCLUDED.last_heartbeat_at,updated_at=EXCLUDED.updated_at`,
     [device.deviceId, device.orgId, device.userId, device.deviceName, device.platform, device.publicKey, device.status, now])
   }
+  async device(deviceId: string): Promise<Device | undefined> {
+    const result = await this.database.query<DeviceRow>(
+      'SELECT device_id,org_id,user_id,device_name,platform,public_key,status FROM dsh_enterprise_devices WHERE device_id=$1', [deviceId],
+    )
+    const row = result.rows[0]
+    return row === undefined ? undefined : {
+      deviceId: row.device_id, orgId: row.org_id, userId: row.user_id, deviceName: row.device_name,
+      platform: row.platform as Device['platform'], publicKey: row.public_key, status: row.status as Device['status'],
+    }
+  }
   async saveRun(run: ComputerUseRun): Promise<void> {
     const now = this.now()
     await this.database.query(`INSERT INTO dsh_enterprise_computer_use_runs(
@@ -32,4 +42,14 @@ export class PostgresDevicePlaneRepository {
     [this.now(), input.orgId, input.userId, input.deviceId, input.runId, input.operationId])
     return result.rowCount === 1
   }
+}
+
+interface DeviceRow extends Record<string, unknown> {
+  device_id: string
+  org_id: string
+  user_id: string
+  device_name: string
+  platform: string
+  public_key: string
+  status: string
 }
