@@ -338,13 +338,15 @@ describe('UiWorkspaceService', () => {
     }
   })
 
-  it('reuses only an unarchived member blank and coalesces concurrent creation', async () => {
+  it('reuses an unarchived blank by Workspace path and coalesces concurrent creation', async () => {
     const b = bench()
     const memberBlank = sid('member-blank')
+    const detachedBlank = sid('detached-blank')
     const archivedBlank = sid('archived-blank')
     const summaries: readonly SessionSummary[] = [
       summary('stray', { blank: true, cwd: '/w/alpha' }),
       summary('member-blank', { blank: true, cwd: '/w/alpha' }),
+      summary('detached-blank', { blank: true, cwd: '/w/delta' }),
       summary('active', { cwd: '/w/beta' }),
       summary('archived-blank', { blank: true, cwd: '/w/gamma' }),
     ]
@@ -352,6 +354,7 @@ describe('UiWorkspaceService', () => {
       workspace('alpha', [memberBlank]),
       workspace('beta', [sid('active')]),
       workspace('gamma', [archivedBlank]),
+      workspace('delta', []),
     ], [archivedBlank]))
     b.sessions.list.set({
       ...sessionState(summaries, memberBlank),
@@ -362,6 +365,9 @@ describe('UiWorkspaceService', () => {
       b.uiWorkspace.connectWorkspace(wid('alpha')),
       b.uiWorkspace.connectWorkspace(wid('alpha')),
     ])).resolves.toEqual([memberBlank, memberBlank])
+    expect(b.sessions.create).not.toHaveBeenCalled()
+
+    await expect(b.uiWorkspace.connectWorkspace(wid('delta'))).resolves.toBe(detachedBlank)
     expect(b.sessions.create).not.toHaveBeenCalled()
 
     const creation = Promise.withResolvers<SessionId>()

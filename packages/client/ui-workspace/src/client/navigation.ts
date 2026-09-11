@@ -118,12 +118,20 @@ class UiWorkspaceService extends Service implements UiWorkspace {
 
     const archived = this.workspaces.list.getSnapshot().archivedSessionIds
     const sessions = this.sessions.list.getSnapshot()
+    let recoveredBlank: SessionId | undefined
     for (const id of sessions.ids) {
       const summary = sessions.byId[id]
+      // A create may reach the Host before the Workspace-membership projection
+      // reaches a reconnecting browser. The Workspace path is the stable
+      // ownership key here, so reuse that listed blank rather than minting a
+      // second empty Session during recovery.
       if (summary !== undefined && summary.blank && summary.cwd === workspace.path
-        && workspace.sessionIds.includes(summary.id)
-        && !archived.includes(summary.id)) return summary.id
+        && !archived.includes(summary.id)) {
+        if (workspace.sessionIds.includes(summary.id)) return summary.id
+        recoveredBlank ??= summary.id
+      }
     }
+    if (recoveredBlank !== undefined) return recoveredBlank
 
     const attempt = this.sessions.create({ workspaceId })
       .finally(() => { this.connecting.delete(workspaceId) })
