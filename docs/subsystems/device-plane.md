@@ -27,6 +27,8 @@ node apps/device-agent/lib/bin.js --server http://your-dsh-host
 
 The Agent listens only on `127.0.0.1:47631`. In DSH, open **Digital employees → My computer → Connect this computer**. Its Ed25519 private key is stored under `~/.dsh/device-agent` with owner-only permissions and is never returned by the loopback endpoint.
 
+Browser adapters do not depend on the service account's `PATH`. The Agent launches the package-local `agent-browser` and Playwright MCP entrypoints with its own Node executable. It reuses an installed Chrome executable when available, while keeping the automation profile isolated. `DSH_DEVICE_BROWSER_EXECUTABLE` can override browser discovery for managed installations.
+
 ## Safety and recovery
 
 Device, Run, Permit, nonce, action, result, and evidence metadata are durable. A Permit expires after 60 seconds and can be consumed once. Device requests expire after 60 seconds and each nonce is accepted once. A queued action can be claimed by one Agent. A claimed action is never automatically replayed after an ambiguous disconnect.

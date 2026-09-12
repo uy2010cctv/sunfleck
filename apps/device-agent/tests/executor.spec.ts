@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { DeviceActionExecutor } from '../src/executor.ts'
-import { commandForAction } from '../src/agent-browser-adapter.ts'
+import { agentBrowserInvocation, commandForAction } from '../src/agent-browser-adapter.ts'
 import type { DeviceAction, DeviceAdapter, LocalConfirmator, PermitConsumer } from '../src/protocol.ts'
 
 const observe: DeviceAction = {
@@ -14,6 +14,18 @@ describe('DeviceActionExecutor', () => {
     expect(commandForAction({ kind: 'browser.open', url: 'https://example.com' }))
       .toEqual(['open', 'https://example.com'])
     expect(() => commandForAction({ kind: 'desktop.screen-size' })).toThrow(/browser operation/)
+  })
+  it('launches the package-local browser CLI without relying on PATH', () => {
+    const invocation = agentBrowserInvocation(
+      { kind: 'browser.open', url: 'https://example.com' },
+      '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+    )
+    expect(invocation.command).toBe(process.execPath)
+    expect(invocation.args[0]).toMatch(/agent-browser(?:\/|\\)bin(?:\/|\\)agent-browser\.js$/u)
+    expect(invocation.args.slice(1)).toEqual([
+      '--executable-path', '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+      'open', 'https://example.com',
+    ])
   })
   it('executes an observed action only after consuming its permit', async () => {
     const order: string[] = []

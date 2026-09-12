@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { PlaywrightMcpAdapter, playwrightToolForAction } from '../src/playwright-mcp-adapter.ts'
+import { PlaywrightMcpAdapter, playwrightMcpInvocation, playwrightToolForAction } from '../src/playwright-mcp-adapter.ts'
 
 describe('PlaywrightMcpAdapter', () => {
   it('maps typed operations to the Playwright MCP tool contract', () => {
@@ -18,5 +18,14 @@ describe('PlaywrightMcpAdapter', () => {
     }, new AbortController().signal)
     expect(result).toMatchObject({ state: 'completed', summary: 'snapshot ready' })
     expect(callTool).toHaveBeenCalledWith({ name: 'browser_snapshot', arguments: {} })
+  })
+
+  it('launches the package-local MCP CLI without relying on PATH', () => {
+    const invocation = playwrightMcpInvocation('/Applications/Google Chrome.app/Contents/MacOS/Google Chrome')
+    expect(invocation.command).toBe(process.execPath)
+    expect(invocation.args[0]).toMatch(/@playwright(?:\/|\\)mcp(?:\/|\\)cli\.js$/u)
+    expect(invocation.args.slice(1)).toEqual([
+      '--headless', '--isolated', '--executable-path', '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+    ])
   })
 })

@@ -27,6 +27,8 @@ node apps/device-agent/lib/bin.js --server http://your-dsh-host
 
 Agent 仅监听 `127.0.0.1:47631`。在 DSH 中打开 **数字员工 → 我的电脑 → 连接此电脑**。Ed25519 私钥以仅当前用户可读的权限保存在 `~/.dsh/device-agent`，loopback 接口永不返回私钥。
 
+浏览器 Adapter 不依赖服务账号的 `PATH`。Agent 使用自身 Node 可执行文件启动包内的 `agent-browser` 和 Playwright MCP 入口。存在已安装 Chrome 时会直接复用其可执行文件，但仍使用隔离的自动化 Profile。受管安装可通过 `DSH_DEVICE_BROWSER_EXECUTABLE` 覆盖浏览器发现结果。
+
 ## 安全与恢复
 
 设备、Run、Permit、nonce、动作、结果与证据元数据都会持久化。Permit 有效期为 60 秒且只能消费一次；设备请求有效期为 60 秒，每个 nonce 只能接受一次。一个排队动作只能由一个 Agent 领取。领取后若连接结果不明，系统不会自动重复执行。

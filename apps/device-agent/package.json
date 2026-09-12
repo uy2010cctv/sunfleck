@@ -11,7 +11,8 @@
     "@deepseek-ai/dsh-enterprise-device-plane": "workspace:^",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@playwright/mcp": "0.0.80",
-    "@trycua/cua-driver": "0.27.0"
+    "@trycua/cua-driver": "0.27.0",
+    "agent-browser": "0.27.0"
   },
   "license": "MIT"
 }

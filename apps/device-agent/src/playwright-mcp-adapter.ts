@@ -1,8 +1,18 @@
+import { fileURLToPath } from 'node:url'
+import { installedBrowserExecutable } from './browser-executable.ts'
 import type { DeviceAction, DeviceActionResult, DeviceAdapter, DeviceOperation } from './protocol.ts'
 
 interface McpToolRequest { readonly name: string; readonly arguments: Readonly<Record<string, unknown>> }
 interface McpToolResult { readonly content?: readonly { readonly type: string; readonly text?: string }[]; readonly isError?: boolean }
 type CallTool = (request: McpToolRequest) => Promise<McpToolResult>
+const playwrightMcpCli = fileURLToPath(new URL('./cli.js', import.meta.resolve('@playwright/mcp/package.json')))
+
+export function playwrightMcpInvocation(
+  browserExecutable: string | undefined = installedBrowserExecutable(),
+): { readonly command: string; readonly args: string[] } {
+  const browserArgs = browserExecutable === undefined ? [] : ['--executable-path', browserExecutable]
+  return { command: process.execPath, args: [playwrightMcpCli, '--headless', '--isolated', ...browserArgs] }
+}
 
 export function playwrightToolForAction(operation: DeviceOperation): McpToolRequest {
   switch (operation.kind) {
@@ -47,7 +57,8 @@ export class PlaywrightMcpAdapter implements DeviceAdapter {
       import('@modelcontextprotocol/sdk/client/stdio.js'),
     ])
     const client = new Client({ name: 'dsh-device-agent', version: '0.1.0' })
-    await client.connect(new StdioClientTransport({ command: 'playwright-mcp', args: ['--headless', '--isolated'] }))
+    const invocation = playwrightMcpInvocation()
+    await client.connect(new StdioClientTransport(invocation))
     this.callTool = request => client.callTool(request) as Promise<McpToolResult>
     return this.callTool
   }
