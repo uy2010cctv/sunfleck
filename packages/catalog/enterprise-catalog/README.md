@@ -10,6 +10,8 @@ English | [中文](README.zh.md)
 
 Versioned DSH enterprise employee drafts, releases, and capability assets.
 
+`learnEmployeeAsset` commits a learned SOP/skill version, its employee binding and an immutable release in one transaction. It retains existing bindings and preserves pending human draft edits without publishing them. Idempotent retries return the original result; unchanged content reuses its asset version.
+
 ## Table of Contents
 
 - [Package Details](#package-details)
@@ -65,3 +67,7 @@ None; catalog writes do not assemble provider requests.
 None.
 
 </details>
+
+## Autonomous capability persistence
+
+`learnEmployeeAsset` registers an SOP or skill, binds it to the current employee, and publishes a release in one transaction. It preserves existing capabilities and unpublished human edits; retries are idempotent, and unchanged content reuses its asset version.

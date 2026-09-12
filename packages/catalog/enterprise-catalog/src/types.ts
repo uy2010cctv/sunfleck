@@ -88,6 +88,18 @@ export interface SaveAssetVersionInput {
   readonly createdBy: string
 }
 
+/** One employee-owned learned text capability, committed with its binding and release. */
+export interface LearnEmployeeAssetInput {
+  readonly orgId: string
+  readonly presetId: string
+  readonly assetId: string
+  readonly kind: 'sop' | 'skill'
+  readonly name: string
+  readonly content: Readonly<Record<string, unknown>>
+  readonly actorUserId: string
+  readonly idempotencyKey: string
+}
+
 /** Current metadata for one versioned catalog asset. */
 export interface EnterpriseAssetView {
   readonly assetId: string

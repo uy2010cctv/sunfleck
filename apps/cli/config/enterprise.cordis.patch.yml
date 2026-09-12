@@ -79,6 +79,12 @@
         saml: !!js JSON.parse(process.env.DSH_ENTERPRISE_SAML ?? '[]')
         ldap: !!js JSON.parse(process.env.DSH_ENTERPRISE_LDAP ?? '[]')
 
+    - id: enterprise-employee-learning
+      name: '@deepseek-ai/dsh-enterprise-memory-context/learning'
+      config:
+        maxChars: 12000
+        maxLearningBytes: 64000
+
     - id: enterprise-memory-context
       name: '@deepseek-ai/dsh-enterprise-memory-context'
       config:

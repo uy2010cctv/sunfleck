@@ -65,3 +65,7 @@ Versioned DSH enterprise employee drafts, releases, and capability assets。
 无。
 
 </details>
+
+## 自主能力沉淀
+
+`learnEmployeeAsset` 在同一事务中登记 SOP/Skill、绑定当前员工并发布版本，保留原有能力和未发布人工修改；重复调用幂等，同内容复用资产版本。

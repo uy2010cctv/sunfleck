@@ -24,7 +24,7 @@ Reviewed organization and department memory context for DSH Enterprise。
 
 启用自动业务记忆采集时，写入者依次取已认证请求主体和持久化的企业 Session 所有者。未绑定的后台运行必须配置已存在、且以 `service:` 开头的 `backgroundServiceUserId`；绝不会回退为 bootstrap 管理员。默认只创建待审核提案。只有匹配 `<orgId>:organization` 或 `<orgId>:department:<departmentId>` 的 `enterprise-memory-autonomy` 组织资源策略、策略为组织可见、包含该执行者且由启用状态的管理员创建时，才会自动启用。个人工作区偏好始终保持个人范围，本机制不会将其提升为共享记忆。
 
-记忆值以带稳定 ID 的事实背景呈现，并附带明确的隐私与访问规范。仓储审核和隐私筛查仍是权威；本包不负责抽取或批准记忆。
+记忆值以带稳定 ID 的事实背景呈现，并附带明确的隐私与访问规范。仓储审核和隐私筛查仍是权威；本包不负责抽取或批准记忆。员工学习是独立的版本化资产工作流，它记录来源和审计结果，不会改变业务记忆审核策略。
 
 ## Model Experience
 
@@ -55,3 +55,7 @@ Reviewed organization and department memory context for DSH Enterprise。
 企业 Profile 有意不配置自动批准。任何范围需要自动启用前，必须先通过已认证的企业控制平面配置并治理对应资源策略。
 
 </details>
+
+## 员工自主学习
+
+企业配置默认挂载独立的 `./learning` 插件。员工完成可复用工作后调用 `learn_employee_capability`，传入类型、名称及工作区内的 Markdown 源文件路径，即可自动登记、绑定自身并发布能力版本，无需管理员确认。归属取当前会话员工身份；保留已有能力和未发布的人工草稿。当前及后续会话只加载本员工在该工作区学到的能力，不新增工具权限或数据访问权限。`maxLearningBytes` 限制每个源文件（默认 64000 个 UTF-8 字节）；`maxChars` 限制学习内容上下文，较长规程通过源文件按需读取。

@@ -155,6 +155,7 @@ class MemoryPostgresDatabase implements PostgresDatabase {
         row.profile_json = parse(values[3]); row.bindings_json = parse(values[4]); row.updated_at = Number(values[5])
       }
       if (text.includes("status = 'published'")) row.status = 'published'
+      else if (text.includes("status = 'draft'")) row.status = 'draft'
       row.revision += 1
       return [clone(row)]
     }
@@ -321,6 +322,32 @@ const firstDraft = {
 }
 
 describe('EnterpriseCatalogRepository', () => {
+  it('learns and publishes an asset atomically without publishing pending profile edits', async () => {
+    const repository = catalogRepository()
+    await repository.saveDraft(firstDraft)
+    await repository.publishDraft({ orgId: 'org-a', presetId: firstDraft.presetId, expectedRevision: 1, idempotencyKey: 'initial', publishedBy: 'user-a' })
+    await repository.saveDraft({ ...firstDraft, expectedRevision: 2, idempotencyKey: 'pending', profile: { ...firstDraft.profile, prompt: 'Unpublished change' } })
+    const input = { orgId: 'org-a', presetId: firstDraft.presetId, assetId: 'learned-sop', kind: 'sop' as const, name: 'Learned SOP', content: { content: 'Check the totals', workspaceRoot: '/managed/ops' }, actorUserId: 'user-a', idempotencyKey: 'learn-1' }
+    const result = await repository.learnEmployeeAsset(input)
+    expect(result.release.snapshot.profile.prompt).toBe('Help the sales team.')
+    expect(result.release.snapshot.bindings).toContainEqual({ kind: 'sop', assetId: 'learned-sop', version: 1 })
+    expect(await repository.getDraft(firstDraft.presetId, 'org-a')).toMatchObject({ profile: { prompt: 'Unpublished change' }, bindings: result.release.snapshot.bindings })
+    expect(await repository.learnEmployeeAsset(input)).toEqual(result)
+    expect(await repository.listAssetVersions('org-a', 'learned-sop')).toHaveLength(1)
+    const next = await repository.learnEmployeeAsset({ ...input, assetId: 'learned-skill', kind: 'skill', idempotencyKey: 'learn-2' })
+    expect(next.release.snapshot.bindings).toHaveLength(2)
+    expect((await repository.listReleases(firstDraft.presetId, 'org-a'))[0]?.snapshot.bindings).toEqual([])
+  })
+
+  it('does not create learned assets for another organization or an unpublished employee', async () => {
+    const repository = catalogRepository()
+    await repository.saveDraft(firstDraft)
+    const input = { orgId: 'org-a', presetId: firstDraft.presetId, assetId: 'learned-sop', kind: 'sop' as const, name: 'SOP', content: { content: 'Check totals' }, actorUserId: 'user-a', idempotencyKey: 'learn-1' }
+    await expect(repository.learnEmployeeAsset(input)).rejects.toThrow()
+    await expect(repository.learnEmployeeAsset({ ...input, orgId: 'org-b' })).rejects.toThrow()
+    expect(await repository.getAsset('org-a', 'learned-sop')).toBeUndefined()
+  })
+
   it('creates a versioned employee draft', async () => {
     const repository = catalogRepository(new MemoryPostgresDatabase(), { now: () => 100 })
 

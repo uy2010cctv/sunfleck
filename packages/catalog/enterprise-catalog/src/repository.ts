@@ -6,7 +6,7 @@ import type {
   CatalogAssetKind, CatalogCursorPage, CatalogListInput, EmployeeDraftInput, EmployeeDraftView,
   EmployeeReleaseView, EnterpriseAssetRef, EnterpriseAssetVersionView, EnterpriseAssetView,
   EnterpriseCatalogRepositoryOptions, ListEmployeeDraftsInput, ListEnterpriseAssetsInput,
-  PostgresDatabase, SaveAssetVersionInput,
+  PostgresDatabase, SaveAssetVersionInput, LearnEmployeeAssetInput,
 } from './types.ts'
 import { migrateEnterpriseCatalog } from './schema.ts'
 
@@ -252,6 +252,73 @@ export class EnterpriseCatalogRepository {
   private initialize(): Promise<void> {
     this.initialized ??= migrateEnterpriseCatalog(this.database)
     return this.initialized
+  }
+
+  /**
+   * Register a learned text asset and publish only its employee binding in one transaction.
+   * @param input - Trusted employee/workspace-derived identity and learned content.
+   * @returns The pinned asset version and immutable employee release.
+   */
+  async learnEmployeeAsset(input: LearnEmployeeAssetInput): Promise<{
+    asset: EnterpriseAssetVersionView
+    release: EmployeeReleaseView
+  }> {
+    await this.initialize()
+    return this.database.transaction(async (database) => {
+      await this.lock(database, `${input.orgId}:draft:${input.presetId}`)
+      // Reuse catalog operations on this transaction without issuing nested BEGIN/COMMIT.
+      const scoped: PostgresDatabase = {
+        query: (text, values) => database.query(text, values),
+        transaction: operation => operation(scoped),
+      }
+      const catalog = new EnterpriseCatalogRepository(scoped, this.options)
+      catalog.initialized = Promise.resolve()
+      const prior = await this.idempotent<{ asset: EnterpriseAssetVersionView; release: EmployeeReleaseView }>(
+        database, input.orgId, 'learn', input.idempotencyKey, input,
+      )
+      if (prior !== undefined) return prior
+      const draft = await catalog.getDraft(input.presetId, input.orgId)
+      if (draft === undefined) throw new EnterpriseCatalogError('not-found', 'employee', input.presetId)
+      const latest = (await catalog.listReleases(input.presetId, input.orgId)).at(-1)
+      if (latest === undefined) throw new EnterpriseCatalogError('invalid-state', 'employee', input.presetId)
+      const existing = await catalog.getAsset(input.orgId, input.assetId)
+      if (existing?.archived || (existing !== undefined && existing.kind !== input.kind)) {
+        throw new EnterpriseCatalogError('invalid-binding', 'asset', input.assetId)
+      }
+      const current = existing === undefined ? undefined : (await catalog.listAssetVersions(input.orgId, input.assetId)).at(-1)
+      const asset = current !== undefined && catalogDigest(current.content) === catalogDigest(input.content)
+        ? current
+        : await catalog.saveAssetVersion({
+          orgId: input.orgId, assetId: input.assetId, kind: input.kind, name: input.name,
+          content: input.content, createdBy: input.actorUserId, expectedRevision: existing?.revision ?? 0,
+          idempotencyKey: `learn-asset:${input.idempotencyKey}`,
+        })
+      const binding = { kind: input.kind, assetId: input.assetId, version: asset.version }
+      const bind = (bindings: readonly EnterpriseAssetRef[]): EnterpriseAssetRef[] => [
+        ...bindings.filter(ref => ref.assetId !== input.assetId), binding,
+      ]
+      let release = latest
+      if (!latest.snapshot.bindings.some(ref => ref.assetId === input.assetId && ref.version === asset.version)) {
+        const staged = await catalog.saveDraft({
+          ...draft, profile: latest.snapshot.profile, bindings: bind(latest.snapshot.bindings),
+          expectedRevision: draft.revision, idempotencyKey: `learn-stage:${input.idempotencyKey}`,
+        })
+        release = await catalog.publishDraft({
+          orgId: input.orgId, presetId: input.presetId, expectedRevision: staged.revision,
+          publishedBy: input.actorUserId, idempotencyKey: `learn-publish:${input.idempotencyKey}`,
+        })
+        if (draft.status === 'draft') {
+          const published = await catalog.getDraft(input.presetId, input.orgId)
+          await catalog.saveDraft({
+            ...draft, bindings: bind(draft.bindings), expectedRevision: required(published, 'learned employee release draft is missing').revision,
+            idempotencyKey: `learn-restore:${input.idempotencyKey}`,
+          })
+        }
+      }
+      const result = { asset, release }
+      await this.remember(database, input.orgId, 'learn', input.idempotencyKey, input, result)
+      return result
+    })
   }
 
   /**
