@@ -76,6 +76,27 @@ function conversationEvents(): SessionEvent[] {
 }
 
 describe('sessions.list cold merge', () => {
+  it('hides a stale cold shell when persistence proves no conversation turn started', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const metas = [header('cold-shell', 100), header('cold-conversation', 200)]
+    providePersistence(ctx, {
+      list: () => Promise.resolve(metas),
+      conversationStarted: (meta: SessionHeader) => meta.id === sid('cold-conversation'),
+    })
+    const remote = createSessionTestRemote(ctx, {
+      defaultModelSelection: () => ({ provider: 'p', model: 'm' }), cwd: '/tmp',
+    })
+
+    const response = await remote.list(request({}))
+
+    if (!response.ok) throw new Error('list failed')
+    expect(response.value.items).toEqual([
+      expect.objectContaining({ sessionId: sid('cold-conversation'), blank: false }),
+      expect.objectContaining({ sessionId: sid('cold-shell'), blank: true }),
+    ])
+  })
+
   it('uses a predecessor title hint with zero cold stat or body reads', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)

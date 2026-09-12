@@ -95,9 +95,15 @@ class MemoryPostgresDatabase implements PostgresDatabase {
       const row = this.headers.get(values[0] as string)
       return row === undefined ? [] : [this.header(row)]
     }
-    if (text.includes('FROM dsh_session_headers ORDER BY')) return [...this.headers.values()]
+    if (text.includes('FROM dsh_session_headers') && text.includes('ORDER BY')) return [...this.headers.values()]
       .sort((left, right) => right.created_at - left.created_at || left.id.localeCompare(right.id))
-      .map(row => this.header(row))
+      .map(row => ({
+        ...this.header(row),
+        ...(text.includes('AS conversation_started')
+          ? { conversation_started: [...(this.events.get(row.id)?.values() ?? [])]
+            .some(event => (event.event_json as { type?: string }).type === 'turn/start') }
+          : {}),
+      }))
     if (text.startsWith('SELECT seq FROM dsh_session_events')) {
       const session = this.events.get(values[0] as string)
       const seq = session === undefined || session.size === 0 ? undefined : Math.max(...session.keys())
@@ -183,6 +189,25 @@ describe('PostgresSessionStore', () => {
 
     expect(database.queries.join('\n')).toContain('CREATE TABLE IF NOT EXISTS dsh_session_headers')
     expect(database.queries.join('\n')).toContain('CREATE TABLE IF NOT EXISTS dsh_session_events')
+  })
+
+  it('lists lightweight conversation-start evidence without loading complete logs', async () => {
+    const database = new MemoryPostgresDatabase()
+    const persistence = new PostgresSessionPersistence(new Context(), { database })
+    const emptyHeader = { ...header, id: 'session-empty', version: SESSION_FORMAT_VERSION }
+    const startedHeader = { ...header, id: 'session-started', version: SESSION_FORMAT_VERSION }
+    const empty = await persistence.create(emptyHeader)
+    await empty.flush()
+    await empty.close()
+    const started = await persistence.create(startedHeader)
+    await started.append([turnStart])
+    await started.flush()
+    await started.close()
+
+    await expect(persistence.list()).resolves.toEqual(expect.arrayContaining([
+      expect.objectContaining({ header: expect.objectContaining({ id: 'session-empty' }), conversationStarted: false }),
+      expect.objectContaining({ header: expect.objectContaining({ id: 'session-started' }), conversationStarted: true }),
+    ]))
   })
 
   it('upgrades the previous v1 session schema without rejecting existing enterprise data', async () => {

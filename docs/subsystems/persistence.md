@@ -315,12 +315,14 @@ interface SessionPersistenceSnapshot {
   readonly revision: SessionPersistenceRevision
   /** Logical event count, when the backend can provide it cheaply from metadata; otherwise absent. */
   readonly eventCount?: number
+  /** Whether a conversation turn has started, when the backend can determine it without loading the log. */
+  readonly conversationStarted?: boolean
   /** Physical artifact byte size, when the backend can provide it cheaply (JSONL); otherwise absent. */
   readonly sizeBytes?: number
 }
 ```
 
-The optional `eventCount`/`sizeBytes` fields remain cheap backend observations for consumers that explicitly need them. Session listing does not use either field to open cold logs: it reads headers plus identity-checked projection-cache hints only, so a cache or Session-format upgrade never turns startup into a body scan.
+The optional `eventCount`/`conversationStarted`/`sizeBytes` fields remain cheap backend observations for consumers that explicitly need them. PostgreSQL derives `conversationStarted` with an indexed `turn/start` existence check, so Session listing can suppress stale empty shells without opening cold logs. Other missing metadata remains unknown and visible; a cache or Session-format upgrade never turns startup into a body scan.
 
 ## The backend
 

@@ -149,7 +149,10 @@ export class PostgresSessionPersistence extends SessionPersistence {
     if (stored === undefined) return undefined
     const decoded = decodeStoredPrefix(stored.meta)
     this.validate(id, decoded.header, [...stored.events])
-    return { header: decoded.header, revision: stored.revision, eventCount: stored.events.length }
+    return {
+      header: decoded.header, revision: stored.revision, eventCount: stored.events.length,
+      conversationStarted: stored.events.some(event => event.type === 'turn/start'),
+    }
   }
 
   async list(options?: SessionPersistenceListOptions): Promise<readonly SessionPersistenceSnapshot[]> {
@@ -168,19 +171,37 @@ export class PostgresSessionPersistence extends SessionPersistence {
    * @param header - Input value used by this API.
    * @param inheritedEventCount - Input value used by this API.
   */
-  append(header: SessionHeader, inheritedEventCount: number, events: readonly SessionEvent[]): Promise<void> { return this.store.appendBatch(withStoredPrefix(header, inheritedEventCount), events, true) }
+  append(header: SessionHeader, inheritedEventCount: number, events: readonly SessionEvent[]): Promise<void> {
+    return this.store.appendBatch(withStoredPrefix(header, inheritedEventCount), events, true)
+  }
   /** Executes `PostgresSessionPersistence.release` for this instance.
    * @param handle - Input value used by this API.
   */
-  release(handle: PostgresSessionHandle): void { this.handles.delete(handle); if (this.writers.get(handle.id) === handle) this.writers.delete(handle.id) }
-  private adopt(handle: PostgresSessionHandle): PostgresSessionHandle { this.handles.add(handle); if (handle.access === 'write') this.writers.set(handle.id, handle); return handle }
+  release(handle: PostgresSessionHandle): void {
+    this.handles.delete(handle)
+    if (this.writers.get(handle.id) === handle) this.writers.delete(handle.id)
+  }
+  private adopt(handle: PostgresSessionHandle): PostgresSessionHandle {
+    this.handles.add(handle)
+    if (handle.access === 'write') this.writers.set(handle.id, handle)
+    return handle
+  }
   private async requireStored(id: SessionId, signal?: AbortSignal) {
     const stored = await this.store.loadStored(id, signal)
     if (stored === undefined) throw new SessionPersistenceNotFoundError(id)
     const decoded = decodeStoredPrefix(stored.meta)
-    return { header: decoded.header, inheritedEventCount: decoded.inheritedEventCount, events: this.validate(id, decoded.header, [...stored.events]) }
+    return {
+      header: decoded.header,
+      inheritedEventCount: decoded.inheritedEventCount,
+      events: this.validate(id, decoded.header, [...stored.events]),
+    }
   }
-  private validate(id: SessionId, header: SessionHeader, events: SessionEvent[]): SessionEvent[] { assertStoredId(id, header); assertVersion(header); assertContiguous(id, events, 0); return validateStoredEvents(header, events) }
+  private validate(id: SessionId, header: SessionHeader, events: SessionEvent[]): SessionEvent[] {
+    assertStoredId(id, header)
+    assertVersion(header)
+    assertContiguous(id, events, 0)
+    return validateStoredEvents(header, events)
+  }
 }
 
 class PostgresSessionHandle implements SessionHandle {

@@ -14,6 +14,7 @@ interface HeaderRow extends Record<string, unknown> {
   readonly header_json: unknown
   readonly incarnation: string
   readonly revision: string | number
+  readonly conversation_started?: boolean
 }
 
 interface EventRow extends Record<string, unknown> {
@@ -116,7 +117,11 @@ export class PostgresSessionStore {
    * @param signal - Input value used by this API.
    * @returns Result produced by this API.
   */
-  async loadStoredFrom(id: SessionId, fromSeq: number, signal?: AbortSignal): Promise<{ meta: SessionHeader; events: readonly SessionEvent[] } | undefined> {
+  async loadStoredFrom(
+    id: SessionId,
+    fromSeq: number,
+    signal?: AbortSignal,
+  ): Promise<{ meta: SessionHeader; events: readonly SessionEvent[] } | undefined> {
     await this.observe(signal)
     return this.database.transaction(async (transaction) => {
       await transaction.query('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY')
@@ -265,10 +270,16 @@ export class PostgresSessionStore {
   async listSnapshots(signal?: AbortSignal): Promise<SessionPersistenceSnapshot[]> {
     await this.observe(signal)
     const result = await this.database.query<HeaderRow>(
-      'SELECT id, header_json, incarnation, revision FROM dsh_session_headers ORDER BY created_at DESC, id',
+      `SELECT header.id, header.header_json, header.incarnation, header.revision,
+        EXISTS(SELECT 1 FROM dsh_session_events event
+          WHERE event.session_id = header.id AND event.event_type = 'turn/start') AS conversation_started
+       FROM dsh_session_headers header ORDER BY header.created_at DESC, header.id`,
     )
     signal?.throwIfAborted()
-    return result.rows.map(row => ({ header: parseHeader(row.header_json), revision: this.revision(row) }))
+    return result.rows.map(row => ({
+      header: parseHeader(row.header_json), revision: this.revision(row),
+      ...(row.conversation_started === undefined ? {} : { conversationStarted: row.conversation_started }),
+    }))
   }
 
   /** Executes `PostgresSessionStore.close` for this instance. */

@@ -114,6 +114,7 @@ interface TestSessionInspection {
 
 type LegacyTestPersistence = Record<string, unknown> & {
   readonly list?: (signal?: AbortSignal) => Promise<readonly SessionHeader[]>
+  readonly conversationStarted?: (header: SessionHeader) => boolean | undefined
   readonly inspect?: (
     sessionId: SessionId,
     signal?: AbortSignal,
@@ -172,6 +173,9 @@ export function testSessionPersistence(
       (await listHeaders(options?.signal)).map(header => ({
         header,
         revision: SessionPersistenceRevision(`test:${header.id}:list`),
+        ...(persistence.conversationStarted?.(header) === undefined
+          ? {}
+          : { conversationStarted: persistence.conversationStarted(header) }),
       })),
   }
   if (persistence.stat === undefined) {

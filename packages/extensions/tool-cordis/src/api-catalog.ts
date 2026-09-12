@@ -6830,7 +6830,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SessionPersistenceSnapshot',
-    declaration: 'export interface SessionPersistenceSnapshot {\n    readonly header: SessionHeader;\n    readonly revision: SessionPersistenceRevision;\n    readonly eventCount?: number;\n    readonly sizeBytes?: number;\n}',
+    declaration: 'export interface SessionPersistenceSnapshot {\n    readonly header: SessionHeader;\n    readonly revision: SessionPersistenceRevision;\n    readonly eventCount?: number;\n    readonly conversationStarted?: boolean;\n    readonly sizeBytes?: number;\n}',
   },
   {
     name: 'SessionPersistenceStatOptions',
@@ -6878,7 +6878,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SessionRecord',
-    declaration: 'export interface SessionRecord {\n    header: SessionHeader;\n    live: boolean;\n    persisted: boolean;\n}',
+    declaration: 'export interface SessionRecord {\n    header: SessionHeader;\n    live: boolean;\n    persisted: boolean;\n    conversationStarted?: boolean;\n}',
   },
   {
     name: 'SessionReferenceCandidate',

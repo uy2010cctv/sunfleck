@@ -315,12 +315,14 @@ interface SessionPersistenceSnapshot {
   readonly revision: SessionPersistenceRevision
   /** Logical event count, when the backend can provide it cheaply from metadata; otherwise absent. */
   readonly eventCount?: number
+  /** Whether a conversation turn has started, when the backend can determine it without loading the log. */
+  readonly conversationStarted?: boolean
   /** Physical artifact byte size, when the backend can provide it cheaply (JSONL); otherwise absent. */
   readonly sizeBytes?: number
 }
 ```
 
-可选的 `eventCount`/`sizeBytes` 字段仍是供明确需要它们的 consumer 使用的低成本 backend observation。Session 列表不借助这两个字段打开冷日志，只读取 header 与经过 identity 校验的 projection cache hint，因此 cache 或 Session format 升级不会把启动变成 body scan。
+可选的 `eventCount`/`conversationStarted`/`sizeBytes` 字段仍是供明确需要它们的 consumer 使用的低成本 backend observation。PostgreSQL 通过索引化的 `turn/start` 存在性检查派生 `conversationStarted`，因此 Session 列表可以隐藏过期空壳而不打开冷日志。其他缺失元数据仍被视为未知并保守显示；cache 或 Session format 升级不会把启动变成 body scan。
 
 ## 后端
 

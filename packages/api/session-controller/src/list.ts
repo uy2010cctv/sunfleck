@@ -7,7 +7,7 @@ import { SessionLogOffset } from '@deepseek-ai/dsh-session'
 import type { Session, SessionEvent, SessionHeader, SessionId } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-session-projection'
 import type {} from '@deepseek-ai/dsh-session-projection-cache'
-import { SessionQueryError, type SessionSearchCursor } from '@deepseek-ai/dsh-session-query'
+import { SessionQueryError, type SessionRecord, type SessionSearchCursor } from '@deepseek-ai/dsh-session-query'
 import { RemoteError } from '@deepseek-ai/dsh-typert-protocol'
 import { z } from 'zod'
 import {
@@ -128,7 +128,7 @@ export class ApiSessionList {
     const records = await this.ctx.sessionQuery.listSessions(signal)
     signal?.throwIfAborted()
     const items: SessionSummary[] = []
-    const cold: SessionHeader[] = []
+    const cold: SessionRecord[] = []
     for (const record of records) {
       const live = this.ctx.sessions.get(record.header.id)
       if (live !== undefined) {
@@ -136,22 +136,24 @@ export class ApiSessionList {
         continue
       }
       if (record.header.cwd === undefined) continue
-      cold.push(record.header)
+      cold.push(record)
     }
-    for (const header of cold) items.push(this.summarizeCold(header))
+    for (const record of cold) items.push(this.summarizeCold(record))
     items.sort((left, right) => right.updatedAt - left.updatedAt)
     return items
   }
 
-  private summarizeCold(header: SessionHeader): SessionSummary {
+  private summarizeCold(record: SessionRecord): SessionSummary {
+    const header = record.header
     const projections = this.projectionsFor(header, undefined)
     const metadata = projections?.values.sessionListMetadata
     return {
       sessionId: header.id,
       updatedAt: updatedAt(header, metadata),
       running: false,
-      // A large, metadata-less, or inaccessible cache miss remains unknown and visible.
-      blank: metadata?.blank ?? false,
+      // PostgreSQL can classify legacy cold shells without reading or activating their complete logs.
+      // Backends without lightweight turn metadata remain unknown and visible.
+      blank: metadata?.blank ?? record.conversationStarted === false,
       ...listFields(header),
       ...(projections === undefined ? {} : { projections }),
     }

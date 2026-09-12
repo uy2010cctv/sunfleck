@@ -31,6 +31,8 @@ export interface SessionRecord {
   live: boolean
   /** Whether the active persistence backend currently lists the id, including a created-but-unmaterialized session it already observes. */
   persisted: boolean
+  /** Lightweight persisted evidence that a conversation turn has started; absent when the backend cannot tell cheaply. */
+  conversationStarted?: boolean
 }
 
 /** One atomic live-preferred observation of a session's current model surface. */
