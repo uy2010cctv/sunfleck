@@ -15,13 +15,26 @@ export interface Config {
 }
 export const Config: z<Config> = z.object({ resultTimeoutMs: z.number().step(1).min(1_000).max(60_000).default(30_000) })
 
-type OperationName = 'screen_size' | 'browser_open' | 'browser_snapshot' | 'browser_click' | 'browser_fill'
+type OperationName = 'desktop_windows' | 'desktop_snapshot' | 'desktop_click' | 'desktop_type'
+  | 'screen_size' | 'browser_open' | 'browser_snapshot' | 'browser_click' | 'browser_fill'
 interface OperationArgs {
   readonly operation: OperationName
   readonly url?: string
   readonly selector?: string
   readonly value?: string
+  readonly pid?: number
+  readonly windowId?: number
+  readonly x?: number
+  readonly y?: number
   readonly engine?: 'agent-browser' | 'playwright-mcp'
+}
+
+function exactWindow(args: OperationArgs): { pid: number; windowId: number } {
+  if (!Number.isSafeInteger(args.pid) || (args.pid ?? 0) < 1) throw new Error('desktop operation requires a positive pid')
+  if (!Number.isSafeInteger(args.windowId) || (args.windowId ?? 0) < 1) {
+    throw new Error('desktop operation requires a positive windowId')
+  }
+  return { pid: args.pid as number, windowId: args.windowId as number }
 }
 
 /** Map a model-visible operation to one fixed adapter, capability, and wire action.
@@ -36,6 +49,33 @@ export function deviceOperation(args: OperationArgs): {
   const adapter = args.engine ?? 'agent-browser'
   switch (args.operation) {
     case 'screen_size': return { adapter: 'cua', capability: 'desktop.observe', operation: { kind: 'desktop.screen-size' } }
+    case 'desktop_windows': return { adapter: 'cua', capability: 'desktop.observe', operation: { kind: 'desktop.windows' } }
+    case 'desktop_snapshot': return {
+      adapter: 'cua', capability: 'desktop.observe', operation: { kind: 'desktop.snapshot', ...exactWindow(args) },
+    }
+    case 'desktop_click': {
+      const target = exactWindow(args)
+      const elementToken = args.selector?.trim()
+      const x = args.x
+      const y = args.y
+      const coordinates = typeof x === 'number' && Number.isFinite(x) && typeof y === 'number' && Number.isFinite(y)
+      if ((elementToken === undefined || elementToken === '') && !coordinates) {
+        throw new Error('desktop_click requires an element token or x/y coordinates')
+      }
+      return { adapter: 'cua', capability: 'desktop.control', operation: {
+        kind: 'desktop.click', ...target,
+        ...(elementToken === undefined || elementToken === '' ? { x: x as number, y: y as number } : { elementToken }),
+      } }
+    }
+    case 'desktop_type': {
+      const target = exactWindow(args)
+      const elementToken = args.selector?.trim()
+      if (elementToken === undefined || elementToken === '') throw new Error('desktop_type requires an element token')
+      if (args.value === undefined) throw new Error('desktop_type requires a value')
+      return { adapter: 'cua', capability: 'desktop.control', operation: {
+        kind: 'desktop.type', ...target, elementToken, text: args.value,
+      } }
+    }
     case 'browser_snapshot': return { adapter, capability: 'browser.observe', operation: { kind: 'browser.snapshot' } }
     case 'browser_open': {
       if (args.url === undefined) throw new Error('browser_open requires an http(s) url')
@@ -62,12 +102,19 @@ export function apply(ctx: Context, config: Config): void {
   const timeoutMs = config.resultTimeoutMs ?? 30_000
   ctx.tools.register(defineTool({
     name: 'computer_use',
-    description: 'Use the authenticated user\'s paired computer. Browser or desktop control remains subject to the user\'s local confirmation and enterprise policy.',
+    description: 'Use the authenticated user\'s paired computer. Prefer Cua desktop_windows, desktop_snapshot, desktop_click, and desktop_type for visible user-PC work. Use browser_* only to bootstrap or as structured-browser fallback. Control remains subject to local confirmation and enterprise policy.',
     parameters: {
-      operation: { type: 'string', required: true, enum: ['screen_size', 'browser_open', 'browser_snapshot', 'browser_click', 'browser_fill'] },
+      operation: { type: 'string', required: true, enum: [
+        'desktop_windows', 'desktop_snapshot', 'desktop_click', 'desktop_type',
+        'screen_size', 'browser_open', 'browser_snapshot', 'browser_click', 'browser_fill',
+      ] },
       url: { type: 'string', description: 'Required for browser_open.' },
-      selector: { type: 'string', description: 'Snapshot reference required for browser_click/browser_fill.' },
-      value: { type: 'string', description: 'Required for browser_fill.' },
+      selector: { type: 'string', description: 'Snapshot reference or Cua element token required for click/fill/type.' },
+      value: { type: 'string', description: 'Required for browser_fill or desktop_type.' },
+      pid: { type: 'number', description: 'Cua process id from desktop_windows.' },
+      windowId: { type: 'number', description: 'Cua window id from desktop_windows.' },
+      x: { type: 'number', description: 'Optional Cua window screenshot x coordinate.' },
+      y: { type: 'number', description: 'Optional Cua window screenshot y coordinate.' },
       engine: { type: 'string', enum: ['agent-browser', 'playwright-mcp'], description: 'Optional browser engine.' },
     },
     output: {

@@ -16,6 +16,10 @@ export type DeviceOperation =
   | { readonly kind: 'browser.click'; readonly selector: string }
   | { readonly kind: 'browser.fill'; readonly selector: string; readonly value: string }
   | { readonly kind: 'desktop.screen-size' }
+  | { readonly kind: 'desktop.windows' }
+  | { readonly kind: 'desktop.snapshot'; readonly pid: number; readonly windowId: number }
+  | { readonly kind: 'desktop.click'; readonly pid: number; readonly windowId: number; readonly elementToken?: string; readonly x?: number; readonly y?: number }
+  | { readonly kind: 'desktop.type'; readonly pid: number; readonly windowId: number; readonly elementToken: string; readonly text: string }
 /** User-visible confirmation policy fixed for a Computer Use run. */
 export type ComputerUseMode = 'observe' | 'confirm-each' | 'delegated'
 /** Server-owned paired device record containing only its public identity. */

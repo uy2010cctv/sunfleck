@@ -13,9 +13,11 @@ export function validateQueuedDeviceAction(input: {
   const control = input.operation.kind === 'browser.open'
     || input.operation.kind === 'browser.click'
     || input.operation.kind === 'browser.fill'
+    || input.operation.kind === 'desktop.click'
+    || input.operation.kind === 'desktop.type'
   const expectedCapability: DeviceCapability = browser
     ? control ? 'browser.control' : 'browser.observe'
-    : 'desktop.observe'
+    : control ? 'desktop.control' : 'desktop.observe'
   if (input.capability !== expectedCapability) throw new Error('device action capability does not match operation')
   if (browser && input.adapter === 'cua') throw new Error('device action adapter does not match browser operation')
   if (!browser && input.adapter !== 'cua') throw new Error('device action adapter does not match desktop operation')

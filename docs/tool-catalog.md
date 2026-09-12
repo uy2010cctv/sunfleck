@@ -49,7 +49,7 @@ This table connects model-visible tool names to the plugin package and service s
 
 ### `computer_use`
 
-Use the authenticated user's paired computer. Browser or desktop control remains subject to the user's local confirmation and enterprise policy.
+Use the authenticated user's paired computer. Prefer Cua desktop_windows, desktop_snapshot, desktop_click, and desktop_type for visible user-PC work. Use browser_* only to bootstrap or as structured-browser fallback. Control remains subject to local confirmation and enterprise policy.
 
 ```json
 {
@@ -58,6 +58,10 @@ Use the authenticated user's paired computer. Browser or desktop control remains
     "operation": {
       "type": "string",
       "enum": [
+        "desktop_windows",
+        "desktop_snapshot",
+        "desktop_click",
+        "desktop_type",
         "screen_size",
         "browser_open",
         "browser_snapshot",
@@ -71,11 +75,27 @@ Use the authenticated user's paired computer. Browser or desktop control remains
     },
     "selector": {
       "type": "string",
-      "description": "Snapshot reference required for browser_click/browser_fill."
+      "description": "Snapshot reference or Cua element token required for click/fill/type."
     },
     "value": {
       "type": "string",
-      "description": "Required for browser_fill."
+      "description": "Required for browser_fill or desktop_type."
+    },
+    "pid": {
+      "type": "number",
+      "description": "Cua process id from desktop_windows."
+    },
+    "windowId": {
+      "type": "number",
+      "description": "Cua window id from desktop_windows."
+    },
+    "x": {
+      "type": "number",
+      "description": "Optional Cua window screenshot x coordinate."
+    },
+    "y": {
+      "type": "number",
+      "description": "Optional Cua window screenshot y coordinate."
     },
     "engine": {
       "type": "string",

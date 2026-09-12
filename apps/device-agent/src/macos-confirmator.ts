@@ -10,6 +10,8 @@ function actionDescription(action: DeviceAction): string {
     case 'browser.click': return 'DSH 请求操作浏览器：点击页面元素'
     case 'browser.fill': return 'DSH 请求操作浏览器：填写页面内容'
     case 'browser.open': return 'DSH 请求操作浏览器：打开网页'
+    case 'desktop.click': return 'DSH 请求操作此电脑：点击窗口内容'
+    case 'desktop.type': return 'DSH 请求操作此电脑：输入文本'
     default: return 'DSH 请求操作此电脑'
   }
 }

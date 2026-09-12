@@ -8,6 +8,10 @@ export type EnterpriseDeviceOperation =
   | { readonly kind: 'browser.click'; readonly selector: string }
   | { readonly kind: 'browser.fill'; readonly selector: string; readonly value: string }
   | { readonly kind: 'desktop.screen-size' }
+  | { readonly kind: 'desktop.windows' }
+  | { readonly kind: 'desktop.snapshot'; readonly pid: number; readonly windowId: number }
+  | { readonly kind: 'desktop.click'; readonly pid: number; readonly windowId: number; readonly elementToken?: string; readonly x?: number; readonly y?: number }
+  | { readonly kind: 'desktop.type'; readonly pid: number; readonly windowId: number; readonly elementToken: string; readonly text: string }
 /** Public identity supplied by the loopback Device Agent during pairing. */
 export interface EnterpriseDevicePairRequest {
   readonly deviceName: string

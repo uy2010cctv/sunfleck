@@ -5482,7 +5482,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'EnterpriseDeviceOperation',
-    declaration: 'export type EnterpriseDeviceOperation = {\n    readonly kind: \'browser.open\';\n    readonly url: string;\n} | {\n    readonly kind: \'browser.snapshot\';\n} | {\n    readonly kind: \'browser.click\';\n    readonly selector: string;\n} | {\n    readonly kind: \'browser.fill\';\n    readonly selector: string;\n    readonly value: string;\n} | {\n    readonly kind: \'desktop.screen-size\';\n};',
+    declaration: 'export type EnterpriseDeviceOperation = {\n    readonly kind: \'browser.open\';\n    readonly url: string;\n} | {\n    readonly kind: \'browser.snapshot\';\n} | {\n    readonly kind: \'browser.click\';\n    readonly selector: string;\n} | {\n    readonly kind: \'browser.fill\';\n    readonly selector: string;\n    readonly value: string;\n} | {\n    readonly kind: \'desktop.screen-size\';\n} | {\n    readonly kind: \'desktop.windows\';\n} | {\n    readonly kind: \'desktop.snapshot\';\n    readonly pid: number;\n    readonly windowId: number;\n} | {\n    readonly kind: \'desktop.click\';\n    readonly pid: number;\n    readonly windowId: number;\n    readonly elementToken?: string;\n    readonly x?: number;\n    readonly y?: number;\n} | {\n    readonly kind: \'desktop.type\';\n    readonly pid: number;\n    readonly windowId: number;\n    readonly elementToken: string;\n    readonly text: string;\n};',
   },
   {
     name: 'EnterpriseDevicePairRequest',

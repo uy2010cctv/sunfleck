@@ -10,11 +10,11 @@ DSH Device Plane 将企业权威控制与用户电脑上的执行分开。Postgr
 
 三种 Adapter 保持分离：
 
-- Cua Driver：原生桌面观察与控制。
-- agent-browser：使用隔离 Profile 的可见浏览器专属操作。
-- Playwright MCP：可见、隔离的兼容浏览器后端。
+- Cua Driver：用户 PC 观察与控制的主链路。它发现可见窗口、读取有界的原生无障碍快照，并执行经本机确认的元素 token 或坐标操作。
+- agent-browser：启动和导航可见的隔离浏览器，并保留为结构化 DOM 后备。
+- Playwright MCP：隔离的兼容浏览器后备。
 
-系统只接受固定动作：浏览器打开、快照、点击、填写，以及桌面屏幕尺寸观察。服务端不能下发任意 CLI 参数或本机模块路径。
+系统只接受固定动作。Cua 提供窗口发现、精确窗口快照、元素 token 或坐标点击、文本输入和屏幕尺寸观察；浏览器 Adapter 提供打开、DOM 快照、点击和填写。服务端不能下发任意 CLI 参数或本机模块路径。面向模型的工具会引导可见用户 PC 工作优先走 Cua，浏览器 Adapter 只负责启动隔离浏览器或显式后备。
 
 ## 本机 Agent
 
@@ -28,6 +28,8 @@ node apps/device-agent/lib/bin.js --server http://your-dsh-host
 Agent 仅监听 `127.0.0.1:47631`。在 DSH 中打开 **数字员工 → 我的电脑 → 连接此电脑**。同一用户范围内的同一公钥再次连接时会返回原设备，不会创建重复记录。Ed25519 私钥以仅当前用户可读的权限保存在 `~/.dsh/device-agent`，loopback 接口永不返回私钥。
 
 浏览器 Adapter 不依赖服务账号的 `PATH`。Agent 使用自身 Node 可执行文件启动包内的 `agent-browser` 和 Playwright MCP 入口。存在已安装 Chrome 时会直接复用其可执行文件，但仍使用隔离的自动化 Profile。用户 PC 上的浏览器窗口默认可见，因此本机确认、扫码登录和人工接管都发生在用户屏幕上。受管安装可用 `DSH_DEVICE_BROWSER_EXECUTABLE` 覆盖浏览器发现，或显式设置 `DSH_DEVICE_BROWSER_HEADLESS=1` 启用后台执行。
+
+Cua 快照向 Agent 返回有界的无障碍树，并刻意不把截图字节加入服务器结果。屏幕像素、登录二维码和无关桌面内容因此保留在配对电脑上。控制动作必须提供 Cua 返回的精确进程与窗口，再附加新鲜元素 token 或截图相对坐标。
 
 ## 安全与恢复
 

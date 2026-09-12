@@ -53,7 +53,7 @@
 
 ### `computer_use`
 
-使用已认证用户配对的电脑。浏览器或桌面控制仍受用户本机确认和企业策略约束。
+使用已认证用户配对的电脑。可见用户 PC 工作优先使用 Cua 的 `desktop_windows`、`desktop_snapshot`、`desktop_click` 和 `desktop_type`。`browser_*` 只用于启动浏览器或作为结构化浏览器后备。控制仍受本机确认和企业策略约束。
 
 ```json
 {
@@ -62,6 +62,10 @@
     "operation": {
       "type": "string",
       "enum": [
+        "desktop_windows",
+        "desktop_snapshot",
+        "desktop_click",
+        "desktop_type",
         "screen_size",
         "browser_open",
         "browser_snapshot",
@@ -75,11 +79,27 @@
     },
     "selector": {
       "type": "string",
-      "description": "Snapshot reference required for browser_click/browser_fill."
+      "description": "Snapshot reference or Cua element token required for click/fill/type."
     },
     "value": {
       "type": "string",
-      "description": "Required for browser_fill."
+      "description": "Required for browser_fill or desktop_type."
+    },
+    "pid": {
+      "type": "number",
+      "description": "Cua process id from desktop_windows."
+    },
+    "windowId": {
+      "type": "number",
+      "description": "Cua window id from desktop_windows."
+    },
+    "x": {
+      "type": "number",
+      "description": "Optional Cua window screenshot x coordinate."
+    },
+    "y": {
+      "type": "number",
+      "description": "Optional Cua window screenshot y coordinate."
     },
     "engine": {
       "type": "string",

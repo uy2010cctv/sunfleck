@@ -16,4 +16,23 @@ describe('Device Plane action policy', () => {
       operation: { kind: 'desktop.screen-size' },
     })).toThrow(/adapter/)
   })
+
+  it('routes native window observation and control only through Cua', () => {
+    expect(() => validateQueuedDeviceAction({
+      mode: 'confirm-each', capability: 'desktop.observe', adapter: 'cua',
+      operation: { kind: 'desktop.windows' },
+    })).not.toThrow()
+    expect(() => validateQueuedDeviceAction({
+      mode: 'confirm-each', capability: 'desktop.observe', adapter: 'cua',
+      operation: { kind: 'desktop.snapshot', pid: 42, windowId: 7 },
+    })).not.toThrow()
+    expect(() => validateQueuedDeviceAction({
+      mode: 'confirm-each', capability: 'desktop.control', adapter: 'cua',
+      operation: { kind: 'desktop.click', pid: 42, windowId: 7, elementToken: 'token-1' },
+    })).not.toThrow()
+    expect(() => validateQueuedDeviceAction({
+      mode: 'observe', capability: 'desktop.control', adapter: 'cua',
+      operation: { kind: 'desktop.click', pid: 42, windowId: 7, x: 10, y: 20 },
+    })).toThrow(/observe Run/)
+  })
 })

@@ -10,11 +10,11 @@ DSH Device Plane separates enterprise authority from execution on a user's compu
 
 Adapters are deliberately separate:
 
-- Cua Driver: native desktop observation and control.
-- agent-browser: visible browser-specific operation using an isolated profile.
-- Playwright MCP: visible, isolated compatibility browser backend.
+- Cua Driver: the primary user-PC observation and control path. It discovers visible windows, reads a bounded native accessibility snapshot, and performs locally confirmed token or coordinate actions.
+- agent-browser: starts and navigates a visible isolated browser, and remains the structured-DOM fallback.
+- Playwright MCP: isolated compatibility browser fallback.
 
-Only fixed operations are accepted: browser open, snapshot, click, fill, and desktop screen-size observation. The Server cannot supply arbitrary CLI arguments or local module paths.
+Only fixed operations are accepted. Cua exposes window discovery, exact-window snapshots, element-token or coordinate clicks, text entry, and screen-size observation. Browser adapters expose open, DOM snapshot, click, and fill. The Server cannot supply arbitrary CLI arguments or local module paths. The model-facing tool directs visible user-PC work through Cua first; browser adapters bootstrap an isolated browser or provide an explicit fallback.
 
 ## Local agent
 
@@ -28,6 +28,8 @@ node apps/device-agent/lib/bin.js --server http://your-dsh-host
 The Agent listens only on `127.0.0.1:47631`. In DSH, open **Digital employees → My computer → Connect this computer**. Reconnecting the same owner-scoped public key returns the existing device instead of creating a duplicate. Its Ed25519 private key is stored under `~/.dsh/device-agent` with owner-only permissions and is never returned by the loopback endpoint.
 
 Browser adapters do not depend on the service account's `PATH`. The Agent launches the package-local `agent-browser` and Playwright MCP entrypoints with its own Node executable. It reuses an installed Chrome executable when available, while keeping the automation profile isolated. User-PC browser windows are visible by default so local confirmation, QR login, and takeover happen on the user's screen. Managed installations can set `DSH_DEVICE_BROWSER_EXECUTABLE` to override browser discovery or `DSH_DEVICE_BROWSER_HEADLESS=1` to explicitly opt into background execution.
+
+Cua snapshots return a bounded accessibility tree to the Agent and deliberately omit screenshot bytes from the server result. Screen pixels, login QR codes, and unrelated desktop content therefore remain on the paired computer. Control actions require the exact process and window returned by Cua, plus either a fresh element token or screenshot-relative coordinates.
 
 ## Safety and recovery
 
