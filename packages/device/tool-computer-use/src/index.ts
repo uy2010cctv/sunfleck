@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import type { DeviceAdapterKind, DeviceCapability, DeviceOperation } from '@deepseek-ai/dsh-enterprise-device-plane'
+import type { ComputerUseMode, DeviceAdapterKind, DeviceCapability, DeviceOperation } from '@deepseek-ai/dsh-enterprise-device-plane'
 import type {} from '@deepseek-ai/dsh-enterprise-postgres'
 
 export const name = 'tool-computer-use'
@@ -12,8 +12,21 @@ export const inject = ['tools', 'enterprisePostgres']
 export interface Config {
   /** Maximum time to wait for the local device to persist a terminal action result. */
   readonly resultTimeoutMs?: number
+  /** Default local confirmation policy. Delegated skips per-action prompts but keeps Server permits and audit. */
+  readonly confirmationMode?: Exclude<ComputerUseMode, 'observe'>
 }
-export const Config: z<Config> = z.object({ resultTimeoutMs: z.number().step(1).min(1_000).max(60_000).default(30_000) })
+export const Config: z<Config> = z.object({
+  resultTimeoutMs: z.number().step(1).min(1_000).max(60_000).default(30_000),
+  confirmationMode: z.union(['delegated', 'confirm-each'] as const).default('delegated'),
+})
+
+/** Resolve the run confirmation mode, including the zero-config product default.
+ * @param config - Plugin configuration supplied by the deployment.
+ * @returns delegated by default, or the explicitly configured per-action confirmation mode.
+ */
+export function computerUseRunMode(config: Config): Exclude<ComputerUseMode, 'observe'> {
+  return config.confirmationMode ?? 'delegated'
+}
 
 type OperationName = 'desktop_windows' | 'desktop_snapshot' | 'desktop_click' | 'desktop_type'
   | 'screen_size' | 'browser_open' | 'browser_snapshot' | 'browser_click' | 'browser_fill'
@@ -100,9 +113,10 @@ const wait = (ms: number): Promise<void> => new Promise(resolve => setTimeout(re
 
 export function apply(ctx: Context, config: Config): void {
   const timeoutMs = config.resultTimeoutMs ?? 30_000
+  const confirmationMode = computerUseRunMode(config)
   ctx.tools.register(defineTool({
     name: 'computer_use',
-    description: 'Use the authenticated user\'s paired computer. Prefer Cua desktop_windows, desktop_snapshot, desktop_click, and desktop_type for visible user-PC work. Use browser_* only to bootstrap or as structured-browser fallback. Control remains subject to local confirmation and enterprise policy.',
+    description: 'Use the authenticated user\'s paired computer. Prefer Cua desktop_windows, desktop_snapshot, desktop_click, and desktop_type for visible user-PC work. Use browser_* only to bootstrap or as structured-browser fallback. Control remains subject to enterprise scope, one-time permits, and audit; the deployment may run delegated without per-action local prompts.',
     parameters: {
       operation: { type: 'string', required: true, enum: [
         'desktop_windows', 'desktop_snapshot', 'desktop_click', 'desktop_type',
@@ -139,7 +153,7 @@ export function apply(ctx: Context, config: Config): void {
       const runId = `computer-use-${randomUUID()}`
       await ctx.enterprisePostgres.devicePlane.saveRun({
         runId, orgId: workspace.orgId, userId, deviceId: device.deviceId,
-        workspaceId: workspace.workspaceId, sessionId, mode: 'confirm-each', status: 'active',
+        workspaceId: workspace.workspaceId, sessionId, mode: confirmationMode, status: 'active',
       })
       const operationId = `computer-use:${randomUUID()}`
       const permitId = `permit-${randomUUID()}`

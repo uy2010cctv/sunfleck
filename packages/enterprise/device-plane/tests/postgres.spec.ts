@@ -67,11 +67,19 @@ describe('PostgresDevicePlaneRepository', () => {
 
   it('claims actions only while their run remains active', async () => {
     const database = new Database()
-    await new PostgresDevicePlaneRepository(database).claimAction({
+    database.result = { rows: [{
+      action_id: 'action-1', operation_id: 'operation-1', run_id: 'run-1', device_id: 'device-1',
+      capability: 'desktop.control', adapter: 'cua', operation_json: { kind: 'desktop.click', pid: 42, windowId: 7, x: 1, y: 2 },
+      state: 'claimed', result_summary: null, evidence_hash: null, created_at: 1, updated_at: 2,
+      confirmation_mode: 'delegated',
+    }], rowCount: 1 }
+    const action = await new PostgresDevicePlaneRepository(database).claimAction({
       deviceId: 'device-1', orgId: 'org-a', userId: 'user-a', deviceName: 'Mac',
       platform: 'macos', publicKey: 'pk', status: 'online',
     })
     expect(database.last?.text).toContain("run.state='active'")
+    expect(database.last?.text).toContain('run.mode AS confirmation_mode')
+    expect(action).toMatchObject({ confirmationMode: 'delegated' })
   })
 
   it('claims each signed request nonce only once', async () => {

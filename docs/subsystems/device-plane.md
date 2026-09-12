@@ -6,7 +6,7 @@ DSH Device Plane separates enterprise authority from execution on a user's compu
 
 ## Architecture
 
-`enterpriseDevice` registers devices, starts scoped Computer Use Runs, queues typed actions, and records results. `/device-agent/v1` authenticates the local process with Ed25519 signatures and replay-protected nonces without browser cookies. `dsh-device-agent` polls the durable queue, consumes the one-time Permit immediately before execution, asks for local confirmation when control is required, invokes an Adapter, and returns a bounded summary plus evidence hash.
+`enterpriseDevice` registers devices, starts scoped Computer Use Runs, queues typed actions, and records results. `/device-agent/v1` authenticates the local process with Ed25519 signatures and replay-protected nonces without browser cookies. `dsh-device-agent` polls the durable queue, consumes the one-time Permit immediately before execution, applies the Run confirmation policy, invokes an Adapter, and returns a bounded summary plus evidence hash. Model-created Runs default to delegated control, so actions within the already granted enterprise scope do not open a prompt for every click. Administrators can retain `confirm-each`; business, sandbox, and irreversible-action approvals remain separate.
 
 Adapters are deliberately separate:
 
@@ -33,7 +33,7 @@ Cua snapshots return a bounded accessibility tree to the Agent and deliberately 
 
 ## Safety and recovery
 
-Device, Run, Permit, nonce, action, result, and evidence metadata are durable. A Permit expires after 60 seconds and can be consumed once. Device requests expire after 60 seconds and each nonce is accepted once. A queued action can be claimed by one Agent. A claimed action is never automatically replayed after an ambiguous disconnect.
+Device, Run, Permit, nonce, action, result, and evidence metadata are durable. A Permit expires after 60 seconds and can be consumed once. Device requests expire after 60 seconds and each nonce is accepted once. A queued action can be claimed by one Agent. A claimed action is never automatically replayed after an ambiguous disconnect. If the local Cua SDK reports `session_ended`, the Agent recreates that Run's named desktop session and retries the same in-flight action once; it does not create a second Server action or consume another Permit.
 
 <!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
 

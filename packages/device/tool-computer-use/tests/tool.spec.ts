@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { deviceOperation } from '../src/index.ts'
+import { computerUseRunMode, deviceOperation } from '../src/index.ts'
 
 describe('computer_use operation mapping', () => {
+  it('defaults to delegated control while keeping confirm-each configurable', () => {
+    expect(computerUseRunMode({})).toBe('delegated')
+    expect(computerUseRunMode({ confirmationMode: 'confirm-each' })).toBe('confirm-each')
+  })
   it('maps browser and desktop requests to fixed adapters and capabilities', () => {
     expect(deviceOperation({ operation: 'screen_size' })).toEqual({
       adapter: 'cua', capability: 'desktop.observe', operation: { kind: 'desktop.screen-size' },

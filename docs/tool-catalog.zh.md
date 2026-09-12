@@ -53,7 +53,7 @@
 
 ### `computer_use`
 
-使用已认证用户配对的电脑。可见用户 PC 工作优先使用 Cua 的 `desktop_windows`、`desktop_snapshot`、`desktop_click` 和 `desktop_type`。`browser_*` 只用于启动浏览器或作为结构化浏览器后备。控制仍受本机确认和企业策略约束。
+使用已认证用户配对的电脑。可见用户 PC 工作优先使用 Cua 的 `desktop_windows`、`desktop_snapshot`、`desktop_click` 和 `desktop_type`。`browser_*` 只用于启动浏览器或作为结构化浏览器后备。控制仍受企业范围、一次性 Permit 和审计约束；部署可以使用“授权内自动操作”，不对每个动作弹出本机确认。
 
 ```json
 {

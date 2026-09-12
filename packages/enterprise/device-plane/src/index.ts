@@ -69,6 +69,8 @@ export interface QueuedDeviceAction {
   readonly capability: DeviceCapability
   readonly adapter: DeviceAdapterKind
   readonly operation: DeviceOperation
+  /** Run-level local confirmation policy joined by the Server when the Agent claims the action. */
+  readonly confirmationMode?: ComputerUseMode
 }
 /** Durable action projection safe for user-facing history and audit. */
 export interface DeviceActionView extends QueuedDeviceAction {

@@ -2900,8 +2900,12 @@ Source: [`packages/shell/tool-bash-persistent/src/index.ts:435`](../packages/she
 export interface Config {
   /** Maximum time to wait for the local device to persist a terminal action result. */
   readonly resultTimeoutMs?: number
+  /** Default local confirmation policy. Delegated skips per-action prompts but keeps Server permits and audit. */
+  readonly confirmationMode?: Exclude<ComputerUseMode, 'observe'>
 }
 ```
+
+依赖：[`ComputerUseMode`](../packages/enterprise/device-plane/src/index.ts)
 
 源码：[`packages/device/tool-computer-use/src/index.ts:12`](../packages/device/tool-computer-use/src/index.ts)
 

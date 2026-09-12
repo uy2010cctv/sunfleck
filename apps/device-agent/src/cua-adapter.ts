@@ -11,8 +11,10 @@ interface CuaDriver {
     structuredJson?: string
     rawJson?: string
     isError?: boolean
+    errorCode?: string
   }>
 }
+type CuaToolResult = Awaited<ReturnType<CuaDriver['callTool']>>
 type CuaLoader = (modulePath: string) => Promise<CuaModule>
 
 function toolForOperation(operation: DeviceOperation, session: string): { name: string; args: Record<string, unknown> } {
@@ -44,6 +46,38 @@ export class CuaAdapter implements DeviceAdapter {
     private readonly modulePath: string,
     private readonly load: CuaLoader = path => import(path) as Promise<CuaModule>,
   ) {}
+  private async startSession(cua: CuaModule, driver: CuaDriver, session: string): Promise<void> {
+    await driver.startSession(cua.StartSessionInput.new({ session }))
+    this.sessions.add(session)
+  }
+  private sessionEnded(result: CuaToolResult): boolean {
+    if (result.errorCode === 'session_ended') return true
+    if (result.isError !== true) return false
+    return /(?:session[_ ]ended|session has ended)/iu.test([
+      result.text, result.structuredJson, result.rawJson,
+    ].filter(Boolean).join('\n'))
+  }
+  private async callWithSessionRecovery(
+    cua: CuaModule,
+    driver: CuaDriver,
+    session: string,
+    tool: { name: string; args: Record<string, unknown> },
+    signal: AbortSignal,
+  ): Promise<CuaToolResult> {
+    const call = () => driver.callTool(tool.name, JSON.stringify(tool.args), { signal })
+    let result: CuaToolResult
+    try { result = await call() }
+    catch (error) {
+      if (!/session[_ ]ended|session has ended/iu.test(error instanceof Error ? error.message : String(error))) throw error
+      this.sessions.delete(session)
+      await this.startSession(cua, driver, session)
+      return call()
+    }
+    if (!this.sessionEnded(result) || signal.aborted) return result
+    this.sessions.delete(session)
+    await this.startSession(cua, driver, session)
+    return call()
+  }
   async execute(action: DeviceAction, signal: AbortSignal): Promise<DeviceActionResult> {
     if (signal.aborted) return { operationId: action.operationId, state: 'paused', summary: 'Paused before desktop action.' }
     if (this.modulePath === '') return { operationId: action.operationId, state: 'rejected', summary: 'Cua Driver is not configured locally.' }
@@ -56,11 +90,10 @@ export class CuaAdapter implements DeviceAdapter {
         cua, driver: cua.CuaDriver.create(undefined),
       })))
       if (!this.sessions.has(session)) {
-        await driver.startSession(cua.StartSessionInput.new({ session }))
-        this.sessions.add(session)
+        await this.startSession(cua, driver, session)
       }
       const tool = toolForOperation(action.operation, session)
-      const result = await driver.callTool(tool.name, JSON.stringify(tool.args), { signal })
+      const result = await this.callWithSessionRecovery(cua, driver, session, tool, signal)
       const detail = action.operation.kind === 'desktop.windows'
         ? result.structuredJson || result.text?.trim()
         : result.text?.trim() || result.structuredJson

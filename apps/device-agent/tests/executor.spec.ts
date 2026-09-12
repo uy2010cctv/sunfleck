@@ -61,4 +61,21 @@ describe('DeviceActionExecutor', () => {
     expect(permits.consume).not.toHaveBeenCalled()
     expect(adapter.execute).not.toHaveBeenCalled()
   })
+
+  it('executes delegated control without opening a local confirmation prompt', async () => {
+    const permits: PermitConsumer = { consume: vi.fn(async () => true) }
+    const adapter: DeviceAdapter = {
+      kind: 'agent-browser',
+      execute: vi.fn(async action => ({ operationId: action.operationId, state: 'completed', summary: 'clicked' })),
+    }
+    const confirmator: LocalConfirmator = { confirm: vi.fn(async () => false) }
+    const result = await new DeviceActionExecutor(permits, [adapter], confirmator).execute({
+      ...observe, confirmationMode: 'delegated', capability: 'browser.control',
+      operation: { kind: 'browser.click', selector: '@e1' },
+    })
+    expect(result.state).toBe('completed')
+    expect(confirmator.confirm).not.toHaveBeenCalled()
+    expect(permits.consume).toHaveBeenCalledOnce()
+    expect(adapter.execute).toHaveBeenCalledOnce()
+  })
 })

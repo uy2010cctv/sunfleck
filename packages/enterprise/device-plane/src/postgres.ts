@@ -160,7 +160,7 @@ export class PostgresDevicePlaneRepository {
    */
   async claimAction(device: Device): Promise<QueuedDeviceAction | undefined> {
     const result = await this.database.query<ActionRow>(`WITH candidate AS (
-        SELECT action.* FROM dsh_enterprise_computer_use_actions action
+        SELECT action.*,run.mode AS confirmation_mode FROM dsh_enterprise_computer_use_actions action
         JOIN dsh_enterprise_computer_use_runs run
           ON run.org_id=action.org_id AND run.run_id=action.run_id
         JOIN dsh_enterprise_computer_use_permits permit
@@ -170,7 +170,7 @@ export class PostgresDevicePlaneRepository {
           AND permit.consumed_at IS NULL AND permit.expires_at >= $4
         ORDER BY action.created_at,action.action_id FOR UPDATE OF action SKIP LOCKED LIMIT 1
       ) UPDATE dsh_enterprise_computer_use_actions action SET state='claimed',claimed_at=$4,updated_at=$4
-        FROM candidate WHERE action.action_id=candidate.action_id RETURNING action.*`,
+        FROM candidate WHERE action.action_id=candidate.action_id RETURNING action.*,candidate.confirmation_mode`,
     [device.orgId, device.userId, device.deviceId, this.now()])
     return result.rows[0] === undefined ? undefined : actionFromRow(result.rows[0])
   }
@@ -286,6 +286,7 @@ interface ActionRow extends Record<string, unknown> {
   evidence_hash: string | null
   created_at: number | string
   updated_at: number | string
+  confirmation_mode?: string | null
 }
 
 function deviceFromRow(row: DeviceRow): Device {
@@ -312,6 +313,9 @@ function actionFromRow(row: ActionRow): QueuedDeviceAction {
     actionId: row.action_id, operationId: row.operation_id, runId: row.run_id, deviceId: row.device_id,
     capability: row.capability as QueuedDeviceAction['capability'],
     adapter: row.adapter as QueuedDeviceAction['adapter'], operation: operation as QueuedDeviceAction['operation'],
+    ...(row.confirmation_mode === 'observe' || row.confirmation_mode === 'confirm-each' || row.confirmation_mode === 'delegated'
+      ? { confirmationMode: row.confirmation_mode }
+      : {}),
   }
 }
 

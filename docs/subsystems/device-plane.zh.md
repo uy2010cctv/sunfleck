@@ -6,7 +6,7 @@ DSH Device Plane 将企业权威控制与用户电脑上的执行分开。Postgr
 
 ## 架构
 
-`enterpriseDevice` 负责注册设备、启动受范围约束的 Computer Use Run、排队类型化动作并记录结果。`/device-agent/v1` 使用 Ed25519 签名和防重放 nonce 认证本机进程，不使用浏览器 Cookie。`dsh-device-agent` 轮询持久队列，在执行前消费一次性 Permit，需要控制时请求本机确认，然后调用 Adapter，并返回受限长度的摘要与证据哈希。
+`enterpriseDevice` 负责注册设备、启动受范围约束的 Computer Use Run、排队类型化动作并记录结果。`/device-agent/v1` 使用 Ed25519 签名和防重放 nonce 认证本机进程，不使用浏览器 Cookie。`dsh-device-agent` 轮询持久队列，在执行前消费一次性 Permit，按 Run 的确认策略执行，然后调用 Adapter，并返回受限长度的摘要与证据哈希。模型创建的 Run 默认使用“授权内自动操作”（`delegated`），因此在已授予的企业范围内不会每次点击都弹窗。管理员仍可使用 `confirm-each`；业务、沙箱和不可逆操作审批保持独立。
 
 三种 Adapter 保持分离：
 
@@ -33,7 +33,7 @@ Cua 快照向 Agent 返回有界的无障碍树，并刻意不把截图字节加
 
 ## 安全与恢复
 
-设备、Run、Permit、nonce、动作、结果与证据元数据都会持久化。Permit 有效期为 60 秒且只能消费一次；设备请求有效期为 60 秒，每个 nonce 只能接受一次。一个排队动作只能由一个 Agent 领取。领取后若连接结果不明，系统不会自动重复执行。
+设备、Run、Permit、nonce、动作、结果与证据元数据都会持久化。Permit 有效期为 60 秒且只能消费一次；设备请求有效期为 60 秒，每个 nonce 只能接受一次。一个排队动作只能由一个 Agent 领取。领取后若连接结果不明，系统不会自动重复执行。如果本机 Cua SDK 返回 `session_ended`，Agent 会重建该 Run 的命名桌面会话，并对同一个正在执行的动作最多重试一次；不会创建第二个服务端动作，也不会再消费一个 Permit。
 
 <!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
 

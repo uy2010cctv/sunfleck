@@ -38,4 +38,22 @@ describe('CuaAdapter', () => {
     expect(callTool).toHaveBeenNthCalledWith(2, 'get_window_state', expect.stringContaining('"include_screenshot":false'), { signal })
     expect(callTool).toHaveBeenNthCalledWith(3, 'click', expect.stringContaining('"element_token":"token-1"'), { signal })
   })
+
+  it('restarts an expired run-scoped session and retries the same action once', async () => {
+    const startSession = vi.fn(async () => undefined)
+    const callTool = vi.fn()
+      .mockResolvedValueOnce({ text: 'desktop session ended', errorCode: 'session_ended', isError: true })
+      .mockResolvedValueOnce({ text: 'button Login token-1', isError: false })
+    const adapter = new CuaAdapter('cua:test', async () => ({
+      CuaDriver: { create: () => ({ startSession, callTool, endSession: vi.fn(), shutdown: vi.fn() }) },
+      StartSessionInput: { new: (input: unknown) => input },
+    } as never))
+    const signal = new AbortController().signal
+
+    await expect(adapter.execute(action({ kind: 'desktop.snapshot', pid: 42, windowId: 7 }, 'desktop.observe'), signal))
+      .resolves.toMatchObject({ state: 'completed', summary: 'button Login token-1' })
+    expect(startSession).toHaveBeenCalledTimes(2)
+    expect(callTool).toHaveBeenCalledTimes(2)
+    expect(callTool.mock.calls[1]).toEqual(callTool.mock.calls[0])
+  })
 })

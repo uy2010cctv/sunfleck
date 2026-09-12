@@ -49,7 +49,7 @@ This table connects model-visible tool names to the plugin package and service s
 
 ### `computer_use`
 
-Use the authenticated user's paired computer. Prefer Cua desktop_windows, desktop_snapshot, desktop_click, and desktop_type for visible user-PC work. Use browser_* only to bootstrap or as structured-browser fallback. Control remains subject to local confirmation and enterprise policy.
+Use the authenticated user's paired computer. Prefer Cua desktop_windows, desktop_snapshot, desktop_click, and desktop_type for visible user-PC work. Use browser_* only to bootstrap or as structured-browser fallback. Control remains subject to enterprise scope, one-time permits, and audit; the deployment may run delegated without per-action local prompts.
 
 ```json
 {

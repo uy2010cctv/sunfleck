@@ -9,7 +9,8 @@ export class DeviceActionExecutor {
     private readonly confirmator: LocalConfirmator,
   ) {}
   async execute(action: DeviceAction): Promise<DeviceActionResult> {
-    if (action.capability.endsWith('.control') && !(await this.confirmator.confirm(action))) {
+    const requiresLocalConfirmation = action.capability.endsWith('.control') && action.confirmationMode !== 'delegated'
+    if (requiresLocalConfirmation && !(await this.confirmator.confirm(action))) {
       return { operationId: action.operationId, state: 'rejected', summary: 'Local user declined device control.' }
     }
     if (!(await this.permits.consume(action))) return { operationId: action.operationId, state: 'rejected', summary: 'Operation permit was rejected.' }
