@@ -11,8 +11,8 @@ DSH Device Plane separates enterprise authority from execution on a user's compu
 Adapters are deliberately separate:
 
 - Cua Driver: native desktop observation and control.
-- agent-browser: browser-specific operation using an isolated profile.
-- Playwright MCP: compatibility browser backend in headless isolated mode.
+- agent-browser: visible browser-specific operation using an isolated profile.
+- Playwright MCP: visible, isolated compatibility browser backend.
 
 Only fixed operations are accepted: browser open, snapshot, click, fill, and desktop screen-size observation. The Server cannot supply arbitrary CLI arguments or local module paths.
 
@@ -27,7 +27,7 @@ node apps/device-agent/lib/bin.js --server http://your-dsh-host
 
 The Agent listens only on `127.0.0.1:47631`. In DSH, open **Digital employees → My computer → Connect this computer**. Its Ed25519 private key is stored under `~/.dsh/device-agent` with owner-only permissions and is never returned by the loopback endpoint.
 
-Browser adapters do not depend on the service account's `PATH`. The Agent launches the package-local `agent-browser` and Playwright MCP entrypoints with its own Node executable. It reuses an installed Chrome executable when available, while keeping the automation profile isolated. `DSH_DEVICE_BROWSER_EXECUTABLE` can override browser discovery for managed installations.
+Browser adapters do not depend on the service account's `PATH`. The Agent launches the package-local `agent-browser` and Playwright MCP entrypoints with its own Node executable. It reuses an installed Chrome executable when available, while keeping the automation profile isolated. User-PC browser windows are visible by default so local confirmation, QR login, and takeover happen on the user's screen. Managed installations can set `DSH_DEVICE_BROWSER_EXECUTABLE` to override browser discovery or `DSH_DEVICE_BROWSER_HEADLESS=1` to explicitly opt into background execution.
 
 ## Safety and recovery
 

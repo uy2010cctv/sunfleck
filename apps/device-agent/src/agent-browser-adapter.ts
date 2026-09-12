@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
-import { installedBrowserExecutable } from './browser-executable.ts'
+import { deviceBrowserHeadless, installedBrowserExecutable } from './browser-executable.ts'
 import type { DeviceAction, DeviceActionResult, DeviceAdapter, DeviceOperation } from './protocol.ts'
 
 const exec = promisify(execFile)
@@ -20,9 +20,11 @@ export function commandForAction(operation: DeviceOperation): string[] {
 export function agentBrowserInvocation(
   operation: DeviceOperation,
   browserExecutable: string | undefined = installedBrowserExecutable(),
+  headless: boolean = deviceBrowserHeadless(),
 ): { readonly command: string; readonly args: string[] } {
+  const modeArgs = headless ? [] : ['--headed']
   const browserArgs = browserExecutable === undefined ? [] : ['--executable-path', browserExecutable]
-  return { command: process.execPath, args: [agentBrowserCli, ...browserArgs, ...commandForAction(operation)] }
+  return { command: process.execPath, args: [agentBrowserCli, ...modeArgs, ...browserArgs, ...commandForAction(operation)] }
 }
 
 export class AgentBrowserAdapter implements DeviceAdapter {

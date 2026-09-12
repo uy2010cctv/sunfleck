@@ -1,5 +1,10 @@
 import { existsSync } from 'node:fs'
 
+export function deviceBrowserHeadless(): boolean {
+  const configured = process.env['DSH_DEVICE_BROWSER_HEADLESS']?.trim().toLowerCase()
+  return configured === '1' || configured === 'true'
+}
+
 export function installedBrowserExecutable(): string | undefined {
   const configured = process.env['DSH_DEVICE_BROWSER_EXECUTABLE']
   if (configured !== undefined && configured.trim() !== '') return configured

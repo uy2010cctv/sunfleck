@@ -1,5 +1,5 @@
 import { fileURLToPath } from 'node:url'
-import { installedBrowserExecutable } from './browser-executable.ts'
+import { deviceBrowserHeadless, installedBrowserExecutable } from './browser-executable.ts'
 import type { DeviceAction, DeviceActionResult, DeviceAdapter, DeviceOperation } from './protocol.ts'
 
 interface McpToolRequest { readonly name: string; readonly arguments: Readonly<Record<string, unknown>> }
@@ -9,9 +9,11 @@ const playwrightMcpCli = fileURLToPath(new URL('./cli.js', import.meta.resolve('
 
 export function playwrightMcpInvocation(
   browserExecutable: string | undefined = installedBrowserExecutable(),
+  headless: boolean = deviceBrowserHeadless(),
 ): { readonly command: string; readonly args: string[] } {
+  const modeArgs = headless ? ['--headless'] : []
   const browserArgs = browserExecutable === undefined ? [] : ['--executable-path', browserExecutable]
-  return { command: process.execPath, args: [playwrightMcpCli, '--headless', '--isolated', ...browserArgs] }
+  return { command: process.execPath, args: [playwrightMcpCli, '--isolated', ...modeArgs, ...browserArgs] }
 }
 
 export function playwrightToolForAction(operation: DeviceOperation): McpToolRequest {

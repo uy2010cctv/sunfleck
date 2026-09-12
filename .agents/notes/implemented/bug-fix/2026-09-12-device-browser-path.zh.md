@@ -10,7 +10,7 @@ macOS LaunchAgent 会刻意使用最小系统 `PATH`。浏览器 Adapter 以裸�
 
 ## 决策
 
-`dsh-device-agent` 将两个浏览器运行时声明为自身依赖，并解析包内 CLI 入口。每个 CLI 通过 `process.execPath` 启动，服务环境无需用户 Shell 或版本管理器路径。本机存在 Chrome 时，两个 Adapter 使用该可执行文件和隔离自动化 Profile；管理员可用 `DSH_DEVICE_BROWSER_EXECUTABLE` 覆盖自动发现。
+`dsh-device-agent` 将两个浏览器运行时声明为自身依赖，并解析包内 CLI 入口。每个 CLI 通过 `process.execPath` 启动，服务环境无需用户 Shell 或版本管理器路径。本机存在 Chrome 时，两个 Adapter 使用该可执行文件和隔离自动化 Profile。用户设备上的浏览器窗口默认可见；管理员可用 `DSH_DEVICE_BROWSER_EXECUTABLE` 覆盖自动发现，或用 `DSH_DEVICE_BROWSER_HEADLESS=1` 显式启用后台模式。
 
 ## 考虑过的替代方案
 
@@ -20,7 +20,7 @@ macOS LaunchAgent 会刻意使用最小系统 `PATH`。浏览器 Adapter 以裸�
 
 ## 影响
 
-浏览器执行可在最小服务环境中正常工作，并复用已安装的浏览器可执行文件，但不复用用户真实浏览器 Profile。Device Agent 发布包必须包含两个 CLI 依赖。浏览器位于非标准路径时，受管主机需设置显式覆盖。
+浏览器执行可在最小服务环境中正常工作，并复用已安装的浏览器可执行文件，但不复用用户真实浏览器 Profile。二维码和本机确认仅在用户屏幕上可见，不作为服务器证据上传。Device Agent 发布包必须包含两个 CLI 依赖。浏览器位于非标准路径时，受管主机需设置显式覆盖。
 
 ## 验证
 

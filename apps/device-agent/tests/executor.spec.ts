@@ -19,13 +19,20 @@ describe('DeviceActionExecutor', () => {
     const invocation = agentBrowserInvocation(
       { kind: 'browser.open', url: 'https://example.com' },
       '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+      false,
     )
     expect(invocation.command).toBe(process.execPath)
     expect(invocation.args[0]).toMatch(/agent-browser(?:\/|\\)bin(?:\/|\\)agent-browser\.js$/u)
     expect(invocation.args.slice(1)).toEqual([
+      '--headed',
       '--executable-path', '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
       'open', 'https://example.com',
     ])
+  })
+
+  it('keeps explicit managed headless mode available', () => {
+    const invocation = agentBrowserInvocation({ kind: 'browser.snapshot' }, undefined, true)
+    expect(invocation.args).not.toContain('--headed')
   })
   it('executes an observed action only after consuming its permit', async () => {
     const order: string[] = []

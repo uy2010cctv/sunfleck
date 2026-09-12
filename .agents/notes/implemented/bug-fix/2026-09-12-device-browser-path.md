@@ -10,7 +10,7 @@ The macOS LaunchAgent intentionally runs with a minimal system `PATH`. Browser A
 
 ## Decision
 
-`dsh-device-agent` owns both browser runtimes as dependencies and resolves their package-local CLI entrypoints. It launches each CLI through `process.execPath`, so the service environment does not need a user shell or version-manager path. When an installed Chrome executable is available, both adapters use it with an isolated automation profile; administrators can override discovery with `DSH_DEVICE_BROWSER_EXECUTABLE`.
+`dsh-device-agent` owns both browser runtimes as dependencies and resolves their package-local CLI entrypoints. It launches each CLI through `process.execPath`, so the service environment does not need a user shell or version-manager path. When an installed Chrome executable is available, both adapters use it with an isolated automation profile. Browser windows on user devices are visible by default; administrators can override discovery with `DSH_DEVICE_BROWSER_EXECUTABLE` or explicitly request background mode with `DSH_DEVICE_BROWSER_HEADLESS=1`.
 
 ## Alternatives considered
 
@@ -20,7 +20,7 @@ The macOS LaunchAgent intentionally runs with a minimal system `PATH`. Browser A
 
 ## Consequences
 
-Browser execution survives minimal service environments and reuses the existing browser binary without reusing the user's browser profile. Packaged Device Agents must include both CLI dependencies. Managed hosts with a nonstandard browser locations must set the explicit override.
+Browser execution survives minimal service environments and reuses the existing browser binary without reusing the user's browser profile. QR codes and local confirmation remain visible only on the user's screen instead of being uploaded as server evidence. Packaged Device Agents must include both CLI dependencies. Managed hosts with a nonstandard browser location must set the explicit override.
 
 ## Verification
 
