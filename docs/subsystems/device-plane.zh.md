@@ -25,7 +25,7 @@ pnpm --filter @deepseek-ai/dsh-device-agent bundle
 node apps/device-agent/lib/bin.js --server http://your-dsh-host
 ```
 
-Agent 仅监听 `127.0.0.1:47631`。在 DSH 中打开 **数字员工 → 我的电脑 → 连接此电脑**。Ed25519 私钥以仅当前用户可读的权限保存在 `~/.dsh/device-agent`，loopback 接口永不返回私钥。
+Agent 仅监听 `127.0.0.1:47631`。在 DSH 中打开 **数字员工 → 我的电脑 → 连接此电脑**。同一用户范围内的同一公钥再次连接时会返回原设备，不会创建重复记录。Ed25519 私钥以仅当前用户可读的权限保存在 `~/.dsh/device-agent`，loopback 接口永不返回私钥。
 
 浏览器 Adapter 不依赖服务账号的 `PATH`。Agent 使用自身 Node 可执行文件启动包内的 `agent-browser` 和 Playwright MCP 入口。存在已安装 Chrome 时会直接复用其可执行文件，但仍使用隔离的自动化 Profile。用户 PC 上的浏览器窗口默认可见，因此本机确认、扫码登录和人工接管都发生在用户屏幕上。受管安装可用 `DSH_DEVICE_BROWSER_EXECUTABLE` 覆盖浏览器发现，或显式设置 `DSH_DEVICE_BROWSER_HEADLESS=1` 启用后台执行。
 

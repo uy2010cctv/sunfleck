@@ -1,3 +1,4 @@
+import { generateKeyPairSync } from 'node:crypto'
 import { Context } from '@deepseek-ai/cordis'
 import { EnterpriseRequestContext } from '@deepseek-ai/dsh-enterprise-auth-web'
 import { describe, expect, it, vi } from 'vitest'
@@ -16,14 +17,23 @@ function bench() {
   }))
   const listRuns = vi.fn(async () => [])
   const listActions = vi.fn(async () => [])
+  const pairDevice = vi.fn(async () => ({
+    deviceId: 'device-existing', orgId: 'org-a', userId: 'user-a', deviceName: 'Kris Mac', platform: 'macos',
+    publicKey: 'normalized-key', status: 'online',
+  }))
   const ctx = new Context()
   const requestContext = new EnterpriseRequestContext()
-  ctx.provide('enterprisePostgres' as never, { devicePlane: { listDevices, listRuns, listActions, transitionRun } } as never)
+  ctx.provide('enterprisePostgres' as never, {
+    devicePlane: { listDevices, listRuns, listActions, transitionRun, pairDevice },
+  } as never)
   ctx.provide('enterpriseRequestContext' as never, requestContext as never)
   ctx.provide('enterpriseSecurity' as never, {
     authorizeApiAsync: vi.fn(async () => ({ allowed: true, reason: 'role' })), auditApiAsync: vi.fn(),
   } as never)
-  return { controller: new EnterpriseDeviceController(ctx), requestContext, listDevices, listRuns, listActions, transitionRun }
+  return {
+    controller: new EnterpriseDeviceController(ctx), requestContext,
+    listDevices, listRuns, listActions, transitionRun, pairDevice,
+  }
 }
 
 describe('EnterpriseDeviceController', () => {
@@ -51,5 +61,18 @@ describe('EnterpriseDeviceController', () => {
     await b.requestContext.run(principal, () => b.controller.listActions({ limit: 8 }))
     expect(b.listRuns).toHaveBeenCalledWith('org-a', 'user-a', 20)
     expect(b.listActions).toHaveBeenCalledWith('org-a', 'user-a', 8)
+  })
+
+  it('returns the existing device when pairing is repeated', async () => {
+    const b = bench()
+    const { publicKey } = generateKeyPairSync('ed25519')
+    const result = await b.requestContext.run(principal, () => b.controller.pair({
+      deviceName: 'Kris Mac', platform: 'macos',
+      publicKey: publicKey.export({ type: 'spki', format: 'pem' }).toString(),
+    }))
+    expect(result).toEqual({ deviceId: 'device-existing' })
+    expect(b.pairDevice).toHaveBeenCalledWith(expect.objectContaining({
+      orgId: 'org-a', userId: 'user-a', deviceName: 'Kris Mac', status: 'online',
+    }))
   })
 })

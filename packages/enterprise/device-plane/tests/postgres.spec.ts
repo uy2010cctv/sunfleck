@@ -13,6 +13,23 @@ class Database implements PostgresDatabase {
 }
 
 describe('PostgresDevicePlaneRepository', () => {
+  it('reuses an existing device when the same user pairs the same public key again', async () => {
+    const database = new Database()
+    database.result = { rows: [{
+      device_id: 'device-existing', org_id: 'org-a', user_id: 'user-a', device_name: 'Kris Mac', platform: 'macos',
+      public_key: 'pk', status: 'online', last_heartbeat_at: 20, created_at: 1, updated_at: 20,
+    }], rowCount: 1 }
+    const device = await new PostgresDevicePlaneRepository(database, () => 20).pairDevice({
+      deviceId: 'device-candidate', orgId: 'org-a', userId: 'user-a', deviceName: 'KrisdeMac-mini.local',
+      platform: 'macos', publicKey: 'pk', status: 'online',
+    })
+    expect(device.deviceId).toBe('device-existing')
+    expect(device.deviceName).toBe('Kris Mac')
+    expect(database.last?.text).toContain('ON CONFLICT(org_id,user_id,public_key)')
+    expect(database.last?.text).not.toContain('device_name=EXCLUDED.device_name')
+    expect(database.last?.text).toContain('RETURNING *')
+  })
+
   it('lists only the requesting user devices', async () => {
     const database = new Database()
     database.result = { rows: [{

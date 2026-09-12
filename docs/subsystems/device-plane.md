@@ -25,7 +25,7 @@ pnpm --filter @deepseek-ai/dsh-device-agent bundle
 node apps/device-agent/lib/bin.js --server http://your-dsh-host
 ```
 
-The Agent listens only on `127.0.0.1:47631`. In DSH, open **Digital employees → My computer → Connect this computer**. Its Ed25519 private key is stored under `~/.dsh/device-agent` with owner-only permissions and is never returned by the loopback endpoint.
+The Agent listens only on `127.0.0.1:47631`. In DSH, open **Digital employees → My computer → Connect this computer**. Reconnecting the same owner-scoped public key returns the existing device instead of creating a duplicate. Its Ed25519 private key is stored under `~/.dsh/device-agent` with owner-only permissions and is never returned by the loopback endpoint.
 
 Browser adapters do not depend on the service account's `PATH`. The Agent launches the package-local `agent-browser` and Playwright MCP entrypoints with its own Node executable. It reuses an installed Chrome executable when available, while keeping the automation profile isolated. User-PC browser windows are visible by default so local confirmation, QR login, and takeover happen on the user's screen. Managed installations can set `DSH_DEVICE_BROWSER_EXECUTABLE` to override browser discovery or `DSH_DEVICE_BROWSER_HEADLESS=1` to explicitly opt into background execution.
 

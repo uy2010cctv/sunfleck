@@ -4,6 +4,23 @@ import type { ComputerUseRun, Device, DeviceActionView, OperationPermit, QueuedD
 /** Durable PostgreSQL repository for Device Plane identity, runs, permits, and actions. */
 export class PostgresDevicePlaneRepository {
   constructor(private readonly database: PostgresDatabase, private readonly now: () => number = Date.now) {}
+  /** Pair one physical device idempotently by its owner-scoped public key.
+   * @param device - Candidate identity allocated by the Host.
+   * @returns the existing or newly inserted device identity.
+   */
+  async pairDevice(device: Device): Promise<Device> {
+    const now = this.now()
+    const result = await this.database.query<DeviceRow>(`INSERT INTO dsh_enterprise_devices(
+      device_id,org_id,user_id,device_name,platform,public_key,status,last_heartbeat_at,created_at,updated_at)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$8,$8)
+      ON CONFLICT(org_id,user_id,public_key) DO UPDATE SET
+        status=EXCLUDED.status,last_heartbeat_at=EXCLUDED.last_heartbeat_at,updated_at=EXCLUDED.updated_at
+      RETURNING *`,
+    [device.deviceId, device.orgId, device.userId, device.deviceName, device.platform, device.publicKey, device.status, now])
+    const paired = result.rows[0]
+    if (paired === undefined) throw new Error('device pairing returned no row')
+    return deviceFromRow(paired)
+  }
   /** Upsert one device heartbeat without changing its owner or public key.
    * @param device - Paired device snapshot.
    */

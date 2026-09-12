@@ -457,11 +457,11 @@ export class EnterpriseDeviceController extends TypertRemoteService {
       const deviceName = request.deviceName.trim()
       if (deviceName === '' || deviceName.length > 120) throw new Error('device name must contain 1 to 120 characters')
       const deviceId = `device-${randomUUID()}`
-      await this.repository().heartbeat({
+      const device = await this.repository().pairDevice({
         deviceId, orgId: actor.orgId, userId: actor.userId, deviceName,
         platform: request.platform, publicKey: normalizeDevicePublicKey(request.publicKey), status: 'online',
       })
-      return { deviceId }
+      return { deviceId: device.deviceId }
     })
   }
 
