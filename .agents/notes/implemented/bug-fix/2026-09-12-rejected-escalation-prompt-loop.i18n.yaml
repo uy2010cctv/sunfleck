@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-09-12-rejected-escalation-prompt-loop.md
+2026-09-12-rejected-escalation-prompt-loop.md: e490cdbdcd7284a3ada8dd78724707ee376fba59
+2026-09-12-rejected-escalation-prompt-loop.zh.md: 5c9d30a8ad1a886a7faf0ca49493754b5a3ef2fa

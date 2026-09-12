@@ -341,6 +341,25 @@ describe('ApprovalService.request', () => {
     expect(ids[0]).not.toBe(ids[1])
   })
 
+  it('does not prompt twice for the same rejected sandbox target in one turn', async () => {
+    const ctx = await mounted()
+    const { agent, appended } = fakeAgent()
+    const consulted = vi.fn(() => Promise.resolve<ApprovalOutcome>('rejected'))
+    ctx.on('approval/request', consulted)
+
+    await expect(ctx.approval.request(requestOf(agent, {
+      toolName: 'bash', reason: 'escalate sandbox to danger-full-access: inspect implementation',
+    }))).resolves.toBe('rejected')
+    await expect(ctx.approval.request(requestOf(agent, {
+      toolName: 'bash', reason: 'escalate sandbox to danger-full-access: same inspection with new wording',
+    }))).resolves.toBe('rejected')
+
+    expect(consulted).toHaveBeenCalledOnce()
+    expect(appended.map(event => event.type)).toEqual([
+      'approval/asked', 'approval/decided', 'approval/asked', 'approval/decided',
+    ])
+  })
+
   it('drops a disposed plugin listener from the chain (HMR safety)', async () => {
     const ctx = await mounted()
     const { agent } = fakeAgent()

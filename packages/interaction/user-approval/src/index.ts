@@ -83,6 +83,31 @@ function hasOpenTurn(session: Session): boolean {
   return false
 }
 
+function sandboxEscalationKey(toolName: string, reason: string | undefined): string | undefined {
+  const target = /^escalate sandbox to ([^:]+):/u.exec(reason ?? '')?.[1]?.trim()
+  return target === undefined || target === '' ? undefined : `${toolName}\u0000${target}`
+}
+
+function rejectedSandboxEscalationInOpenTurn(session: Session, key: string | undefined): boolean {
+  if (key === undefined) return false
+  let turnStart = -1
+  for (let seq = session.seq - 1; seq >= 0; seq -= 1) {
+    const event = session.eventAt(SessionSeq(seq))
+    if (event?.type === 'turn/start') { turnStart = seq; break }
+    if (event?.type === 'turn/end') return false
+  }
+  const asks = new Map<string, string>()
+  for (let seq = turnStart + 1; seq < session.seq; seq += 1) {
+    const event = session.eventAt(SessionSeq(seq))
+    if (event?.type === 'approval/asked') {
+      const priorKey = sandboxEscalationKey(event.data.toolName, event.data.reason)
+      if (priorKey !== undefined) asks.set(event.data.id, priorKey)
+    } else if (event?.type === 'approval/decided' && event.data.outcome === 'rejected'
+      && asks.get(event.data.id) === key) return true
+  }
+  return false
+}
+
 /**
  * Append the sole durable representation of a session policy override. Invalid
  * values throw before the log changes; consumers fold the new value on each read.
@@ -214,13 +239,16 @@ export class ApprovalService extends Service {
       )
     }
     const id = ApprovalRequestId(randomUUID())
+    const repeatRejectedEscalation = rejectedSandboxEscalationInOpenTurn(
+      session, sandboxEscalationKey(req.toolName, req.reason),
+    )
     session.append('approval/asked', {
       id,
       toolName: req.toolName,
       ...req.callId !== undefined ? { callId: req.callId } : {},
       ...req.reason !== undefined ? { reason: req.reason } : {},
     })
-    const outcome = await this.decide(req, session)
+    const outcome = repeatRejectedEscalation ? 'rejected' : await this.decide(req, session)
     session.append('approval/decided', { id, outcome })
     return outcome
   }
