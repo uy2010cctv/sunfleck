@@ -7,8 +7,10 @@ Architecture: the independent learning entry of the enterprise context package c
 - [x] Test atomic learning, repeat calls, existing bindings and pending drafts.
 - [x] Implement catalog transaction and session-derived learning tool.
 - [x] Inject bounded learned instructions into employee sessions and test isolation.
-- [ ] Verify source tests, deploy focused changes, and read back live results.
+- [x] Verify source tests, deploy focused changes, and read back live results.
 
 No new tool permissions, credentials or workspace grants are created by learning. Source files remain authoritative; learning stores a versioned text snapshot and source reference.
 
 Validation: 28 focused tests including a real Loader composition; targeted TypeScript build and source lint; isolated real PostgreSQL schema verified asset/binding/release transaction, pending-draft preservation and idempotency. Review fixed preset projection ownership and PTC subcall idempotency. Deployment preserves the parallel runtime memory/auth changes by mounting a separate learning entry.
+
+Runtime evidence: deployed learning-20260912-2343 over device-9b551921db while preserving its memory/auth changes. Clean archive 96920c73ae passed 28 tests. Deployed-code E2E used isolated PostgreSQL tables and a non-admin Session owner: assets=2, bindings=2, releases=3; current context contained learned content; disposal removed the tool. Test schema/files were removed. Browser refresh retained 财务大王 as published with 1 Skill and 1 SOP.
