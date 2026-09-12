@@ -4321,6 +4321,21 @@ importers:
         specifier: link:../../../vendor/schemastery
         version: link:../../../vendor/schemastery
     devDependencies:
+      '@deepseek-ai/dsh-session-projection':
+        specifier: workspace:^
+        version: link:../../session/session-projection
+      '@deepseek-ai/dsh-agent-presets':
+        specifier: workspace:^
+        version: link:../../preset/agent-presets
+      '@deepseek-ai/dsh-enterprise-catalog':
+        specifier: workspace:^
+        version: link:../../catalog/enterprise-catalog
+      '@deepseek-ai/cordis-plugin-loader':
+        specifier: workspace:^
+        version: link:../../../vendor/loader
+      '@deepseek-ai/cordis-plugin-include':
+        specifier: workspace:^
+        version: link:../../../vendor/include
       '@deepseek-ai/cordis':
         specifier: workspace:^
         version: link:../../../vendor/cordis

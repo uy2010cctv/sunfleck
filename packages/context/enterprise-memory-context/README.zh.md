@@ -33,3 +33,7 @@ Reviewed organization and department memory context for DSH Enterprise。
 无。
 
 </details>
+
+## 员工自主学习
+
+企业配置默认挂载独立的 `./learning` 插件。员工完成可复用工作后调用 `learn_employee_capability`，传入类型、名称及工作区内的 Markdown 源文件路径，即可自动登记、绑定自身并发布能力版本，无需管理员确认。归属取当前会话员工身份；保留已有能力和未发布的人工草稿。当前及后续会话只加载本员工在该工作区学到的能力，不新增工具权限或数据访问权限。单文件默认上限 64000 字节，超过上下文预算的规程通过源文件按需读取。
