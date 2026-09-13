@@ -59,3 +59,11 @@ The Enterprise profile intentionally leaves automatic approval unconfigured. Con
 ## Memory activation
 
 Confirmed routine knowledge activates automatically through remember_business_knowledge. needsConfirmation=true preserves uncertain or conflicting knowledge as proposed. Workspace and actor isolation, privacy checks, source digest, audit and retired-memory protections remain enforced. No administrator policy grant is required per memory.
+
+## Completed-turn writeback
+
+When `autoSave` and `writebackEnabled` are true, the plugin captures the direct user text and final assistant answer at `agent/turn-stopping`. It durably enqueues the bounded snapshot before the turn closes, then runs a separate model call in the background. The main Agent does not need to call the memory tool and the extractor never adds a synthetic conversation message.
+
+The extractor compares the turn with active and pending memory in the same organization and department. Exact normalized duplicates are skipped. High-confidence non-conflicting statements become active; uncertainty, lower confidence, and contradictions remain pending. Every write rechecks the current workspace grant and Session owner. The queue retries failures after 5, 15, 60, and 180 seconds, stops automatic retry after five attempts, and retains an actionable failure record. Successful jobs remove their copied conversation snapshot and retain only counts, memory ids, timing, and provenance.
+
+The Enterprise Memory page shows active processing, failures, the latest outcome, and a retry action. `writebackMaxInputChars` defaults to 12000 and `writebackMaxTokens` defaults to 1024. This feature owns concise governed business statements; general Markdown documents, notes, arbitrary files, and remote knowledge clients remain the separate document-knowledge domain.

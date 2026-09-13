@@ -13,6 +13,7 @@ import type {} from '@deepseek-ai/dsh-enterprise-auth-web'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import z from '@deepseek-ai/schemastery'
+import { EnterpriseMemoryWritebackRuntime } from './writeback-runtime.ts'
 
 /** Data used by `Config`. */
 export interface Config {
@@ -24,6 +25,14 @@ export interface Config {
   readonly autoSave?: boolean
   /** Explicit non-human enterprise identity for unbound background automation, e.g. `service:memory-bot`. */
   readonly backgroundServiceUserId?: string
+  /** Whether completed turns are independently extracted into enterprise memory. */
+  readonly writebackEnabled?: boolean
+  /** Combined direct-user and final-answer character bound for one extraction. */
+  readonly writebackMaxInputChars?: number
+  /** Maximum output tokens for the independent extractor. */
+  readonly writebackMaxTokens?: number
+  /** Timeout for one independent extraction model call. */
+  readonly writebackTimeoutMs?: number
 }
 
 export const Config: z<Config> = z.object({
@@ -31,6 +40,10 @@ export const Config: z<Config> = z.object({
   maxChars: z.natural().min(512).max(64_000).default(12_000),
   autoSave: z.boolean().default(false),
   backgroundServiceUserId: z.string().default(''),
+  writebackEnabled: z.boolean().default(true),
+  writebackMaxInputChars: z.natural().min(1_000).max(64_000).default(12_000),
+  writebackMaxTokens: z.natural().min(128).max(4_096).default(1_024),
+  writebackTimeoutMs: z.natural().min(1_000).max(300_000).default(60_000),
 })
 
 export const inject = ['enterprisePostgres', 'enterpriseRequestContext', 'systemPrompt', 'tools']
@@ -158,6 +171,20 @@ export function apply(ctx: Context, config: Config): void {
   const maxChars = config.maxChars ?? 12_000
   const autoSave = config.autoSave ?? false
   const backgroundServiceUserId = config.backgroundServiceUserId || undefined
+  if (autoSave && (config.writebackEnabled ?? true)) {
+    const postgres = (ctx.get.bind(ctx) as (name: string) => unknown)('enterprisePostgres') as {
+      identity?: EnterpriseIdentityStore
+      database?: import('./writeback-repository.ts').MemoryWritebackDatabase
+    } | undefined
+    if (postgres?.identity !== undefined && postgres.database !== undefined && ctx.get('llm') !== undefined) {
+      new EnterpriseMemoryWritebackRuntime(ctx, postgres.identity, postgres.database, {
+        maxInputChars: config.writebackMaxInputChars ?? 12_000,
+        maxTokens: config.writebackMaxTokens ?? 1_024,
+        timeoutMs: config.writebackTimeoutMs ?? 60_000,
+        pollMs: 2_000,
+      }).install()
+    }
+  }
   if (autoSave) {
     ctx.effect(() => ctx.systemPrompt.section({
       name: 'enterprise:auto-memory-policy',

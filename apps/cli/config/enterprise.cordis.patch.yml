@@ -85,6 +85,10 @@
         maxEntries: 40
         maxChars: 12000
         autoSave: true
+        writebackEnabled: true
+        writebackMaxInputChars: 12000
+        writebackMaxTokens: 1024
+        writebackTimeoutMs: 60000
 
     - id: enterprise-cordis-runtime
       name: '@deepseek-ai/dsh-enterprise-cordis-runtime'
