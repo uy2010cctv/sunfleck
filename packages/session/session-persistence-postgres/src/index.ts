@@ -116,9 +116,22 @@ export class PostgresSessionPersistence extends SessionPersistence {
     const enterprisePostgres = ctx.get('enterprisePostgres') as { database: PostgresDatabase } | undefined
     const database = config.database ?? (config.databaseMode === 'postgres' ? enterprisePostgres?.database : undefined) ?? databaseFor(config)
     this.store = new PostgresSessionStore(database)
+    ctx.on('session/event', (session, event) => {
+      this.writers.get(session.id)?.enqueueLive(event, (error) => {
+        ctx.logger.warn(`PostgreSQL session ${session.id} background write failed; buffered events retained: ${String(error)}`)
+      })
+    })
+    ctx.on('session/flush', session => this.writers.get(session.id)?.flush())
+    ctx.on('session/disposed', (session) => {
+      this.writers.get(session.id)?.close().catch((error: unknown) => {
+        ctx.logger.warn(`PostgreSQL session ${session.id} final drain failed: ${String(error)}`)
+      })
+    })
     ctx.effect(() => async () => {
-      for (const handle of [...this.handles]) await handle.close()
+      const results = await Promise.allSettled([...this.handles].map(handle => handle.close()))
       await this.store.close()
+      const failures = results.filter((result): result is PromiseRejectedResult => result.status === 'rejected')
+      if (failures.length > 0) throw new AggregateError(failures.map(result => result.reason as unknown), 'PostgreSQL session final drains failed')
     }, 'session-persistence-postgres open handles')
   }
 
@@ -206,6 +219,9 @@ export class PostgresSessionPersistence extends SessionPersistence {
 
 class PostgresSessionHandle implements SessionHandle {
   private closed = false
+  private readonly liveEvents: SessionEvent[] = []
+  private draining: Promise<void> | undefined
+  private closing: Promise<void> | undefined
 
   constructor(
     private readonly persistence: PostgresSessionPersistence,
@@ -215,6 +231,24 @@ class PostgresSessionHandle implements SessionHandle {
     readonly inheritedEventCount: SessionLogOffset,
     private cursor: number,
   ) {}
+
+  /** Buffer published events and retain failed batches for the next durability checkpoint. */
+  enqueueLive(event: SessionEvent, onError: (error: unknown) => void): void {
+    this.assertOpen('append')
+    this.liveEvents.push(event)
+    // Coalesce events emitted synchronously; checkpoint/close awaits this same drain.
+    queueMicrotask(() => { void this.drainLive().catch(onError) })
+  }
+
+  private drainLive(): Promise<void> {
+    return this.draining ??= (async () => {
+      while (this.liveEvents.length > 0) {
+        const batch = this.liveEvents.slice()
+        await this.append(batch)
+        this.liveEvents.splice(0, batch.length)
+      }
+    })().finally(() => { this.draining = undefined })
+  }
 
   async read(offset = 0, length = Number.MAX_SAFE_INTEGER, options?: SessionHandleReadOptions): Promise<SessionHandleReadResult> {
     this.assertOpen('read')
@@ -241,9 +275,22 @@ class PostgresSessionHandle implements SessionHandle {
     this.assertOpen('flush')
     if (this.access !== 'write') throw new SessionReadOnlyError(this.id, 'flush')
     options?.signal?.throwIfAborted()
+    await this.drainLive()
   }
 
-  async close(): Promise<void> { if (!this.closed) { this.closed = true; this.persistence.release(this) } }
+  async close(): Promise<void> {
+    if (this.closed) return
+    return this.closing ??= (async () => {
+      if (this.access === 'write') {
+        do { await this.drainLive() } while (this.liveEvents.length > 0)
+      }
+      this.closed = true
+      this.persistence.release(this)
+    })().catch((error: unknown) => {
+      this.closing = undefined
+      throw error
+    })
+  }
   [Symbol.asyncDispose](): Promise<void> { return this.close() }
   private assertOpen(operation: string): void { if (this.closed) throw new SessionHandleClosedError(this.id, operation) }
 }
@@ -258,7 +305,7 @@ function decodeStoredPrefix(stored: SessionHeader): { header: SessionHeader; inh
   const inheritedEventCount = value === undefined ? 0 : value
   if (typeof inheritedEventCount !== 'number' || !Number.isSafeInteger(inheritedEventCount) || inheritedEventCount < 0) throw new Error('stored inherited event count is invalid')
   const { [STORED_PREFIX]: _prefix, ...header } = record
-  return { header: header as SessionHeader, inheritedEventCount: SessionLogOffset(inheritedEventCount) }
+  return { header, inheritedEventCount: SessionLogOffset(inheritedEventCount) }
 }
 
 function databaseFor(config: Config): PostgresDatabase {
