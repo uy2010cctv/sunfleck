@@ -218,7 +218,7 @@ describe('EnterpriseAuthHttpHandler', () => {
       method: 'POST', headers: mutationHeaders,
       body: JSON.stringify({
         id: 'memory-1', scope: 'department', departmentId: 'dept-ops', kind: 'process',
-        summary: '报价审批必须保留版本记录。', sourceDigest: 'd'.repeat(64),
+        summary: '报价审批必须保留版本记录。', sourceDigest: 'd'.repeat(64), needsConfirmation: true,
       }),
     }))
     expect(proposal.status).toBe(201)
@@ -229,7 +229,8 @@ describe('EnterpriseAuthHttpHandler', () => {
       }),
     }))
     expect(automaticDigest.status).toBe(201)
-    const automaticMemory = await automaticDigest.json() as { id?: unknown; sourceDigest?: unknown }
+    const automaticMemory = await automaticDigest.json() as { id?: unknown; sourceDigest?: unknown; status?: unknown }
+    expect(automaticMemory.status).toBe('approved')
     expect(automaticMemory.id).toBe('memory-2')
     expect(automaticMemory.sourceDigest).toMatch(/^[a-f0-9]{64}$/)
     const review = await managed.fetch(new Request('https://dsh.example.com/auth/admin/memories/memory-1', {
@@ -240,7 +241,7 @@ describe('EnterpriseAuthHttpHandler', () => {
     const memories = await managed.fetch(new Request('https://dsh.example.com/auth/admin/memories?status=approved', {
       headers: { cookie },
     }))
-    await expect(memories.json()).resolves.toEqual([expect.objectContaining({ id: 'memory-1', status: 'approved' })])
+    await expect(memories.json()).resolves.toEqual(expect.arrayContaining([expect.objectContaining({ id: 'memory-1', status: 'approved' }), expect.objectContaining({ id: 'memory-2', status: 'approved' })]))
   })
 
   it('serves user, role, resource-policy, and audit administration only to administrators', async () => {

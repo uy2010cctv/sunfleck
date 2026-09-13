@@ -481,17 +481,17 @@ describe('enterprise governance UI', () => {
     fireEvent.click(screen.getByRole('tab', { name: '企业记忆' }))
 
     expect(screen.getByRole('heading', { name: '企业记忆' })).toBeDefined()
-    expect(screen.getByText('让 Agent 记住经过审核的公司知识，并按企业或部门范围安全使用。')).toBeDefined()
-    expect(screen.getByText('提交业务知识')).toBeDefined()
-    expect(screen.getByText('管理员审核')).toBeDefined()
-    expect(screen.getByText('Agent 可使用')).toBeDefined()
+    expect(screen.getByText('日常业务知识自动生效；这里只处理需要确认的例外，并管理已启用的记忆。')).toBeDefined()
+    expect(screen.getByText('员工沉淀知识')).toBeDefined()
+    expect(screen.getByText('常规知识自动生效')).toBeDefined()
+    expect(screen.getByText('仅异常待确认')).toBeDefined()
     expect(screen.queryByLabelText('来源证据摘要')).toBeNull()
     fireEvent.change(screen.getByLabelText('适用范围'), { target: { value: 'organization' } })
     fireEvent.change(screen.getByLabelText('业务知识类型'), { target: { value: 'process' } })
     fireEvent.change(screen.getByLabelText('要让 Agent 记住的内容'), {
       target: { value: '所有采购订单必须在入库前完成审批。' },
     })
-    fireEvent.click(screen.getByRole('button', { name: '提交审核' }))
+    fireEvent.click(screen.getByRole('button', { name: '保存并启用' }))
 
     await waitFor(() => { expect(proposeMemory).toHaveBeenCalledOnce() })
     expect(proposeMemory).toHaveBeenCalledWith({
@@ -500,7 +500,8 @@ describe('enterprise governance UI', () => {
     })
   })
 
-  it('identifies Agent-evaluated memory that became active automatically', () => {
+  it('identifies Agent-evaluated memory that became active automatically', async () => {
+    const reviewMemory = vi.fn(() => Promise.resolve())
     render(<EnterpriseGovernanceSettingsSection
       state={state({
         auth: {
@@ -517,13 +518,16 @@ describe('enterprise governance UI', () => {
       })}
       loadAdmin={vi.fn()} loginLocal={vi.fn()} logout={vi.fn()} createOrganization={vi.fn()}
       createAsset={vi.fn()} createUser={vi.fn()} updateUser={vi.fn()} saveDepartment={vi.fn()}
-      createWorkspace={vi.fn()} updateWorkspace={vi.fn()} proposeMemory={vi.fn()} reviewMemory={vi.fn()}
+      createWorkspace={vi.fn()} updateWorkspace={vi.fn()} proposeMemory={vi.fn()} reviewMemory={reviewMemory}
       savePolicy={vi.fn()} filterAudit={vi.fn()}
     />)
     fireEvent.click(screen.getByRole('tab', { name: '企业记忆' }))
     expect(screen.getByText('Agent 自动记忆已开启')).toBeDefined()
     expect(screen.getByText('Agent 自动保存 · 已直接生效')).toBeDefined()
     expect(screen.getByText('由 Agent 自动评估并直接生效')).toBeDefined()
+    expect(screen.queryByRole('region', { name: '待确认的例外' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: '停用此记忆' }))
+    await waitFor(() => { expect(reviewMemory).toHaveBeenCalledWith(`agent-memory-${'a'.repeat(64)}`, expect.objectContaining({ decision: 'retired', expectedRevision: 2 })) })
   })
 
   it('edits the department tree and reviews the enterprise awareness stream', () => {

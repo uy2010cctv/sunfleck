@@ -55,3 +55,7 @@ Stable approved memory may improve reuse when its ordered summaries remain uncha
 The Enterprise profile intentionally leaves automatic approval unconfigured. Configure and govern the resource policy through the authenticated enterprise control plane before allowing any scope to activate automatically.
 
 </details>
+
+## Memory activation
+
+Confirmed routine knowledge activates automatically through remember_business_knowledge. needsConfirmation=true preserves uncertain or conflicting knowledge as proposed. Workspace and actor isolation, privacy checks, source digest, audit and retired-memory protections remain enforced. No administrator policy grant is required per memory.

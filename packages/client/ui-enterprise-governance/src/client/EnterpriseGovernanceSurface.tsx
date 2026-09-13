@@ -654,17 +654,17 @@ function MemorySection({ state, proposeMemory, reviewMemory, t }: Pick<Enterpris
   }, [departmentId, state.departments])
   return <section className={css.ledgerSection}>
     <header className={css.memoryHeader}>
-      <div><h2>{t('\u4F01\u4E1A\u8BB0\u5FC6')}</h2><p>{t('\u8BA9 Agent \u8BB0\u4F4F\u7ECF\u8FC7\u5BA1\u6838\u7684\u516C\u53F8\u77E5\u8BC6\uFF0C\u5E76\u6309\u4F01\u4E1A\u6216\u90E8\u95E8\u8303\u56F4\u5B89\u5168\u4F7F\u7528\u3002')}</p></div>
+      <div><h2>{t('\u4F01\u4E1A\u8BB0\u5FC6')}</h2><p>{t('memory.description')}</p></div>
       <span>{approved.length}{t('\u6761\u5DF2\u542F\u7528')}</span>
     </header>
     <div className={css.memoryAutomation} role="status">
       <strong>{t('Agent \u81EA\u52A8\u8BB0\u5FC6\u5DF2\u5F00\u542F')}</strong>
-      <span>{t('Agent \u4F1A\u81EA\u884C\u8BC4\u4F30\u53EF\u590D\u7528\u7684\u4E1A\u52A1\u77E5\u8BC6\uFF1B\u901A\u8FC7\u9690\u79C1\u4E0E\u8303\u56F4\u68C0\u67E5\u540E\u7ACB\u5373\u751F\u6548\uFF0C\u5E76\u4FDD\u7559\u81EA\u52A8\u6765\u6E90\u548C\u5BA1\u8BA1\u8BB0\u5F55\u3002')}</span>
+      <span>{t('memory.automationHelp')}</span>
     </div>
     <ol className={css.memoryFlow} aria-label={t('\u4F01\u4E1A\u8BB0\u5FC6\u751F\u6548\u6D41\u7A0B')}>
-      <li><span>1</span><strong>{t('\u63D0\u4EA4\u4E1A\u52A1\u77E5\u8BC6')}</strong><small>{t('\u586B\u5199\u53EF\u5171\u4EAB\u7684\u89C4\u5219\u3001\u6D41\u7A0B\u3001\u672F\u8BED\u6216\u51B3\u7B56')}</small></li>
-      <li><span>2</span><strong>{t('\u7BA1\u7406\u5458\u5BA1\u6838')}</strong><small>{t('\u786E\u8BA4\u5185\u5BB9\u51C6\u786E\u3001\u9002\u7528\u8303\u56F4\u6B63\u786E\u4E14\u4E0D\u542B\u9690\u79C1')}</small></li>
-      <li><span>3</span><strong>{t('Agent \u53EF\u4F7F\u7528')}</strong><small>{t('\u5BA1\u6838\u901A\u8FC7\u540E\u8FDB\u5165\u5BF9\u5E94\u4F01\u4E1A\u6216\u90E8\u95E8\u7684 Agent \u4E0A\u4E0B\u6587')}</small></li>
+      <li><span>1</span><strong>{t('memory.flowCapture')}</strong><small>{t('\u586B\u5199\u53EF\u5171\u4EAB\u7684\u89C4\u5219\u3001\u6D41\u7A0B\u3001\u672F\u8BED\u6216\u51B3\u7B56')}</small></li>
+      <li><span>2</span><strong>{t('memory.flowAutomatic')}</strong><small>{t('memory.flowAutomaticHelp')}</small></li>
+      <li><span>3</span><strong>{t('memory.flowExceptions')}</strong><small>{t('memory.flowExceptionsHelp')}</small></li>
     </ol>
     <form className={css.memoryComposer} onSubmit={(event) => {
       event.preventDefault()
@@ -681,7 +681,7 @@ function MemorySection({ state, proposeMemory, reviewMemory, t }: Pick<Enterpris
           setSummary('')
         }
         catch {
-          setError('提交审核失败。请确认内容不含姓名、联系方式、密码或其他个人敏感信息后重试。')
+          setError(t('memory.saveError'))
         }
         finally {
           setSubmitting(false)
@@ -690,7 +690,7 @@ function MemorySection({ state, proposeMemory, reviewMemory, t }: Pick<Enterpris
       void submit()
     }}>
       <div className={css.memoryComposerHeader}><strong>{t('\u65B0\u589E\u4E1A\u52A1\u8BB0\u5FC6')}</strong>
-        <span>{t('\u63D0\u4EA4\u540E\u4E0D\u4F1A\u7ACB\u5373\u5F71\u54CD Agent\uFF0C\u9700\u8981\u7BA1\u7406\u5458\u5BA1\u6838\u901A\u8FC7\u3002')}</span></div>
+        <span>{t('memory.composerHelp')}</span></div>
       <div className={css.memoryFields}>
         <label>{t('\u9002\u7528\u8303\u56F4')}<select aria-label={t('\u9002\u7528\u8303\u56F4')} value={scope} onChange={(event) => { setScope(event.target.value as GovernanceMemory['scope']) }}>
           <option value="organization">{t('\u5168\u4F01\u4E1A Agent')}</option><option value="department">{t('\u6307\u5B9A\u90E8\u95E8 Agent')}</option>
@@ -706,31 +706,31 @@ function MemorySection({ state, proposeMemory, reviewMemory, t }: Pick<Enterpris
         <label className={css.memorySummaryField}>{t('\u8981\u8BA9 Agent \u8BB0\u4F4F\u7684\u5185\u5BB9')}<textarea aria-label={t('\u8981\u8BA9 Agent \u8BB0\u4F4F\u7684\u5185\u5BB9')} placeholder={t('\u4F8B\u5982\uFF1A\u6240\u6709\u91C7\u8D2D\u8BA2\u5355\u5FC5\u987B\u5728\u5165\u5E93\u524D\u5B8C\u6210\u5BA1\u6279\u3002')} maxLength={1000} value={summary} onChange={(event) => { setSummary(event.target.value) }}/>
           <small>{summary.length}{t('/1000 \u00B7 \u53EA\u5199\u53EF\u5171\u4EAB\u7684\u516C\u53F8\u4E1A\u52A1\u4FE1\u606F\u3002')}</small></label>
       </div>
-      <div className={css.memoryPrivacy}><strong>{t('\u9690\u79C1\u8FB9\u754C')}</strong><span>{t('\u4E0D\u8981\u586B\u5199\u59D3\u540D\u3001\u8054\u7CFB\u65B9\u5F0F\u3001\u4E2A\u4EBA\u504F\u597D\u3001\u5BA2\u6237\u539F\u6587\u3001\u5BC6\u7801\u6216\u5BC6\u94A5\u3002\u7CFB\u7EDF\u53EA\u4FDD\u5B58\u5BA1\u6838\u540E\u7684\u4E1A\u52A1\u6458\u8981\uFF0C\u4E0D\u4FDD\u5B58\u539F\u59CB\u5BF9\u8BDD\u3002')}</span></div>
+      <div className={css.memoryPrivacy}><strong>{t('\u9690\u79C1\u8FB9\u754C')}</strong><span>{t('memory.privacyHelp')}</span></div>
       {error !== null && <div className={css.formError} role="alert">{error}</div>}
       <div className={css.memorySubmit}><button type="submit" disabled={submitting || summary.trim() === ''
-            || (scope === 'department' && departmentId === '')}>{submitting ? t('\u6B63\u5728\u63D0\u4EA4\u2026') : t('\u63D0\u4EA4\u5BA1\u6838')}</button></div>
+            || (scope === 'department' && departmentId === '')}>{submitting ? t('\u6B63\u5728\u63D0\u4EA4\u2026') : t('memory.save')}</button></div>
     </form>
     <div className={css.memoryColumns}>
-      <section className={css.memoryLane} aria-label={t('\u5F85\u7BA1\u7406\u5458\u5BA1\u6838')}>
+      {proposed.length > 0 && <section className={css.memoryLane} aria-label={t('memory.pending')}>
         <div className={css.subsectionHeader}>
-          <div><strong>{t('\u5F85\u7BA1\u7406\u5458\u5BA1\u6838')}</strong><span>{t('\u786E\u8BA4\u51C6\u786E\u6027\u3001\u9002\u7528\u8303\u56F4\u548C\u9690\u79C1\u8FB9\u754C')}</span></div>
+          <div><strong>{t('memory.pending')}</strong><span>{t('memory.pendingHelp')}</span></div>
           <span>{proposed.length}</span>
         </div>
-        {proposed.length === 0 && <p className={css.emptyState}>{t('\u6682\u65E0\u5F85\u5BA1\u6838\u5185\u5BB9\u3002\u65B0\u63D0\u4EA4\u7684\u4E1A\u52A1\u77E5\u8BC6\u4F1A\u51FA\u73B0\u5728\u8FD9\u91CC\u3002')}</p>}
+        {proposed.length === 0 && <p className={css.emptyState}>{t('memory.noExceptions')}</p>}
         {proposed.map(memory => <article key={memory.id} className={css.memoryItem}>
           <div className={css.memoryMeta}><span>{scopeLabel(memory)}</span><span>{kindLabel(memory.kind)}</span></div>
           <strong className={css.memorySummary}>{memory.summary}</strong>
           <small>{t('\u7CFB\u7EDF\u5DF2\u751F\u6210\u5185\u5BB9\u6307\u7EB9 \u00B7 \u539F\u59CB\u5BF9\u8BDD\u672A\u4FDD\u5B58')}</small>
           <label className={css.memoryReviewReason}>{t('\u5BA1\u6838\u8BF4\u660E')}<input aria-label={t('memory.reviewAria', { summary: memory.summary })} placeholder={t('\u8BF4\u660E\u6838\u9A8C\u4F9D\u636E\u6216\u9A73\u56DE\u539F\u56E0')} value={reviewReasons[memory.id] ?? ''} onChange={(event) => { setReviewReasons(current => ({ ...current, [memory.id]: event.target.value })) }}/></label>
           <div className={css.memoryActions}>
-            <button type="button" disabled={(reviewReasons[memory.id]?.trim() ?? '') === '' || busyMemoryId !== null} onClick={() => {
+            <button type="button" disabled={busyMemoryId !== null} onClick={() => {
               const review = async (): Promise<void> => {
                 setBusyMemoryId(memory.id)
                 setError(null)
                 try {
                   await reviewMemory(memory.id, {
-                    decision: 'approved', reason: reviewReasons[memory.id] ?? '', expectedRevision: memory.revision,
+                    decision: 'approved', reason: reviewReasons[memory.id]?.trim() || t('memory.confirmed'), expectedRevision: memory.revision,
                   })
                 }
                 catch {
@@ -742,13 +742,13 @@ function MemorySection({ state, proposeMemory, reviewMemory, t }: Pick<Enterpris
               }
               void review()
             }}>{busyMemoryId === memory.id ? t('\u6B63\u5728\u5904\u7406\u2026') : t('\u6279\u51C6\u5E76\u542F\u7528')}</button>
-            <button type="button" disabled={(reviewReasons[memory.id]?.trim() ?? '') === '' || busyMemoryId !== null} onClick={() => {
+            <button type="button" disabled={busyMemoryId !== null} onClick={() => {
               const review = async (): Promise<void> => {
                 setBusyMemoryId(memory.id)
                 setError(null)
                 try {
                   await reviewMemory(memory.id, {
-                    decision: 'rejected', reason: reviewReasons[memory.id] ?? '', expectedRevision: memory.revision,
+                    decision: 'rejected', reason: reviewReasons[memory.id]?.trim() || t('memory.notAdopted'), expectedRevision: memory.revision,
                   })
                 }
                 catch {
@@ -762,19 +762,29 @@ function MemorySection({ state, proposeMemory, reviewMemory, t }: Pick<Enterpris
             }}>{t('\u9A73\u56DE')}</button>
           </div>
         </article>)}
-      </section>
+      </section>}
       <section className={css.memoryLane} aria-label={t('Agent \u5DF2\u53EF\u4F7F\u7528')}>
         <div className={css.subsectionHeader}>
           <div><strong>{t('Agent \u5DF2\u53EF\u4F7F\u7528')}</strong><span>{t('\u4EE5\u4E0B\u77E5\u8BC6\u4F1A\u8FDB\u5165\u5BF9\u5E94\u8303\u56F4\u7684 Agent \u4E0A\u4E0B\u6587')}</span></div>
           <span>{approved.length}</span>
         </div>
-        {approved.length === 0 && <p className={css.emptyState}>{t('\u8FD8\u6CA1\u6709\u5DF2\u542F\u7528\u8BB0\u5FC6\u3002\u5BA1\u6838\u901A\u8FC7\u540E\uFF0CAgent \u624D\u80FD\u4F7F\u7528\u3002')}</p>}
+        {approved.length === 0 && <p className={css.emptyState}>{t('memory.emptyActive')}</p>}
         {approved.map(memory => <article key={memory.id} className={css.memoryItem}>
           <div className={css.memoryMeta}>
             <span>{scopeLabel(memory)}</span><span>{kindLabel(memory.kind)}</span>
             {memory.reviewReason === 'Agent 自动评估并直接启用' && <span>{t('Agent \u81EA\u52A8\u4FDD\u5B58 \u00B7 \u5DF2\u76F4\u63A5\u751F\u6548')}</span>}
           </div>
           <strong className={css.memorySummary}>{memory.summary}</strong>
+          <div className={css.memoryActions}><button type="button" disabled={busyMemoryId !== null} onClick={() => {
+            const retire = async (): Promise<void> => {
+              setBusyMemoryId(memory.id)
+              setError(null)
+              try { await reviewMemory(memory.id, { decision: 'retired', reason: t('memory.retireReason'), expectedRevision: memory.revision }) }
+              catch { setError(t('memory.retireError')) }
+              finally { setBusyMemoryId(null) }
+            }
+            void retire()
+          }}>{t('memory.retire')}</button></div>
           <small>{memory.reviewReason === 'Agent 自动评估并直接启用'
             ? t('\u7531 Agent \u81EA\u52A8\u8BC4\u4F30\u5E76\u76F4\u63A5\u751F\u6548') : memory.reviewReason === undefined ? t('\u5DF2\u901A\u8FC7\u5BA1\u6838') : t('memory.reviewReason', { reason: memory.reviewReason })}</small>
         </article>)}
