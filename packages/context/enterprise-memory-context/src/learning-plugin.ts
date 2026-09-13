@@ -5,6 +5,7 @@ import { learnedEmployeeContext, registerEmployeeLearning, type LearningReposito
 
 export const name = 'enterprise-employee-learning'
 export const inject = ['enterprisePostgres', 'systemPrompt', 'tools', 'sessionProjections']
+/** Configuration for employee capability registration and prompt injection. */
 export interface Config {
   readonly maxChars?: number
   readonly maxLearningBytes?: number

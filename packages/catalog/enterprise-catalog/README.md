@@ -52,6 +52,10 @@ Zero tokens until a released employee is used by an existing DSH Session.
 
 None; catalog writes do not assemble provider requests.
 
+### Autonomous capability persistence
+
+`learnEmployeeAsset` registers an SOP or skill, binds it to the current employee, and publishes a release in one transaction. It preserves existing capabilities and unpublished human edits; retries are idempotent, and unchanged content reuses its asset version.
+
 ## Known Limitations and Deferred Work
 
 - This package supplies the catalog repository and contracts; Host API composition and browser pages are separate layers.
@@ -67,7 +71,3 @@ None; catalog writes do not assemble provider requests.
 None.
 
 </details>
-
-## Autonomous capability persistence
-
-`learnEmployeeAsset` registers an SOP or skill, binds it to the current employee, and publishes a release in one transaction. It preserves existing capabilities and unpublished human edits; retries are idempotent, and unchanged content reuses its asset version.

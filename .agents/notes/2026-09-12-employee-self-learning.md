@@ -1,5 +1,7 @@
 # Employee self-learning implementation plan
 
+English | [中文](2026-09-12-employee-self-learning.zh.md)
+
 Goal: learned SOPs and skills register and bind to the owning employee without administrator confirmation.
 
 Architecture: the independent learning entry of the enterprise context package contributes an explicit learning tool. The session supplies the employee and workspace identity. The catalog transaction owns asset creation, binding and release; prompt context reads learned content for this employee and workspace. Pending human profile edits remain drafts.

@@ -42,6 +42,10 @@ Reviewed organization and department memory context for DSH Enterprise。
 
 已批准记忆保持有序且未变化时可能提高复用；实际缓存行为由 provider 决定。
 
+### 员工自主学习
+
+企业配置默认挂载独立的 `./learning` 插件。员工完成可复用工作后调用 `learn_employee_capability`，传入类型、名称及工作区内的 Markdown 源文件路径，即可自动登记、绑定自身并发布能力版本，无需管理员确认。归属取当前会话员工身份；保留已有能力和未发布的人工草稿。当前及后续会话只加载本员工在该工作区学到的能力，不新增工具权限或数据访问权限。`maxLearningBytes` 限制每个源文件（默认 64000 个 UTF-8 字节）；`maxChars` 限制学习内容上下文，较长规程通过源文件按需读取。
+
 ## Known Limitations and Deferred Work
 
 - 本包不负责抽取、embedding 或批准源材料；仍需要仓储审核和组织策略。
@@ -55,7 +59,3 @@ Reviewed organization and department memory context for DSH Enterprise。
 企业 Profile 有意不配置自动批准。任何范围需要自动启用前，必须先通过已认证的企业控制平面配置并治理对应资源策略。
 
 </details>
-
-## 员工自主学习
-
-企业配置默认挂载独立的 `./learning` 插件。员工完成可复用工作后调用 `learn_employee_capability`，传入类型、名称及工作区内的 Markdown 源文件路径，即可自动登记、绑定自身并发布能力版本，无需管理员确认。归属取当前会话员工身份；保留已有能力和未发布的人工草稿。当前及后续会话只加载本员工在该工作区学到的能力，不新增工具权限或数据访问权限。`maxLearningBytes` 限制每个源文件（默认 64000 个 UTF-8 字节）；`maxChars` 限制学习内容上下文，较长规程通过源文件按需读取。

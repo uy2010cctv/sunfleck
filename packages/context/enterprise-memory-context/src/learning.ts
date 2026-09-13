@@ -9,6 +9,7 @@ import type { EnterpriseCatalogRepository } from '@deepseek-ai/dsh-enterprise-ca
 import type { EnterpriseIdentityStore } from '@deepseek-ai/dsh-enterprise-identity'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 
+/** Enterprise repositories required by the employee-learning entrypoint. */
 export interface LearningRepositories {
   readonly identity: EnterpriseIdentityStore
   readonly catalog: EnterpriseCatalogRepository
@@ -16,7 +17,11 @@ export interface LearningRepositories {
 
 const POLICY = 'After successfully learning a reusable SOP or skill, write its Markdown source in the current workspace, then call learn_employee_capability. It automatically registers, binds and publishes the capability for you, the current digital employee; no administrator confirmation is needed. Do not save guesses, credentials, raw transactions or customer records. Learning does not grant new tools or data access. Report success only from the tool result.'
 
-/** Register automatic learning within the existing enterprise context composition. */
+/** Register automatic learning within the existing enterprise context composition.
+ * @param ctx - Active Cordis context that owns the model tool and prompt section.
+ * @param repositories - Identity and catalog repositories scoped by the Host.
+ * @param maxChars - Maximum UTF-8 bytes read from one workspace source file.
+ */
 export function registerEmployeeLearning(ctx: Context, repositories: LearningRepositories, maxChars: number): void {
   ctx.effect(() => ctx.systemPrompt.section({ name: 'enterprise:self-learning', order: 701, text: POLICY }))
   ctx.tools.register(defineTool({
@@ -86,7 +91,13 @@ export function registerEmployeeLearning(ctx: Context, repositories: LearningRep
   }))
 }
 
-/** Read only this employee's learned, version-pinned text in its source workspace. */
+/** Read only this employee's learned, version-pinned text in its source workspace.
+ * @param repositories - Identity and catalog repositories scoped by the Host.
+ * @param presetId - Canonical employee Preset identity for the current Session.
+ * @param cwd - Current enterprise Workspace root.
+ * @param maxChars - Maximum characters contributed to the assembled prompt.
+ * @returns bounded learned context, or undefined when no eligible binding exists.
+ */
 export async function learnedEmployeeContext(
   repositories: LearningRepositories, presetId: string, cwd: string, maxChars: number,
 ): Promise<string | undefined> {

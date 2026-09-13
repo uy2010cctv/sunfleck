@@ -157,7 +157,7 @@ describe('Agent automatic enterprise memory', () => {
     ctx.loader.internal = { version: 'v2', async import(specifier: string) {
       if (!modules.has(specifier)) throw new Error(`unexpected module ${specifier}`)
       return modules.get(specifier)
-    } } as NonNullable<typeof ctx.loader.internal>
+    } } as unknown as NonNullable<typeof ctx.loader.internal>
     await ctx.loader.create({ name: 'cordis:include', config: { path: pathToFileURL(configPath).href } })
     await ctx.loader.await()
     return { ctx, identity }
