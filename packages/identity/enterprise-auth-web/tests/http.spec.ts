@@ -10,6 +10,7 @@ describe('EnterpriseAuthHttpHandler', () => {
   let root: string
   let repository: EnterpriseIdentityRepository
   let handler: EnterpriseAuthHttpHandler
+  let security: EnterpriseSecurity
 
   beforeEach(async () => {
     root = await mkdtemp(join(tmpdir(), 'dsh-enterprise-auth-http-'))
@@ -22,7 +23,7 @@ describe('EnterpriseAuthHttpHandler', () => {
     repository.setPasswordVerifier('admin-1', createPasswordVerifier('enterprise-password'))
     let token = 0
     let id = 0
-    const security = new EnterpriseSecurity(repository, {
+    security = new EnterpriseSecurity(repository, {
       organizationId: 'org-a', sessionCookieName: 'dsh_session', sessionTtlMs: 60_000,
       secureCookies: true, autoProvisionSsoUsers: true,
     }, { randomToken: () => `token-${String(++token)}`, randomId: () => `generated-${String(++id)}` })
@@ -57,6 +58,28 @@ describe('EnterpriseAuthHttpHandler', () => {
         { id: 'oidc-main', kind: 'oidc', label: 'Company OIDC' },
       ],
     })
+  })
+
+  it('lists durable memory writeback state and retries failed work', async () => {
+    const retried: string[] = []
+    const managed = new EnterpriseAuthHttpHandler(security, {
+      localEnabled: true, oidc: [], saml: [], ldap: [],
+    }, { memoryWriteback: () => ({
+      list: async () => [{ sourceKey: 'session-1:2', state: 'failed' }],
+      retry: async (_orgId, sourceKey) => { retried.push(sourceKey); return { sourceKey, state: 'queued' } },
+    }) })
+    const login = await managed.fetch(new Request('https://dsh.example.com/auth/login/local', {
+      method: 'POST', headers: { 'content-type': 'application/json', origin: 'https://dsh.example.com' },
+      body: JSON.stringify({ organizationId: 'org-a', username: 'admin', password: 'enterprise-password' }),
+    }))
+    const cookie = login.headers.get('set-cookie') ?? ''
+    const list = await managed.fetch(new Request('https://dsh.example.com/auth/admin/memory-writeback', { headers: { cookie } }))
+    await expect(list.json()).resolves.toEqual([{ sourceKey: 'session-1:2', state: 'failed' }])
+    const retry = await managed.fetch(new Request('https://dsh.example.com/auth/admin/memory-writeback/session-1%3A2/retry', {
+      method: 'POST', headers: { cookie, origin: 'https://dsh.example.com' },
+    }))
+    expect(retry.status).toBe(200)
+    expect(retried).toEqual(['session-1:2'])
   })
 
   it('logs in locally, returns the current principal, and revokes logout', async () => {

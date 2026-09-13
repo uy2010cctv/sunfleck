@@ -47,6 +47,7 @@ describe('EnterpriseGovernanceController', () => {
       if (path.endsWith('/departments')) return Promise.resolve(response([{ id: 'dept-1', name: 'Operations', parentId: null }]))
       if (path.endsWith('/workspaces')) return Promise.resolve(response([{ workspaceId: 'workspace-1', kind: 'personal' }]))
       if (path.endsWith('/memories')) return Promise.resolve(response([{ id: 'memory-1', status: 'proposed' }]))
+      if (path.endsWith('/memory-writeback')) return Promise.resolve(response([]))
       if (path.endsWith('/audit')) return Promise.resolve(response([{ id: 'audit-1', action: 'user.manage' }]))
       throw new Error(path)
     })

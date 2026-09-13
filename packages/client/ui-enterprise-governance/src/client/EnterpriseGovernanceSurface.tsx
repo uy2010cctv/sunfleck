@@ -71,6 +71,7 @@ export interface EnterpriseGovernanceSurfaceProps {
     reason: string
     expectedRevision: number
   }): Promise<void>
+  retryMemoryWriteback?(sourceKey: string): Promise<void>
   savePolicy(input: GovernancePolicy): Promise<void>
   filterAudit(input: {
     actorUserId?: string
@@ -628,7 +629,10 @@ function WorkspacesSection({ state, createWorkspace, updateWorkspace, t }: Pick<
     />)}</div>
   </section>
 }
-function MemorySection({ state, proposeMemory, reviewMemory, t }: Pick<EnterpriseGovernanceSurfaceProps, 'state' | 'proposeMemory' | 'reviewMemory'> & {
+function MemorySection({ state, proposeMemory, reviewMemory, retryMemoryWriteback, t }: Pick<
+  EnterpriseGovernanceSurfaceProps,
+  'state' | 'proposeMemory' | 'reviewMemory' | 'retryMemoryWriteback'
+> & {
   t: GovernanceTranslate
 }) {
   const [scope, setScope] = useState<GovernanceMemory['scope']>('department')
@@ -641,6 +645,10 @@ function MemorySection({ state, proposeMemory, reviewMemory, t }: Pick<Enterpris
   const [error, setError] = useState<string | null>(null)
   const proposed = state.memories.filter(memory => memory.status === 'proposed')
   const approved = state.memories.filter(memory => memory.status === 'approved')
+  const writebacks = state.memoryWritebacks
+  const writebackActive = writebacks.filter(item => item.state === 'queued' || item.state === 'running').length
+  const writebackFailed = writebacks.filter(item => item.state === 'failed')
+  const lastWriteback = writebacks.find(item => item.state === 'completed')
   const kindLabel = (value: GovernanceMemory['kind']): string => ({
     'business-fact': '业务规则', process: '工作流程', terminology: '公司术语', decision: '已确认决策',
   })[value]
@@ -661,6 +669,25 @@ function MemorySection({ state, proposeMemory, reviewMemory, t }: Pick<Enterpris
       <strong>{t('Agent \u81EA\u52A8\u8BB0\u5FC6\u5DF2\u5F00\u542F')}</strong>
       <span>{t('memory.automationHelp')}</span>
     </div>
+    <section className={css.memoryWriteback} aria-label={t('memory.writebackTitle')}>
+      <div>
+        <strong>{t('memory.writebackTitle')}</strong>
+        <span>{t('memory.writebackHelp')}</span>
+      </div>
+      <div className={css.memoryWritebackStats}>
+        <span>{t('memory.writebackActive', { count: writebackActive })}</span>
+        <span>{t('memory.writebackFailed', { count: writebackFailed.length })}</span>
+        {lastWriteback?.state === 'completed' && <span>{t('memory.writebackLast', {
+          activated: lastWriteback.result?.activated ?? 0,
+          pending: lastWriteback.result?.pending ?? 0,
+          skipped: lastWriteback.result?.skipped ?? 0,
+        })}</span>}
+      </div>
+      {writebackFailed.slice(0, 5).map(item => <article key={item.sourceKey} className={css.memoryWritebackFailure}>
+        <div><strong>{t('memory.writebackFailure', { turn: item.turn })}</strong><small>{item.error ?? t('memory.writebackUnknown')}</small></div>
+        {retryMemoryWriteback !== undefined && <button type="button" onClick={() => { void retryMemoryWriteback(item.sourceKey) }}>{t('memory.writebackRetry')}</button>}
+      </article>)}
+    </section>
     <ol className={css.memoryFlow} aria-label={t('\u4F01\u4E1A\u8BB0\u5FC6\u751F\u6548\u6D41\u7A0B')}>
       <li><span>1</span><strong>{t('memory.flowCapture')}</strong><small>{t('\u586B\u5199\u53EF\u5171\u4EAB\u7684\u89C4\u5219\u3001\u6D41\u7A0B\u3001\u672F\u8BED\u6216\u51B3\u7B56')}</small></li>
       <li><span>2</span><strong>{t('memory.flowAutomatic')}</strong><small>{t('memory.flowAutomaticHelp')}</small></li>
@@ -1014,7 +1041,7 @@ function GovernanceSections(props: EnterpriseGovernanceSurfaceProps) {
     }}/>)}
     {panel('users', <UsersSection {...props} t={t}/>)}
     {panel('workspaces', <WorkspacesSection state={props.state} createWorkspace={input => props.createWorkspace(input)} updateWorkspace={(id, input) => props.updateWorkspace(id, input)} t={t}/>)}
-    {panel('memory', <MemorySection state={props.state} proposeMemory={input => props.proposeMemory(input)} reviewMemory={(id, input) => props.reviewMemory(id, input)} t={t}/>)}
+    {panel('memory', <MemorySection state={props.state} proposeMemory={input => props.proposeMemory(input)} reviewMemory={(id, input) => props.reviewMemory(id, input)} {...props.retryMemoryWriteback === undefined ? {} : { retryMemoryWriteback: (sourceKey: string) => props.retryMemoryWriteback?.(sourceKey) ?? Promise.resolve() }} t={t}/>)}
     {panel('policies', <PoliciesSection state={props.state} savePolicy={input => props.savePolicy(input)} t={t}/>)}
     {panel('audit', <AuditSection state={props.state} filterAudit={input => props.filterAudit(input)} t={t}/>)}
   </>

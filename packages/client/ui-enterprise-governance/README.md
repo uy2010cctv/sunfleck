@@ -64,3 +64,5 @@ None.
 ## Memory activation
 
 Enterprise memory uses Save and activate for confirmed manual entries. Routine Agent knowledge activates automatically; the pending lane appears only for exceptions or existing proposals. Active memories can be deactivated without deleting their audit history.
+
+The Automatic capture panel reports the durable completed-turn outbox without exposing copied conversation snapshots. Completed and skipped work stays compact; failed jobs show their reason and a retry action. Conflict candidates continue through the existing exception review lane.

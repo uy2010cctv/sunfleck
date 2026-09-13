@@ -30,6 +30,10 @@ export interface EnterpriseAuthHttpOptions {
     EnterpriseWorkspaceProvisioner,
     'ensurePersonal' | 'ensureDepartment' | 'ensureWorkspace' | 'createPersonal'
   >>
+  readonly memoryWriteback?: () => {
+    list(orgId: string, limit?: number): Promise<readonly unknown[]>
+    retry(orgId: string, sourceKey: string): Promise<unknown>
+  } | undefined
 }
 
 function json(value: unknown, status = 200, headers: HeadersInit = {}): Response {
@@ -223,6 +227,17 @@ export class EnterpriseAuthHttpHandler {
       principal, endpoint, {}, decision, request.headers.get('x-request-id') ?? randomUUID(),
     )
     if (!decision.allowed) return new Response('forbidden', { status: 403 })
+
+    if (request.method === 'GET' && path.length === 3 && path[2] === 'memory-writeback') {
+      return json(await this.options.memoryWriteback?.()?.list(principal.orgId, 50) ?? [])
+    }
+    if (request.method === 'POST' && path.length === 5 && path[2] === 'memory-writeback' && path[4] === 'retry') {
+      if (!sameOrigin(request)) return new Response('forbidden', { status: 403 })
+      const runtime = this.options.memoryWriteback?.()
+      if (runtime === undefined) return json({ error: 'unavailable' }, 503)
+      try { return json(await runtime.retry(principal.orgId, decodeURIComponent(path[3] as string))) }
+      catch (error) { return json({ error: 'not-retryable', message: error instanceof Error ? error.message : String(error) }, 409) }
+    }
 
     if (request.method === 'GET' && path.length === 3 && path[2] === 'organizations') {
       return json(await this.security.repository.listOrganizations())

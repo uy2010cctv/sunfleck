@@ -80,6 +80,19 @@ export interface GovernanceMemory {
   readonly updatedAt: number
 }
 
+export interface GovernanceMemoryWriteback {
+  readonly sourceKey: string
+  readonly sessionId: string
+  readonly turn: number
+  readonly state: 'queued' | 'running' | 'completed' | 'failed'
+  readonly attempts: number
+  readonly nextAttemptAt: number
+  readonly error?: string
+  readonly result?: { readonly outcome: 'completed'; readonly activated: number; readonly pending: number; readonly skipped: number }
+  readonly createdAt: number
+  readonly updatedAt: number
+}
+
 /** Data used by `GovernanceOrganization`. */
 export interface GovernanceOrganization {
   readonly id: string
@@ -124,6 +137,7 @@ export interface EnterpriseGovernanceState {
   readonly departments: readonly GovernanceDepartment[]
   readonly workspaces: readonly GovernanceWorkspace[]
   readonly memories: readonly GovernanceMemory[]
+  readonly memoryWritebacks: readonly GovernanceMemoryWriteback[]
   readonly assets: readonly GovernanceAsset[]
   readonly policies: readonly GovernancePolicy[]
   readonly audit: readonly GovernanceAudit[]
@@ -133,7 +147,7 @@ export interface EnterpriseGovernanceState {
 type Fetcher = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
 
 const INITIAL: EnterpriseGovernanceState = {
-  phase: 'loading', error: null, organizations: [], users: [], departments: [], workspaces: [], memories: [],
+  phase: 'loading', error: null, organizations: [], users: [], departments: [], workspaces: [], memories: [], memoryWritebacks: [],
   assets: [], policies: [], audit: [],
   departmentManagers: {},
 }
@@ -191,12 +205,13 @@ export class EnterpriseGovernanceController {
   /** Executes `EnterpriseGovernanceController.loadAdmin` for this instance. */
   async loadAdmin(): Promise<void> {
     try {
-      const [organizations, users, departments, workspaces, memories, assets, policies, audit] = await Promise.all([
+      const [organizations, users, departments, workspaces, memories, memoryWritebacks, assets, policies, audit] = await Promise.all([
         this.get<GovernanceOrganization[]>('/auth/admin/organizations'),
         this.get<GovernanceUser[]>('/auth/admin/users'),
         this.get<GovernanceDepartment[]>('/auth/admin/departments'),
         this.get<GovernanceWorkspace[]>('/auth/admin/workspaces'),
         this.get<GovernanceMemory[]>('/auth/admin/memories'),
+        this.get<GovernanceMemoryWriteback[]>('/auth/admin/memory-writeback'),
         this.get<GovernanceAsset[]>('/auth/admin/assets'),
         this.get<GovernancePolicy[]>('/auth/admin/resource-policies'),
         this.get<GovernanceAudit[]>('/auth/admin/audit?limit=200'),
@@ -211,7 +226,7 @@ export class EnterpriseGovernanceController {
       }
       this.store.set({
         ...this.store.getSnapshot(), phase: 'ready', error: null,
-        organizations, users, departments, workspaces, memories, assets, policies, audit, departmentManagers,
+        organizations, users, departments, workspaces, memories, memoryWritebacks, assets, policies, audit, departmentManagers,
       })
     } catch (error) {
       this.fail(error)
@@ -349,6 +364,11 @@ export class EnterpriseGovernanceController {
     await this.request(`/auth/admin/memories/${encodeURIComponent(memoryId)}`, {
       method: 'PATCH', body: JSON.stringify(input),
     })
+    await this.loadAdmin()
+  }
+
+  async retryMemoryWriteback(sourceKey: string): Promise<void> {
+    await this.request(`/auth/admin/memory-writeback/${encodeURIComponent(sourceKey)}/retry`, { method: 'POST' })
     await this.loadAdmin()
   }
 

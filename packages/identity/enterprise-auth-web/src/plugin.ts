@@ -207,7 +207,13 @@ export async function apply(ctx: Context, config: EnterpriseAuthWebConfig): Prom
     }))
     const handler = new EnterpriseAuthHttpHandler(security, {
       localEnabled: config.localEnabled, oidc, saml, ldap,
-    }, workspaceProvisioner === undefined ? {} : { workspaceProvisioner })
+    }, {
+      ...(workspaceProvisioner === undefined ? {} : { workspaceProvisioner }),
+      memoryWriteback: () => ctx.get('enterpriseMemoryWriteback') as {
+        list(orgId: string, limit?: number): Promise<readonly unknown[]>
+        retry(orgId: string, sourceKey: string): Promise<unknown>
+      } | undefined,
+    })
     ctx.provide('enterpriseSecurity', security)
     ctx.provide('enterpriseRequestContext', activeRequestContext)
     const route: WebRoute = {

@@ -16,7 +16,7 @@ function state(value: Partial<EnterpriseGovernanceState>): EnterpriseGovernanceS
       authenticated: false, organizationId: 'default-enterprise',
       providers: [{ id: 'local', kind: 'local', label: 'Local account' }],
     },
-    organizations: [], users: [], departments: [], workspaces: [], memories: [], assets: [], policies: [], audit: [],
+    organizations: [], users: [], departments: [], workspaces: [], memories: [], memoryWritebacks: [], assets: [], policies: [], audit: [],
     departmentManagers: {},
     ...value,
   }
@@ -96,7 +96,7 @@ describe('enterprise governance UI', () => {
       savePolicy: vi.fn(), filterAudit: vi.fn(),
     }
     const loading: EnterpriseGovernanceState = {
-      phase: 'loading', error: null, organizations: [], users: [], departments: [], workspaces: [], memories: [],
+      phase: 'loading', error: null, organizations: [], users: [], departments: [], workspaces: [], memories: [], memoryWritebacks: [],
       assets: [], policies: [], audit: [], departmentManagers: {},
     }
     const { rerender } = render(<EnterpriseGovernanceSurface state={loading} {...props} />)
@@ -528,6 +528,32 @@ describe('enterprise governance UI', () => {
     expect(screen.queryByRole('region', { name: '待确认的例外' })).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: '停用此记忆' }))
     await waitFor(() => { expect(reviewMemory).toHaveBeenCalledWith(`agent-memory-${'a'.repeat(64)}`, expect.objectContaining({ decision: 'retired', expectedRevision: 2 })) })
+  })
+
+  it('shows automatic writeback outcomes and lets an operator retry failures', async () => {
+    const retry = vi.fn(() => Promise.resolve())
+    render(<EnterpriseGovernanceSettingsSection
+      state={state({
+        auth: { authenticated: true, principal: { userId: 'admin-1', orgId: 'org-a', displayName: 'Admin', username: 'admin', roles: ['administrator'] }, providers: [] },
+        memoryWritebacks: [{
+          sourceKey: 'session-1:2', sessionId: 'session-1', turn: 2, state: 'failed', attempts: 5,
+          nextAttemptAt: 0, error: 'model unavailable', createdAt: 1, updatedAt: 2,
+        }, {
+          sourceKey: 'session-2:1', sessionId: 'session-2', turn: 1, state: 'completed', attempts: 1,
+          nextAttemptAt: 0, result: { outcome: 'completed', activated: 1, pending: 1, skipped: 2 }, createdAt: 2, updatedAt: 3,
+        }],
+      })}
+      loadAdmin={vi.fn()} loginLocal={vi.fn()} logout={vi.fn()} createOrganization={vi.fn()}
+      createAsset={vi.fn()} createUser={vi.fn()} updateUser={vi.fn()} saveDepartment={vi.fn()}
+      createWorkspace={vi.fn()} updateWorkspace={vi.fn()} proposeMemory={vi.fn()} reviewMemory={vi.fn()}
+      retryMemoryWriteback={retry} savePolicy={vi.fn()} filterAudit={vi.fn()}
+    />)
+    fireEvent.click(screen.getByRole('tab', { name: '企业记忆' }))
+    expect(screen.getByText('自动沉淀')).toBeDefined()
+    expect(screen.getByText('最近一次：启用 1 · 待确认 1 · 跳过 2')).toBeDefined()
+    expect(screen.getByText('model unavailable')).toBeDefined()
+    fireEvent.click(screen.getByRole('button', { name: '重试' }))
+    expect(retry).toHaveBeenCalledWith('session-1:2')
   })
 
   it('edits the department tree and reviews the enterprise awareness stream', () => {
