@@ -167,6 +167,37 @@ describe('PostgresSessionStore', () => {
     expect(PostgresSessionPersistence.name).toBe('PostgresSessionPersistence')
   })
 
+  it('persists published live events through checkpoints and close, then reloads them', async () => {
+    const database = new MemoryPostgresDatabase()
+    const ctx = new Context()
+    const persistence = new PostgresSessionPersistence(ctx, { database })
+    const currentHeader = { ...header, version: SESSION_FORMAT_VERSION }
+    const writer = await persistence.create(currentHeader)
+    const live = { id: currentHeader.id } as never
+    ctx.emit('session/event', live, turnStart as never)
+    await ctx.parallel('session/flush', live)
+    ctx.emit('session/event', live, turnEnd as never)
+    await writer.close()
+    const restarted = new PostgresSessionPersistence(new Context(), { database })
+    const reader = await restarted.open(currentHeader.id, 'read')
+    expect((await reader.read()).events).toEqual([turnStart, turnEnd])
+    await reader.close()
+  })
+
+  it('drains events arriving during close before releasing the writer', async () => {
+    const database = new MemoryPostgresDatabase()
+    const ctx = new Context()
+    const persistence = new PostgresSessionPersistence(ctx, { database })
+    const currentHeader = { ...header, version: SESSION_FORMAT_VERSION }
+    const writer = await persistence.create(currentHeader)
+    const closing = writer.close()
+    queueMicrotask(() => { ctx.emit('session/event', { id: currentHeader.id } as never, turnStart as never) })
+    await closing
+    const reader = await persistence.open(currentHeader.id, 'read')
+    expect((await reader.read()).events).toEqual([turnStart])
+    await reader.close()
+  })
+
   it('provides v0.1.5 write and read handles over durable PostgreSQL events', async () => {
     const database = new MemoryPostgresDatabase()
     const persistence = new PostgresSessionPersistence(new Context(), { database })

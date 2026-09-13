@@ -71,3 +71,7 @@ None. The reconstructed logical history and active provider request determine ca
 None.
 
 </details>
+
+## Live Session durability
+
+The provider routes published `session/event` values to the active write handle, drains them at `session/flush`, and drains remaining events on close/disposal. Failed batches remain buffered for checkpoint retry. Shutdown attempts all handles and aggregates failures. Creating a header alone is not evidence that conversation events are durable.
