@@ -44,7 +44,17 @@ Stable approved memory may improve reuse when its ordered summaries remain uncha
 
 ### Employee self-learning
 
+#### What the model sees
+
 The enterprise profile mounts the `./learning` plugin by default, independently of business-memory review policy. After completing reusable work, an employee calls `learn_employee_capability` with `kind`, `name`, and a workspace-relative Markdown `sourcePath`. The tool derives the current employee from the Session preset projection and the organization from the workspace grant. It registers the source snapshot, binds its version and publishes a release without administrator confirmation. It preserves existing bindings and unsubmitted human draft changes. Current and future sessions receive learned SOP/skill content only for their current employee and source workspace. Learning does not grant tools, credentials or workspace access. `maxLearningBytes` bounds each source (default 64000 UTF-8 bytes); `maxChars` bounds learned context, and large procedures expose their source reference for on-demand reading.
+
+#### Token effect
+
+Injected learned instructions consume at most the configured `maxChars`; larger procedures contribute a short source reference for on-demand reading.
+
+#### KV Cache effect
+
+Version-pinned learned content stays stable until the employee publishes another capability release, which can preserve provider prefix reuse.
 
 ## Known Limitations and Deferred Work
 

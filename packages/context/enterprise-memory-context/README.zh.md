@@ -44,7 +44,17 @@ Reviewed organization and department memory context for DSH Enterprise。
 
 ### 员工自主学习
 
+#### What the model sees
+
 企业配置默认挂载独立的 `./learning` 插件。员工完成可复用工作后调用 `learn_employee_capability`，传入类型、名称及工作区内的 Markdown 源文件路径，即可自动登记、绑定自身并发布能力版本，无需管理员确认。归属取当前会话员工身份；保留已有能力和未发布的人工草稿。当前及后续会话只加载本员工在该工作区学到的能力，不新增工具权限或数据访问权限。`maxLearningBytes` 限制每个源文件（默认 64000 个 UTF-8 字节）；`maxChars` 限制学习内容上下文，较长规程通过源文件按需读取。
+
+#### Token effect
+
+注入的学习指令最多消耗配置的 `maxChars`；较长规程只贡献简短源引用，供按需读取。
+
+#### KV Cache effect
+
+按版本固定的学习内容在员工发布下一个能力版本前保持稳定，可能保留提供方的前缀复用。
 
 ## Known Limitations and Deferred Work
 

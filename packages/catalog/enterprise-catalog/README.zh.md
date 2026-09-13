@@ -52,7 +52,17 @@ Versioned DSH enterprise employee drafts, releases, and capability assets。
 
 ### 自主能力沉淀
 
+#### What the model sees
+
 `learnEmployeeAsset` 在同一事务中登记 SOP/Skill、绑定当前员工并发布版本，保留原有能力和未发布人工修改；重复调用幂等，同内容复用资产版本。
+
+#### Token effect
+
+本仓库层为零 Token；独立的企业学习上下文决定哪些内容进入模型请求。
+
+#### KV Cache effect
+
+无直接影响；不可变资产版本使上下文层可以稳定渲染已学指令。
 
 ## 已知限制与暂缓事项
 

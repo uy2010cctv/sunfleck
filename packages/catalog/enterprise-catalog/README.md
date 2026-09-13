@@ -54,7 +54,17 @@ None; catalog writes do not assemble provider requests.
 
 ### Autonomous capability persistence
 
+#### What the model sees
+
 `learnEmployeeAsset` registers an SOP or skill, binds it to the current employee, and publishes a release in one transaction. It preserves existing capabilities and unpublished human edits; retries are idempotent, and unchanged content reuses its asset version.
+
+#### Token effect
+
+Zero tokens in this repository layer; the separate enterprise learning context decides what reaches a model request.
+
+#### KV Cache effect
+
+None directly; immutable asset versions let the context layer render stable learned instructions.
 
 ## Known Limitations and Deferred Work
 
