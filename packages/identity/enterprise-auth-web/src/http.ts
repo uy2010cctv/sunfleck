@@ -397,6 +397,7 @@ export class EnterpriseAuthHttpHandler {
         || (departmentId !== undefined && typeof departmentId !== 'string')
         || !['business-fact', 'process', 'terminology', 'decision'].includes(String(kind))
         || typeof summary !== 'string'
+        || (body['needsConfirmation'] !== undefined && typeof body['needsConfirmation'] !== 'boolean')
         || (providedSourceDigest !== undefined && typeof providedSourceDigest !== 'string')) {
         return json({ error: 'bad-request' }, 400)
       }
@@ -404,12 +405,18 @@ export class EnterpriseAuthHttpHandler {
         scope, departmentId ?? null, kind, summary.trim(),
       ]))
       try {
-        return json(await this.security.repository.proposeMemory({
+        const memory = await this.security.repository.proposeMemory({
           id, orgId: principal.orgId, scope,
           ...(departmentId === undefined ? {} : { departmentId }),
           kind: kind as 'business-fact' | 'process' | 'terminology' | 'decision',
           summary, sourceDigest, createdBy: principal.userId,
-        }), 201)
+        })
+        if (body['needsConfirmation'] === true) return json(memory, 201)
+        const activated = await this.security.repository.reviewMemory({
+          id: memory.id, orgId: principal.orgId, decision: 'approved', reviewedBy: principal.userId,
+          reason: '用户主动保存并启用', expectedRevision: memory.revision,
+        })
+        return json(activated, 201)
       } catch (error) {
         return json({ error: 'memory-rejected', message: error instanceof Error ? error.message : String(error) }, 400)
       }

@@ -205,7 +205,7 @@ describe('Agent automatic enterprise memory', () => {
     expect(memories).toEqual([expect.objectContaining({
       id: expect.stringMatching(/^agent-memory-[a-f0-9]{64}$/), scope: 'department', departmentId: 'dept-ops',
       kind: 'process', status: 'approved', summary: '采购订单必须在入库前完成审批。',
-      createdBy: 'member-1', reviewedBy: 'member-1', reviewReason: expect.stringContaining('企业记忆自治策略'),
+      createdBy: 'member-1', reviewedBy: 'member-1', reviewReason: 'Agent 自动评估并直接启用',
     })])
     const audit = identity.listAudit({ orgId: 'org-a', action: 'capability.manage', limit: 10 })
     expect(audit).toEqual([expect.objectContaining({
@@ -326,20 +326,31 @@ describe('Agent automatic enterprise memory', () => {
     identity.close()
   })
 
-  it('defaults to a proposal when no validated organization autonomy policy permits approval', async () => {
+  it('activates confirmed routine knowledge without an administrator policy', async () => {
     const { ctx, identity } = await setup()
     const result = await remember(ctx, {
       scope: 'department', kind: 'process', summary: '采购订单必须在入库前完成审批。',
     })
 
     expect(result.isError).toBe(false)
-    expect(resultText(result)).toMatch(/proposed for review/iu)
+    expect(resultText(result)).toMatch(/saved and active/iu)
     const [memory] = identity.listMemories({ orgId: 'org-a', departmentIds: ['dept-ops'] })
-    expect(memory).toEqual(expect.objectContaining({ createdBy: 'member-1', status: 'proposed' }))
-    expect(memory).not.toHaveProperty('reviewedBy')
+    expect(memory).toEqual(expect.objectContaining({ createdBy: 'member-1', status: 'approved' }))
+    expect(memory).toHaveProperty('reviewedBy', 'member-1')
     expect(identity.listAudit({ orgId: 'org-a', action: 'capability.manage', limit: 10 })).toEqual([
-      expect.objectContaining({ actorUserId: 'member-1', details: expect.objectContaining({ autoApproved: false }) }),
+      expect.objectContaining({ actorUserId: 'member-1', details: expect.objectContaining({ autoApproved: true }) }),
     ])
+    identity.close()
+  })
+
+  it('keeps explicitly uncertain knowledge pending confirmation', async () => {
+    const { ctx, identity } = await setup()
+    const result = await remember(ctx, { scope: 'department', kind: 'process', summary: '采购流程的核验标准存在冲突。', needsConfirmation: true })
+    expect(result.isError).toBe(false)
+    expect(identity.listMemories({ orgId: 'org-a', departmentIds: ['dept-ops'] })[0]?.status).toBe('proposed')
+    const repeated = await remember(ctx, { scope: 'department', kind: 'process', summary: '采购流程的核验标准存在冲突。' })
+    expect(repeated.isError).toBe(false)
+    expect(identity.listMemories({ orgId: 'org-a', departmentIds: ['dept-ops'] })[0]?.status).toBe('proposed')
     identity.close()
   })
 
@@ -351,7 +362,7 @@ describe('Agent automatic enterprise memory', () => {
 
     expect(result.isError).toBe(false)
     expect(identity.listMemories({ orgId: 'org-a', departmentIds: ['dept-ops'] })).toEqual([
-      expect.objectContaining({ createdBy: 'service:memory-bot', status: 'proposed' }),
+      expect.objectContaining({ createdBy: 'service:memory-bot', status: 'approved' }),
     ])
     identity.close()
   })
@@ -421,7 +432,7 @@ describe('Agent automatic enterprise memory', () => {
     identity.close()
   })
 
-  it('rejects privacy findings while organization memory remains proposed without policy approval', async () => {
+  it('rejects privacy findings while confirmed organization knowledge activates automatically', async () => {
     const { ctx, identity } = await setup()
     const sensitive = await remember(ctx, {
       scope: 'department', kind: 'business-fact', summary: 'password=enterprise-secret',
@@ -433,9 +444,9 @@ describe('Agent automatic enterprise memory', () => {
     expect(sensitive.isError).toBe(true)
     expect(organization.isError).toBe(false)
     expect(resultText(sensitive)).toMatch(/privacy|credential/iu)
-    expect(resultText(organization)).toMatch(/proposed for review/iu)
+    expect(resultText(organization)).toMatch(/saved and active/iu)
     expect(identity.listMemories({ orgId: 'org-a', departmentIds: [] })).toEqual([
-      expect.objectContaining({ scope: 'organization', status: 'proposed' }),
+      expect.objectContaining({ scope: 'organization', status: 'approved' }),
     ])
     identity.close()
   })

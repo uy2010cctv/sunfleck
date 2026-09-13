@@ -60,3 +60,7 @@ None; opening or editing governance state does not assemble a provider request.
 None.
 
 </details>
+
+## Memory activation
+
+Enterprise memory uses Save and activate for confirmed manual entries. Routine Agent knowledge activates automatically; the pending lane appears only for exceptions or existing proposals. Active memories can be deactivated without deleting their audit history.
