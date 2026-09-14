@@ -1,10 +1,11 @@
 /** Sidebar entry for the enterprise digital-employee workbench. */
 
-import { IconUserOutline16, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { SnapshotSelectorHook } from '@deepseek-ai/dsh-client-ui-slots'
 import type { EnterpriseWorkbenchKey } from './locales.ts'
 import type { EnterpriseWorkbenchState } from './store.ts'
 import css from './EnterpriseTrigger.module.css'
+import { EnterpriseBrand } from './EnterpriseBrand.tsx'
 
 /** Props accepted by the sidebar action and its direct component tests. */
 export interface EnterpriseTriggerProps {
@@ -28,8 +29,7 @@ export function EnterpriseTrigger({ wide, open, useEnterprise, toggle, t }: Ente
         aria-pressed={workbenchOpen}
         onClick={toggle}
       >
-        <IconUserOutline16 size={wide ? 16 : 18} />
-        {wide && <span>{t('trigger.label')}</span>}
+        <EnterpriseBrand {...(wide ? { label: t('trigger.label') } : {})} />
       </button>
     </Tooltip>
   )

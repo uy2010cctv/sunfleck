@@ -86,6 +86,8 @@ kind: "package-library"
 <details>
 <summary>实现细节——点击展开</summary>
 
+`FishLogo` 持有共享的 SUNFLECK 矢量标志，`BrandWordmark` 持有基于 Phudu 的矢量字标。既有导出名称对使用方保持稳定。Phudu 轮廓保留其 [SIL 开源字体许可证](LICENSES/phudu-OFL.txt)。
+
 本包只做一件事：提供零 cordis、零 slot 知识、仅经 `--dsw-*` token 设置样式的纯 React 原子组件，而所有功能专属的关注点（locale、会话数据、组合）都留在拼装它们的插件中。
 
 ### 源码地图

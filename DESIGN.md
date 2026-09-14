@@ -1,4 +1,4 @@
-# Design — DeepSeek Harness Enterprise
+# Design — SUNFLECK
 
 A locked design system for the enterprise digital-employee layer. Existing DSH conversation, settings, and tool surfaces remain functional; enterprise surfaces use this system and integrate through DSH slots rather than replacing route or runtime ownership.
 
@@ -20,15 +20,15 @@ Employee Operations Deck. The interface treats digital employees as finite opera
 
 ## Theme
 
-- Strategy: restrained neutrals plus one cobalt action accent.
-- Light surfaces use cool white and mist-gray layers; dark surfaces inherit DSH graphite layers.
+- Strategy: SUNFLECK warm neutrals with the supplied paired semantic accents for primary actions.
+- Light surfaces use pure white (#FFFFFF) and neutral gray layers; dark surfaces use the supplied charcoal palette with readable warm text.
 - Accent is reserved for primary actions, current selection, focus, and active work.
 - Status colors have paired icon/text labels and never carry meaning alone.
 - StaffDeck illustrations and character assets are excluded.
 
 ## Typography
 
-- Display and body: the existing DSH interface font token, medium and semibold only where hierarchy requires it.
+- Display and identity: Phudu for the SUNFLECK wordmark and brand labels; body: embedded Space Grotesk with Chinese system-font fallbacks.
 - Code and ids: the existing DSH code font token.
 - Headings are roman, compact, and sentence case.
 - Data uses tabular numerals where supported.
@@ -179,7 +179,7 @@ The Team surface makes Human authority and Agent execution visible without creat
 ## What surfaces must share
 
 - Cobalt action/focus accent and restrained status palette.
-- Existing DSH font, primitive, radius, border, and theme vocabulary.
+- SUNFLECK brand assets and typography, integrated through the existing DSH primitive, radius, border, and semantic theme tokens.
 - Employee status words and work-record state mapping.
 - Whole-cell roster behavior and exception-first operational hierarchy.
 
@@ -192,3 +192,13 @@ The Team surface makes Human authority and Agent execution visible without creat
 ## Exports
 
 Production tokens live in `packages/client/ui-enterprise-workbench/src/client/tokens.css`. The file defines enterprise semantic aliases over the existing DSH theme variables so light/dark theme ownership remains centralized.
+
+## Conversation brand tagline
+
+The empty conversation displays “Intelligence, in symbiosis.” above “让智能，自然生长。” without a preview badge. Both lines share the same left edge.
+
+## Lichen Agent workbench identity
+
+The digital-employee sidebar entry and workbench header use the supplied Lichen Agent polygon mark and Tourney Regular name lettering. SUNFLECK remains the shell identity; functional navigation and descriptive text retain their current wording.
+
+The Lichen Agent sidebar wordmark uses 17px text, and its workbench heading uses 24px text. The logo frame occupies 8/70 of its width.

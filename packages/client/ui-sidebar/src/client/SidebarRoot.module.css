@@ -143,6 +143,7 @@
 }
 
 .brandName {
+  font-family: "Phudu", var(--dsw-font-family);
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -172,8 +173,8 @@
 }
 
 .localBuildTitle {
-  font-size: 12px;
-  line-height: 13px;
+  font-size: 16px;
+  line-height: 17px;
   letter-spacing: 0;
 }
 

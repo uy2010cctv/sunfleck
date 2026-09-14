@@ -86,6 +86,8 @@ The atoms cannot read the application locale, so every piece of user-facing copy
 <details>
 <summary>Implementation internals — click to expand</summary>
 
+`FishLogo` owns the shared SUNFLECK vector mark; `BrandWordmark` owns the Phudu-derived vector wordmark. The legacy export names remain stable for consumers. Phudu outlines retain their [SIL Open Font License](LICENSES/phudu-OFL.txt).
+
 The package is one separation: presentational React atoms with zero Cordis and zero slot knowledge, styled only through `--dsw-*` tokens, while every feature-specific concern (locale, session data, composition) stays in the composing plugin.
 
 ### Source map

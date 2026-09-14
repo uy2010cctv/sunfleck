@@ -60,6 +60,7 @@
     "clsx": "^2.0.0"
   },
   "files": [
+    "LICENSES",
     "lib/index.js",
     "lib/client.js",
     "lib/styles",

@@ -124,7 +124,7 @@
 }
 
 .colorMessages {
-  --meter-tint: var(--dsw-static-blue-450);
+  --meter-tint: var(--dsw-alias-state-business-primary);
 }
 
 .rows {

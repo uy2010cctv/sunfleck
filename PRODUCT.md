@@ -12,7 +12,7 @@ Primary users are operators and administrators inside one enterprise intranet. T
 
 ## Product Purpose
 
-DeepSeek Harness Enterprise turns the existing DSH agent runtime into an enterprise digital-employee workbench. It makes agent definitions legible as employees, sessions legible as work records, and goals, jobs, schedules, subagents, workflows, approvals, event logs, and human–Agent teams legible as one operational system. Success means an operator can understand who is working, on what, with which capabilities and permissions, and with what evidence, without leaving the DSH runtime.
+SUNFLECK turns the existing DSH agent runtime into an enterprise digital-employee workbench. It makes agent definitions legible as employees, sessions legible as work records, and goals, jobs, schedules, subagents, workflows, approvals, event logs, and human–Agent teams legible as one operational system. Success means an operator can understand who is working, on what, with which capabilities and permissions, and with what evidence, without leaving the DSH runtime.
 
 ## Positioning
 
@@ -47,10 +47,10 @@ The enterprise layer is a projection and control plane over the real DSH runtime
 
 ## Brand Commitments
 
-- Product name: DeepSeek Harness Enterprise.
+- Product name: SUNFLECK.
 - Product language: enterprise digital employees, employees, work records, business spaces, operations, evidence, approvals, capabilities, and teams.
-- Preserve the DeepSeek Harness identity and its existing dark/light theme capability.
-- The workbench may take structural inspiration from StaffDeck, but must remain recognizably DSH and must not reproduce StaffDeck illustrations, logos, or page code.
+- Use the supplied SUNFLECK mark, wordmark, warm neutral palette, and light/dark themes; backend DSH identities and provider names remain accurate.
+- The workbench may take structural inspiration from StaffDeck, but uses SUNFLECK identity and must not reproduce StaffDeck illustrations, logos, or page code.
 
 ## Evidence on Hand
 

@@ -3,6 +3,7 @@ export const NS = 'enterprise.governance' as const
 
 /** Value exported as `zh`. */
 export const zh: Record<string, string> = {
+  'brand.name': 'SUNFLECK',
   'memory.saveError': '保存失败，请检查内容与适用范围后重试。',
   'memory.confirmed': '已确认内容准确',
   'memory.notAdopted': '不采用此条待确认内容',
@@ -50,6 +51,7 @@ export const zh: Record<string, string> = {
 
 /** Value exported as `en`. */
 export const en: Record<string, string> = {
+  'brand.name': 'SUNFLECK',
   'memory.saveError': 'Save failed. Check the content and scope, then retry.',
   'memory.confirmed': 'Content confirmed',
   'memory.notAdopted': 'Pending statement not adopted',

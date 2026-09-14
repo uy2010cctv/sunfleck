@@ -1,7 +1,7 @@
 {
   "id": "/",
-  "name": "DeepSeek Harness",
-  "short_name": "DSH",
+  "name": "SUNFLECK",
+  "short_name": "SUNFLECK",
   "start_url": "/",
   "scope": "/",
   "display": "fullscreen",
@@ -12,5 +12,7 @@
       "type": "image/svg+xml",
       "purpose": "any"
     }
-  ]
+  ],
+  "background_color": "#FFFFFF",
+  "theme_color": "#111317"
 }

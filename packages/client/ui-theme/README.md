@@ -47,6 +47,8 @@ When the host composition includes an HTTP server, the host half embeds the regi
 <details>
 <summary>Implementation internals — click to expand</summary>
 
+The SUNFLECK palette uses the requested pure white (#FFFFFF) light layers, charcoal dark layers, and paired semantic action accents through the existing semantic tokens. `base.css` embeds Space Grotesk for interface text and Phudu for brand labels, with Chinese system-font fallbacks. The embedded fonts retain their [Space Grotesk](LICENSES/SpaceGrotesk-OFL.txt) and [Phudu](LICENSES/phudu-OFL.txt) SIL Open Font Licenses.
+
 The service owns theme and font-size state and publishes snapshots. The ui-layout presenter applies those snapshots, and the token sheets own the color and conversation text scales.
 
 ### Stylesheets

@@ -17,6 +17,8 @@ Enterprise digital-employee roster and operations workbench over DSH runtime fac
 
 -----
 
+The sidebar entry and workbench heading display Lichen Agent using the supplied two-part logo and embedded Tourney lettering. Functional navigation and descriptive copy retain their digital-employee terminology. The font ships under its [SIL Open Font License](LICENSES/tourney-OFL.txt).
+
 <a id="package-details"></a>
 ## Package Details
 

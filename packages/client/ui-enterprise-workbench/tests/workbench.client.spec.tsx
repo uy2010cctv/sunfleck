@@ -150,7 +150,7 @@ describe('EnterpriseTrigger', () => {
     )
     fireEvent.click(screen.getByRole('button', { name: zh['trigger.open'] }))
     expect(toggle).toHaveBeenCalledTimes(1)
-    expect(screen.getByText(zh['trigger.label'])).toBeDefined()
+    expect(screen.getByText('Lichen Agent')).toBeDefined()
 
     rerender(<EnterpriseTrigger wide={false} open toggle={toggle} t={t} />)
     expect(screen.queryByText(zh['trigger.label'])).toBeNull()
@@ -349,7 +349,7 @@ describe('EnterpriseWorkbench', () => {
       'feishu', expect.stringMatching(/\?dsh_channel_bot_install=1$/u),
     ) })
     expect(screen.getByRole('heading', { name: '飞书 Bot 安装尚未就绪' })).toBeDefined()
-    expect(screen.getByText('需要先部署 DSH 飞书商店应用，之后管理员扫码即可自动安装并创建渠道。')).toBeDefined()
+    expect(screen.getByText('需要先部署 SUNFLECK 飞书商店应用，之后管理员扫码即可自动安装并创建渠道。')).toBeDefined()
     expect(screen.queryByLabelText('飞书 App ID')).toBeNull()
   })
 
@@ -654,7 +654,7 @@ describe('EnterpriseWorkbench', () => {
     } } as never)} />)
 
     const rail = screen.getByRole('group', { name: '财务飞书渠道事实' })
-    for (const label of ['配置', '官方二维码身份', 'DSH 路由', '传输证据']) {
+    for (const label of ['配置', '官方二维码身份', 'SUNFLECK 路由', '传输证据']) {
       expect(within(rail).getByText(label)).toBeDefined()
     }
     expect(within(rail).getByText('release-finance-v3')).toBeDefined()
@@ -677,7 +677,7 @@ describe('EnterpriseWorkbench', () => {
       '在管理后台创建智能机器人或应用，配置 Agent / 应用可见范围与回调可信域名；仍需 Bot / 传输 Credential 引用。',
       '传输最小权限：读取单聊消息、接收群 @ 事件、以机器人身份发送；联系人、邮件、HR 仅在业务需要时申请。',
       '创建 Stream 模式机器人 / 监听器，并引用 Client ID / Secret Credential。',
-      '腾讯微信扫码凭证已配置；DSH 记录提供方回执或心跳前，传输仍为待验证。',
+      '腾讯微信扫码凭证已配置；SUNFLECK 记录提供方回执或心跳前，传输仍为待验证。',
     ]) expect(screen.getByText(copy)).toBeDefined()
     expect(screen.getAllByText('传输配置，与 OAuth 身份分离')).toHaveLength(4)
   })

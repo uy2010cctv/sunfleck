@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-14-sunfleck-browser-identity.md
+2026-09-14-sunfleck-browser-identity.md: a325b187201d798bf6aa00832d521177a8aaef3e
+2026-09-14-sunfleck-browser-identity.zh.md: f45a5f949e2506b5e66afc948069c41ce24434f6

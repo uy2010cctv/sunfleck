@@ -22,7 +22,8 @@
 .loginGate { position: absolute; inset: 0; z-index: 60; display: grid; place-items: center; overflow: auto; padding: 24px; background: var(--dsw-alias-bg-base); color: var(--dsw-alias-label-primary); }
 .loginPanel { inline-size: min(100%, 420px); padding: 32px; border: 0.5px solid var(--dsw-alias-border-l2); border-radius: 16px; background: var(--dsw-alias-bg-layer-1); }
 .loginIdentity { display: flex; align-items: center; gap: 8px; margin-block-end: 28px; }
-.loginIdentity > span { padding: 4px 8px; border-radius: 6px; background: var(--dsw-alias-label-primary); color: var(--dsw-alias-bg-base); font-size: 12px; font-weight: 700; }
+.loginIdentity > span { display: flex; align-items: center; }
+.loginIdentity > strong { font-family: "Phudu", var(--dsw-font-family); font-size: 24px; font-weight: 600; }
 .loginPanel h1 { min-inline-size: 0; margin: 0; overflow-wrap: anywhere; font-size: 24px; line-height: 1.2; letter-spacing: -0.02em; }
 .loginPanel p { max-inline-size: 65ch; margin: 8px 0 24px; color: var(--dsw-alias-label-secondary); font-size: 13px; line-height: 1.6; }
 .loginPanel form { display: grid; gap: 16px; }

@@ -17,10 +17,13 @@
     - img
     - text: workspace
   - treeitem "New Session" [selected]
+- button "Open digital employee workbench":
+  - img
+  - text: Digital employees
 - button "Settings":
   - img
   - text: Settings
-- text: Into the Unknown Preview
+- text: Intelligence, in symbiosis. 让智能，自然生长。
 - button "Choose workspace":
   - img
   - text: workspace
@@ -29,8 +32,7 @@
   - img
   - text: Standard mode
   - img
-- textbox "Describe what you want to build, / commands, @ files or sessions":
-  - paragraph
+- textbox "Describe what you want to build, / commands, @ files or sessions"
 - button "Commands":
   - img
 - button "Add attachment":

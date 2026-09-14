@@ -101,7 +101,7 @@ function mountFrame(windowWidth = frameWidth) {
       useSessionPendingInteraction={useSessionPendingInteraction}
       useResource={useResource}
       useWorkspaces={sel => sel(workspaceState)}
-      t={key => key === 'brand.localBuild' ? 'DSH Local Build' : key}
+      t={key => key === 'brand.localBuild' ? 'SUNFLECK' : key}
     />
   )
   const utils = render(element())
@@ -181,20 +181,20 @@ afterEach(() => {
 describe('AppFrame', () => {
   it('localizes the product title without a configured build title', () => {
     mountFrame()
-    expect(document.title).toBe('DSH Local Build')
+    expect(document.title).toBe('SUNFLECK')
   })
 
   it('follows the selected durable Session title', () => {
     vi.stubEnv('DSH_CLIENT_TITLE', 'Product')
     selectedSessionTitle = 'First'
     const { rerenderFrame } = mountFrame()
-    expect(document.title).toBe('First — Product')
+    expect(document.title).toBe('First — SUNFLECK')
     selectedSessionTitle = 'Revised'
     rerenderFrame()
-    expect(document.title).toBe('Revised — Product')
+    expect(document.title).toBe('Revised — SUNFLECK')
     selectedSession = undefined
     rerenderFrame()
-    expect(document.title).toBe('Product')
+    expect(document.title).toBe('SUNFLECK')
   })
 
   it('renders owner props for the default sidebar and prospective right panel', () => {
@@ -244,7 +244,7 @@ describe('AppFrame', () => {
       expect(instance.getSnapshot().layoutInfo).toBe(layoutInfo)
       expect(tracks(frame)).toEqual([280, 0])
       expect(selectedSession).toBe(sessionId)
-      expect(document.title).toBe(panelId === null ? 'Session title — DSH Local Build' : 'DSH Local Build')
+      expect(document.title).toBe(panelId === null ? 'Session title — SUNFLECK' : 'SUNFLECK')
     }
   })
 })

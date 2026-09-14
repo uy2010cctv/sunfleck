@@ -1,6 +1,6 @@
 /** Login gate and administrator governance ledger. */
 import { useEffect, useId, useMemo, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from 'react'
-import { IconChevronDownOutline14, IconChevronRightOutline14, IconEditOutline16, IconFolderClose16, IconFolderOpen16, IconPlusOutline16, IconUserOutline16, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
+import { FishLogo, IconChevronDownOutline14, IconChevronRightOutline14, IconEditOutline16, IconFolderClose16, IconFolderOpen16, IconPlusOutline16, IconUserOutline16, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
 import { randomUUID } from '@deepseek-ai/dsh-util-crypto'
 import type { EnterpriseGovernanceState, GovernanceDepartment, GovernanceMemory, GovernancePolicy, GovernanceUser, GovernanceWorkspace } from './controller.ts'
 import css from './governance.module.css'
@@ -224,7 +224,7 @@ function OrganizationsSection({ state, saveDepartment, setDepartmentManagers, t 
         <ul className={css.organizationTree} role="tree" aria-label={t('\u7EC4\u7EC7\u67B6\u6784')}>
           <li role="treeitem" aria-level={1} aria-expanded="true">
             <div className={css.enterpriseRoot}>
-              <span className={css.enterpriseMark} aria-hidden="true">{t('DSH')}</span>
+              <span className={css.enterpriseMark} aria-hidden="true"><FishLogo size={28} /></span>
               <span><strong>{organizationName}</strong><small>{t('\u4F01\u4E1A\u6839\u8282\u70B9')}</small></span>
             </div>
             {departments.length === 0
@@ -347,7 +347,7 @@ function LoginGate({ state, loginLocal, t }: Pick<EnterpriseGovernanceSurfacePro
   }
   return (<section className={css.loginGate} aria-label={t('\u4F01\u4E1A\u767B\u5F55')}>
     <div className={css.loginPanel}>
-      <div className={css.loginIdentity}><span aria-hidden="true">{t('DSH')}</span><strong>{t('Enterprise')}</strong></div>
+      <div className={css.loginIdentity}><span aria-hidden="true"><FishLogo size={28} /></span><strong>{t('brand.name')}</strong></div>
       <h1>{t('\u767B\u5F55\u4F01\u4E1A\u5DE5\u4F5C\u53F0')}</h1>
       <p>{t('\u8EAB\u4EFD\u5C06\u7528\u4E8E\u5458\u5DE5\u53EF\u89C1\u8303\u56F4\u3001Host API \u6388\u6743\u4E0E\u64CD\u4F5C\u5BA1\u8BA1\u3002')}</p>
       <form onSubmit={submit}>

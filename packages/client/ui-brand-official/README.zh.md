@@ -1,5 +1,5 @@
 ---
-description: "面向侧栏的官方 DeepSeek Harness 品牌填充，仅在官方构建中生效；供选择或替换品牌呈现的用户与维护者阅读。"
+description: "官方构建使用的 SUNFLECK 侧栏标志与字标；profile 选择及替代品牌槽位。"
 kind: "package-reference"
 ---
 
@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## 概述
 
-本包让以 `official` profile 构建的客户端在侧栏显示 DeepSeek Harness 标志与名称。其他构建 profile 保留外壳的鱼形标志与本地构建标签，会话首屏则始终使用动画鱼。品牌为 DeepSeek Harness 的部署应选择本包；使用其他品牌的部署应提供替代品牌包。本包不保留运行时状态，也不影响模型请求。
+本包让以 `official` profile 构建的客户端在侧栏显示共享的 SUNFLECK 标志与 Phudu 矢量字标。其他 profile 保留共享标志与 SUNFLECK 文本回退。会话首屏使用共享标志，不做鱼形变形。使用其他身份的部署可提供替代品牌包。本包不影响模型请求。
 
 ## 目录
 
@@ -25,11 +25,11 @@ kind: "package-reference"
 <a id="use-this-package"></a>
 ## 使用本包
 
-在身份为 DeepSeek 自身的部署的浏览器名单中挂载本插件，然后以 `official` profile 构建客户端，让填充得以注册。
+在 SUNFLECK 部署的浏览器名单中挂载本插件，然后以 `official` profile 构建客户端，让填充得以注册。
 
 ### 选择 profile
 
-`DSH_CLIENT_BUILD_PROFILE` 决定渲染哪个品牌。`official` 构建在侧栏显示官方标志与名称；任何其他取值都让外壳回退——鱼形标志与本地构建标签——保持原样。会话首屏无论 profile 如何都显示来自 `dsh-client-ui-conversation` 的动画首屏鱼，因为这个回退本身就是官方标志。两种情况下插件都会照常加载并通过校验；只有注册受 profile 门控。
+`DSH_CLIENT_BUILD_PROFILE` 决定侧栏呈现。`official` 构建显示共享标志与矢量字标；其他取值保留共享标志与 SUNFLECK 文本回退。会话首屏无论 profile 如何都使用共享标志。两种情况下插件都会加载；只有侧栏注册受 profile 门控。
 
 ### 替换品牌
 
@@ -89,4 +89,4 @@ kind: "package-reference"
 
 </details>
 
-**运行时不变式：** 不发布伴生入口。本包不保留可变状态，三个 slot occupant 通过同一个事务性 effect 安装和释放。
+**运行时不变式：** 不发布伴生入口。本包不保留可变状态，两个侧栏填充通过同一组声明感知注册安装与撤回。

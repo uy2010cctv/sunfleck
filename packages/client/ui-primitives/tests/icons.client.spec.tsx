@@ -58,14 +58,15 @@ describe('ic_ds_ icon set', () => {
 })
 
 describe('FishLogo', () => {
-  it('renders the fish path in currentColor at the native ratio', () => {
+  it('renders the SUNFLECK artwork at its native ratio', () => {
     const { container } = render(<primitives.FishLogo />)
     const svg = container.querySelector('svg')!
     expect(svg.getAttribute('width')).toBe('24')
-    expect(Number(svg.getAttribute('height'))).toBeCloseTo(17.66, 1)
-    expect(svg.getAttribute('viewBox')).toBe('0 0 23.16 17.04')
-    expect(container.querySelectorAll('path')).toHaveLength(1)
-    expect(container.innerHTML).toContain('currentColor')
+    expect(Number(svg.getAttribute('height'))).toBeCloseTo(25.69, 1)
+    expect(svg.getAttribute('viewBox')).toBe('0 0 56.8652 60.8823')
+    expect(container.querySelectorAll('path')).toHaveLength(2)
+    expect(container.innerHTML).toContain('#FFC550')
+    expect(container.innerHTML).toContain('#16FF7B')
     expect(container.innerHTML).not.toContain('M0 0L23.16')
   })
 })

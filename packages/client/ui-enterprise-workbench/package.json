@@ -95,6 +95,7 @@
     "vitest": "^4.1.8"
   },
   "files": [
+    "LICENSES",
     "lib/index.js",
     "lib/invariant.js",
     "lib/client.js",

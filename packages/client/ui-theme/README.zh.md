@@ -47,6 +47,8 @@ kind: "package-reference"
 <details>
 <summary>实现细节——点击展开</summary>
 
+SUNFLECK 调色板通过既有语义 token 提供用户指定的纯白色（#FFFFFF）浅色层、炭色深色层与成对的语义操作强调色。`base.css` 内嵌 Space Grotesk 用于界面文字、Phudu 用于品牌标签，并保留中文系统字体回退。内嵌字体保留各自的 [Space Grotesk](LICENSES/SpaceGrotesk-OFL.txt) 与 [Phudu](LICENSES/phudu-OFL.txt) SIL 开源字体许可证。
+
 服务拥有主题与字号状态并发布快照。ui-layout 呈现器应用这些快照，token 样式表则拥有颜色与会话文本尺度。
 
 ### 样式表
