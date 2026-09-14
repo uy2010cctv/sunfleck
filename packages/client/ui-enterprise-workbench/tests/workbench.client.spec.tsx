@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
-import type { ReactNode } from 'react'
+import { useEffect, type ReactNode } from 'react'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import { EnterpriseTrigger } from '../src/client/EnterpriseTrigger.tsx'
 import {
@@ -1536,6 +1536,39 @@ describe('EnterpriseWorkbench', () => {
     fireEvent.click(screen.getByRole('button', { name: '新建团队' }))
     expect(screen.getByRole('radio', { name: '选择采购为领队' })).toBeDefined()
     expect(screen.getByRole('checkbox', { name: '选择询价为成员' })).toBeDefined()
+  })
+
+  it('loads saved knowledge counts before selecting the category and after publish reload', async () => {
+    const mountedProvider = vi.fn()
+    function KnowledgeProbe({ presetId, onCountChange }: { presetId: string; onCountChange: (count: number) => void }) {
+      useEffect(() => {
+        mountedProvider(presetId)
+        onCountChange(presetId === 'finance-director' ? 1 : 0)
+      }, [presetId, onCountChange])
+      return <div data-testid="saved-knowledge-bindings">Saved knowledge binding</div>
+    }
+    const renderSlot = (name: string, owner: { presetId: string; onCountChange: (count: number) => void }, options?: { fallback?: ReactNode }) => name === 'enterprise.employee-knowledge-bindings'
+      ? <KnowledgeProbe {...owner} /> : options?.fallback ?? null
+    const editor = {
+      phase: 'ready', dirty: false, saving: false, conflict: false, errors: [], error: null, revision: 1,
+      fields: { presetId: 'finance-director', name: '财务大王', description: '', position: '', department: '', prompt: '职责', modelRef: 'm', capabilities: [], visibility: 'organization', bindings: [] }, releases: [],
+    } as const
+    const props = (employeeEditor: unknown) => workbenchProps({ renderSlot, state: {
+      mode: 'enterprise', employeeEditor, assets: { phase: 'ready', error: null, items: [] },
+    } } as never)
+    const view = render(<EnterpriseWorkbench {...props(editor)} />)
+    await waitFor(() => { expect(screen.getByRole('button', { name: /知识经审核的业务知识1 项/u })).toBeDefined() })
+    expect(screen.getByTestId('saved-knowledge-bindings').closest('[hidden]')).not.toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: /知识经审核的业务知识/u }))
+    expect(screen.getByTestId('saved-knowledge-bindings').closest('[hidden]')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: /SOP可复用的标准步骤/u }))
+    expect(mountedProvider).toHaveBeenCalledTimes(1)
+    view.rerender(<EnterpriseWorkbench {...props({ ...editor, phase: 'loading', fields: undefined })} />)
+    view.rerender(<EnterpriseWorkbench {...props({ ...editor, revision: 2 })} />)
+    await waitFor(() => { expect(screen.getByRole('button', { name: /知识经审核的业务知识1 项/u })).toBeDefined() })
+    expect(mountedProvider).toHaveBeenCalledTimes(2)
+    view.rerender(<EnterpriseWorkbench {...props({ ...editor, fields: { ...editor.fields, presetId: 'another-employee' } })} />)
+    await waitFor(() => { expect(screen.getByRole('button', { name: /知识经审核的业务知识0 项/u })).toBeDefined() })
   })
 
   it('lets the knowledge provider manage bindings for the employee being edited', () => {

@@ -23,6 +23,8 @@ Enterprise digital-employee roster and operations workbench over DSH runtime fac
 
 提供方自有知识库通过 `enterprise.employee-knowledge-bindings` 槽位进入“知识”分类。提供方按员工 Preset id 保存知识库引用，并把已绑定数量回报给分类卡片；文档不会复制进企业资产目录。对话选择与检索范围继续由知识提供方负责。
 
+员工知识库绑定贡献在查看其他能力分类时仍保持挂载，因此进入编辑器或发布后重新加载时会读取已保存数量。隐藏控件不会暂停其读取生命周期。
+
 <a id="package-details"></a>
 ## 包详情
 

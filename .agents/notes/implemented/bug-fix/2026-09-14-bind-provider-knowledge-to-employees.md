@@ -14,10 +14,16 @@ The employee editor owns an `enterprise.employee-knowledge-bindings` slot in its
 
 Conversation plugins may contribute a session-scoped control to `conversation.input.left`. The provider resolves the effective retrieval scope in order: explicit conversation selection, employee Preset binding, then its existing global selection. An explicit empty conversation selection matches no bases. Restoring inheritance removes only the conversation override.
 
+The binding contribution stays mounted across capability-category switches so it can load saved counts even while its controls are hidden. Native fallback controls render only in the active Knowledge category.
+
+## Alternatives considered
+
+Mount only the selected category. Rejected because the count cards remain visible in every category and after editor reload.
+
 ## Consequences
 
 Provider bindings follow the stable employee Preset identity and apply to new conversations without duplicating document content. The provider must enforce the same effective scope for proactive retrieval and model-facing knowledge tools. Employee draft publication and native asset versioning remain separate operations.
 
 ## Verification
 
-The workbench component test proves that selecting Knowledge mounts the provider binding slot and updates the category count. Provider tests cover durable employee/session mappings, precedence, explicit empty scope, UI registration, and conversation-scoped automatic retrieval.
+Workbench tests prove saved counts load before selecting Knowledge, the contribution survives category switches, and publish-style reloads and employee changes refresh the count. Provider tests cover durable employee/session mappings, precedence, explicit empty scope, UI registration, and conversation-scoped automatic retrieval.

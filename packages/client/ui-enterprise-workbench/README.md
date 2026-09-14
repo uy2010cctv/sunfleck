@@ -23,6 +23,8 @@ The employee editor lists bound capability names and revisions per category. Alr
 
 Provider-owned knowledge bases use the `enterprise.employee-knowledge-bindings` slot inside the Knowledge category. The provider stores base references under the employee Preset id and reports the bound count to the category card; it does not copy documents into the enterprise asset catalog. Conversation controls and retrieval scope remain owned by the knowledge provider.
 
+The employee binding contribution stays mounted while another capability category is visible, so saved counts load on editor entry and after publish reload. Hiding the controls does not suspend their read lifecycle.
+
 <a id="package-details"></a>
 ## Package Details
 

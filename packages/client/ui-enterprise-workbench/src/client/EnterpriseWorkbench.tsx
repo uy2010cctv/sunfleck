@@ -432,11 +432,14 @@ function EmployeeEditor({ editor, assets, modelOptions, cordisCount, api, back, 
           <section className={css.formSection} aria-labelledby="employee-access-section"><header><h3 id="employee-access-section">{t('editor.accessSection')}</h3><p>{t('editor.accessHelp')}</p></header><div className={css.formGrid}>
             <label>{t('editor.visibility')}<select value={field.visibility} onChange={(event) => { api.patchEmployeeDraft({ visibility: event.target.value as EnterpriseVisibility }) }}><option value="organization">{t(VISIBILITY_KEYS.organization)}</option><option value="private">{t(VISIBILITY_KEYS.private)}</option><option value="restricted">{t(VISIBILITY_KEYS.restricted)}</option></select></label>
             <div className={css.fullField}><p className={css.bindingHelp}>{t('editor.bindingHelp')}</p><CapabilityTypeCards counts={capabilityCounts} selected={bindingKind} select={(kind) => { setBindingKind(kind); setBindingAssetId('') }} openCordis={openExtensions} t={t}/></div>
-            {bindingKind === 'knowledge' ? renderEmployeeKnowledgeBindings('enterprise.employee-knowledge-bindings', {
-              presetId: field.presetId,
-              disabled: editor.saving || mutationBusy,
-              onCountChange: setProviderKnowledgeCount,
-            }, { fallback: nativeBindingManager }) : nativeBindingManager}
+            <div className={css.fullField} hidden={bindingKind !== 'knowledge'}>
+              {renderEmployeeKnowledgeBindings('enterprise.employee-knowledge-bindings', {
+                presetId: field.presetId,
+                disabled: editor.saving || mutationBusy,
+                onCountChange: setProviderKnowledgeCount,
+              }, { fallback: bindingKind === 'knowledge' ? nativeBindingManager : null })}
+            </div>
+            {bindingKind !== 'knowledge' && nativeBindingManager}
             <details className={css.fullField}><summary>{t('editor.advancedJson')}</summary><label>{t('editor.bindings')}<textarea rows={5} value={JSON.stringify(field.bindings, null, 2)} readOnly /></label></details>
           </div></section>
         </fieldset>
