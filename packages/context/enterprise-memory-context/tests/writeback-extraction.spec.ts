@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
+import { MessageId } from '@deepseek-ai/dsh-llm'
 import { captureMemoryTurn, parseExtractionOutput } from '../src/writeback-extraction.ts'
 
 function completedTurn(): Session {
@@ -9,17 +10,17 @@ function completedTurn(): Session {
   })
   session.append('turn/start', { turn: 1 })
   session.append('user/message', {
-    id: 'user-1', role: 'user', source: { kind: 'user' },
+    id: MessageId('user-1'), role: 'user', source: { kind: 'user' },
     content: [{ type: 'text', text: '公司报表每月 5 日前完成。' }],
   }, { surfaceOp: 'append' })
   session.append('user/message', {
-    id: 'plugin-1', role: 'user', source: { kind: 'plugin', plugin: 'context' },
+    id: MessageId('plugin-1'), role: 'user', source: { kind: 'plugin', plugin: 'context' },
     content: [{ type: 'text', text: 'secret tool output' }],
   }, { surfaceOp: 'append' })
   session.append('assistant/message', {
     turn: 1, step: 1, stream: [],
     message: {
-      id: 'assistant-1', role: 'assistant', source: { kind: 'model', provider: 'deepseek', model: 'v4' },
+      id: MessageId('assistant-1'), role: 'assistant', source: { kind: 'model', provider: 'deepseek', model: 'v4' },
       content: [{ type: 'text', text: '已确认：月度报表截止日为每月 5 日。' }],
     },
   }, { surfaceOp: 'append' })
