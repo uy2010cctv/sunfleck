@@ -21,6 +21,8 @@ Enterprise digital-employee roster and operations workbench over DSH runtime fac
 
 员工编辑器按分类列出已绑定能力的名称与修订。已绑定资产仍可选择并明确标注；更新修订会替换旧引用，移除绑定只修改本地草稿，保存并发布后才供新任务使用。分类数量表示绑定数；目录加载中、失败、空分类和全部已绑定分别提示。
 
+提供方自有知识库通过 `enterprise.employee-knowledge-bindings` 槽位进入“知识”分类。提供方按员工 Preset id 保存知识库引用，并把已绑定数量回报给分类卡片；文档不会复制进企业资产目录。对话选择与检索范围继续由知识提供方负责。
+
 <a id="package-details"></a>
 ## 包详情
 

@@ -2,7 +2,7 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import type { SnapshotStore } from '@deepseek-ai/dsh-client-store'
-import type { EnterpriseEmployeeChannelOwner, EnterpriseKnowledgeAssetsOwner } from './EnterpriseWorkbench.tsx'
+import type { EnterpriseEmployeeChannelOwner, EnterpriseEmployeeKnowledgeBindingsOwner, EnterpriseKnowledgeAssetsOwner } from './EnterpriseWorkbench.tsx'
 import type { ClientRemote } from '@deepseek-ai/dsh-api-remotes/client'
 import type { EnterpriseChannelConfiguration } from '@deepseek-ai/dsh-api-enterprise-controller/types'
 import type {} from '@deepseek-ai/dsh-client-connection/client'
@@ -41,6 +41,12 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
       kind: 'list'
       scope: 'root'
       owner: EnterpriseKnowledgeAssetsOwner
+    }
+    /** Provider-owned knowledge-base bindings for one employee preset. */
+    'enterprise.employee-knowledge-bindings': {
+      kind: 'list'
+      scope: 'root'
+      owner: EnterpriseEmployeeKnowledgeBindingsOwner
     }
   }
 }
@@ -316,6 +322,7 @@ export function apply(ctx: Context): void {
     children: {
       'enterprise.employee-channels': { kind: 'list', scope: 'root' },
       'enterprise.knowledge-assets': { kind: 'list', scope: 'root' },
+      'enterprise.employee-knowledge-bindings': { kind: 'list', scope: 'root' },
     },
   }, EnterpriseWorkbench))
 }

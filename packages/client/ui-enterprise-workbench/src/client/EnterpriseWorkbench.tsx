@@ -108,8 +108,14 @@ export interface EnterpriseKnowledgeAssetsOwner {
   readonly onCountChange: (count: number) => void
 }
 
+export interface EnterpriseEmployeeKnowledgeBindingsOwner {
+  readonly presetId: string
+  readonly disabled: boolean
+  readonly onCountChange: (count: number) => void
+}
+
 export type EnterpriseWorkbenchProps = PropsRuntime<'shell.overlay'>
-  & PropsRenderSlots<'enterprise.employee-channels' | 'enterprise.knowledge-assets'>
+  & PropsRenderSlots<'enterprise.employee-channels' | 'enterprise.knowledge-assets' | 'enterprise.employee-knowledge-bindings'>
   & PropsLocale<typeof NS>
   & InjectFace<EnterpriseWorkbenchInjected>
 type Translate = (key: EnterpriseWorkbenchKey, params?: Record<string, string | number>) => string
@@ -317,7 +323,7 @@ function FallbackPage({ state, start, open, t }: { state: EnterpriseWorkbenchSta
   return <><div className={css.notice} role="status">{t('mode.fallback')}</div><dl className={css.metrics} aria-label={t('metrics.aria')} aria-live="polite">{([['metrics.employees', view.metrics.employees], ['metrics.active', view.metrics.active], ['metrics.attention', view.metrics.attention], ['metrics.records', view.metrics.workRecords]] as const).map(([label, value]) => <div key={label}><dt>{t(label)}</dt><dd>{value}</dd></div>)}</dl><div className={css.content}><section aria-labelledby="enterprise-employees-title"><div className={css.sectionHead}><h2 id="enterprise-employees-title">{t('employees.title')}</h2><span aria-live="polite">{view.employees.length}</span></div>{view.employees.length === 0 ? <div className={css.empty}><IconUserOutline16 size={20} /><strong>{t('employees.empty.title')}</strong><span>{t('employees.empty.body')}</span></div> : <div className={css.employeeGrid}>{view.employees.map(employee => <NativeEmployeeCard key={employee.id} employee={employee} busy={state.busyEmployee === employee.id} start={start} t={t} />)}</div>}</section><section aria-labelledby="enterprise-records-title"><div className={css.sectionHead}><h2 id="enterprise-records-title">{t('records.title')}</h2><span aria-live="polite">{view.records.length}</span></div>{view.records.length === 0 ? <div className={css.empty}><IconCheckOutline16 size={20} /><span>{t('records.empty')}</span></div> : <div className={css.recordList}>{view.records.map(record => <NativeRecord key={record.sessionId} record={record} open={open} t={t} />)}</div>}</section></div></>
 }
 
-function EmployeeEditor({ editor, assets, modelOptions, cordisCount, api, back, rollback, openExtensions, mutationBusy, t }: {
+function EmployeeEditor({ editor, assets, modelOptions, cordisCount, api, back, rollback, openExtensions, renderEmployeeKnowledgeBindings, mutationBusy, t }: {
   editor: NonNullable<EnterpriseWorkbenchState['employeeEditor']>
   assets: EnterprisePageState<EnterpriseAsset>
   modelOptions: EnterpriseWorkbenchState['modelOptions']
@@ -326,11 +332,13 @@ function EmployeeEditor({ editor, assets, modelOptions, cordisCount, api, back, 
   back: () => void
   rollback: (releaseId: string) => void
   openExtensions: () => void
+  renderEmployeeKnowledgeBindings: EnterpriseWorkbenchProps['renderSlot']
   mutationBusy: boolean
   t: Translate
 }) {
   const [bindingAssetId, setBindingAssetId] = useState('')
   const [bindingKind, setBindingKind] = useState<ManagedAssetKind>('sop')
+  const [providerKnowledgeCount, setProviderKnowledgeCount] = useState(0)
   const [departments, setDepartments] = useState<readonly { id: string; name: string }[]>([])
   useEffect(() => {
     const abort = new AbortController()
@@ -348,7 +356,11 @@ function EmployeeEditor({ editor, assets, modelOptions, cordisCount, api, back, 
   const bindingCounts = Object.fromEntries(MANAGED_ASSET_KINDS.map(kind => [
     kind, field.bindings.filter(binding => binding.kind === kind).length,
   ])) as Record<ManagedAssetKind, number>
-  const capabilityCounts: Record<CapabilityCategory, number> = { ...bindingCounts, cordis: cordisCount }
+  const capabilityCounts: Record<CapabilityCategory, number> = {
+    ...bindingCounts,
+    knowledge: bindingCounts.knowledge + providerKnowledgeCount,
+    cordis: cordisCount,
+  }
   const availableAssets = assets.items.filter(asset => !asset.archived && asset.kind === bindingKind)
   const selectedAsset = availableAssets.find(asset => asset.assetId === bindingAssetId)
   const selectedBindings = selectedAsset === undefined ? [] : field.bindings.filter(binding =>
@@ -359,6 +371,37 @@ function EmployeeEditor({ editor, assets, modelOptions, cordisCount, api, back, 
   const categoryBindings = field.bindings.map((binding, index) => ({ binding, index })).filter(({ binding }) => binding.kind === bindingKind)
   const allBound = availableAssets.length > 0 && availableAssets.every(asset => field.bindings.some(binding =>
     binding.kind === asset.kind && binding.assetId === asset.assetId && binding.version === asset.revision))
+  const nativeBindingManager = <>
+    <div className={`${css.fullField} ${css.bindingPicker}`}>
+      <label>{t('editor.asset')}<select value={bindingAssetId} disabled={!catalogReady || availableAssets.length === 0} onChange={(event) => { setBindingAssetId(event.target.value) }}>
+        <option value="">{!catalogReady ? t(catalogFailed ? 'editor.assetLoadError' : 'editor.assetLoading') : availableAssets.length === 0 ? t('editor.assetEmpty') : t('editor.assetPlaceholder')}</option>
+        {availableAssets.map(asset => <option key={asset.assetId} value={asset.assetId}>{field.bindings.some(binding => binding.kind === asset.kind && binding.assetId === asset.assetId && binding.version === asset.revision) ? t('editor.boundOption', { name: asset.name }) : asset.name}</option>)}
+      </select></label>
+      <button type="button" className={css.secondaryButton} disabled={!catalogReady || selectedAsset === undefined || selectedBound || mutationBusy} onClick={() => {
+        if (selectedAsset === undefined || selectedBound) return
+        api.patchEmployeeDraft({ bindings: [
+          ...field.bindings.filter(binding => binding.kind !== selectedAsset.kind || binding.assetId !== selectedAsset.assetId),
+          { kind: selectedAsset.kind, assetId: selectedAsset.assetId, version: selectedAsset.revision },
+        ] })
+        setBindingAssetId('')
+      }}>{t(selectedBound ? 'editor.bound' : selectedBindings.length > 0 ? 'editor.updateBinding' : 'editor.addBinding')}</button>
+    </div>
+    <div className={css.fullField}>
+      {catalogFailed ? <div className={css.inlineError} role="alert"><span>{t('editor.assetLoadError')}</span><button type="button" className={css.secondaryButton} disabled={mutationBusy} onClick={() => { void api.refresh() }}>{t('editor.retryAssets')}</button></div>
+        : !catalogReady ? <p className={css.bindingHelp} role="status">{t('editor.assetLoading')}</p>
+          : availableAssets.length === 0 ? <p className={css.bindingHelp}>{t('editor.noAssets')}</p>
+            : allBound && <p className={css.bindingHelp}>{t('editor.allAssetsBound')}</p>}
+      <h4 className={css.bindingHeading}>{t('editor.boundAssets')}</h4>
+      {categoryBindings.length === 0 ? <p className={css.bindingHelp}>{t('editor.noBindings')}</p>
+        : <ul className={css.boundAssets} aria-label={t('editor.boundAssets')}>
+          {categoryBindings.map(({ binding, index }) => {
+            const asset = assets.items.find(item => item.assetId === binding.assetId && item.kind === binding.kind)
+            const name = asset?.name ?? binding.assetId
+            return <li key={index}><div><strong>{name}</strong><span>{t('editor.bindingVersion', { version: binding.version })}{catalogReady && (asset === undefined || asset.archived) && ` · ${t('editor.bindingUnavailable')}`}</span></div><button type="button" className={css.secondaryButton} disabled={mutationBusy} aria-label={t('editor.removeBinding', { name })} onClick={() => { api.patchEmployeeDraft({ bindings: field.bindings.filter((_binding, bindingIndex) => bindingIndex !== index) }) }}>{t('editor.remove')}</button></li>
+          })}
+        </ul>}
+    </div>
+  </>
   const validationText = (error: string): string => error === 'name-required' ? t('editor.nameRequired') : error === 'prompt-required' ? t('editor.promptRequired') : error === 'model-required' ? t('editor.modelRequired') : error
   return <section className={css.editor} aria-labelledby="employee-editor-title">
     <header className={css.editorHeader}>
@@ -389,35 +432,11 @@ function EmployeeEditor({ editor, assets, modelOptions, cordisCount, api, back, 
           <section className={css.formSection} aria-labelledby="employee-access-section"><header><h3 id="employee-access-section">{t('editor.accessSection')}</h3><p>{t('editor.accessHelp')}</p></header><div className={css.formGrid}>
             <label>{t('editor.visibility')}<select value={field.visibility} onChange={(event) => { api.patchEmployeeDraft({ visibility: event.target.value as EnterpriseVisibility }) }}><option value="organization">{t(VISIBILITY_KEYS.organization)}</option><option value="private">{t(VISIBILITY_KEYS.private)}</option><option value="restricted">{t(VISIBILITY_KEYS.restricted)}</option></select></label>
             <div className={css.fullField}><p className={css.bindingHelp}>{t('editor.bindingHelp')}</p><CapabilityTypeCards counts={capabilityCounts} selected={bindingKind} select={(kind) => { setBindingKind(kind); setBindingAssetId('') }} openCordis={openExtensions} t={t}/></div>
-            <div className={`${css.fullField} ${css.bindingPicker}`}>
-              <label>{t('editor.asset')}<select value={bindingAssetId} disabled={!catalogReady || availableAssets.length === 0} onChange={(event) => { setBindingAssetId(event.target.value) }}>
-                <option value="">{!catalogReady ? t(catalogFailed ? 'editor.assetLoadError' : 'editor.assetLoading') : availableAssets.length === 0 ? t('editor.assetEmpty') : t('editor.assetPlaceholder')}</option>
-                {availableAssets.map(asset => <option key={asset.assetId} value={asset.assetId}>{field.bindings.some(binding => binding.kind === asset.kind && binding.assetId === asset.assetId && binding.version === asset.revision) ? t('editor.boundOption', { name: asset.name }) : asset.name}</option>)}
-              </select></label>
-              <button type="button" className={css.secondaryButton} disabled={!catalogReady || selectedAsset === undefined || selectedBound || mutationBusy} onClick={() => {
-                if (selectedAsset === undefined || selectedBound) return
-                api.patchEmployeeDraft({ bindings: [
-                  ...field.bindings.filter(binding => binding.kind !== selectedAsset.kind || binding.assetId !== selectedAsset.assetId),
-                  { kind: selectedAsset.kind, assetId: selectedAsset.assetId, version: selectedAsset.revision },
-                ] })
-                setBindingAssetId('')
-              }}>{t(selectedBound ? 'editor.bound' : selectedBindings.length > 0 ? 'editor.updateBinding' : 'editor.addBinding')}</button>
-            </div>
-            <div className={css.fullField}>
-              {catalogFailed ? <div className={css.inlineError} role="alert"><span>{t('editor.assetLoadError')}</span><button type="button" className={css.secondaryButton} disabled={mutationBusy} onClick={() => { void api.refresh() }}>{t('editor.retryAssets')}</button></div>
-                : !catalogReady ? <p className={css.bindingHelp} role="status">{t('editor.assetLoading')}</p>
-                  : availableAssets.length === 0 ? <p className={css.bindingHelp}>{t('editor.noAssets')}</p>
-                    : allBound && <p className={css.bindingHelp}>{t('editor.allAssetsBound')}</p>}
-              <h4 className={css.bindingHeading}>{t('editor.boundAssets')}</h4>
-              {categoryBindings.length === 0 ? <p className={css.bindingHelp}>{t('editor.noBindings')}</p>
-                : <ul className={css.boundAssets} aria-label={t('editor.boundAssets')}>
-                  {categoryBindings.map(({ binding, index }) => {
-                    const asset = assets.items.find(item => item.assetId === binding.assetId && item.kind === binding.kind)
-                    const name = asset?.name ?? binding.assetId
-                    return <li key={index}><div><strong>{name}</strong><span>{t('editor.bindingVersion', { version: binding.version })}{catalogReady && (asset === undefined || asset.archived) && ` · ${t('editor.bindingUnavailable')}`}</span></div><button type="button" className={css.secondaryButton} disabled={mutationBusy} aria-label={t('editor.removeBinding', { name })} onClick={() => { api.patchEmployeeDraft({ bindings: field.bindings.filter((_binding, bindingIndex) => bindingIndex !== index) }) }}>{t('editor.remove')}</button></li>
-                  })}
-                </ul>}
-            </div>
+            {bindingKind === 'knowledge' ? renderEmployeeKnowledgeBindings('enterprise.employee-knowledge-bindings', {
+              presetId: field.presetId,
+              disabled: editor.saving || mutationBusy,
+              onCountChange: setProviderKnowledgeCount,
+            }, { fallback: nativeBindingManager }) : nativeBindingManager}
             <details className={css.fullField}><summary>{t('editor.advancedJson')}</summary><label>{t('editor.bindings')}<textarea rows={5} value={JSON.stringify(field.bindings, null, 2)} readOnly /></label></details>
           </div></section>
         </fieldset>
@@ -428,10 +447,11 @@ function EmployeeEditor({ editor, assets, modelOptions, cordisCount, api, back, 
   </section>
 }
 
-function EmployeesPage({ state, api, guardDirty, t }: {
+function EmployeesPage({ state, api, guardDirty, renderEmployeeKnowledgeBindings, t }: {
   state: EnterpriseWorkbenchState
   api: EnterpriseWorkbenchInjected
   guardDirty: (action: () => void) => void
+  renderEmployeeKnowledgeBindings: EnterpriseWorkbenchProps['renderSlot']
   t: Translate
 }) {
   const filters = state.employeeFilters
@@ -457,6 +477,7 @@ function EmployeesPage({ state, api, guardDirty, t }: {
     back={() => { guardDirty(api.closeEmployeeEditor) }}
     rollback={(releaseId) => { guardDirty(() => { void api.rollbackEmployee(releaseId) }) }}
     openExtensions={() => { guardDirty(() => { api.setPage('extensions') }) }}
+    renderEmployeeKnowledgeBindings={renderEmployeeKnowledgeBindings}
     mutationBusy={state.mutationPhase === 'running'}
     t={t}
   />
@@ -1722,7 +1743,7 @@ export function EnterpriseWorkbench(props: EnterpriseWorkbenchProps) {
       <nav className={css.nav} aria-label={props.t('nav.aria')}>{NAV_GROUPS.map(group => <div className={css.navGroup} key={group.label}><span>{props.t(group.label)}</span>{group.items.map(([id, key]) => <button type="button" key={id} aria-current={page === id ? 'page' : undefined} onClick={() => { requestPage(id) }}>{props.t(key)}</button>)}</div>)}</nav>
       <main className={css.main}>
         {partial && <div className={css.notice} role="status">{props.t('partial')}</div>}
-        {page === 'employees' && <><StartWorkPanel workspaces={workspaces} releases={state.releases} prepareWork={props.prepareWork} startPreparedWork={props.startPreparedWork} onStarted={(sessionId) => { props.openRecord(sessionId as SessionId); props.close() }} t={props.t}/><EmployeesPage state={state} api={api} guardDirty={guardDirty} t={props.t} /></>}
+        {page === 'employees' && <><StartWorkPanel workspaces={workspaces} releases={state.releases} prepareWork={props.prepareWork} startPreparedWork={props.startPreparedWork} onStarted={(sessionId) => { props.openRecord(sessionId as SessionId); props.close() }} t={props.t}/><EmployeesPage state={state} api={api} guardDirty={guardDirty} renderEmployeeKnowledgeBindings={props.renderSlot} t={props.t} /></>}
         {page === 'devices' && <DevicesPage page={devices} api={api} busy={mutationBusy} t={props.t}/>}
         {page === 'work-records' && <WorkRecordsPage page={state.workRecords} update={props.updateWorkRecord} busy={mutationBusy} t={props.t} />}
         {page === 'approvals' && <ApprovalsPage page={state.approvals} api={api} busy={mutationBusy} t={props.t} />}

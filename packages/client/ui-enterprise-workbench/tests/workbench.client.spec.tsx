@@ -1538,6 +1538,38 @@ describe('EnterpriseWorkbench', () => {
     expect(screen.getByRole('checkbox', { name: '选择询价为成员' })).toBeDefined()
   })
 
+  it('lets the knowledge provider manage bindings for the employee being edited', () => {
+    let owner: { presetId: string; onCountChange: (count: number) => void } | undefined
+    const renderSlot = vi.fn((
+      name: string,
+      slotOwner: { presetId: string; onCountChange: (count: number) => void },
+      options?: { fallback?: ReactNode },
+    ) => {
+      if (name === 'enterprise.employee-knowledge-bindings') {
+        owner = slotOwner
+        return <div data-testid="employee-knowledge-bindings">Knowledge bindings</div>
+      }
+      return options?.fallback ?? null
+    })
+    render(<EnterpriseWorkbench {...workbenchProps({
+      renderSlot,
+      state: {
+        mode: 'enterprise', employeeEditor: {
+          phase: 'ready', dirty: false, saving: false, conflict: false, errors: [], error: null, revision: 1,
+          fields: { presetId: 'finance-director', name: '财务大王', description: '', position: '', department: '', prompt: '职责', modelRef: 'm', capabilities: [], visibility: 'organization', bindings: [] }, releases: [],
+        },
+        assets: { phase: 'ready', error: null, items: [] },
+      },
+    } as never)} />)
+
+    fireEvent.click(screen.getByRole('button', { name: /知识经审核的业务知识/u }))
+    expect(screen.getByTestId('employee-knowledge-bindings')).toBeDefined()
+    expect(screen.queryByText('当前目录暂无可用的此类能力资产。可在“能力资产”中查看或登记。')).toBeNull()
+    expect(owner?.presetId).toBe('finance-director')
+    act(() => { owner?.onCountChange(2) })
+    expect(screen.getByRole('button', { name: /知识经审核的业务知识2 项/u })).toBeDefined()
+  })
+
   it('keeps bound assets selectable and removes only the chosen draft binding', () => {
     const patchEmployeeDraft = vi.fn()
     const saveEmployeeDraft = vi.fn()
