@@ -8,7 +8,7 @@ import {
   IconRefreshOutline16, IconPlusOutline16, IconSearchOutline16, IconSkillOutline16, IconSparkle16,
   IconUserOutline16, IconWarningOutline16, StateDot,
 } from '@deepseek-ai/dsh-client-ui-primitives'
-import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
+import type { InjectFace, PropsLocale, PropsRenderSlots, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { SessionId } from '@deepseek-ai/dsh-api-remotes/client'
 import type { SnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type { JsonValue } from '@deepseek-ai/dsh-util-values'
@@ -94,7 +94,19 @@ export interface EnterpriseWorkbenchInjected {
   optimizeEmployeePrompt: () => Promise<void>
 }
 
-export type EnterpriseWorkbenchProps = PropsRuntime<'shell.overlay'> & PropsLocale<typeof NS> & InjectFace<EnterpriseWorkbenchInjected>
+export interface EnterpriseEmployeeChannelOwner {
+  readonly employee: {
+    readonly presetId: string
+    readonly releaseId: string
+    readonly name: string
+    readonly position?: string
+  }
+}
+
+export type EnterpriseWorkbenchProps = PropsRuntime<'shell.overlay'>
+  & PropsRenderSlots<'enterprise.employee-channels'>
+  & PropsLocale<typeof NS>
+  & InjectFace<EnterpriseWorkbenchInjected>
 type Translate = (key: EnterpriseWorkbenchKey, params?: Record<string, string | number>) => string
 const LEGACY_TEAM_OWNER_SENTINEL = 'system:legacy-fixed-team-migration'
 const NAV_GROUPS: readonly { label: EnterpriseWorkbenchKey; items: readonly [EnterpriseWorkbenchPage, EnterpriseWorkbenchKey][] }[] = [
@@ -965,12 +977,10 @@ function ProviderInstallQr({ value, label }: { value: string; label: string }) {
     <path d={path} fill="black"/>
   </svg>
 }
-function ChannelsPage({ page, api, busy, t }: {
+function NativeChannelsPage({ page, api, busy, t }: {
   page: EnterprisePageState<EnterpriseChannelConfiguration>
   api: EnterpriseWorkbenchInjected
   busy: boolean
-  onDirty: () => void
-  onClean: () => void
   t: Translate
 }) {
   const [botInstall, setBotInstall] = useState<{
@@ -1400,6 +1410,45 @@ function ChannelsPage({ page, api, busy, t }: {
   </section>
 }
 
+function ChannelsPage({ page, releases, api, busy, renderEmployeeChannels, t }: {
+  page: EnterprisePageState<EnterpriseChannelConfiguration>
+  releases: readonly EnterpriseEmployeeRelease[]
+  api: EnterpriseWorkbenchInjected
+  busy: boolean
+  renderEmployeeChannels: EnterpriseWorkbenchProps['renderSlot']
+  t: Translate
+}) {
+  const [selectedReleaseId, setSelectedReleaseId] = useState(releases[0]?.releaseId ?? '')
+  const selected = releases.find(release => release.releaseId === selectedReleaseId) ?? releases[0]
+  useEffect(() => {
+    if (selected !== undefined && selected.releaseId !== selectedReleaseId) setSelectedReleaseId(selected.releaseId)
+  }, [selected, selectedReleaseId])
+  if (selected === undefined) {
+    return <NativeChannelsPage page={page} api={api} busy={busy} t={t}/>
+  }
+  const draft = { profile: selected.snapshot.profile } as EnterpriseEmployeeDraft
+  const name = profileText(draft, 'name', selected.presetId)
+  const position = profileText(draft, 'position')
+  const employee = {
+    presetId: selected.presetId,
+    releaseId: selected.releaseId,
+    name,
+    ...(position === '' ? {} : { position }),
+  }
+  return <section className={css.channelPage} aria-labelledby="channel-page-title">
+    <ManagementHeader id="channel-page-title" title={t('channel.title')} description={t('channel.employee.description')} count={page.items.length}/>
+    <div className={css.channelEmployeePicker}>
+      <label><span>{t('channel.employee.select')}</span><select aria-label={t('channel.employee.select')} value={selected.releaseId} onChange={(event) => { setSelectedReleaseId(event.target.value) }}>
+        {releases.map(release => <option key={release.releaseId} value={release.releaseId}>{profileText({ profile: release.snapshot.profile } as EnterpriseEmployeeDraft, 'name', release.presetId)}</option>)}
+      </select></label>
+      <div><strong>{name}</strong>{position !== '' && <span>{position}</span>}<small>{t('channel.employee.release', { version: selected.version })}</small></div>
+    </div>
+    {renderEmployeeChannels('enterprise.employee-channels', { employee }, {
+      fallback: <NativeChannelsPage page={page} api={api} busy={busy} t={t}/>,
+    })}
+  </section>
+}
+
 const EXTENSION_SECTION = {
   running: 'running', personal: 'personal', department: 'department', organization: 'organization',
   formal: 'formal', reviews: 'reviews',
@@ -1628,7 +1677,7 @@ export function EnterpriseWorkbench(props: EnterpriseWorkbenchProps) {
             <TeamsPage embedded page={state.teams} releases={state.releases} api={api} busy={mutationBusy} onDirty={() => { setLocalFormDirty(true) }} t={props.t} />
           </LegacyTeamsDisclosure>
         </>}
-        {page === 'channels' && <ChannelsPage page={channels} api={api} busy={mutationBusy} onDirty={() => { setLocalFormDirty(true) }} onClean={() => { setLocalFormDirty(false) }} t={props.t}/>}
+        {page === 'channels' && <ChannelsPage page={channels} releases={state.releases} api={api} busy={mutationBusy} renderEmployeeChannels={props.renderSlot} t={props.t}/>}
         {page === 'extensions' && <ExtensionsPage state={state} workspaces={workspaces} api={api} busy={mutationBusy} t={props.t} />}
       </main>
     </div>}
