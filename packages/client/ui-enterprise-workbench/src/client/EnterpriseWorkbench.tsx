@@ -349,8 +349,16 @@ function EmployeeEditor({ editor, assets, modelOptions, cordisCount, api, back, 
     kind, field.bindings.filter(binding => binding.kind === kind).length,
   ])) as Record<ManagedAssetKind, number>
   const capabilityCounts: Record<CapabilityCategory, number> = { ...bindingCounts, cordis: cordisCount }
-  const availableAssets = assets.items.filter(asset => !asset.archived && asset.kind === bindingKind
-    && !field.bindings.some(binding => binding.assetId === asset.assetId && binding.version === asset.revision))
+  const availableAssets = assets.items.filter(asset => !asset.archived && asset.kind === bindingKind)
+  const selectedAsset = availableAssets.find(asset => asset.assetId === bindingAssetId)
+  const selectedBindings = selectedAsset === undefined ? [] : field.bindings.filter(binding =>
+    binding.kind === selectedAsset.kind && binding.assetId === selectedAsset.assetId)
+  const selectedBound = selectedAsset !== undefined && selectedBindings.some(binding => binding.version === selectedAsset.revision)
+  const catalogReady = assets.phase === 'ready'
+  const catalogFailed = assets.phase === 'error' || assets.phase === 'permission'
+  const categoryBindings = field.bindings.map((binding, index) => ({ binding, index })).filter(({ binding }) => binding.kind === bindingKind)
+  const allBound = availableAssets.length > 0 && availableAssets.every(asset => field.bindings.some(binding =>
+    binding.kind === asset.kind && binding.assetId === asset.assetId && binding.version === asset.revision))
   const validationText = (error: string): string => error === 'name-required' ? t('editor.nameRequired') : error === 'prompt-required' ? t('editor.promptRequired') : error === 'model-required' ? t('editor.modelRequired') : error
   return <section className={css.editor} aria-labelledby="employee-editor-title">
     <header className={css.editorHeader}>
@@ -380,8 +388,36 @@ function EmployeeEditor({ editor, assets, modelOptions, cordisCount, api, back, 
           </div></section>
           <section className={css.formSection} aria-labelledby="employee-access-section"><header><h3 id="employee-access-section">{t('editor.accessSection')}</h3><p>{t('editor.accessHelp')}</p></header><div className={css.formGrid}>
             <label>{t('editor.visibility')}<select value={field.visibility} onChange={(event) => { api.patchEmployeeDraft({ visibility: event.target.value as EnterpriseVisibility }) }}><option value="organization">{t(VISIBILITY_KEYS.organization)}</option><option value="private">{t(VISIBILITY_KEYS.private)}</option><option value="restricted">{t(VISIBILITY_KEYS.restricted)}</option></select></label>
-            <div className={css.fullField}><CapabilityTypeCards counts={capabilityCounts} selected={bindingKind} select={(kind) => { setBindingKind(kind); setBindingAssetId('') }} openCordis={openExtensions} t={t}/></div>
-            <div className={`${css.fullField} ${css.bindingPicker}`}><label>{t('editor.asset')}<select value={bindingAssetId} onChange={(event) => { setBindingAssetId(event.target.value) }}><option value="">{availableAssets.length === 0 ? t('editor.assetEmpty') : t('editor.assetPlaceholder')}</option>{availableAssets.map(asset => <option key={asset.assetId} value={asset.assetId}>{asset.name}</option>)}</select></label><button type="button" className={css.secondaryButton} disabled={bindingAssetId === '' || mutationBusy} onClick={() => { const asset = availableAssets.find(item => item.assetId === bindingAssetId); if (asset !== undefined) { api.patchEmployeeDraft({ bindings: [...field.bindings, { kind: asset.kind, assetId: asset.assetId, version: asset.revision }] }); setBindingAssetId('') } }}>{t('editor.addBinding')}</button></div>
+            <div className={css.fullField}><p className={css.bindingHelp}>{t('editor.bindingHelp')}</p><CapabilityTypeCards counts={capabilityCounts} selected={bindingKind} select={(kind) => { setBindingKind(kind); setBindingAssetId('') }} openCordis={openExtensions} t={t}/></div>
+            <div className={`${css.fullField} ${css.bindingPicker}`}>
+              <label>{t('editor.asset')}<select value={bindingAssetId} disabled={!catalogReady || availableAssets.length === 0} onChange={(event) => { setBindingAssetId(event.target.value) }}>
+                <option value="">{!catalogReady ? t(catalogFailed ? 'editor.assetLoadError' : 'editor.assetLoading') : availableAssets.length === 0 ? t('editor.assetEmpty') : t('editor.assetPlaceholder')}</option>
+                {availableAssets.map(asset => <option key={asset.assetId} value={asset.assetId}>{field.bindings.some(binding => binding.kind === asset.kind && binding.assetId === asset.assetId && binding.version === asset.revision) ? t('editor.boundOption', { name: asset.name }) : asset.name}</option>)}
+              </select></label>
+              <button type="button" className={css.secondaryButton} disabled={!catalogReady || selectedAsset === undefined || selectedBound || mutationBusy} onClick={() => {
+                if (selectedAsset === undefined || selectedBound) return
+                api.patchEmployeeDraft({ bindings: [
+                  ...field.bindings.filter(binding => binding.kind !== selectedAsset.kind || binding.assetId !== selectedAsset.assetId),
+                  { kind: selectedAsset.kind, assetId: selectedAsset.assetId, version: selectedAsset.revision },
+                ] })
+                setBindingAssetId('')
+              }}>{t(selectedBound ? 'editor.bound' : selectedBindings.length > 0 ? 'editor.updateBinding' : 'editor.addBinding')}</button>
+            </div>
+            <div className={css.fullField}>
+              {catalogFailed ? <div className={css.inlineError} role="alert"><span>{t('editor.assetLoadError')}</span><button type="button" className={css.secondaryButton} disabled={mutationBusy} onClick={() => { void api.refresh() }}>{t('editor.retryAssets')}</button></div>
+                : !catalogReady ? <p className={css.bindingHelp} role="status">{t('editor.assetLoading')}</p>
+                  : availableAssets.length === 0 ? <p className={css.bindingHelp}>{t('editor.noAssets')}</p>
+                    : allBound && <p className={css.bindingHelp}>{t('editor.allAssetsBound')}</p>}
+              <h4 className={css.bindingHeading}>{t('editor.boundAssets')}</h4>
+              {categoryBindings.length === 0 ? <p className={css.bindingHelp}>{t('editor.noBindings')}</p>
+                : <ul className={css.boundAssets} aria-label={t('editor.boundAssets')}>
+                  {categoryBindings.map(({ binding, index }) => {
+                    const asset = assets.items.find(item => item.assetId === binding.assetId && item.kind === binding.kind)
+                    const name = asset?.name ?? binding.assetId
+                    return <li key={index}><div><strong>{name}</strong><span>{t('editor.bindingVersion', { version: binding.version })}{catalogReady && (asset === undefined || asset.archived) && ` · ${t('editor.bindingUnavailable')}`}</span></div><button type="button" className={css.secondaryButton} disabled={mutationBusy} aria-label={t('editor.removeBinding', { name })} onClick={() => { api.patchEmployeeDraft({ bindings: field.bindings.filter((_binding, bindingIndex) => bindingIndex !== index) }) }}>{t('editor.remove')}</button></li>
+                  })}
+                </ul>}
+            </div>
             <details className={css.fullField}><summary>{t('editor.advancedJson')}</summary><label>{t('editor.bindings')}<textarea rows={5} value={JSON.stringify(field.bindings, null, 2)} readOnly /></label></details>
           </div></section>
         </fieldset>

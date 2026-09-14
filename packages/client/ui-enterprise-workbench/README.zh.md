@@ -19,6 +19,8 @@ Enterprise digital-employee roster and operations workbench over DSH runtime fac
 
 侧栏入口与工作台顶部标题使用 Lichen Agent 名称、提供的两片组合 Logo 和内嵌 Tourney 字体。功能导航与说明文案保留数字员工用语。字体遵循随包提供的 [SIL 开源字体许可证](LICENSES/tourney-OFL.txt)。
 
+员工编辑器按分类列出已绑定能力的名称与修订。已绑定资产仍可选择并明确标注；更新修订会替换旧引用，移除绑定只修改本地草稿，保存并发布后才供新任务使用。分类数量表示绑定数；目录加载中、失败、空分类和全部已绑定分别提示。
+
 <a id="package-details"></a>
 ## 包详情
 

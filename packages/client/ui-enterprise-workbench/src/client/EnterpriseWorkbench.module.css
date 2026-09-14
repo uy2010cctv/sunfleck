@@ -1120,3 +1120,13 @@
   .spin,
   .skeleton { transition: none; animation: none; }
 }
+
+.bindingHelp { margin: 0 0 var(--dse-space-xs); color: var(--dse-color-muted); font-size: 0.8125rem; line-height: 1.55; }
+.bindingHeading { margin: var(--dse-space-sm) 0 var(--dse-space-2xs); font-size: 0.875rem; font-weight: 600; }
+.boundAssets { margin: 0; padding: 0; list-style: none; }
+.boundAssets li { display: flex; align-items: center; justify-content: space-between; gap: var(--dse-space-xs); padding-block: var(--dse-space-xs); border-bottom: 1px solid var(--dse-color-border); }
+.boundAssets li > div { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.boundAssets strong { font-size: 0.875rem; overflow-wrap: anywhere; }
+.boundAssets span { color: var(--dse-color-muted); font-size: 0.75rem; }
+.boundAssets button { flex: none; }
+@media (max-width: 36rem) { .bindingPicker { flex-wrap: wrap; } .bindingPicker label { flex-basis: 100%; } }

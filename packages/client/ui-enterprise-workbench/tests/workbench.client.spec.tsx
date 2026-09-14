@@ -1538,6 +1538,93 @@ describe('EnterpriseWorkbench', () => {
     expect(screen.getByRole('checkbox', { name: '选择询价为成员' })).toBeDefined()
   })
 
+  it('keeps bound assets selectable and removes only the chosen draft binding', () => {
+    const patchEmployeeDraft = vi.fn()
+    const saveEmployeeDraft = vi.fn()
+    render(<EnterpriseWorkbench {...workbenchProps({
+      state: { mode: 'enterprise', employeeEditor: {
+        phase: 'ready', dirty: false, saving: false, conflict: false, errors: [], error: null, revision: 1,
+        fields: { presetId: 'buyer', name: '采购', description: '', position: '', department: '', prompt: '职责', modelRef: 'm', capabilities: [], visibility: 'organization', bindings: [
+          { kind: 'sop', assetId: 'rfq', version: 2 }, { kind: 'skill', assetId: 'invoice', version: 1 },
+        ] }, releases: [],
+      }, assets: { phase: 'ready', error: null, items: [
+        { assetId: 'rfq', orgId: 'o', kind: 'sop', name: '询价 SOP', revision: 2, archived: false, updatedAt: 1 },
+      ] } }, patchEmployeeDraft, saveEmployeeDraft,
+    } as never)} />)
+    expect(screen.getByRole('option', { name: '询价 SOP（已绑定）' })).toBeDefined()
+    expect(within(screen.getByRole('list', { name: '已绑定能力' })).getByText('询价 SOP')).toBeDefined()
+    fireEvent.change(screen.getByRole('combobox', { name: '能力资产' }), { target: { value: 'rfq' } })
+    expect(screen.getByRole('button', { name: '已绑定' }).matches(':disabled')).toBe(true)
+    expect(patchEmployeeDraft).not.toHaveBeenCalled()
+    expect({
+      options: Array.from(screen.getByRole<HTMLSelectElement>('combobox', { name: '能力资产' }).options, option => option.text),
+      bindings: screen.getByRole('list', { name: '已绑定能力' }).textContent,
+      action: screen.getByRole('button', { name: '已绑定' }).textContent,
+    }).toMatchInlineSnapshot(`
+      {
+        "action": "已绑定",
+        "bindings": "询价 SOP修订 2移除",
+        "options": [
+          "选择已审核的能力资产",
+          "询价 SOP（已绑定）",
+        ],
+      }
+    `)
+    fireEvent.click(screen.getByRole('button', { name: '移除能力绑定：询价 SOP' }))
+    expect(patchEmployeeDraft).toHaveBeenCalledWith({ bindings: [{ kind: 'skill', assetId: 'invoice', version: 1 }] })
+    expect(saveEmployeeDraft).not.toHaveBeenCalled()
+  })
+
+  it('updates an older binding instead of appending two versions of the same asset', () => {
+    const patchEmployeeDraft = vi.fn()
+    render(<EnterpriseWorkbench {...workbenchProps({
+      state: { mode: 'enterprise', employeeEditor: {
+        phase: 'ready', dirty: false, saving: false, conflict: false, errors: [], error: null, revision: 1,
+        fields: { presetId: 'buyer', name: '采购', description: '', position: '', department: '', prompt: '职责', modelRef: 'm', capabilities: [], visibility: 'organization', bindings: [{ kind: 'sop', assetId: 'rfq', version: 1 }] }, releases: [],
+      }, assets: { phase: 'ready', error: null, items: [
+        { assetId: 'rfq', orgId: 'o', kind: 'sop', name: '询价 SOP', revision: 2, archived: false, updatedAt: 1 },
+      ] } }, patchEmployeeDraft,
+    } as never)} />)
+    fireEvent.change(screen.getByLabelText('能力资产'), { target: { value: 'rfq' } })
+    fireEvent.click(screen.getByRole('button', { name: '更新能力绑定' }))
+    expect(patchEmployeeDraft).toHaveBeenCalledWith({ bindings: [{ kind: 'sop', assetId: 'rfq', version: 2 }] })
+  })
+
+  it('keeps archived bindings visible without offering the archived asset for addition', () => {
+    render(<EnterpriseWorkbench {...workbenchProps({ state: {
+      mode: 'enterprise', employeeEditor: {
+        phase: 'ready', dirty: false, saving: false, conflict: false, errors: [], error: null, revision: 1,
+        fields: { presetId: 'buyer', name: '采购', description: '', position: '', department: '', prompt: '职责', modelRef: 'm', capabilities: [], visibility: 'organization', bindings: [{ kind: 'sop', assetId: 'rfq', version: 1 }] }, releases: [],
+      }, assets: { phase: 'ready', error: null, items: [
+        { assetId: 'rfq', orgId: 'o', kind: 'sop', name: '询价 SOP', revision: 2, archived: true, updatedAt: 1 },
+      ] },
+    } } as never)} />)
+    expect(within(screen.getByRole('list', { name: '已绑定能力' })).getByText('询价 SOP')).toBeDefined()
+    expect(screen.getByText('修订 1 · 当前目录中不可用')).toBeDefined()
+    expect(screen.getByRole('combobox', { name: '能力资产' }).textContent).not.toContain('询价 SOP')
+    expect(screen.getByText('当前目录暂无可用的此类能力资产。可在“能力资产”中查看或登记。')).toBeDefined()
+  })
+
+  it('distinguishes an empty asset category from a failed catalog load', () => {
+    const refresh = vi.fn(() => Promise.resolve())
+    const editor = {
+      phase: 'ready', dirty: false, saving: false, conflict: false, errors: [], error: null, revision: 1,
+      fields: { presetId: 'buyer', name: '采购', description: '', position: '', department: '', prompt: '职责', modelRef: 'm', capabilities: [], visibility: 'organization', bindings: [] }, releases: [],
+    } as const
+    const mounted = render(<EnterpriseWorkbench {...workbenchProps({ state: {
+      mode: 'enterprise', employeeEditor: editor, assets: { phase: 'ready', error: null, items: [] },
+    }, refresh } as never)} />)
+    expect(screen.getByText('当前目录暂无可用的此类能力资产。可在“能力资产”中查看或登记。')).toBeDefined()
+    mounted.rerender(<EnterpriseWorkbench {...workbenchProps({ state: {
+      mode: 'enterprise', employeeEditor: editor, assets: { phase: 'error', error: 'Catalog unavailable', items: [] },
+    }, refresh } as never)} />)
+    expect(screen.queryByText('当前目录暂无可用的此类能力资产。可在“能力资产”中查看或登记。')).toBeNull()
+    expect(within(screen.getByRole('alert')).getByText('能力资产加载失败')).toBeDefined()
+    expect(screen.getByRole('combobox', { name: '能力资产' }).matches(':disabled')).toBe(true)
+    fireEvent.click(screen.getByRole('button', { name: '重试加载能力资产' }))
+    expect(refresh).toHaveBeenCalledOnce()
+  })
+
   it('uses the same five capability cards for asset management and employee binding', () => {
     const setPage = vi.fn()
     const patchEmployeeDraft = vi.fn()
