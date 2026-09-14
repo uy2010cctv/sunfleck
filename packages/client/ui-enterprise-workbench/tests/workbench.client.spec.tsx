@@ -1577,6 +1577,32 @@ describe('EnterpriseWorkbench', () => {
     expect(screen.getByRole('combobox', { name: '能力资产' }).textContent).not.toContain('报销 SOP')
   })
 
+  it('hosts the knowledge plugin inside the knowledge capability category and reflects its base count', () => {
+    let knowledgeOwner: { onCountChange: (count: number) => void } | undefined
+    const renderSlot = vi.fn((name: string, owner: { onCountChange: (count: number) => void }, options?: { fallback?: ReactNode }) => {
+      if (name === 'enterprise.knowledge-assets') {
+        knowledgeOwner = owner
+        return <div data-testid="knowledge-core">DSH Knowledge Core</div>
+      }
+      return options?.fallback ?? null
+    })
+    render(<EnterpriseWorkbench {...workbenchProps({
+      renderSlot,
+      state: { mode: 'enterprise', page: 'assets', assets: { phase: 'ready', error: null, items: [] } },
+    } as never)} />)
+
+    const categories = screen.getByRole('list', { name: '能力分类' })
+    fireEvent.click(within(categories).getByRole('button', { name: /知识/u }))
+    expect(screen.getByTestId('knowledge-core')).toBeDefined()
+    expect(screen.queryByText('还没有知识资产')).toBeNull()
+    expect(renderSlot).toHaveBeenCalledWith('enterprise.knowledge-assets', expect.objectContaining({
+      onCountChange: expect.any(Function),
+    }), expect.any(Object))
+
+    act(() => { knowledgeOwner?.onCountChange(4) })
+    expect(within(categories).getByRole('button', { name: /知识.*4 项/u })).toBeDefined()
+  })
+
   it('explains employee prerequisites instead of rendering unusable schedule and team forms', () => {
     const setPage = vi.fn()
     const { rerender } = render(<EnterpriseWorkbench {...workbenchProps({

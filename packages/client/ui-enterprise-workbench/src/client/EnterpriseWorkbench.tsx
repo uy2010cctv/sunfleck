@@ -103,8 +103,12 @@ export interface EnterpriseEmployeeChannelOwner {
   }
 }
 
+export interface EnterpriseKnowledgeAssetsOwner {
+  readonly onCountChange: (count: number) => void
+}
+
 export type EnterpriseWorkbenchProps = PropsRuntime<'shell.overlay'>
-  & PropsRenderSlots<'enterprise.employee-channels'>
+  & PropsRenderSlots<'enterprise.employee-channels' | 'enterprise.knowledge-assets'>
   & PropsLocale<typeof NS>
   & InjectFace<EnterpriseWorkbenchInjected>
 type Translate = (key: EnterpriseWorkbenchKey, params?: Record<string, string | number>) => string
@@ -605,41 +609,51 @@ function SchedulesPage({ page, releases, api, busy, onDirty, t }: { page: Enterp
   </section>
 }
 
-function AssetsPage({ page, cordisCount, api, busy, onDirty, openExtensions, t }: { page: EnterprisePageState<EnterpriseAsset>; cordisCount: number; api: EnterpriseWorkbenchInjected; busy: boolean; onDirty: () => void; openExtensions: () => void; t: Translate }) {
+function AssetsPage({ page, cordisCount, api, busy, onDirty, openExtensions, renderKnowledgeAssets, t }: { page: EnterprisePageState<EnterpriseAsset>; cordisCount: number; api: EnterpriseWorkbenchInjected; busy: boolean; onDirty: () => void; openExtensions: () => void; renderKnowledgeAssets: EnterpriseWorkbenchProps['renderSlot']; t: Translate }) {
   const [creating, setCreating] = useState(false)
   const [name, setName] = useState('')
   const [kind, setKind] = useState<ManagedAssetKind>('sop')
   const [summary, setSummary] = useState('')
   const [content, setContent] = useState('')
+  const [providerKnowledgeCount, setProviderKnowledgeCount] = useState(0)
   const managedAssets = page.items.filter(asset => MANAGED_ASSET_KINDS.includes(asset.kind as ManagedAssetKind))
   const filteredAssets = managedAssets.filter(asset => asset.kind === kind)
   const counts = Object.fromEntries(MANAGED_ASSET_KINDS.map(category => [
     category, managedAssets.filter(asset => asset.kind === category).length,
   ])) as Record<ManagedAssetKind, number>
-  const capabilityCounts: Record<CapabilityCategory, number> = { ...counts, cordis: cordisCount }
+  const capabilityCounts: Record<CapabilityCategory, number> = {
+    ...counts,
+    knowledge: counts.knowledge + providerKnowledgeCount,
+    cordis: cordisCount,
+  }
   const filteredPage = { ...page, items: filteredAssets }
   const createButton = <button type="button" className={css.primaryButton} onClick={() => { setCreating(true) }}><IconPlusOutline16 size={16}/>{t('asset.create')}</button>
+  const createForm = creating && <form className={css.guidedForm} onSubmit={(event) => {
+    event.preventDefault()
+    const payload: Readonly<Record<string, JsonValue>> = kind === 'sop'
+      ? { summary, steps: content.split('\n').map(step => step.trim()).filter(Boolean) }
+      : { summary, content }
+    const success = api.saveAssetVersion({ assetId: `asset-${randomUUID()}`, name, kind, content: payload, expectedRevision: 0 })
+    void success.then((saved) => { if (saved) { setCreating(false); setName(''); setSummary(''); setContent('') } })
+  }}>
+    <div className={css.formTitle}><div><h3>{t('asset.create')}</h3><p>{t('asset.formHelp')}</p></div><button type="button" className={css.secondaryButton} onClick={() => { setCreating(false) }}>{t('cancel')}</button></div>
+    <div className={css.formGrid}>
+      <label>{t('asset.name')}<input required disabled={busy} value={name} onChange={(event) => { setName(event.target.value); onDirty() }}/></label>
+      <div className={css.categoryField}><span>{t('asset.kind')}</span><strong>{t(ASSET_KEYS[kind])}</strong></div>
+      <label className={css.fullField}>{t('asset.summary')}<input required disabled={busy} value={summary} onChange={(event) => { setSummary(event.target.value); onDirty() }}/></label>
+      <label className={css.fullField}>{t('asset.body')}<textarea required rows={6} disabled={busy} placeholder={kind === 'sop' ? t('asset.sopPlaceholder') : t('asset.contentPlaceholder')} value={content} onChange={(event) => { setContent(event.target.value); onDirty() }}/></label>
+    </div>
+    <div className={css.formActions}><button className={css.primaryButton} type="submit" disabled={busy || name.trim() === '' || summary.trim() === '' || content.trim() === ''}>{t('asset.save')}</button></div>
+  </form>
+  const assetList = <PageBoundary page={filteredPage} t={t} empty={<ActionableEmpty title={t('asset.emptyCategoryTitle', { category: t(ASSET_KEYS[kind]) })} description={t('asset.emptyBody')} action={createButton}/>}><div className={css.rows}>{filteredAssets.map(item => <div className={css.row} key={item.assetId}><div><strong>{item.name}</strong><span>{t(ASSET_KEYS[item.kind])} · {t('employee.revision', { revision: item.revision })} · {formatDate(item.updatedAt)}</span></div>{!item.archived && <button type="button" className={css.secondaryButton} disabled={busy} onClick={() => { void api.archiveAsset(item) }}>{t('asset.archive')}</button>}</div>)}</div></PageBoundary>
   return <section className={css.managementPage} aria-labelledby="assets-page-title">
-    <ManagementHeader id="assets-page-title" title={t('nav.assets')} description={t('asset.description')} count={managedAssets.length} action={managedAssets.length === 0 ? undefined : createButton}/>
+    <ManagementHeader id="assets-page-title" title={t('nav.assets')} description={t('asset.description')} count={managedAssets.length + providerKnowledgeCount} action={kind === 'knowledge' ? undefined : managedAssets.length === 0 ? undefined : createButton}/>
     <CapabilityTypeCards counts={capabilityCounts} selected={kind} select={setKind} openCordis={openExtensions} t={t}/>
-    {creating && <form className={css.guidedForm} onSubmit={(event) => {
-      event.preventDefault()
-      const payload: Readonly<Record<string, JsonValue>> = kind === 'sop'
-        ? { summary, steps: content.split('\n').map(step => step.trim()).filter(Boolean) }
-        : { summary, content }
-      const success = api.saveAssetVersion({ assetId: `asset-${randomUUID()}`, name, kind, content: payload, expectedRevision: 0 })
-      void success.then((saved) => { if (saved) { setCreating(false); setName(''); setSummary(''); setContent('') } })
-    }}>
-      <div className={css.formTitle}><div><h3>{t('asset.create')}</h3><p>{t('asset.formHelp')}</p></div><button type="button" className={css.secondaryButton} onClick={() => { setCreating(false) }}>{t('cancel')}</button></div>
-      <div className={css.formGrid}>
-        <label>{t('asset.name')}<input required disabled={busy} value={name} onChange={(event) => { setName(event.target.value); onDirty() }}/></label>
-        <div className={css.categoryField}><span>{t('asset.kind')}</span><strong>{t(ASSET_KEYS[kind])}</strong></div>
-        <label className={css.fullField}>{t('asset.summary')}<input required disabled={busy} value={summary} onChange={(event) => { setSummary(event.target.value); onDirty() }}/></label>
-        <label className={css.fullField}>{t('asset.body')}<textarea required rows={6} disabled={busy} placeholder={kind === 'sop' ? t('asset.sopPlaceholder') : t('asset.contentPlaceholder')} value={content} onChange={(event) => { setContent(event.target.value); onDirty() }}/></label>
-      </div>
-      <div className={css.formActions}><button className={css.primaryButton} type="submit" disabled={busy || name.trim() === '' || summary.trim() === '' || content.trim() === ''}>{t('asset.save')}</button></div>
-    </form>}
-    <PageBoundary page={filteredPage} t={t} empty={<ActionableEmpty title={t('asset.emptyCategoryTitle', { category: t(ASSET_KEYS[kind]) })} description={t('asset.emptyBody')} action={createButton}/>}><div className={css.rows}>{filteredAssets.map(item => <div className={css.row} key={item.assetId}><div><strong>{item.name}</strong><span>{t(ASSET_KEYS[item.kind])} · {t('employee.revision', { revision: item.revision })} · {formatDate(item.updatedAt)}</span></div>{!item.archived && <button type="button" className={css.secondaryButton} disabled={busy} onClick={() => { void api.archiveAsset(item) }}>{t('asset.archive')}</button>}</div>)}</div></PageBoundary>
+    {kind === 'knowledge' ? renderKnowledgeAssets('enterprise.knowledge-assets', {
+      onCountChange: setProviderKnowledgeCount,
+    }, {
+      fallback: <>{createForm}{assetList}</>,
+    }) : <>{createForm}{assetList}</>}
   </section>
 }
 
@@ -1677,7 +1691,7 @@ export function EnterpriseWorkbench(props: EnterpriseWorkbenchProps) {
         {page === 'approvals' && <ApprovalsPage page={state.approvals} api={api} busy={mutationBusy} t={props.t} />}
         {page === 'attention' && <TeamAttentionPage page={teamDecisions} runs={teamRuns} definitions={teamDefinitions} api={api} busy={mutationBusy} t={props.t} />}
         {page === 'schedules' && <SchedulesPage page={state.schedules} releases={state.releases} api={api} busy={mutationBusy} onDirty={() => { setLocalFormDirty(true) }} t={props.t} />}
-        {page === 'assets' && <AssetsPage page={state.assets} cordisCount={cordisExtensionCount(state)} api={api} busy={mutationBusy} onDirty={() => { setLocalFormDirty(true) }} openExtensions={() => { requestPage('extensions') }} t={props.t} />}
+        {page === 'assets' && <AssetsPage page={state.assets} cordisCount={cordisExtensionCount(state)} api={api} busy={mutationBusy} onDirty={() => { setLocalFormDirty(true) }} openExtensions={() => { requestPage('extensions') }} renderKnowledgeAssets={props.renderSlot} t={props.t} />}
         {page === 'teams' && <>
           <TeamControlPanel definitions={teamDefinitions} runs={teamRuns} decisions={teamDecisions} autonomy={teamAutonomy} workspaces={workspaces} releases={state.releases} api={api} busy={mutationBusy} onDirty={() => { setLocalFormDirty(true) }} onClean={() => { setLocalFormDirty(false) }} t={props.t}/>
           <LegacyTeamsDisclosure initiallyOpen={teamDefinitions.items.length === 0} count={state.teams.items.length} t={props.t}>
