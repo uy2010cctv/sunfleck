@@ -1121,7 +1121,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     methods: [
       {
         signature: '@Remote(\'list\') async list(request: EnterpriseChannelListRequest): Promise<EnterpriseChannelPage>',
-        description: 'List channel configurations visible to the authenticated organization administrator.',
+        description: 'List channel configurations visible to the authenticated principal\'s hierarchy scope.',
         parameters: [{ name: 'request', description: 'optional archived-record filter.' }],
         returns: 'secret-free channel configuration projections.',
       },

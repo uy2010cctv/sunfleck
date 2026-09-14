@@ -958,7 +958,7 @@ export class EnterpriseChannelController extends TypertRemoteService {
   }
 
   /**
-   * List channel configurations visible to the authenticated organization administrator.
+   * List channel configurations visible to the authenticated principal's hierarchy scope.
    * @param request - optional archived-record filter.
    * @returns secret-free channel configuration projections.
    */
