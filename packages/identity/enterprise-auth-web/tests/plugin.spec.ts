@@ -158,6 +158,82 @@ describe('enterprise auth Web plugin', () => {
     injected.close()
   })
 
+  it('resolves employee and channel resources through organization departments', async () => {
+    root = await mkdtemp(join(tmpdir(), 'dsh-enterprise-auth-hierarchy-'))
+    const { EnterpriseIdentityRepository } = await import('@deepseek-ai/dsh-enterprise-identity')
+    const identity = new EnterpriseIdentityRepository(join(root, 'hierarchy.sqlite'))
+    identity.createOrganization({ id: 'org-a', name: 'Example' })
+    identity.saveDepartment({
+      id: 'finance', orgId: 'org-a', parentId: null, name: 'Finance', sortOrder: 0, expectedRevision: 0,
+    })
+    for (const [id, departmentId] of [['owner-1', 'finance'], ['member-1', 'finance'], ['sales-1', undefined]] as const) {
+      identity.createUser({ id, orgId: 'org-a', username: id, displayName: id, disabled: false })
+      identity.setRoles(id, ['member'])
+      if (departmentId !== undefined) identity.setUserDepartments({
+        orgId: 'org-a', userId: id, departmentIds: [departmentId],
+        primaryDepartmentId: departmentId, expectedRevision: 0,
+      })
+    }
+    const ctx = new Context()
+    ctx.provide('workspaceRegistry', {} as never)
+    ctx.provide('webServer', { register: () => () => {} } as unknown as WebServer)
+    ctx.provide('credentials', {} as never)
+    ctx.provide('enterprisePostgres', {
+      identity,
+      catalog: {
+        getDraft: vi.fn().mockResolvedValue({ ownerUserId: 'owner-1', visibility: 'organization' }),
+        getRelease: vi.fn().mockResolvedValue({ presetId: 'finance-agent' }),
+      },
+      operations: {
+        getChannelConfiguration: vi.fn((_orgId: string, channelId: string) => Promise.resolve(
+          channelId === 'unbound-channel'
+            ? { createdBy: 'owner-1' }
+            : channelId === 'missing-channel' ? undefined : {
+              createdBy: 'owner-1', defaultEmployeeReleaseId: 'release-finance',
+            },
+        )),
+      },
+      cordis: {
+        departmentManagers: vi.fn().mockResolvedValue({ managerUserIds: ['member-1'] }),
+      },
+    } as never)
+    const fiber = ctx.plugin({ inject: [...inject], apply }, {
+      identityStore: identity, databaseMode: 'postgres',
+      organizationId: 'org-a', organizationName: 'Example',
+      sessionCookieName: 'dsh_session', sessionTtlMs: 60_000, secureCookies: false,
+      autoProvisionSsoUsers: true, localEnabled: true, oidc: [], saml: [], ldap: [],
+    })
+    await fiber.await()
+
+    await expect(ctx.enterpriseSecurity.authorizeApiAsync(
+      { userId: 'member-1', orgId: 'org-a', roles: ['member'] },
+      'enterpriseEmployee.getDraft', { presetId: 'finance-agent' },
+    )).resolves.toEqual({ allowed: true, reason: 'department-member' })
+    await expect(ctx.enterpriseSecurity.authorizeApiAsync(
+      { userId: 'sales-1', orgId: 'org-a', roles: ['member'] },
+      'enterpriseEmployee.getDraft', { presetId: 'finance-agent' },
+    )).resolves.toEqual({ allowed: false, reason: 'scope-mismatch' })
+    await expect(ctx.enterpriseSecurity.authorizeApiAsync(
+      { userId: 'member-1', orgId: 'org-a', roles: ['member'] },
+      'enterpriseChannel.save', { channelId: 'finance-feishu' },
+    )).resolves.toEqual({ allowed: true, reason: 'department-manager' })
+    await expect(ctx.enterpriseSecurity.authorizeApiAsync(
+      { userId: 'member-1', orgId: 'org-a', roles: ['member'] },
+      'enterpriseChannel.get', { channelId: 'unbound-channel' },
+    )).resolves.toEqual({ allowed: false, reason: 'scope-mismatch' })
+    await expect(ctx.enterpriseSecurity.authorizeApiAsync(
+      { userId: 'owner-1', orgId: 'org-a', roles: ['member'] },
+      'enterpriseChannel.get', { channelId: 'unbound-channel' },
+    )).resolves.toEqual({ allowed: true, reason: 'resource-visible' })
+    await expect(ctx.enterpriseSecurity.authorizeApiAsync(
+      { userId: 'admin-1', orgId: 'org-a', roles: ['administrator'] },
+      'enterpriseChannel.save', { channelId: 'missing-channel' },
+    )).resolves.toEqual({ allowed: true, reason: 'administrator' })
+
+    await fiber.dispose()
+    identity.close()
+  })
+
   it('disposes the request context when OIDC initialization fails', async () => {
     root = await mkdtemp(join(tmpdir(), 'dsh-enterprise-auth-failed-init-'))
     const dispose = vi.spyOn(EnterpriseRequestContext.prototype, 'dispose')

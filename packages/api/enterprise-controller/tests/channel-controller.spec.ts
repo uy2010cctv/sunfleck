@@ -482,6 +482,34 @@ describe('enterprise channel Remote controller', () => {
     expect(failure).toMatchObject({ code: 'enterprise-forbidden' })
   })
 
+  it('omits channels that are outside the caller hierarchy scope', async () => {
+    const api = await import('../src/index.ts') as Record<string, unknown>
+    const Controller = api['EnterpriseChannelController'] as new (ctx: Context) => {
+      list(input: Record<string, unknown>): Promise<{ items: readonly Record<string, unknown>[] }>
+    }
+    const requestContext = new EnterpriseRequestContext()
+    const listChannelConfigurations = vi.fn().mockResolvedValue({ items: [
+      stored({ channelId: 'finance-channel' }), stored({ channelId: 'sales-channel' }),
+    ] })
+    const authorizeApiAsync = vi.fn((_actor, endpoint: string, input: { channelId?: string }) =>
+      Promise.resolve({
+        allowed: endpoint === 'enterpriseChannel.list' || input.channelId === 'finance-channel',
+        reason: input.channelId === 'sales-channel' ? 'scope-mismatch' : 'department-member',
+      }))
+    const ctx = new Context()
+    ctx.provide('enterprisePostgres' as never, { operations: { listChannelConfigurations } } as never)
+    ctx.provide('enterpriseRequestContext' as never, requestContext as never)
+    ctx.provide('enterpriseSecurity' as never, { authorizeApiAsync, auditApiAsync: vi.fn() } as never)
+    ctx.provide('credentials' as never, { describe: vi.fn().mockResolvedValue({ configured: true }) } as never)
+
+    const page = await requestContext.run(
+      { orgId: 'org-a', userId: 'finance-member', roles: ['member'] },
+      () => new Controller(ctx).list({}),
+    )
+
+    expect(page.items.map(item => item['channelId'])).toEqual(['finance-channel'])
+  })
+
   it('begins an official authorization session without exposing the Credential value', async () => {
     const bench = await bindingBench()
     const session = await begin(bench)

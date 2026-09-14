@@ -94,8 +94,16 @@ export async function apply(ctx: Context, config: EnterpriseAuthWebConfig): Prom
   const databasePath = config.databasePath
   const postgres = ctx.get('enterprisePostgres') as {
     identity: EnterpriseIdentityStore
-    catalog?: { getDraft(presetId: string, orgId: string): Promise<{ ownerUserId: string; visibility: EnterpriseResource['visibility'] } | undefined> }
+    catalog?: {
+      getDraft(presetId: string, orgId: string): Promise<{ ownerUserId: string; visibility: EnterpriseResource['visibility'] } | undefined>
+      getRelease(releaseId: string, orgId: string): Promise<{ presetId: string } | undefined>
+    }
     devicePlane?: { device(deviceId: string): Promise<{ orgId: string; userId: string } | undefined> }
+    cordis?: { departmentManagers(orgId: string, departmentId: string): Promise<{ managerUserIds: readonly string[] } | undefined> }
+    operations?: { getChannelConfiguration(orgId: string, channelId: string): Promise<{
+      createdBy: string
+      defaultEmployeeReleaseId?: string
+    } | undefined> }
   } | undefined
   let ownsRepository = false
   const repository: EnterpriseIdentityStore = config.identityStore
@@ -154,13 +162,48 @@ export async function apply(ctx: Context, config: EnterpriseAuthWebConfig): Prom
     }
 
     const security = new EnterpriseSecurity(repository, config, {
+      managedDepartmentIds: async (orgId, userId) => {
+        const departments = await repository.listDepartments(orgId)
+        const managed = await Promise.all(departments.map(async department =>
+          (await postgres?.cordis?.departmentManagers(orgId, department.id))?.managerUserIds.includes(userId) === true
+            ? department.id : undefined))
+        return managed.filter((departmentId): departmentId is string => departmentId !== undefined)
+      },
       resourcePolicyResolver: async (resourceType: string, resourceId: string, principal: EnterprisePrincipal) => {
         if (resourceType === 'employee') {
           const draft = await postgres?.catalog?.getDraft(resourceId, principal.orgId)
-          return draft === undefined ? null : {
-            orgId: principal.orgId,
-            creatorUserId: draft.ownerUserId,
-            visibility: draft.visibility,
+          if (draft === undefined) return null
+          const owner = (await repository.listUsers(principal.orgId)).find(user => user.id === draft.ownerUserId)
+          const departmentId = owner?.primaryDepartmentId
+            ?? (owner?.departmentIds.length === 1 ? owner.departmentIds[0] : undefined)
+          return {
+            orgId: principal.orgId, creatorUserId: draft.ownerUserId, visibility: draft.visibility,
+            scope: departmentId === undefined
+              ? { type: 'personal', userId: draft.ownerUserId }
+              : { type: 'department', departmentId },
+          }
+        }
+        if (resourceType === 'channel') {
+          const channel = await postgres?.operations?.getChannelConfiguration(principal.orgId, resourceId)
+          if (channel === undefined) return { orgId: principal.orgId, visibility: 'organization' }
+          const releaseId = channel.defaultEmployeeReleaseId
+          if (releaseId === undefined) return {
+            orgId: principal.orgId, creatorUserId: channel.createdBy, visibility: 'private',
+            scope: { type: 'personal', userId: channel.createdBy },
+          }
+          const release = await postgres?.catalog?.getRelease(releaseId, principal.orgId)
+          const draft = release === undefined
+            ? undefined : await postgres?.catalog?.getDraft(release.presetId, principal.orgId)
+          if (draft === undefined) return null
+          const owner = (await repository.listUsers(principal.orgId)).find(user => user.id === draft.ownerUserId)
+          const departmentId = owner?.primaryDepartmentId
+            ?? (owner?.departmentIds.length === 1 ? owner.departmentIds[0] : undefined)
+          return {
+            orgId: principal.orgId, creatorUserId: draft.ownerUserId, visibility: draft.visibility,
+            scope: {
+              type: 'employee', employeeReleaseId: releaseId,
+              ...(departmentId === undefined ? {} : { departmentId }),
+            },
           }
         }
         if (resourceType === 'workspace') {

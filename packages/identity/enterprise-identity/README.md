@@ -24,6 +24,8 @@ SQLite persistence for organizations, nested departments, users and memberships,
 
 `EnterpriseIdentityStore` is the Host-facing persistence contract. The SQLite `EnterpriseIdentityRepository` is one implementation; deployments may inject a transactional PostgreSQL-backed implementation without coupling authentication to SQLite file paths.
 
+Authenticated principal projections include current department memberships and the primary department. Authorization services add managed departments from the organization directory; callers do not infer them from display names or Workspace paths.
+
 ## Model Experience
 
 ### Identity persistence

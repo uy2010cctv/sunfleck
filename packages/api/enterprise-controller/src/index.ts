@@ -589,7 +589,14 @@ export class EnterpriseEmployeeController extends TypertRemoteService {
           ? { includeAllVisible: true }
           : { viewerUserId: principal.userId }),
       })
-      return page as EnterpriseEmployeePage
+      const visible = await Promise.all(page.items.map(async item =>
+        (await this.ctx.enterpriseSecurity.authorizeApiAsync(
+          principal, 'enterpriseEmployee.getDraft', { presetId: item.presetId },
+        )).allowed ? item : undefined))
+      return {
+        ...page,
+        items: visible.filter((item): item is typeof page.items[number] => item !== undefined),
+      } as EnterpriseEmployeePage
     })
   }
 
@@ -960,7 +967,12 @@ export class EnterpriseChannelController extends TypertRemoteService {
     return this.run('enterpriseChannel.list', 'catalog', async () => {
       const page = await operations(this.ctx).listChannelConfigurations(principal(this.ctx))
       const values = request.includeArchived ? page.items : page.items.filter(item => item.state !== 'archived')
-      return { items: await Promise.all(values.map(item => this.present(item))) }
+      const actor = principal(this.ctx)
+      const visible = await Promise.all(values.map(async item =>
+        (await this.ctx.enterpriseSecurity.authorizeApiAsync(
+          actor, 'enterpriseChannel.get', { channelId: item.channelId },
+        )).allowed ? this.present(item) : undefined))
+      return { items: visible.filter((item): item is EnterpriseChannelConfiguration => item !== undefined) }
     })
   }
 

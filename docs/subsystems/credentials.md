@@ -384,6 +384,14 @@ async logoutAsync(cookieHeader: string): Promise<void>
  */
 async authorizeApiAsync(principal: EnterprisePrincipal, endpoint: string, input: unknown): Promise<EnterpriseAuthorizationDecision>
 
+/** Authorize an already resolved enterprise resource through the shared hierarchy policy.
+ * @param principal - Authenticated human or employee service principal.
+ * @param action - Classified enterprise action.
+ * @param resource - Resource organization, hierarchy scope, and visibility.
+ * @returns The stable authorization decision.
+ */
+async authorizeResourceAsync( principal: EnterprisePrincipal, action: EnterpriseAction, resource?: EnterpriseResource, ): Promise<EnterpriseAuthorizationDecision>
+
 /**
  * Project the native Workspace stream to the caller's personal and department grants.
  * Protected default and shared Workspaces explicitly carry `deletable: false`.

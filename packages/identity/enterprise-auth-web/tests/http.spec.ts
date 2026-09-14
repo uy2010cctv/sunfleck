@@ -267,6 +267,75 @@ describe('EnterpriseAuthHttpHandler', () => {
     await expect(memories.json()).resolves.toEqual(expect.arrayContaining([expect.objectContaining({ id: 'memory-1', status: 'approved' }), expect.objectContaining({ id: 'memory-2', status: 'approved' })]))
   })
 
+  it('limits memory listing and review to the caller organization hierarchy', async () => {
+    for (const [id, name] of [['finance', '财务部'], ['sales', '销售部']] as const) repository.saveDepartment({
+      id, orgId: 'org-a', name, parentId: null, sortOrder: 0, expectedRevision: 0,
+    })
+    repository.createUser({
+      id: 'finance-manager', orgId: 'org-a', username: 'finance-manager',
+      displayName: 'Finance Manager', disabled: false,
+    })
+    repository.setRoles('finance-manager', ['member'])
+    repository.setPasswordVerifier('finance-manager', createPasswordVerifier('manager-password'))
+    repository.setUserDepartments({
+      orgId: 'org-a', userId: 'finance-manager', departmentIds: ['finance'],
+      primaryDepartmentId: 'finance', expectedRevision: 0,
+    })
+    for (const [id, scope, departmentId, sourceDigest] of [
+      ['organization-memory', 'organization', undefined, 'a'.repeat(64)],
+      ['finance-memory', 'department', 'finance', 'b'.repeat(64)],
+      ['sales-memory', 'department', 'sales', 'c'.repeat(64)],
+    ] as const) {
+      const memory = repository.proposeMemory({
+        id, orgId: 'org-a', scope, ...(departmentId === undefined ? {} : { departmentId }),
+        kind: 'process', summary: id, sourceDigest, createdBy: 'admin-1',
+      })
+      repository.reviewMemory({
+        id, orgId: 'org-a', decision: 'approved', reviewedBy: 'admin-1',
+        reason: 'seed', expectedRevision: memory.revision,
+      })
+    }
+    const managerSecurity = new EnterpriseSecurity(repository, {
+      organizationId: 'org-a', sessionCookieName: 'dsh_session', sessionTtlMs: 60_000,
+      secureCookies: true, autoProvisionSsoUsers: true,
+    }, {
+      randomToken: () => 'manager-token',
+      managedDepartmentIds: async (_orgId, userId) => userId === 'finance-manager' ? ['finance'] : [],
+    })
+    const managed = new EnterpriseAuthHttpHandler(managerSecurity, {
+      localEnabled: true, oidc: [], saml: [], ldap: [],
+    })
+    const login = await managed.fetch(new Request('https://dsh.example.com/auth/login/local', {
+      method: 'POST', headers: { 'content-type': 'application/json', origin: 'https://dsh.example.com' },
+      body: JSON.stringify({ organizationId: 'org-a', username: 'finance-manager', password: 'manager-password' }),
+    }))
+    const cookie = login.headers.get('set-cookie') ?? ''
+
+    const list = await managed.fetch(new Request('https://dsh.example.com/auth/admin/memories?status=approved', {
+      headers: { cookie },
+    }))
+    expect(list.status).toBe(200)
+    const memories = await list.json() as Array<{ id: string }>
+    expect(memories.map(memory => memory.id).sort()).toEqual(['finance-memory', 'organization-memory'])
+
+    const departmentSave = await managed.fetch(new Request('https://dsh.example.com/auth/admin/memories', {
+      method: 'POST', headers: { cookie, origin: 'https://dsh.example.com', 'content-type': 'application/json' },
+      body: JSON.stringify({
+        id: 'finance-manager-memory', scope: 'department', departmentId: 'finance',
+        kind: 'process', summary: '财务复核流程。',
+      }),
+    }))
+    expect(departmentSave.status).toBe(201)
+
+    const organizationSave = await managed.fetch(new Request('https://dsh.example.com/auth/admin/memories', {
+      method: 'POST', headers: { cookie, origin: 'https://dsh.example.com', 'content-type': 'application/json' },
+      body: JSON.stringify({
+        id: 'organization-manager-memory', scope: 'organization', kind: 'process', summary: '组织流程。',
+      }),
+    }))
+    expect(organizationSave.status).toBe(403)
+  })
+
   it('serves user, role, resource-policy, and audit administration only to administrators', async () => {
     const login = await handler.fetch(new Request('https://dsh.example.com/auth/login/local', {
       method: 'POST', headers: { 'content-type': 'application/json', origin: 'https://dsh.example.com' },

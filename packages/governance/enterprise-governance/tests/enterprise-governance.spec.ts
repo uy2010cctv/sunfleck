@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   authorizeEnterprise,
+  employeeServicePrincipal,
   deploymentReadiness,
   governanceAuditEvent,
 } from '../src/index.ts'
@@ -13,6 +14,114 @@ const resource = {
 }
 
 describe('enterprise authorization', () => {
+  it('creates a non-human principal for one immutable employee release', () => {
+    expect(employeeServicePrincipal({
+      orgId: 'org-a', employeeReleaseId: 'release-finance', departmentId: 'finance',
+    })).toEqual({
+      actorType: 'employee', userId: 'employee:release-finance', orgId: 'org-a', roles: [],
+      employeeReleaseId: 'release-finance', departmentIds: ['finance'], managedDepartmentIds: [],
+    })
+  })
+  it('limits department resources to members of that department', () => {
+    const departmentMemory = {
+      orgId: 'org-a', visibility: 'organization' as const,
+      scope: { type: 'department' as const, departmentId: 'finance' },
+    }
+    expect(authorizeEnterprise({
+      principal: {
+        actorType: 'human', userId: 'finance-1', orgId: 'org-a', roles: ['member'],
+        departmentIds: ['finance'], managedDepartmentIds: [],
+      },
+      action: 'memory.read', resource: departmentMemory,
+    })).toEqual({ allowed: true, reason: 'department-member' })
+    expect(authorizeEnterprise({
+      principal: {
+        actorType: 'human', userId: 'sales-1', orgId: 'org-a', roles: ['member'],
+        departmentIds: ['sales'], managedDepartmentIds: [],
+      },
+      action: 'memory.read', resource: departmentMemory,
+    })).toEqual({ allowed: false, reason: 'scope-mismatch' })
+    expect(authorizeEnterprise({
+      principal: {
+        actorType: 'human', userId: 'finance-1', orgId: 'org-a', roles: ['member'],
+        departmentIds: ['finance'], managedDepartmentIds: [],
+      },
+      action: 'employee.read',
+      resource: { ...departmentMemory, creatorUserId: 'owner-1', visibility: 'private' },
+    })).toEqual({ allowed: false, reason: 'resource-hidden' })
+  })
+
+  it('lets department managers govern employees, channels, and memory only in managed departments', () => {
+    const manager = {
+      actorType: 'human' as const, userId: 'manager-1', orgId: 'org-a', roles: ['member'] as const,
+      departmentIds: ['finance'], managedDepartmentIds: ['finance'],
+    }
+    for (const action of ['employee.update', 'channel.manage', 'memory.manage'] as const) {
+      expect(authorizeEnterprise({
+        principal: manager, action,
+        resource: {
+          orgId: 'org-a', visibility: 'organization',
+          scope: { type: 'department', departmentId: 'finance' },
+        },
+      })).toEqual({ allowed: true, reason: 'department-manager' })
+      expect(authorizeEnterprise({
+        principal: manager, action,
+        resource: {
+          orgId: 'org-a', visibility: 'organization',
+          scope: { type: 'department', departmentId: 'sales' },
+        },
+      })).toEqual({ allowed: false, reason: 'scope-mismatch' })
+    }
+  })
+
+  it('lets an employee service identity execute only its bound employee channel', () => {
+    const employee = {
+      actorType: 'employee' as const, employeeReleaseId: 'release-finance',
+      userId: 'employee:release-finance', orgId: 'org-a', roles: [] as const,
+      departmentIds: ['finance'] as const,
+    }
+    expect(authorizeEnterprise({
+      principal: employee, action: 'channel.execute',
+      resource: {
+        orgId: 'org-a', visibility: 'private',
+        scope: { type: 'employee', employeeReleaseId: 'release-finance', departmentId: 'finance' },
+      },
+    })).toEqual({ allowed: true, reason: 'employee-service' })
+    expect(authorizeEnterprise({
+      principal: employee, action: 'channel.execute',
+      resource: {
+        orgId: 'org-a', visibility: 'organization',
+        scope: { type: 'employee', employeeReleaseId: 'release-sales', departmentId: 'sales' },
+      },
+    })).toEqual({ allowed: false, reason: 'scope-mismatch' })
+    expect(authorizeEnterprise({
+      principal: employee, action: 'channel.manage',
+      resource: {
+        orgId: 'org-a', visibility: 'private',
+        scope: { type: 'employee', employeeReleaseId: 'release-finance', departmentId: 'finance' },
+      },
+    })).toEqual({ allowed: false, reason: 'insufficient-role' })
+  })
+
+  it('limits personal resources to their human owner', () => {
+    const personalMemory = {
+      orgId: 'org-a', visibility: 'private' as const,
+      scope: { type: 'personal' as const, userId: 'member-1' },
+    }
+    expect(authorizeEnterprise({
+      principal: { userId: 'member-1', orgId: 'org-a', roles: ['member'] },
+      action: 'memory.read', resource: personalMemory,
+    })).toEqual({ allowed: true, reason: 'personal-owner' })
+    expect(authorizeEnterprise({
+      principal: { userId: 'member-2', orgId: 'org-a', roles: ['member'] },
+      action: 'memory.read', resource: personalMemory,
+    })).toEqual({ allowed: false, reason: 'scope-mismatch' })
+    expect(authorizeEnterprise({
+      principal: { userId: 'member-1', orgId: 'org-a', roles: ['member'] },
+      action: 'credential.manage', resource: personalMemory,
+    })).toEqual({ allowed: false, reason: 'insufficient-role' })
+  })
+
   it('lets members pair and use only their own devices', () => {
     const member = { userId: 'member-1', orgId: 'org-a', roles: ['member'] as const }
     expect(authorizeEnterprise({ principal: member, action: 'device.manage' }))

@@ -143,11 +143,14 @@ export interface ReviewEnterpriseMemoryInput {
 
 /** Data used by `EnterprisePrincipalView`. */
 export interface EnterprisePrincipalView {
+  readonly actorType: 'human'
   readonly userId: string
   readonly orgId: string
   readonly username: string
   readonly displayName: string
   readonly roles: readonly EnterpriseRole[]
+  readonly departmentIds: readonly string[]
+  readonly primaryDepartmentId?: string
 }
 
 /** Data used by `ExternalIdentityBinding`. */
@@ -880,8 +883,10 @@ export class EnterpriseIdentityRepository implements EnterpriseIdentityStore {
     this.database.prepare('UPDATE auth_sessions SET last_seen_at = ? WHERE token_hash = ?')
       .run(at, sessionTokenHash(token))
     return {
+      actorType: 'human',
       userId: row.id, orgId: row.org_id, username: row.username,
       displayName: row.display_name, roles: this.roles(row.id),
+      ...this.departmentsForUser(row.id),
     }
   }
 

@@ -24,12 +24,15 @@ Pure enterprise policy contracts:
 
 - Organization-first authorization.
 - Administrator, creator, operator, auditor, and member roles.
-- Organization, private, and restricted resource visibility.
-- Explicit user, employee, capability, model, credential, audit, Session, and channel actions.
+- Organization, department, employee, and personal resource scopes, with private and restricted visibility inside the selected scope.
+- Human department membership, department management, and least-privileged employee service identities.
+- Explicit user, employee, memory, capability, model, credential, audit, Session, and channel actions.
 - Desktop, LAN, and Public deployment readiness evidence.
 - Attributable governance audit records without arbitrary payload fields.
 
 The package decides policy. Identity providers, user storage, SSO, encrypted credential providers, and durable audit sinks remain deployment adapters.
+
+Department members may read department resources that their role and visibility admit. Department managers may update employees, memory, and channels only in departments they manage. A background employee principal has no human roles and may execute only the channel, employee, or memory resource that names its immutable employee release.
 
 ## Model Experience
 

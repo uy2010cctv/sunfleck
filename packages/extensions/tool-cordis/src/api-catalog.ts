@@ -1594,6 +1594,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'the authorization decision and stable reason.',
       },
       {
+        signature: 'async authorizeResourceAsync( principal: EnterprisePrincipal, action: EnterpriseAction, resource?: EnterpriseResource, ): Promise<EnterpriseAuthorizationDecision>',
+        description: 'Authorize an already resolved enterprise resource through the shared hierarchy policy.',
+        parameters: [{ name: 'principal', description: 'Authenticated human or employee service principal.' }, { name: 'action', description: 'Classified enterprise action.' }, { name: 'resource', description: 'Resource organization, hierarchy scope, and visibility.' }],
+        returns: 'The stable authorization decision.',
+      },
+      {
         signature: 'async *filterWorkspaceFollow( principal: EnterprisePrincipal, frames: AsyncIterable<unknown>, ): AsyncIterable<unknown>',
         description: 'Project the native Workspace stream to the caller\'s personal and department grants. Protected default and shared Workspaces explicitly carry `deletable: false`.',
         parameters: [{ name: 'principal', description: 'authenticated stream owner.' }, { name: 'frames', description: 'native Workspace baseline and increment stream.' }],
@@ -5313,6 +5319,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface EncodedImageAttachment {\n    mediaType: ImageMediaType;\n    data: string;\n    name?: string;\n}',
   },
   {
+    name: 'EnterpriseAccessScope',
+    declaration: 'export type EnterpriseAccessScope = {\n    readonly type: \'organization\';\n} | {\n    readonly type: \'department\';\n    readonly departmentId: string;\n} | {\n    readonly type: \'employee\';\n    readonly employeeReleaseId: string;\n    readonly departmentId?: string;\n} | {\n    readonly type: \'personal\';\n    readonly userId: string;\n};',
+  },
+  {
+    name: 'EnterpriseAction',
+    declaration: 'export type EnterpriseAction = \'api.unknown\' | \'system.inspect\' | \'user.manage\' | \'employee.create\' | \'employee.read\' | \'employee.update\' | \'employee.execute\' | \'memory.read\' | \'memory.manage\' | \'capability.manage\' | \'capability.read\' | \'model.manage\' | \'credential.manage\' | \'audit.read\' | \'session.read\' | \'session.create\' | \'workspace.manage\' | \'channel.manage\' | \'channel.read\' | \'channel.execute\' | \'operation.read\' | \'operation.manage\' | \'approval.manage\' | \'approval.read\' | \'schedule.manage\' | \'schedule.read\' | \'team.manage\' | \'team.read\' | \'team.execute\' | \'team.decision.respond\' | \'team.autonomy.manage\' | \'device.read\' | \'device.manage\' | \'device.execute\' | \'plugin.read\' | \'plugin.create\' | \'plugin.review\' | \'plugin.publish\' | \'plugin.manage\';',
+  },
+  {
     name: 'EnterpriseApiAuditDecision',
     declaration: 'export interface EnterpriseApiAuditDecision {\n    readonly allowed: boolean;\n    readonly reason: string;\n}',
   },
@@ -5378,7 +5392,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'EnterpriseAuthorizationReason',
-    declaration: 'export type EnterpriseAuthorizationReason = \'administrator\' | \'auditor\' | \'role\' | \'creator-owner\' | \'resource-visible\' | \'organization-mismatch\' | \'resource-hidden\' | \'insufficient-role\';',
+    declaration: 'export type EnterpriseAuthorizationReason = \'administrator\' | \'auditor\' | \'role\' | \'creator-owner\' | \'resource-visible\' | \'department-member\' | \'department-manager\' | \'employee-service\' | \'personal-owner\' | \'organization-mismatch\' | \'scope-mismatch\' | \'resource-hidden\' | \'insufficient-role\';',
   },
   {
     name: 'EnterpriseBusinessState',
@@ -5550,11 +5564,15 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'EnterprisePrincipal',
-    declaration: 'export interface EnterprisePrincipal {\n    readonly userId: string;\n    readonly orgId: string;\n    readonly roles: readonly EnterpriseRole[];\n}',
+    declaration: 'export interface EnterprisePrincipal {\n    readonly actorType?: \'human\' | \'employee\';\n    readonly userId: string;\n    readonly orgId: string;\n    readonly roles: readonly EnterpriseRole[];\n    readonly departmentIds?: readonly string[];\n    readonly managedDepartmentIds?: readonly string[];\n    readonly employeeReleaseId?: string;\n}',
   },
   {
     name: 'EnterprisePrincipalView',
-    declaration: 'export interface EnterprisePrincipalView {\n    readonly userId: string;\n    readonly orgId: string;\n    readonly username: string;\n    readonly displayName: string;\n    readonly roles: readonly EnterpriseRole[];\n}',
+    declaration: 'export interface EnterprisePrincipalView {\n    readonly actorType: \'human\';\n    readonly userId: string;\n    readonly orgId: string;\n    readonly username: string;\n    readonly displayName: string;\n    readonly roles: readonly EnterpriseRole[];\n    readonly departmentIds: readonly string[];\n    readonly primaryDepartmentId?: string;\n}',
+  },
+  {
+    name: 'EnterpriseResource',
+    declaration: 'export interface EnterpriseResource {\n    readonly orgId: string;\n    readonly scope?: EnterpriseAccessScope;\n    readonly creatorUserId?: string;\n    readonly visibility: \'organization\' | \'private\' | \'restricted\';\n    readonly allowedUserIds?: readonly string[];\n}',
   },
   {
     name: 'EnterpriseRole',
