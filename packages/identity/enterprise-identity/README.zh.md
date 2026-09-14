@@ -24,6 +24,8 @@ Persistent enterprise organizations, users, sessions, resource policies, and aud
 
 `EnterpriseIdentityStore` 是 Host 使用的持久化契约。SQLite `EnterpriseIdentityRepository` 只是其中一种实现；部署方可以注入事务型 PostgreSQL 实现，而不让认证逻辑依赖 SQLite 文件路径。
 
+认证主体投影包含当前部门归属和主部门。授权服务从组织目录补充负责部门；调用方不能从显示名称或 Workspace 路径推断这些关系。
+
 ## Model Experience
 
 ### 身份持久化

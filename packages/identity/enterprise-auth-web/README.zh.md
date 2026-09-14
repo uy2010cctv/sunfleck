@@ -34,6 +34,8 @@ Enterprise Web authentication, session cookies, central API RBAC, and audit。
 
 Web 插件接受部署方提供的 `EnterpriseIdentityStore` 实现。`databasePath` 仍可作为本地部署的可选 SQLite 后备；PostgreSQL 组合应通过该注入边界提供 仓库，Web 包本身不会再强制打开 SQLite。 该插件只关闭自己创建的 SQLite 仓库。外部提供的 `identityStore` 或 `enterprisePostgres.identity` 在 auth 卸载或初始化失败后仍归部署方所有。
 
+`EnterpriseSecurity` 在应用共享层级策略前，为人类主体补充部门归属和负责部门。员工定义通过负责人的目录归属解析；绑定员工的渠道通过不可变发布版本解析到该定义。未绑定员工的渠道只对创建者可见，管理员仍可创建新渠道记录。记忆管理只列出组织记忆和已授权部门记忆，部门经理可维护本部门记忆，组织记忆变更保留给管理员。
+
 ## Model Experience
 
 ### Host 安全边界

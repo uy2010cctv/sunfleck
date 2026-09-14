@@ -34,6 +34,8 @@ export interface EnterpriseSecurityOptions {
     resourceId: string,
     principal: EnterprisePrincipal,
   ) => Promise<EnterpriseResource | null | undefined>
+  /** Resolves departments the human principal may manage. */
+  readonly managedDepartmentIds?: (orgId: string, userId: string) => Promise<readonly string[]>
 }
 
 /** Data used by `ApiClassification`. */
@@ -158,7 +160,14 @@ export function classifyApiEndpoint(endpoint: string, input: unknown): ApiClassi
   if (endpoint.startsWith('credentials.')) return { action: 'credential.manage', resourceType: 'credential' }
   if (endpoint.startsWith('enterpriseChannel.')) {
     const resourceId = stringField(payload, 'channelId')
-    return { action: 'channel.manage', resourceType: 'channel', ...(resourceId === undefined ? {} : { resourceId }) }
+    const action = endpoint === 'enterpriseChannel.list' || endpoint === 'enterpriseChannel.get'
+      ? 'channel.read' : 'channel.manage'
+    return { action, resourceType: 'channel', ...(resourceId === undefined ? {} : { resourceId }) }
+  }
+  if (endpoint === 'enterpriseMemory.list') return { action: 'memory.read', resourceType: 'enterprise-memory' }
+  if (endpoint === 'enterpriseMemory.save' || endpoint === 'enterpriseMemory.review') {
+    const resourceId = stringField(payload, 'memoryId', 'id')
+    return { action: 'memory.manage', resourceType: 'enterprise-memory', ...(resourceId === undefined ? {} : { resourceId }) }
   }
   if (endpoint.startsWith('enterpriseDevice.')) {
     const resourceId = stringField(payload, 'deviceId')
@@ -317,6 +326,7 @@ export class EnterpriseSecurity {
   private readonly randomToken: () => string
   private readonly randomId: () => string
   private readonly resourcePolicyResolver: EnterpriseSecurityOptions['resourcePolicyResolver']
+  private readonly managedDepartmentIds: EnterpriseSecurityOptions['managedDepartmentIds']
 
   constructor(
     readonly repository: EnterpriseIdentityStore,
@@ -327,6 +337,7 @@ export class EnterpriseSecurity {
     this.randomToken = options.randomToken ?? (() => randomBytes(32).toString('base64url'))
     this.randomId = options.randomId ?? randomUUID
     this.resourcePolicyResolver = options.resourcePolicyResolver
+    this.managedDepartmentIds = options.managedDepartmentIds
   }
 
   /**
@@ -529,7 +540,35 @@ export class EnterpriseSecurity {
       }
       resource ??= { orgId: principal.orgId, visibility: 'organization' }
     }
-    return authorizeEnterprise({ principal, action: classification.action, ...resource === undefined ? {} : { resource } })
+    return this.authorizeResourceAsync(principal, classification.action, resource)
+  }
+
+  /** Authorize an already resolved enterprise resource through the shared hierarchy policy.
+   * @param principal - Authenticated human or employee service principal.
+   * @param action - Classified enterprise action.
+   * @param resource - Resource organization, hierarchy scope, and visibility.
+   * @returns The stable authorization decision.
+   */
+  async authorizeResourceAsync(
+    principal: EnterprisePrincipal,
+    action: EnterpriseAction,
+    resource?: EnterpriseResource,
+  ): Promise<EnterpriseAuthorizationDecision> {
+    const user = principal.actorType === 'employee'
+      ? undefined
+      : (await this.repository.listUsers(principal.orgId)).find(candidate => candidate.id === principal.userId)
+    const authorizationPrincipal: EnterprisePrincipal = principal.actorType === 'employee' ? principal : {
+      ...principal,
+      actorType: 'human',
+      departmentIds: user?.departmentIds ?? principal.departmentIds ?? [],
+      managedDepartmentIds: this.managedDepartmentIds === undefined
+        ? principal.managedDepartmentIds ?? []
+        : await this.managedDepartmentIds(principal.orgId, principal.userId),
+    }
+    return authorizeEnterprise({
+      principal: authorizationPrincipal, action,
+      ...resource === undefined ? {} : { resource },
+    })
   }
 
   /**

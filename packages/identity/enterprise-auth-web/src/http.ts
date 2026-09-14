@@ -221,12 +221,17 @@ export class EnterpriseAuthHttpHandler {
   private async admin(request: Request, url: URL, path: string[]): Promise<Response> {
     const principal = await this.security.authenticateCookieAsync(request.headers.get('cookie') ?? '')
     if (principal === undefined) return new Response('unauthorized', { status: 401 })
-    const endpoint = path[2] === 'audit' ? 'enterpriseAudit.list' : `enterpriseAdmin.${path[2] ?? 'unknown'}`
-    const decision = await this.security.authorizeApiAsync(principal, endpoint, {})
-    await this.security.auditApiAsync(
-      principal, endpoint, {}, decision, request.headers.get('x-request-id') ?? randomUUID(),
-    )
-    if (!decision.allowed) return new Response('forbidden', { status: 403 })
+    const memoryRoute = path[2] === 'memories'
+    if (!memoryRoute || request.method === 'GET') {
+      const endpoint = memoryRoute
+        ? 'enterpriseMemory.list'
+        : path[2] === 'audit' ? 'enterpriseAudit.list' : `enterpriseAdmin.${path[2] ?? 'unknown'}`
+      const decision = await this.security.authorizeApiAsync(principal, endpoint, {})
+      await this.security.auditApiAsync(
+        principal, endpoint, {}, decision, request.headers.get('x-request-id') ?? randomUUID(),
+      )
+      if (!decision.allowed) return new Response('forbidden', { status: 403 })
+    }
 
     if (request.method === 'GET' && path.length === 3 && path[2] === 'memory-writeback') {
       return json(await this.options.memoryWriteback?.()?.list(principal.orgId, 50) ?? [])
@@ -394,10 +399,18 @@ export class EnterpriseAuthHttpHandler {
       const statuses = status === null ? undefined : status.split(',').filter((candidate): candidate is
         'proposed' | 'approved' | 'rejected' | 'retired' =>
         ['proposed', 'approved', 'rejected', 'retired'].includes(candidate))
-      return json(await this.security.repository.listMemories({
+      const memories = await this.security.repository.listMemories({
         orgId: principal.orgId, ...(statuses === undefined ? {} : { statuses }),
         departmentIds: (await this.security.repository.listDepartments(principal.orgId)).map(item => item.id),
-      }))
+      })
+      const visible = await Promise.all(memories.map(async memory =>
+        (await this.security.authorizeResourceAsync(principal, 'memory.read', {
+          orgId: memory.orgId, visibility: 'organization',
+          scope: memory.scope === 'organization'
+            ? { type: 'organization' }
+            : { type: 'department', departmentId: memory.departmentId as string },
+        })).allowed ? memory : undefined))
+      return json(visible.filter((memory): memory is typeof memories[number] => memory !== undefined))
     }
     if (request.method === 'POST' && path.length === 3 && path[2] === 'memories') {
       if (!sameOrigin(request)) return new Response('forbidden', { status: 403 })
@@ -416,6 +429,19 @@ export class EnterpriseAuthHttpHandler {
         || (providedSourceDigest !== undefined && typeof providedSourceDigest !== 'string')) {
         return json({ error: 'bad-request' }, 400)
       }
+      if (scope === 'department' && departmentId === undefined) return json({ error: 'bad-request' }, 400)
+      const authorization = await this.security.authorizeResourceAsync(principal, 'memory.manage', {
+        orgId: principal.orgId, visibility: 'organization',
+        scope: scope === 'organization'
+          ? { type: 'organization' }
+          : { type: 'department', departmentId: departmentId as string },
+      })
+      await this.security.auditApiResourceAsync(
+        principal, 'enterpriseMemory.save', { id }, authorization,
+        request.headers.get('x-request-id') ?? randomUUID(),
+        { type: 'enterprise-memory', id },
+      )
+      if (!authorization.allowed) return new Response('forbidden', { status: 403 })
       const sourceDigest = providedSourceDigest ?? memorySourceDigest(JSON.stringify([
         scope, departmentId ?? null, kind, summary.trim(),
       ]))
@@ -444,9 +470,27 @@ export class EnterpriseAuthHttpHandler {
       const expectedRevision = body['expectedRevision']
       if (!['approved', 'rejected', 'retired'].includes(String(decision))
         || typeof reason !== 'string' || !Number.isSafeInteger(expectedRevision)) return json({ error: 'bad-request' }, 400)
+      const memoryId = path[3] as string
+      const memory = (await this.security.repository.listMemories({
+        orgId: principal.orgId,
+        departmentIds: (await this.security.repository.listDepartments(principal.orgId)).map(item => item.id),
+      })).find(item => item.id === memoryId)
+      if (memory === undefined) return json({ error: 'not-found' }, 404)
+      const authorization = await this.security.authorizeResourceAsync(principal, 'memory.manage', {
+        orgId: memory.orgId, visibility: 'organization',
+        scope: memory.scope === 'organization'
+          ? { type: 'organization' }
+          : { type: 'department', departmentId: memory.departmentId as string },
+      })
+      await this.security.auditApiResourceAsync(
+        principal, 'enterpriseMemory.review', { memoryId }, authorization,
+        request.headers.get('x-request-id') ?? randomUUID(),
+        { type: 'enterprise-memory', id: memoryId },
+      )
+      if (!authorization.allowed) return new Response('forbidden', { status: 403 })
       try {
         return json(await this.security.repository.reviewMemory({
-          id: path[3] as string, orgId: principal.orgId,
+          id: memoryId, orgId: principal.orgId,
           decision: decision as 'approved' | 'rejected' | 'retired', reviewedBy: principal.userId,
           reason, expectedRevision: expectedRevision as number,
         }))

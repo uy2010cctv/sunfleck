@@ -778,8 +778,10 @@ export class PgEnterpriseIdentityRepository {
     if (row === undefined) return undefined
     await this.database.query('UPDATE auth_sessions SET last_seen_at = $1 WHERE token_hash = $2', [at, tokenHash])
     return {
+      actorType: 'human',
       userId: row.id, orgId: row.org_id, username: row.username,
       displayName: row.display_name, roles: await this.roles(row.id),
+      ...await this.departmentsForUser(row.id),
     }
   }
 

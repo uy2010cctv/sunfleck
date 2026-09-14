@@ -4,6 +4,35 @@ import { describe, expect, it, vi } from 'vitest'
 import { EnterpriseEmployeeController, inject } from '../src/index.ts'
 
 describe('enterprise employee publication', () => {
+  it('omits employees that are outside the caller hierarchy scope', async () => {
+    const items = [
+      { presetId: 'finance', orgId: 'org-a', ownerUserId: 'finance-owner', visibility: 'organization', profile: {}, bindings: [], revision: 1, status: 'published', updatedAt: 1 },
+      { presetId: 'sales', orgId: 'org-a', ownerUserId: 'sales-owner', visibility: 'organization', profile: {}, bindings: [], revision: 1, status: 'published', updatedAt: 1 },
+    ]
+    const authorizeApiAsync = vi.fn((_principal, endpoint: string, input: { presetId?: string }) =>
+      Promise.resolve({
+        allowed: endpoint === 'enterpriseEmployee.list' || input.presetId === 'finance',
+        reason: input.presetId === 'sales' ? 'scope-mismatch' : 'department-member',
+      }))
+    const requestContext = new EnterpriseRequestContext()
+    const ctx = new Context()
+    ctx.provide('enterprisePostgres' as never, { catalog: {
+      listDrafts: vi.fn().mockResolvedValue({ items, nextCursor: 'next' }),
+    } } as never)
+    ctx.provide('enterpriseSecurity' as never, { authorizeApiAsync, auditApiAsync: vi.fn() } as never)
+    ctx.provide('enterpriseRequestContext' as never, requestContext as never)
+    ctx.provide('agentPresets' as never, {} as never)
+    ctx.provide('llm' as never, {} as never)
+
+    const page = await requestContext.run(
+      { orgId: 'org-a', userId: 'finance-member', roles: ['member'] },
+      () => new EnterpriseEmployeeController(ctx).list({}),
+    )
+
+    expect(page.items.map(item => item.presetId)).toEqual(['finance'])
+    expect(page.nextCursor).toBe('next')
+  })
+
   it('declares the Agent Preset service required by publication', () => {
     expect(inject).toContain('agentPresets')
   })

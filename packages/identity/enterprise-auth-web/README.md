@@ -34,6 +34,8 @@ Enterprise HTTP RPC payloads reserve the top-level `principal` key. After sessio
 
 The Web plugin accepts a deployment-owned `identityStore` implementing the `EnterpriseIdentityStore` contract. `databasePath` remains an optional SQLite fallback for local deployments; PostgreSQL composition must provide the repository through this seam rather than making the Web package open SQLite. The plugin closes only the SQLite repository it constructs itself. A supplied `identityStore` or `enterprisePostgres.identity` remains deployment-owned across auth unload and failed initialization.
 
+`EnterpriseSecurity` hydrates human principals with department membership and managed departments before applying the shared hierarchy policy. Employee definitions resolve through their owner's directory assignment; employee-bound channels resolve through the immutable release to that definition. Unbound channels remain private to their creator, while administrators may create new channel records. Memory administration lists organization memory plus authorized departments, permits department managers to maintain their department, and reserves organization memory changes for administrators.
+
 ## Model Experience
 
 ### Host security boundary

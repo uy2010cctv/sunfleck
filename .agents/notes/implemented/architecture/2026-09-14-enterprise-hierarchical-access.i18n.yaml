@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-09-14-enterprise-hierarchical-access.md
+2026-09-14-enterprise-hierarchical-access.md: 2f35f68cd1ef0c3d8f4ba476cfa7ee001f0a97f2
+2026-09-14-enterprise-hierarchical-access.zh.md: 46097c5360e9a71f646259d4831e310fd05e7be0

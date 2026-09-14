@@ -59,6 +59,40 @@ describe('EnterpriseSecurity', () => {
     })
   })
 
+  it('projects department membership into authenticated principals', () => {
+    repository.saveDepartment({
+      id: 'dept-finance', orgId: 'org-a', parentId: null, name: 'Finance', sortOrder: 0, expectedRevision: 0,
+    })
+    repository.setUserDepartments({
+      orgId: 'org-a', userId: 'member-1', departmentIds: ['dept-finance'],
+      primaryDepartmentId: 'dept-finance', expectedRevision: 0,
+    })
+
+    const login = security.loginLocal('org-a', 'member', 'enterprise-password')
+
+    expect(login?.principal).toMatchObject({
+      actorType: 'human', userId: 'member-1', departmentIds: ['dept-finance'],
+    })
+  })
+
+  it('uses managed departments when authorizing department-scoped resources', async () => {
+    const managerSecurity = new EnterpriseSecurity(repository, config, {
+      managedDepartmentIds: async (_orgId, userId) => userId === 'member-1' ? ['dept-finance'] : [],
+      resourcePolicyResolver: async (_type, resourceId) => ({
+        orgId: 'org-a', visibility: 'organization',
+        scope: { type: 'department', departmentId: resourceId === 'finance-channel' ? 'dept-finance' : 'dept-sales' },
+      }),
+    })
+    const manager = { userId: 'member-1', orgId: 'org-a', roles: ['member'] as const }
+
+    await expect(managerSecurity.authorizeApiAsync(
+      manager, 'enterpriseChannel.save', { channelId: 'finance-channel' },
+    )).resolves.toEqual({ allowed: true, reason: 'department-manager' })
+    await expect(managerSecurity.authorizeApiAsync(
+      manager, 'enterpriseChannel.save', { channelId: 'sales-channel' },
+    )).resolves.toEqual({ allowed: false, reason: 'scope-mismatch' })
+  })
+
   it('classifies every existing API family and fails closed for unknown endpoints', () => {
     expect(classifyApiEndpoint('sessions.history', { sessionId: 'session-1' }))
       .toMatchObject({ action: 'session.read', resourceType: 'session', resourceId: 'session-1' })
@@ -146,6 +180,12 @@ describe('EnterpriseSecurity', () => {
     })
     expect(classifyApiEndpoint('enterpriseChannel.save', { channelId: 'finance-wecom' })).toEqual({
       action: 'channel.manage', resourceType: 'channel', resourceId: 'finance-wecom',
+    })
+    expect(classifyApiEndpoint('enterpriseChannel.list', {})).toEqual({
+      action: 'channel.read', resourceType: 'channel',
+    })
+    expect(classifyApiEndpoint('enterpriseChannel.get', { channelId: 'finance-wecom' })).toEqual({
+      action: 'channel.read', resourceType: 'channel', resourceId: 'finance-wecom',
     })
     expect(classifyApiEndpoint('enterpriseChannel.beginBinding', { channelId: 'finance-wecom' })).toEqual({
       action: 'channel.manage', resourceType: 'channel', resourceId: 'finance-wecom',
