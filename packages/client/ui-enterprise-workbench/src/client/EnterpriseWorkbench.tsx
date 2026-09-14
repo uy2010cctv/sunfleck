@@ -1418,11 +1418,12 @@ function ChannelsPage({ page, releases, api, busy, renderEmployeeChannels, t }: 
   renderEmployeeChannels: EnterpriseWorkbenchProps['renderSlot']
   t: Translate
 }) {
-  const [selectedReleaseId, setSelectedReleaseId] = useState(releases[0]?.releaseId ?? '')
-  const selected = releases.find(release => release.releaseId === selectedReleaseId) ?? releases[0]
+  const employees = latestEmployeeReleases(releases)
+  const [selectedPresetId, setSelectedPresetId] = useState(employees[0]?.presetId ?? '')
+  const selected = employees.find(release => release.presetId === selectedPresetId) ?? employees[0]
   useEffect(() => {
-    if (selected !== undefined && selected.releaseId !== selectedReleaseId) setSelectedReleaseId(selected.releaseId)
-  }, [selected, selectedReleaseId])
+    if (selected !== undefined && selected.presetId !== selectedPresetId) setSelectedPresetId(selected.presetId)
+  }, [selected, selectedPresetId])
   if (selected === undefined) {
     return <NativeChannelsPage page={page} api={api} busy={busy} t={t}/>
   }
@@ -1437,11 +1438,17 @@ function ChannelsPage({ page, releases, api, busy, renderEmployeeChannels, t }: 
   }
   return <section className={css.channelPage} aria-labelledby="channel-page-title">
     <ManagementHeader id="channel-page-title" title={t('channel.title')} description={t('channel.employee.description')} count={page.items.length}/>
-    <div className={css.channelEmployeePicker}>
-      <label><span>{t('channel.employee.select')}</span><select aria-label={t('channel.employee.select')} value={selected.releaseId} onChange={(event) => { setSelectedReleaseId(event.target.value) }}>
-        {releases.map(release => <option key={release.releaseId} value={release.releaseId}>{profileText({ profile: release.snapshot.profile } as EnterpriseEmployeeDraft, 'name', release.presetId)}</option>)}
-      </select></label>
-      <div><strong>{name}</strong>{position !== '' && <span>{position}</span>}<small>{t('channel.employee.release', { version: selected.version })}</small></div>
+    <div className={css.channelEmployeeSwitcher} role="group" aria-label={t('channel.employee.select')}>
+      {employees.map((release) => {
+        const releaseDraft = { profile: release.snapshot.profile } as EnterpriseEmployeeDraft
+        const releaseName = profileText(releaseDraft, 'name', release.presetId)
+        const releasePosition = profileText(releaseDraft, 'position')
+        const avatarSeed = profileText(releaseDraft, 'avatarSeed', release.presetId)
+        return <button type="button" className={css.channelEmployeeOption} aria-pressed={release.presetId === selected.presetId} key={release.presetId} onClick={() => { setSelectedPresetId(release.presetId) }}>
+          <EmployeeAvatar name={releaseName} seed={avatarSeed} t={t}/>
+          <span><strong>{releaseName}</strong>{releasePosition !== '' && <small>{releasePosition}</small>}</span>
+        </button>
+      })}
     </div>
     {renderEmployeeChannels('enterprise.employee-channels', { employee }, {
       fallback: <NativeChannelsPage page={page} api={api} busy={busy} t={t}/>,

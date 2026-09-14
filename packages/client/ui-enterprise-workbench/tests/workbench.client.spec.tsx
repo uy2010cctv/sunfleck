@@ -169,6 +169,10 @@ describe('EnterpriseWorkbench', () => {
         mode: 'enterprise', page: 'channels',
         channels: { phase: 'ready', error: null, items: [] },
         releases: [{
+          releaseId: 'release-finance-v2', presetId: 'finance-director', orgId: 'org-a', version: 2,
+          digest: 'finance-old', snapshot: { profile: { name: '财务大王', position: '财务总监' }, bindings: [] },
+          publishedBy: 'admin', publishedAt: 2,
+        }, {
           releaseId: 'release-finance-v3', presetId: 'finance-director', orgId: 'org-a', version: 3,
           digest: 'finance', snapshot: { profile: { name: '财务大王', position: '财务总监' }, bindings: [] },
           publishedBy: 'admin', publishedAt: 3,
@@ -180,11 +184,15 @@ describe('EnterpriseWorkbench', () => {
       },
     } as never)} />)
 
-    expect((screen.getByRole('combobox', { name: '选择数字员工' }) as HTMLSelectElement).value).toBe('release-finance-v3')
+    expect(screen.queryByRole('combobox', { name: '选择数字员工' })).toBeNull()
+    const employeeSwitcher = screen.getByRole('group', { name: '选择数字员工' })
+    expect(within(employeeSwitcher).getAllByRole('button')).toHaveLength(2)
+    expect(within(employeeSwitcher).getByRole('button', { name: /财务大王/u }).getAttribute('aria-pressed')).toBe('true')
+    expect(screen.queryByText(/已发布版本/u)).toBeNull()
     expect(screen.getByTestId('employee-channel-panel').textContent)
       .toBe('财务大王:finance-director:release-finance-v3')
 
-    fireEvent.change(screen.getByRole('combobox', { name: '选择数字员工' }), { target: { value: 'release-media-v1' } })
+    fireEvent.click(within(employeeSwitcher).getByRole('button', { name: /新媒体员工/u }))
     expect(screen.getByTestId('employee-channel-panel').textContent)
       .toBe('新媒体员工:media-operator:release-media-v1')
     expect(renderSlot).toHaveBeenLastCalledWith('enterprise.employee-channels', expect.objectContaining({
