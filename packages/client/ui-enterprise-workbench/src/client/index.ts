@@ -2,6 +2,7 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import type { SnapshotStore } from '@deepseek-ai/dsh-client-store'
+import type { EnterpriseEmployeeChannelOwner } from './EnterpriseWorkbench.tsx'
 import type { ClientRemote } from '@deepseek-ai/dsh-api-remotes/client'
 import type { EnterpriseChannelConfiguration } from '@deepseek-ai/dsh-api-enterprise-controller/types'
 import type {} from '@deepseek-ai/dsh-client-connection/client'
@@ -27,6 +28,14 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface LocaleNamespaceMap {
     /** Enterprise digital-employee workbench copy. */
     'enterprise.workbench': EnterpriseWorkbenchKey
+  }
+  interface SlotMap {
+    /** Employee-scoped channel adapters rendered inside the enterprise workbench. */
+    'enterprise.employee-channels': {
+      kind: 'list'
+      scope: 'root'
+      owner: EnterpriseEmployeeChannelOwner
+    }
   }
 }
 
@@ -298,6 +307,9 @@ export function apply(ctx: Context): void {
     order: 0,
     locale: NS,
     inject: workbenchInjected,
+    children: {
+      'enterprise.employee-channels': { kind: 'list', scope: 'root' },
+    },
   }, EnterpriseWorkbench))
 }
 

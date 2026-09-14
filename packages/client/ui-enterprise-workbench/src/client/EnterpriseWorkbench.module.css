@@ -893,6 +893,14 @@
 .legacyTeams > .managementPage { padding-block: var(--dse-space-sm) var(--dse-space-xl); }
 .legacyActions { display: flex; justify-content: flex-end; margin-block-end: var(--dse-space-sm); }
 .channelPage { max-inline-size: 82rem; margin-inline: auto; }
+.channelEmployeePicker { display: grid; grid-template-columns: minmax(16rem, 1fr) minmax(12rem, auto); align-items: end; gap: var(--dse-space-sm); margin-block-end: var(--dse-space-md); padding-block-end: var(--dse-space-sm); border-block-end: 1px solid var(--dse-color-border); }
+.channelEmployeePicker label { display: grid; gap: var(--dse-space-3xs); color: var(--dse-color-muted); font-size: 0.75rem; }
+.channelEmployeePicker select { min-block-size: 40px; inline-size: 100%; padding-inline: var(--dse-space-xs); border: 1px solid var(--dse-color-border); border-radius: var(--dse-radius-control); background: var(--dse-color-surface); color: var(--dse-color-ink); font: inherit; }
+.channelEmployeePicker select:focus-visible { outline: 2px solid var(--dse-color-focus); outline-offset: 2px; }
+.channelEmployeePicker > div { display: flex; align-items: baseline; justify-content: flex-end; flex-wrap: wrap; gap: var(--dse-space-3xs) var(--dse-space-xs); min-inline-size: 0; }
+.channelEmployeePicker strong { overflow-wrap: anywhere; font-size: 0.875rem; }
+.channelEmployeePicker span,
+.channelEmployeePicker small { color: var(--dse-color-muted); font-size: 0.75rem; }
 .channelPrinciple { display: flex; align-items: flex-start; gap: var(--dse-space-xs); margin-block-end: var(--dse-space-md); padding: var(--dse-space-sm); border: 1px solid color-mix(in srgb, var(--dse-color-accent) 24%, var(--dse-color-border)); border-radius: var(--dse-radius-control); background: var(--dse-color-accent-soft); color: var(--dse-color-accent); }
 .channelPrinciple > div { display: grid; gap: var(--dse-space-3xs); }
 .channelPrinciple strong { color: var(--dse-color-ink); font-size: 0.8125rem; }
@@ -1023,6 +1031,8 @@
 }
 
 @media (max-width: 39.99rem) {
+  .channelEmployeePicker { grid-template-columns: minmax(0, 1fr); align-items: stretch; }
+  .channelEmployeePicker > div { justify-content: flex-start; }
   .startWorkPanel { padding: var(--dse-space-sm); }
   .startWorkActions, .startWorkActions button { inline-size: 100%; }
   .galleryIntro { flex-direction: column; gap: var(--dse-space-2xs); }

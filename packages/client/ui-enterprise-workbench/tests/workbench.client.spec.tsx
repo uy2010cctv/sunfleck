@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import type { ReactNode } from 'react'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import { EnterpriseTrigger } from '../src/client/EnterpriseTrigger.tsx'
 import {
@@ -127,6 +128,7 @@ function workbenchProps(overrides: Partial<EnterpriseWorkbenchProps> & {
       status: provider === 'wechat' ? 'unsupported' : 'setup-required', provider,
       officialDocumentationUrl: 'https://example.test/provider-app',
     })),
+    renderSlot: (_name: string, _owner: object, options?: { fallback?: ReactNode }) => options?.fallback ?? null,
     t,
     ...rest,
   } as EnterpriseWorkbenchProps
@@ -157,6 +159,39 @@ describe('EnterpriseTrigger', () => {
 })
 
 describe('EnterpriseWorkbench', () => {
+  it('scopes contributed channel settings to the selected published employee', () => {
+    const renderSlot = vi.fn((_name: string, owner: { employee: { name: string; presetId: string; releaseId: string } }) => (
+      <div data-testid="employee-channel-panel">{owner.employee.name}:{owner.employee.presetId}:{owner.employee.releaseId}</div>
+    ))
+    render(<EnterpriseWorkbench {...workbenchProps({
+      renderSlot,
+      state: {
+        mode: 'enterprise', page: 'channels',
+        channels: { phase: 'ready', error: null, items: [] },
+        releases: [{
+          releaseId: 'release-finance-v3', presetId: 'finance-director', orgId: 'org-a', version: 3,
+          digest: 'finance', snapshot: { profile: { name: '财务大王', position: '财务总监' }, bindings: [] },
+          publishedBy: 'admin', publishedAt: 3,
+        }, {
+          releaseId: 'release-media-v1', presetId: 'media-operator', orgId: 'org-a', version: 1,
+          digest: 'media', snapshot: { profile: { name: '新媒体员工', position: '运营' }, bindings: [] },
+          publishedBy: 'admin', publishedAt: 1,
+        }],
+      },
+    } as never)} />)
+
+    expect((screen.getByRole('combobox', { name: '选择数字员工' }) as HTMLSelectElement).value).toBe('release-finance-v3')
+    expect(screen.getByTestId('employee-channel-panel').textContent)
+      .toBe('财务大王:finance-director:release-finance-v3')
+
+    fireEvent.change(screen.getByRole('combobox', { name: '选择数字员工' }), { target: { value: 'release-media-v1' } })
+    expect(screen.getByTestId('employee-channel-panel').textContent)
+      .toBe('新媒体员工:media-operator:release-media-v1')
+    expect(renderSlot).toHaveBeenLastCalledWith('enterprise.employee-channels', expect.objectContaining({
+      employee: expect.objectContaining({ presetId: 'media-operator', releaseId: 'release-media-v1' }),
+    }), expect.any(Object))
+  })
+
   it('connects the current computer without exposing device ids or key fields', () => {
     const pairLocalDevice = vi.fn(() => Promise.resolve(true))
     render(<EnterpriseWorkbench {...workbenchProps({
