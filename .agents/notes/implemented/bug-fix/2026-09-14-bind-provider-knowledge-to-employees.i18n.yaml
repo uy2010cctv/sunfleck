@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-09-14-bind-provider-knowledge-to-employees.md
-2026-09-14-bind-provider-knowledge-to-employees.md: 8afb157e403cce95cc4af00473f3357104832525
-2026-09-14-bind-provider-knowledge-to-employees.zh.md: ddf4d24113094d1f46e3b206c6bfefa45505a0fa
+2026-09-14-bind-provider-knowledge-to-employees.md: f8587725ec62ec166568aae767a1793aac80bc0b
+2026-09-14-bind-provider-knowledge-to-employees.zh.md: 436b1d07fa87c9e265e902d82416a98e1bbef286

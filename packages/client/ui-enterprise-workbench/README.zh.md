@@ -25,6 +25,8 @@ Enterprise digital-employee roster and operations workbench over DSH runtime fac
 
 员工知识库绑定贡献在查看其他能力分类时仍保持挂载，因此进入编辑器或发布后重新加载时会读取已保存数量。隐藏控件不会暂停其读取生命周期。
 
+员工卡片与能力概览通过既有知识槽位的 `summaryOnly` 请求提供方数量。提供方读取已保存绑定或知识库元数据，无需挂载编辑器；`refreshKey` 在页面刷新时重新读取统计。空值代表正在加载或暂不可用，显示横线；确认结果为空时才显示零。
+
 <a id="package-details"></a>
 ## 包详情
 

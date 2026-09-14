@@ -1729,6 +1729,72 @@ describe('EnterpriseWorkbench', () => {
     expect(screen.getByRole('combobox', { name: '能力资产' }).textContent).not.toContain('报销 SOP')
   })
 
+  it('loads provider knowledge on employee cards without opening an editor', async () => {
+    const openEmployeeDraft = vi.fn()
+    function Summary({ presetId, summaryOnly, onCountChange }: {
+      presetId: string
+      summaryOnly?: boolean
+      onCountChange: (count: number | null) => void
+    }) {
+      useEffect(() => { onCountChange(presetId === 'buyer' ? 2 : 1) }, [presetId, onCountChange])
+      expect(summaryOnly).toBe(true)
+      return null
+    }
+    const renderSlot = (name: string, owner: { presetId: string; summaryOnly?: boolean; onCountChange: (count: number | null) => void }, options?: { fallback?: ReactNode }) => name === 'enterprise.employee-knowledge-bindings'
+      ? <Summary {...owner} /> : options?.fallback ?? null
+    render(<EnterpriseWorkbench {...workbenchProps({ renderSlot, openEmployeeDraft, state: {
+      mode: 'enterprise', page: 'employees', employees: { phase: 'ready', error: null, items: [
+        { presetId: 'buyer', profile: { name: '采购' }, status: 'published', bindings: [{ kind: 'knowledge', assetId: 'native', version: 1 }] },
+        { presetId: 'finance', profile: { name: '财务' }, status: 'published', bindings: [] },
+      ] },
+    } } as never)} />)
+    await waitFor(() => { expect(screen.getByText('3 知识')).toBeDefined() })
+    expect(screen.getByText('1 知识')).toBeDefined()
+    expect(screen.getAllByLabelText('已绑定能力资产').map(node => node.textContent)).toMatchInlineSnapshot(`
+      [
+        "3 知识0 技能0 SOP",
+        "1 知识0 技能0 SOP",
+      ]
+    `)
+    expect(openEmployeeDraft).not.toHaveBeenCalled()
+  })
+
+  it('reloads roster summaries when employee filtering refreshes independently of the workbench', () => {
+    const renderSlot = vi.fn((_name: string, _owner: unknown, options?: { fallback?: ReactNode }) => options?.fallback ?? null)
+    const employees = [{ presetId: 'buyer', profile: { name: '采购' }, status: 'published', bindings: [] }]
+    const props = (phase: string) => workbenchProps({ renderSlot, state: {
+      mode: 'enterprise', page: 'employees', phase: 'ready', employees: { phase, error: null, items: employees },
+    } } as never)
+    const { rerender } = render(<EnterpriseWorkbench {...props('ready')} />)
+    rerender(<EnterpriseWorkbench {...props('loading')} />)
+    expect(renderSlot).toHaveBeenLastCalledWith('enterprise.employee-knowledge-bindings', expect.objectContaining({
+      presetId: 'buyer', summaryOnly: true, refreshKey: 'loading',
+    }), { fallback: null })
+    rerender(<EnterpriseWorkbench {...props('ready')} />)
+    expect(renderSlot).toHaveBeenLastCalledWith('enterprise.employee-knowledge-bindings', expect.objectContaining({ refreshKey: 'ready' }), { fallback: null })
+  })
+
+  it('loads knowledge asset totals on the initial SOP category and never labels unavailable counts zero', async () => {
+    let report: ((count: number | null) => void) | undefined
+    const renderSlot = (name: string, owner: {
+      summaryOnly?: boolean
+      onCountChange: (count: number | null) => void
+    }, options?: { fallback?: ReactNode }) => {
+      if (name !== 'enterprise.knowledge-assets') return options?.fallback ?? null
+      expect(owner.summaryOnly).toBe(true)
+      report = owner.onCountChange
+      return null
+    }
+    render(<EnterpriseWorkbench {...workbenchProps({ renderSlot, state: { mode: 'enterprise', page: 'assets', assets: { phase: 'ready', error: null, items: [] } } } as never)} />)
+    expect(report).toBeTypeOf('function')
+    const categories = screen.getByRole('list', { name: '能力分类' })
+    act(() => { report?.(null) })
+    expect(within(categories).getByRole('button', { name: /知识.*— 项/u })).toBeDefined()
+    act(() => { report?.(4) })
+    expect(within(categories).getByRole('button', { name: /知识.*4 项/u })).toBeDefined()
+    expect(within(categories).getByRole('button', { name: /SOP/u }).getAttribute('aria-pressed')).toBe('true')
+  })
+
   it('hosts the knowledge plugin inside the knowledge capability category and reflects its base count', () => {
     let knowledgeOwner: { onCountChange: (count: number) => void } | undefined
     const renderSlot = vi.fn((name: string, owner: { onCountChange: (count: number) => void }, options?: { fallback?: ReactNode }) => {

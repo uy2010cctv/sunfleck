@@ -25,6 +25,8 @@ Provider-owned knowledge bases use the `enterprise.employee-knowledge-bindings` 
 
 The employee binding contribution stays mounted while another capability category is visible, so saved counts load on editor entry and after publish reload. Hiding the controls does not suspend their read lifecycle.
 
+Roster cards and the capability overview request provider counts through the existing knowledge slots with `summaryOnly`. Providers read saved bindings or base metadata without mounting editors; `refreshKey` reloads that summary when the page refreshes. A null count is loading or unavailable and appears as a dash, while a confirmed empty result appears as zero.
+
 <a id="package-details"></a>
 ## Package Details
 

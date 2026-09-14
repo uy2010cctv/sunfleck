@@ -16,6 +16,8 @@ Conversation plugins may contribute a session-scoped control to `conversation.in
 
 The binding contribution stays mounted across capability-category switches so it can load saved counts even while its controls are hidden. Native fallback controls render only in the active Knowledge category.
 
+Roster and overview counts use a read-only `summaryOnly` presentation of the same provider slots. Counts come from saved employee bindings or available base metadata, independently of editor navigation. `refreshKey` triggers a new read, and null distinguishes loading or unavailable data from a confirmed zero. Providers ignore responses after their summary unmounts or its request changes.
+
 ## Alternatives considered
 
 Mount only the selected category. Rejected because the count cards remain visible in every category and after editor reload.

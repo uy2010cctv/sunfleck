@@ -105,13 +105,23 @@ export interface EnterpriseEmployeeChannelOwner {
 }
 
 export interface EnterpriseKnowledgeAssetsOwner {
-  readonly onCountChange: (count: number) => void
+  /** Null means the provider count is loading or unavailable. */
+  readonly onCountChange: (count: number | null) => void
+  /** Read counts without mounting management controls. */
+  readonly summaryOnly?: boolean
+  /** Reload counts when the owning page refreshes. */
+  readonly refreshKey?: string
 }
 
 export interface EnterpriseEmployeeKnowledgeBindingsOwner {
   readonly presetId: string
   readonly disabled: boolean
-  readonly onCountChange: (count: number) => void
+  /** Null means the provider count is loading or unavailable. */
+  readonly onCountChange: (count: number | null) => void
+  /** Read counts without mounting management controls. */
+  readonly summaryOnly?: boolean
+  /** Reload counts when the owning page refreshes. */
+  readonly refreshKey?: string
 }
 
 export type EnterpriseWorkbenchProps = PropsRuntime<'shell.overlay'>
@@ -190,7 +200,7 @@ function CapabilityIcon({ category }: { category: CapabilityCategory }) {
 }
 
 function CapabilityTypeCards({ counts, selected, select, openCordis, t }: {
-  counts: Readonly<Record<CapabilityCategory, number>>
+  counts: Readonly<Record<CapabilityCategory, number | string>>
   selected: ManagedAssetKind
   select: (kind: ManagedAssetKind) => void
   openCordis: () => void
@@ -268,7 +278,7 @@ function ManagementHeader({ id, title, description, count, action }: {
   id: string
   title: string
   description: string
-  count: number
+  count: number | string
   action?: React.ReactNode
 }) {
   return <div className={css.managementHeader}>
@@ -338,7 +348,7 @@ function EmployeeEditor({ editor, assets, modelOptions, cordisCount, api, back, 
 }) {
   const [bindingAssetId, setBindingAssetId] = useState('')
   const [bindingKind, setBindingKind] = useState<ManagedAssetKind>('sop')
-  const [providerKnowledgeCount, setProviderKnowledgeCount] = useState(0)
+  const [providerKnowledgeCount, setProviderKnowledgeCount] = useState<number | null>(0)
   const [departments, setDepartments] = useState<readonly { id: string; name: string }[]>([])
   useEffect(() => {
     const abort = new AbortController()
@@ -356,9 +366,9 @@ function EmployeeEditor({ editor, assets, modelOptions, cordisCount, api, back, 
   const bindingCounts = Object.fromEntries(MANAGED_ASSET_KINDS.map(kind => [
     kind, field.bindings.filter(binding => binding.kind === kind).length,
   ])) as Record<ManagedAssetKind, number>
-  const capabilityCounts: Record<CapabilityCategory, number> = {
+  const capabilityCounts: Record<CapabilityCategory, number | string> = {
     ...bindingCounts,
-    knowledge: bindingCounts.knowledge + providerKnowledgeCount,
+    knowledge: providerKnowledgeCount === null ? '—' : bindingCounts.knowledge + providerKnowledgeCount,
     cordis: cordisCount,
   }
   const availableAssets = assets.items.filter(asset => !asset.archived && asset.kind === bindingKind)
@@ -450,6 +460,23 @@ function EmployeeEditor({ editor, assets, modelOptions, cordisCount, api, back, 
   </section>
 }
 
+/** Load provider-owned bindings for a roster card independently of its editor. */
+function EmployeeKnowledgeCount({ presetId, nativeCount, refreshKey, renderSlot, t }: {
+  presetId: string
+  nativeCount: number
+  refreshKey: string
+  renderSlot: EnterpriseWorkbenchProps['renderSlot']
+  t: Translate
+}) {
+  const [providerCount, setProviderCount] = useState<number | null>(0)
+  return <span title={providerCount === null ? t('knowledge.countUnavailable') : undefined}>
+    {t('employee.stat.knowledge', { count: providerCount === null ? '—' : nativeCount + providerCount })}
+    <span hidden>{renderSlot('enterprise.employee-knowledge-bindings', {
+      presetId, disabled: true, summaryOnly: true, refreshKey, onCountChange: setProviderCount,
+    }, { fallback: null })}</span>
+  </span>
+}
+
 function EmployeesPage({ state, api, guardDirty, renderEmployeeKnowledgeBindings, t }: {
   state: EnterpriseWorkbenchState
   api: EnterpriseWorkbenchInjected
@@ -529,7 +556,7 @@ function EmployeesPage({ state, api, guardDirty, renderEmployeeKnowledgeBindings
         <p className={css.description}>{description}</p>
         {capabilities.length > 0 && <div className={css.capabilities}>{capabilities.slice(0, 3).map(value => <span key={value}>{value}</span>)}</div>}
         <div className={css.assetStats} aria-label={t('employee.assetsSummary')}>
-          <span>{t('employee.stat.knowledge', { count: count('knowledge') })}</span>
+          <EmployeeKnowledgeCount presetId={draft.presetId} nativeCount={count('knowledge')} refreshKey={state.employees.phase} renderSlot={renderEmployeeKnowledgeBindings} t={t}/>
           <span>{t('employee.stat.tools', { count: toolCount })}</span>
           <span>{t('employee.stat.sop', { count: count('sop') })}</span>
         </div>
@@ -676,15 +703,15 @@ function AssetsPage({ page, cordisCount, api, busy, onDirty, openExtensions, ren
   const [kind, setKind] = useState<ManagedAssetKind>('sop')
   const [summary, setSummary] = useState('')
   const [content, setContent] = useState('')
-  const [providerKnowledgeCount, setProviderKnowledgeCount] = useState(0)
+  const [providerKnowledgeCount, setProviderKnowledgeCount] = useState<number | null>(0)
   const managedAssets = page.items.filter(asset => MANAGED_ASSET_KINDS.includes(asset.kind as ManagedAssetKind))
   const filteredAssets = managedAssets.filter(asset => asset.kind === kind)
   const counts = Object.fromEntries(MANAGED_ASSET_KINDS.map(category => [
     category, managedAssets.filter(asset => asset.kind === category).length,
   ])) as Record<ManagedAssetKind, number>
-  const capabilityCounts: Record<CapabilityCategory, number> = {
+  const capabilityCounts: Record<CapabilityCategory, number | string> = {
     ...counts,
-    knowledge: counts.knowledge + providerKnowledgeCount,
+    knowledge: providerKnowledgeCount === null ? '—' : counts.knowledge + providerKnowledgeCount,
     cordis: cordisCount,
   }
   const filteredPage = { ...page, items: filteredAssets }
@@ -708,13 +735,14 @@ function AssetsPage({ page, cordisCount, api, busy, onDirty, openExtensions, ren
   </form>
   const assetList = <PageBoundary page={filteredPage} t={t} empty={<ActionableEmpty title={t('asset.emptyCategoryTitle', { category: t(ASSET_KEYS[kind]) })} description={t('asset.emptyBody')} action={createButton}/>}><div className={css.rows}>{filteredAssets.map(item => <div className={css.row} key={item.assetId}><div><strong>{item.name}</strong><span>{t(ASSET_KEYS[item.kind])} · {t('employee.revision', { revision: item.revision })} · {formatDate(item.updatedAt)}</span></div>{!item.archived && <button type="button" className={css.secondaryButton} disabled={busy} onClick={() => { void api.archiveAsset(item) }}>{t('asset.archive')}</button>}</div>)}</div></PageBoundary>
   return <section className={css.managementPage} aria-labelledby="assets-page-title">
-    <ManagementHeader id="assets-page-title" title={t('nav.assets')} description={t('asset.description')} count={managedAssets.length + providerKnowledgeCount} action={kind === 'knowledge' ? undefined : managedAssets.length === 0 ? undefined : createButton}/>
+    <ManagementHeader id="assets-page-title" title={t('nav.assets')} description={t('asset.description')} count={providerKnowledgeCount === null ? '—' : managedAssets.length + providerKnowledgeCount} action={kind === 'knowledge' ? undefined : managedAssets.length === 0 ? undefined : createButton}/>
     <CapabilityTypeCards counts={capabilityCounts} selected={kind} select={setKind} openCordis={openExtensions} t={t}/>
-    {kind === 'knowledge' ? renderKnowledgeAssets('enterprise.knowledge-assets', {
-      onCountChange: setProviderKnowledgeCount,
-    }, {
-      fallback: <>{createForm}{assetList}</>,
-    }) : <>{createForm}{assetList}</>}
+    <div hidden={kind !== 'knowledge'} title={providerKnowledgeCount === null ? t('knowledge.countUnavailable') : undefined}>
+      {renderKnowledgeAssets('enterprise.knowledge-assets', {
+        summaryOnly: kind !== 'knowledge', refreshKey: page.phase, onCountChange: setProviderKnowledgeCount,
+      }, { fallback: kind === 'knowledge' ? <>{createForm}{assetList}</> : null })}
+    </div>
+    {kind !== 'knowledge' && <>{createForm}{assetList}</>}
   </section>
 }
 

@@ -7,6 +7,7 @@ export type EnterpriseWorkbenchKey = keyof typeof en
 
 /** Value exported as `en`. */
 export const en = {
+  'knowledge.countUnavailable': 'Knowledge count is loading or unavailable. Refresh to retry.',
   'trigger.label': 'Lichen Agent',
   'trigger.open': 'Open digital employee workbench',
   'trigger.close': 'Close digital employee workbench',
@@ -731,6 +732,7 @@ export const en = {
 
 /** Value exported as `zh`. */
 export const zh: Record<EnterpriseWorkbenchKey, string> = {
+  'knowledge.countUnavailable': '知识数量正在加载或暂不可用，请刷新重试。',
   'trigger.label': 'Lichen Agent',
   'trigger.open': '打开数字员工工作台',
   'trigger.close': '关闭数字员工工作台',
