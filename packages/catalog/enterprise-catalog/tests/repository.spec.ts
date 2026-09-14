@@ -243,8 +243,9 @@ class MemoryPostgresDatabase implements PostgresDatabase {
       return row === undefined || (text.includes('org_id = $2') && row.org_id !== values[1]) ? [] : [clone(row)]
     }
     if (text.startsWith('SELECT ') && text.includes('FROM dsh_enterprise_employee_releases WHERE preset_id')) {
-      return [...this.releases.values()].filter(row => row.preset_id === String(values[0]))
-        .sort((left, right) => left.version - right.version).map(clone)
+      const rows = [...this.releases.values()].filter(row => row.preset_id === String(values[0]))
+        .sort((left, right) => left.version - right.version)
+      return (text.includes('ORDER BY version DESC') ? rows.reverse().slice(0, 1) : rows).map(clone)
     }
     if (text.startsWith('SELECT kind, asset_id, asset_version FROM dsh_enterprise_employee_release_assets')) {
       return [...this.bindings.values()].filter(row => row.release_id === String(values[0])).map(clone)
@@ -352,6 +353,23 @@ describe('EnterpriseCatalogRepository', () => {
     const repository = catalogRepository(new MemoryPostgresDatabase(), { now: () => 100 })
 
     await expect(repository.saveDraft(firstDraft)).resolves.toMatchObject({ presetId: 'preset-sales', revision: 1, status: 'draft' })
+  })
+
+  it('returns the current release when an unchanged published draft is submitted again', async () => {
+    const repository = catalogRepository()
+    await repository.saveDraft(firstDraft)
+    const first = await repository.publishDraft({
+      orgId: 'org-a', presetId: firstDraft.presetId, expectedRevision: 1,
+      idempotencyKey: 'publish-first', publishedBy: 'user-a',
+    })
+    const repeated = await repository.publishDraft({
+      orgId: 'org-a', presetId: firstDraft.presetId, expectedRevision: 2,
+      idempotencyKey: 'publish-repeat', publishedBy: 'user-a',
+    })
+
+    expect(repeated).toEqual(first)
+    expect(await repository.listReleases(firstDraft.presetId, 'org-a')).toHaveLength(1)
+    expect((await repository.getDraft(firstDraft.presetId, 'org-a'))?.revision).toBe(2)
   })
 
   it('rejects stale employee draft saves without overwriting the durable revision', async () => {

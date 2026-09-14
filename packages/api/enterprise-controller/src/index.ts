@@ -349,6 +349,26 @@ function employeePresetDefinition(release: EnterpriseEmployeeRelease): EmployeeP
   }
 }
 
+class EmployeePresetSyncError extends Error {
+  constructor(readonly presetId: string, options: ErrorOptions) {
+    super('employee release is published, but its Agent Preset update failed; retry Publish to reconcile it', options)
+    this.name = 'EmployeePresetSyncError'
+  }
+}
+
+async function configurePublishedEmployee(ctx: Context, release: EnterpriseEmployeeRelease): Promise<void> {
+  const definition = employeePresetDefinition(release)
+  try {
+    await ctx.agentPresets.configureEmployee(release.presetId, definition)
+  } catch {
+    try {
+      await ctx.agentPresets.configureEmployee(release.presetId, definition)
+    } catch (error) {
+      throw new EmployeePresetSyncError(release.presetId, { cause: error })
+    }
+  }
+}
+
 /** Employee Draft/Release Remote service. */
 interface EmployeePromptLlm {
   stream(options: GenerateOptions): AsyncIterable<StreamChunk>
@@ -629,7 +649,7 @@ export class EnterpriseEmployeeController extends TypertRemoteService {
       const release = await this.ctx.enterprisePostgres.catalog.publishDraft({
         ...request, orgId: principal.orgId, publishedBy: principal.userId,
       }) as EnterpriseEmployeeRelease
-      await this.ctx.agentPresets.configureEmployee(request.presetId, employeePresetDefinition(release))
+      await configurePublishedEmployee(this.ctx, release)
       return release
     })
   }
@@ -2223,6 +2243,8 @@ function enterpriseFailure(
         : error.code === 'invalid-binding' ? 'enterprise-invalid-binding'
           : error.code === 'not-found' ? 'enterprise-not-found' : 'enterprise-invalid-state'
     message = error.message
+  } else if (error instanceof EmployeePresetSyncError) {
+    code = 'enterprise-invalid-state'; message = error.message
   } else if (error instanceof EnterpriseOperationsError) {
     code = error.code === 'forbidden' ? 'enterprise-forbidden'
       : error.code === 'idempotency-conflict' ? 'enterprise-idempotency-conflict'
@@ -2302,6 +2324,6 @@ export function apply(ctx: Context): void {
 
 export const inject = [
   'enterprisePostgres', 'enterpriseSecurity', 'enterpriseRequestContext', 'enterpriseCordis',
-  'credentials', 'llm', 'sessionController', 'webServer',
+  'agentPresets', 'credentials', 'llm', 'sessionController', 'webServer',
 ]
 export { name } from './invariant.ts'

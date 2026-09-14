@@ -654,6 +654,20 @@ export class EnterpriseCatalogRepository {
           && binding.assetId === ref['assetId'] && binding.version === ref['version'])
         if (!bound) throw new EnterpriseCatalogError('invalid-binding', 'employee', input.presetId)
       }
+      const digest = catalogDigest(snapshot)
+      if (draft.status === 'published') {
+        const latest = await database.query<ReleaseRow>(
+          `SELECT * FROM dsh_enterprise_employee_releases WHERE preset_id = $1 AND org_id = $2
+           ORDER BY version DESC LIMIT 1`,
+          [input.presetId, input.orgId],
+        )
+        const row = latest.rows[0]
+        if (row !== undefined && row.digest === digest) {
+          const view = this.release(row)
+          await this.remember(database, draft.org_id, 'publish', input.idempotencyKey, input, view)
+          return view
+        }
+      }
       const max = await database.query<{ version: number | string }>(
         'SELECT MAX(version) AS version FROM dsh_enterprise_employee_releases WHERE preset_id = $1 AND org_id = $2',
         [input.presetId, input.orgId],
@@ -665,7 +679,7 @@ export class EnterpriseCatalogRepository {
            release_id, preset_id, org_id, version, digest, snapshot_json,
            published_by, published_at, source_release_id)
          VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8, NULL) RETURNING *`,
-        [releaseId, draft.preset_id, draft.org_id, version, catalogDigest(snapshot),
+        [releaseId, draft.preset_id, draft.org_id, version, digest,
           JSON.stringify(snapshot), input.publishedBy, this.now()],
       )
       for (const binding of snapshot.bindings) {
