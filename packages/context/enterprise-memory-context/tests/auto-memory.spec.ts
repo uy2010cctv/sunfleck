@@ -240,6 +240,10 @@ describe('Agent automatic enterprise memory', () => {
     expect(inject).toContain('enterpriseRequestContext')
   })
 
+  it('declares the llm dependency used by completed-turn extraction', () => {
+    expect(inject).toContain('llm')
+  })
+
   it('keeps an organization policy valid after another organization configures the same scope', async () => {
     const { ctx, identity } = await setup({ autoApproval: true })
     identity.createOrganization({ id: 'org-b', name: 'Org B' })

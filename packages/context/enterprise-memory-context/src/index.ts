@@ -46,7 +46,8 @@ export const Config: z<Config> = z.object({
   writebackTimeoutMs: z.natural().min(1_000).max(300_000).default(60_000),
 })
 
-export const inject = ['enterprisePostgres', 'enterpriseRequestContext', 'systemPrompt', 'tools']
+/** Services required for memory context, tool registration and completed-turn extraction. */
+export const inject = ['enterprisePostgres', 'enterpriseRequestContext', 'llm', 'systemPrompt', 'tools']
 
 const MEMORY_KINDS = ['business-fact', 'process', 'terminology', 'decision'] as const
 
