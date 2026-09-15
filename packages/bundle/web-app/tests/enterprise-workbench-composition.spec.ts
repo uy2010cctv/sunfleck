@@ -13,6 +13,7 @@ interface PatchRow {
   id?: string
   name?: string
   inject?: string[]
+  config?: Record<string, unknown>
   insert?: PatchRow[]
 }
 
@@ -57,6 +58,12 @@ describe('enterprise workbench Web composition', () => {
       expect.objectContaining({ id: 'enterprise-auth-web', name: '@deepseek-ai/dsh-enterprise-auth-web' }),
       { id: 'ui-enterprise-governance', name: '@deepseek-ai/dsh-client-ui-enterprise-governance' },
     ]))
+  })
+
+  it('gives completed-turn memory extraction enough output budget for bounded candidates', () => {
+    const inserted = readEnterpriseOverlay().flatMap(row => row.insert ?? [])
+    expect(inserted.find(row => row.id === 'enterprise-memory-context')?.config?.writebackMaxTokens)
+      .toBe(4_096)
   })
 
   it('orders private Agent Teams Host, Client, and runtime rows before the enterprise controller', () => {

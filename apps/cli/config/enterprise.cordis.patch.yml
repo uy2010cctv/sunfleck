@@ -93,7 +93,7 @@
         autoSave: true
         writebackEnabled: true
         writebackMaxInputChars: 12000
-        writebackMaxTokens: 1024
+        writebackMaxTokens: 4096
         writebackTimeoutMs: 60000
 
     - id: enterprise-cordis-runtime
