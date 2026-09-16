@@ -619,6 +619,16 @@ describe('model-relative reference budgets', () => {
 })
 
 describe('session reference discovery and preparation', () => {
+  it('omits sessions without a projected title from mention discovery', async () => {
+    const ctx = await harness()
+    const target = ctx.sessions.create(SessionId('target'), { meta: { cwd: '/same' } })
+    const untitled = ctx.sessions.create(SessionId('session-opaque'), { meta: { cwd: '/other' } })
+
+    await expect(ctx.sessionReferenceResolver.listCandidates(fakeAgent(target))).resolves.toEqual([])
+    await expect(ctx.sessionReferenceResolver.listCandidates(fakeAgent(target), String(untitled.id)))
+      .resolves.toEqual([])
+  })
+
   it('matches candidate metadata and titles before ranking by cwd', async () => {
     const ctx = await harness()
     const target = ctx.sessions.create(SessionId('target'), { meta: { cwd: '/same', createdAt: 10 } })
@@ -634,13 +644,8 @@ describe('session reference discovery and preparation', () => {
 
     await expect(ctx.sessionReferenceResolver.listCandidates(fakeAgent(target))).resolves.toEqual([
       { sessionId: SessionId('same-later'), label: 'Latest title', cwd: '/same', sameWorkspace: true, createdAt: 25 },
-      { sessionId: SessionId('same'), label: 'same', cwd: '/same', sameWorkspace: true, createdAt: 20 },
-      { sessionId: SessionId('none'), label: 'none', sameWorkspace: false, createdAt: 30 },
-      { sessionId: SessionId('other'), label: 'other', cwd: '/else', sameWorkspace: false, createdAt: 40 },
     ])
-    await expect(ctx.sessionReferenceResolver.listCandidates(fakeAgent(target), 'els', 1)).resolves.toEqual([
-      { sessionId: SessionId('other'), label: 'other', cwd: '/else', sameWorkspace: false, createdAt: 40 },
-    ])
+    await expect(ctx.sessionReferenceResolver.listCandidates(fakeAgent(target), 'els', 1)).resolves.toEqual([])
     await expect(ctx.sessionReferenceResolver.listCandidates(fakeAgent(target), 'LATEST', 1)).resolves.toEqual([
       { sessionId: SessionId('same-later'), label: 'Latest title', cwd: '/same', sameWorkspace: true, createdAt: 25 },
     ])
@@ -700,7 +705,7 @@ describe('session reference discovery and preparation', () => {
     vi.restoreAllMocks()
   })
 
-  it('labels a session no projection answers for by its id, still without a log read', async () => {
+  it('omits a session no projection answers for without reading its log', async () => {
     const ctx = await harness()
     const target = ctx.sessions.create(SessionId('target'), { meta: { cwd: '/same' } })
     const seeded = {
@@ -717,16 +722,14 @@ describe('session reference discovery and preparation', () => {
     ] as never)
     const readTitles = vi.spyOn(ctx.sessionQuery, 'readTitleSnapshots')
 
-    await expect(ctx.sessionReferenceResolver.listCandidates(fakeAgent(target))).resolves.toEqual([
-      { sessionId: seeded.id, label: seeded.id, cwd: '/same', sameWorkspace: true, createdAt: 10 },
-    ])
+    await expect(ctx.sessionReferenceResolver.listCandidates(fakeAgent(target))).resolves.toEqual([])
     // Its own title cannot find it, and discovery still never opens the log.
     await expect(ctx.sessionReferenceResolver.listCandidates(fakeAgent(target), 'anything')).resolves.toEqual([])
     expect(readTitles).not.toHaveBeenCalled()
     vi.restoreAllMocks()
   })
 
-  it('labels every session by id when no projection face is composed', async () => {
+  it('omits every session when no projection face is composed', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
     await ctx.plugin(TestSessionQueryEngine)
@@ -735,15 +738,14 @@ describe('session reference discovery and preparation', () => {
     const other = ctx.sessions.create(SessionId('other'), { meta: { cwd: '/same' } })
     other.append('session/title', { title: 'Unreadable', messageSeqs: [], source: { kind: 'fallback' } })
 
-    await expect(ctx.sessionReferenceResolver.listCandidates(fakeAgent(target))).resolves.toEqual([
-      { sessionId: other.id, label: other.id, cwd: '/same', sameWorkspace: true, createdAt: other.header.createdAt },
-    ])
+    await expect(ctx.sessionReferenceResolver.listCandidates(fakeAgent(target))).resolves.toEqual([])
   })
 
   it('serves the Remote face with the configured limit and canonical mentions', async () => {
     const ctx = await harness()
     const target = ctx.sessions.create(SessionId('target'), { meta: { cwd: '/same', createdAt: 10 } })
-    ctx.sessions.create(SessionId('source]'), { meta: { cwd: '/same', createdAt: 20 } })
+    const source = ctx.sessions.create(SessionId('source]'), { meta: { cwd: '/same', createdAt: 20 } })
+    source.append('session/title', { title: 'Source run', messageSeqs: [], source: { kind: 'fallback' } })
     const candidates = await ctx.sessionReferenceResolver.remoteExportCandidates(
       fakeAgent(target),
       '',
@@ -751,11 +753,11 @@ describe('session reference discovery and preparation', () => {
     )
     expect(candidates).toEqual([{
       sessionId: SessionId('source]'),
-      label: 'source]',
+      label: 'Source run',
       cwd: '/same',
       sameWorkspace: true,
       createdAt: 20,
-      mention: formatSessionReferenceMention({ sessionId: SessionId('source]'), label: 'source]' }),
+      mention: formatSessionReferenceMention({ sessionId: SessionId('source]'), label: 'Source run' }),
     }])
   })
 
@@ -835,15 +837,13 @@ describe('session reference discovery and preparation', () => {
     )).rejects.toThrow(/invalid session reference URI/)
   })
 
-  it('still matches an unlabeled session on its own metadata', async () => {
+  it('does not expose an unlabeled session through its metadata', async () => {
     const ctx = await harness()
     const target = ctx.sessions.create(SessionId('target'))
     // No cwd, no title event: nothing but the id identifies it.
-    const source = ctx.sessions.create(SessionId('source'))
+    ctx.sessions.create(SessionId('source'))
 
-    await expect(ctx.sessionReferenceResolver.listCandidates(fakeAgent(target), 'source')).resolves.toEqual([
-      { sessionId: source.id, label: source.id, sameWorkspace: false, createdAt: source.header.createdAt },
-    ])
+    await expect(ctx.sessionReferenceResolver.listCandidates(fakeAgent(target), 'source')).resolves.toEqual([])
   })
 
   it('projects only the current user/assistant surface and records snapshot metadata', async () => {

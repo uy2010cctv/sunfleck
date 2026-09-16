@@ -181,12 +181,13 @@ export class SessionReferenceResolver extends TypertRemoteService {
    *
    * Discovery runs at keystroke rate, so a title only ever comes from a
    * projection read: see {@link SessionReferenceResolver.projectedTitle} for
-   * which sessions can answer one and which fall back to their id.
+   * which sessions can answer one. Sessions without a projected title stay
+   * out of the user-facing picker.
    * @param agent - target agent; self is excluded and its cwd drives ranking.
    * @param query - optional case-insensitive session-id/cwd/title substring.
    * @param limit - optional positive result cap.
    * @param signal - optional cancellation boundary for host autocomplete teardown.
-   * @returns candidates labeled by latest title or, when absent, session id.
+   * @returns candidates labeled by their latest projected title.
    */
   async listCandidates(
     agent: Agent,
@@ -203,11 +204,10 @@ export class SessionReferenceResolver extends TypertRemoteService {
     const records = (await settleWithCancellation(this.ctx.sessionQuery.listSessions(signal), signal))
       .filter(record => record.header.id !== agent.id)
       .map((record, index) => ({ record, index }))
-    const labelled = records.map(({ record, index }) => ({
-      record,
-      index,
-      label: this.projectedTitle(record) ?? record.header.id,
-    }))
+    const labelled = records.flatMap(({ record, index }) => {
+      const label = this.projectedTitle(record)
+      return label === undefined ? [] : [{ record, index, label }]
+    })
     return labelled.filter(({ record, label }) => {
       if (needle === '') return true
       return record.header.id.toLocaleLowerCase().includes(needle)
@@ -241,9 +241,8 @@ export class SessionReferenceResolver extends TypertRemoteService {
    * Nothing else is attempted. Folding a title from a log costs the whole
    * log, and this call sits under every keystroke of `@` completion. A
    * session that no projection can answer for — one persisted before the
-   * cache was composed, or seeded straight to disk — is labeled by its id
-   * and cannot be found by its title until it is opened once, which
-   * checkpoints it.
+   * cache was composed, or seeded straight to disk — is omitted until it is
+   * opened once, which checkpoints its title.
    * @param record - the listed session, live or cold.
    * @returns the projected title, or undefined when no projection holds one.
    */

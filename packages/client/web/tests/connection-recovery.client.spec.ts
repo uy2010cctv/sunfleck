@@ -1,4 +1,6 @@
 // @vitest-environment jsdom
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import { COMMON_NS, LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
@@ -14,6 +16,11 @@ function recoveryLocale(): LocaleRuntime {
 }
 
 describe('ConnectionRecovery', () => {
+  it('keeps the fixed recovery notice out of layout while hidden', () => {
+    const stylesheet = readFileSync(resolve('packages/client/web/src/connection-recovery.module.css'), 'utf8')
+    expect(stylesheet).toMatch(/\.notice\[hidden\]\s*\{[^}]*display:\s*none/u)
+  })
+
   it('uses the active client locale for recovery copy and refreshes after a language switch', () => {
     const state: { value: 'connected' | 'disconnected' | 'connecting' | undefined } = { value: 'disconnected' }
     const listeners = new Set<() => void>()

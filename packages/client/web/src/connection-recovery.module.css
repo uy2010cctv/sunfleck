@@ -16,6 +16,10 @@
   font: inherit;
 }
 
+.notice[hidden] {
+  display: none;
+}
+
 .title {
   color: var(--dsw-alias-label-primary);
   font: var(--dsw-font-sm-14, inherit);
