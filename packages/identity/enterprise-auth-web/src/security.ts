@@ -113,6 +113,9 @@ const MODEL_WRITE = new Set([
   'settings.openDocument', 'settings.update', 'settings.replace', 'settings.mutate', 'llm.discoverModels',
   'host.pickDirectory', 'host.createDirectory', 'host.openPath',
 ])
+const HOST_GLOBAL_ACTIONS = new Set<EnterpriseAction>([
+  'credential.manage', 'model.manage', 'system.inspect',
+])
 
 /** Closed endpoint-to-policy map. Anything not classified is denied.
  * @param endpoint - Input value used by this API.
@@ -350,7 +353,7 @@ export class EnterpriseSecurity {
   loginLocal(orgId: string, username: string, password: string): LoginResult | undefined {
     const record = syncValue(this.repository.passwordLoginRecord(orgId, username), 'loginLocal')
     if (record === undefined || record.disabled || !verifyPassword(password, record.verifier)) return undefined
-    return this.issueSession(record.userId)
+    return this.issueSessionForOrganization(orgId, record.userId)
   }
 
   /**
@@ -359,7 +362,11 @@ export class EnterpriseSecurity {
    * @returns the issued token, cookie, and principal.
    */
   issueSession(userId: string): LoginResult {
-    const user = syncValue(this.repository.listUsers(this.config.organizationId), 'issueSession').find(candidate => candidate.id === userId)
+    return this.issueSessionForOrganization(this.config.organizationId, userId)
+  }
+
+  private issueSessionForOrganization(orgId: string, userId: string): LoginResult {
+    const user = syncValue(this.repository.listUsers(orgId), 'issueSession').find(candidate => candidate.id === userId)
     if (user === undefined || user.disabled) throw new Error('enterprise session user is unavailable')
     const token = this.randomToken()
     syncValue(this.repository.createSession({ token, userId, expiresAt: this.now() + this.config.sessionTtlMs }), 'issueSession')
@@ -383,9 +390,6 @@ export class EnterpriseSecurity {
    * @returns the issued token, cookie, and principal.
    */
   loginExternal(identity: SsoMappedIdentity): LoginResult {
-    if (identity.organizationId !== this.config.organizationId) {
-      throw new Error('SSO identity belongs to a different enterprise organization')
-    }
     let user = syncValue(this.repository.resolveExternalIdentity(identity.providerId, identity.subject), 'loginExternal')
     if (user === undefined) {
       if (!this.config.autoProvisionSsoUsers) throw new Error('SSO identity is not bound to an enterprise user')
@@ -404,10 +408,11 @@ export class EnterpriseSecurity {
       syncValue(this.repository.bindExternalIdentity({ providerId: identity.providerId, subject: identity.subject, userId }), 'loginExternal')
       user = syncValue(this.repository.resolveExternalIdentity(identity.providerId, identity.subject), 'loginExternal')
     } else {
+      if (user.orgId !== identity.organizationId) throw new Error('SSO identity belongs to a different enterprise organization')
       syncValue(this.repository.setRoles(user.id, identity.roles), 'loginExternal')
     }
     if (user === undefined || user.disabled) throw new Error('SSO enterprise user is unavailable')
-    return this.issueSession(user.id)
+    return this.issueSessionForOrganization(identity.organizationId, user.id)
   }
 
   /**
@@ -439,7 +444,7 @@ export class EnterpriseSecurity {
   async loginLocalAsync(orgId: string, username: string, password: string): Promise<LoginResult | undefined> {
     const record = await this.repository.passwordLoginRecord(orgId, username)
     if (record === undefined || record.disabled || !verifyPassword(password, record.verifier)) return undefined
-    return this.issueSessionAsync(record.userId)
+    return this.issueSessionForOrganizationAsync(orgId, record.userId)
   }
 
   /**
@@ -448,7 +453,11 @@ export class EnterpriseSecurity {
    * @returns the issued token, cookie, and principal.
    */
   async issueSessionAsync(userId: string): Promise<LoginResult> {
-    const user = (await this.repository.listUsers(this.config.organizationId)).find(candidate => candidate.id === userId)
+    return this.issueSessionForOrganizationAsync(this.config.organizationId, userId)
+  }
+
+  private async issueSessionForOrganizationAsync(orgId: string, userId: string): Promise<LoginResult> {
+    const user = (await this.repository.listUsers(orgId)).find(candidate => candidate.id === userId)
     if (user === undefined || user.disabled) throw new Error('enterprise session user is unavailable')
     const token = this.randomToken()
     await this.repository.createSession({ token, userId, expiresAt: this.now() + this.config.sessionTtlMs })
@@ -472,9 +481,6 @@ export class EnterpriseSecurity {
    * @returns the issued token, cookie, and principal.
    */
   async loginExternalAsync(identity: SsoMappedIdentity): Promise<LoginResult> {
-    if (identity.organizationId !== this.config.organizationId) {
-      throw new Error('SSO identity belongs to a different enterprise organization')
-    }
     let user = await this.repository.resolveExternalIdentity(identity.providerId, identity.subject)
     if (user === undefined) {
       if (!this.config.autoProvisionSsoUsers) throw new Error('SSO identity is not bound to an enterprise user')
@@ -490,10 +496,16 @@ export class EnterpriseSecurity {
       await this.repository.bindExternalIdentity({ providerId: identity.providerId, subject: identity.subject, userId })
       user = await this.repository.resolveExternalIdentity(identity.providerId, identity.subject)
     } else {
+      if (user.orgId !== identity.organizationId) throw new Error('SSO identity belongs to a different enterprise organization')
       await this.repository.setRoles(user.id, identity.roles)
     }
     if (user === undefined || user.disabled) throw new Error('SSO enterprise user is unavailable')
-    return this.issueSessionAsync(user.id)
+    return this.issueSessionForOrganizationAsync(identity.organizationId, user.id)
+  }
+
+  /** Whether this principal may administer Host-level organization tenancy. */
+  isPlatformAdministrator(principal: EnterprisePrincipal): boolean {
+    return principal.orgId === this.config.organizationId && principal.roles.includes('administrator')
   }
 
   /**
@@ -530,6 +542,9 @@ export class EnterpriseSecurity {
     }
     const classification = classifyApiEndpoint(endpoint, input)
     if (classification === undefined) return { allowed: false, reason: 'insufficient-role' }
+    if (HOST_GLOBAL_ACTIONS.has(classification.action) && principal.orgId !== this.config.organizationId) {
+      return { allowed: false, reason: 'organization-mismatch' }
+    }
     let resource: EnterpriseResource | undefined
     if (classification.resourceId !== undefined && classification.action !== 'employee.create') {
       resource = await this.repository.resourcePolicy(classification.resourceType, classification.resourceId)
@@ -909,6 +924,9 @@ export class EnterpriseSecurity {
     }
     const classification = classifyApiEndpoint(endpoint, input)
     if (classification === undefined) return { allowed: false, reason: 'insufficient-role' }
+    if (HOST_GLOBAL_ACTIONS.has(classification.action) && principal.orgId !== this.config.organizationId) {
+      return { allowed: false, reason: 'organization-mismatch' }
+    }
     let resource: EnterpriseResource | undefined
     if (classification.resourceId !== undefined) {
       resource = syncValue(this.repository.resourcePolicy(classification.resourceType, classification.resourceId), 'authorizeApi') ?? {

@@ -83,7 +83,7 @@ export class EnterpriseWorkspaceProvisioner {
     }
     return this.provision({
       orgId: user.orgId,
-      rootPath: join(this.root, 'users', compartmentId(user.id)),
+      rootPath: join(this.organizationRoot(user.orgId), 'users', compartmentId(user.id)),
       name: `${user.displayName} · 个人工作区`,
       kind: 'personal',
       ownerUserId: user.id,
@@ -103,7 +103,9 @@ export class EnterpriseWorkspaceProvisioner {
     idempotencyKey: string,
   ): Promise<EnterpriseWorkspaceGrant> {
     if (!name.trim() || !idempotencyKey.trim()) throw new Error('workspace name and idempotency key are required')
-    const rootPath = join(this.root, 'users', compartmentId(user.id), compartmentId(idempotencyKey))
+    const rootPath = join(
+      this.organizationRoot(user.orgId), 'users', compartmentId(user.id), compartmentId(idempotencyKey),
+    )
     const existing = (await this.repository.listOrganizationWorkspaceGrants(user.orgId))
       .find(grant => grant.rootPath === rootPath)
     if (existing !== undefined) return existing
@@ -141,7 +143,7 @@ export class EnterpriseWorkspaceProvisioner {
     }
     return this.provision({
       orgId: department.orgId,
-      rootPath: join(this.root, 'departments', compartmentId(department.id)),
+      rootPath: join(this.organizationRoot(department.orgId), 'departments', compartmentId(department.id)),
       name: `${department.name} · 共享工作区`,
       kind: 'department',
       departmentId: department.id,
@@ -155,6 +157,10 @@ export class EnterpriseWorkspaceProvisioner {
   async ensureWorkspace(grant: EnterpriseWorkspaceGrant): Promise<void> {
     const workspace = await this.options.registry.ensure?.(grant.workspaceId, grant.rootPath, grant.name)
     if (workspace !== undefined && workspace.title !== grant.name) await workspace.setTitle?.(grant.name)
+  }
+
+  private organizationRoot(orgId: string): string {
+    return join(this.root, 'organizations', compartmentId(orgId))
   }
 
   private async provision(input: Omit<EnterpriseWorkspaceGrant, 'workspaceId' | 'revision' | 'createdAt' | 'updatedAt'>): Promise<EnterpriseWorkspaceGrant> {

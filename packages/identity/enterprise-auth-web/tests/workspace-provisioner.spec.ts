@@ -41,9 +41,27 @@ describe('EnterpriseWorkspaceProvisioner', () => {
 
     expect(first).toEqual(second)
     expect(created).toHaveLength(1)
-    expect(first.rootPath).toMatch(/\/managed\/users\/[a-f0-9]{24}$/u)
+    expect(first.rootPath).toMatch(/\/managed\/organizations\/[a-f0-9]{24}\/users\/[a-f0-9]{24}$/u)
     expect(first.rootPath).not.toContain('alice')
     await expect(access(first.rootPath)).resolves.toBeUndefined()
+  })
+
+  it('places separate organizations in distinct filesystem compartments', async () => {
+    repository.createOrganization({ id: 'org-b', name: 'Org B' })
+    repository.createUser({ id: 'org-b-alice', orgId: 'org-b', username: 'alice', displayName: 'Alice', disabled: false })
+    const provisioner = new EnterpriseWorkspaceProvisioner(repository, {
+      root: join(root, 'managed'),
+      registry: {
+        create: async (path, title) => ({ id: `workspace-${created.push({ path, title })}`, path, title: title ?? 'workspace' }),
+      },
+    })
+
+    const first = await provisioner.ensurePersonal(repository.listUsers('org-a')[0]!)
+    const second = await provisioner.ensurePersonal(repository.listUsers('org-b')[0]!)
+
+    expect(first.rootPath).not.toBe(second.rootPath)
+    expect(first.rootPath.split('/organizations/')[1]?.split('/')[0])
+      .not.toBe(second.rootPath.split('/organizations/')[1]?.split('/')[0])
   })
 
   it('creates a department shared workspace with read-only default sandbox', async () => {

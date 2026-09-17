@@ -59,6 +59,23 @@ describe('EnterpriseSecurity', () => {
     })
   })
 
+  it('issues local sessions inside the organization selected at login', () => {
+    repository.createOrganizationWithAdministrator({
+      organization: { id: 'org-b', name: 'Second enterprise' },
+      administrator: {
+        id: 'org-b-admin', orgId: 'org-b', username: 'admin', displayName: 'Second Admin', disabled: false,
+      },
+      passwordVerifier: createPasswordVerifier('second-password'),
+    })
+
+    const platform = security.loginLocal('org-a', 'admin', 'enterprise-password')
+    const tenant = security.loginLocal('org-b', 'admin', 'second-password')
+
+    expect(platform?.principal).toMatchObject({ userId: 'admin-1', orgId: 'org-a' })
+    expect(tenant?.principal).toMatchObject({ userId: 'org-b-admin', orgId: 'org-b' })
+    expect(security.authenticateCookie(tenant?.cookie ?? '')).toMatchObject({ orgId: 'org-b' })
+  })
+
   it('projects department membership into authenticated principals', () => {
     repository.saveDepartment({
       id: 'dept-finance', orgId: 'org-a', parentId: null, name: 'Finance', sortOrder: 0, expectedRevision: 0,
@@ -227,6 +244,27 @@ describe('EnterpriseSecurity', () => {
       .resolves.toEqual({ allowed: true, reason: 'administrator' })
     await expect(security.authorizeApiAsync(member, 'settings.describe', {}))
       .resolves.toEqual({ allowed: false, reason: 'insufficient-role' })
+  })
+
+  it('reserves Host-global model, credential, and inspection operations for platform administrators', async () => {
+    const platform = { userId: 'admin-1', orgId: 'org-a', roles: ['administrator'] as const }
+    const tenant = { userId: 'org-b-admin', orgId: 'org-b', roles: ['administrator'] as const }
+    repository.createOrganizationWithAdministrator({
+      organization: { id: 'org-b', name: 'Second enterprise' },
+      administrator: {
+        id: tenant.userId, orgId: tenant.orgId, username: 'admin', displayName: 'Tenant Admin', disabled: false,
+      },
+      passwordVerifier: createPasswordVerifier('second-password'),
+    })
+
+    for (const [endpoint, input] of [
+      ['settings.describe', {}], ['credentials.set', {}], ['dynamicCordisRunner.inventory', {}],
+    ] as const) {
+      await expect(security.authorizeApiAsync(platform, endpoint, input))
+        .resolves.toMatchObject({ allowed: true })
+      await expect(security.authorizeApiAsync(tenant, endpoint, input))
+        .resolves.toEqual({ allowed: false, reason: 'organization-mismatch' })
+    }
   })
 
   it('enforces endpoint roles and restricted resource visibility', () => {

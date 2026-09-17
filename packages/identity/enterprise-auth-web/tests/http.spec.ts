@@ -53,6 +53,8 @@ describe('EnterpriseAuthHttpHandler', () => {
     await expect(response.json()).resolves.toEqual({
       authenticated: false,
       organizationId: 'org-a',
+      defaultOrganizationId: 'org-a',
+      platformAdministrator: false,
       providers: [
         { id: 'local', kind: 'local', label: 'Local account' },
         { id: 'oidc-main', kind: 'oidc', label: 'Company OIDC' },
@@ -104,6 +106,52 @@ describe('EnterpriseAuthHttpHandler', () => {
     expect(logout.status).toBe(204)
     const after = await handler.fetch(new Request('https://dsh.example.com/auth/status', { headers: { cookie } }))
     await expect(after.json()).resolves.toMatchObject({ authenticated: false })
+  })
+
+  it('bootstraps a second organization whose administrator can log in but cannot enumerate or create peers', async () => {
+    const platformLogin = await handler.fetch(new Request('https://dsh.example.com/auth/login/local', {
+      method: 'POST', headers: { 'content-type': 'application/json', origin: 'https://dsh.example.com' },
+      body: JSON.stringify({ organizationId: 'org-a', username: 'admin', password: 'enterprise-password' }),
+    }))
+    const platformCookie = platformLogin.headers.get('set-cookie') ?? ''
+    const created = await handler.fetch(new Request('https://dsh.example.com/auth/admin/organizations', {
+      method: 'POST', headers: {
+        cookie: platformCookie, origin: 'https://dsh.example.com', 'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        id: 'org-b', name: 'Second enterprise', administratorId: 'org-b-admin',
+        administratorUsername: 'admin', administratorDisplayName: 'Second Admin', password: 'second-password',
+      }),
+    }))
+    expect(created.status).toBe(201)
+
+    const tenantLogin = await handler.fetch(new Request('https://dsh.example.com/auth/login/local', {
+      method: 'POST', headers: { 'content-type': 'application/json', origin: 'https://dsh.example.com' },
+      body: JSON.stringify({ organizationId: 'org-b', username: 'admin', password: 'second-password' }),
+    }))
+    expect(tenantLogin.status).toBe(200)
+    const tenantCookie = tenantLogin.headers.get('set-cookie') ?? ''
+    const tenantStatus = await handler.fetch(new Request('https://dsh.example.com/auth/status', {
+      headers: { cookie: tenantCookie },
+    }))
+    await expect(tenantStatus.json()).resolves.toMatchObject({
+      authenticated: true, organizationId: 'org-b', defaultOrganizationId: 'org-a',
+      platformAdministrator: false, principal: { userId: 'org-b-admin', orgId: 'org-b' },
+    })
+    const tenantOrganizations = await handler.fetch(new Request('https://dsh.example.com/auth/admin/organizations', {
+      headers: { cookie: tenantCookie },
+    }))
+    await expect(tenantOrganizations.json()).resolves.toEqual([{ id: 'org-b', name: 'Second enterprise' }])
+    const forbidden = await handler.fetch(new Request('https://dsh.example.com/auth/admin/organizations', {
+      method: 'POST', headers: {
+        cookie: tenantCookie, origin: 'https://dsh.example.com', 'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        id: 'org-c', name: 'Third', administratorId: 'org-c-admin', administratorUsername: 'admin',
+        administratorDisplayName: 'Third Admin', password: 'third-password',
+      }),
+    }))
+    expect(forbidden.status).toBe(403)
   })
 
   it('ensures a managed personal workspace after successful local login', async () => {

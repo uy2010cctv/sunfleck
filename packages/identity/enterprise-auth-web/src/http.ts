@@ -63,6 +63,14 @@ function validPassword(value: unknown): value is string {
   return typeof value === 'string' && value.length >= 12 && value.length <= 128
 }
 
+function validOrganizationId(value: unknown): value is string {
+  return typeof value === 'string' && /^[a-z0-9][a-z0-9-]{1,63}$/u.test(value)
+}
+
+function validUserId(value: unknown): value is string {
+  return typeof value === 'string' && /^[A-Za-z0-9][A-Za-z0-9._:-]{1,127}$/u.test(value)
+}
+
 async function jsonBody(request: Request): Promise<Record<string, unknown>> {
   if (!request.headers.get('content-type')?.startsWith('application/json')) throw new Error('JSON body required')
   const value: unknown = await request.json()
@@ -108,7 +116,9 @@ export class EnterpriseAuthHttpHandler {
       const principal = await this.security.authenticateCookieAsync(request.headers.get('cookie') ?? '')
       return json({
         authenticated: principal !== undefined,
-        organizationId: this.security.config.organizationId,
+        organizationId: principal?.orgId ?? this.security.config.organizationId,
+        defaultOrganizationId: this.security.config.organizationId,
+        platformAdministrator: principal !== undefined && this.security.isPlatformAdministrator(principal),
         ...principal === undefined ? {} : { principal },
         providers: [
           ...(this.providers.localEnabled ? [{ id: 'local', kind: 'local', label: 'Local account' }] : []),
@@ -245,14 +255,38 @@ export class EnterpriseAuthHttpHandler {
     }
 
     if (request.method === 'GET' && path.length === 3 && path[2] === 'organizations') {
-      return json(await this.security.repository.listOrganizations())
+      return json(this.security.isPlatformAdministrator(principal)
+        ? await this.security.repository.listOrganizations()
+        : (await this.security.repository.listOrganizations()).filter(item => item.id === principal.orgId))
     }
     if (request.method === 'POST' && path.length === 3 && path[2] === 'organizations') {
       if (!sameOrigin(request)) return new Response('forbidden', { status: 403 })
+      if (!this.security.isPlatformAdministrator(principal)) return new Response('forbidden', { status: 403 })
       const body = await jsonBody(request)
-      if (typeof body['id'] !== 'string' || typeof body['name'] !== 'string') return json({ error: 'bad-request' }, 400)
-      await this.security.repository.createOrganization({ id: body['id'], name: body['name'] })
-      return json({ id: body['id'], name: body['name'] }, 201)
+      const id = body['id']
+      const name = body['name']
+      const administratorId = body['administratorId']
+      const administratorUsername = body['administratorUsername']
+      const administratorDisplayName = body['administratorDisplayName']
+      const password = body['password']
+      if (!validOrganizationId(id) || !validDisplayName(name) || !validUserId(administratorId)
+        || !validUsername(administratorUsername) || !validDisplayName(administratorDisplayName)
+        || !validPassword(password)) return json({ error: 'bad-request' }, 400)
+      try {
+        await this.security.repository.createOrganizationWithAdministrator({
+          organization: { id, name: name.trim() },
+          administrator: {
+            id: administratorId, orgId: id, username: administratorUsername,
+            displayName: administratorDisplayName.trim(), disabled: false,
+          },
+          passwordVerifier: createPasswordVerifier(password),
+        })
+        const administrator = await this.security.repository.findUser(id, administratorUsername)
+        if (administrator !== undefined) await this.options.workspaceProvisioner?.ensurePersonal?.(administrator)
+        return json({ id, name: name.trim(), administratorId }, 201)
+      } catch (error) {
+        return json({ error: 'conflict', message: error instanceof Error ? error.message : String(error) }, 409)
+      }
     }
     if (request.method === 'GET' && path.length === 3 && path[2] === 'users') {
       return json(await this.security.repository.listUsers(principal.orgId))
