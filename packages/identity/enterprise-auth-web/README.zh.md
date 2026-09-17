@@ -38,6 +38,8 @@ Web 插件接受部署方提供的 `EnterpriseIdentityStore` 实现。`databaseP
 
 `EnterpriseSecurity` 在应用共享层级策略前，为人类主体补充部门归属和负责部门。员工定义通过负责人的目录归属解析；绑定员工的渠道通过不可变发布版本解析到该定义。未绑定员工的渠道只对创建者可见，管理员仍可创建新渠道记录。记忆管理只列出组织记忆和已授权部门记忆，部门经理可维护本部门记忆，组织记忆变更保留给管理员。
 
+注册原始 `WebRoute` 处理器的插件必须在读取请求体或领域数据前认证浏览器请求。`enterpriseKnowledge.read` 与 `enterpriseKnowledge.manage` 分类让知识插件复用企业 Session、能力 RBAC、请求主体和审计存储，不能把同源路由当作授权。
+
 配置组织仍是平台组织。该组织的管理员可以管理 Host 全局模型设置、Credential 和开发检查；其他组织的管理员执行这些操作时会收到 `organization-mismatch`。组织内员工、能力资产、团队、记忆、渠道、Workspace、Session 与审计均使用认证主体的 `orgId`。
 
 ## Model Experience
