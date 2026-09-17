@@ -194,6 +194,13 @@ export function classifyApiEndpoint(endpoint: string, input: unknown): ApiClassi
     const read = endpoint === 'enterpriseAsset.list' || endpoint === 'enterpriseAsset.get' || endpoint === 'enterpriseAsset.listVersions'
     return { action: read ? 'capability.read' : 'capability.manage', resourceType: 'enterprise-asset', ...(resourceId === undefined ? {} : { resourceId }) }
   }
+  if (endpoint === 'enterpriseKnowledge.read' || endpoint === 'enterpriseKnowledge.manage') {
+    const resourceId = stringField(payload, 'baseId')
+    return {
+      action: endpoint === 'enterpriseKnowledge.read' ? 'capability.read' : 'capability.manage',
+      resourceType: 'knowledge-base', ...(resourceId === undefined ? {} : { resourceId }),
+    }
+  }
   if (['enterpriseTeam.list', 'enterpriseTeam.get', 'enterpriseTeam.save'].includes(endpoint)) {
     const resourceId = stringField(payload, 'teamId')
     return { action: endpoint === 'enterpriseTeam.list' || endpoint === 'enterpriseTeam.get' ? 'team.read' : 'team.manage', resourceType: 'fixed-team', ...(resourceId === undefined ? {} : { resourceId }) }
