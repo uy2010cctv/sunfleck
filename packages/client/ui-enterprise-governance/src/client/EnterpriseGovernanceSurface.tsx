@@ -15,6 +15,7 @@ export interface EnterpriseGovernanceSurfaceProps {
   }): Promise<void>
   logout(): Promise<void> | void
   createOrganization(input: CreateGovernanceOrganizationInput): Promise<void>
+  updateOrganization?(organizationId: string, input: { name: string }): Promise<void>
   createUser(input: {
     id: string
     username: string
@@ -133,7 +134,7 @@ function DepartmentBranch({ departments, users, parentId, selectedId, expanded, 
     })}
   </ul>
 }
-function OrganizationsSection({ state, createOrganization, saveDepartment, setDepartmentManagers, t }: Pick<EnterpriseGovernanceSurfaceProps, 'state' | 'createOrganization' | 'saveDepartment' | 'setDepartmentManagers'> & {
+function OrganizationsSection({ state, createOrganization, updateOrganization, saveDepartment, setDepartmentManagers, t }: Pick<EnterpriseGovernanceSurfaceProps, 'state' | 'createOrganization' | 'updateOrganization' | 'saveDepartment' | 'setDepartmentManagers'> & {
   t: GovernanceTranslate
 }) {
   const organizationId = state.auth?.principal?.orgId ?? state.auth?.organizationId
@@ -163,6 +164,10 @@ function OrganizationsSection({ state, createOrganization, saveDepartment, setDe
   const [administratorPassword, setAdministratorPassword] = useState('')
   const [organizationSaving, setOrganizationSaving] = useState(false)
   const [organizationError, setOrganizationError] = useState<string | null>(null)
+  const [organizationRenameId, setOrganizationRenameId] = useState(organizationId ?? '')
+  const [currentOrganizationName, setCurrentOrganizationName] = useState(organizationName)
+  const [organizationNameSaving, setOrganizationNameSaving] = useState(false)
+  const [organizationNameError, setOrganizationNameError] = useState<string | null>(null)
   const selected = departments.find(item => item.id === selectedId)
   const select = (department: GovernanceDepartment): void => {
     setIsCreating(false)
@@ -215,7 +220,46 @@ function OrganizationsSection({ state, createOrganization, saveDepartment, setDe
     setManagerIds([...(managerSet?.managerUserIds ?? [])])
     setManagerError(null)
   }, [managerSet?.revision, selectedId])
+  useEffect(() => {
+    const selectedOrganization = state.organizations.find(item => item.id === organizationRenameId)
+    if (selectedOrganization !== undefined) setCurrentOrganizationName(selectedOrganization.name)
+    else {
+      setOrganizationRenameId(organizationId ?? '')
+      setCurrentOrganizationName(organizationName)
+    }
+    setOrganizationNameError(null)
+  }, [organizationId, organizationName, organizationRenameId, state.organizations])
   return <section className={css.ledgerSection}>
+    {organizationId !== undefined && updateOrganization !== undefined && <form
+      className={css.organizationRename}
+      data-multiple={state.auth?.platformAdministrator === true && state.organizations.length > 1}
+      onSubmit={(event) => {
+        event.preventDefault()
+        const rename = async (): Promise<void> => {
+          setOrganizationNameSaving(true)
+          setOrganizationNameError(null)
+          try {
+            await updateOrganization(organizationRenameId, { name: currentOrganizationName.trim() })
+          } catch {
+            setOrganizationNameError(t('organization.renameError'))
+          } finally {
+            setOrganizationNameSaving(false)
+          }
+        }
+        void rename()
+      }}>
+      {state.auth?.platformAdministrator === true && state.organizations.length > 1 && <label>{t('organization.renameTarget')}<select value={organizationRenameId} onChange={(event) => {
+        const nextId = event.target.value
+        setOrganizationRenameId(nextId)
+        setCurrentOrganizationName(state.organizations.find(item => item.id === nextId)?.name ?? '')
+        setOrganizationNameError(null)
+      }}>{state.organizations.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>}
+      <label>{t('organization.displayName')}<input value={currentOrganizationName} maxLength={120} onChange={(event) => { setCurrentOrganizationName(event.target.value) }}/></label>
+      <button type="submit" disabled={organizationNameSaving || currentOrganizationName.trim() === '' || currentOrganizationName.trim() === (state.organizations.find(item => item.id === organizationRenameId)?.name ?? organizationName)}>
+        {organizationNameSaving ? t('organization.renaming') : t('organization.rename')}
+      </button>
+      {organizationNameError !== null && <div className={css.formError} role="alert">{organizationNameError}</div>}
+    </form>}
     {state.auth?.platformAdministrator === true && <details className={css.organizationBootstrap}>
       <summary>{t('organization.createIsolated')}</summary>
       <form onSubmit={(event) => {
@@ -1076,12 +1120,16 @@ function GovernanceSections(props: EnterpriseGovernanceSurfaceProps) {
     tabRefs.current[next]?.focus()
   }
   const panel = (page: GovernancePage, content: ReactNode) => <div id={`governance-panel-${page}`} className={css.pagePanel} role="tabpanel" aria-labelledby={`governance-tab-${page}`} hidden={active !== page}>{content}</div>
+  const updateOrganization = props.updateOrganization
   return <>
     <div className={css.tabBar} role="tablist" aria-label={t('\u4F01\u4E1A\u7BA1\u7406\u5206\u533A')} data-appearance="tonal">
       {GOVERNANCE_TABS.map((tab, index) => <button key={tab.id} ref={(element) => { tabRefs.current[index] = element }} id={`governance-tab-${tab.id}`} className={css.tab} type="button" role="tab" aria-selected={active === tab.id} aria-controls={`governance-panel-${tab.id}`} tabIndex={active === tab.id ? 0 : -1} onClick={() => { setActive(tab.id) }} onKeyDown={(event) => { selectByKeyboard(event, index) }}>{t(tab.label)}</button>)}
     </div>
     {props.state.error !== null && <div className={css.error} role="alert">{props.state.error}</div>}
-    {panel('organizations', <OrganizationsSection state={props.state} createOrganization={input => props.createOrganization(input)} saveDepartment={input => props.saveDepartment(input)} t={t} {...props.setDepartmentManagers === undefined ? {} : {
+    {panel('organizations', <OrganizationsSection state={props.state} createOrganization={input => props.createOrganization(input)} saveDepartment={input => props.saveDepartment(input)} t={t} {...updateOrganization === undefined ? {} : {
+      updateOrganization: (organizationId: string, input: { name: string }): Promise<void> =>
+        updateOrganization(organizationId, input),
+    }} {...props.setDepartmentManagers === undefined ? {} : {
       setDepartmentManagers: (
         departmentId: string, managerUserIds: readonly string[], expectedRevision: number,
       ): Promise<void> => {

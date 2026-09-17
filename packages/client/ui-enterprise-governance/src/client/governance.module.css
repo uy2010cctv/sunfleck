@@ -58,6 +58,12 @@
 .organizationBootstrap > form > label { display: grid; gap: 6px; color: var(--dsw-alias-label-secondary); font-size: 12px; }
 .organizationBootstrap input { min-block-size: 44px; min-inline-size: 0; padding: 0 12px; border: 0.5px solid var(--dsw-alias-border-l2); border-radius: 10px; background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-label-primary); font: inherit; }
 .organizationBootstrap > form > button { justify-self: start; }
+.organizationRename { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 8px; margin-block-end: 16px; padding: 14px; border: 0.5px solid var(--dsw-alias-border-l2); border-radius: 12px; background: var(--dsw-alias-bg-layer-1); }
+.organizationRename[data-multiple='true'] { grid-template-columns: minmax(160px, .75fr) minmax(0, 1fr) auto; }
+.organizationRename > label { display: grid; gap: 7px; min-inline-size: 0; color: var(--dsw-alias-label-secondary); font-size: 12px; }
+.organizationRename input, .organizationRename select { min-block-size: 44px; min-inline-size: 0; padding-inline: 12px; border: 0.5px solid var(--dsw-alias-border-l2); border-radius: 10px; background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-label-primary); font: inherit; }
+.organizationRename > button { min-block-size: 44px; }
+.organizationRename > [role='alert'] { grid-column: 1 / -1; }
 .ledgerSection > header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-block-end: 16px; }
 .ledgerSection h2 { margin: 0; font-size: 15px; }
 .ledgerSection > header span { color: var(--dsw-alias-label-secondary); font-variant-numeric: tabular-nums; }
@@ -281,6 +287,7 @@ td span { margin-block-start: 4px; color: var(--dsw-alias-label-secondary); font
   .settingsLedger { padding-inline: 0; }
   .inlineForm { grid-template-columns: minmax(0, 1fr); }
   .organizationBootstrap > form { grid-template-columns: minmax(0, 1fr); }
+  .organizationRename { grid-template-columns: minmax(0, 1fr); align-items: stretch; }
   .auditFilter { grid-template-columns: minmax(0, 1fr); }
   .policyList { grid-template-columns: minmax(0, 1fr); }
   .directoryLayout, .memoryColumns { grid-template-columns: minmax(0, 1fr); }

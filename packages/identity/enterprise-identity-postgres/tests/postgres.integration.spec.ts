@@ -71,6 +71,12 @@ describe.skipIf(url === undefined)('enterprise identity PostgreSQL directory int
     await expect(repository.sessionOwnerUserId('session-pg')).resolves.toBe('user-1')
   })
 
+  it('renames an organization without changing its durable id', async () => {
+    await repository.updateOrganization('org-a', 'Renamed Org A')
+
+    await expect(repository.listOrganizations()).resolves.toContainEqual({ id: 'org-a', name: 'Renamed Org A' })
+  })
+
   it('stores only reviewed enterprise memory in scoped queries', async () => {
     const proposed = await repository.proposeMemory({
       id: 'memory-pg', orgId: 'org-a', scope: 'organization', kind: 'business-fact',

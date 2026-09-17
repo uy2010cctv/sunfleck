@@ -68,6 +68,13 @@ describe('EnterpriseIdentityRepository', () => {
     expect(repository.listOrganizations()).not.toContainEqual(expect.objectContaining({ id: 'org-rolled-back' }))
   })
 
+  it('updates an organization name without changing its identity', () => {
+    repository.updateOrganization('org-a', '夏树科技有限公司')
+
+    expect(repository.listOrganizations()).toEqual([{ id: 'org-a', name: '夏树科技有限公司' }])
+    expect(() => { repository.updateOrganization('missing-org', 'Missing') }).toThrow(/missing/i)
+  })
+
   it('binds multiple external provider identities to one canonical user', () => {
     repository.bindExternalIdentity({ providerId: 'oidc-main', subject: 'oidc-alice', userId: 'user-1' })
     repository.bindExternalIdentity({ providerId: 'ldap-main', subject: 'cn=alice,dc=example', userId: 'user-1' })

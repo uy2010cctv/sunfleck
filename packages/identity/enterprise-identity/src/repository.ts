@@ -266,6 +266,7 @@ export interface EnterpriseIdentityStore {
   close(): IdentityAwaitable<void>
   createOrganization(organization: EnterpriseOrganization): IdentityAwaitable<void>
   createOrganizationWithAdministrator(input: CreateEnterpriseOrganizationInput): IdentityAwaitable<void>
+  updateOrganization(id: string, name: string): IdentityAwaitable<void>
   listOrganizations(): IdentityAwaitable<EnterpriseOrganization[]>
   createUser(user: EnterpriseUserInput, options?: CreateEnterpriseUserOptions): IdentityAwaitable<void>
   listUsers(orgId: string): IdentityAwaitable<EnterpriseUserView[]>
@@ -399,6 +400,12 @@ export class EnterpriseIdentityRepository implements EnterpriseIdentityStore {
       this.database.exec('ROLLBACK')
       throw error
     }
+  }
+
+  /** Update only the human-readable organization name; the durable id remains unchanged. */
+  updateOrganization(id: string, name: string): void {
+    const result = this.database.prepare('UPDATE organizations SET name = ? WHERE id = ?').run(name, id)
+    if (Number(result.changes) === 0) throw new Error('enterprise organization is missing')
   }
 
   listOrganizations(): EnterpriseOrganization[] {

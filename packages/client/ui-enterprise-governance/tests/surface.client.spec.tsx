@@ -432,6 +432,37 @@ describe('enterprise governance UI', () => {
     expect(password.value).toBe('')
   })
 
+  it('renames the current organization from the organization directory', async () => {
+    const updateOrganization = vi.fn(() => Promise.resolve())
+    render(<EnterpriseGovernanceSettingsSection
+      state={state({
+        auth: {
+          authenticated: true, organizationId: 'org-a', defaultOrganizationId: 'org-a', platformAdministrator: true,
+          principal: { userId: 'admin-1', orgId: 'org-a', displayName: 'Admin', username: 'admin', roles: ['administrator'] },
+          providers: [],
+        },
+        organizations: [
+          { id: 'org-a', name: 'Platform enterprise' },
+          { id: 'org-b', name: 'Old tenant name' },
+        ],
+      })}
+      loadAdmin={vi.fn()} loginLocal={vi.fn()} logout={vi.fn()} createOrganization={vi.fn()}
+      updateOrganization={updateOrganization}
+      createAsset={vi.fn()} createUser={vi.fn()} updateUser={vi.fn()} saveDepartment={vi.fn()}
+      createWorkspace={vi.fn()} updateWorkspace={vi.fn()} proposeMemory={vi.fn()} reviewMemory={vi.fn()}
+      savePolicy={vi.fn()} filterAudit={vi.fn()}
+    />)
+
+    fireEvent.change(screen.getByLabelText('要修改的组织'), { target: { value: 'org-b' } })
+    const name = screen.getByLabelText('组织显示名称')
+    expect(name).toHaveProperty('value', 'Old tenant name')
+    fireEvent.change(name, { target: { value: '夏树科技有限公司' } })
+    fireEvent.click(screen.getByRole('button', { name: '保存组织名称' }))
+
+    await waitFor(() => { expect(updateOrganization).toHaveBeenCalledOnce() })
+    expect(updateOrganization).toHaveBeenCalledWith('org-b', { name: '夏树科技有限公司' })
+  })
+
   it('assigns multiple department managers from department members', async () => {
     const setDepartmentManagers = vi.fn(() => Promise.resolve())
     render(<EnterpriseGovernanceSettingsSection

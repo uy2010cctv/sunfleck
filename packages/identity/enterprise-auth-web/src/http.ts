@@ -236,6 +236,16 @@ export class EnterpriseAuthHttpHandler {
   private async admin(request: Request, url: URL, path: string[]): Promise<Response> {
     const principal = await this.security.authenticateCookieAsync(request.headers.get('cookie') ?? '')
     if (principal === undefined) return new Response('unauthorized', { status: 401 })
+    const organizationRename = request.method === 'PATCH' && path.length === 4 && path[2] === 'organizations'
+    const organizationId = organizationRename ? decodeURIComponent(path[3] as string) : undefined
+    if (organizationId !== undefined && !this.security.isPlatformAdministrator(principal)
+      && organizationId !== principal.orgId) {
+      await this.security.auditApiAsync(
+        principal, 'enterpriseAdmin.organizations', { organizationId },
+        { allowed: false, reason: 'organization-mismatch' }, request.headers.get('x-request-id') ?? randomUUID(),
+      )
+      return new Response('forbidden', { status: 403 })
+    }
     if (request.method === 'POST' && path.length === 3 && path[2] === 'organizations'
       && !this.security.isPlatformAdministrator(principal)) {
       await this.security.auditApiAsync(
@@ -298,6 +308,20 @@ export class EnterpriseAuthHttpHandler {
         return json({ id, name: name.trim(), administratorId }, 201)
       } catch (error) {
         return json({ error: 'conflict', message: error instanceof Error ? error.message : String(error) }, 409)
+      }
+    }
+    if (request.method === 'PATCH' && path.length === 4 && path[2] === 'organizations') {
+      if (!sameOrigin(request)) return new Response('forbidden', { status: 403 })
+      const id = decodeURIComponent(path[3] as string)
+      const body = await jsonBody(request)
+      const name = body['name']
+      if (!validOrganizationId(id) || !validDisplayName(name)) return json({ error: 'bad-request' }, 400)
+      try {
+        const normalizedName = name.trim()
+        await this.security.repository.updateOrganization(id, normalizedName)
+        return json({ id, name: normalizedName })
+      } catch {
+        return json({ error: 'not-found' }, 404)
       }
     }
     if (request.method === 'GET' && path.length === 3 && path[2] === 'users') {

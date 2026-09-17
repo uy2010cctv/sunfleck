@@ -181,6 +181,12 @@ export class PgEnterpriseIdentityRepository {
     })
   }
 
+  /** Update only the human-readable organization name; the durable id remains unchanged. */
+  async updateOrganization(id: string, name: string): Promise<void> {
+    const result = await this.database.query('UPDATE organizations SET name = $2 WHERE id = $1', [id, name])
+    if (result.rowCount === 0) throw new Error('enterprise organization is missing')
+  }
+
   /** Executes `PgEnterpriseIdentityRepository.listOrganizations` for this instance.
    * @returns Result produced by this API.
    */

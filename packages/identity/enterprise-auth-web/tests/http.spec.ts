@@ -153,6 +153,27 @@ describe('EnterpriseAuthHttpHandler', () => {
       headers: { cookie: tenantCookie },
     }))
     await expect(tenantOrganizations.json()).resolves.toEqual([{ id: 'org-b', name: 'Second enterprise' }])
+    const renamed = await handler.fetch(new Request('https://dsh.example.com/auth/admin/organizations/org-b', {
+      method: 'PATCH', headers: {
+        cookie: tenantCookie, origin: 'https://dsh.example.com', 'content-type': 'application/json',
+      },
+      body: JSON.stringify({ name: 'Renamed tenant' }),
+    }))
+    expect(renamed.status).toBe(200)
+    await expect(renamed.json()).resolves.toEqual({ id: 'org-b', name: 'Renamed tenant' })
+    const tenantStatusAfterRename = await handler.fetch(new Request('https://dsh.example.com/auth/status', {
+      headers: { cookie: tenantCookie },
+    }))
+    await expect(tenantStatusAfterRename.json()).resolves.toMatchObject({
+      organizations: [{ id: 'org-b', name: 'Renamed tenant' }],
+    })
+    const crossOrganizationRename = await handler.fetch(new Request('https://dsh.example.com/auth/admin/organizations/org-a', {
+      method: 'PATCH', headers: {
+        cookie: tenantCookie, origin: 'https://dsh.example.com', 'content-type': 'application/json',
+      },
+      body: JSON.stringify({ name: 'Forbidden rename' }),
+    }))
+    expect(crossOrganizationRename.status).toBe(403)
     const forbidden = await handler.fetch(new Request('https://dsh.example.com/auth/admin/organizations', {
       method: 'POST', headers: {
         cookie: tenantCookie, origin: 'https://dsh.example.com', 'content-type': 'application/json',

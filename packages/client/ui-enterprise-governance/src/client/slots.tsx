@@ -18,6 +18,7 @@ export function GovernanceSettingsSlot({ useGovernance, controller, t }: {
     loginLocal={input => controller.loginLocal(input)}
     logout={() => controller.logout()}
     createOrganization={input => controller.createOrganization(input)}
+    updateOrganization={(id, input) => controller.updateOrganization(id, input)}
     createUser={input => controller.createUser(input)}
     createAsset={input => controller.createAsset(input)}
     updateUser={(id, input) => controller.updateUser(id, input)}
@@ -45,6 +46,7 @@ export function GovernanceAuthGateSlot({ useGovernance, controller, t }: {
     loginLocal={input => controller.loginLocal(input)}
     logout={() => controller.logout()}
     createOrganization={input => controller.createOrganization(input)}
+    updateOrganization={(id, input) => controller.updateOrganization(id, input)}
     createUser={input => controller.createUser(input)}
     createAsset={input => controller.createAsset(input)}
     updateUser={(id, input) => controller.updateUser(id, input)}

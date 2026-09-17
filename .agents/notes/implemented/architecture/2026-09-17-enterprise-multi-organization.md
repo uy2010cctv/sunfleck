@@ -12,7 +12,7 @@ The enterprise login accepted an organization field, but the configured default 
 
 SUNFLECK treats the configured default organization as the platform organization. Only an administrator authenticated in that organization is a platform administrator and may bootstrap another organization or manage Host-global model, Credential, and developer-inspection services.
 
-Organization bootstrap is one identity-repository transaction. It creates the organization, one enabled administrator, that user's one-way password verifier, and the administrator role together; any failure rolls back the whole operation. Platform administrators may enumerate organizations. Tenant administrators see only their current organization and cannot create peers.
+Organization bootstrap is one identity-repository transaction. It creates the organization, one enabled administrator, that user's one-way password verifier, and the administrator role together; any failure rolls back the whole operation. Organization ids are durable, while display names may change. Platform administrators may enumerate and rename any organization. Tenant administrators see only their current organization, may rename only that organization, and cannot create peers.
 
 Local login resolves the username inside the submitted organization and issues the browser Session for that same organization. SSO follows its validated organization mapping and rejects an existing external identity when the mapped organization changes. `/auth/status` exposes the current organization, the configured platform organization, whether the current principal is a platform administrator, and the organization directory used by the native login selector. An anonymous response includes only organization ids and display names. An authenticated tenant receives only its own organization; a platform administrator receives the complete directory.
 
@@ -34,6 +34,7 @@ This boundary does not automatically isolate storage owned by an out-of-tree plu
 
 - The same username may exist in separate organizations and authenticate to different principals and Sessions.
 - A platform administrator can create a ready-to-use tenant in one operation; tenant administrators cannot discover or create peers.
+- Renaming changes the label shown in governance and the login selector without moving Workspaces, Sessions, users, or other organization-owned records.
 - Organization ids and display names are intentionally discoverable before authentication so a person can select the correct login boundary; no users, departments, roles, or resources are included.
 - Host-global administration is explicitly narrower than the organization administrator role.
 - New managed Workspace paths are physically separated by organization while old grants remain compatible.

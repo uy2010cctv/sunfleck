@@ -97,6 +97,18 @@ describe('PgEnterpriseIdentityRepository', () => {
     expect(database.queries[3]?.values).toEqual(['org-b-admin', 'administrator'])
   })
 
+  it('updates an organization name with a parameterized identity predicate', async () => {
+    const database = new RecordingDatabase()
+    const repository = new PgEnterpriseIdentityRepository(database)
+
+    await repository.updateOrganization('org-a', 'Renamed enterprise')
+
+    expect(database.queries).toEqual([{
+      text: expect.stringContaining('UPDATE organizations SET name = $2 WHERE id = $1'),
+      values: ['org-a', 'Renamed enterprise'],
+    }])
+  })
+
   it('scopes profile and password updates by organization', async () => {
     const database = new RecordingDatabase()
     const repository = new PgEnterpriseIdentityRepository(database)

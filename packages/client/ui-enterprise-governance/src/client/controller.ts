@@ -294,6 +294,15 @@ export class EnterpriseGovernanceController {
     await this.loadAdmin()
   }
 
+  /** Rename an organization without changing its durable identity. */
+  async updateOrganization(organizationId: string, input: { name: string }): Promise<void> {
+    await this.request(`/auth/admin/organizations/${encodeURIComponent(organizationId)}`, {
+      method: 'PATCH', body: JSON.stringify(input),
+    })
+    await this.refreshAuth()
+    await this.loadAdmin()
+  }
+
   /** Executes `EnterpriseGovernanceController.updateUser` for this instance.
    * @param input - Input value used by this API.
    * @param userId - Input value used by this API.

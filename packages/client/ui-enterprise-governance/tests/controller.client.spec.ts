@@ -124,6 +124,7 @@ describe('EnterpriseGovernanceController', () => {
       if (url.endsWith('/users') && init?.method === 'POST') return Promise.resolve(response({}, 201))
       if (url.endsWith('/assets') && init?.method === 'POST') return Promise.resolve(response({}, 201))
       if (url.endsWith('/organizations') && init?.method === 'POST') return Promise.resolve(response({}, 201))
+      if (url.includes('/organizations/') && init?.method === 'PATCH') return Promise.resolve(response({}))
       if (url.includes('/users/') && init?.method === 'PATCH') return Promise.resolve(response(undefined, 204))
       if (url.endsWith('/resource-policies') && init?.method === 'POST') return Promise.resolve(response(undefined, 204))
       if (url.endsWith('/departments') && init?.method === 'POST') return Promise.resolve(response({}, 201))
@@ -146,6 +147,7 @@ describe('EnterpriseGovernanceController', () => {
       id: 'org-b', name: 'Second organization', administratorId: 'org-b:administrator',
       administratorUsername: 'admin', administratorDisplayName: 'Second Admin', password: 'second-password',
     })
+    await controller.updateOrganization('org-a', { name: 'Renamed organization' })
     await controller.createAsset({ type: 'channel', id: 'wecom-main', name: 'WeCom', config: {} })
     await controller.createUser({
       id: 'operator-1', username: 'operator', displayName: 'Operator', password: 'operator@123', roles: ['operator'],
@@ -168,6 +170,7 @@ describe('EnterpriseGovernanceController', () => {
     expect(calls).toEqual(expect.arrayContaining([
       'POST /auth/admin/users',
       'POST /auth/admin/organizations',
+      'PATCH /auth/admin/organizations/org-a',
       'POST /auth/admin/assets',
       'PATCH /auth/admin/users/operator-1',
       'GET /auth/status',

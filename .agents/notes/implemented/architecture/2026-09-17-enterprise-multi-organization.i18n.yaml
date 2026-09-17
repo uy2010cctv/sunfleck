@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-09-17-enterprise-multi-organization.md
-2026-09-17-enterprise-multi-organization.md: b9719205807d736dfd968532223dd6bfeadf1528
-2026-09-17-enterprise-multi-organization.zh.md: b4116ff66f887a6ba3728f9351d64719b00e5aca
+2026-09-17-enterprise-multi-organization.md: 96daed6e4deeefa1a186860565c7a1e1d678e1b2
+2026-09-17-enterprise-multi-organization.zh.md: 4005fb7f1f8668a86de661f7ecfeb0792787ce5a
