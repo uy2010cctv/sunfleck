@@ -390,6 +390,42 @@ describe('enterprise governance UI', () => {
     expect(within(tree).getByText('采购员')).toBeDefined()
   })
 
+  it('lets only a platform administrator create a login-ready isolated organization', async () => {
+    const createOrganization = vi.fn(() => Promise.resolve())
+    render(<EnterpriseGovernanceSettingsSection
+      state={state({
+        auth: {
+          authenticated: true, organizationId: 'org-a', defaultOrganizationId: 'org-a', platformAdministrator: true,
+          principal: { userId: 'admin-1', orgId: 'org-a', displayName: 'Admin', username: 'admin', roles: ['administrator'] },
+          providers: [],
+        },
+        organizations: [{ id: 'org-a', name: 'Platform enterprise' }],
+      })}
+      loadAdmin={vi.fn()} loginLocal={vi.fn()} logout={vi.fn()} createOrganization={createOrganization}
+      createAsset={vi.fn()} createUser={vi.fn()} updateUser={vi.fn()} saveDepartment={vi.fn()}
+      createWorkspace={vi.fn()} updateWorkspace={vi.fn()} proposeMemory={vi.fn()} reviewMemory={vi.fn()}
+      savePolicy={vi.fn()} filterAudit={vi.fn()}
+    />)
+
+    fireEvent.click(screen.getByText('创建隔离组织'))
+    fireEvent.change(screen.getByLabelText('组织编号'), { target: { value: 'org-b' } })
+    fireEvent.change(screen.getByLabelText('组织名称'), { target: { value: '第二组织' } })
+    fireEvent.change(screen.getByLabelText('管理员用户名'), { target: { value: 'admin' } })
+    fireEvent.change(screen.getByLabelText('管理员显示名称'), { target: { value: '第二组织管理员' } })
+    const password = screen.getByLabelText('管理员初始密码') as HTMLInputElement
+    fireEvent.change(password, { target: { value: 'short' } })
+    expect(screen.getByRole('button', { name: '创建组织' }).hasAttribute('disabled')).toBe(true)
+    fireEvent.change(password, { target: { value: 'second-password' } })
+    fireEvent.click(screen.getByRole('button', { name: '创建组织' }))
+
+    await waitFor(() => { expect(createOrganization).toHaveBeenCalledOnce() })
+    expect(createOrganization).toHaveBeenCalledWith({
+      id: 'org-b', name: '第二组织', administratorId: 'org-b:administrator',
+      administratorUsername: 'admin', administratorDisplayName: '第二组织管理员', password: 'second-password',
+    })
+    expect(password.value).toBe('')
+  })
+
   it('assigns multiple department managers from department members', async () => {
     const setDepartmentManagers = vi.fn(() => Promise.resolve())
     render(<EnterpriseGovernanceSettingsSection

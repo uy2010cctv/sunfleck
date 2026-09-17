@@ -51,6 +51,13 @@
 .tab:focus-visible { outline: 2px solid var(--dsw-alias-brand-primary-new-colorprimary-new-color); outline-offset: -2px; }
 .pagePanel[hidden] { display: none; }
 .ledgerSection { padding-block: 24px; scroll-margin-block-start: 16px; }
+.organizationBootstrap { margin-block-end: 16px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 10px; background: var(--dsw-alias-bg-layer-1); }
+.organizationBootstrap > summary { cursor: pointer; padding: 12px 14px; font-weight: 600; }
+.organizationBootstrap > form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; padding: 0 14px 14px; }
+.organizationBootstrap > form > p, .organizationBootstrap > form > [role='alert'] { grid-column: 1 / -1; }
+.organizationBootstrap > form > label { display: grid; gap: 6px; color: var(--dsw-alias-label-secondary); font-size: 12px; }
+.organizationBootstrap input { min-block-size: 44px; min-inline-size: 0; padding: 0 12px; border: 0.5px solid var(--dsw-alias-border-l2); border-radius: 10px; background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-label-primary); font: inherit; }
+.organizationBootstrap > form > button { justify-self: start; }
 .ledgerSection > header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-block-end: 16px; }
 .ledgerSection h2 { margin: 0; font-size: 15px; }
 .ledgerSection > header span { color: var(--dsw-alias-label-secondary); font-variant-numeric: tabular-nums; }
@@ -273,6 +280,7 @@ td span { margin-block-start: 4px; color: var(--dsw-alias-label-secondary); font
 @media (max-width: 48rem) {
   .settingsLedger { padding-inline: 0; }
   .inlineForm { grid-template-columns: minmax(0, 1fr); }
+  .organizationBootstrap > form { grid-template-columns: minmax(0, 1fr); }
   .auditFilter { grid-template-columns: minmax(0, 1fr); }
   .policyList { grid-template-columns: minmax(0, 1fr); }
   .directoryLayout, .memoryColumns { grid-template-columns: minmax(0, 1fr); }

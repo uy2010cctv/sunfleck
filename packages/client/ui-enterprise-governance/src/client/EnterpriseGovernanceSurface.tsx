@@ -2,7 +2,7 @@
 import { useEffect, useId, useMemo, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from 'react'
 import { FishLogo, IconChevronDownOutline14, IconChevronRightOutline14, IconEditOutline16, IconFolderClose16, IconFolderOpen16, IconPlusOutline16, IconUserOutline16, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
 import { randomUUID } from '@deepseek-ai/dsh-util-crypto'
-import type { EnterpriseGovernanceState, GovernanceDepartment, GovernanceMemory, GovernancePolicy, GovernanceUser, GovernanceWorkspace } from './controller.ts'
+import type { CreateGovernanceOrganizationInput, EnterpriseGovernanceState, GovernanceDepartment, GovernanceMemory, GovernancePolicy, GovernanceUser, GovernanceWorkspace } from './controller.ts'
 import css from './governance.module.css'
 import { defaultGovernanceTranslate, type GovernanceTranslate } from './locales.ts'
 export interface EnterpriseGovernanceSurfaceProps {
@@ -14,10 +14,7 @@ export interface EnterpriseGovernanceSurfaceProps {
     password: string
   }): Promise<void>
   logout(): Promise<void> | void
-  createOrganization(input: {
-    id: string
-    name: string
-  }): Promise<void>
+  createOrganization(input: CreateGovernanceOrganizationInput): Promise<void>
   createUser(input: {
     id: string
     username: string
@@ -136,7 +133,7 @@ function DepartmentBranch({ departments, users, parentId, selectedId, expanded, 
     })}
   </ul>
 }
-function OrganizationsSection({ state, saveDepartment, setDepartmentManagers, t }: Pick<EnterpriseGovernanceSurfaceProps, 'state' | 'saveDepartment' | 'setDepartmentManagers'> & {
+function OrganizationsSection({ state, createOrganization, saveDepartment, setDepartmentManagers, t }: Pick<EnterpriseGovernanceSurfaceProps, 'state' | 'createOrganization' | 'saveDepartment' | 'setDepartmentManagers'> & {
   t: GovernanceTranslate
 }) {
   const organizationId = state.auth?.principal?.orgId ?? state.auth?.organizationId
@@ -159,6 +156,13 @@ function OrganizationsSection({ state, saveDepartment, setDepartmentManagers, t 
   const [managerIds, setManagerIds] = useState<string[]>([])
   const [managerSaving, setManagerSaving] = useState(false)
   const [managerError, setManagerError] = useState<string | null>(null)
+  const [organizationIdDraft, setOrganizationIdDraft] = useState('')
+  const [organizationNameDraft, setOrganizationNameDraft] = useState('')
+  const [administratorUsername, setAdministratorUsername] = useState('admin')
+  const [administratorDisplayName, setAdministratorDisplayName] = useState('')
+  const [administratorPassword, setAdministratorPassword] = useState('')
+  const [organizationSaving, setOrganizationSaving] = useState(false)
+  const [organizationError, setOrganizationError] = useState<string | null>(null)
   const selected = departments.find(item => item.id === selectedId)
   const select = (department: GovernanceDepartment): void => {
     setIsCreating(false)
@@ -212,6 +216,46 @@ function OrganizationsSection({ state, saveDepartment, setDepartmentManagers, t 
     setManagerError(null)
   }, [managerSet?.revision, selectedId])
   return <section className={css.ledgerSection}>
+    {state.auth?.platformAdministrator === true && <details className={css.organizationBootstrap}>
+      <summary>{t('organization.createIsolated')}</summary>
+      <form onSubmit={(event) => {
+        event.preventDefault()
+        const password = administratorPassword
+        setAdministratorPassword('')
+        const submit = async (): Promise<void> => {
+          setOrganizationSaving(true)
+          setOrganizationError(null)
+          try {
+            await createOrganization({
+              id: organizationIdDraft, name: organizationNameDraft,
+              administratorId: `${organizationIdDraft}:administrator`, administratorUsername,
+              administratorDisplayName, password,
+            })
+            setOrganizationIdDraft('')
+            setOrganizationNameDraft('')
+            setAdministratorUsername('admin')
+            setAdministratorDisplayName('')
+          } catch {
+            setOrganizationError(t('organization.createError'))
+          } finally {
+            setOrganizationSaving(false)
+          }
+        }
+        void submit()
+      }}>
+        <p>{t('organization.createHelp')}</p>
+        <label>{t('organization.id')}<input value={organizationIdDraft} onChange={(event) => { setOrganizationIdDraft(event.target.value) }}/></label>
+        <label>{t('organization.name')}<input value={organizationNameDraft} onChange={(event) => { setOrganizationNameDraft(event.target.value) }}/></label>
+        <label>{t('organization.adminUsername')}<input value={administratorUsername} onChange={(event) => { setAdministratorUsername(event.target.value) }}/></label>
+        <label>{t('organization.adminDisplayName')}<input value={administratorDisplayName} onChange={(event) => { setAdministratorDisplayName(event.target.value) }}/></label>
+        <label>{t('organization.adminPassword')}<input type="password" autoComplete="new-password" value={administratorPassword} onChange={(event) => { setAdministratorPassword(event.target.value) }}/></label>
+        {organizationError !== null && <div className={css.formError} role="alert">{organizationError}</div>}
+        <button type="submit" disabled={organizationSaving || organizationIdDraft === '' || organizationNameDraft === ''
+          || administratorUsername === '' || administratorDisplayName === '' || administratorPassword.length < 12}>
+          {organizationSaving ? t('organization.creating') : t('organization.create')}
+        </button>
+      </form>
+    </details>}
     <header className={css.directoryHeader}>
       <div><h2>{t('\u7EC4\u7EC7\u67B6\u6784')}</h2><p>{t('\u6309\u90E8\u95E8\u67E5\u770B\u6210\u5458\uFF0C\u5E76\u7EF4\u62A4\u4E0A\u4E0B\u7EA7\u5173\u7CFB\u3002')}</p></div>
       <div className={css.directoryActions}>
@@ -1031,7 +1075,7 @@ function GovernanceSections(props: EnterpriseGovernanceSurfaceProps) {
       {GOVERNANCE_TABS.map((tab, index) => <button key={tab.id} ref={(element) => { tabRefs.current[index] = element }} id={`governance-tab-${tab.id}`} className={css.tab} type="button" role="tab" aria-selected={active === tab.id} aria-controls={`governance-panel-${tab.id}`} tabIndex={active === tab.id ? 0 : -1} onClick={() => { setActive(tab.id) }} onKeyDown={(event) => { selectByKeyboard(event, index) }}>{t(tab.label)}</button>)}
     </div>
     {props.state.error !== null && <div className={css.error} role="alert">{props.state.error}</div>}
-    {panel('organizations', <OrganizationsSection state={props.state} saveDepartment={input => props.saveDepartment(input)} t={t} {...props.setDepartmentManagers === undefined ? {} : {
+    {panel('organizations', <OrganizationsSection state={props.state} createOrganization={input => props.createOrganization(input)} saveDepartment={input => props.saveDepartment(input)} t={t} {...props.setDepartmentManagers === undefined ? {} : {
       setDepartmentManagers: (
         departmentId: string, managerUserIds: readonly string[], expectedRevision: number,
       ): Promise<void> => {

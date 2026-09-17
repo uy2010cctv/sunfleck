@@ -18,6 +18,8 @@ export interface GovernancePrincipal {
 export interface GovernanceAuthStatus {
   readonly authenticated: boolean
   readonly organizationId?: string
+  readonly defaultOrganizationId?: string
+  readonly platformAdministrator?: boolean
   readonly principal?: GovernancePrincipal
   readonly providers: readonly { id: string; kind: string; label: string }[]
 }
@@ -97,6 +99,14 @@ export interface GovernanceMemoryWriteback {
 export interface GovernanceOrganization {
   readonly id: string
   readonly name: string
+}
+
+/** Platform-admin request that creates one login-ready isolated organization. */
+export interface CreateGovernanceOrganizationInput extends GovernanceOrganization {
+  readonly administratorId: string
+  readonly administratorUsername: string
+  readonly administratorDisplayName: string
+  readonly password: string
 }
 
 /** Data used by `GovernancePolicy`. */
@@ -272,7 +282,7 @@ export class EnterpriseGovernanceController {
   /** Executes `EnterpriseGovernanceController.createOrganization` for this instance.
    * @param input - Input value used by this API.
    */
-  async createOrganization(input: GovernanceOrganization): Promise<void> {
+  async createOrganization(input: CreateGovernanceOrganizationInput): Promise<void> {
     await this.request('/auth/admin/organizations', { method: 'POST', body: JSON.stringify(input) })
     await this.loadAdmin()
   }

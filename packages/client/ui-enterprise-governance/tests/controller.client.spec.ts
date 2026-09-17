@@ -140,7 +140,10 @@ describe('EnterpriseGovernanceController', () => {
       throw new Error(url)
     })
     const controller = new EnterpriseGovernanceController(fetcher)
-    await controller.createOrganization({ id: 'org-b', name: 'Second organization' })
+    await controller.createOrganization({
+      id: 'org-b', name: 'Second organization', administratorId: 'org-b:administrator',
+      administratorUsername: 'admin', administratorDisplayName: 'Second Admin', password: 'second-password',
+    })
     await controller.createAsset({ type: 'channel', id: 'wecom-main', name: 'WeCom', config: {} })
     await controller.createUser({
       id: 'operator-1', username: 'operator', displayName: 'Operator', password: 'operator@123', roles: ['operator'],
@@ -173,5 +176,11 @@ describe('EnterpriseGovernanceController', () => {
       'PATCH /auth/admin/memories/memory-1',
       'POST /auth/admin/resource-policies',
     ]))
+    const organizationCall = fetcher.mock.calls.find(([input, init]) =>
+      requestUrl(input).endsWith('/organizations') && init?.method === 'POST')
+    expect(JSON.parse(String(organizationCall?.[1]?.body))).toEqual({
+      id: 'org-b', name: 'Second organization', administratorId: 'org-b:administrator',
+      administratorUsername: 'admin', administratorDisplayName: 'Second Admin', password: 'second-password',
+    })
   })
 })
