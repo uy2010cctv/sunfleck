@@ -49,6 +49,7 @@ type FeedRow = {
   origin?: 'subagent'
   running?: boolean
   blank?: boolean
+  title?: string
   projections?: Record<string, unknown>
 }
 
@@ -56,6 +57,7 @@ async function feedList(b: Bench, rows: FeedRow[]): Promise<void> {
   b.api.onList = () => Promise.resolve(ok({
     items: rows.map(r => ({
       sessionId: sid(r.id), updatedAt: 1, running: r.running ?? false, blank: r.blank ?? false,
+      ...(r.title === undefined ? {} : { title: r.title }),
       ...(r.cwd !== undefined ? { cwd: r.cwd } : {}),
       ...(r.parentId !== undefined ? { parentSessionId: sid(r.parentId) } : {}),
       ...(r.origin !== undefined ? { origin: r.origin } : {}),
@@ -69,6 +71,16 @@ async function feedList(b: Bench, rows: FeedRow[]): Promise<void> {
 }
 
 describe('list store projection', () => {
+  it('shows a title delivered by the lightweight list before any Session scope opens', async () => {
+    const b = bench()
+
+    await feedList(b, [{ id: 'cold', cwd: '/home/u/project', title: 'Cold historical title' }])
+
+    expect(b.svc.list.getSnapshot().byId[sid('cold')]).toMatchObject({
+      title: 'Cold historical title', displayTitle: 'Cold historical title',
+    })
+  })
+
   it('projects durable titles separately from cwd/id display fallbacks and parent links', async () => {
     const b = bench()
     b.svc.handleControlFrame({

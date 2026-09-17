@@ -10,7 +10,7 @@ Host 重启后，PostgreSQL Session 处于冷态。投影缓存缺失时，Sessi
 
 ## 决策
 
-持久化快照增加可选的轻量 `conversationStarted` 证据。PostgreSQL 通过对 `turn/start` 的索引存在性检查得到它，不加载也不重放完整日志。Session Query 为持久冷态记录保留该证据；当 PostgreSQL 证明尚未开始任何 turn 时，Session Controller 把缓存缺失的冷态行分类为空白。Client 原本就只显示当前空白行，所以过期空壳会消失，活动草稿仍可复用。
+持久化快照增加可选的轻量 `conversationStarted` 与 `title` 证据。PostgreSQL 通过对 `turn/start` 的索引存在性检查判断空白，并借助局部 `(session_id, seq DESC)` 标题索引只选取最新 `session/title` 事件，不加载或重放消息内容。Session Query 为持久冷态记录保留这两项事实；当 PostgreSQL 证明尚未开始任何 turn 时，Session Controller 把缓存缺失的冷态行分类为空白，并把耐久标题作为列表元数据继续传递。因此 Client 会立即显示历史名称，同时仍把对话正文加载推迟到用户选择会话之后；过期空壳会消失，活动草稿仍可复用。
 
 无法低成本确定的后端保持字段缺省，继续采用之前的保守显示策略。真实 `turn/start` 始终保证 Session 可见，即使标题生成或投影缓存失败。
 
@@ -24,4 +24,4 @@ Host 重启后，PostgreSQL Session 处于冷态。投影缓存缺失时，Sessi
 
 ## 后果
 
-PostgreSQL 支撑的企业部署重启后，不再把过期空壳显示为对话。列表查询每个 header 增加一次有界相关存在性检查，并由 Session ID 事件索引支持；其他持久化后端继续保持保守行为。
+PostgreSQL 支撑的企业部署重启后，不再把过期空壳显示为对话，也不会把已有标题的历史记录标成“新会话”。列表查询为每个 Header 增加有界相关元数据读取，并由对话与最新标题索引支持；其他持久化后端在无法低成本提供这些事实时继续保持保守行为。

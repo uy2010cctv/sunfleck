@@ -34,6 +34,8 @@ const statements = [
   )`,
   'CREATE INDEX IF NOT EXISTS dsh_session_headers_created_at ON dsh_session_headers(created_at DESC, id)',
   'CREATE INDEX IF NOT EXISTS dsh_session_events_session_time ON dsh_session_events(session_id, event_time, seq)',
+  `CREATE INDEX IF NOT EXISTS dsh_session_events_latest_title
+    ON dsh_session_events(session_id, seq DESC) WHERE event_type = 'session/title'`,
 ] as const
 
 /**

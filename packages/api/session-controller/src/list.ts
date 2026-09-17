@@ -154,6 +154,7 @@ export class ApiSessionList {
       // PostgreSQL can classify legacy cold shells without reading or activating their complete logs.
       // Backends without lightweight turn metadata remain unknown and visible.
       blank: metadata?.blank ?? record.conversationStarted === false,
+      ...(record.title === undefined ? {} : { title: record.title }),
       ...listFields(header),
       ...(projections === undefined ? {} : { projections }),
     }

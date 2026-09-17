@@ -70,6 +70,7 @@ export class SessionCorpus {
       records.set(header.id, {
         header: structuredClone(header), live: false, persisted: true,
         ...(snapshot.conversationStarted === undefined ? {} : { conversationStarted: snapshot.conversationStarted }),
+        ...(snapshot.title === undefined ? {} : { title: snapshot.title }),
       })
     }
     for (const session of this._ctx.sessions.list()) {

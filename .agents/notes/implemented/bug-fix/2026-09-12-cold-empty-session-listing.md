@@ -10,7 +10,7 @@ After a Host restart, PostgreSQL Sessions are cold. When their projection cache 
 
 ## Decision
 
-The persistence snapshot carries optional lightweight `conversationStarted` evidence. PostgreSQL derives it with an indexed existence check for `turn/start`, without loading or replaying the complete log. Session Query preserves that evidence for persisted cold records, and Session Controller classifies a cache-missing cold row as blank when PostgreSQL proves no turn started. The client already shows only the current blank row, so stale shells disappear while the active draft remains reusable.
+The persistence snapshot carries optional lightweight `conversationStarted` and `title` evidence. PostgreSQL derives blankness with an indexed existence check for `turn/start` and selects only the latest `session/title` event through a partial `(session_id, seq DESC)` title index, without loading or replaying message content. Session Query preserves both facts for persisted cold records. Session Controller classifies a cache-missing cold row as blank when PostgreSQL proves no turn started and forwards the durable title as list metadata. The client therefore shows historical names immediately while it still defers conversation-body loading until selection; stale shells disappear while the active draft remains reusable.
 
 Backends that cannot determine this cheaply leave the field absent and retain the previous fail-visible behavior. A real `turn/start` always keeps the Session visible even when title generation or projection caching failed.
 
@@ -24,4 +24,4 @@ Backends that cannot determine this cheaply leave the field absent and retain th
 
 ## Consequences
 
-PostgreSQL-backed enterprise restarts no longer expose stale empty shells as conversations. Listing adds one bounded correlated existence check per header, backed by the session-id event index, while other persistence backends retain conservative behavior.
+PostgreSQL-backed enterprise restarts no longer expose stale empty shells as conversations or label titled history as “New Session.” Listing adds bounded correlated metadata lookups per header, backed by the conversation and latest-title indexes, while other persistence backends retain conservative behavior when they cannot supply these facts cheaply.

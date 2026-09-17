@@ -76,6 +76,30 @@ function conversationEvents(): SessionEvent[] {
 }
 
 describe('sessions.list cold merge', () => {
+  it('serves a persisted title from listing metadata without reading the conversation body', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const meta = header('cold-titled', 100)
+    const inspect = vi.fn()
+    providePersistence(ctx, {
+      list: () => Promise.resolve([meta]),
+      conversationStarted: () => true,
+      title: () => 'Title before content',
+      inspect,
+    })
+    const remote = createSessionTestRemote(ctx, {
+      defaultModelSelection: () => ({ provider: 'p', model: 'm' }), cwd: '/tmp',
+    })
+
+    const response = await remote.list(request({}))
+
+    if (!response.ok) throw new Error('list failed')
+    expect(response.value.items).toEqual([
+      expect.objectContaining({ sessionId: sid('cold-titled'), title: 'Title before content', blank: false }),
+    ])
+    expect(inspect).not.toHaveBeenCalled()
+  })
+
   it('hides a stale cold shell when persistence proves no conversation turn started', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)

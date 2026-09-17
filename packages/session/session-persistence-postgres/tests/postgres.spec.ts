@@ -103,6 +103,13 @@ class MemoryPostgresDatabase implements PostgresDatabase {
           ? { conversation_started: [...(this.events.get(row.id)?.values() ?? [])]
             .some(event => (event.event_json as { type?: string }).type === 'turn/start') }
           : {}),
+        ...(text.includes('AS title')
+          ? { title: [...(this.events.get(row.id)?.values() ?? [])]
+            .filter(event => (event.event_json as { type?: string }).type === 'session/title')
+            .sort((left, right) => right.seq - left.seq)
+            .map(event => (event.event_json as { data?: { title?: unknown } }).data?.title)
+            .find(value => typeof value === 'string') ?? null }
+          : {}),
       }))
     if (text.startsWith('SELECT seq FROM dsh_session_events')) {
       const session = this.events.get(values[0] as string)
@@ -161,6 +168,10 @@ class MemoryPostgresDatabase implements PostgresDatabase {
 const header = { id: 'session-a', version: 1, createdAt: 1 } as const
 const turnStart = { type: 'turn/start', seq: 0, time: 1, data: { turn: 1 } } as const
 const turnEnd = { type: 'turn/end', seq: 1, time: 2, data: { turn: 1, reason: { kind: 'completed' } } } as const
+const sessionTitle = {
+  type: 'session/title', seq: 1, time: 2,
+  data: { title: 'Historical title', messageSeqs: [], source: { kind: 'user' } },
+} as const
 
 describe('PostgresSessionStore', () => {
   it('exposes a SessionPersistence service provider', () => {
@@ -220,6 +231,7 @@ describe('PostgresSessionStore', () => {
 
     expect(database.queries.join('\n')).toContain('CREATE TABLE IF NOT EXISTS dsh_session_headers')
     expect(database.queries.join('\n')).toContain('CREATE TABLE IF NOT EXISTS dsh_session_events')
+    expect(database.queries.join('\n')).toContain('dsh_session_events_latest_title')
   })
 
   it('lists lightweight conversation-start evidence without loading complete logs', async () => {
@@ -231,13 +243,17 @@ describe('PostgresSessionStore', () => {
     await empty.flush()
     await empty.close()
     const started = await persistence.create(startedHeader)
-    await started.append([turnStart])
+    await started.append([turnStart, sessionTitle])
     await started.flush()
     await started.close()
 
     await expect(persistence.list()).resolves.toEqual(expect.arrayContaining([
       expect.objectContaining({ header: expect.objectContaining({ id: 'session-empty' }), conversationStarted: false }),
-      expect.objectContaining({ header: expect.objectContaining({ id: 'session-started' }), conversationStarted: true }),
+      expect.objectContaining({
+        header: expect.objectContaining({ id: 'session-started' }),
+        conversationStarted: true,
+        title: 'Historical title',
+      }),
     ]))
   })
 

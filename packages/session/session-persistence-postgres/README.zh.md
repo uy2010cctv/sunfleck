@@ -24,7 +24,7 @@ PostgreSQL durable session persistence for DSH event logs。
 
 ## 存储模型
 
-`dsh_session_headers` 保存不可变 JSON 会话头、持久化 incarnation 和单调 revision。 `dsh_session_events` 为每个 `(session_id, seq)` 保存一个 JSON 事件。PostgreSQL 会在读取尾部、 插入批次或修复最后一条损坏记录前锁定会话头行，因此独立写入方不能同时占用同一下一序号。revision 由数据库本地 UUID、会话头 incarnation 和 revision 计数器共同限定来源。
+`dsh_session_headers` 保存不可变 JSON 会话头、持久化 incarnation 和单调 revision。`dsh_session_events` 为每个 `(session_id, seq)` 保存一个 JSON 事件。轻量列表查询通过带索引的相关读取取得对话开始证据与最新 `session/title`，不会读取消息正文。PostgreSQL 会在读取尾部、插入批次或修复最后一条损坏记录前锁定会话头行，因此独立写入方不能同时占用同一下一序号。revision 由数据库本地 UUID、会话头 incarnation 和 revision 计数器共同限定来源。
 
 该包公开驱动无关的 `PostgresDatabase` 接口。声明式 Cordis 组合使用 `connectionString`；集成测试 或嵌入式 Host 可以直接提供事务数据库对象。任何密钥或连接字符串都不会写入会话记录。
 
@@ -71,3 +71,7 @@ interface Config {
 无。
 
 </details>
+
+## 实时 Session 持久性
+
+提供方把已发布的 `session/event` 值路由到活跃写句柄，在 `session/flush` 时排空，并在关闭或释放时排空剩余事件。失败批次会留在缓冲区等待下次 checkpoint 重试。关闭过程会尝试所有句柄并聚合失败。仅创建 Header 不能证明对话事件已经持久化。

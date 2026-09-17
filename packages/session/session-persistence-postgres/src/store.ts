@@ -15,6 +15,7 @@ interface HeaderRow extends Record<string, unknown> {
   readonly incarnation: string
   readonly revision: string | number
   readonly conversation_started?: boolean
+  readonly title?: string | null
 }
 
 interface EventRow extends Record<string, unknown> {
@@ -272,13 +273,17 @@ export class PostgresSessionStore {
     const result = await this.database.query<HeaderRow>(
       `SELECT header.id, header.header_json, header.incarnation, header.revision,
         EXISTS(SELECT 1 FROM dsh_session_events event
-          WHERE event.session_id = header.id AND event.event_type = 'turn/start') AS conversation_started
+          WHERE event.session_id = header.id AND event.event_type = 'turn/start') AS conversation_started,
+        (SELECT event.event_json->'data'->>'title' FROM dsh_session_events event
+          WHERE event.session_id = header.id AND event.event_type = 'session/title'
+          ORDER BY event.seq DESC LIMIT 1) AS title
        FROM dsh_session_headers header ORDER BY header.created_at DESC, header.id`,
     )
     signal?.throwIfAborted()
     return result.rows.map(row => ({
       header: parseHeader(row.header_json), revision: this.revision(row),
       ...(row.conversation_started === undefined ? {} : { conversationStarted: row.conversation_started }),
+      ...(typeof row.title === 'string' && row.title !== '' ? { title: row.title } : {}),
     }))
   }
 

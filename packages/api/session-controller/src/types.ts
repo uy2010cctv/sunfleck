@@ -162,6 +162,8 @@ export type QueueAction =
 /** One Session list entry. */
 export interface SessionSummary {
   readonly sessionId: SessionId
+  /** Latest durable title available without loading the conversation body. */
+  readonly title?: string
   readonly updatedAt: number
   readonly running: boolean
   readonly blank: boolean

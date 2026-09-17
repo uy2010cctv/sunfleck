@@ -33,6 +33,8 @@ export interface SessionRecord {
   persisted: boolean
   /** Lightweight persisted evidence that a conversation turn has started; absent when the backend cannot tell cheaply. */
   conversationStarted?: boolean
+  /** Latest durable title from listing metadata; absent when the backend cannot select it cheaply. */
+  title?: string
 }
 
 /** One atomic live-preferred observation of a session's current model surface. */

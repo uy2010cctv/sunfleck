@@ -56,6 +56,8 @@ export interface SessionPersistenceSnapshot {
   readonly eventCount?: number
   /** Whether a conversation turn has started, when the backend can determine it without loading the log. */
   readonly conversationStarted?: boolean
+  /** Latest durable Session title, when the backend can select it without loading message content. */
+  readonly title?: string
   /** Physical artifact byte size, when the backend can provide it cheaply (JSONL); otherwise absent. */
   readonly sizeBytes?: number
 }
