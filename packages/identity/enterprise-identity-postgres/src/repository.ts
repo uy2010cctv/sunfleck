@@ -13,6 +13,7 @@ import type {
   EnterpriseUserInput,
   EnterpriseUserView,
   CreateEnterpriseUserOptions,
+  CreateEnterpriseOrganizationInput,
   UpdateEnterpriseUserProfileInput,
   EnterpriseWorkspaceGrant,
   ExternalIdentityBinding,
@@ -158,6 +159,26 @@ export class PgEnterpriseIdentityRepository {
    */
   async createOrganization(organization: EnterpriseOrganization): Promise<void> {
     await this.database.query('INSERT INTO organizations(id, name) VALUES ($1, $2)', [organization.id, organization.name])
+  }
+
+  /** Create one organization and its enabled administrator as one PostgreSQL transaction. */
+  async createOrganizationWithAdministrator(input: CreateEnterpriseOrganizationInput): Promise<void> {
+    if (input.administrator.orgId !== input.organization.id || input.administrator.disabled) {
+      throw new Error('enterprise organization administrator must be enabled and belong to the new organization')
+    }
+    await this.transaction(async (database) => {
+      await database.query('INSERT INTO organizations(id, name) VALUES ($1, $2)', [
+        input.organization.id, input.organization.name,
+      ])
+      await database.query(`INSERT INTO users(id, org_id, username, display_name, disabled, password_verifier)
+        VALUES ($1, $2, $3, $4, $5, $6)`, [
+        input.administrator.id, input.administrator.orgId, input.administrator.username,
+        input.administrator.displayName, false, input.passwordVerifier,
+      ])
+      await database.query('INSERT INTO user_roles(user_id, role) VALUES ($1, $2)', [
+        input.administrator.id, 'administrator',
+      ])
+    })
   }
 
   /** Executes `PgEnterpriseIdentityRepository.listOrganizations` for this instance.

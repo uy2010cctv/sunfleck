@@ -43,6 +43,31 @@ describe('EnterpriseIdentityRepository', () => {
     }])
   })
 
+  it('creates an organization and its first administrator atomically', () => {
+    repository.createOrganizationWithAdministrator({
+      organization: { id: 'org-b', name: 'Second enterprise' },
+      administrator: {
+        id: 'org-b-admin', orgId: 'org-b', username: 'admin', displayName: 'Second Admin', disabled: false,
+      },
+      passwordVerifier: 'scrypt$second-verifier',
+    })
+
+    expect(repository.listOrganizations()).toContainEqual({ id: 'org-b', name: 'Second enterprise' })
+    expect(repository.listUsers('org-b')).toEqual([
+      expect.objectContaining({ id: 'org-b-admin', orgId: 'org-b', roles: ['administrator'] }),
+    ])
+    expect(repository.passwordLoginRecord('org-b', 'admin')).toMatchObject({ verifier: 'scrypt$second-verifier' })
+
+    expect(() => { repository.createOrganizationWithAdministrator({
+      organization: { id: 'org-rolled-back', name: 'Rolled back' },
+      administrator: {
+        id: 'user-1', orgId: 'org-rolled-back', username: 'admin', displayName: 'Collision', disabled: false,
+      },
+      passwordVerifier: 'scrypt$collision',
+    }) }).toThrow()
+    expect(repository.listOrganizations()).not.toContainEqual(expect.objectContaining({ id: 'org-rolled-back' }))
+  })
+
   it('binds multiple external provider identities to one canonical user', () => {
     repository.bindExternalIdentity({ providerId: 'oidc-main', subject: 'oidc-alice', userId: 'user-1' })
     repository.bindExternalIdentity({ providerId: 'ldap-main', subject: 'cn=alice,dc=example', userId: 'user-1' })

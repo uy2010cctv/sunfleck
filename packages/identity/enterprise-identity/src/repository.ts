@@ -39,6 +39,14 @@ export interface CreateEnterpriseUserOptions {
   readonly passwordVerifier?: string
 }
 
+/** Atomic first-administrator bootstrap for a new organization. */
+export interface CreateEnterpriseOrganizationInput {
+  readonly organization: EnterpriseOrganization
+  readonly administrator: EnterpriseUserInput
+  /** One-way verifier only; plaintext passwords never cross the repository seam. */
+  readonly passwordVerifier: string
+}
+
 /** Data used by `UpdateEnterpriseUserProfileInput`. */
 export interface UpdateEnterpriseUserProfileInput {
   readonly orgId: string
@@ -257,6 +265,7 @@ export type IdentityAwaitable<T> = T | Promise<T>
 export interface EnterpriseIdentityStore {
   close(): IdentityAwaitable<void>
   createOrganization(organization: EnterpriseOrganization): IdentityAwaitable<void>
+  createOrganizationWithAdministrator(input: CreateEnterpriseOrganizationInput): IdentityAwaitable<void>
   listOrganizations(): IdentityAwaitable<EnterpriseOrganization[]>
   createUser(user: EnterpriseUserInput, options?: CreateEnterpriseUserOptions): IdentityAwaitable<void>
   listUsers(orgId: string): IdentityAwaitable<EnterpriseUserView[]>
@@ -367,6 +376,29 @@ export class EnterpriseIdentityRepository implements EnterpriseIdentityStore {
   createOrganization(organization: EnterpriseOrganization): void {
     this.database.prepare('INSERT INTO organizations(id, name) VALUES (?, ?)')
       .run(organization.id, organization.name)
+  }
+
+  /** Create one organization and its enabled administrator as one SQLite transaction. */
+  createOrganizationWithAdministrator(input: CreateEnterpriseOrganizationInput): void {
+    if (input.administrator.orgId !== input.organization.id || input.administrator.disabled) {
+      throw new Error('enterprise organization administrator must be enabled and belong to the new organization')
+    }
+    this.database.exec('BEGIN IMMEDIATE')
+    try {
+      this.database.prepare('INSERT INTO organizations(id, name) VALUES (?, ?)')
+        .run(input.organization.id, input.organization.name)
+      this.database.prepare(`INSERT INTO users(id, org_id, username, display_name, disabled, password_verifier)
+        VALUES (?, ?, ?, ?, 0, ?)`).run(
+        input.administrator.id, input.administrator.orgId, input.administrator.username,
+        input.administrator.displayName, input.passwordVerifier,
+      )
+      this.database.prepare('INSERT INTO user_roles(user_id, role) VALUES (?, ?)')
+        .run(input.administrator.id, 'administrator')
+      this.database.exec('COMMIT')
+    } catch (error) {
+      this.database.exec('ROLLBACK')
+      throw error
+    }
   }
 
   listOrganizations(): EnterpriseOrganization[] {

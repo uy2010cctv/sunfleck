@@ -72,6 +72,31 @@ describe('PgEnterpriseIdentityRepository', () => {
     expect(database.queries[0]?.text).not.toContain("alice');")
   })
 
+  it('creates an organization and initial administrator in one transaction', async () => {
+    const database = new RecordingDatabase()
+    const repository = new PgEnterpriseIdentityRepository(database)
+
+    await repository.createOrganizationWithAdministrator({
+      organization: { id: 'org-b', name: 'Second enterprise' },
+      administrator: {
+        id: 'org-b-admin', orgId: 'org-b', username: 'admin', displayName: 'Second Admin', disabled: false,
+      },
+      passwordVerifier: 'scrypt$second-verifier',
+    })
+
+    expect(database.queries.map(query => query.text.trim())).toEqual([
+      'BEGIN',
+      expect.stringContaining('INSERT INTO organizations'),
+      expect.stringContaining('INSERT INTO users'),
+      expect.stringContaining('INSERT INTO user_roles'),
+      'COMMIT',
+    ])
+    expect(database.queries[2]?.values).toEqual([
+      'org-b-admin', 'org-b', 'admin', 'Second Admin', false, 'scrypt$second-verifier',
+    ])
+    expect(database.queries[3]?.values).toEqual(['org-b-admin', 'administrator'])
+  })
+
   it('scopes profile and password updates by organization', async () => {
     const database = new RecordingDatabase()
     const repository = new PgEnterpriseIdentityRepository(database)
