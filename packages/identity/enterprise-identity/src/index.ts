@@ -21,6 +21,7 @@ export {
   type EnterpriseUserInput,
   type EnterpriseUserView,
   type CreateEnterpriseUserOptions,
+  type CreateEnterpriseOrganizationInput,
   type UpdateEnterpriseUserProfileInput,
   type EnterpriseDepartment,
   type SaveEnterpriseDepartmentInput,

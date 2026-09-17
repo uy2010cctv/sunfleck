@@ -52,7 +52,10 @@ describe('EnterpriseWorkspaceProvisioner', () => {
     const provisioner = new EnterpriseWorkspaceProvisioner(repository, {
       root: join(root, 'managed'),
       registry: {
-        create: async (path, title) => ({ id: `workspace-${created.push({ path, title })}`, path, title: title ?? 'workspace' }),
+        create: async (path, title) => ({
+          id: `workspace-${created.push({ path, ...(title === undefined ? {} : { title }) })}`,
+          path, title: title ?? 'workspace',
+        }),
       },
     })
 
