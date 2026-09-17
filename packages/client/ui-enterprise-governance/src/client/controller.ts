@@ -20,6 +20,7 @@ export interface GovernanceAuthStatus {
   readonly organizationId?: string
   readonly defaultOrganizationId?: string
   readonly platformAdministrator?: boolean
+  readonly organizations?: readonly GovernanceOrganization[]
   readonly principal?: GovernancePrincipal
   readonly providers: readonly { id: string; kind: string; label: string }[]
 }
@@ -185,7 +186,13 @@ export class EnterpriseGovernanceController {
   async refreshAuth(): Promise<void> {
     try {
       const auth = await this.get<GovernanceAuthStatus>('/auth/status')
-      this.store.set({ ...this.store.getSnapshot(), phase: 'ready', error: null, auth })
+      const current = this.store.getSnapshot()
+      const organizations = auth.organizations !== undefined && auth.organizations.length > 0
+        ? auth.organizations
+        : auth.organizationId === undefined
+          ? current.organizations
+          : [{ id: auth.organizationId, name: auth.organizationId }]
+      this.store.set({ ...current, phase: 'ready', error: null, auth, organizations })
     } catch (error) {
       this.fail(error)
     }

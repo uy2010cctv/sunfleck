@@ -379,10 +379,13 @@ function LoginGate({ state, loginLocal, t }: Pick<EnterpriseGovernanceSurfacePro
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   useEffect(() => {
-    if (organizationId === '' && state.auth?.organizationId !== undefined) {
-      setOrganizationId(state.auth.organizationId)
-    }
-  }, [organizationId, state.auth?.organizationId])
+    if (state.organizations.length === 0) return
+    if (organizationId !== '' && state.organizations.some(item => item.id === organizationId)) return
+    const preferred = state.auth?.organizationId
+    setOrganizationId(preferred !== undefined && state.organizations.some(item => item.id === preferred)
+      ? preferred
+      : state.organizations[0]?.id ?? '')
+  }, [organizationId, state.auth?.organizationId, state.organizations])
   const submit = (event: FormEvent): void => {
     event.preventDefault()
     const secret = password
@@ -395,13 +398,16 @@ function LoginGate({ state, loginLocal, t }: Pick<EnterpriseGovernanceSurfacePro
       <h1>{t('\u767B\u5F55\u4F01\u4E1A\u5DE5\u4F5C\u53F0')}</h1>
       <p>{t('\u8EAB\u4EFD\u5C06\u7528\u4E8E\u5458\u5DE5\u53EF\u89C1\u8303\u56F4\u3001Host API \u6388\u6743\u4E0E\u64CD\u4F5C\u5BA1\u8BA1\u3002')}</p>
       <form onSubmit={submit}>
-        <label>{t('\u7EC4\u7EC7')}<input value={organizationId} onChange={(event) => { setOrganizationId(event.target.value) }}/></label>
+        <label>{t('\u7EC4\u7EC7')}<select value={organizationId} disabled={state.phase === 'loading' || state.organizations.length === 0} onChange={(event) => { setOrganizationId(event.target.value) }}>
+          {state.organizations.length === 0 && <option value="">{t('login.organizationsLoading')}</option>}
+          {state.organizations.map(organization => <option key={organization.id} value={organization.id}>{organization.name}</option>)}
+        </select></label>
         <label>{t('\u7528\u6237\u540D')}<input autoComplete="username" value={username} onChange={(event) => { setUsername(event.target.value) }}/></label>
         <label>{t('\u5BC6\u7801')}<input type="password" autoComplete="current-password" value={password} onChange={(event) => { setPassword(event.target.value) }}/></label>
         <div className={css.errorSlot}>
           {state.error !== null && <div className={css.error} role="alert">{state.error}</div>}
         </div>
-        <button type="submit" disabled={state.phase === 'loading'}>{state.phase === 'loading' ? t('\u6B63\u5728\u9A8C\u8BC1\u2026') : t('\u767B\u5F55')}</button>
+        <button type="submit" disabled={state.phase === 'loading' || organizationId === ''}>{state.phase === 'loading' ? t('\u6B63\u5728\u9A8C\u8BC1\u2026') : t('\u767B\u5F55')}</button>
       </form>
       {state.auth?.providers.filter(provider => provider.kind !== 'local').map(provider => (<a key={provider.id} className={css.ssoButton} href={`/auth/login/${encodeURIComponent(provider.id)}`}>
         {provider.label}

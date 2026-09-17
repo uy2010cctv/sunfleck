@@ -27,7 +27,7 @@ Persistent Web authentication and authorization:
 - Central authentication/RBAC/audit before every HTTP RPC, Typert endpoint, dedicated channel, and WebSocket downlink when composed.
 - `EnterpriseRequestContext`, an `AsyncLocalStorage` service exposing the authenticated `EnterprisePrincipal` only while authorized Host HTTP and WebSocket work is active.
 - Organization, department tree, user membership, managed Workspace/sandbox, reviewed memory, role, disable, resource-policy, and audit administration APIs.
-- Platform administrators can atomically create another organization with its first administrator. Local and mapped SSO login issue Sessions inside the selected organization; tenant administrators can enumerate only their own organization.
+- Platform administrators can atomically create another organization with its first administrator. Local and mapped SSO login issue Sessions inside the selected organization. Anonymous auth status exposes only organization ids and display names for the login selector; after authentication, tenant administrators receive only their own organization while platform administrators receive the complete selector directory.
 - A default managed personal DSH Workspace on bootstrap/login, department shared Workspaces, and member-created personal Workspaces below the deployment-owned root.
 - New managed Workspaces are stored below an organization-specific filesystem compartment. Existing grants retain their persisted paths.
 - Unknown Host endpoints fail closed.

@@ -55,6 +55,7 @@ describe('EnterpriseAuthHttpHandler', () => {
       organizationId: 'org-a',
       defaultOrganizationId: 'org-a',
       platformAdministrator: false,
+      organizations: [{ id: 'org-a', name: 'Example' }],
       providers: [
         { id: 'local', kind: 'local', label: 'Local account' },
         { id: 'oidc-main', kind: 'oidc', label: 'Company OIDC' },
@@ -125,6 +126,15 @@ describe('EnterpriseAuthHttpHandler', () => {
     }))
     expect(created.status).toBe(201)
 
+    const anonymousDirectory = await handler.fetch(new Request('https://dsh.example.com/auth/status'))
+    await expect(anonymousDirectory.json()).resolves.toMatchObject({
+      authenticated: false,
+      organizations: [
+        { id: 'org-a', name: 'Example' },
+        { id: 'org-b', name: 'Second enterprise' },
+      ],
+    })
+
     const tenantLogin = await handler.fetch(new Request('https://dsh.example.com/auth/login/local', {
       method: 'POST', headers: { 'content-type': 'application/json', origin: 'https://dsh.example.com' },
       body: JSON.stringify({ organizationId: 'org-b', username: 'admin', password: 'second-password' }),
@@ -137,6 +147,7 @@ describe('EnterpriseAuthHttpHandler', () => {
     await expect(tenantStatus.json()).resolves.toMatchObject({
       authenticated: true, organizationId: 'org-b', defaultOrganizationId: 'org-a',
       platformAdministrator: false, principal: { userId: 'org-b-admin', orgId: 'org-b' },
+      organizations: [{ id: 'org-b', name: 'Second enterprise' }],
     })
     const tenantOrganizations = await handler.fetch(new Request('https://dsh.example.com/auth/admin/organizations', {
       headers: { cookie: tenantCookie },

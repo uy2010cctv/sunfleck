@@ -100,17 +100,21 @@ describe('enterprise governance UI', () => {
       assets: [], policies: [], audit: [], departmentManagers: {},
     }
     const { rerender } = render(<EnterpriseGovernanceSurface state={loading} {...props} />)
-    expect(screen.getByLabelText('组织')).toHaveProperty('value', '')
+    expect(screen.getByRole('combobox', { name: '组织' })).toHaveProperty('value', '')
     rerender(<EnterpriseGovernanceSurface state={state({ auth: {
       authenticated: false, organizationId: 'default-enterprise', providers: [],
-    } })} {...props} />)
-    expect(screen.getByLabelText('组织')).toHaveProperty('value', 'default-enterprise')
+    }, organizations: [{ id: 'default-enterprise', name: '夏树科技有限公司' }] })} {...props} />)
+    expect(screen.getByRole('combobox', { name: '组织' })).toHaveProperty('value', 'default-enterprise')
+    expect(screen.getByRole('option', { name: '夏树科技有限公司' })).toBeDefined()
   })
 
   it('blocks the application with a labelled login form while unauthenticated', () => {
     const loginLocal = vi.fn(() => Promise.resolve())
     render(<EnterpriseGovernanceSurface
-      state={state({})}
+      state={state({ organizations: [
+        { id: 'default-enterprise', name: '夏树科技有限公司' },
+        { id: 'org-a', name: '示例组织' },
+      ] })}
       loginLocal={loginLocal}
       logout={vi.fn()}
       createOrganization={vi.fn()}
@@ -125,8 +129,10 @@ describe('enterprise governance UI', () => {
       savePolicy={vi.fn()}
       filterAudit={vi.fn()}
     />)
-    expect(screen.getByLabelText('组织')).toHaveProperty('value', 'default-enterprise')
-    fireEvent.change(screen.getByLabelText('组织'), { target: { value: 'org-a' } })
+    const organization = screen.getByRole('combobox', { name: '组织' })
+    expect(organization).toHaveProperty('value', 'default-enterprise')
+    expect(within(organization).getAllByRole('option')).toHaveLength(2)
+    fireEvent.change(organization, { target: { value: 'org-a' } })
     fireEvent.change(screen.getByLabelText('用户名'), { target: { value: 'admin' } })
     fireEvent.change(screen.getByLabelText('密码'), { target: { value: 'enterprise-password' } })
     fireEvent.click(screen.getByRole('button', { name: '登录' }))

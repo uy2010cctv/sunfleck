@@ -27,7 +27,7 @@ Enterprise Web authentication, session cookies, central API RBAC, and audit。
 - 组合后，在每个 HTTP RPC、Typert 端点、独立 Channel 和 WebSocket 下行之前进行中央认证/RBAC/审计。
 - `EnterpriseRequestContext` 是基于 `AsyncLocalStorage` 的服务，仅在已授权的 Host HTTP 与 WebSocket 工作期间暴露认证后的 `EnterprisePrincipal`。
 - 组织、树状部门、用户成员关系、受管 Workspace/沙盒、已审核记忆、角色、停用、资源策略和审计管理 API。
-- 平台管理员可以原子创建另一组织及其首位管理员。本地登录和已映射 SSO 登录会在所选组织内签发 Session；租户管理员只能列出自己的组织。
+- 平台管理员可以原子创建另一组织及其首位管理员。本地登录和已映射 SSO 登录会在所选组织内签发 Session。匿名认证状态仅为登录选择器公开组织编号和显示名称；完成认证后，租户管理员只收到本组织，平台管理员收到完整选择目录。
 - 在 Bootstrap/登录时创建默认受管个人 DSH Workspace，创建部门共享 Workspace，并允许成员在部署方受管根目录下新建个人 Workspace。
 - 新受管 Workspace 会写入组织专属的文件系统分舱；已有授权继续使用其已持久化路径。
 - 未知 Host 端点失败关闭。

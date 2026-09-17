@@ -114,11 +114,16 @@ export class EnterpriseAuthHttpHandler {
 
     if (request.method === 'GET' && path.length === 2 && path[1] === 'status') {
       const principal = await this.security.authenticateCookieAsync(request.headers.get('cookie') ?? '')
+      const organizations = await this.security.repository.listOrganizations()
+      const visibleOrganizations = principal === undefined || this.security.isPlatformAdministrator(principal)
+        ? organizations
+        : organizations.filter(item => item.id === principal.orgId)
       return json({
         authenticated: principal !== undefined,
         organizationId: principal?.orgId ?? this.security.config.organizationId,
         defaultOrganizationId: this.security.config.organizationId,
         platformAdministrator: principal !== undefined && this.security.isPlatformAdministrator(principal),
+        organizations: visibleOrganizations,
         ...principal === undefined ? {} : { principal },
         providers: [
           ...(this.providers.localEnabled ? [{ id: 'local', kind: 'local', label: 'Local account' }] : []),

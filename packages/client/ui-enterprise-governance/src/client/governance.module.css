@@ -16,7 +16,7 @@
   box-sizing: border-box;
 }
 
-.settingsLedger button:focus-visible, .settingsLedger input:focus-visible, .settingsLedger select:focus-visible, .settingsLedger textarea:focus-visible, .loginGate button:focus-visible, .loginGate input:focus-visible, .ssoButton:focus-visible { outline: 2px solid var(--dsw-alias-brand-primary-new-colorprimary-new-color); outline-offset: 2px; }
+.settingsLedger button:focus-visible, .settingsLedger input:focus-visible, .settingsLedger select:focus-visible, .settingsLedger textarea:focus-visible, .loginGate button:focus-visible, .loginGate input:focus-visible, .loginGate select:focus-visible, .ssoButton:focus-visible { outline: 2px solid var(--dsw-alias-brand-primary-new-colorprimary-new-color); outline-offset: 2px; }
 .settingsLedger ::selection, .loginGate ::selection { background: var(--dsw-alias-state-business-primary); color: var(--dsw-alias-bg-base); }
 
 .loginGate { position: absolute; inset: 0; z-index: 60; display: grid; place-items: center; overflow: auto; padding: 24px; background: var(--dsw-alias-bg-base); color: var(--dsw-alias-label-primary); }
@@ -28,7 +28,7 @@
 .loginPanel p { max-inline-size: 65ch; margin: 8px 0 24px; color: var(--dsw-alias-label-secondary); font-size: 13px; line-height: 1.6; }
 .loginPanel form { display: grid; gap: 16px; }
 .loginPanel label { display: grid; gap: 8px; color: var(--dsw-alias-label-secondary); font-size: 12px; }
-.loginPanel input, .inlineForm input, .inlineForm select, .departmentForm input, .departmentForm select, .workspaceCreate input, .workspaceRow input, .memoryFields input, .memoryFields select, .memoryFields textarea, .memoryReviewReason input, .userToolbar input, .userForm input, .userForm select { min-block-size: 44px; min-inline-size: 0; padding: 0 12px; border: 0.5px solid var(--dsw-alias-border-l2); border-radius: 10px; outline: 2px solid transparent; background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-label-primary); font: inherit; }
+.loginPanel input, .loginPanel select, .inlineForm input, .inlineForm select, .departmentForm input, .departmentForm select, .workspaceCreate input, .workspaceRow input, .memoryFields input, .memoryFields select, .memoryFields textarea, .memoryReviewReason input, .userToolbar input, .userForm input, .userForm select { min-block-size: 44px; min-inline-size: 0; padding: 0 12px; border: 0.5px solid var(--dsw-alias-border-l2); border-radius: 10px; outline: 2px solid transparent; background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-label-primary); font: inherit; }
 .loginPanel button, .ssoButton { min-block-size: 44px; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--dsw-alias-label-primary); border-radius: 10px; background: var(--dsw-alias-label-primary); color: var(--dsw-alias-bg-base); font: inherit; text-decoration: none; cursor: pointer; white-space: nowrap; }
 .loginPanel button:hover, .ssoButton:hover { background: var(--dsw-alias-state-business-primary); border-color: var(--dsw-alias-state-business-primary); }
 .loginPanel button:active, .ssoButton:active { transform: translateY(1px); }
@@ -274,8 +274,8 @@ td span { margin-block-start: 4px; color: var(--dsw-alias-label-secondary); font
 .memoryActions { display: flex; flex-wrap: wrap; gap: 8px; }
 .emptyState { max-inline-size: 52ch; color: var(--dsw-alias-label-secondary); font-size: 12px; line-height: 1.6; }
 .error { margin-block: 12px; padding: 8px 12px; border: 1px solid var(--dsw-alias-state-error-primary); border-radius: 10px; color: var(--dsw-alias-state-error-primary); font-size: 12px; }
-.settingsLedger button:disabled, .settingsLedger input:disabled, .settingsLedger select:disabled, .loginGate input:disabled { cursor: not-allowed; opacity: .55; }
-.settingsLedger input:hover:not(:disabled), .settingsLedger select:hover:not(:disabled), .loginGate input:hover:not(:disabled) { border-color: var(--dsw-alias-label-secondary); }
+.settingsLedger button:disabled, .settingsLedger input:disabled, .settingsLedger select:disabled, .loginGate input:disabled, .loginGate select:disabled { cursor: not-allowed; opacity: .55; }
+.settingsLedger input:hover:not(:disabled), .settingsLedger select:hover:not(:disabled), .loginGate input:hover:not(:disabled), .loginGate select:hover:not(:disabled) { border-color: var(--dsw-alias-label-secondary); }
 
 @media (max-width: 48rem) {
   .settingsLedger { padding-inline: 0; }

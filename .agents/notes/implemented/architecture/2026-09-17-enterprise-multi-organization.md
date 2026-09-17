@@ -14,7 +14,7 @@ SUNFLECK treats the configured default organization as the platform organization
 
 Organization bootstrap is one identity-repository transaction. It creates the organization, one enabled administrator, that user's one-way password verifier, and the administrator role together; any failure rolls back the whole operation. Platform administrators may enumerate organizations. Tenant administrators see only their current organization and cannot create peers.
 
-Local login resolves the username inside the submitted organization and issues the browser Session for that same organization. SSO follows its validated organization mapping and rejects an existing external identity when the mapped organization changes. `/auth/status` exposes the current organization, the configured platform organization, and whether the current principal is a platform administrator.
+Local login resolves the username inside the submitted organization and issues the browser Session for that same organization. SSO follows its validated organization mapping and rejects an existing external identity when the mapped organization changes. `/auth/status` exposes the current organization, the configured platform organization, whether the current principal is a platform administrator, and the organization directory used by the native login selector. An anonymous response includes only organization ids and display names. An authenticated tenant receives only its own organization; a platform administrator receives the complete directory.
 
 Organization-local reads and writes derive `orgId` from the authenticated principal. New managed Workspaces live below `organizations/<org-hash>/users|departments`; existing persisted grants retain their durable paths. Employee, capability, team, memory, channel, Workspace, Session, policy, and audit repositories continue applying their organization predicates.
 
@@ -34,6 +34,7 @@ This boundary does not automatically isolate storage owned by an out-of-tree plu
 
 - The same username may exist in separate organizations and authenticate to different principals and Sessions.
 - A platform administrator can create a ready-to-use tenant in one operation; tenant administrators cannot discover or create peers.
+- Organization ids and display names are intentionally discoverable before authentication so a person can select the correct login boundary; no users, departments, roles, or resources are included.
 - Host-global administration is explicitly narrower than the organization administrator role.
 - New managed Workspace paths are physically separated by organization while old grants remain compatible.
 - Document knowledge remains a named coverage gap until the external plugin persists and checks organization identity itself; the product must not describe that plugin data as tenant-isolated before that work ships.

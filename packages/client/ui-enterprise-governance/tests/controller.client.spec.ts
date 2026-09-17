@@ -38,6 +38,7 @@ describe('EnterpriseGovernanceController', () => {
       if (path === '/auth/status') return Promise.resolve(response({
         authenticated: true,
         principal: { userId: 'admin-1', orgId: 'org-a', username: 'admin', displayName: 'Admin', roles: ['administrator'] },
+        organizations: [{ id: 'org-a', name: 'Example' }],
         providers: [],
       }))
       if (path.endsWith('/users')) return Promise.resolve(response([{ id: 'admin-1', roles: ['administrator'] }]))
@@ -64,6 +65,7 @@ describe('EnterpriseGovernanceController', () => {
     const controller = new EnterpriseGovernanceController(fetcher, cordisGovernance as never)
     await controller.refreshAuth()
     expect(controller.store.getSnapshot().auth?.principal?.userId).toBe('admin-1')
+    expect(controller.store.getSnapshot().organizations).toEqual([{ id: 'org-a', name: 'Example' }])
 
     await controller.loadAdmin()
     expect(controller.store.getSnapshot()).toMatchObject({
