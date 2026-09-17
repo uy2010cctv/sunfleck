@@ -38,6 +38,8 @@ The Web plugin accepts a deployment-owned `identityStore` implementing the `Ente
 
 `EnterpriseSecurity` hydrates human principals with department membership and managed departments before applying the shared hierarchy policy. Employee definitions resolve through their owner's directory assignment; employee-bound channels resolve through the immutable release to that definition. Unbound channels remain private to their creator, while administrators may create new channel records. Memory administration lists organization memory plus authorized departments, permits department managers to maintain their department, and reserves organization memory changes for administrators.
 
+Plugins that register raw `WebRoute` handlers must authenticate their browser requests before reading bodies or domain data. The `enterpriseKnowledge.read` and `enterpriseKnowledge.manage` classifications let the knowledge plugin reuse the enterprise Session, capability RBAC, request principal, and audit sink instead of treating same-origin routing as authorization.
+
 The configured organization remains the platform organization. Its administrators may manage Host-global model settings, Credentials, and developer inspection; administrators authenticated to another organization receive `organization-mismatch` for those operations. Organization-local employees, capability assets, teams, memory, channels, Workspaces, Sessions, and audit use the authenticated principal's `orgId`.
 
 ## Model Experience
