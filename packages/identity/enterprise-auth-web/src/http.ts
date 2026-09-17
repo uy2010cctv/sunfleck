@@ -231,6 +231,14 @@ export class EnterpriseAuthHttpHandler {
   private async admin(request: Request, url: URL, path: string[]): Promise<Response> {
     const principal = await this.security.authenticateCookieAsync(request.headers.get('cookie') ?? '')
     if (principal === undefined) return new Response('unauthorized', { status: 401 })
+    if (request.method === 'POST' && path.length === 3 && path[2] === 'organizations'
+      && !this.security.isPlatformAdministrator(principal)) {
+      await this.security.auditApiAsync(
+        principal, 'enterpriseAdmin.organizations', {},
+        { allowed: false, reason: 'organization-mismatch' }, request.headers.get('x-request-id') ?? randomUUID(),
+      )
+      return new Response('forbidden', { status: 403 })
+    }
     const memoryRoute = path[2] === 'memories'
     if (!memoryRoute || request.method === 'GET') {
       const endpoint = memoryRoute
@@ -261,7 +269,6 @@ export class EnterpriseAuthHttpHandler {
     }
     if (request.method === 'POST' && path.length === 3 && path[2] === 'organizations') {
       if (!sameOrigin(request)) return new Response('forbidden', { status: 403 })
-      if (!this.security.isPlatformAdministrator(principal)) return new Response('forbidden', { status: 403 })
       const body = await jsonBody(request)
       const id = body['id']
       const name = body['name']
