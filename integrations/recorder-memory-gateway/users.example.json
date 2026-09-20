@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "tokens": [
+    {
+      "token_sha256": "replace-with-sha256-of-one-user-token",
+      "org_id": "default-enterprise",
+      "user_id": "bootstrap-admin",
+      "display_name": "Kris",
+      "device_sns": ["CB08"]
+    }
+  ]
+}

@@ -1,0 +1,18 @@
+[Unit]
+Description=SUNFLECK Recorder Memory Gateway
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/home/recorder
+EnvironmentFile=/home/recorder/gateway.env
+ExecStart=/usr/bin/python3 /home/recorder/gateway.py
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
