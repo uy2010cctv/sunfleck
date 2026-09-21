@@ -46,6 +46,49 @@ export interface EnterpriseRecorderDeviceView {
 }
 /** Filters for the authenticated user's recorder devices. */
 export interface EnterpriseRecorderListRequest { readonly includeRevoked?: boolean }
+/** Runtime source selected for one recorder model capability. */
+export type EnterpriseRecorderModelMode = 'local' | 'online'
+/** Explicit ASR model configuration with only a Credential reference crossing the browser boundary. */
+export interface EnterpriseRecorderAsrConfig {
+  readonly mode: EnterpriseRecorderModelMode
+  readonly model: string
+  readonly endpoint?: string
+  readonly credentialRef?: string
+}
+/** Explicit speaker model configuration. */
+export interface EnterpriseRecorderCamConfig {
+  readonly enabled: boolean
+  readonly mode: EnterpriseRecorderModelMode
+  readonly model: string
+  readonly endpoint?: string
+  readonly credentialRef?: string
+  readonly matchThreshold: number
+}
+/** Saved recorder inference configuration. */
+export interface EnterpriseRecorderRuntimeConfig {
+  readonly revision: number
+  readonly asr: EnterpriseRecorderAsrConfig
+  readonly cam: EnterpriseRecorderCamConfig
+}
+/** Readable runtime status after a real health check. */
+export interface EnterpriseRecorderRuntimeView extends EnterpriseRecorderRuntimeConfig {
+  /** Revision loaded by the active model process; omitted before the first successful start. */
+  readonly activeRevision?: number
+  readonly state: 'stopped' | 'starting' | 'running' | 'error'
+  readonly asrReady: boolean
+  readonly camReady: boolean
+  readonly credentialReady: boolean
+  readonly error?: string
+  readonly checkedAt: number
+}
+/** Optimistic recorder runtime configuration write. */
+export interface EnterpriseRecorderRuntimeSaveRequest {
+  readonly expectedRevision: number
+  readonly asr: EnterpriseRecorderAsrConfig
+  readonly cam: EnterpriseRecorderCamConfig
+}
+/** Empty recorder runtime lookup/start request. */
+export interface EnterpriseRecorderRuntimeRequest {}
 /** Bounded recent-run request. */
 export interface EnterpriseComputerUseRunListRequest { readonly limit?: number }
 /** Bounded recent-action request. */

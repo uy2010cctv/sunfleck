@@ -1,0 +1,29 @@
+# Mac mini (Apple Silicon) 本地 ASR 服务依赖
+#
+# 安装：pip install -r requirements.txt
+#
+# 默认后端是 FunASR / Paraformer（中文更强、更快，且自带 VAD/标点/说话人）。
+# 想改用 faster-whisper 则装最后那个可选块，并设 ASR_BACKEND=faster-whisper。
+
+# ---- 服务框架 ----
+fastapi>=0.110
+uvicorn[standard]>=0.29
+pydantic>=2.6
+python-multipart>=0.0.9      # FastAPI 的 UploadFile 需要
+numpy>=1.26
+
+# ---- 后端 A：FunASR / Paraformer（默认）----
+# torch 会带上 Apple Silicon 的 CPU/MPS 支持；MPS 是否可用取决于 torch 构建，
+# 建议先用 device=cpu 跑通再试 mps（见 README「性能与设备」）。
+torch>=2.2
+torchaudio>=2.2
+funasr>=1.1
+modelscope>=1.17             # 模型自动下载（hub=ms）
+
+# 提示：首次启动会下载 paraformer-zh / fsmn-vad / ct-punc（以及可选的 cam++）。
+# 缓存与镜像：
+#   export MODELSCOPE_CACHE="$HOME/.cache/modelscope"
+#   export HF_ENDPOINT=https://hf-mirror.com
+
+# ---- 后端 B：faster-whisper（可选，对照/兜底）----
+# faster-whisper>=1.0.3

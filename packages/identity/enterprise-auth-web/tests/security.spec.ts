@@ -155,6 +155,15 @@ describe('EnterpriseSecurity', () => {
     expect(classifyApiEndpoint('enterpriseDevice.issuePermit', { deviceId: 'device-1' })).toEqual({
       action: 'device.execute', resourceType: 'device', resourceId: 'device-1',
     })
+    for (const endpoint of [
+      'enterpriseDevice.getRecorderRuntime',
+      'enterpriseDevice.saveRecorderRuntime',
+      'enterpriseDevice.startRecorderRuntime',
+    ]) {
+      expect(classifyApiEndpoint(endpoint, {})).toEqual({
+        action: 'model.manage', resourceType: 'recorder-runtime',
+      })
+    }
     expect(classifyApiEndpoint('enterpriseEmployee.getDraft', { presetId: 'employee-1' })).toEqual({ action: 'employee.read', resourceType: 'employee', resourceId: 'employee-1' })
     expect(classifyApiEndpoint('enterpriseEmployee.publish', { presetId: 'employee-1' })).toEqual({ action: 'employee.update', resourceType: 'employee', resourceId: 'employee-1' })
     expect(classifyApiEndpoint('enterpriseAsset.get', { assetId: 'asset-1' })).toEqual({ action: 'capability.read', resourceType: 'enterprise-asset', resourceId: 'asset-1' })

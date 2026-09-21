@@ -185,10 +185,14 @@ import type {
   EnterpriseDeviceView,
   EnterpriseRecorderDeviceView,
   EnterpriseRecorderListRequest,
+  EnterpriseRecorderRuntimeRequest,
+  EnterpriseRecorderRuntimeSaveRequest,
+  EnterpriseRecorderRuntimeView,
   EnterpriseRecorderPairingChallenge,
   EnterpriseRecorderPairingRequest,
 } from './contract/devices.ts'
 import { DeviceAgentHttpHandler } from './device-agent-http.ts'
+import { RecorderRuntimeBridge, validateRecorderRuntimeSave } from './recorder-runtime.ts'
 
 export type * from './contract/index.ts'
 
@@ -523,6 +527,63 @@ export class EnterpriseDeviceController extends TypertRemoteService {
           recorderId: recorder.recorderId, deviceName: recorder.deviceName, status: recorder.status,
           ...(recorder.lastSeenAt === undefined ? {} : { lastSeenAt: recorder.lastSeenAt }),
         }))
+    })
+  }
+
+  /** Read saved recorder model configuration and fresh runtime health.
+   * @param request - Empty authenticated runtime lookup.
+   * @returns Redacted ASR/CAM configuration and verified readiness.
+   */
+  @Remote('getRecorderRuntime') async getRecorderRuntime(
+    request: EnterpriseRecorderRuntimeRequest,
+  ): Promise<EnterpriseRecorderRuntimeView> {
+    return catalogCall(this.ctx, 'enterpriseDevice.getRecorderRuntime', request, 'recorder-runtime', 'singleton', () =>
+      this.recorderRuntime().status())
+  }
+
+  /** Save recorder model configuration after resolving Host-owned Credential references.
+   * @param request - Revision-aware ASR/CAM configuration.
+   * @returns Saved redacted configuration and current readiness.
+   */
+  @Remote('saveRecorderRuntime') async saveRecorderRuntime(
+    request: EnterpriseRecorderRuntimeSaveRequest,
+  ): Promise<EnterpriseRecorderRuntimeView> {
+    return catalogCall(this.ctx, 'enterpriseDevice.saveRecorderRuntime', request, 'recorder-runtime', 'singleton', async () => {
+      const validated = validateRecorderRuntimeSave(request)
+      const credentials: { asrCredential?: string; camCredential?: string } = {}
+      if (validated.asr.mode === 'online') {
+        const reference = validated.asr.credentialRef
+        if (reference === undefined) throw new Error('ASR Credential reference is not configured')
+        const value = (await this.ctx.credentials.resolve(credentialRef(reference)))?.value
+        if (!value) throw new Error('ASR Credential reference is not configured')
+        credentials.asrCredential = value
+      }
+      if (validated.cam.enabled && validated.cam.mode === 'online') {
+        const reference = validated.cam.credentialRef
+        if (reference === undefined) throw new Error('CAM Credential reference is not configured')
+        const value = (await this.ctx.credentials.resolve(credentialRef(reference)))?.value
+        if (!value) throw new Error('CAM Credential reference is not configured')
+        credentials.camCredential = value
+      }
+      return this.recorderRuntime().save(validated, credentials)
+    })
+  }
+
+  /** Start or hot-reload the saved recorder model configuration.
+   * @param request - Empty authenticated start request.
+   * @returns Fresh runtime health after startup settles.
+   */
+  @Remote('startRecorderRuntime') async startRecorderRuntime(
+    request: EnterpriseRecorderRuntimeRequest,
+  ): Promise<EnterpriseRecorderRuntimeView> {
+    return catalogCall(this.ctx, 'enterpriseDevice.startRecorderRuntime', request, 'recorder-runtime', 'singleton', () =>
+      this.recorderRuntime().start())
+  }
+
+  private recorderRuntime(): RecorderRuntimeBridge {
+    return new RecorderRuntimeBridge({
+      baseUrl: process.env['DSH_RECORDER_ADMIN_URL'] ?? 'http://127.0.0.1:18765',
+      adminToken: process.env['DSH_RECORDER_ADMIN_TOKEN'] ?? '',
     })
   }
 

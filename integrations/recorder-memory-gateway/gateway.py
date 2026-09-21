@@ -29,6 +29,8 @@ LEDGER_PATH = Path(os.environ.get("RECORDER_SEGMENT_LEDGER", str(TRANSCRIPT_DIR 
 ASR_TOKEN = os.environ.get("ASR_AUTH_TOKEN", "").strip()
 DSH_BINDING_UPSTREAM = os.environ.get("DSH_RECORDER_BINDING_UPSTREAM", "http://127.0.0.1:3081/device-agent/v1/recorder/bind")
 DSH_BINDING_TOKEN = os.environ.get("DSH_RECORDER_BINDING_TOKEN", "").strip()
+DSH_RECORDER_ADMIN_TOKEN = os.environ.get("DSH_RECORDER_ADMIN_TOKEN", "").strip()
+ASR_RUNTIME_UPSTREAM = os.environ.get("RECORDER_ASR_RUNTIME_UPSTREAM", UPSTREAM.rsplit("/v1/", 1)[0] + "/v1/admin/runtime")
 MAX_BODY = 8 * 1024 * 1024
 IDENTIFIER = re.compile(r"^[A-Za-z0-9._:-]{1,200}$")
 
@@ -225,6 +227,13 @@ def rate_ok(ip: str) -> bool:
         return True
 
 
+def admin_token_ok(supplied: str | None, expected: str = DSH_RECORDER_ADMIN_TOKEN) -> bool:
+    if supplied is None or not expected:
+        return False
+    left, right = supplied.encode(), expected.encode()
+    return len(left) == len(right) and hmac.compare_digest(left, right)
+
+
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, _format: str, *_args: object) -> None:
         pass
@@ -240,6 +249,8 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         if self.path == "/health":
             self._json(200, {"ok": True, "upstream": UPSTREAM, "identity_registry": REGISTRY_PATH.exists()})
+        elif self.path == "/v1/admin/runtime":
+            self._proxy_runtime("GET", "")
         else:
             self._json(404, {"error": "not found"})
 
@@ -252,6 +263,12 @@ class Handler(BaseHTTPRequestHandler):
             return
         if self.path == "/v1/speaker/enroll":
             self._enroll_speaker()
+            return
+        if self.path == "/v1/admin/runtime/configure":
+            self._proxy_runtime("POST", "/configure")
+            return
+        if self.path == "/v1/admin/runtime/start":
+            self._proxy_runtime("POST", "/start")
             return
         if self.path != "/v1/transcribe_segments":
             self._json(404, {"error": "not found"})
@@ -376,6 +393,34 @@ class Handler(BaseHTTPRequestHandler):
             with urllib.request.urlopen(request, timeout=130) as response:
                 result = json.loads(response.read().decode("utf-8", "replace"))
                 self._json(response.status, result)
+        except urllib.error.HTTPError as error:
+            detail = error.read().decode("utf-8", "replace")[:500]
+            self._json(error.code, {"error": detail})
+        except Exception as error:
+            self._json(502, {"error": f"upstream: {error}"})
+
+    def _proxy_runtime(self, method: str, suffix: str) -> None:
+        if not admin_token_ok(self.headers.get("X-DSH-Recorder-Admin-Token")):
+            self._json(401, {"error": "recorder admin authentication failed"})
+            return
+        body = None
+        if method == "POST":
+            try:
+                length = int(self.headers.get("content-length", "0"))
+            except ValueError:
+                length = 0
+            if length <= 0 or length > 64 * 1024:
+                self._json(413, {"error": "body size invalid"})
+                return
+            body = self.rfile.read(length)
+        request = urllib.request.Request(
+            ASR_RUNTIME_UPSTREAM + suffix, data=body, method=method,
+            headers={"content-type": "application/json", "X-Auth-Token": ASR_TOKEN},
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=35) as response:
+                value = json.loads(response.read().decode("utf-8", "replace"))
+                self._json(response.status, value)
         except urllib.error.HTTPError as error:
             detail = error.read().decode("utf-8", "replace")[:500]
             self._json(error.code, {"error": detail})

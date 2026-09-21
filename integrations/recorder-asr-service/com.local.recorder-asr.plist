@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Mac mini 上的本地 ASR 服务 + 出件箱。
+
+  安装：
+    1) 把 /Users/YOU 换成你的真实路径
+    2) 生成 token：python3 -c 'import secrets;print(secrets.token_urlsafe(32))'
+       填到 ASR_AUTH_TOKEN（留空则关闭鉴权，不建议）
+    3) cp 到 ~/Library/LaunchAgents/
+       launchctl load ~/Library/LaunchAgents/com.local.recorder-asr.plist
+    4) 验证：curl -s localhost:8765/health
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.local.recorder-asr</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/YOU/asr-service/.venv/bin/uvicorn</string>
+    <string>app:app</string>
+    <string>--host</string><string>0.0.0.0</string>
+    <string>--port</string><string>8765</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>/Users/YOU/asr-service</string>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <!-- 后端：funasr（默认，中文更强更快）或 faster-whisper -->
+    <key>ASR_BACKEND</key><string>funasr</string>
+    <key>ASR_FUNASR_MODEL</key><string>paraformer-zh</string>
+    <key>ASR_VAD_MODEL</key><string>fsmn-vad</string>
+    <key>ASR_PUNC_MODEL</key><string>ct-punc</string>
+    <!-- 说话人分离：留空=关闭；设 cam++ 会在结果里带 spk 聚类标签。
+         注意那是聚类编号，不是真实身份，跨文件不保证一致。 -->
+    <key>ASR_SPK_MODEL</key><string>cam++</string>
+    <!-- 先跑通 cpu 再试 mps（见 README「性能与设备」） -->
+    <key>ASR_DEVICE</key><string>cpu</string>
+    <key>ASR_NCPU</key><string>4</string>
+    <key>ASR_HOTWORDS</key><string>hotwords.txt</string>
+    <!-- 出件箱：47 侧 Agent 通过隧道来这里拉取转写结果 -->
+    <key>ASR_OUTBOX_DIR</key><string>/Users/YOU/recorder-asr/outbox</string>
+    <!-- 共享密钥。别把真实值提交进仓库 -->
+    <key>ASR_AUTH_TOKEN</key><string>REPLACE_ME</string>
+    <!-- 国内网络下载模型可加镜像 -->
+    <key>HF_ENDPOINT</key><string>https://hf-mirror.com</string>
+  </dict>
+
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>StandardOutPath</key><string>/tmp/recorder-asr.log</string>
+  <key>StandardErrorPath</key><string>/tmp/recorder-asr.err</string>
+</dict>
+</plist>
