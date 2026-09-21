@@ -13,4 +13,4 @@ pnpm --filter @deepseek-ai/dsh-device-agent bundle
 node apps/device-agent/lib/bin.js --server https://your-dsh-host
 ```
 
-Then open **Digital employees → My computer → Connect this computer**. Pairing is handled through loopback and requires no device ID or key entry.
+Then open **Digital employees → My devices → Connect this computer**. Pairing is handled through loopback and requires no device ID or key entry.

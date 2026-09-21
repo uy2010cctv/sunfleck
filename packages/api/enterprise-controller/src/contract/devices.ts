@@ -22,12 +22,30 @@ export interface EnterpriseDevicePairRequest {
 export interface EnterpriseDeviceView {
   readonly deviceId: string
   readonly deviceName: string
-  readonly platform: 'macos' | 'windows' | 'linux'
+  readonly kind?: 'computer' | 'recorder'
+  readonly platform: 'macos' | 'windows' | 'linux' | 'recorder'
   readonly status: 'online' | 'offline' | 'revoked'
   readonly lastHeartbeatAt?: number
 }
 /** Filters for the authenticated user's paired devices. */
 export interface EnterpriseDeviceListRequest { readonly includeRevoked?: boolean }
+/** Starts one short-lived recorder pairing ceremony for the authenticated user. */
+export interface EnterpriseRecorderPairingRequest {}
+/** Secret-free recorder pairing challenge shown once to the authenticated user. */
+export interface EnterpriseRecorderPairingChallenge {
+  readonly pairingId: string
+  readonly code: string
+  readonly expiresAt: number
+}
+/** Redacted recorder device projection owned by the authenticated user. */
+export interface EnterpriseRecorderDeviceView {
+  readonly recorderId: string
+  readonly deviceName: string
+  readonly status: 'active' | 'revoked'
+  readonly lastSeenAt?: number
+}
+/** Filters for the authenticated user's recorder devices. */
+export interface EnterpriseRecorderListRequest { readonly includeRevoked?: boolean }
 /** Bounded recent-run request. */
 export interface EnterpriseComputerUseRunListRequest { readonly limit?: number }
 /** Bounded recent-action request. */

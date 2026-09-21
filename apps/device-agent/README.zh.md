@@ -13,4 +13,4 @@ pnpm --filter @deepseek-ai/dsh-device-agent bundle
 node apps/device-agent/lib/bin.js --server https://your-dsh-host
 ```
 
-随后打开 **数字员工 → 我的电脑 → 连接此电脑**。配对通过 loopback 自动完成，无需填写设备 ID 或密钥。
+随后打开 **数字员工 → 我的设备 → 连接此电脑**。配对通过 loopback 自动完成，无需填写设备 ID 或密钥。

@@ -1,5 +1,8 @@
 import type { PostgresDatabase } from '@deepseek-ai/dsh-enterprise-operations'
-import type { ComputerUseRun, Device, DeviceActionView, OperationPermit, QueuedDeviceAction } from './index.ts'
+import type {
+  ComputerUseRun, Device, DeviceActionView, OperationPermit, QueuedDeviceAction,
+  RecorderDevice, RecorderPairingChallenge,
+} from './index.ts'
 
 /** Durable PostgreSQL repository for Device Plane identity, runs, permits, and actions. */
 export class PostgresDevicePlaneRepository {
@@ -60,6 +63,54 @@ export class PostgresDevicePlaneRepository {
         ? { ...device, status: 'offline' }
         : device
     })
+  }
+  /** Persist one authenticated user's short-lived recorder pairing challenge. */
+  async saveRecorderPairing(challenge: RecorderPairingChallenge): Promise<void> {
+    await this.database.query(`INSERT INTO dsh_enterprise_recorder_pairings(
+      pairing_id,org_id,user_id,code_hash,expires_at,created_at)
+      VALUES($1,$2,$3,$4,$5,$6)`,
+    [challenge.pairingId, challenge.orgId, challenge.userId, challenge.codeHash, challenge.expiresAt, this.now()])
+  }
+  /** Consume one valid recorder pairing code and return its server-owned user scope. */
+  async consumeRecorderPairing(pairingId: string, codeHash: string): Promise<RecorderPairingChallenge | undefined> {
+    const now = this.now()
+    const result = pairingId === ''
+      ? await this.database.query<RecorderPairingRow>(
+        `UPDATE dsh_enterprise_recorder_pairings SET consumed_at=$2
+         WHERE pairing_id=(SELECT pairing_id FROM dsh_enterprise_recorder_pairings
+           WHERE code_hash=$1 AND consumed_at IS NULL AND expires_at >= $2
+           ORDER BY created_at DESC LIMIT 1)
+         RETURNING *`, [codeHash, now],
+      )
+      : await this.database.query<RecorderPairingRow>(
+        `UPDATE dsh_enterprise_recorder_pairings SET consumed_at=$3
+         WHERE pairing_id=$1 AND code_hash=$2 AND consumed_at IS NULL AND expires_at >= $3
+         RETURNING *`, [pairingId, codeHash, now],
+      )
+    return result.rows[0] === undefined ? undefined : recorderPairingFromRow(result.rows[0])
+  }
+  /** Pair one recorder idempotently for the challenge owner; a foreign owner conflict returns undefined. */
+  async pairRecorder(recorder: RecorderDevice, serialHash: string, credentialHash: string): Promise<RecorderDevice | undefined> {
+    const now = this.now()
+    const result = await this.database.query<RecorderRow>(`INSERT INTO dsh_enterprise_recorder_devices(
+      recorder_id,org_id,user_id,device_name,serial_hash,relay_public_key,credential_hash,status,last_seen_at,created_at,updated_at)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$9,$9)
+      ON CONFLICT(serial_hash) DO UPDATE SET last_seen_at=EXCLUDED.last_seen_at,updated_at=EXCLUDED.updated_at
+      WHERE dsh_enterprise_recorder_devices.org_id=EXCLUDED.org_id
+        AND dsh_enterprise_recorder_devices.user_id=EXCLUDED.user_id
+      RETURNING *`, [
+      recorder.recorderId, recorder.orgId, recorder.userId, recorder.deviceName, serialHash,
+      recorder.relayPublicKey, credentialHash, recorder.status, now,
+    ])
+    return result.rows[0] === undefined ? undefined : recorderFromRow(result.rows[0])
+  }
+  /** List recorder devices owned by one authenticated organization user. */
+  async listRecorders(orgId: string, userId: string): Promise<RecorderDevice[]> {
+    const result = await this.database.query<RecorderRow>(
+      `SELECT * FROM dsh_enterprise_recorder_devices WHERE org_id=$1 AND user_id=$2
+       ORDER BY updated_at DESC,recorder_id`, [orgId, userId],
+    )
+    return result.rows.map(recorderFromRow)
   }
   /** Persist one newly authorized Computer Use run.
    * @param run - Active run snapshot.
@@ -259,6 +310,27 @@ interface DeviceRow extends Record<string, unknown> {
   updated_at: number | string
 }
 
+interface RecorderPairingRow extends Record<string, unknown> {
+  pairing_id: string
+  org_id: string
+  user_id: string
+  code_hash: string
+  expires_at: number | string
+  consumed_at: number | string | null
+}
+
+interface RecorderRow extends Record<string, unknown> {
+  recorder_id: string
+  org_id: string
+  user_id: string
+  device_name: string
+  serial_hash: string
+  relay_public_key: string
+  credential_hash: string
+  status: string
+  last_seen_at: number | string | null
+}
+
 interface RunRow extends Record<string, unknown> {
   run_id: string
   org_id: string
@@ -295,6 +367,22 @@ function deviceFromRow(row: DeviceRow): Device {
     platform: row.platform as Device['platform'], publicKey: row.public_key, status: row.status as Device['status'],
     ...(row.last_heartbeat_at === null ? {} : { lastHeartbeatAt: Number(row.last_heartbeat_at) }),
     createdAt: Number(row.created_at), updatedAt: Number(row.updated_at),
+  }
+}
+
+function recorderPairingFromRow(row: RecorderPairingRow): RecorderPairingChallenge {
+  return {
+    pairingId: row.pairing_id, orgId: row.org_id, userId: row.user_id, codeHash: row.code_hash,
+    expiresAt: Number(row.expires_at), ...(row.consumed_at === null ? {} : { consumedAt: Number(row.consumed_at) }),
+  }
+}
+
+function recorderFromRow(row: RecorderRow): RecorderDevice {
+  return {
+    recorderId: row.recorder_id, orgId: row.org_id, userId: row.user_id, deviceName: row.device_name,
+    recorderSerial: row.serial_hash, relayPublicKey: row.relay_public_key,
+    status: row.status as RecorderDevice['status'],
+    ...(row.last_seen_at === null ? {} : { lastSeenAt: Number(row.last_seen_at) }),
   }
 }
 

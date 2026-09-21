@@ -12,6 +12,7 @@ import type {
   CordisPackageVersion, CordisReviewRequest, CordisScopeBinding, EnterpriseWorkPreparation, EnterpriseWorkPrepareRequest,
   EnterpriseWorkStartRequest, EnterpriseWorkStartValue,
   EnterpriseComputerUseRun, EnterpriseDeviceActionView, EnterpriseDeviceListRequest, EnterpriseDevicePairRequest, EnterpriseDeviceView,
+  EnterpriseRecorderDeviceView,
 } from '@deepseek-ai/dsh-api-enterprise-controller/types'
 import type { AgentPresetRow } from '@deepseek-ai/dsh-agent-presets/types'
 import type { JsonValue } from '@deepseek-ai/dsh-util-values'
@@ -189,6 +190,14 @@ export interface EnterpriseWorkbenchRemote {
     }>
     pair(request: EnterpriseDevicePairRequest): Promise<EnterpriseApiResult<{ deviceId: string }> | {
       readonly result: EnterpriseApiResult<{ deviceId: string }>
+    }>
+    createRecorderPairing(request: Record<string, never>): Promise<EnterpriseApiResult<{
+      pairingId: string
+      code: string
+      expiresAt: number
+    }> | { readonly result: EnterpriseApiResult<{ pairingId: string; code: string; expiresAt: number }> }>
+    listRecorders?(request: { includeRevoked?: boolean }): Promise<EnterpriseApiResult<EnterpriseRecorderDeviceView[]> | {
+      readonly result: EnterpriseApiResult<EnterpriseRecorderDeviceView[]>
     }>
     startRun(request: {
       deviceId: string
@@ -721,7 +730,23 @@ export class EnterpriseWorkbenchController {
       this.store.set({ ...this.store.getSnapshot(), devices: { phase: 'ready', items: [], error: null } })
       return Promise.resolve(true)
     }
-    return this.loadPage('devices', async () => ({ items: valueOf(await enterpriseDevices.list({})) }))
+    return this.loadPage('devices', async () => {
+      const [computers, recorders] = await Promise.all([
+        enterpriseDevices.list({}).then(valueOf),
+        enterpriseDevices.listRecorders?.({}).then(valueOf) ?? Promise.resolve([]),
+      ])
+      return {
+        items: [
+          ...computers.map(device => ({ ...device, kind: 'computer' as const })),
+          ...recorders.map(recorder => ({
+            deviceId: recorder.recorderId, deviceName: recorder.deviceName,
+            kind: 'recorder' as const, platform: 'recorder' as const,
+            status: recorder.status === 'active' ? 'online' as const : 'revoked' as const,
+            ...(recorder.lastSeenAt === undefined ? {} : { lastHeartbeatAt: recorder.lastSeenAt }),
+          })),
+        ],
+      }
+    })
   }
 
   /** Pair the loopback Device Agent without exposing identifiers or keys to manual entry.
@@ -757,6 +782,13 @@ export class EnterpriseWorkbenchController {
       if (!completion.ok) throw new Error('本机 Device Agent 未确认配对')
       return paired
     }, () => this.refreshDevices())
+  }
+
+  /** Create one owner-scoped, short-lived recorder binding code. */
+  async createRecorderPairing(): Promise<{ pairingId: string; code: string; expiresAt: number }> {
+    const enterpriseDevices = this.api.enterpriseDevices
+    if (enterpriseDevices === undefined) throw new Error('Device Plane is unavailable')
+    return valueOf(await enterpriseDevices.createRecorderPairing({}))
   }
 
   /** Queue a harmless desktop observation and wait for persisted local evidence.

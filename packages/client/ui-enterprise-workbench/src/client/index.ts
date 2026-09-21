@@ -292,6 +292,7 @@ export function apply(ctx: Context): void {
     refreshChannels: () => controller.refreshChannels(),
     refreshDevices: () => controller.refreshDevices(),
     pairLocalDevice: dshOrigin => controller.pairLocalDevice(dshOrigin),
+    createRecorderPairing: () => controller.createRecorderPairing(),
     testLocalDevice: deviceId => controller.testLocalDevice(deviceId),
     setExtensionWorkspace: (workspaceId) => { controller.setExtensionWorkspace(workspaceId) },
     refreshExtensions: () => controller.refreshExtensions(),

@@ -170,7 +170,7 @@ The Team surface makes Human authority and Agent execution visible without creat
 
 ## Device Plane surfaces
 
-- `我的电脑` / `My computer` is an Operate page in the existing enterprise workbench. Its primary action is `连接此电脑`; users never enter device ids, public keys, Adapter names, or credentials.
+- `我的设备` / `My devices` is an Operate page in the existing enterprise workbench. Computers keep the primary action `连接此电脑`; users never enter device ids, public keys, Adapter names, or credentials. Recorder pairing belongs on the same page but uses a user-scoped, single-use binding flow rather than Computer Use credentials.
 - Each device row shows the human device name, platform, online state, last heartbeat, and a real connection test. Internal ids remain outside the ordinary UI.
 - Pairing discovers the loopback Device Agent, reads only its public identity, and completes through the authenticated DSH Remote. A failed or missing local Agent remains a recoverable error.
 - Control requests are confirmed on the user's computer. The confirmation names the concrete browser or desktop action. Rejecting it does not consume the Permit.

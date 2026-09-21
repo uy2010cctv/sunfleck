@@ -76,6 +76,7 @@ export interface EnterpriseWorkbenchInjected {
   refreshChannels: () => Promise<boolean>
   refreshDevices: () => Promise<boolean>
   pairLocalDevice: (dshOrigin: string) => Promise<boolean>
+  createRecorderPairing: () => Promise<{ pairingId: string; code: string; expiresAt: number }>
   testLocalDevice: (deviceId: string) => Promise<import('@deepseek-ai/dsh-api-enterprise-controller/types').EnterpriseDeviceActionView>
   loadDeviceActivity?: () => Promise<{ runs: readonly EnterpriseComputerUseRun[]; actions: readonly EnterpriseDeviceActionView[] }>
   transitionDeviceRun?: (run: EnterpriseComputerUseRun, state: 'active' | 'paused' | 'stopped') => Promise<EnterpriseComputerUseRun>
@@ -581,6 +582,7 @@ function DevicesPage({ page, api, busy, t }: {
   t: Translate
 }) {
   const [testState, setTestState] = useState<{ deviceId: string; message: string; ok: boolean }>()
+  const [pairing, setPairing] = useState<{ phase: 'idle' | 'loading' | 'ready' | 'error'; code?: string; expiresAt?: number }>({ phase: 'idle' })
   const [activity, setActivity] = useState<{ phase: 'loading' | 'ready' | 'error'; runs: readonly EnterpriseComputerUseRun[]; actions: readonly EnterpriseDeviceActionView[] }>({ phase: 'loading', runs: [], actions: [] })
   const refreshActivity = (): void => {
     if (api.loadDeviceActivity === undefined) {
@@ -599,10 +601,22 @@ function DevicesPage({ page, api, busy, t }: {
   return <section aria-labelledby="devices-page-title">
     <div className={css.sectionHead}>
       <div><h2 id="devices-page-title">{t('device.title')}</h2><p>{t('device.description')}</p></div>
-      <button type="button" className={css.primaryButton} disabled={busy} onClick={() => {
-        void api.pairLocalDevice(window.location.origin)
-      }}>{busy ? t('device.connecting') : t('device.connect')}</button>
+      <div className={css.inlineActions}>
+        <button type="button" className={css.secondaryButton} disabled={busy || pairing.phase === 'loading'} onClick={() => {
+          setPairing({ phase: 'loading' })
+          void api.createRecorderPairing()
+            .then((value) => { setPairing({ phase: 'ready', code: value.code, expiresAt: value.expiresAt }) })
+            .catch(() => { setPairing({ phase: 'error' }) })
+        }}>{pairing.phase === 'loading' ? t('device.bindingRecorder') : t('device.bindRecorder')}</button>
+        <button type="button" className={css.primaryButton} disabled={busy} onClick={() => {
+          void api.pairLocalDevice(window.location.origin)
+        }}>{busy ? t('device.connecting') : t('device.connect')}</button>
+      </div>
     </div>
+    {pairing.phase === 'ready' && pairing.code !== undefined && pairing.expiresAt !== undefined
+      && <div role="status" className={css.compactEmpty}><strong>{t('device.pairingTitle')}</strong>
+        <span>{pairing.code}</span><span>{t('device.pairingBody', { time: formatDate(pairing.expiresAt) })}</span></div>}
+    {pairing.phase === 'error' && <div role="alert" className={css.compactEmpty}>{t('device.pairingFailed')}</div>}
     <PageBoundary page={page} t={t} empty={<div className={css.empty}>
       <strong>{t('device.emptyTitle')}</strong><span>{t('device.emptyBody')}</span>
     </div>}>
@@ -615,17 +629,19 @@ function DevicesPage({ page, api, busy, t }: {
         <div className={css.inlineActions}>
           <div className={css.status}><StateDot state={device.status === 'online' ? 'done' : 'idle'}/>
             <span>{t(`device.status.${device.status}`)}</span></div>
-          <button type="button" className={css.secondaryButton} disabled={busy || device.status !== 'online'} onClick={() => {
-            setTestState({ deviceId: device.deviceId, message: t('device.testing'), ok: false })
-            void api.testLocalDevice(device.deviceId).then((action) => {
-              const ok = action.state === 'completed'
-              setTestState({ deviceId: device.deviceId,
-                message: ok ? t('device.testPassed') : t('device.testFailed', { state: action.state }), ok })
-              refreshActivity()
-            }).catch(() => {
-              setTestState({ deviceId: device.deviceId, message: t('device.testFailed', { state: 'error' }), ok: false })
-            })
-          }}>{t('device.test')}</button>
+          {device.kind === 'recorder'
+            ? <span className={css.mutedText}>{t('device.recorderBound')}</span>
+            : <button type="button" className={css.secondaryButton} disabled={busy || device.status !== 'online'} onClick={() => {
+              setTestState({ deviceId: device.deviceId, message: t('device.testing'), ok: false })
+              void api.testLocalDevice(device.deviceId).then((action) => {
+                const ok = action.state === 'completed'
+                setTestState({ deviceId: device.deviceId,
+                  message: ok ? t('device.testPassed') : t('device.testFailed', { state: action.state }), ok })
+                refreshActivity()
+              }).catch(() => {
+                setTestState({ deviceId: device.deviceId, message: t('device.testFailed', { state: 'error' }), ok: false })
+              })
+            }}>{t('device.test')}</button>}
         </div>
         {testState?.deviceId === device.deviceId && <span role="status" className={testState.ok ? css.successText : css.mutedText}>
           {testState.message}

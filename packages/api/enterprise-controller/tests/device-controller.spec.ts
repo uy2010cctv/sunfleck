@@ -21,10 +21,15 @@ function bench() {
     deviceId: 'device-existing', orgId: 'org-a', userId: 'user-a', deviceName: 'Kris Mac', platform: 'macos',
     publicKey: 'normalized-key', status: 'online',
   }))
+  const saveRecorderPairing = vi.fn(async () => {})
+  const listRecorders = vi.fn(async () => [{
+    recorderId: 'recorder-1', orgId: 'org-a', userId: 'user-a', deviceName: '随身录音卡',
+    recorderSerial: 'serial-hash', relayPublicKey: 'relay-pk', status: 'active' as const, lastSeenAt: 10,
+  }])
   const ctx = new Context()
   const requestContext = new EnterpriseRequestContext()
   ctx.provide('enterprisePostgres' as never, {
-    devicePlane: { listDevices, listRuns, listActions, transitionRun, pairDevice },
+    devicePlane: { listDevices, listRuns, listActions, transitionRun, pairDevice, saveRecorderPairing, listRecorders },
   } as never)
   ctx.provide('enterpriseRequestContext' as never, requestContext as never)
   ctx.provide('enterpriseSecurity' as never, {
@@ -32,7 +37,7 @@ function bench() {
   } as never)
   return {
     controller: new EnterpriseDeviceController(ctx), requestContext,
-    listDevices, listRuns, listActions, transitionRun, pairDevice,
+    listDevices, listRuns, listActions, transitionRun, pairDevice, saveRecorderPairing, listRecorders,
   }
 }
 
@@ -74,5 +79,22 @@ describe('EnterpriseDeviceController', () => {
     expect(b.pairDevice).toHaveBeenCalledWith(expect.objectContaining({
       orgId: 'org-a', userId: 'user-a', deviceName: 'Kris Mac', status: 'online',
     }))
+  })
+
+  it('creates a recorder pairing code under the authenticated user', async () => {
+    const b = bench()
+    const result = await b.requestContext.run(principal, () => b.controller.createRecorderPairing({}))
+    expect(result.code).toMatch(/^\d{6}$/u)
+    expect(result.expiresAt).toBeGreaterThan(Date.now())
+    expect(b.saveRecorderPairing).toHaveBeenCalledWith(expect.objectContaining({
+      orgId: 'org-a', userId: 'user-a', codeHash: expect.stringMatching(/^[a-f\d]{64}$/u),
+    }))
+  })
+
+  it('lists recorder devices only for the authenticated user', async () => {
+    const b = bench()
+    const values = await b.requestContext.run(principal, () => b.controller.listRecorders({}))
+    expect(values).toEqual([expect.objectContaining({ recorderId: 'recorder-1', deviceName: '随身录音卡' })])
+    expect(b.listRecorders).toHaveBeenCalledWith('org-a', 'user-a')
   })
 })

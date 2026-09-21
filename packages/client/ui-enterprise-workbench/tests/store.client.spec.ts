@@ -257,6 +257,16 @@ describe('EnterpriseWorkbenchController enterprise read models', () => {
       expect.objectContaining({ deviceId: 'device-1', status: 'online' }),
     ])
   })
+
+  it('creates a recorder pairing code through the authenticated remote', async () => {
+    const createRecorderPairing = vi.fn(() => ok({ pairingId: 'pair-1', code: '482913', expiresAt: 620_000 }))
+    const services = controllerServices()
+    const controller = new EnterpriseWorkbenchController(controllerApi({
+      enterpriseDevices: { createRecorderPairing },
+    }) as never, services.sessions as never, services.workspaces as never)
+    await expect(controller.createRecorderPairing()).resolves.toEqual({ pairingId: 'pair-1', code: '482913', expiresAt: 620_000 })
+    expect(createRecorderPairing).toHaveBeenCalledWith({})
+  })
   it('prepares goal-first work without inferring a workspace from list order', async () => {
     const enterpriseWork = {
       prepare: vi.fn(() => ok({ kind: 'needs-workspace-selection', availableWorkspaceIds: ['workspace-1'] })), start: vi.fn(),

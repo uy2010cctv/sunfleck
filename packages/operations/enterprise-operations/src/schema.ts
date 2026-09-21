@@ -1,7 +1,7 @@
 /** PostgreSQL schema for work records, approvals, schedules, teams, and outbox. */
 import type { PostgresDatabase } from './types.ts'
 /** Value exported as `ENTERPRISE_OPERATIONS_SCHEMA_VERSION`. */
-export const ENTERPRISE_OPERATIONS_SCHEMA_VERSION = 19
+export const ENTERPRISE_OPERATIONS_SCHEMA_VERSION = 20
 /** Owner placeholder for legacy fixed teams whose creator was never persisted. */
 export const LEGACY_TEAM_DEFINITION_OWNER_USER_ID = 'system:legacy-fixed-team-migration'
 const statements = [
@@ -128,6 +128,20 @@ const statements = [
     public_key TEXT NOT NULL, status TEXT NOT NULL CHECK (status IN ('online','offline','revoked')),
     last_heartbeat_at BIGINT, created_at BIGINT NOT NULL, updated_at BIGINT NOT NULL,
     UNIQUE(org_id,user_id,public_key)
+  )`,
+  `CREATE TABLE IF NOT EXISTS dsh_enterprise_recorder_pairings (
+    pairing_id TEXT PRIMARY KEY, org_id TEXT NOT NULL, user_id TEXT NOT NULL,
+    code_hash TEXT NOT NULL, expires_at BIGINT NOT NULL, consumed_at BIGINT,
+    failed_attempts INTEGER NOT NULL DEFAULT 0, created_at BIGINT NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS dsh_enterprise_recorder_pairings_owner_idx
+    ON dsh_enterprise_recorder_pairings(org_id,user_id,created_at DESC)`,
+  `CREATE TABLE IF NOT EXISTS dsh_enterprise_recorder_devices (
+    recorder_id TEXT PRIMARY KEY, org_id TEXT NOT NULL, user_id TEXT NOT NULL,
+    device_name TEXT NOT NULL, serial_hash TEXT NOT NULL UNIQUE,
+    relay_public_key TEXT NOT NULL, credential_hash TEXT NOT NULL,
+    status TEXT NOT NULL CHECK (status IN ('active','revoked')),
+    last_seen_at BIGINT, created_at BIGINT NOT NULL, updated_at BIGINT NOT NULL
   )`,
   `CREATE TABLE IF NOT EXISTS dsh_enterprise_computer_use_runs (
     run_id TEXT PRIMARY KEY, org_id TEXT NOT NULL, user_id TEXT NOT NULL, device_id TEXT NOT NULL,

@@ -90,4 +90,25 @@ describe('PostgresDevicePlaneRepository', () => {
     expect(claimed).toBe(true)
     expect(database.last?.text).toContain('ON CONFLICT(device_id,nonce) DO NOTHING')
   })
+
+  it('persists owner-scoped recorder pairing challenges', async () => {
+    const database = new Database()
+    await new PostgresDevicePlaneRepository(database, () => 20).saveRecorderPairing({
+      pairingId: 'pair-1', orgId: 'org-a', userId: 'user-a', codeHash: 'hash', expiresAt: 620_000,
+    })
+    expect(database.last?.text).toContain('dsh_enterprise_recorder_pairings')
+    expect(database.last?.values).toEqual(['pair-1', 'org-a', 'user-a', 'hash', 620_000, 20])
+  })
+
+  it('lists recorder devices only for their authenticated owner', async () => {
+    const database = new Database()
+    database.result = { rows: [{
+      recorder_id: 'recorder-1', org_id: 'org-a', user_id: 'user-a', device_name: '随身录音卡',
+      serial_hash: 'serial-hash', relay_public_key: 'relay-pk', credential_hash: 'credential-hash',
+      status: 'active', last_seen_at: 10, created_at: 1, updated_at: 10,
+    }], rowCount: 1 }
+    const items = await new PostgresDevicePlaneRepository(database).listRecorders('org-a', 'user-a')
+    expect(items).toEqual([expect.objectContaining({ recorderId: 'recorder-1', userId: 'user-a' })])
+    expect(database.last?.values).toEqual(['org-a', 'user-a'])
+  })
 })

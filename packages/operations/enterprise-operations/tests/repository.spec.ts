@@ -965,7 +965,7 @@ describe('EnterpriseOperationsRepository', () => {
       idempotencyKey: 'approval-migration-create',
     })
 
-    expect(database.schemaVersion).toBe('19')
+    expect(database.schemaVersion).toBe('20')
   })
 
   it('atomically persists and recovers a work-start reservation before native side effects', async () => {
@@ -1783,7 +1783,7 @@ describe('EnterpriseOperationsRepository team definitions', () => {
 
     await migrateEnterpriseOperations(database)
 
-    expect(database.schemaVersion).toBe('19')
+    expect(database.schemaVersion).toBe('20')
     expect(database.revisionStates('org-a', 'v16-active')).toEqual([{ revision: 1, state: 'active' }])
     expect(database.revisionStates('org-a', 'v16-needs-charter')).toEqual([{ revision: 1, state: 'needs-charter' }])
   })
@@ -2263,7 +2263,7 @@ describe('EnterpriseOperationsRepository team definitions', () => {
       workerId: 'worker-a', leaseExpiresAt: 200,
     })
     await migrateEnterpriseOperations(database)
-    expect(database.schemaVersion).toBe('19')
+    expect(database.schemaVersion).toBe('20')
     expect(database.outboxState('legacy-null-revision')).toBe('dead-letter')
   })
 

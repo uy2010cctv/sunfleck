@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto'
+import { createHash, randomInt, randomUUID } from 'node:crypto'
 
 export { PostgresDevicePlaneRepository } from './postgres.ts'
 export { canonicalDeviceRequest, normalizeDevicePublicKey, verifyDeviceSignature } from './signature.ts'
@@ -34,6 +34,26 @@ export interface Device {
   lastHeartbeatAt?: number
   createdAt?: number
   updatedAt?: number
+}
+/** Short-lived owner scope created by an authenticated user for recorder enrollment. */
+export interface RecorderPairingChallenge {
+  pairingId: string
+  orgId: string
+  userId: string
+  codeHash: string
+  expiresAt: number
+  consumedAt?: number
+}
+/** Recorder identity owned by one enterprise user and authenticated through its Android relay. */
+export interface RecorderDevice {
+  recorderId: string
+  orgId: string
+  userId: string
+  deviceName: string
+  recorderSerial: string
+  relayPublicKey: string
+  status: 'active' | 'revoked'
+  lastSeenAt?: number
 }
 /** Governed execution scope binding a user device to a Workspace and Session. */
 export interface ComputerUseRun {
@@ -89,11 +109,19 @@ export class InMemoryDevicePlaneRepository {
   readonly runs = new Map<string, ComputerUseRun>()
   /** Operation permits keyed by permit identity. */
   readonly permits = new Map<string, OperationPermit>()
+  /** Recorder pairing challenges keyed by opaque server identity. */
+  readonly recorderPairings = new Map<string, RecorderPairingChallenge>()
+  /** Recorder bindings retained separately from Computer Use devices. */
+  readonly recorders: RecorderDevice[] = []
 }
 
 /** Core in-memory service used to validate pairing and permit ownership rules. */
 export class DevicePlaneService {
-  constructor(private readonly repository: InMemoryDevicePlaneRepository, private readonly now: () => number = Date.now) {}
+  constructor(
+    private readonly repository: InMemoryDevicePlaneRepository,
+    private readonly now: () => number = Date.now,
+    private readonly pairingCode: () => string = () => String(randomInt(0, 1_000_000)).padStart(6, '0'),
+  ) {}
   /** Pair one public device identity and return its server-owned record.
    * @param input - Owner scope, display name, platform, and public key.
    * @returns paired server-owned device.
@@ -102,6 +130,55 @@ export class DevicePlaneService {
     const value: Device = { ...input, deviceId: `device-${randomUUID()}`, status: 'online' }
     this.repository.devices.set(value.deviceId, value)
     return value
+  }
+  /** Create one ten-minute recorder binding code scoped to the authenticated owner. */
+  async createRecorderPairing(input: { orgId: string; userId: string }): Promise<{
+    pairingId: string
+    code: string
+    expiresAt: number
+  }> {
+    const code = this.pairingCode()
+    if (!/^\d{6}$/u.test(code)) throw new Error('recorder pairing code must contain six digits')
+    const pairingId = `recorder-pairing-${randomUUID()}`
+    const expiresAt = this.now() + 10 * 60_000
+    this.repository.recorderPairings.set(pairingId, {
+      pairingId, orgId: input.orgId, userId: input.userId,
+      codeHash: createHash('sha256').update(code).digest('hex'), expiresAt,
+    })
+    return { pairingId, code, expiresAt }
+  }
+  /** Consume one recorder code and bind the card to the code's server-owned user scope. */
+  async bindRecorder(input: {
+    pairingId: string
+    code: string
+    recorderSerial: string
+    relayPublicKey: string
+    deviceName: string
+  }): Promise<RecorderDevice> {
+    const challenge = this.repository.recorderPairings.get(input.pairingId)
+    if (challenge === undefined) throw new Error('recorder pairing is missing')
+    if (challenge.consumedAt !== undefined) throw new Error('recorder pairing is already consumed')
+    if (challenge.expiresAt < this.now()) throw new Error('recorder pairing is expired')
+    const codeHash = createHash('sha256').update(input.code).digest('hex')
+    if (codeHash !== challenge.codeHash) throw new Error('recorder pairing code is invalid')
+    const recorderSerial = input.recorderSerial.trim().toUpperCase()
+    const relayPublicKey = input.relayPublicKey.trim()
+    const deviceName = input.deviceName.trim()
+    if (recorderSerial === '' || recorderSerial.length > 200) throw new Error('recorder serial must contain 1 to 200 characters')
+    if (relayPublicKey === '') throw new Error('recorder relay public key is required')
+    if (deviceName === '' || deviceName.length > 120) throw new Error('recorder name must contain 1 to 120 characters')
+    const existing = this.repository.recorders.find(recorder => recorder.recorderSerial === recorderSerial && recorder.status === 'active')
+    if (existing !== undefined && (existing.orgId !== challenge.orgId || existing.userId !== challenge.userId)) {
+      throw new Error('recorder is already bound to another user')
+    }
+    challenge.consumedAt = this.now()
+    if (existing !== undefined) return existing
+    const recorder: RecorderDevice = {
+      recorderId: `recorder-${randomUUID()}`, orgId: challenge.orgId, userId: challenge.userId,
+      deviceName, recorderSerial, relayPublicKey, status: 'active', lastSeenAt: this.now(),
+    }
+    this.repository.recorders.push(recorder)
+    return recorder
   }
   /** Start one run after verifying device ownership.
    * @param input - Device, Workspace, Session, user, and confirmation mode.

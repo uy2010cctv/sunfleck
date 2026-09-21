@@ -27,6 +27,7 @@ import sys
 import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
 from urllib import error, request
 
@@ -45,6 +46,8 @@ class Utterance:
     text: str
     confidence: Optional[float] = None
     bookmarked: bool = False
+    segment_id: Optional[str] = None
+    speaker: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -119,6 +122,8 @@ def load_utterances(payload: Any) -> List[Utterance]:
             text=text,
             confidence=it.get("confidence"),
             bookmarked=bool(it.get("bookmarked")),
+            segment_id=str(it.get("segment_id")) if it.get("segment_id") else None,
+            speaker=str(it.get("speaker")) if it.get("speaker") else None,
         ))
     out.sort(key=lambda u: u.start_ts)
     return out
@@ -202,7 +207,9 @@ def render_card(window: str, utts: List[Utterance], owner: Owner) -> tuple[str, 
         conf = ""
         if u.confidence is not None and u.confidence < 0.75:
             conf = f" (低置信 {u.confidence})"
-        lines.append(f"- `{_hms(u.start_ts)}–{_hms(u.end_ts)}`{flag}{conf} {u.text}")
+        speaker = f" [{u.speaker}]" if u.speaker else ""
+        source = f" <!-- segment_id:{u.segment_id} -->" if u.segment_id else ""
+        lines.append(f"- `{_hms(u.start_ts)}–{_hms(u.end_ts)}`{speaker}{flag}{conf} {u.text}{source}")
     lines.append("")
     return title, "\n".join(lines)
 
@@ -236,6 +243,61 @@ def safe_filename(window: str) -> str:
     return window.replace(":", "").replace(" ", "_") + ".md"
 
 
+def load_owned_records(raw: str) -> List[tuple[Owner, Any]]:
+    """Read one JSON object or newline-delimited gateway records."""
+    try:
+        values = [json.loads(raw)]
+    except json.JSONDecodeError:
+        values = [json.loads(line) for line in raw.splitlines() if line.strip()]
+    out = []
+    for value in values:
+        out.append(extract_owned_payload(value))
+    return out
+
+
+def _state_key(utterance: Utterance) -> str:
+    if utterance.segment_id:
+        return utterance.segment_id
+    return f"{utterance.start_ts:.3f}:{utterance.end_ts:.3f}:{utterance.text}"
+
+
+def _state_utterance(value: dict) -> Utterance:
+    return Utterance(
+        start_ts=float(value["start_ts"]), end_ts=float(value["end_ts"]), text=str(value["text"]),
+        confidence=value.get("confidence"), bookmarked=bool(value.get("bookmarked")),
+        segment_id=value.get("segment_id"), speaker=value.get("speaker"),
+    )
+
+
+def write_incremental_cards(out_dir: str, owner: Owner, utterances: List[Utterance], window: int) -> int:
+    """Merge segments into owner-local state before rendering deterministic cards."""
+    owner_dir = Path(out_dir) / owner.org_id / owner.user_id
+    owner_dir.mkdir(parents=True, exist_ok=True)
+    state_path = owner_dir / ".segments.json"
+    state: dict[str, dict] = {}
+    if state_path.exists():
+        try:
+            loaded = json.loads(state_path.read_text(encoding="utf-8"))
+            if isinstance(loaded, dict): state = loaded
+        except (OSError, json.JSONDecodeError):
+            state = {}
+    for item in utterances:
+        state[_state_key(item)] = {
+            "start_ts": item.start_ts, "end_ts": item.end_ts, "text": item.text,
+            "confidence": item.confidence, "bookmarked": item.bookmarked,
+            "segment_id": item.segment_id, "speaker": item.speaker,
+        }
+    state_path.write_text(json.dumps(state, ensure_ascii=False, sort_keys=True), encoding="utf-8")
+    merged = [_state_utterance(value) for value in state.values()]
+    buckets = group_windows(sorted(merged, key=lambda item: item.start_ts), window)
+    written = 0
+    for window_key_value in sorted(buckets):
+        title, content = render_card(window_key_value, buckets[window_key_value], owner)
+        (owner_dir / safe_filename(window_key_value)).write_text(content, encoding="utf-8")
+        written += 1
+    return written
+
+
 def main(argv: Optional[List[str]] = None) -> int:
     ap = argparse.ArgumentParser(description="转写结果 → SUNFLECK 记忆卡片")
     ap.add_argument("--in", dest="infile", required=True, help="转写 JSON 文件，或 - 读 stdin")
@@ -252,9 +314,14 @@ def main(argv: Optional[List[str]] = None) -> int:
     else:
         with open(args.infile, encoding="utf-8") as fh:
             raw = fh.read()
-    record = json.loads(raw)
-    owner, payload = extract_owned_payload(record)
-    utts = dedupe(load_utterances(payload))
+    records = load_owned_records(raw)
+    if not records:
+        print("没有可用记录。", file=sys.stderr)
+        return 0
+    owner = records[0][0]
+    if any((item[0].org_id, item[0].user_id) != (owner.org_id, owner.user_id) for item in records):
+        raise ValueError("一次输入不能混合不同用户的转写记录")
+    utts = dedupe([utterance for _, payload in records for utterance in load_utterances(payload)])
     if not utts:
         print("没有可用话语（空转写），无事可做。", file=sys.stderr)
         return 0
@@ -273,13 +340,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             print(f"# {title}\n{content}")
             continue
         if args.out_dir:
-            owner_dir = os.path.join(args.out_dir, owner.org_id, owner.user_id)
-            os.makedirs(owner_dir, exist_ok=True)
-            path = os.path.join(owner_dir, safe_filename(window))
-            with open(path, "w", encoding="utf-8") as fh:
-                fh.write(content)
-            print(f"已写出 {title} → {path}", file=sys.stderr)
-            written += 1
+            # State merge happens once below so repeated invocations cannot overwrite prior windows.
             continue
         try:
             resp = post_document(args.endpoint, args.base_id, title, content)
@@ -291,6 +352,8 @@ def main(argv: Optional[List[str]] = None) -> int:
         doc_id = (resp.get("value") or {}).get("id", "?")
         print(f"已写入 {title} → {doc_id}", file=sys.stderr)
         written += 1
+    if args.out_dir and not args.dry_run:
+        written = write_incremental_cards(args.out_dir, owner, utts, args.window)
     if not args.dry_run:
         print(f"完成，共 {written} 篇。", file=sys.stderr)
     return 0

@@ -212,11 +212,25 @@ describe('EnterpriseWorkbench', () => {
       pairLocalDevice,
     } as never)} />)
     expect(screen.getByText('Kris Mac')).toBeTruthy()
+    expect(screen.getByRole('heading', { name: '我的设备' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: '我的设备' })).toBeTruthy()
     expect(screen.getByText('在线')).toBeTruthy()
     expect(screen.queryByText('device-secret-id')).toBeNull()
     expect(screen.queryByRole('textbox')).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: '连接此电脑' }))
     expect(pairLocalDevice).toHaveBeenCalledWith(window.location.origin)
+  })
+
+  it('creates a recorder pairing code without asking for a user id', async () => {
+    const createRecorderPairing = vi.fn(async () => ({ pairingId: 'pair-1', code: '482913', expiresAt: Date.now() + 600_000 }))
+    render(<EnterpriseWorkbench {...workbenchProps({
+      state: { mode: 'enterprise', page: 'devices', devices: { phase: 'ready', error: null, items: [] } },
+      createRecorderPairing,
+    } as never)} />)
+    fireEvent.click(screen.getByRole('button', { name: '绑定录音卡' }))
+    expect(await screen.findByText('482913')).toBeTruthy()
+    expect(createRecorderPairing).toHaveBeenCalledTimes(1)
+    expect(screen.queryByRole('textbox')).toBeNull()
   })
 
   it('keeps provider identifiers and Credential references out of the user channel flow', async () => {

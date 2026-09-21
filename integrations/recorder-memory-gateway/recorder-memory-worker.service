@@ -1,0 +1,21 @@
+[Unit]
+Description=Recorder transcript to DSH private memory bridge
+After=network-online.target dsh-enterprise.service recorder-gateway.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/home/recorder
+EnvironmentFile=/home/recorder/gateway.env
+Environment=RECORDER_TRANSCRIPT_DIR=/home/recorder/transcripts
+Environment=DSH_RECORDER_URL=http://127.0.0.1:3081/recorder-memory/ingest
+EnvironmentFile=-/home/recorder/memory-worker.env
+ExecStart=/usr/bin/python3 /home/recorder/recorder_memory_worker.py
+Restart=always
+RestartSec=2
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

@@ -183,6 +183,10 @@ import type {
   EnterpriseDevicePairRequest,
   EnterpriseDevicePermitRequest,
   EnterpriseDeviceView,
+  EnterpriseRecorderDeviceView,
+  EnterpriseRecorderListRequest,
+  EnterpriseRecorderPairingChallenge,
+  EnterpriseRecorderPairingRequest,
 } from './contract/devices.ts'
 import { DeviceAgentHttpHandler } from './device-agent-http.ts'
 
@@ -482,6 +486,43 @@ export class EnterpriseDeviceController extends TypertRemoteService {
         platform: request.platform, publicKey: normalizeDevicePublicKey(request.publicKey), status: 'online',
       })
       return { deviceId: device.deviceId }
+    })
+  }
+
+  /** Create one ten-minute recorder binding code for the authenticated user.
+   * @param request - Empty recorder-pairing request owned by the authenticated principal.
+   * @returns One plaintext code and its expiry; only the hash remains durable.
+   */
+  @Remote('createRecorderPairing') async createRecorderPairing(
+    request: EnterpriseRecorderPairingRequest,
+  ): Promise<EnterpriseRecorderPairingChallenge> {
+    return catalogCall(this.ctx, 'enterpriseDevice.createRecorderPairing', request, 'recorder-pairing', 'new', async (actor) => {
+      const code = String(randomBytes(4).readUInt32BE(0) % 1_000_000).padStart(6, '0')
+      const challenge = {
+        pairingId: `recorder-pairing-${randomUUID()}`,
+        orgId: actor.orgId,
+        userId: actor.userId,
+        codeHash: createHash('sha256').update(code).digest('hex'),
+        expiresAt: Date.now() + 10 * 60_000,
+      }
+      await this.repository().saveRecorderPairing(challenge)
+      return { pairingId: challenge.pairingId, code, expiresAt: challenge.expiresAt }
+    })
+  }
+
+  /** List recorder devices owned by the authenticated user.
+   * @param request - Recorder status filter.
+   * @returns Redacted recorder devices for the authenticated principal.
+   */
+  @Remote('listRecorders') async listRecorders(request: EnterpriseRecorderListRequest): Promise<EnterpriseRecorderDeviceView[]> {
+    return catalogCall(this.ctx, 'enterpriseDevice.listRecorders', request, 'recorder-device', 'catalog', async (actor) => {
+      const recorders = await this.repository().listRecorders(actor.orgId, actor.userId)
+      return recorders
+        .filter(recorder => request.includeRevoked === true || recorder.status !== 'revoked')
+        .map(recorder => ({
+          recorderId: recorder.recorderId, deviceName: recorder.deviceName, status: recorder.status,
+          ...(recorder.lastSeenAt === undefined ? {} : { lastSeenAt: recorder.lastSeenAt }),
+        }))
     })
   }
 

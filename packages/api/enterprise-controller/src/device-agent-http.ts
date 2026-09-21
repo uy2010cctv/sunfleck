@@ -1,5 +1,8 @@
+import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto'
 import { verifyDeviceSignature } from '@deepseek-ai/dsh-enterprise-device-plane'
-import type { Device, OperationPermit, QueuedDeviceAction } from '@deepseek-ai/dsh-enterprise-device-plane'
+import type {
+  Device, OperationPermit, QueuedDeviceAction, RecorderDevice, RecorderPairingChallenge,
+} from '@deepseek-ai/dsh-enterprise-device-plane'
 
 interface DeviceAgentRepository {
   device(deviceId: string): Promise<Device | undefined>
@@ -15,6 +18,8 @@ interface DeviceAgentRepository {
     summary: string
     evidenceHash?: string
   }): Promise<boolean>
+  consumeRecorderPairing?(pairingId: string, codeHash: string): Promise<RecorderPairingChallenge | undefined>
+  pairRecorder?(recorder: RecorderDevice, serialHash: string, credentialHash: string): Promise<RecorderDevice | undefined>
 }
 
 const MAX_BODY_BYTES = 64 * 1024
@@ -23,9 +28,30 @@ function error(status: number, code: string): Response {
   return Response.json({ error: code }, { status })
 }
 
+interface RecorderBindingOptions {
+  readonly recorderBindingToken: string | undefined
+  readonly serialHmacKey: string | undefined
+  readonly credentialHmacKey: string | undefined
+}
+
+function exactSecret(supplied: string | null, expected: string | undefined): boolean {
+  if (supplied === null || expected === undefined || expected === '') return false
+  const left = Buffer.from(supplied)
+  const right = Buffer.from(expected)
+  return left.length === right.length && timingSafeEqual(left, right)
+}
+
 /** Signed HTTP boundary used only by paired local Device Agents. */
 export class DeviceAgentHttpHandler {
-  constructor(private readonly repository: DeviceAgentRepository, private readonly now: () => number = Date.now) {}
+  constructor(
+    private readonly repository: DeviceAgentRepository,
+    private readonly now: () => number = Date.now,
+    private readonly recorder: RecorderBindingOptions = {
+      recorderBindingToken: process.env['DSH_RECORDER_BINDING_TOKEN'],
+      serialHmacKey: process.env['DSH_RECORDER_SERIAL_HMAC_KEY'],
+      credentialHmacKey: process.env['DSH_RECORDER_CREDENTIAL_HMAC_KEY'],
+    },
+  ) {}
 
   /**
    * Authenticate, replay-protect, and dispatch one Device Agent request.
@@ -36,13 +62,14 @@ export class DeviceAgentHttpHandler {
     if (request.method !== 'POST') return error(405, 'method-not-allowed')
     const body = await request.text()
     if (Buffer.byteLength(body) > MAX_BODY_BYTES) return error(413, 'payload-too-large')
+    const path = new URL(request.url).pathname
+    if (path === '/device-agent/v1/recorder/bind') return this.bindRecorder(request, body)
     const deviceId = request.headers.get('x-dsh-device-id') ?? ''
     const nonce = request.headers.get('x-dsh-device-nonce') ?? ''
     const signature = request.headers.get('x-dsh-device-signature') ?? ''
     const timestamp = Number(request.headers.get('x-dsh-device-timestamp'))
     const device = await this.repository.device(deviceId)
     if (device === undefined || device.status === 'revoked') return error(401, 'device-authentication-failed')
-    const path = new URL(request.url).pathname
     if (!verifyDeviceSignature({
       method: request.method, path, timestamp, nonce, body,
       publicKey: device.publicKey, signature, now: this.now(),
@@ -93,5 +120,43 @@ export class DeviceAgentHttpHandler {
       return completed ? new Response(null, { status: 204 }) : error(409, 'action-not-claimed')
     }
     return error(404, 'not-found')
+  }
+
+  private async bindRecorder(request: Request, body: string): Promise<Response> {
+    if (!exactSecret(request.headers.get('x-dsh-recorder-binding-token'), this.recorder.recorderBindingToken)) {
+      return error(401, 'recorder-binding-authentication-failed')
+    }
+    if (!this.recorder.serialHmacKey || !this.recorder.credentialHmacKey
+      || this.repository.consumeRecorderPairing === undefined || this.repository.pairRecorder === undefined) {
+      return error(503, 'recorder-binding-unavailable')
+    }
+    let payload: unknown
+    try { payload = JSON.parse(body) } catch { return error(400, 'invalid-json') }
+    if (typeof payload !== 'object' || payload === null) return error(400, 'invalid-payload')
+    const value = payload as Record<string, unknown>
+    const code = typeof value['code'] === 'string' ? value['code'].trim() : ''
+    const recorderSerial = typeof value['recorderSerial'] === 'string' ? value['recorderSerial'].trim().toUpperCase() : ''
+    const relayPublicKey = typeof value['relayPublicKey'] === 'string' ? value['relayPublicKey'].trim() : ''
+    const deviceName = typeof value['deviceName'] === 'string' ? value['deviceName'].trim() : ''
+    if (!/^\d{6}$/u.test(code) || !recorderSerial || recorderSerial.length > 200
+      || !relayPublicKey || relayPublicKey.length > 4096 || !deviceName || deviceName.length > 120) {
+      return error(400, 'invalid-payload')
+    }
+    const codeHash = createHash('sha256').update(code).digest('hex')
+    const challenge = await this.repository.consumeRecorderPairing('', codeHash)
+    if (challenge === undefined) return error(409, 'recorder-pairing-unavailable')
+    const credential = randomBytes(32).toString('base64url')
+    const serialHash = createHmac('sha256', this.recorder.serialHmacKey).update(recorderSerial).digest('hex')
+    const credentialHash = createHmac('sha256', this.recorder.credentialHmacKey).update(credential).digest('hex')
+    const recorder = await this.repository.pairRecorder({
+      recorderId: `recorder-${randomBytes(16).toString('hex')}`,
+      orgId: challenge.orgId, userId: challenge.userId, deviceName,
+      recorderSerial, relayPublicKey, status: 'active', lastSeenAt: this.now(),
+    }, serialHash, credentialHash)
+    if (recorder === undefined) return error(409, 'recorder-owned-by-another-user')
+    return Response.json({
+      recorderId: recorder.recorderId, credential,
+      orgId: challenge.orgId, userId: challenge.userId,
+    })
   }
 }
