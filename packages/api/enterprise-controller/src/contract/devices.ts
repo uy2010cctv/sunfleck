@@ -89,6 +89,21 @@ export interface EnterpriseRecorderRuntimeSaveRequest {
 }
 /** Empty recorder runtime lookup/start request. */
 export interface EnterpriseRecorderRuntimeRequest {}
+/** Persisted model route used by the recorder-memory processing Session. */
+export interface EnterpriseRecorderMemoryRuntimeView {
+  readonly revision: number
+  readonly provider: string
+  readonly model: string
+  readonly timeoutMs: number
+  readonly sessionId: string
+}
+/** Optimistic update for the recorder-memory model route. */
+export interface EnterpriseRecorderMemoryRuntimeSaveRequest {
+  readonly expectedRevision: number
+  readonly provider: string
+  readonly model: string
+  readonly timeoutMs: number
+}
 /** Bounded recent-run request. */
 export interface EnterpriseComputerUseRunListRequest { readonly limit?: number }
 /** Bounded recent-action request. */

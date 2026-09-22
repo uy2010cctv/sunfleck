@@ -10,7 +10,9 @@ Recorder ASR and speaker recognition were selected through process environment v
 
 ## Decision
 
-The Settings client registers one explicit **Recording & speech models** section. ASR and CAM each select local or online execution, model id, and online endpoint; CAM additionally owns enablement and the owner-match threshold. Online configuration stores only Credential references in browser-visible state.
+The Settings client contributes recorder controls to the dsh-knowledge **Local Models** section instead of registering another navigation entry. ASR and CAM each select local or online execution, model id, and online endpoint; CAM additionally owns enablement and the owner-match threshold. Online configuration stores only Credential references in browser-visible state.
+
+The same surface selects the recorder-memory processing provider, model, and timeout and shows the authenticated user's dedicated `recorder-memory-<userId>` inference Session id. The Host persists that route in the owner-only `$DSH_HOME/storages/recorder-memory-runtime.json` file with optimistic revision matching. dsh-knowledge reads the file before each processing batch; environment variables remain only as a migration fallback when the file does not exist.
 
 The authenticated Enterprise controller validates configuration, resolves Credential values on the Host, and calls the recorder gateway through a server-only administration token. The gateway authenticates that token and forwards to the Mac ASR process using its existing ASR token. The Mac persists the complete desired configuration in a mode-0600 revisioned file and never returns credential values.
 
@@ -22,10 +24,12 @@ Local ASR selects FunASR unless the model id names Whisper. Online ASR uses an O
 
 **Continue using environment variables.** This leaves configuration invisible to users, requires a process restart, and cannot provide save/start state readback.
 
+**Keep recorder controls as a separate Settings navigation item.** ASR, CAM, embeddings, reranking, OCR, Ollama, and memory processing are all local-model operations; splitting them made the model inventory harder to understand and left memory processing invisible.
+
 **Send API keys in the settings form.** This would expose secrets to browser state and duplicate Credential ownership, so the page accepts references only.
 
 **Write configuration directly from the browser to the Mac.** This would bypass enterprise authentication and make the private tunnel a public control plane, so every mutation passes through the Host and gateway.
 
 ## Consequences
 
-Users can inspect, configure, start, and reload recorder models from one system settings page while secrets remain server-side. Revision checks prevent stale tabs from overwriting a newer choice, and a failed model load leaves an explicit error. The design adds a three-hop administration path and a local secret-bearing file. Online endpoints remain provider-specific deployments and require a real credential plus an inference request before provider availability is known.
+Users can inspect, configure, start, and reload recorder models from the existing Local Models page while secrets remain server-side. They can also change the memory-processing route without restarting DSH and see the Session identity used to isolate that work. Revision checks prevent stale tabs from overwriting a newer choice, and a failed model load leaves an explicit error. The design adds a three-hop administration path, a local secret-bearing ASR file, and a separate secret-free Host memory-route file. Online endpoints remain provider-specific deployments and require a real credential plus an inference request before provider availability is known.

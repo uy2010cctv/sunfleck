@@ -13,6 +13,10 @@ const runtime = {
   cam: { enabled: true, mode: 'local' as const, model: 'cam++', matchThreshold: 0.72 },
   state: 'running' as const, asrReady: true, camReady: true, credentialReady: true, checkedAt: 10,
 }
+const memory = {
+  revision: 2, provider: 'deepseek-official', model: 'deepseek-flash', timeoutMs: 12_000,
+  sessionId: 'recorder-memory-bootstrap-admin',
+}
 
 function ok<T>(value: T): { readonly ok: true; readonly value: T } { return { ok: true, value } }
 
@@ -28,11 +32,13 @@ describe('RecorderSettingsSection', () => {
   it('reveals online fields and saves one explicit draft', async () => {
     const remote: RecorderRuntimeRemote = {
       getRecorderRuntime: vi.fn(),
+      getRecorderMemoryRuntime: vi.fn(),
       saveRecorderRuntime: vi.fn(async request => ok({ ...runtime, ...request, revision: 4 })),
+      saveRecorderMemoryRuntime: vi.fn(async request => ok({ ...memory, ...request, revision: 3 })),
       startRecorderRuntime: vi.fn(async () => ok(runtime)),
     }
     const controller = new RecorderSettingsStore(remote)
-    controller.store.set({ phase: 'ready', runtime, error: undefined, saved: false })
+    controller.store.set({ phase: 'ready', runtime, memory, error: undefined, saved: false })
     const useSnapshot = snapshotHook(controller)
     render(<RecorderSettingsSection controller={controller} useSnapshot={useSnapshot} t={key => zh[key]} />)
 
@@ -47,9 +53,29 @@ describe('RecorderSettingsSection', () => {
     })))
   })
 
+  it('shows and saves the memory-processing model with its dedicated Session id', async () => {
+    const remote: RecorderRuntimeRemote = {
+      getRecorderRuntime: vi.fn(), getRecorderMemoryRuntime: vi.fn(), saveRecorderRuntime: vi.fn(),
+      startRecorderRuntime: vi.fn(),
+      saveRecorderMemoryRuntime: vi.fn(async request => ok({ ...memory, ...request, revision: 3 })),
+    }
+    const controller = new RecorderSettingsStore(remote)
+    controller.store.set({ phase: 'ready', runtime, memory, error: undefined, saved: false })
+    render(<RecorderSettingsSection controller={controller} useSnapshot={snapshotHook(controller)} t={key => zh[key]} />)
+
+    expect(screen.getByDisplayValue('recorder-memory-bootstrap-admin')).toBeTruthy()
+    fireEvent.change(screen.getByLabelText('Provider'), { target: { value: 'zai-coding-cn' } })
+    fireEvent.change(screen.getByLabelText('记忆加工模型'), { target: { value: 'glm-5.3-flash' } })
+    fireEvent.click(screen.getByRole('button', { name: '保存记忆配置' }))
+
+    await vi.waitFor(() => expect(remote.saveRecorderMemoryRuntime).toHaveBeenCalledWith(expect.objectContaining({
+      provider: 'zai-coding-cn', model: 'glm-5.3-flash', expectedRevision: 2,
+    })))
+  })
+
   it('shows text alongside readiness dots and exposes 44px controls', () => {
     const controller = new RecorderSettingsStore({} as RecorderRuntimeRemote)
-    controller.store.set({ phase: 'ready', runtime: { ...runtime, camReady: false }, error: undefined, saved: false })
+    controller.store.set({ phase: 'ready', runtime: { ...runtime, camReady: false }, memory, error: undefined, saved: false })
     const useSnapshot = snapshotHook(controller)
     const view = render(<RecorderSettingsSection controller={controller} useSnapshot={useSnapshot} t={key => zh[key]} />)
     expect(screen.getByText('运行中')).toBeTruthy()

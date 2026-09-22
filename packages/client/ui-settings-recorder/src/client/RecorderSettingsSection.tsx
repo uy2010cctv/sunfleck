@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
 import type { InjectFace } from '@deepseek-ai/dsh-client-ui-slots'
 import type { EnterpriseRecorderRuntimeSaveRequest } from '@deepseek-ai/dsh-api-enterprise-controller/types'
+import type { EnterpriseRecorderMemoryRuntimeSaveRequest } from '@deepseek-ai/dsh-api-enterprise-controller/types'
 import type { RecorderSettingsStore } from './store.ts'
 import type { en } from './locales.ts'
 import css from './RecorderSettingsSection.module.css'
@@ -16,6 +17,7 @@ export interface RecorderSettingsInjected {
 
 export type RecorderSettingsSectionProps = Partial<InjectFace<RecorderSettingsInjected>>
 type Draft = Omit<EnterpriseRecorderRuntimeSaveRequest, 'expectedRevision'>
+type MemoryDraft = Omit<EnterpriseRecorderMemoryRuntimeSaveRequest, 'expectedRevision'>
 
 function statusKey(state: 'stopped' | 'starting' | 'running' | 'error'): keyof typeof en { return state }
 
@@ -30,7 +32,10 @@ function Loaded({ controller, useSnapshot, t }: InjectFace<RecorderSettingsInjec
   const state = useSnapshot(value => value)
   const [draft, setDraft] = useState<Draft | undefined>(undefined)
   const [draftRevision, setDraftRevision] = useState<number | undefined>(undefined)
+  const [memoryDraft, setMemoryDraft] = useState<MemoryDraft | undefined>(undefined)
+  const [memoryRevision, setMemoryRevision] = useState<number | undefined>(undefined)
   const runtime = state.runtime
+  const memory = state.memory
 
   useEffect(() => { if (state.phase === 'idle') void controller.load() }, [controller, state.phase])
   useEffect(() => {
@@ -38,8 +43,13 @@ function Loaded({ controller, useSnapshot, t }: InjectFace<RecorderSettingsInjec
     setDraft({ asr: { ...runtime.asr }, cam: { ...runtime.cam } })
     setDraftRevision(runtime.revision)
   }, [draftRevision, runtime])
+  useEffect(() => {
+    if (memory === undefined || memory.revision === memoryRevision) return
+    setMemoryDraft({ provider: memory.provider, model: memory.model, timeoutMs: memory.timeoutMs })
+    setMemoryRevision(memory.revision)
+  }, [memory, memoryRevision])
 
-  if (runtime === undefined || draft === undefined) {
+  if (runtime === undefined || draft === undefined || memory === undefined || memoryDraft === undefined) {
     return <section className={css.section} aria-busy={state.phase === 'loading'}>
       <div className={css.heading}><h2 className={css.title}>{t('title')}</h2><p className={css.intro}>{t('intro')}</p></div>
       <p className={`${css.message} ${state.phase === 'error' ? css.error : ''}`} role="status">
@@ -52,6 +62,7 @@ function Loaded({ controller, useSnapshot, t }: InjectFace<RecorderSettingsInjec
   const updateAsr = (value: Partial<Draft['asr']>): void => { setDraft(current => current && ({ ...current, asr: { ...current.asr, ...value } })) }
   const updateCam = (value: Partial<Draft['cam']>): void => { setDraft(current => current && ({ ...current, cam: { ...current.cam, ...value } })) }
   const save = (): void => { void controller.save({ expectedRevision: runtime.revision, ...draft }) }
+  const saveMemory = (): void => { void controller.saveMemory({ expectedRevision: memory.revision, ...memoryDraft }) }
 
   return <section className={css.section} aria-busy={busy}>
     <div className={css.heading}><h2 className={css.title}>{t('title')}</h2><p className={css.intro}>{t('intro')}</p></div>
@@ -87,6 +98,25 @@ function Loaded({ controller, useSnapshot, t }: InjectFace<RecorderSettingsInjec
           disabled={!draft.cam.enabled} value={draft.cam.matchThreshold}
           onChange={(event) => { updateCam({ matchThreshold: Number(event.target.value) }) }} /></label>
       </fieldset>
+      <fieldset className={`${css.card} ${css.memoryCard}`}>
+        <legend className={css.cardTitle}>{t('memoryProcessing')}</legend>
+        <p className={css.hint}>{t('memoryHint')}</p>
+        <div className={css.memoryFields}>
+          <Field label={t('provider')} value={memoryDraft.provider}
+            onChange={(provider) => { setMemoryDraft(current => current && ({ ...current, provider })) }} />
+          <Field label={t('memoryProcessing')} value={memoryDraft.model}
+            onChange={(model) => { setMemoryDraft(current => current && ({ ...current, model })) }} />
+          <label className={css.field}>{t('timeoutMs')}<input className={css.input} type="number" min="1000" max="300000" step="1000"
+            value={memoryDraft.timeoutMs} onChange={(event) => {
+              const timeoutMs = Number(event.target.value)
+              if (Number.isFinite(timeoutMs)) setMemoryDraft(current => current && ({ ...current, timeoutMs }))
+            }} /></label>
+          <Field label={t('dedicatedSessionId')} value={memory.sessionId} readOnly onChange={() => {}} />
+        </div>
+        <div className={css.actions}>
+          <button type="button" className={`${css.button} ${css.primary}`} disabled={busy} onClick={saveMemory}>{t('saveMemory')}</button>
+        </div>
+      </fieldset>
     </div>
     <div className={css.actions}>
       <button type="button" className={`${css.button} ${css.primary}`} disabled={busy} onClick={save}>{state.phase === 'saving' ? t('saving') : t('save')}</button>
@@ -118,13 +148,14 @@ function Mode({ value, disabled = false, onChange, t }: {
   </div>
 }
 
-function Field({ label, value, disabled = false, type = 'text', onChange }: {
+function Field({ label, value, disabled = false, readOnly = false, type = 'text', onChange }: {
   label: string
   value: string
   disabled?: boolean
+  readOnly?: boolean
   type?: 'text' | 'url'
   onChange: (value: string) => void
 }): ReactNode {
-  return <label className={css.field}>{label}<input className={css.input} type={type} value={value} disabled={disabled}
+  return <label className={css.field}>{label}<input className={css.input} type={type} value={value} disabled={disabled} readOnly={readOnly}
     onChange={(event) => { onChange(event.target.value) }} /></label>
 }

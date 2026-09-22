@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## 概述
 
-用户可选择本地或在线的录音转写和说话人识别，保存带版本的配置，并启动或重载所选模型。页面区分已保存配置与活动运行状态，并报告 ASR、CAM 和凭据就绪状态。在线模式只接受 Credential 引用，因此密钥值不会进入浏览器状态。Web 组合提供 Enterprise 录音控制器时选择本包。
+用户可选择本地或在线的录音转写和说话人识别、选择录音记忆加工路由、保存带版本的配置，并启动或重载所选音频模型。控制项位于 dsh-knowledge 的“本地模型”页面。运行时读回会报告 ASR、CAM、凭据就绪状态，以及当前用户专用的记忆加工 Session id。在线模式只接受 Credential 引用，因此密钥值不会进入浏览器状态。
 
 ## 目录
 
@@ -25,7 +25,7 @@ kind: "package-reference"
 <a id="use-this-package"></a>
 ## 使用本包
 
-打开“录音与语音模型”，保存期望的 ASR 和 CAM 配置，选择“启动 / 重载”，并查看返回的就绪状态。
+打开“本地模型”，保存期望的 ASR 和 CAM 配置，选择“启动 / 重载”，并选择专用录音记忆 Session 使用的 Provider/模型。
 
 ### 适用场景
 
@@ -50,7 +50,7 @@ kind: "package-reference"
 <details>
 <summary>实现内部 — 点击展开</summary>
 
-页面调用已鉴权的 `enterpriseDevice` Remote。Host 校验字段，解析 Credential 引用，再通过仅服务端可用的录音管理桥发送期望配置。保存操作修改期望配置；启动操作再在 Mac 运行时加载该版本。浏览器只接收模型选择、版本、就绪标记和错误，不接收凭据值。
+控制项调用已鉴权的 `enterpriseDevice` Remote。Host 校验字段，解析 Credential 引用，再通过仅服务端可用的录音管理桥发送 ASR/CAM 配置。Host 还把记忆加工路由保存到仅属主可读的文件，由 dsh-knowledge 在加工前读取。保存操作修改期望配置；启动操作只在 Mac 运行时加载 ASR/CAM 版本。浏览器只接收模型选择、版本、就绪标记、专用 Session id 和错误，不接收凭据值。
 
 | 区域 | 源码 |
 |---|---|
@@ -65,7 +65,8 @@ kind: "package-reference"
 <a id="further-exploration"></a>
 ## 延伸阅读
 
-- [Settings shell](../ui-settings/README.zh.md) — 拥有共享导航和区域 slot。
+- [Settings shell](../ui-settings/README.zh.md) — 拥有共享导航。
+- dsh-knowledge 本地模型——拥有页面和录音控制子插槽。
 - [Enterprise controller](../../api/enterprise-controller/README.zh.md) — 拥有已鉴权的录音 Remote。
 - [Credential 服务](../../credentials/README.zh.md) — 拥有在线厂商密钥值。
 - [录音运行时决策](../../../.agents/notes/implemented/feature/2026-09-21-recorder-runtime-settings.zh.md) — 记录控制路径和密钥所有权理由。

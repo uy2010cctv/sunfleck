@@ -9,7 +9,7 @@
     "directory": "packages/api/enterprise-controller"
   },
   "type": "module",
-  "dependencies": { "@larksuiteoapi/node-sdk": "1.73.2", "@deepseek-ai/dsh-enterprise-device-plane": "workspace:^", "zod": "^4.4.3" },
+  "dependencies": { "@larksuiteoapi/node-sdk": "1.73.2", "@deepseek-ai/dsh-atomic-write": "workspace:^", "@deepseek-ai/dsh-enterprise-device-plane": "workspace:^", "@deepseek-ai/dsh-home-paths": "workspace:^", "zod": "^4.4.3" },
   "main": "lib/index.js",
   "types": "lib/types/index.d.ts",
   "exports": {

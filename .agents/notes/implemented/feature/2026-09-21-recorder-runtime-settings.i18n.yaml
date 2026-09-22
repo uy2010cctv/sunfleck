@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-21-recorder-runtime-settings.md
-2026-09-21-recorder-runtime-settings.md: dc694eb7b2aaedd915753e69fd1acfe5e41e8a5b
-2026-09-21-recorder-runtime-settings.zh.md: 5d8662104b41599b1ae35090c6dba8e22902bbb4
+2026-09-21-recorder-runtime-settings.md: 43fe704c84c5dd39027cfa2643bb52b8f4be73aa
+2026-09-21-recorder-runtime-settings.zh.md: 75e81ac3c04c9a5410d9c4c28fd6fb13367fffb2

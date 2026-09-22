@@ -1,8 +1,8 @@
 /** Simplified Chinese recorder-model settings copy. */
 export const zh = {
   nav: '录音与语音模型',
-  title: 'ASR 与说话人模型',
-  intro: '选择录音转写和说话人识别的运行位置。保存只更新配置；启动后读回真实健康状态。',
+  title: '录音与记忆模型',
+  intro: '在一个页面管理录音转写、说话人识别和增量记忆加工。',
   status: '运行状态',
   running: '运行中', starting: '启动中', stopped: '已停止', error: '异常',
   ready: '已就绪', notReady: '未就绪', configured: '凭据已配置', missingCredential: '凭据未配置',
@@ -14,12 +14,15 @@ export const zh = {
   onlineCamHint: '调用受信任的 HTTPS 说话人服务。',
   save: '保存配置', start: '启动 / 重载', refresh: '刷新状态', saving: '正在保存…', startingAction: '正在启动…', saved: '配置已保存',
   loadError: '无法读取录音模型状态。', actionError: '操作失败，已保留当前配置。',
+  memoryProcessing: '记忆加工模型', provider: 'Provider', dedicatedSessionId: '专用 Session ID',
+  timeoutMs: '超时（毫秒）', saveMemory: '保存记忆配置',
+  memoryHint: '每次录音段入库后使用该模型增量生成情景、语义和行为记忆。Session ID 按当前用户固定隔离。',
 } as const
 export type RecorderSettingsKey = keyof typeof zh
 /** English recorder-model settings copy. */
 export const en: Record<RecorderSettingsKey, string> = {
-  nav: 'Recording & speech models', title: 'ASR and speaker models',
-  intro: 'Choose where transcription and speaker recognition run. Save updates configuration; Start verifies real runtime health.',
+  nav: 'Recording & speech models', title: 'Recording and memory models',
+  intro: 'Manage transcription, speaker recognition, and incremental memory processing in one place.',
   status: 'Runtime status', running: 'Running', starting: 'Starting', stopped: 'Stopped', error: 'Error',
   ready: 'Ready', notReady: 'Not ready', configured: 'Credential configured', missingCredential: 'Credential missing',
   asr: 'ASR transcription', cam: 'CAM speaker model', enabled: 'Enable speaker recognition',
@@ -30,4 +33,7 @@ export const en: Record<RecorderSettingsKey, string> = {
   onlineCamHint: 'Calls a trusted HTTPS speaker service.',
   save: 'Save configuration', start: 'Start / reload', refresh: 'Refresh status', saving: 'Saving…', startingAction: 'Starting…', saved: 'Configuration saved',
   loadError: 'Could not read recorder model status.', actionError: 'The operation failed; the current configuration is preserved.',
+  memoryProcessing: 'Memory processing model', provider: 'Provider', dedicatedSessionId: 'Dedicated Session ID',
+  timeoutMs: 'Timeout (ms)', saveMemory: 'Save memory settings',
+  memoryHint: 'After each recorder segment is ingested, this model incrementally creates episode, semantic, and behavioral memories. The Session ID is isolated per user.',
 }

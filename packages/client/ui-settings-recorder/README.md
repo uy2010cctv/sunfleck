@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-Users can choose local or online recorder transcription and speaker recognition, save a revisioned configuration, and start or reload selected models. The page separates saved configuration from active runtime state and reports ASR, CAM, and credential readiness. Online modes accept Credential references, so secret values remain outside browser state. Choose this package when a web composition exposes the Enterprise recorder controller.
+Users can choose local or online recorder transcription and speaker recognition, select the recorder-memory processing route, save revisioned configurations, and start or reload selected audio models. The controls live inside the dsh-knowledge Local Models page. Runtime readback reports ASR, CAM, credential readiness, and the current user's dedicated memory-processing Session id. Online modes accept Credential references, so secret values remain outside browser state.
 
 ## Table of Contents
 
@@ -25,7 +25,7 @@ Users can choose local or online recorder transcription and speaker recognition,
 <a id="use-this-package"></a>
 ## Use this package
 
-Open **Recording & speech models**, save the desired ASR and CAM configuration, select **Start / reload**, and inspect the returned readiness status.
+Open **Local Models**, save the desired ASR and CAM configuration, select **Start / reload**, and choose the provider/model used by the dedicated recorder-memory Session.
 
 ### When to choose it
 
@@ -50,7 +50,7 @@ The plugin has no configuration fields. The Host reads `DSH_RECORDER_ADMIN_URL` 
 <details>
 <summary>Implementation internals — click to expand</summary>
 
-The page calls the authenticated `enterpriseDevice` Remote. The Host validates fields, resolves Credential references, and sends the desired configuration through a server-only recorder administration bridge. Save changes desired configuration; Start separately loads that revision on the Mac runtime. The browser receives model selections, revisions, readiness flags, and errors without credential values.
+The controls call the authenticated `enterpriseDevice` Remote. The Host validates fields, resolves Credential references, and sends ASR/CAM configuration through a server-only recorder administration bridge. It persists the memory-processing route in an owner-only Host file that dsh-knowledge reads before processing. Save changes desired configuration; Start separately loads the ASR/CAM revision on the Mac runtime. The browser receives model selections, revisions, readiness flags, dedicated Session id, and errors without credential values.
 
 | Area | Source |
 |---|---|
@@ -65,7 +65,8 @@ The page calls the authenticated `enterpriseDevice` Remote. The Host validates f
 <a id="further-exploration"></a>
 ## Further Exploration
 
-- [Settings shell](../ui-settings/README.md) — owns shared navigation and the section slot.
+- [Settings shell](../ui-settings/README.md) — owns shared navigation.
+- dsh-knowledge Local Models — owns the page and recorder-control child slot.
 - [Enterprise controller](../../api/enterprise-controller/README.md) — owns the authenticated recorder Remote.
 - [Credential service](../../credentials/README.md) — owns online provider secret values.
 - [Recorder runtime decision](../../../.agents/notes/implemented/feature/2026-09-21-recorder-runtime-settings.md) — records control-path and secret-ownership rationale.

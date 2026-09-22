@@ -9,6 +9,10 @@ import { RecorderSettingsStore, type RecorderRuntimeRemote } from './store.ts'
 import { en, zh, type RecorderSettingsKey } from './locales.ts'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
+  interface SlotMap {
+    /** Recorder inference controls hosted by the dsh-knowledge Local Models page. */
+    'settings.local-models.recorder': { kind: 'list'; scope: 'root'; owner: Record<string, never> }
+  }
   interface LocaleNamespaceMap {
     /** Recorder inference runtime settings copy. */
     'settings.recorder': RecorderSettingsKey
@@ -18,15 +22,15 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 const NS = 'settings.recorder'
 export const inject = ['slots', 'locale', 'remote', 'remote.enterpriseDevice']
 
-/** Register the Recorder settings page and its observable runtime controller. */
+/** Register recorder inference controls inside the Local Models settings page. */
 export function apply(ctx: ClientContext): void {
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'ui-settings-recorder: dictionaries')
   const remote = ctx.remote.enterpriseDevice as unknown as RecorderRuntimeRemote
   const controller = new RecorderSettingsStore(remote)
   const t = ctx.locale.bind(NS) as RecorderSettingsInjected['t']
   const injected = (): RecorderSettingsInjected => ({ controller, hooks: { snapshot: controller.store }, t })
-  ctx.slots.inject('settings.section', () => ctx.slots.register({
-    name: 'settings.section', id: 'recorder-models', order: 15, label: () => t('nav'), inject: injected,
+  ctx.slots.inject('settings.local-models.recorder' as never, () => ctx.slots.register({
+    name: 'settings.local-models.recorder', id: 'recorder-models', order: 0, inject: injected,
   }, RecorderSettingsSection))
 }
 

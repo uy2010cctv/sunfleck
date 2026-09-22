@@ -9,6 +9,7 @@ import type {} from '@deepseek-ai/dsh-enterprise-auth-web'
 import type {} from '@deepseek-ai/dsh-enterprise-postgres'
 import type { EmployeePresetDefinition } from '@deepseek-ai/dsh-agent-presets'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
+import { dshHomePath } from '@deepseek-ai/dsh-home-paths'
 import {
   normalizeDevicePublicKey, PostgresDevicePlaneRepository, validateQueuedDeviceAction,
 } from '@deepseek-ai/dsh-enterprise-device-plane'
@@ -66,6 +67,7 @@ import type {
   EnterpriseEmployeeRollbackRequest,
   EnterpriseEmployeeSaveRequest,
 } from './contract/employees.ts'
+import { RecorderMemoryRuntimeStore } from './recorder-memory-runtime.ts'
 import type {
   EnterpriseAsset,
   EnterpriseAssetArchiveRequest,
@@ -185,6 +187,8 @@ import type {
   EnterpriseDeviceView,
   EnterpriseRecorderDeviceView,
   EnterpriseRecorderListRequest,
+  EnterpriseRecorderMemoryRuntimeSaveRequest,
+  EnterpriseRecorderMemoryRuntimeView,
   EnterpriseRecorderRuntimeRequest,
   EnterpriseRecorderRuntimeSaveRequest,
   EnterpriseRecorderRuntimeView,
@@ -580,11 +584,51 @@ export class EnterpriseDeviceController extends TypertRemoteService {
       this.recorderRuntime().start())
   }
 
+  /** Read the recorder-memory model route and the caller's dedicated processing Session id.
+   * @param request - Empty authenticated runtime lookup.
+   * @returns Persisted model route and dedicated Session id.
+   */
+  @Remote('getRecorderMemoryRuntime') async getRecorderMemoryRuntime(
+    request: EnterpriseRecorderRuntimeRequest,
+  ): Promise<EnterpriseRecorderMemoryRuntimeView> {
+    return catalogCall(this.ctx, 'enterpriseDevice.getRecorderRuntime', request, 'recorder-memory-runtime', 'singleton', actor =>
+      this.recorderMemoryRuntime().view(actor.userId))
+  }
+
+  /** Save the recorder-memory model route after verifying it exists in the active model catalog.
+   * @param request - Revision-aware provider, model, and timeout.
+   * @returns Persisted model route and dedicated Session id.
+   */
+  @Remote('saveRecorderMemoryRuntime') async saveRecorderMemoryRuntime(
+    request: EnterpriseRecorderMemoryRuntimeSaveRequest,
+  ): Promise<EnterpriseRecorderMemoryRuntimeView> {
+    return catalogCall(this.ctx, 'enterpriseDevice.saveRecorderRuntime', request, 'recorder-memory-runtime', 'singleton', async (actor) => {
+      const provider = request.provider.trim()
+      const model = request.model.trim()
+      const availableProvider = this.ctx.llm.listProviders().some(candidate => candidate.id === provider)
+      if (!availableProvider) throw new Error(`recorder memory provider ${JSON.stringify(provider)} is not configured`)
+      const availableModel = (await this.ctx.llm.listModels(provider)).some(candidate => candidate.id === model)
+      if (!availableModel) throw new Error(`recorder memory model ${JSON.stringify(model)} is not configured for ${provider}`)
+      return this.recorderMemoryRuntime().save({ ...request, provider, model }, actor.userId)
+    })
+  }
+
   private recorderRuntime(): RecorderRuntimeBridge {
     return new RecorderRuntimeBridge({
       baseUrl: process.env['DSH_RECORDER_ADMIN_URL'] ?? 'http://127.0.0.1:18765',
       adminToken: process.env['DSH_RECORDER_ADMIN_TOKEN'] ?? '',
     })
+  }
+
+  private recorderMemoryRuntime(): RecorderMemoryRuntimeStore {
+    return new RecorderMemoryRuntimeStore(
+      process.env['DSH_RECORDER_MEMORY_CONFIG'] ?? dshHomePath('storages', 'recorder-memory-runtime.json'),
+      {
+        provider: process.env['DSH_RECORDER_MEMORY_PROVIDER']?.trim() || 'deepseek-official',
+        model: process.env['DSH_RECORDER_MEMORY_MODEL']?.trim() || 'deepseek-flash',
+        timeoutMs: Number(process.env['DSH_RECORDER_MEMORY_TIMEOUT_MS'] ?? '12000'),
+      },
+    )
   }
 
   /**
