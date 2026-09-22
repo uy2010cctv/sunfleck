@@ -5,7 +5,14 @@ import {
   migrateEnterpriseIdentity,
 } from '../src/index.ts'
 
-/** Replay the tables a schema-version 5 file already contains, with one organization and user committed. */
+/** Insert the organization and user rows shared by every fixture. */
+function seedOrgAndUser(database: DatabaseSync): void {
+  database.prepare('INSERT INTO organizations(id, name) VALUES (?, ?)').run('org-1', 'Existing enterprise')
+  database.prepare('INSERT INTO users(id, org_id, username, display_name, disabled) VALUES (?, ?, ?, ?, ?)')
+    .run('user-1', 'org-1', 'alice', 'Alice', 0)
+}
+
+/** Create the pre-existing tables and committed rows the in-place v5 migration must preserve. */
 function seedVersion5File(database: DatabaseSync): void {
   database.exec(`
     CREATE TABLE enterprise_meta (
@@ -28,16 +35,12 @@ function seedVersion5File(database: DatabaseSync): void {
     ) STRICT;
   `)
   database.prepare("INSERT INTO enterprise_meta(key, value) VALUES ('schema-version', '5')").run()
-  database.prepare('INSERT INTO organizations(id, name) VALUES (?, ?)').run('org-1', 'Existing enterprise')
-  database.prepare('INSERT INTO users(id, org_id, username, display_name, disabled) VALUES (?, ?, ?, ?, ?)')
-    .run('user-1', 'org-1', 'alice', 'Alice', 0)
+  seedOrgAndUser(database)
 }
 
 /** Insert the organization, user, and employee account rows that inbox and binding rows reference. */
 function seedEmployeeGraph(database: DatabaseSync): void {
-  database.prepare('INSERT INTO organizations(id, name) VALUES (?, ?)').run('org-1', 'Existing enterprise')
-  database.prepare('INSERT INTO users(id, org_id, username, display_name, disabled) VALUES (?, ?, ?, ?, ?)')
-    .run('user-1', 'org-1', 'alice', 'Alice', 0)
+  seedOrgAndUser(database)
   database.prepare(`INSERT INTO employee_accounts(
       id, org_id, display_name, role_card, active_release_id, state,
       home_workspace_path, created_at, updated_at

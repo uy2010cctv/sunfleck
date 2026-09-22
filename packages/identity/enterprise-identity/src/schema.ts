@@ -197,6 +197,8 @@ export function migrateEnterpriseIdentity(database: DatabaseSync): void {
     database.exec('ALTER TABLE users ADD COLUMN department_revision INTEGER NOT NULL DEFAULT 0')
     database.prepare("UPDATE enterprise_meta SET value = ? WHERE key = 'schema-version'")
       .run(String(ENTERPRISE_IDENTITY_SCHEMA_VERSION))
+  // Versions 2, 3, and 5 differ from current only by additive tables that the IF NOT EXISTS
+  // DDL above already created; restamping the recorded version completes their migration.
   } else if (Number(version.value) === 2 || Number(version.value) === 3 || Number(version.value) === 5) {
     database.prepare("UPDATE enterprise_meta SET value = ? WHERE key = 'schema-version'")
       .run(String(ENTERPRISE_IDENTITY_SCHEMA_VERSION))
