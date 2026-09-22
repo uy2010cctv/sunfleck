@@ -174,7 +174,7 @@ These instructions apply to work under `packages/app`. Use them as guidance when
 
 #### Token 影响
 
-每个已发现 scope 都会添加有界历史 token，直到压缩。可见会话状态与版本／digest 比较会抑制未更改内容，PTC mode 将同一消息延迟至外层 `run_code` 结果及其所属持久步骤之后。
+每个已发现 scope 都会添加有界历史 token，直到压缩。持久候选标识使用目录与文件名组成的 JSON 安全元组，因此所有 Session 持久化提供方都能表示指令元数据。可见会话状态与版本／digest 比较会抑制未更改内容，PTC mode 将同一消息延迟至外层 `run_code` 结果及其所属持久步骤之后。
 
 #### KV Cache 影响
 

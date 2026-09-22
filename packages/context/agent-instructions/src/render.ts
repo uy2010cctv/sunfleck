@@ -107,21 +107,19 @@ export function scopeForDisplayPath(displayPath: string): string {
   return dirname(displayPath)
 }
 
-const SCOPE_SEPARATOR = '\u0000'
-
 /**
  * Compose the reconciliation key for one instruction candidate file.
  * Each loaded candidate is tracked independently, so the key pairs the logical
- * directory with the exact candidate file name behind a NUL separator that no
- * directory path or file name can contain. Distinct candidates in one directory
+ * directory with the exact candidate file name as one JSON tuple. Distinct candidates in one directory
  * (`AGENTS.md` vs `CLAUDE.md`, a base file vs its `.local` overlay) therefore
- * never collide in the scope-keyed state maps.
+ * never collide in the scope-keyed state maps, and the durable key remains valid
+ * inside PostgreSQL JSONB and every other JSON implementation.
  * @param directory - `user-global`, `.`, or a project-relative directory.
  * @param candidateName - instruction file name within that directory.
  * @returns the per-candidate logical scope key.
  */
 export function candidateScopeKey(directory: string, candidateName: string): string {
-  return `${directory}${SCOPE_SEPARATOR}${candidateName}`
+  return JSON.stringify([directory, candidateName])
 }
 
 /**
@@ -139,10 +137,23 @@ export function instructionScopeKey(displayPath: string): string {
  * @returns the directory scope and the candidate file name within it.
  */
 export function decodeScopeKey(scope: string): { directory: string; candidateName: string } {
-  const separator = scope.indexOf(SCOPE_SEPARATOR)
-  /* v8 ignore next -- every scope key is produced by candidateScopeKey, which always inserts the separator. */
-  if (separator < 0) return { directory: scope, candidateName: '' }
-  return { directory: scope.slice(0, separator), candidateName: scope.slice(separator + 1) }
+  const releasedSeparator = scope.indexOf('\u0000')
+  if (releasedSeparator >= 0) {
+    return {
+      directory: scope.slice(0, releasedSeparator),
+      candidateName: scope.slice(releasedSeparator + 1),
+    }
+  }
+  try {
+    const decoded: unknown = JSON.parse(scope)
+    if (Array.isArray(decoded) && decoded.length === 2
+      && typeof decoded[0] === 'string' && typeof decoded[1] === 'string') {
+      return { directory: decoded[0], candidateName: decoded[1] }
+    }
+  } catch {
+    // Released pre-candidate scopes were plain directory strings.
+  }
+  return { directory: scope, candidateName: '' }
 }
 
 function additionalSectionText(file: LoadedInstructionFile): string {

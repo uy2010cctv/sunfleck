@@ -41,7 +41,7 @@ import {
   type InstructionVersionCache,
 } from '../src/state.ts'
 import { resolveConfig } from '../src/config.ts'
-import { candidateScopeKey, renderInstructionChanges, renderWorkspaceInstructionSet, USER_GLOBAL_DIRECTORY, USER_GLOBAL_FILE } from '../src/render.ts'
+import { candidateScopeKey, decodeScopeKey, renderInstructionChanges, renderWorkspaceInstructionSet, USER_GLOBAL_DIRECTORY, USER_GLOBAL_FILE } from '../src/render.ts'
 import { MockAdapter, textResponse, toolCallResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
 import {
   mountAgentLoopTestDependencies,
@@ -50,6 +50,19 @@ import {
 
 /** Per-candidate reconciliation scope key: directory paired with the file name. */
 const sk = (directory: string, candidateName: string): string => candidateScopeKey(directory, candidateName)
+
+it('encodes instruction scope keys without PostgreSQL-incompatible NUL characters', () => {
+  const key = candidateScopeKey('xhs-src:子目录', 'CLAUDE.md')
+
+  expect(key).not.toContain('\0')
+  expect(JSON.stringify({ scope: key })).not.toContain('\\u0000')
+  expect(decodeScopeKey(key)).toEqual({ directory: 'xhs-src:子目录', candidateName: 'CLAUDE.md' })
+})
+
+it('decodes released NUL-delimited instruction scope keys', () => {
+  expect(decodeScopeKey('xhs-src\0CLAUDE.md'))
+    .toEqual({ directory: 'xhs-src', candidateName: 'CLAUDE.md' })
+})
 
 const testToolSignal = new AbortController().signal
 const isolatedInboxCtx = new Context()

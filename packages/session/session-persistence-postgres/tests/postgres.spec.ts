@@ -97,20 +97,27 @@ class MemoryPostgresDatabase implements PostgresDatabase {
     }
     if (text.includes('FROM dsh_session_headers') && text.includes('ORDER BY')) return [...this.headers.values()]
       .sort((left, right) => right.created_at - left.created_at || left.id.localeCompare(right.id))
-      .map(row => ({
-        ...this.header(row),
-        ...(text.includes('AS conversation_started')
-          ? { conversation_started: [...(this.events.get(row.id)?.values() ?? [])]
-            .some(event => (event.event_json as { type?: string }).type === 'turn/start') }
-          : {}),
-        ...(text.includes('AS title')
-          ? { title: [...(this.events.get(row.id)?.values() ?? [])]
-            .filter(event => (event.event_json as { type?: string }).type === 'session/title')
-            .sort((left, right) => right.seq - left.seq)
-            .map(event => (event.event_json as { data?: { title?: unknown } }).data?.title)
-            .find(value => typeof value === 'string') ?? null }
-          : {}),
-      }))
+      .map((row) => {
+        const titleEvent = [...(this.events.get(row.id)?.values() ?? [])]
+          .filter(event => (event.event_json as { type?: string }).type === 'session/title')
+          .sort((left, right) => right.seq - left.seq)[0]?.event_json
+        const serializedTitleEvent = titleEvent === undefined ? '' : JSON.stringify(titleEvent)
+        if (text.includes('event.event_json::jsonb') && serializedTitleEvent.includes('\\u0000')) {
+          throw new Error('unsupported Unicode escape sequence: \\u0000 cannot be converted to text')
+        }
+        return {
+          ...this.header(row),
+          ...(text.includes('AS conversation_started')
+            ? { conversation_started: [...(this.events.get(row.id)?.values() ?? [])]
+              .some(event => (event.event_json as { type?: string }).type === 'turn/start') }
+            : {}),
+          ...(text.includes('AS title_event_json')
+            ? { title_event_json: titleEvent === undefined ? null : JSON.stringify(titleEvent) }
+            : text.includes('AS title')
+              ? { title: (titleEvent as { data?: { title?: unknown } } | undefined)?.data?.title ?? null }
+              : {}),
+        }
+      })
     if (text.startsWith('SELECT seq FROM dsh_session_events')) {
       const session = this.events.get(values[0] as string)
       const seq = session === undefined || session.size === 0 ? undefined : Math.max(...session.keys())
@@ -129,6 +136,9 @@ class MemoryPostgresDatabase implements PostgresDatabase {
       }
       const id = values[0] as string
       const seq = values[1] as number
+      if (text.includes('$3::jsonb') && typeof values[2] === 'string' && values[2].includes('\\u0000')) {
+        throw new Error('unsupported Unicode escape sequence: \\u0000 cannot be converted to text')
+      }
       const session = this.events.get(id) ?? new Map<number, Event>()
       if (session.has(seq)) throw new Error('duplicate event sequence')
       session.set(seq, { seq, event_json: typeof values[2] === 'string' ? JSON.parse(values[2]) : values[2] })
@@ -257,6 +267,20 @@ describe('PostgresSessionStore', () => {
     ]))
   })
 
+  it('lists a Session title that contains a NUL character', async () => {
+    const database = new MemoryPostgresDatabase()
+    const persistence = new PostgresSessionPersistence(new Context(), { database })
+    const currentHeader = { ...header, id: 'session-nul-title', version: SESSION_FORMAT_VERSION }
+    const writer = await persistence.create(currentHeader)
+    const nulTitle = { ...sessionTitle, data: { ...sessionTitle.data, title: 'before\0after' } }
+    await writer.append([turnStart, nulTitle])
+    await writer.close()
+
+    await expect(persistence.list()).resolves.toEqual([
+      expect.objectContaining({ title: 'before\0after' }),
+    ])
+  })
+
   it('upgrades the previous v1 session schema without rejecting existing enterprise data', async () => {
     const database = new MemoryPostgresDatabase()
     database.seedSchemaVersion(1)
@@ -264,6 +288,31 @@ describe('PostgresSessionStore', () => {
     await expect(new PostgresSessionStore(database).initialize()).resolves.toBeUndefined()
 
     expect(database.queries.join('\n')).toContain('ADD COLUMN IF NOT EXISTS inherited_event_count')
+  })
+
+  it('upgrades v2 event JSONB storage to lossless JSON text', async () => {
+    const database = new MemoryPostgresDatabase()
+    database.seedSchemaVersion(2)
+
+    await expect(new PostgresSessionStore(database).initialize()).resolves.toBeUndefined()
+
+    expect(database.queries.join('\n')).toContain('ALTER COLUMN event_json TYPE TEXT')
+  })
+
+  it('round-trips valid session JSON containing a NUL character', async () => {
+    const database = new MemoryPostgresDatabase()
+    const store = new PostgresSessionStore(database)
+    const nulEvent = {
+      type: 'user/message', seq: 0, time: 1, surfaceOp: 'append',
+      data: {
+        id: 'nul-message', role: 'user', source: { kind: 'user' },
+        content: [{ type: 'text', text: 'before\0after' }],
+      },
+    } as const
+
+    await store.appendBatch(header, [nulEvent as never], false)
+
+    expect((await store.loadStored(header.id))?.events).toEqual([nulEvent])
   })
 
   it('persists ordered events and advances one source-qualified revision per append', async () => {
