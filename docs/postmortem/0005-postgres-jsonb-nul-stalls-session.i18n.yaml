@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write docs/postmortem/0005-postgres-jsonb-nul-stalls-session.md
-0005-postgres-jsonb-nul-stalls-session.md: 44f3cf2fe7459a4394aa70e776a3816ca27f37ca
-0005-postgres-jsonb-nul-stalls-session.zh.md: 9340264fa244f7e81ef94d7b4ee410327c9e02f5
+0005-postgres-jsonb-nul-stalls-session.md: d23c451e639c3f57db8faac0a204e0c84da3e198
+0005-postgres-jsonb-nul-stalls-session.zh.md: 804c9832f631f4142dc8815eb1581f6cdc074130

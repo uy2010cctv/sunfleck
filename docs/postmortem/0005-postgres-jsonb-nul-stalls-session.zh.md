@@ -43,6 +43,12 @@ PostgreSQL 提供方把事件载荷声明为 `JSONB`，但共享 Session 格式�
 - PostgreSQL 测试适配器复现 `JSONB` 对 `\u0000` 的拒绝，端到端 store 测试要求 NUL 精确往返。
 - Agent 指令测试拒绝新 scope 键中的 NUL，并固定已发布键表示的解码行为。
 
+## 验证
+
+生产 Host 已迁移到 schema 版本 3，`dsh_session_events.event_json` 读回为 `text`。中断 Session 先持久补写合成 `turn/end`，随后完成一个新的两步骤回合：读取同一个嵌套 `CLAUDE.md`，使用 scope `["xhs-src","CLAUDE.md"]` 持久化指令上下文，并返回“会话恢复正常”。浏览器完整刷新后仍保留已修复历史与完成回合。部署后 PostgreSQL 没有新增 `unsupported Unicode escape sequence`，外部发布服务保持 active，且没有再次调用发布。
+
+Host 在部署启动时两次遇到既有的客户端模块 `webServer` 注入顺序竞争；systemd 第三次启动完成并持续 active。该启动缺陷与事件序列化无关，仍可通过 `NRestarts=2` 单独观察。
+
 ## 教训
 
 - 内部标识一旦进入持久事件，就成为存储格式。

@@ -43,6 +43,12 @@ The PostgreSQL provider declared event payloads as `JSONB` even though the share
 - The PostgreSQL test adapter reproduces `JSONB` rejection of `\u0000`, and an end-to-end store test requires exact NUL round-trip.
 - Agent-instruction tests reject NUL in new scope keys and pin decoding of the released key representation.
 
+## Verification
+
+The production Host migrated to schema version 3 with `dsh_session_events.event_json` reported as `text`. The interrupted Session durably added its synthetic `turn/end`, then completed a new two-step turn that read the same nested `CLAUDE.md`, persisted the instruction context with scope `["xhs-src","CLAUDE.md"]`, and returned `会话恢复正常`. A full browser reload retained the repaired history and completed turn. PostgreSQL logged no new `unsupported Unicode escape sequence` error after deployment, and the external publishing service remained active without another publish call.
+
+The Host encountered the existing client-module `webServer` injection ordering race twice during deployment; systemd's third start completed and remained active. This startup defect is independent of event serialization and remains separately observable through `NRestarts=2`.
+
 ## Lessons
 
 - An internal identifier becomes a storage format as soon as it enters a durable event.
