@@ -60,6 +60,11 @@ class FakeAgent {
     if (this.host.silentSteer) return
     if (this.host.appendMode === 'user-message') {
       this.session.append('user/message', message)
+    } else if (this.host.appendMode === 'canceled-splice') {
+      this.session.append('agent/inbox/spliced', { target: 'next-step', start: 0, inserted: [message] })
+      this.session.append('agent/inbox/spliced', {
+        target: 'next-step', start: 0, removedCount: 1, inserted: [], outcome: 'canceled',
+      })
     } else {
       this.session.append('agent/inbox/spliced', { target: 'next-step', start: 0, inserted: [message] })
     }
@@ -95,7 +100,7 @@ class FakeAgentHost {
   readonly steered: UserMessage[] = []
   steerFailure: Error | undefined = undefined
   silentSteer = false
-  appendMode: 'spliced' | 'user-message' = 'spliced'
+  appendMode: 'spliced' | 'user-message' | 'canceled-splice' = 'spliced'
   failAttach = false
   failDetach = false
   failRename = false
@@ -391,6 +396,17 @@ describe('DmSurfaceRegistry.deliverToEmployee', () => {
     const employee = createEmployee(accounts)
     const surface = await ctx.surfaces.ensureDm({ orgId: 'org-1', userId: 'user-1', employeeId: employee.id })
     host.silentSteer = true
+
+    await expect(ctx.surfaces.deliverToEmployee(surface, 'actor-a', '你好'))
+      .rejects.toThrow(/did not land in anchored session/)
+    expect(inboxState(database, surface.id).state).toBe('failed')
+  })
+
+  it('un-lands the item when a cancellation splice removes the pending steering', async () => {
+    const { ctx, host, database, accounts } = makeCtx()
+    const employee = createEmployee(accounts)
+    const surface = await ctx.surfaces.ensureDm({ orgId: 'org-1', userId: 'user-1', employeeId: employee.id })
+    host.appendMode = 'canceled-splice'
 
     await expect(ctx.surfaces.deliverToEmployee(surface, 'actor-a', '你好'))
       .rejects.toThrow(/did not land in anchored session/)

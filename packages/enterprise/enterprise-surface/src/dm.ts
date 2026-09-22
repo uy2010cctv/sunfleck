@@ -28,7 +28,7 @@ import {
 } from '@deepseek-ai/dsh-employee-account'
 import { attachSurfaceSession, ensureSurface, failInboxItem } from '@deepseek-ai/dsh-enterprise-identity'
 import { createUserMessage, errorChain, type LlmCallConfig, type UserMessage } from '@deepseek-ai/dsh-llm'
-import type { Session, SessionId } from '@deepseek-ai/dsh-session'
+import type { Session, SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-session-title'
 import type {} from '@deepseek-ai/dsh-workspace'
 import type { EnterpriseSurfaces, Surface } from './types.ts'
@@ -51,6 +51,27 @@ function installInitialModelSelection(agentCtx: Context, selection: ModelSelecti
 /** Log a rollback failure without replacing the operation's original failure. */
 function reportRollbackFailure(ctx: Context, subject: string, error: unknown): void {
   ctx.logger.warn(`enterprise surface: ${subject} rollback failed: ${errorChain(error)}`)
+}
+
+/** The durable pending-message lists one Session's inbox splices project. */
+type InboxProjection = Record<'next-turn' | 'next-step', UserMessage[]>
+
+/**
+ * Fold the durable inbox suffix into the messages still awaiting a claim.
+ * A removal splice — including the `outcome: 'canceled'` one the agent loop
+ * commits when it discards pending steering — takes its entries back out, so
+ * only entries still projected pending count.
+ * @param events - one Session's non-inherited event suffix.
+ * @returns the pending user messages across both inbox targets.
+ */
+function pendingInboxMessages(events: readonly SessionEvent[]): UserMessage[] {
+  const inbox: InboxProjection = { 'next-turn': [], 'next-step': [] }
+  for (const event of events) {
+    if (event.type !== 'agent/inbox/spliced') continue
+    const pending = inbox[event.data.target]
+    pending.splice(event.data.start, event.data.removedCount ?? 0, ...event.data.inserted)
+  }
+  return [...inbox['next-turn'], ...inbox['next-step']]
 }
 
 /** Registry of durable dm surfaces and inbound delivery into anchored employee sessions. */
@@ -186,8 +207,10 @@ export class DmSurfaceRegistry implements EnterpriseSurfaces {
    * Submit one claimed inbox item to the anchored session and confirm its
    * durable landing. The message enters as steering input — a running session
    * consumes it at the nearest step boundary, an idle one opens a turn — and
-   * the landing check accepts both the appended user message and the durable
-   * pending-inbox entry that exists between submission and claim.
+   * the landing check accepts the appended user message or an entry the
+   * spliced-inbox projection still holds pending; a cancellation splice
+   * un-lands the item, so the row cannot count as delivered once its payload
+   * can no longer reach the model.
    */
   private async deliverClaimed(sessionId: string, item: EmployeeInboxItem): Promise<void> {
     const agent = this.ctx.agents.get(brandString<SessionId>(sessionId))
@@ -210,13 +233,17 @@ export class DmSurfaceRegistry implements EnterpriseSurfaces {
     }
   }
 
-  /** Whether the session log records the item, appended or still pending delivery. */
+  /**
+   * Whether the session log records the item: appended as the delivered user
+   * message, or still pending in the spliced-inbox projection. A pending entry
+   * later removed by a cancellation splice stops counting, so the item only
+   * lands while the payload can still reach the model.
+   */
   private landed(session: Session, itemId: InboxItemId): boolean {
     const fromSurface = (message: UserMessage): boolean =>
       message.source.kind === 'surface-message' && message.source.inboxItemId === itemId
     const suffix = session.snapshotEvents(session.inheritedEventCount)
-    return suffix.some(event =>
-      (event.type === 'user/message' && fromSurface(event.data))
-      || (event.type === 'agent/inbox/spliced' && event.data.inserted.some(fromSurface)))
+    return suffix.some(event => event.type === 'user/message' && fromSurface(event.data))
+      || pendingInboxMessages(suffix).some(fromSurface)
   }
 }

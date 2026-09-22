@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## 概述
 
-`dsh-enterprise-surface` 持有企业渠道用户与持久员工之间的持久会话 surface，并把每条已认证的入站消息投递到员工的锚定会话。它在 `@deepseek-ai/dsh-enterprise-identity` 的 employee store 与 `ctx.employeeAccounts` 服务之上暴露 `ctx.surfaces` Cordis 服务：`ensureDm` 返回（用户， 员工）二元组唯一的私信 surface，且至多创建一次锚定会话；`deliverToEmployee` 把消息入箱、按持久顺序认领并作为 user 消息注入会话；`stickyEmployee` 解析 actor key 绑定的员工。当入站桥接需要一个统一位置把渠道身份绑定到员工、并保证消息要么落入会话日志要么标记失败时选择本包。全部 SQL 留在 employee store 中；组合方提供已迁移的数据库句柄与锚定会话运行所需的 agent-host 服务。
+`dsh-enterprise-surface` 持有企业渠道用户与持久员工之间的持久 dm surface，并把已认证的入站消息投递进员工的锚定会话。它暴露 `ctx.surfaces`：`ensureDm` 返回每个用户-员工对唯一的 dm surface，且至多创建一次锚定会话；`deliverToEmployee` 把每条入箱消息注入会话，使其落入会话日志，否则将收件行标记失败；`stickyEmployee` 解析 actor key 绑定的员工。P0 仅提供 dm 一种 kind；锚定会话的 preset 来自显式的 `defaultAgentPreset` 配置。组合方提供已迁移的数据库与 agent-host 服务；全部 SQL 留在 employee store 中。
 
 ## 目录
 
@@ -50,7 +50,7 @@ kind: "package-reference"
 
 ### 设计概念
 
-`DmSurfaceRegistry` 是三个权威之上的薄协调者：employee store 持有持久的 `surfaces` 与 `employee_inbox` 行，`ctx.employeeAccounts` 持有账号事实与收件入队，锚定会话日志持有消息持久性。`ensureDm` 经 store 幂等的 `ensureSurface`（`UNIQUE(user_id, employee_id)`）生成 surface 行，按 webhook 会话运行时的同一形态创建锚定会话——workspace 取员工 `homeWorkspacePath`，会话标题取员工显示名，header meta 记录 `agentPreset` 与 `cwd`，创建时的模型选择被固定到首个持久请求头为止——创建成功后才把会话 id 附着到 surface 行，失败的尝试由下一次调用重试。`deliverToEmployee` 用 `claim(employeeId, 1)` 按创建顺序认领，直到本次调用入队的行被投递；每行作为 steering 输入提交（运行中的会话在最近的 step 边界消费，空闲的会话开启新回合），随后 flush 会话并在日志记录了该消息——已追加或仍在持久收件箱中——时确认落地。已认领行上的任何失败都会调用 store 的 `failInboxItem` 并向调用方抛出。
+`DmSurfaceRegistry` 是三个权威之上的薄协调者：employee store 持有持久的 `surfaces` 与 `employee_inbox` 行，`ctx.employeeAccounts` 持有账号事实与收件入队，锚定会话日志持有消息持久性。`ensureDm` 经 store 幂等的 `ensureSurface`（`UNIQUE(user_id, employee_id)`）生成 surface 行，按 webhook 会话运行时的同一形态创建锚定会话——workspace 取员工 `homeWorkspacePath`，会话标题取员工显示名，header meta 记录 `agentPreset` 与 `cwd`，创建时的模型选择被固定到首个持久请求头为止——创建成功后才把会话 id 附着到 surface 行，失败的尝试由下一次调用重试。`deliverToEmployee` 用 `claim(employeeId, 1)` 按创建顺序认领，直到本次调用入队的行被投递；每行作为 steering 输入提交（运行中的会话在最近的 step 边界消费，空闲的会话开启新回合），随后 flush 会话并在日志记录了该消息——已追加，或仍在收件箱拼接投影中待处理（取消拼接会将其移出）——时确认落地。已认领行上的任何失败都会调用 store 的 `failInboxItem` 并向调用方抛出。
 
 ### 源码地图
 
