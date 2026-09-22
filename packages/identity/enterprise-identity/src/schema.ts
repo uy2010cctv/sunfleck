@@ -3,7 +3,7 @@
 import type { DatabaseSync } from 'node:sqlite'
 
 /** Value exported as `ENTERPRISE_IDENTITY_SCHEMA_VERSION`. */
-export const ENTERPRISE_IDENTITY_SCHEMA_VERSION = 5
+export const ENTERPRISE_IDENTITY_SCHEMA_VERSION = 6
 
 /** Create or validate the enterprise identity schema.
  * @param database - Input value used by this API.
@@ -145,6 +145,48 @@ export function migrateEnterpriseIdentity(database: DatabaseSync): void {
       org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
       owner_user_id TEXT REFERENCES users(id) ON DELETE RESTRICT
     ) STRICT;
+    CREATE TABLE IF NOT EXISTS employee_accounts (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      display_name TEXT NOT NULL,
+      role_card TEXT NOT NULL,
+      active_release_id TEXT,
+      state TEXT NOT NULL CHECK (state IN ('active', 'suspended', 'archived')),
+      home_workspace_path TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    ) STRICT;
+    CREATE TABLE IF NOT EXISTS surfaces (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      kind TEXT NOT NULL CHECK (kind IN ('dm')),
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      employee_id TEXT NOT NULL REFERENCES employee_accounts(id) ON DELETE CASCADE,
+      session_id TEXT,
+      created_at INTEGER NOT NULL,
+      UNIQUE(user_id, employee_id)
+    ) STRICT;
+    CREATE TABLE IF NOT EXISTS employee_inbox (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      employee_id TEXT NOT NULL REFERENCES employee_accounts(id) ON DELETE CASCADE,
+      surface_id TEXT NOT NULL REFERENCES surfaces(id) ON DELETE CASCADE,
+      origin_actor TEXT NOT NULL,
+      payload_text TEXT NOT NULL,
+      state TEXT NOT NULL CHECK (state IN ('queued', 'delivered', 'failed')),
+      attempts INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL,
+      delivered_at INTEGER
+    ) STRICT;
+    CREATE INDEX IF NOT EXISTS employee_inbox_pending
+      ON employee_inbox(employee_id, state, created_at);
+    CREATE TABLE IF NOT EXISTS sticky_bindings (
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      actor_key TEXT NOT NULL,
+      employee_id TEXT NOT NULL REFERENCES employee_accounts(id) ON DELETE CASCADE,
+      updated_at INTEGER NOT NULL,
+      PRIMARY KEY(org_id, actor_key)
+    ) STRICT;
   `)
   const version = database.prepare("SELECT value FROM enterprise_meta WHERE key = 'schema-version'")
     .get() as { value: string } | undefined
@@ -155,7 +197,7 @@ export function migrateEnterpriseIdentity(database: DatabaseSync): void {
     database.exec('ALTER TABLE users ADD COLUMN department_revision INTEGER NOT NULL DEFAULT 0')
     database.prepare("UPDATE enterprise_meta SET value = ? WHERE key = 'schema-version'")
       .run(String(ENTERPRISE_IDENTITY_SCHEMA_VERSION))
-  } else if (Number(version.value) === 2 || Number(version.value) === 3) {
+  } else if (Number(version.value) === 2 || Number(version.value) === 3 || Number(version.value) === 5) {
     database.prepare("UPDATE enterprise_meta SET value = ? WHERE key = 'schema-version'")
       .run(String(ENTERPRISE_IDENTITY_SCHEMA_VERSION))
   } else if (Number(version.value) === 4) {
