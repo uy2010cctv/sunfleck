@@ -13,7 +13,7 @@ The enterprise group composes PostgreSQL repositories, durable Cordis artifacts,
 
 ## Package Details
 
-[`enterprise-postgres`](enterprise-postgres/README.md) composes shared enterprise storage; [`enterprise-cordis`](enterprise-cordis/README.md) owns governed Cordis artifacts; [`enterprise-cordis-runtime`](enterprise-cordis-runtime/README.md) connects them to Agent work; [`employee-account`](employee-account/README.md) persists digital employee accounts over the enterprise identity database.
+[`enterprise-postgres`](enterprise-postgres/README.md) composes shared enterprise storage; [`enterprise-cordis`](enterprise-cordis/README.md) owns governed Cordis artifacts; [`enterprise-cordis-runtime`](enterprise-cordis-runtime/README.md) connects them to Agent work; [`employee-account`](employee-account/README.md) persists digital employee accounts over the enterprise identity database; [`enterprise-surface`](enterprise-surface/README.md) delivers authenticated dm messages into employees' anchored sessions.
 
 ## Dev Note
 

@@ -155,6 +155,7 @@
     { "path": "./packages/enterprise/enterprise-cordis" },
     { "path": "./packages/enterprise/enterprise-cordis-runtime" },
     { "path": "./packages/enterprise/employee-account" },
+    { "path": "./packages/enterprise/enterprise-surface" },
     { "path": "./packages/knowledge/knowledge-pgvector" },
     { "path": "./packages/session/session-persistence-postgres" },
     { "path": "./packages/identity/enterprise-sso" },
