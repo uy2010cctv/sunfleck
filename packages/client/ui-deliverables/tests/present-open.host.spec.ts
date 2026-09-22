@@ -13,7 +13,7 @@ import { SessionQueryError } from '@deepseek-ai/dsh-session-query'
 import type { SessionEventReadRequest } from '@deepseek-ai/dsh-session-query'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { registerPresentOpen } from '../src/present-open.ts'
-import { presentedFileUrl, PRESENT_OPEN_PATH } from '../src/presented.ts'
+import { presentedDownloadUrl, presentedFileUrl, PRESENT_DOWNLOAD_PATH, PRESENT_OPEN_PATH } from '../src/presented.ts'
 
 const cleanups: Array<() => Promise<unknown>> = []
 afterEach(async () => {
@@ -54,7 +54,10 @@ async function fixture() {
   const open = (query = '?sessionId=owner&seq=7&index=0', signal?: AbortSignal) => handler.fetch(new Request(
     `http://localhost${PRESENT_OPEN_PATH}${query}`, { method: 'POST', signal: signal ?? null },
   ))
-  return { root, cwd, ctx, fiber, file, session, readEvent, open, opener, handler, resolveAgent }
+  const download = (query = '?sessionId=owner&seq=7&index=0', signal?: AbortSignal) => handler.fetch(new Request(
+    `http://localhost${PRESENT_DOWNLOAD_PATH}${query}`, { signal: signal ?? null },
+  ))
+  return { root, cwd, ctx, fiber, file, session, readEvent, open, download, opener, handler, resolveAgent }
 }
 
 describe('Presented workspace file native open route', () => {
@@ -63,7 +66,6 @@ describe('Presented workspace file native open route', () => {
     const source = await realpath(join(cwd, file.path))
     expect(presentedFileUrl(SessionId('owner'), 7, 0)).toBe(`${PRESENT_OPEN_PATH}?sessionId=owner&seq=7&index=0`)
     expect((await handler.fetch(new Request(`http://localhost${PRESENT_OPEN_PATH}`))).status).toBe(404)
-    expect((await handler.fetch(new Request('http://localhost/api/present.download?sessionId=owner&seq=7&index=0'))).status).toBe(404)
     for (const contents of ['current source', 'edited source']) {
       await writeFile(source, contents)
       const response = await open()
@@ -183,6 +185,82 @@ describe('Presented workspace file native open route', () => {
     expect(disposed).toBe(false)
     release.resolve(undefined)
     await Promise.all([request, disposal])
+  })
+})
+
+describe('Presented workspace file download route', () => {
+  it('downloads current source bytes with a Unicode attachment name', async () => {
+    const { cwd, file, download } = await fixture()
+    const source = join(cwd, file.path)
+    expect(presentedDownloadUrl(SessionId('owner'), 7, 0)).toBe(`${PRESENT_DOWNLOAD_PATH}?sessionId=owner&seq=7&index=0`)
+    for (const contents of [Uint8Array.of(1, 2, 3), Uint8Array.of(4, 5), new Uint8Array()]) {
+      await writeFile(source, contents)
+      const response = await download()
+      expect(response.status).toBe(200)
+      expect(response.headers.get('content-type')).toBe('application/octet-stream')
+      expect(response.headers.get('content-disposition')).toContain("filename*=UTF-8''%E6%97%A5%E8%AE%B0%E6%A8%A1%E6%9D%BF.docx")
+      expect(response.headers.get('cache-control')).toBe('no-store')
+      expect(response.headers.get('x-content-type-options')).toBe('nosniff')
+      expect(response.headers.get('content-length')).toBe(String(contents.length))
+      expect(new Uint8Array(await response.arrayBuffer())).toEqual(contents)
+    }
+    const exactChunk = new Uint8Array(256 * 1024).fill(7)
+    await writeFile(source, exactChunk)
+    expect(new Uint8Array(await (await download()).arrayBuffer())).toEqual(exactChunk)
+  })
+
+  it('streams files whose backend omits a size and closes on an empty range', async () => {
+    const { ctx, cwd, file, download } = await fixture()
+    const source = join(cwd, file.path)
+    const contents = new Uint8Array(256 * 1024 + 17).fill(9)
+    await writeFile(source, contents)
+    const actual = await ctx.workspaceFiles.stat({ sessionId: SessionId('owner'), workspaceRoot: cwd }, file.path, new AbortController().signal)
+    expect((await ctx.fs.stat(await ctx.fs.resolve(actual.absolutePath)))?.version).toBe(actual.version)
+    const stat = vi.spyOn(ctx.workspaceFiles, 'stat').mockResolvedValue({ absolutePath: actual.absolutePath, version: actual.version })
+    const response = await download()
+    expect(response.headers.get('content-length')).toBeNull()
+    expect(new Uint8Array(await response.arrayBuffer())).toEqual(contents)
+    await writeFile(source, new Uint8Array())
+    stat.mockRestore()
+    const empty = await ctx.workspaceFiles.stat({ sessionId: SessionId('owner'), workspaceRoot: cwd }, file.path, new AbortController().signal)
+    expect((await ctx.fs.stat(await ctx.fs.resolve(empty.absolutePath)))?.version).toBe(empty.version)
+    vi.spyOn(ctx.workspaceFiles, 'stat').mockResolvedValue({ absolutePath: empty.absolutePath, version: empty.version })
+    expect(new Uint8Array(await (await download()).arrayBuffer())).toEqual(new Uint8Array())
+  })
+
+  it.each([
+    undefined,
+    { type: 'directory', version: 'changed' },
+    { type: 'file', version: 'changed' },
+  ] as const)('fails a transfer when the source identity changes: %j', async (changed) => {
+    const { ctx, download } = await fixture()
+    const sourceStat = ctx.workspaceFiles.stat.bind(ctx.workspaceFiles)
+    vi.spyOn(ctx.workspaceFiles, 'stat').mockImplementation(async (...args) => {
+      const result = await sourceStat(...args)
+      vi.spyOn(ctx.fs, 'stat').mockResolvedValue(changed as never)
+      return result
+    })
+    const response = await download()
+    await expect(response.arrayBuffer()).rejects.toThrow('changed during download')
+  })
+
+  it('does not depend on a Host desktop and refuses invalid or missing sources', async () => {
+    const { ctx, cwd, file, download, readEvent } = await fixture()
+    vi.spyOn(ctx.sessionController, 'workspaceDesktop').mockReturnValue({ name: 'desktop', available: false, fileManager: null })
+    expect((await download()).status).toBe(200)
+    expect((await download('?seq=7&index=0')).status).toBe(400)
+    expect((await download('?sessionId=owner&seq=7&index=1')).status).toBe(404)
+    readEvent.mockResolvedValueOnce({ session: { cwd }, target: { type: 'turn/start' } as SessionEvent })
+    expect((await download()).status).toBe(404)
+    await unlink(join(cwd, file.path))
+    expect((await download()).status).toBe(404)
+    expect(readEvent).toHaveBeenCalled()
+  })
+
+  it('uses the deployment root when the viewed Session has no cwd', async () => {
+    const { session, download } = await fixture()
+    delete session.cwd
+    expect((await download()).status).toBe(200)
   })
 })
 

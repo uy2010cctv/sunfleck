@@ -3,7 +3,7 @@ import { useRef, useState } from 'react'
 import { resolveWorkspacePath } from '@deepseek-ai/dsh-util-workspace-path'
 import {
   Menu, FileTypeIcon, fileExtension, IconRightUpOutline16,
-  IconChevronDownOutline14, IconFolderOpenOutline16,
+  IconChevronDownOutline14, IconFolderOpenOutline16, IconDownloadOutline16,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
 import type { PresentedAction, PresentedHost } from '../presented.ts'
@@ -22,19 +22,19 @@ function cardDescription(description: string | undefined, fallback: string): str
  * @param props - durable file metadata, Sidebar preview, Host capabilities, gesture status, and localized copy.
  * @returns the file card and its anchored action menu.
  */
-export function PresentedFileCard({ file, cwd, phase, host, onPreview, onAction, t }: {
+export function PresentedFileCard({ file, cwd, phase, host, onPreview, onAction, onDownload, t }: {
   file: PresentedPath
   cwd: string | undefined
   phase: PresentedOpenPhase | undefined
   host: PresentedHost | null
   onPreview: () => void
   onAction: (action: PresentedAction) => void
+  onDownload: () => void
 } & PropsLocale<typeof NS>) {
   const [menuOpen, setMenuOpen] = useState(false)
   const previewRef = useRef<HTMLButtonElement>(null)
   const pending = phase === 'opening' || phase === 'revealing'
-  const menuDisabled = pending || host === null || !host.available
-  if (menuDisabled && menuOpen) setMenuOpen(false)
+  const nativeDisabled = pending || host === null || !host.available
   const reveal = host?.fileManager ?? 'directory'
   const act = (action: PresentedAction) => {
     setMenuOpen(false)
@@ -65,20 +65,27 @@ export function PresentedFileCard({ file, cwd, phase, host, onPreview, onAction,
         <button ref={previewRef} type="button" className={css.open}
           aria-label={t('presented.previewButton', { name: file.path })}
           onClick={onPreview}>{t('presented.action')}</button>
-        <Menu className={css.menuAnchor} open={menuOpen && !menuDisabled} autoFocus portal align="end" onClose={() => { setMenuOpen(false) }}
-          anchor={<button type="button" className={css.chevron} disabled={menuDisabled}
-            aria-haspopup="menu" aria-expanded={menuOpen && !menuDisabled}
+        <Menu className={css.menuAnchor} open={menuOpen} autoFocus portal align="end" onClose={() => { setMenuOpen(false) }}
+          anchor={<button type="button" className={css.chevron}
+            aria-haspopup="menu" aria-expanded={menuOpen}
             aria-label={t('presented.more', { name: file.path })}
             onClick={() => { setMenuOpen(value => !value) }}>
             <IconChevronDownOutline14 size={11} />
           </button>}
           items={[
             { id: 'open', icon: <IconRightUpOutline16 size={16} className={css.menuActionIcon} />,
-              label: t('presented.defaultApp') },
+              label: t('presented.defaultApp'), disabled: nativeDisabled },
             { id: 'reveal', icon: <IconFolderOpenOutline16 />,
-              label: t(`presented.${reveal}`) },
+              label: t(`presented.${reveal}`), disabled: nativeDisabled },
+            { id: 'download', icon: <IconDownloadOutline16 />, label: t('presented.download') },
           ]}
-          onSelect={(id) => { act(id === 'reveal' ? 'reveal' : 'open') }} />
+          onSelect={(id) => {
+            if (id === 'download') {
+              setMenuOpen(false)
+              previewRef.current?.focus()
+              onDownload()
+            } else act(id === 'reveal' ? 'reveal' : 'open')
+          }} />
       </div>
     </div>
   </div>

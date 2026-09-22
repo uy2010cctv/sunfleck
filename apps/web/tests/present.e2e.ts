@@ -109,7 +109,7 @@ fs.appendFileSync(${JSON.stringify(openLog)}, JSON.stringify({ path, action, con
     expect(events.some(event => event.type === 'tool/result' && event.data.message.content[0].isError)).toBe(true)
   }, 200_000)
 
-  it('opens current source files after edits and reload, and reports deletion without downloading', async () => {
+  it('opens and downloads current source files after edits and reload, then reports deletion', async () => {
     await writeFile(join(cwd, 'report.txt'), 'EDITED_REPORT\n')
     await writeFile(join(cwd, '说明.txt'), 'EDITED_NOTE\n')
     for (const reload of [false, true]) {
@@ -150,7 +150,17 @@ fs.appendFileSync(${JSON.stringify(openLog)}, JSON.stringify({ path, action, con
     expect((await openedResponse).status()).toBe(204)
     expect(await opened()).toHaveLength(count + 1)
     expect((await opened()).at(-1)).toEqual({ action: 'open', path: await realpath(join(cwd, 'report.txt')), content: 'EDITED_REPORT\n' })
-    expect(downloads).toEqual([])
+    const row = page.locator('[data-presented-files-row]')
+    await row.getByRole('button', { name: 'More file actions for 说明.txt', exact: true }).click()
+    const [download] = await Promise.all([
+      page.waitForEvent('download'),
+      page.getByRole('menuitem', { name: 'Download', exact: true }).click(),
+    ])
+    expect(download.suggestedFilename()).toBe('说明.txt')
+    const downloaded = join(nativeRoot!, 'downloaded-note.txt')
+    await download.saveAs(downloaded)
+    expect(await readFile(downloaded, 'utf8')).toBe('EDITED_NOTE\n')
+    expect(downloads).toEqual(['说明.txt'])
     const response = await page.request.get(new URL(`/api/session.export?sessionId=${sessionId}`, scaffold.authenticatedUrl).href)
     expect(response.status()).toBe(200)
     const entries = unzipSync(await response.body())
@@ -261,7 +271,7 @@ fs.appendFileSync(${JSON.stringify(openLog)}, JSON.stringify({ path, action, con
     expect((await missing).status()).toBe(404)
     await page.getByText('Could not open. Click to retry.', { exact: true }).waitFor()
     expect(await opened()).toHaveLength(beforeDelete)
-    expect(downloads).toEqual([])
+    expect(downloads).toEqual(['说明.txt'])
     expect(tripwire.pageErrors).toEqual([])
     expect(tripwire.warnings).toEqual([])
   })

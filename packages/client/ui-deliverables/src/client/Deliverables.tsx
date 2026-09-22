@@ -8,7 +8,7 @@ import type { PresentedOpenController } from './present-open.ts'
 import { ProducedFiles } from './ProducedFiles.tsx'
 import { presentedForClosing, selectProducedFiles, type PresentedPath } from './turn-deliverables.ts'
 import type { NS } from './locales.ts'
-import { presentedFileUrl } from '../presented.ts'
+import { presentedDownloadUrl, presentedFileUrl } from '../presented.ts'
 import { PresentedFileCard } from './PresentedFileCard.tsx'
 import css from './Deliverables.module.css'
 
@@ -72,6 +72,12 @@ export function Deliverables({ matched, openFile, t, sessionId, useSessions, ope
           phase={states[presentedFileUrl(sessionId, file.seq, file.index)]}
           host={host === 'error' ? null : host} t={t}
           onPreview={() => { openFile(file.path) }}
+          onDownload={() => {
+            const link = document.createElement('a')
+            link.href = presentedDownloadUrl(sessionId, file.seq, file.index)
+            link.download = ''
+            link.click()
+          }}
           onAction={(action) => { void openPresented(sessionId, file.seq, file.index, action) }} />)}
       </div>
       {collapsible && <button type="button" className={css.toggle}

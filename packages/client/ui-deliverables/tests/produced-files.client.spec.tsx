@@ -663,6 +663,19 @@ it('shows descriptions and falls back to file metadata without hiding extensionl
   expect(view.getByText('report.txt')).toBeTruthy()
 })
 
+it('starts an authenticated browser download from a delivery card', () => {
+  const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+  const view = render(<Deliverables {...openProps()} matched={{ produced: [], presented: [
+    { path: '说明.txt', seq: 2, index: 0 },
+  ] }} openFile={() => {}} sessionId={SessionId('session')} t={makeTranslate(en)} />)
+  fireEvent.click(view.getByRole('button', { name: 'More file actions for 说明.txt' }))
+  fireEvent.click(view.getByRole('menuitem', { name: 'Download' }))
+  expect(click).toHaveBeenCalledOnce()
+  const link = click.mock.instances[0] as HTMLAnchorElement
+  expect(link.download).toBe('')
+  expect(link.getAttribute('href')).toBe('/api/present.download?sessionId=session&seq=2&index=0')
+})
+
 it('marks delivery cards that directly follow the produced-files row', () => {
   const shared = { ...openProps(), openFile: () => {}, sessionId: SessionId('session'), t: makeTranslate(en) }
   const presented = [{ path: 'report.txt', seq: 2, index: 0 }]
@@ -703,7 +716,7 @@ it.each(['opening', 'opened', 'error'] as const)('shows the %s state and permits
     { path: 'report.txt', seq: 2, index: 0 },
   ] }} openFile={() => {}} sessionId={SessionId('session')} t={makeTranslate(en)} />)
   expect(view.getByText(en[`presented.${phase}`])).toBeTruthy()
-  expect((view.getByRole('button', { name: 'More file actions for report.txt' }) as HTMLButtonElement).disabled).toBe(phase === 'opening')
+  expect((view.getByRole('button', { name: 'More file actions for report.txt' }) as HTMLButtonElement).disabled).toBe(false)
 })
 
 
