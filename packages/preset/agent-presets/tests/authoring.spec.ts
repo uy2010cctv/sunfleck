@@ -26,7 +26,7 @@ const EMPLOYEE_BASE = [
   '- id: persona',
   "  name: '@deepseek-ai/dsh-persona'",
   '  config:',
-  '    text: You are a coding agent.',
+  '    prefix: You are a coding agent.',
   '- id: tool-alpha',
   '  name: ../../plugins/contribute.js',
   '',
@@ -95,6 +95,8 @@ describe('copying a preset', () => {
     })
 
     const composition = await ctx.agentPresets.read('finance')
+    expect(composition).not.toContain('text:')
+    expect(composition).not.toContain('prefix: You are a coding agent.')
     expect(composition).toContain('你是企业数字员工“小钱”，岗位是“财务总监”，所属部门是“财务部”。')
     expect(composition).toContain('审核报销单据，编制财务报表')
     expect(composition).toContain('当用户询问你是谁或要求自我介绍时')

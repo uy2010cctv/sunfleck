@@ -238,7 +238,9 @@ export async function configureEmployeeComposition(
   }
   const config = typeof persona['config'] === 'object' && persona['config'] !== null
     && !Array.isArray(persona['config']) ? persona['config'] as Record<string, unknown> : {}
-  persona['config'] = { ...config, text: employeePersona(input) }
+  const updatedConfig = { ...config }
+  delete updatedConfig['text']
+  persona['config'] = { ...updatedConfig, prefix: employeePersona(input) }
   const composition = yaml.dump(rows, { schema: entryListSchema, lineWidth: -1, noRefs: true })
   const metadata = renderPresetMetadata({
     name: input.name,

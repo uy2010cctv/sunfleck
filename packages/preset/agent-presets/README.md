@@ -74,6 +74,8 @@ The value is read when a session is created, so a changed default affects only s
 
 Authoring is copy-only: creating a preset copies an existing preset's whole directory — composition, display metadata, skill directories, assets — into the first `user` root. The copy keeps the source's description but gets its own id and an optional display name, so no caller supplies composition text and a copy grants nothing the roster did not already carry. After creation, everything happens in the preset's own files.
 
+Publishing an enterprise employee compiles its name, position, department, and responsibility prompt into the copied preset's persona `prefix`. Publishing also removes the obsolete `text` field if an earlier release wrote one. New sessions therefore receive the employee identity as model-visible system prompt text; sessions already running keep the preset generation they started with.
+
 A copy is refused when the id is not `[a-z0-9][a-z0-9-]*` (the id becomes a directory name), when the id is already taken (a copy never overwrites), or when the source is unknown. Deleting removes only locally authored presets; presets that ship with the deployment are not removable. A session already running on a deleted preset keeps running on it.
 
 ### Switching a session's preset
