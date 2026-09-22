@@ -34,3 +34,19 @@ export {
   type ExternalIdentityBinding,
   type RepositoryOptions,
 } from './repository.ts'
+export {
+  attachSurfaceSession,
+  bindSticky,
+  claimInbox,
+  createEmployee,
+  enqueueInbox,
+  ensureSurface,
+  failInboxItem,
+  getEmployee,
+  listEmployees,
+  resolveSticky,
+  updateEmployeeState,
+  type EmployeeAccountRow,
+  type InboxRow,
+  type SurfaceRow,
+} from './employee-store.ts'

@@ -163,6 +163,8 @@ export function listEmployees(
  * @param state - New lifecycle state.
  * @param at - State-change time in epoch milliseconds.
  * @throws When the employee account is missing or already archived.
+ * Single-writer assumption: the archived check and the update are one check-then-act pair, atomic
+ * only under the current single-connection in-process usage (docs/defensive-patterns.md).
  */
 export function updateEmployeeState(
   database: DatabaseSync,
@@ -184,6 +186,8 @@ export function updateEmployeeState(
  * @param database - Migrated enterprise identity database.
  * @param row - Surface row to insert when the pair is not yet bound.
  * @returns The durable surface row for the pair; an existing row wins over the requested id.
+ * Single-writer assumption: the lookup and the insert are one check-then-act pair, atomic only
+ * under the current single-connection in-process usage (docs/defensive-patterns.md).
  */
 export function ensureSurface(database: DatabaseSync, row: SurfaceRow): SurfaceRow {
   const existing = database.prepare('SELECT * FROM surfaces WHERE user_id = ? AND employee_id = ?')
@@ -223,7 +227,7 @@ export function enqueueInbox(database: DatabaseSync, row: InboxRow): void {
 /** Take an employee's queued inbox rows in creation order and mark them delivered.
  * @param database - Migrated enterprise identity database.
  * @param employeeId - Employee account whose inbox is claimed.
- * @param limit - Maximum number of rows to take.
+ * @param limit - Maximum number of rows to take; must be non-negative (SQLite treats a negative limit as unlimited).
  * @param at - Delivery time in epoch milliseconds.
  * @returns The claimed rows in creation order, updated to the delivered state.
  */
