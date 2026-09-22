@@ -95,14 +95,13 @@ kind: "package-reference"
 
 在本仓库层为无。服务不改变任何模型请求，因此不会使已缓存前缀失效。
 
-## 已知限制与延期工作
-
 <a id="known-limitations-and-deferred-work"></a>
-
+## 已知限制与延期工作
 
 这些限制说明本服务何时不合适，或何时需要组合方支持。
 
 - **这里不管理私信 surface**——`enqueue` 要求 `surfaces` 行已存在；surface 创建与会话附着保留在身份 store 的 `ensureSurface` 与 `attachSurfaceSession` 及其组合流程中。
+- **surface 与员工的组织一致性由调用方负责**——`enqueue` 记录 surface id 时不检查该 surface 行是否属于员工所在组织；身份 store 中 surface 的创建天然按组织划分，配对由组合流程持有。粘性绑定在本包内校验：`bindSticky` 拒绝绑定其他组织的员工。
 - **收件投递是一次性认领**——`claim` 将条目标记为 delivered 且从不重试；把条目标记为 failed 是 store 的 `failInboxItem`，本服务不将其再导出，重投策略属于组合流程。
 - **每个服务一种数据库引擎**——服务写入 `Config` 传入的 SQLite 身份数据库；PostgreSQL 部署通过 `@deepseek-ai/dsh-enterprise-postgres` 组合身份，不会从本包得到 employee-account 服务。
 - **单一进程内写者**——archived 检查与每次状态变更是同一连接上的一个 check-then-act 对，仅在当前单连接用法下原子；多进程写者需要外部协调。

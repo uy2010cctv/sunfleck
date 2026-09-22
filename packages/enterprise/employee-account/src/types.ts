@@ -119,7 +119,8 @@ export interface EmployeeAccounts {
   resolveSticky(orgId: string, actorKey: string): EmployeeId | undefined
   /**
    * Queue one inbox item for an employee in the queued state with a fresh
-   * durable id.
+   * durable id. The caller owns surface-employee org consistency; the
+   * composing surfaces are org-scoped by construction.
    * @param input - employee, surface, origin actor, and message text.
    * @returns the created inbox item.
    */

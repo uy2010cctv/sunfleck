@@ -100,6 +100,7 @@ None at this repository layer. The service changes no model request, so it canno
 These limits define when this service is a poor fit or needs composing support.
 
 - **Direct-message surfaces are not managed here** — `enqueue` requires the `surfaces` row to already exist; surface creation and session attachment stay in the identity store's `ensureSurface` and `attachSurfaceSession` and their composing flows.
+- **Surface-employee org consistency is caller-owned** — `enqueue` records the surface id without checking that the surface row belongs to the employee's organization; surface creation in the identity store is org-scoped by construction, so composing flows own the pairing. Sticky bindings are checked here: `bindSticky` refuses an employee from another organization.
 - **Inbox delivery is claim-once** — `claim` marks items delivered and never retries; marking an item failed is the store's `failInboxItem`, which this service does not re-export, so redelivery policy belongs to a composing flow.
 - **One database engine per service** — the service writes the SQLite identity database passed in `Config`; PostgreSQL deployments compose identity through `@deepseek-ai/dsh-enterprise-postgres` and receive no employee-account service from this package.
 - **One in-process writer** — the archived check and each state change are one check-then-act pair, atomic only under the current single-connection usage; multi-process writers need external coordination.

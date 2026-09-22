@@ -141,9 +141,26 @@ describe('EmployeeAccountService sticky bindings', () => {
     expect(service.resolveSticky('org-2', 'actor-a')).toBeUndefined()
     expect(service.resolveSticky('org-1', 'actor-unbound')).toBeUndefined()
   })
+
+  it('refuses to bind a missing employee or an employee from another organization', () => {
+    const { database, service } = makeService()
+    database.prepare('INSERT INTO organizations(id, name) VALUES (?, ?)').run('org-2', 'Other enterprise')
+    const foreign = service.create({
+      orgId: 'org-2', displayName: 'Support', roleCard: '客服助理', homeWorkspacePath: '/managed/employees/support',
+    })
+
+    expect(() => { service.bindSticky('org-1', 'actor-a', employeeIdFixture()) }).toThrow(/is missing/)
+    expect(() => { service.bindSticky('org-1', 'actor-a', foreign.id) }).toThrow(/belongs to org-2/)
+    expect(service.resolveSticky('org-1', 'actor-a')).toBeUndefined()
+  })
 })
 
 describe('EmployeeAccountService inbox', () => {
+  it('refuses a negative claim limit before touching the store', () => {
+    const { service } = makeService()
+    expect(() => { service.claim(employeeIdFixture(), -1) }).toThrow(TypeError)
+  })
+
   it('enqueues an item and claims it once, honoring the claim limit', () => {
     const { database, service } = makeService()
     const account = createEmployeeWithSurface(service, database)

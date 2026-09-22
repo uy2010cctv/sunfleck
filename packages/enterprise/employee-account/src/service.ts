@@ -101,6 +101,11 @@ export class EmployeeAccountService implements EmployeeAccounts {
     return listEmployees(this.database, orgId, options).map(accountFromRow)
   }
 
+  /**
+   * The archived guard duplicates the store's on purpose: this service's callers get an error
+   * naming the id and requested state, while the store keeps its own guard for direct store
+   * consumers.
+   */
   setState(id: EmployeeId, state: EmployeeState): void {
     const current = getEmployee(this.database, id)
     if (current === undefined) throw new Error(`enterprise employee ${id} is missing`)
@@ -111,6 +116,11 @@ export class EmployeeAccountService implements EmployeeAccounts {
   }
 
   bindSticky(orgId: string, actorKey: string, id: EmployeeId): void {
+    const current = getEmployee(this.database, id)
+    if (current === undefined) throw new Error(`enterprise employee ${id} is missing`)
+    if (current.orgId !== orgId) {
+      throw new Error(`enterprise employee ${id} cannot be bound under ${orgId} (belongs to ${current.orgId})`)
+    }
     bindSticky(this.database, orgId, actorKey, id, Date.now())
   }
 
@@ -132,6 +142,7 @@ export class EmployeeAccountService implements EmployeeAccounts {
   }
 
   claim(employeeId: EmployeeId, limit: number): EmployeeInboxItem[] {
+    if (limit < 0) throw new TypeError(`employee claim limit must not be negative, received ${limit}`)
     return claimInbox(this.database, employeeId, limit, Date.now()).map(inboxItemFromRow)
   }
 }
