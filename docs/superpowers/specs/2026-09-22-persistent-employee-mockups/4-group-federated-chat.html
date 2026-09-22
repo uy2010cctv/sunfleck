@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>原型 4 · 联邦式群聊与私聊</title>
+<style>
+  :root{--bg:#f7f4ef;--card:#fff;--ink:#1c1917;--sub:#8a8178;--line:#ece5da;
+    --cobalt:#2b4acb;--cobalt-soft:#eef1fd;--own:#b45309;--pair:#be185d;--dept:#2b4acb;--radius:18px}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--ink);
+    font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;
+    font-size:15px;line-height:1.6;padding:44px 24px}
+  .wrap{max-width:1020px;margin:0 auto}
+  .tag{font-size:12px;color:var(--sub);margin-bottom:22px}
+  .tag b{color:var(--cobalt)}
+  .duo{display:grid;grid-template-columns:1.15fr 1fr;gap:20px;align-items:start}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:24px}
+  h1{font-size:17px;font-weight:700;display:flex;align-items:center;gap:9px;flex-wrap:wrap}
+  .pill{font-size:12px;font-weight:600;border-radius:999px;padding:2px 10px}
+  .p-off{background:#f0ede7;color:#8a8178}
+  .p-on{background:#eef1fd;color:#2b4acb}
+  .msg{display:flex;gap:10px;margin-top:16px}
+  .av{width:32px;height:32px;border-radius:11px;flex:none;display:flex;align-items:center;justify-content:center;
+    color:#fff;font-size:12px;font-weight:700}
+  .av.h{background:#a8a29e}
+  .av.e{background:linear-gradient(135deg,#2b4acb,#6d8df7)}
+  .bubble{background:#faf8f4;border:1px solid var(--line);border-radius:13px;padding:9px 14px}
+  .msg.agent .bubble{background:var(--cobalt-soft);border-color:#dde3fb}
+  .name{font-size:11.5px;color:var(--sub);margin-bottom:2px}
+  .name b{color:var(--ink);font-weight:600}
+  .at{color:var(--cobalt);font-weight:600}
+  .whisper{text-align:center;color:#b8b0a4;font-size:12.5px;margin-top:16px}
+  .dot{width:8px;height:8px;border-radius:50%;display:inline-block;position:relative;top:1px}
+  .d-own{background:var(--own)}.d-pair{background:var(--pair)}.d-dept{background:var(--dept)}
+  .chip{display:inline-block;font-size:11px;border-radius:7px;padding:2px 8px;background:#fff;
+    border:1px solid #e3e0d8;color:var(--sub);margin:7px 5px 0 0}
+  .chip i{font-style:normal;display:inline-flex;align-items:center;gap:4px}
+  .btn{border:none;border-radius:9px;padding:6px 16px;font-size:13px;font-weight:600;cursor:default;margin-top:9px}
+  .btn.primary{background:var(--cobalt);color:#fff}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="tag"><b>原型 4</b> · 左：无章程群（@ 谁谁答，其余静默）· 右：私聊（记忆自动生效，色点标注来源）</div>
+
+  <div class="duo">
+    <div class="card">
+      <h1># 华东区值班群 <span class="pill p-off">无章程</span></h1>
+
+      <div class="msg">
+        <span class="av h">吴</span>
+        <div class="bubble"><div class="name"><b>吴经理</b></div><span class="at">@数据分析师</span> 出一下华东区上周续约漏斗。</div>
+      </div>
+      <div class="msg agent">
+        <span class="av e">析</span>
+        <div class="bubble"><div class="name"><b>数据分析师</b></div>86 → 41 → 17 → 9，环比 +2。明细表已生成。
+          <span class="chip"><i><span class="dot d-own"></span>私有笔记：华东口径含分部</i></span></div>
+      </div>
+      <div class="msg">
+        <span class="av h">赵</span>
+        <div class="bubble"><div class="name"><b>赵主管</b></div>下午例会改 3 点，周知。</div>
+      </div>
+      <div class="whisper">……其余员工静默监听</div>
+    </div>
+
+    <div class="card">
+      <h1>李清 <span class="pill p-on">私聊</span></h1>
+
+      <div class="msg">
+        <span class="av h">王</span>
+        <div class="bubble"><div class="name"><b>王总监</b></div>恒基这个月的对账差异过一遍。</div>
+      </div>
+      <div class="msg agent">
+        <span class="av e">清</span>
+        <div class="bubble"><div class="name"><b>李清</b></div>
+          3 笔共 4,180 元，全部定位，无超阈值。
+          <span class="chip"><i><span class="dot d-pair"></span>先结论后明细</i></span>
+          <span class="chip"><i><span class="dot d-own"></span>复核顺序笔记</i></span>
+        </div>
+      </div>
+      <div class="msg">
+        <span class="av h">王</span>
+        <div class="bubble"><div class="name"><b>王总监</b></div>「重复付款挂预收」这个办法值得沉淀给部门。</div>
+      </div>
+      <div class="msg agent">
+        <span class="av e">清</span>
+        <div class="bubble"><div class="name"><b>李清</b></div>
+          已提案 → 部门记忆，待审。
+          <br><button class="btn primary">去批准</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

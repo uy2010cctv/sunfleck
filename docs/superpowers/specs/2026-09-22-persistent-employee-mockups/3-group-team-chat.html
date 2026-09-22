@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>原型 3 · 团队式群聊</title>
+<style>
+  :root{--bg:#f7f4ef;--card:#fff;--ink:#1c1917;--sub:#8a8178;--line:#ece5da;
+    --cobalt:#2b4acb;--cobalt-soft:#eef1fd;--ok:#1a7f4f;--radius:18px}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--ink);
+    font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;
+    font-size:15px;line-height:1.6;padding:44px 24px}
+  .wrap{max-width:640px;margin:0 auto}
+  .tag{font-size:12px;color:var(--sub);margin-bottom:22px}
+  .tag b{color:var(--cobalt)}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:26px 26px 20px}
+  h1{font-size:18px;font-weight:700}
+  .ns{color:var(--sub);font-size:13px;margin:4px 0 14px}
+  .ns b{color:var(--ink);font-weight:600}
+  .avs{display:flex;gap:6px;margin-bottom:20px}
+  .av{width:30px;height:30px;border-radius:10px;display:flex;align-items:center;justify-content:center;
+    color:#fff;font-size:12px;font-weight:700}
+  .av.h{background:#a8a29e}
+  .av.e{background:linear-gradient(135deg,#2b4acb,#6d8df7)}
+  .av.lead{outline:2px solid var(--cobalt);outline-offset:2px}
+  .msg{display:flex;gap:11px;margin-bottom:16px}
+  .av.big{width:36px;height:36px;border-radius:12px;font-size:14px;flex:none}
+  .name{font-size:12px;color:var(--sub);margin-bottom:3px}
+  .name b{color:var(--ink);font-weight:600}
+  .bubble{background:#faf8f4;border:1px solid var(--line);border-radius:14px;padding:10px 15px}
+  .msg.agent .bubble{background:var(--cobalt-soft);border-color:#dde3fb}
+  .lead{background:var(--cobalt);color:#fff;border-radius:5px;padding:0 6px;font-size:10.5px;font-weight:700;margin-left:4px}
+  .tasks{display:flex;gap:6px;margin-top:9px;flex-wrap:wrap}
+  .task{font-size:12px;border-radius:8px;padding:3px 10px;background:#fff;border:1px solid #d3ddf8;color:var(--sub)}
+  .task.done{border-color:#bfe3d0;background:#f2faf5;color:var(--ok)}
+  .chip{display:inline-block;font-size:11.5px;border-radius:7px;padding:2px 8px;background:#fff;
+    border:1px solid #d3ddf8;color:var(--sub);margin-top:8px}
+  .decide{background:#fffdf7;border:1px solid #f0e3c8;border-radius:14px;padding:15px 17px}
+  .decide p{font-size:15px;font-weight:600}
+  .decide .why{color:var(--sub);font-size:13px;font-weight:400;margin:3px 0 12px}
+  .btn{border:none;border-radius:10px;padding:8px 22px;font-size:14px;font-weight:600;cursor:default}
+  .btn.primary{background:var(--cobalt);color:#fff}
+  .btn.ghost{background:transparent;color:var(--sub);margin-left:8px}
+  .input{margin-top:6px;border:1px solid var(--line);border-radius:12px;padding:11px 15px;
+    color:var(--sub);font-size:14px;background:#fbf9f6}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="tag"><b>原型 3</b> · 团队式群聊 —— 群里只见分工、证据和待决；只有 Lead 回话</div>
+
+  <div class="card">
+    <h1># Q4客户续约 · 章程 v3</h1>
+    <div class="ns">北极星：<b>12-20 前签约，毛利 ≥ 62%</b></div>
+    <div class="avs">
+      <span class="av e lead">清</span><span class="av e">析</span><span class="av e">审</span>
+      <span class="av h">张</span><span class="av h">陈</span>
+    </div>
+
+    <div class="msg">
+      <span class="av h big">陈</span>
+      <div class="bubble"><div class="name"><b>陈经理</b></div>违约金客户要封顶 5%，付款周期一起评估，今天要答复。</div>
+    </div>
+
+    <div class="msg agent">
+      <span class="av e big lead">清</span>
+      <div class="bubble"><div class="name"><b>李清</b><span class="lead">LEAD</span></div>
+        收到，已拆 3 项并行推进：
+        <div class="tasks">
+          <span class="task done">✓ 违约金测算</span>
+          <span class="task done">✓ 条款合规</span>
+          <span class="task done">✓ 现金流测算</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="msg agent">
+      <span class="av e big">析</span>
+      <div class="bubble"><div class="name"><b>数据分析师</b></div>极端赔付影响毛利 0.3pp，可接受。
+        <span class="chip">证据 3 份 · 已复核</span></div>
+    </div>
+
+    <div class="msg agent">
+      <span class="av e big lead">清</span>
+      <div class="bubble">
+        <div class="name"><b>李清</b><span class="lead">LEAD</span></div>
+        <div class="decide" style="margin-top:2px">
+          <p>接受封顶 5% + 12 期付款</p>
+          <div class="why">毛利 63.1%，仍达标 · 建议：接受</div>
+          <button class="btn primary">批准</button><button class="btn ghost">✕</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="input">回复…（消息先进 Lead 收件箱）</div>
+  </div>
+</div>
+</body>
+</html>

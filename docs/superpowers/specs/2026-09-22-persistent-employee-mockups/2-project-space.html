@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>原型 2 · 项目空间</title>
+<style>
+  :root{--bg:#f7f4ef;--card:#fff;--ink:#1c1917;--sub:#8a8178;--line:#ece5da;
+    --cobalt:#2b4acb;--proj:#0f766e;--ok:#1a7f4f;--warn:#b45309;--radius:18px}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--ink);
+    font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;
+    font-size:15px;line-height:1.6;padding:44px 24px}
+  .wrap{max-width:860px;margin:0 auto}
+  .tag{font-size:12px;color:var(--sub);margin-bottom:22px}
+  .tag b{color:var(--cobalt)}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:28px}
+  h1{font-size:21px;font-weight:700;display:flex;align-items:center;gap:10px}
+  .st{font-size:13px;color:var(--ok);display:flex;align-items:center;gap:6px}
+  .st i{width:7px;height:7px;border-radius:50%;background:var(--ok)}
+  .goal{color:var(--sub);font-size:14px;margin:6px 0 16px}
+  .avs{display:flex;gap:6px}
+  .av{width:30px;height:30px;border-radius:10px;display:flex;align-items:center;justify-content:center;
+    color:#fff;font-size:12px;font-weight:700}
+  .av.h{background:#a8a29e}
+  .av.e{background:linear-gradient(135deg,#2b4acb,#6d8df7)}
+  .grid{display:grid;grid-template-columns:1.2fr 1fr;gap:28px;margin-top:24px}
+  h2{font-size:13px;color:var(--sub);font-weight:600;margin-bottom:8px}
+  .work{display:flex;align-items:center;gap:12px;padding:13px 2px;border-bottom:1px solid #f3eee6}
+  .work:last-child{border-bottom:none}
+  .work .av{width:34px;height:34px;font-size:13px}
+  .work p{font-size:15px}
+  .work .tm{margin-left:auto;color:var(--sub);font-size:12px;white-space:nowrap}
+  .run{width:7px;height:7px;border-radius:50%;background:var(--cobalt);flex:none;
+    box-shadow:0 0 0 3px #eef1fd}
+  .mem{display:flex;gap:10px;padding:10px 2px;border-bottom:1px solid #f3eee6;font-size:14.5px;align-items:baseline}
+  .mem:last-child{border-bottom:none}
+  .dot{width:8px;height:8px;border-radius:50%;display:inline-block;flex:none;position:relative;top:1px}
+  .d-proj{background:var(--proj)}
+  .decide{background:#fffdf7;border:1px solid #f0e3c8;border-radius:14px;padding:16px 18px;margin-top:10px}
+  .decide p{font-size:15px;font-weight:600}
+  .decide .why{color:var(--sub);font-size:13px;font-weight:400;margin:4px 0 12px}
+  .btn{border:none;border-radius:10px;padding:8px 22px;font-size:14px;font-weight:600;cursor:default}
+  .btn.primary{background:var(--cobalt);color:#fff}
+  .btn.ghost{background:transparent;color:var(--sub);margin-left:8px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="tag"><b>原型 2</b> · 项目空间 —— 在做什么、它知道什么、等你拍板什么</div>
+
+  <div class="card">
+    <h1>Q4 客户续约 <span class="st"><i></i>进行中</span></h1>
+    <div class="goal">12-20 前签约，毛利 ≥ 62%，法务零遗留 —— 跨销售 · 财务 · 法务</div>
+    <div class="avs">
+      <span class="av h">张</span><span class="av h">王</span><span class="av h">陈</span><span class="av h">刘</span>
+      <span class="av e">清</span><span class="av e">审</span><span class="av e">析</span>
+    </div>
+
+    <div class="grid">
+      <div>
+        <h2>进行中</h2>
+        <div class="work"><span class="run"></span><span class="av e">清</span><p>续约方案测算 · 团队执行中</p><span class="tm">10 分钟前</span></div>
+        <div class="work"><span class="av h">张</span><span class="av e">析</span><p>第三轮谈判准备</p><span class="tm">1 小时前</span></div>
+        <div class="work"><span class="av h">陈</span><span class="av e">审</span><p>合同条款风险清单</p><span class="tm">昨天</span></div>
+
+        <h2 style="margin-top:24px">项目记忆</h2>
+        <div class="mem"><span class="dot d-proj"></span>恒基 2026 预算上限 80 万</div>
+        <div class="mem"><span class="dot d-proj"></span>竞对报价 89 万，附免费培训包</div>
+        <div class="mem"><span class="dot d-proj"></span>可让利上限 95 万（复核中）</div>
+      </div>
+
+      <div>
+        <h2>等你拍板</h2>
+        <div class="decide">
+          <p>续约折扣 96 万 + 12 期付款</p>
+          <div class="why">毛利 63.1%，仍达标 · 已复核 · 等 18 小时</div>
+          <button class="btn primary">批准</button><button class="btn ghost">✕</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>原型 5 · 频道</title>
+<style>
+  :root{--bg:#f7f4ef;--card:#fff;--ink:#1c1917;--sub:#8a8178;--line:#ece5da;
+    --cobalt:#2b4acb;--cobalt-soft:#eef1fd;--ok:#1a7f4f;--ok-soft:#e8f5ee;
+    --warn:#b45309;--warn-soft:#fdf1e0;--radius:18px}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--ink);
+    font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;
+    font-size:15px;line-height:1.6;padding:44px 24px}
+  .wrap{max-width:640px;margin:0 auto}
+  .tag{font-size:12px;color:var(--sub);margin-bottom:22px}
+  .tag b{color:var(--cobalt)}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:26px}
+  h1{font-size:18px;font-weight:700;display:flex;align-items:center;gap:10px}
+  .duty{margin-left:auto;display:flex;align-items:center;gap:7px;font-size:12.5px;color:var(--sub)}
+  .av{width:30px;height:30px;border-radius:10px;background:linear-gradient(135deg,#2b4acb,#6d8df7);
+    color:#fff;font-size:12px;font-weight:700;display:flex;align-items:center;justify-content:center}
+  .duty i{width:7px;height:7px;border-radius:50%;background:var(--ok)}
+  /* 话题列表 */
+  .topic{display:flex;align-items:center;gap:11px;padding:13px 4px;border-bottom:1px solid #f3eee6;cursor:default}
+  .topic .st{width:8px;height:8px;border-radius:50%;flex:none}
+  .open{background:var(--cobalt)}
+  .done{background:var(--ok)}
+  .topic p{font-size:15px}
+  .topic .who{margin-left:auto;color:var(--sub);font-size:12px;white-space:nowrap}
+  .topic.new{color:var(--sub);font-size:14px}
+  /* 展开的话题 */
+  .detail{background:#fbf9f5;border:1px solid var(--line);border-radius:14px;padding:14px 16px;margin:14px 0}
+  .msg{display:flex;gap:10px;margin-bottom:12px}
+  .msg:last-child{margin-bottom:0}
+  .av.s{width:28px;height:28px;font-size:11px;border-radius:9px;flex:none}
+  .av.h{background:#a8a29e}
+  .bubble{background:#fff;border:1px solid var(--line);border-radius:12px;padding:8px 13px}
+  .msg.agent .bubble{background:var(--cobalt-soft);border-color:#dde3fb}
+  .name{font-size:11.5px;color:var(--sub)}
+  .name b{color:var(--ink);font-weight:600}
+  .duty-tag{background:var(--ok);color:#fff;border-radius:5px;padding:0 5px;font-size:10px;font-weight:700;margin-left:4px}
+  .chip{display:inline-block;font-size:11px;border-radius:7px;padding:2px 8px;background:#fff;
+    border:1px solid #d3ddf8;color:var(--sub);margin-top:6px}
+  /* 公告 */
+  .notice{background:#fffdf7;border:1px solid #f0e3c8;border-radius:14px;padding:14px 16px;margin-top:16px}
+  .notice .lab{font-size:11.5px;font-weight:700;color:var(--warn);margin-bottom:4px}
+  .notice p{font-size:14px}
+  .notice .to{color:var(--sub);font-size:12.5px;margin-top:6px}
+  .input{margin-top:16px;border:1px solid var(--line);border-radius:12px;padding:11px 15px;
+    color:var(--sub);font-size:14px;background:#fbf9f6}
+  .cmd{font-family:ui-monospace,Menlo,monospace;font-size:12.5px;color:var(--cobalt)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="tag"><b>原型 5</b> · 频道 —— 长期事务按话题分流；没 @ 就找当值</div>
+
+  <div class="card">
+    <h1># IT值班频道
+      <span class="duty"><i></i><span class="av">析</span>数据分析师当值 · 至 18:00</span>
+    </h1>
+
+    <div style="margin-top:14px">
+      <div class="topic"><span class="st done"></span><p>工单 #881 · 会议室打印机</p><span class="who">✓ 已解决 · 10:52</span></div>
+      <div class="topic"><span class="st open"></span><p>续约口径答疑</p><span class="who">析 · 11:03</span></div>
+      <div class="topic new">＋ /topic 开新话题</div>
+    </div>
+
+    <div class="detail">
+      <div class="msg">
+        <span class="av h s">赵</span>
+        <div class="bubble"><div class="name"><b>赵主管</b></div>恒基这种多年度合同，续约率按哪个口径算？</div>
+      </div>
+      <div class="msg agent">
+        <span class="av s">析</span>
+        <div class="bubble"><div class="name"><b>数据分析师</b><span class="duty-tag">当值</span></div>
+          按首签年度计一次续约，中期续约记 expansion。
+          <span class="chip">部门记忆</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="notice">
+      <div class="lab">公告 · 只收不答</div>
+      <p>【制度更新】10-01 起报销审批 ≤ 2,000 元部门经理终审。</p>
+      <div class="to">→ 已抽取，进组织记忆待审</div>
+    </div>
+
+    <div class="input">发消息…（未 @ 自动进<span class="cmd">当值</span>收件箱）</div>
+  </div>
+</div>
+</body>
+</html>
