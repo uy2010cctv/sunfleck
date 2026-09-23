@@ -898,6 +898,9 @@ importers:
       '@deepseek-ai/dsh-enterprise-governance':
         specifier: workspace:^
         version: link:../../governance/enterprise-governance
+      '@deepseek-ai/dsh-enterprise-identity':
+        specifier: workspace:^
+        version: link:../../identity/enterprise-identity
       '@deepseek-ai/dsh-enterprise-operations':
         specifier: workspace:^
         version: link:../../operations/enterprise-operations

@@ -2363,15 +2363,18 @@ export function apply(ctx: Context): void {
   ctx.effect(() => ctx.webServer.register({
     kind: 'prefix', path: '/enterprise/employees',
     handler: async (req, res) => {
-      // Composed plugins provide both keys (employee-http `inject`); without
-      // them the employee plane is absent and every route fails loud.
+      // Composed plugins provide the first two keys (employee-http `inject`); without
+      // them the employee plane is absent and every route fails loud. The memory
+      // plane is part of this package's own `enterprisePostgres` inject.
       const accounts = ctx.get('employeeAccounts')
       const surfaces = ctx.get('surfaces')
       if (accounts === undefined || surfaces === undefined) {
         await writeResponse(res, Response.json({ error: 'employee-plane-unavailable' }, { status: 503 }))
         return
       }
-      const employeeHttp = new EmployeeHttpHandler(accounts, surfaces, ctx.enterpriseSecurity)
+      const employeeHttp = new EmployeeHttpHandler(
+        accounts, surfaces, ctx.enterprisePostgres.identity, ctx.enterpriseSecurity,
+      )
       try { await writeResponse(res, await employeeHttp.fetch(await enterpriseRequest(req))) }
       catch { await writeResponse(res, Response.json({ error: 'invalid-request' }, { status: 400 })) }
     },

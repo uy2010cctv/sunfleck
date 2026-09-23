@@ -2,7 +2,10 @@ import { DatabaseSync } from 'node:sqlite'
 import { Context } from '@deepseek-ai/cordis'
 import { EmployeeAccountService } from '@deepseek-ai/dsh-employee-account'
 import type { EmployeeAccount, EmployeeAccounts, EmployeeId } from '@deepseek-ai/dsh-employee-account'
-import { migrateEnterpriseIdentity } from '@deepseek-ai/dsh-enterprise-identity'
+import {
+  EnterpriseIdentityRepository, memorySourceDigest, migrateEnterpriseIdentity,
+} from '@deepseek-ai/dsh-enterprise-identity'
+import type { EnterpriseMemoryEntry } from '@deepseek-ai/dsh-enterprise-identity'
 import { authorizeEnterprise } from '@deepseek-ai/dsh-enterprise-governance'
 import type {
   EnterpriseAction, EnterpriseAuthorizationDecision, EnterprisePrincipal, EnterpriseResource, EnterpriseRole,
@@ -127,6 +130,7 @@ interface Setup {
   readonly ctx: Context
   readonly host: FakeAgentHost
   readonly accounts: EmployeeAccounts
+  readonly memories: EnterpriseIdentityRepository
   readonly database: DatabaseSync
 }
 
@@ -146,7 +150,13 @@ function makeEnv(): Setup {
   const accounts = new EmployeeAccountService(database)
   ctx.provide('employeeAccounts' as never, accounts as never)
   applySurfaces(ctx, { database, defaultAgentPreset: PRESET })
-  return { ctx, host, accounts, database }
+  const memories = new EnterpriseIdentityRepository(':memory:', { now: () => 1_700_000_000_000 })
+  memories.createOrganization({ id: 'org-1', name: 'Existing enterprise' })
+  memories.createOrganization({ id: 'org-2', name: 'Other enterprise' })
+  memories.createUser({ id: 'user-1', orgId: 'org-1', username: 'alice', displayName: 'Alice', disabled: false })
+  memories.createUser({ id: 'user-2', orgId: 'org-1', username: 'bob', displayName: 'Bob', disabled: false })
+  memories.createUser({ id: 'user-3', orgId: 'org-2', username: 'carol', displayName: 'Carol', disabled: false })
+  return { ctx, host, accounts, memories, database }
 }
 
 /** Create one handler whose cookie authenticates as the given principal. */
@@ -154,7 +164,7 @@ function makeHandler(
   env: Setup,
   principal: EnterprisePrincipal | undefined = principalOf(),
 ): EmployeeHttpHandler {
-  return new EmployeeHttpHandler(env.accounts, env.ctx.surfaces, new RecordingSecurity(principal))
+  return new EmployeeHttpHandler(env.accounts, env.ctx.surfaces, env.memories, new RecordingSecurity(principal))
 }
 
 /** Create one authenticated principal for the tests. */
@@ -186,15 +196,42 @@ function createEmployee(accounts: EmployeeAccounts, orgId = 'org-1', displayName
   })
 }
 
+/** Propose one shared memory into one organization's promotion queue. */
+function proposeShared(
+  memories: EnterpriseIdentityRepository,
+  orgId: string,
+  userId: string,
+  scope: 'organization' | 'department',
+  summary: string,
+): EnterpriseMemoryEntry {
+  return memories.proposeMemory({
+    id: `agent-memory-${memorySourceDigest(JSON.stringify([orgId, scope, null, 'business-fact', summary]))}`,
+    orgId, scope, kind: 'business-fact', summary,
+    sourceDigest: memorySourceDigest(JSON.stringify([orgId, scope, null, 'business-fact', summary])),
+    createdBy: userId,
+  })
+}
+
+/** Write one approved private memory into the employee's agent compartment. */
+function writeAgentMemory(
+  memories: EnterpriseIdentityRepository,
+  employeeId: string,
+  summary: string,
+): EnterpriseMemoryEntry {
+  return memories.writePrivateMemory({
+    orgId: 'org-1', scope: 'agent', kind: 'process', summary, createdBy: 'user-1', agentEmployeeId: employeeId,
+  })
+}
+
 describe('employee http endpoints', () => {
-  it('declares the two composed surface keys it reads from the context', () => {
-    expect(inject).toEqual(['employeeAccounts', 'surfaces'])
+  it('declares the three composed keys it reads from the context', () => {
+    expect(inject).toEqual(['employeeAccounts', 'surfaces', 'enterprisePostgres'])
   })
 
   it('rejects an unauthenticated request before authorizing or auditing', async () => {
     const env = makeEnv()
     const security = new RecordingSecurity(undefined)
-    const handler = new EmployeeHttpHandler(env.accounts, env.ctx.surfaces, security)
+    const handler = new EmployeeHttpHandler(env.accounts, env.ctx.surfaces, env.memories, security)
 
     const anonymous = await call(handler, 'GET', '')
     expect(anonymous.status).toBe(401)
@@ -439,5 +476,192 @@ describe('employee http endpoints', () => {
     expect((await call(handler, 'DELETE', `/${employee.id}`)).status).toBe(405)
     expect((await call(handler, 'GET', `/${employee.id}/messages`)).status).toBe(405)
     expect((await call(handler, 'GET', `/${employee.id}/unknown`)).status).toBe(404)
+    expect((await call(handler, 'PUT', `/${employee.id}/memories`)).status).toBe(405)
+    expect((await call(handler, 'GET', `/${employee.id}/memories/mem-1/review`)).status).toBe(405)
+  })
+})
+
+describe('employee memory governance endpoints', () => {
+  it('lists agent rows plus the shared promotion queue with governance fields only', async () => {
+    const env = makeEnv()
+    const employee = createEmployee(env.accounts)
+    const agentRow = writeAgentMemory(env.memories, employee.id, '客户按周索取报价摘要')
+    const proposed = proposeShared(env.memories, 'org-1', 'user-1', 'organization', '供应商报价需双人复核')
+    // An approved shared row has left the promotion queue and stays out of the view.
+    const approved = proposeShared(env.memories, 'org-1', 'user-1', 'organization', '报销流程已归档')
+    env.memories.reviewMemory({
+      id: approved.id, orgId: 'org-1', decision: 'approved', reviewedBy: 'user-1',
+      reason: '确认', expectedRevision: 1,
+    })
+    // A foreign organization's agent row never leaks into the view.
+    env.memories.writePrivateMemory({
+      orgId: 'org-2', scope: 'agent', kind: 'process', summary: '外部组织私有记忆',
+      createdBy: 'user-3', agentEmployeeId: 'employee-foreign',
+    })
+    const handler = makeHandler(env)
+
+    const response = await call(handler, 'GET', `/${employee.id}/memories`)
+    expect(response.status).toBe(200)
+    const body = await response.json() as Array<Record<string, unknown>>
+
+    expect(body.map(entry => entry['id'])).toEqual([proposed.id, agentRow.id])
+    for (const entry of body) {
+      expect(Object.keys(entry).sort()).toEqual(
+        ['createdAt', 'id', 'kind', 'revision', 'scope', 'status', 'summary'],
+      )
+    }
+    expect(body[0]).toMatchObject({ scope: 'organization', status: 'proposed', revision: 1 })
+    expect(body[1]).toMatchObject({ scope: 'agent', status: 'approved' })
+    expect(JSON.stringify(body)).not.toContain('privacyFindings')
+    expect(JSON.stringify(body)).not.toContain('sourceDigest')
+  })
+
+  it('filters the memory view by status and rejects unknown statuses', async () => {
+    const env = makeEnv()
+    const employee = createEmployee(env.accounts)
+    const agentRow = writeAgentMemory(env.memories, employee.id, '客户按周索取报价摘要')
+    const proposed = proposeShared(env.memories, 'org-1', 'user-1', 'organization', '供应商报价需双人复核')
+    const handler = makeHandler(env)
+
+    const proposedOnly = await call(handler, 'GET', `/${employee.id}/memories?status=proposed`)
+    expect((await proposedOnly.json() as Record<string, unknown>[]).map(entry => entry['id']))
+      .toEqual([proposed.id])
+    const approvedOnly = await call(handler, 'GET', `/${employee.id}/memories?status=approved`)
+    expect((await approvedOnly.json() as Record<string, unknown>[]).map(entry => entry['id']))
+      .toEqual([agentRow.id])
+    const rejected = await call(handler, 'GET', `/${employee.id}/memories?status=rejected`)
+    expect(await rejected.json()).toEqual([])
+    expect((await call(handler, 'GET', `/${employee.id}/memories?status=latest`)).status).toBe(400)
+  })
+
+  it('folds missing and cross-organization employees into 404 and denies role-less callers', async () => {
+    const env = makeEnv()
+    const foreign = createEmployee(env.accounts, 'org-2', '外部员工')
+    const handler = makeHandler(env, principalOf(['administrator']))
+
+    for (const employee of [foreign, { id: 'employee-missing' as EmployeeId }]) {
+      expect((await call(handler, 'GET', `/${employee.id}/memories`)).status).toBe(404)
+      const review = await call(handler, 'POST', `/${employee.id}/memories/mem-1/review`, {
+        decision: 'approved', reason: '确认', revision: 1,
+      })
+      expect(review.status).toBe(404)
+      expect((await call(handler, 'POST', `/${employee.id}/memories/mem-1/retire`)).status).toBe(404)
+    }
+    const own = createEmployee(env.accounts)
+    expect((await call(makeHandler(env, principalOf([])), 'GET', `/${own.id}/memories`)).status).toBe(403)
+    expect((await call(makeHandler(env, principalOf([])), 'POST', `/${own.id}/memories/mem-1/review`, {
+      decision: 'approved', reason: '确认', revision: 1,
+    })).status).toBe(403)
+  })
+
+  it('requires authentication on every memory route', async () => {
+    const env = makeEnv()
+    const employee = createEmployee(env.accounts)
+    const security = new RecordingSecurity(undefined)
+    const handler = new EmployeeHttpHandler(env.accounts, env.ctx.surfaces, env.memories, security)
+
+    expect((await call(handler, 'GET', `/${employee.id}/memories`)).status).toBe(401)
+    expect((await call(handler, 'POST', `/${employee.id}/memories/mem-1/review`, {
+      decision: 'approved', reason: '确认', revision: 1,
+    })).status).toBe(401)
+    expect((await call(handler, 'POST', `/${employee.id}/memories/mem-1/retire`)).status).toBe(401)
+    expect(security.audited).toEqual([])
+  })
+
+  it('approves one shared proposal with the caller-pinned revision', async () => {
+    const env = makeEnv()
+    const employee = createEmployee(env.accounts)
+    const proposed = proposeShared(env.memories, 'org-1', 'user-1', 'organization', '供应商报价需双人复核')
+    const handler = makeHandler(env, principalOf(['administrator']))
+
+    const response = await call(handler, 'POST', `/${employee.id}/memories/${proposed.id}/review`, {
+      decision: 'approved', reason: '确认无误', revision: 1,
+    })
+    expect(response.status).toBe(200)
+    const body = await response.json() as Record<string, unknown>
+    expect(Object.keys(body).sort()).toEqual(
+      ['createdAt', 'id', 'kind', 'reviewedBy', 'revision', 'scope', 'status', 'summary'],
+    )
+    expect(body).toMatchObject({ id: proposed.id, status: 'approved', revision: 2, reviewedBy: 'user-1' })
+  })
+
+  it('rejects review with stale revisions, illegal transitions, missing memories, or invalid bodies', async () => {
+    const env = makeEnv()
+    const employee = createEmployee(env.accounts)
+    const proposed = proposeShared(env.memories, 'org-1', 'user-1', 'organization', '供应商报价需双人复核')
+    const foreignProposed = proposeShared(env.memories, 'org-2', 'user-3', 'organization', '外部组织提案')
+    const handler = makeHandler(env, principalOf(['administrator']))
+    const review = (memoryId: string, body: unknown): Promise<Response> =>
+      call(handler, 'POST', `/${employee.id}/memories/${memoryId}/review`, body)
+
+    expect((await review(proposed.id, { decision: 'approved', reason: '确认', revision: 99 })).status).toBe(409)
+    await review(proposed.id, { decision: 'approved', reason: '确认', revision: 1 })
+    expect((await review(proposed.id, { decision: 'rejected', reason: '反悔', revision: 2 })).status).toBe(409)
+    expect((await review('mem-missing', { decision: 'approved', reason: '确认', revision: 1 })).status).toBe(404)
+    expect((await review(foreignProposed.id, { decision: 'approved', reason: '确认', revision: 1 })).status).toBe(404)
+    expect((await review(proposed.id, { decision: 'retired', reason: '确认', revision: 2 })).status).toBe(400)
+    expect((await review(proposed.id, { decision: 'approved', revision: 2 })).status).toBe(400)
+    expect((await review(proposed.id, { decision: 'approved', reason: '确认', revision: '2' })).status).toBe(400)
+    const malformed = await handler.fetch(
+      new Request(`http://dsh/enterprise/employees/${employee.id}/memories/mem-1/review`, {
+        method: 'POST', headers: { cookie: 'dsh_enterprise_session=ticket' }, body: 'not-json',
+      }),
+    )
+    expect(malformed.status).toBe(400)
+    // Operators hold memory.read but not memory.manage.
+    expect((await call(makeHandler(env), 'POST', `/${employee.id}/memories/${proposed.id}/review`, {
+      decision: 'rejected', reason: '拒绝', revision: 2,
+    })).status).toBe(403)
+  })
+
+  it('retires one approved memory with and without a revision pin', async () => {
+    const env = makeEnv()
+    const employee = createEmployee(env.accounts)
+    const pinned = writeAgentMemory(env.memories, employee.id, '客户按周索取报价摘要')
+    const unpinned = writeAgentMemory(env.memories, employee.id, '客户偏好中文回复')
+    const shared = proposeShared(env.memories, 'org-1', 'user-1', 'organization', '供应商报价需双人复核')
+    env.memories.reviewMemory({
+      id: shared.id, orgId: 'org-1', decision: 'approved', reviewedBy: 'user-1',
+      reason: '确认', expectedRevision: 1,
+    })
+    const handler = makeHandler(env, principalOf(['administrator']))
+
+    const withPin = await call(handler, 'POST', `/${employee.id}/memories/${pinned.id}/retire`, { revision: 1 })
+    expect(withPin.status).toBe(200)
+    expect(await withPin.json()).toMatchObject({ id: pinned.id, status: 'retired', revision: 2 })
+
+    const withoutPin = await call(handler, 'POST', `/${employee.id}/memories/${unpinned.id}/retire`)
+    expect(withoutPin.status).toBe(200)
+    expect(await withoutPin.json()).toMatchObject({ id: unpinned.id, status: 'retired', revision: 2 })
+
+    const sharedRetired = await call(handler, 'POST', `/${employee.id}/memories/${shared.id}/retire`)
+    expect(sharedRetired.status).toBe(200)
+    expect(await sharedRetired.json()).toMatchObject({ id: shared.id, status: 'retired' })
+  })
+
+  it('rejects retire for proposed, stale, missing, or cross-organization memories', async () => {
+    const env = makeEnv()
+    const employee = createEmployee(env.accounts)
+    const proposed = proposeShared(env.memories, 'org-1', 'user-1', 'organization', '供应商报价需双人复核')
+    const approved = writeAgentMemory(env.memories, employee.id, '客户按周索取报价摘要')
+    const foreignProposed = proposeShared(env.memories, 'org-2', 'user-3', 'organization', '外部组织提案')
+    const handler = makeHandler(env, principalOf(['administrator']))
+
+    expect((await call(handler, 'POST', `/${employee.id}/memories/${proposed.id}/retire`, {
+      revision: 1,
+    })).status).toBe(409)
+    expect((await call(handler, 'POST', `/${employee.id}/memories/${approved.id}/retire`, {
+      revision: 5,
+    })).status).toBe(409)
+    expect((await call(handler, 'POST', `/${employee.id}/memories/mem-missing/retire`)).status).toBe(404)
+    expect((await call(handler, 'POST', `/${employee.id}/memories/${foreignProposed.id}/retire`, {
+      revision: 1,
+    })).status).toBe(404)
+    expect((await call(handler, 'POST', `/${employee.id}/memories/${approved.id}/retire`, {
+      revision: '1',
+    })).status).toBe(400)
+    expect((await call(makeHandler(env), 'POST', `/${employee.id}/memories/${approved.id}/retire`, {
+      revision: 1,
+    })).status).toBe(403)
   })
 })
