@@ -192,6 +192,31 @@ function renderSections(entries: readonly EnterpriseMemoryEntry[]): string {
   return lines.join('\n')
 }
 
+/** Kept prefix and rendered text of one bounded recall block. */
+interface BoundedMemoryBlock {
+  /** The kept prefix in rank order; empty when no entry fits. */
+  readonly kept: EnterpriseMemoryEntry[]
+  /** The rendered block with the `[context truncated]` marker when a tail was dropped; '' when no entry fits. */
+  readonly text: string
+}
+
+/** Drop the lowest-ranked tail entries until the rendered block fits `maxChars`, then render the
+ * kept prefix exactly once so callers needing both never render twice.
+ * @param entries - ranked entries, highest recall first.
+ * @param maxChars - maximum total characters of the rendered block.
+ * @returns the kept prefix in rank order and its rendered block body.
+ */
+function boundedMemoryBlock(
+  entries: readonly EnterpriseMemoryEntry[],
+  maxChars: number,
+): BoundedMemoryBlock {
+  let kept = [...entries]
+  while (kept.length > 0 && renderSections(kept).length > maxChars) kept = kept.slice(0, -1)
+  if (kept.length === 0) return { kept, text: '' }
+  const body = renderSections(kept)
+  return { kept, text: kept.length < entries.length ? `${body}\n[context truncated]\n` : body }
+}
+
 /** Drop the lowest-ranked tail entries until the rendered block fits `maxChars`.
  * @param entries - ranked entries, highest recall first.
  * @param maxChars - maximum total characters of the rendered block.
@@ -201,9 +226,7 @@ export function limitEnterpriseMemories(
   entries: readonly EnterpriseMemoryEntry[],
   maxChars: number,
 ): EnterpriseMemoryEntry[] {
-  let kept = [...entries]
-  while (kept.length > 0 && renderSections(kept).length > maxChars) kept = kept.slice(0, -1)
-  return kept
+  return boundedMemoryBlock(entries, maxChars).kept
 }
 
 /** Render a bounded, non-authoritative context block from already ranked entries.
@@ -217,10 +240,7 @@ export function limitEnterpriseMemories(
  * @returns the rendered block, or '' when no entry fits.
  */
 export function renderEnterpriseMemory(entries: readonly EnterpriseMemoryEntry[], maxChars: number): string {
-  const kept = limitEnterpriseMemories(entries, maxChars)
-  if (kept.length === 0) return ''
-  const rendered = renderSections(kept)
-  return kept.length < entries.length ? `${rendered}\n[context truncated]\n` : rendered
+  return boundedMemoryBlock(entries, maxChars).text
 }
 
 /** One day in epoch milliseconds. */
@@ -459,10 +479,10 @@ export function apply(ctx: Context, config: Config): void {
     const compartments = new Set<EnterpriseMemoryEntry['scope']>(SECTIONS.map(section => section.scope))
     const candidates = [...shared, ...own].filter(entry => compartments.has(entry.scope))
     const ranked = rankEnterpriseMemories(candidates, { now: Date.now() }).slice(0, maxEntries)
-    const text = renderEnterpriseMemory(ranked, maxChars)
+    const { kept, text } = boundedMemoryBlock(ranked, maxChars)
     if (text === '') return result
     const now = Date.now()
-    for (const entry of limitEnterpriseMemories(ranked, maxChars)) {
+    for (const entry of kept) {
       try { await identity.touchMemoryAccess(entry.id, now) }
       catch {
         // Access bookkeeping only feeds the recency signal; nothing else observes a failed touch,

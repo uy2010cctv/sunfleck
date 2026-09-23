@@ -168,6 +168,27 @@ describe('employee row store', () => {
     expect(employeeByHomeWorkspacePath(database, '/managed/employees/missing')).toBeUndefined()
   })
 
+  it('hides archived accounts from the home workspace path lookup so an active replacement wins', () => {
+    const database = makeDatabase()
+    seedOrgAndUser(database, 'org-1', 'user-1')
+    createEmployee(database, {
+      ...employeeRow('employee-archived', T1),
+      state: 'archived',
+      homeWorkspacePath: '/managed/employees/billing',
+    })
+
+    expect(employeeByHomeWorkspacePath(database, '/managed/employees/billing')).toBeUndefined()
+
+    createEmployee(database, {
+      ...employeeRow('employee-active', T2),
+      homeWorkspacePath: '/managed/employees/billing',
+    })
+    expect(employeeByHomeWorkspacePath(database, '/managed/employees/billing')).toEqual({
+      ...employeeRow('employee-active', T2),
+      homeWorkspacePath: '/managed/employees/billing',
+    })
+  })
+
   it('moves an employee to a new state and stamps the update time', () => {
     const database = makeDatabase()
     seedOrgAndUser(database, 'org-1', 'user-1')

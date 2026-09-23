@@ -198,6 +198,9 @@ describe('enterprise memory prompt context', () => {
     expect(rendered).toContain(`[${agentMemory.id}]`)
     expect(rendered).toContain('[Collaboration preference]')
     expect(rendered).toContain(`[${pairMemory.id}]`)
+    // Isolation holds on content, not just on the injected ids above.
+    expect(rendered).not.toContain('其他员工的笔记')
+    expect(rendered).not.toContain('其他用户的偏好')
 
     // Every injected id is touched; private rows outside the session's compartments are not.
     for (const entry of sharedMemories(identity)) {
