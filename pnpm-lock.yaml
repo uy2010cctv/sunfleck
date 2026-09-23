@@ -5955,6 +5955,21 @@ importers:
         specifier: ^8.15.5
         version: 8.23.1
 
+  packages/enterprise/enterprise-project:
+    devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: workspace:^
+        version: link:../../../vendor/cordis
+      '@deepseek-ai/dsh-brand':
+        specifier: workspace:^
+        version: link:../../util/brand
+      '@types/pg':
+        specifier: ^8.15.5
+        version: 8.23.1
+      pg:
+        specifier: ^8.16.3
+        version: 8.23.0
+
   packages/enterprise/enterprise-surface:
     dependencies:
       '@deepseek-ai/dsh-brand':

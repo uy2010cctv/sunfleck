@@ -152,6 +152,7 @@
     { "path": "./packages/enterprise/device-plane" },
     { "path": "./packages/device/tool-computer-use" },
     { "path": "./packages/enterprise/enterprise-postgres" },
+    { "path": "./packages/enterprise/enterprise-project" },
     { "path": "./packages/enterprise/enterprise-cordis" },
     { "path": "./packages/enterprise/enterprise-cordis-runtime" },
     { "path": "./packages/enterprise/employee-account" },
