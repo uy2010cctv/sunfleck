@@ -297,6 +297,26 @@ describe('migrateSqliteEnterpriseIdentityToPostgres', () => {
       resourceType: 'user', resourceId: 'user-1', decision: 'allowed', reason: 'administrator',
       correlationId: 'migration-test', at: 1_700_000_000_001, details: {},
     })
+    const approved = source.proposeMemory({
+      id: 'memory-org', orgId: 'org-a', scope: 'organization', kind: 'business-fact',
+      summary: '公司使用统一合同编号。', sourceDigest: 'f'.repeat(64), createdBy: 'user-1',
+    })
+    source.reviewMemory({
+      id: approved.id, orgId: 'org-a', decision: 'approved', reviewedBy: 'user-1',
+      reason: '已核对', expectedRevision: approved.revision,
+    })
+    source.touchMemoryAccess('memory-org', 1_700_000_000_400)
+    const agent = source.writePrivateMemory({
+      orgId: 'org-a', scope: 'agent', kind: 'preference', summary: '回复保持正式书面语。',
+      createdBy: 'user-1', agentEmployeeId: 'employee-1',
+    })
+    source.touchMemoryAccess(agent.id, 1_700_000_000_500)
+    // No repository API raises importance yet, so seed non-default values through raw SQL: a
+    // dropped importance column must not hide behind the 0 default.
+    const raw = new DatabaseSync(sqlitePath)
+    raw.prepare('UPDATE enterprise_memories SET importance = ? WHERE id = ?').run(1.25, 'memory-org')
+    raw.prepare('UPDATE enterprise_memories SET importance = ? WHERE id = ?').run(3.5, agent.id)
+    raw.close()
   })
 
   afterEach(async () => {
@@ -317,11 +337,14 @@ describe('migrateSqliteEnterpriseIdentityToPostgres', () => {
     expect(report.source.organizations.count).toBe(1)
     expect(report.source.users.count).toBe(1)
     expect(report.source.authSessions.count).toBe(1)
+    expect(report.source.memories.count).toBe(2)
     expect(report.source.authSessions.checksum).toMatch(/^[a-f0-9]{64}$/)
     expect(target.queries).toEqual([])
   })
 
   it('normalizes pg BIGINT result strings without timestamp precision loss', async () => {
+    const agentMemory = source.listMemories({ orgId: 'org-a', scopes: ['agent'] })[0]
+    if (agentMemory === undefined) throw new Error('fixture agent memory row is missing')
     class VerifiedDatabase extends RecordingDatabase {
       override async query<Row extends Record<string, unknown> = Record<string, unknown>>(
         text: string, values: readonly unknown[] = [],
@@ -341,7 +364,24 @@ describe('migrateSqliteEnterpriseIdentityToPostgres', () => {
                   resource_type: 'user', resource_id: 'user-1', decision: 'allowed', reason: 'administrator',
                   correlation_id: 'migration-test', created_at: '1700000000001', details_json: {},
                 }]
-                  : undefined
+                  : text.includes('FROM enterprise_memories ORDER BY id') ? [
+                    {
+                      id: 'memory-org', org_id: 'org-a', scope_type: 'organization', department_id: null,
+                      agent_employee_id: null, pair_user_id: null, kind: 'business-fact', status: 'approved',
+                      summary: '公司使用统一合同编号。', source_digest: 'f'.repeat(64), privacy_findings: [],
+                      importance: 1.25, last_access_at: '1700000000400', created_by: 'user-1',
+                      reviewed_by: 'user-1', review_reason: '已核对', revision: '2',
+                      created_at: '1700000000000', updated_at: '1700000000000',
+                    },
+                    {
+                      id: agentMemory.id, org_id: 'org-a', scope_type: 'agent', department_id: null,
+                      agent_employee_id: 'employee-1', pair_user_id: null, kind: 'preference', status: 'approved',
+                      summary: '回复保持正式书面语。', source_digest: agentMemory.sourceDigest, privacy_findings: [],
+                      importance: 3.5, last_access_at: '1700000000500', created_by: 'user-1', reviewed_by: null,
+                      review_reason: null, revision: '1', created_at: '1700000000000', updated_at: '1700000000000',
+                    },
+                  ]
+                    : undefined
         if (rows !== undefined) return { rows: rows as Row[], rowCount: rows.length }
         return super.query(text, values)
       }
@@ -354,12 +394,27 @@ describe('migrateSqliteEnterpriseIdentityToPostgres', () => {
 
     expect(report.dryRun).toBe(false)
     expect(report.destination).toEqual(report.source)
+    expect(report.source.memories.count).toBe(2)
     expect(target.queries.map(query => query.text)).toContain('BEGIN')
     expect(target.queries.map(query => query.text)).toContain('COMMIT')
     const sessionWrite = target.queries.find(query => query.text.includes('INSERT INTO auth_sessions'))
     expect(sessionWrite?.values).toContain('user-1')
     expect(JSON.stringify(sessionWrite)).not.toContain('never-store-this-token')
     expect(sessionWrite?.values[0]).toMatch(/^[a-f0-9]{64}$/)
+    const memoryWrites = target.queries.filter(query => query.text.includes('INSERT INTO enterprise_memories'))
+    expect(memoryWrites).toHaveLength(2)
+    expect(memoryWrites[0]?.text).toContain('agent_employee_id, pair_user_id,')
+    expect(memoryWrites[0]?.text).toContain('last_access_at, created_by')
+    expect(memoryWrites[0]?.values).toEqual([
+      'memory-org', 'org-a', 'organization', null, null, null, 'business-fact', 'approved',
+      '公司使用统一合同编号。', 'f'.repeat(64), '[]', 1.25, 1700000000400, 'user-1', 'user-1', '已核对',
+      2, 1700000000000, 1700000000000,
+    ])
+    expect(memoryWrites[1]?.values).toEqual([
+      agentMemory.id, 'org-a', 'agent', null, 'employee-1', null, 'preference', 'approved',
+      '回复保持正式书面语。', agentMemory.sourceDigest, '[]', 3.5, 1700000000500, 'user-1', null, null,
+      1, 1700000000000, 1700000000000,
+    ])
   })
 
   it('creates a native consistent source backup after SQLite integrity validation before importing', async () => {
