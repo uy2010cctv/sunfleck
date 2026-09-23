@@ -1138,6 +1138,27 @@ describe('channel inbound endpoint', () => {
       kind: 'surface-message', originActor: 'wecom-1',
     })
   })
+
+  it('answers an ambiguous external key binding with a server error', async () => {
+    const env = makeEnv()
+    const support = createEmployee(env.accounts, 'org-1', 'Support')
+    await env.ctx.surfaces.ensureChannelSurface({
+      orgId: 'org-1', name: '公告频道', externalKey: 'fe-dup', memberEmployeeIds: [support.id],
+      topicPolicy: 'thread', respondPolicy: 'ingest_only', dutyEmployeeIds: [support.id],
+    })
+    // A second organization bound the same key: the store's fail-loud lookup
+    // throws, and the transport must read that misconfiguration as 500.
+    env.database.prepare(`INSERT INTO surfaces(id, org_id, kind, created_at, external_key, name,
+        topic_policy, respond_policy) VALUES ('surface-dup', 'org-2', 'channel', 1, 'fe-dup',
+        '重复频道', 'thread', 'ingest_only')`).run()
+    const handler = makeSurfaceHandler(env, principalOf(), TOKEN)
+
+    const response = await callInbound(handler, 'fe-dup', {
+      channelId: 'fe-dup', actorKey: 'wecom-1', text: '公告',
+    }, 'bridge-secret')
+    expect(response.status).toBe(500)
+    expect(await response.json()).toEqual({ error: 'internal-error' })
+  })
 })
 
 describe('project endpoints', () => {

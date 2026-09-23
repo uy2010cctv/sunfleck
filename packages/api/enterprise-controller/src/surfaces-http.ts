@@ -510,9 +510,11 @@ export class SurfaceHttpHandler {
       || messageId === null || mentioned === null) {
       return failure(400, 'invalid-payload')
     }
-    const surface = await this.surfaces.findChannelByExternalKey({ externalKey: channelId })
-    if (surface === undefined) return failure(404, 'surface-not-found')
     try {
+      // Inside the try: the ambiguous-external-key throw is a deployment
+      // misconfiguration and must answer 500, not the transport's client-fault 400.
+      const surface = await this.surfaces.findChannelByExternalKey({ externalKey: channelId })
+      if (surface === undefined) return failure(404, 'surface-not-found')
       const result = await this.surfaces.deliverToChannel(surface, {
         originUserId: actorKey, text,
         ...(mentioned === undefined || mentioned.length === 0
