@@ -17,7 +17,6 @@ import type {
   UpdateEnterpriseUserProfileInput,
   EnterpriseWorkspaceGrant,
   ExternalIdentityBinding,
-  MemoryKind,
   MemoryScope,
   RepositoryOptions,
   ProposeEnterpriseMemoryInput,
@@ -28,6 +27,7 @@ import type {
   WritePrivateMemoryInput,
 } from '@deepseek-ai/dsh-enterprise-identity'
 import {
+  enumColumn,
   inspectEnterpriseMemory,
   MEMORY_KINDS,
   MEMORY_SCOPES,
@@ -44,23 +44,6 @@ function safeStringArray(value: unknown): string[] {
     throw new Error('enterprise identity database contains an invalid string array')
   }
   return parsed as string[]
-}
-
-const MEMORY_SCOPE_SET: ReadonlySet<string> = new Set(MEMORY_SCOPES)
-const MEMORY_KIND_SET: ReadonlySet<string> = new Set(MEMORY_KINDS)
-
-/** Validate one closed-set text column read from PostgreSQL; CHECK enforcement cannot be assumed
- * across schema versions, so row parsing re-validates the value set.
- * @param values - Closed value set the column may hold.
- * @param column - Column name, used in the failure message.
- * @param value - Raw column value read from PostgreSQL.
- * @returns The stored value once it is in the closed set.
- */
-function closedColumn(values: ReadonlySet<string>, column: string, value: unknown): string {
-  if (typeof value !== 'string' || !values.has(value)) {
-    throw new Error(`enterprise identity database contains an invalid ${column} value: ${String(value)}`)
-  }
-  return value
 }
 
 function safeObject(value: unknown): Record<string, unknown> {
@@ -665,7 +648,9 @@ export class PgEnterpriseIdentityRepository {
     })
   }
 
-  /** Writes one approved memory straight into a private compartment, bypassing review.
+  /** Writes one approved memory straight into a private compartment, bypassing review. The row id
+   * derives deterministically from the write tuple (`private-memory-<digest>`), so repeat and
+   * concurrent duplicate writes converge on one row.
    * @param input - Input value used by this API.
    * @returns The stored memory; the existing row when this exact source was written before.
    */
@@ -673,10 +658,11 @@ export class PgEnterpriseIdentityRepository {
     const { summary, findings, sourceDigest } = validatePrivateMemoryInput(input)
     return this.transaction(async (database) => {
       await this.assertMemoryReferences(database, input.orgId, input.createdBy)
-      const existing = await database.query<MemoryRow>(
-        'SELECT * FROM enterprise_memories WHERE org_id = $1 AND source_digest = $2',
-        [input.orgId, sourceDigest],
-      )
+      // The scope predicate keeps a hypothetical digest collision in a shared compartment from
+      // satisfying a private write.
+      const existing = await database.query<MemoryRow>(`SELECT * FROM enterprise_memories
+        WHERE org_id = $1 AND source_digest = $2 AND scope_type IN ('agent', 'pair')`,
+      [input.orgId, sourceDigest])
       const found = existing.rows[0]
       if (found !== undefined) return this.memoryFromRow(found)
       const at = this.now()
@@ -684,13 +670,20 @@ export class PgEnterpriseIdentityRepository {
         department_id, agent_employee_id, pair_user_id, kind, status, summary, source_digest, privacy_findings,
         importance, last_access_at, created_by, reviewed_by, review_reason, revision, created_at, updated_at)
         VALUES ($1, $2, $3, NULL, $4, $5, $6, 'approved', $7, $8, $9::jsonb, 0, NULL, $10, NULL, NULL, 1, $11, $11)
-        RETURNING *`,
+        ON CONFLICT (id) DO NOTHING RETURNING *`,
       [`private-memory-${sourceDigest}`, input.orgId, input.scope, input.agentEmployeeId ?? null,
         input.pairUserId ?? null, input.kind, summary, sourceDigest, JSON.stringify(findings),
         input.createdBy, at])
       const row = result.rows[0]
-      if (row === undefined) throw new Error('enterprise private memory write returned no row')
-      return this.memoryFromRow(row)
+      if (row !== undefined) return this.memoryFromRow(row)
+      // A concurrent writer committed the same deterministic id between the lookup and the insert;
+      // the unique-index wait guarantees its row is committed and visible to the re-select.
+      const raced = await database.query<MemoryRow>(`SELECT * FROM enterprise_memories
+        WHERE org_id = $1 AND source_digest = $2 AND scope_type IN ('agent', 'pair')`,
+      [input.orgId, sourceDigest])
+      const winner = raced.rows[0]
+      if (winner === undefined) throw new Error('enterprise private memory write returned no row')
+      return this.memoryFromRow(winner)
     })
   }
 
@@ -811,11 +804,11 @@ export class PgEnterpriseIdentityRepository {
 
   private memoryFromRow(row: MemoryRow): EnterpriseMemoryEntry {
     return {
-      id: row.id, orgId: row.org_id, scope: closedColumn(MEMORY_SCOPE_SET, 'scope_type', row.scope_type) as MemoryScope,
+      id: row.id, orgId: row.org_id, scope: enumColumn(row, 'scope_type', MEMORY_SCOPES),
       ...(row.department_id === null ? {} : { departmentId: row.department_id }),
       ...(row.agent_employee_id === null ? {} : { agentEmployeeId: row.agent_employee_id }),
       ...(row.pair_user_id === null ? {} : { pairUserId: row.pair_user_id }),
-      kind: closedColumn(MEMORY_KIND_SET, 'kind', row.kind) as MemoryKind,
+      kind: enumColumn(row, 'kind', MEMORY_KINDS),
       status: row.status, summary: row.summary, sourceDigest: row.source_digest,
       privacyFindings: safeStringArray(row.privacy_findings) as EnterpriseMemoryPrivacyFinding[],
       importance: row.importance === null ? 0 : Number(row.importance),

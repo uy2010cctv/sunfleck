@@ -236,14 +236,15 @@ describe('PgEnterpriseIdentityRepository private memory', () => {
     expect(database.queries).toEqual([])
   })
 
-  it('narrow private-memory listings with scope and owner predicates', async () => {
+  it('narrows private-memory listings with scope and owner predicates', async () => {
     const database = new RecordingDatabase()
     const repository = new PgEnterpriseIdentityRepository(database)
 
     await repository.listMemories({ orgId: 'org-a', scopes: ['agent'], agentEmployeeId: 'employee-1' })
     await repository.listMemories({ orgId: 'org-a', pairUserId: 'user-1' })
+    await repository.listMemories({ orgId: 'org-a', scopes: ['organization'], pairUserId: 'user-1' })
 
-    const [scoped, implied] = database.queries
+    const [scoped, implied, explicit] = database.queries
     expect(scoped?.text).toContain('scope_type = ANY($2::text[])')
     expect(scoped?.text).toContain('agent_employee_id = $3')
     expect(scoped?.values).toEqual(['org-a', ['agent'], 'employee-1', [
@@ -254,6 +255,50 @@ describe('PgEnterpriseIdentityRepository private memory', () => {
     expect(implied?.values).toEqual(['org-a', 'user-1', [
       'proposed', 'approved', 'rejected', 'retired',
     ]])
+    // Explicit scopes never gain implied private compartments from owner filters.
+    expect(explicit?.text).toContain('scope_type = ANY($2::text[])')
+    expect(explicit?.text).not.toContain("scope_type = 'pair'")
+    expect(explicit?.text).not.toContain("scope_type = 'agent'")
+    expect(explicit?.text).toContain('pair_user_id = $3')
+    expect(explicit?.values).toEqual(['org-a', ['organization'], 'user-1', [
+      'proposed', 'approved', 'rejected', 'retired',
+    ]])
+  })
+
+  it('returns the committed winner when a concurrent write claims the deterministic id first', async () => {
+    class ContendedDatabase extends MemoryDatabase {
+      digestSelects = 0
+      override async query<Row extends Record<string, unknown> = Record<string, unknown>>(
+        text: string, values: readonly unknown[] = [],
+      ): Promise<PostgresQueryResult<Row>> {
+        if (text.includes('source_digest = $2')) {
+          this.digestSelects += 1
+          this.queries.push({ text, values })
+          return this.digestSelects === 2
+            ? { rows: [privateMemoryRow] as Row[], rowCount: 1 }
+            : { rows: [] as Row[], rowCount: 0 }
+        }
+        if (text.includes('RETURNING *')) {
+          this.queries.push({ text, values })
+          return { rows: [] as Row[], rowCount: 0 }
+        }
+        return super.query(text, values)
+      }
+    }
+    const database = new ContendedDatabase()
+    const repository = new PgEnterpriseIdentityRepository(database)
+
+    const written = await repository.writePrivateMemory({
+      orgId: 'org-a', scope: 'agent', kind: 'preference', summary: '回复保持正式书面语。',
+      createdBy: 'user-1', agentEmployeeId: 'employee-1',
+    })
+
+    expect(written.id).toBe(privateMemoryRow.id)
+    expect(database.digestSelects).toBe(2)
+    const insertIndex = database.queries.findIndex(query => query.text.includes('INSERT INTO enterprise_memories'))
+    const reSelectIndex = database.queries.findIndex((query, index) =>
+      index > insertIndex && query.text.includes('source_digest = $2'))
+    expect(reSelectIndex).toBeGreaterThan(insertIndex)
   })
 
   it('records memory access time and fails loud when the memory is missing', async () => {

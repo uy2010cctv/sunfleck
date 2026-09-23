@@ -50,6 +50,7 @@ export {
   createEmployee,
   enqueueInbox,
   ensureSurface,
+  enumColumn,
   failInboxItem,
   getEmployee,
   listEmployees,

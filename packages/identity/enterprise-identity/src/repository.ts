@@ -132,6 +132,7 @@ export interface EnterpriseMemoryEntry {
   readonly summary: string
   readonly sourceDigest: string
   readonly privacyFindings: readonly EnterpriseMemoryPrivacyFinding[]
+  /** Non-negative importance weight for recall ranking; writes default to 0 and no repository API mutates it until consolidation lands. */
   readonly importance: number
   readonly lastAccessAt?: number
   readonly createdBy: string
@@ -211,14 +212,15 @@ export interface MemoryListFilterPlan {
   readonly statuses: readonly EnterpriseMemoryEntry['status'][]
   /** Deduplicated explicit scope restriction, or undefined when the caller passed none. */
   readonly scopes: readonly MemoryScope[] | undefined
-  /** The agent compartment participates although no explicit scopes were passed. */
+  /** The agent compartment participates because an owner filter implied it; never true alongside explicit scopes. */
   readonly includeAgentScope: boolean
-  /** The pair compartment participates although no explicit scopes were passed. */
+  /** The pair compartment participates because an owner filter implied it; never true alongside explicit scopes. */
   readonly includePairScope: boolean
 }
 
 /** Plan memory-list filtering; explicit scopes restrict the compartments, otherwise the legacy
- * organization-plus-departments visibility holds and an owner filter implies its own compartment.
+ * organization-plus-departments visibility holds, and only there does an owner filter imply its
+ * own compartment.
  * @param input - Input value used by this API.
  * @returns The normalized filters, or undefined when an empty status or scope set matches no row.
  */
@@ -240,8 +242,8 @@ export function planMemoryListFilters(input: {
     departmentIds,
     statuses,
     scopes,
-    includeAgentScope: input.agentEmployeeId !== undefined,
-    includePairScope: input.pairUserId !== undefined,
+    includeAgentScope: input.scopes === undefined && input.agentEmployeeId !== undefined,
+    includePairScope: input.scopes === undefined && input.pairUserId !== undefined,
   }
 }
 
@@ -403,6 +405,11 @@ export interface EnterpriseIdentityStore {
   proposeMemory(input: ProposeEnterpriseMemoryInput): IdentityAwaitable<EnterpriseMemoryEntry>
   reviewMemory(input: ReviewEnterpriseMemoryInput): IdentityAwaitable<EnterpriseMemoryEntry>
   writePrivateMemory(input: WritePrivateMemoryInput): IdentityAwaitable<EnterpriseMemoryEntry>
+  /**
+   * Lists memories visible to the caller. Authorization for private compartments — constraining
+   * `agentEmployeeId` and `pairUserId` to the caller's own identity — is owned by the recall layer
+   * above this store.
+   */
   listMemories(input: {
     orgId: string
     departmentIds?: readonly string[]
@@ -894,9 +901,11 @@ export class EnterpriseIdentityRepository implements EnterpriseIdentityStore {
     this.database.exec('BEGIN IMMEDIATE')
     try {
       this.assertMemoryReferences(input.orgId, input.createdBy)
-      const existing = this.database.prepare(
-        'SELECT * FROM enterprise_memories WHERE org_id = ? AND source_digest = ?',
-      ).get(input.orgId, sourceDigest) as SqliteMemoryRow | undefined
+      // The scope predicate keeps a hypothetical digest collision in a shared compartment from
+      // satisfying a private write.
+      const existing = this.database.prepare(`SELECT * FROM enterprise_memories
+        WHERE org_id = ? AND source_digest = ? AND scope_type IN ('agent', 'pair')`)
+        .get(input.orgId, sourceDigest) as SqliteMemoryRow | undefined
       if (existing !== undefined) {
         this.database.exec('COMMIT')
         return this.memoryFromRow(existing)

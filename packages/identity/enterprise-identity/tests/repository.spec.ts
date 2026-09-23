@@ -341,6 +341,11 @@ describe('EnterpriseIdentityRepository', () => {
       .map(memory => memory.pairUserId)).toEqual(['user-1'])
     expect(repository.listMemories({ orgId: 'org-a', agentEmployeeId: 'employee-2' })).toEqual([])
     expect(repository.listMemories({ orgId: 'org-a', scopes: [] })).toEqual([])
+    // Explicit scopes never gain implied private compartments from owner filters.
+    expect(repository.listMemories({ orgId: 'org-a', scopes: ['organization'], pairUserId: 'user-1' }))
+      .toEqual([])
+    expect(repository.listMemories({ orgId: 'org-a', scopes: ['organization'], agentEmployeeId: 'employee-1' }))
+      .toEqual([])
     expect(repository.listMemories({ orgId: 'org-a', scopes: ['organization'], statuses: ['proposed'] }))
       .toEqual([expect.objectContaining({ id: 'memory-org' })])
     // Without explicit scopes the legacy visibility holds: organization rows only.
