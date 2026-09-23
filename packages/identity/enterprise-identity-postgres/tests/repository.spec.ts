@@ -84,6 +84,31 @@ describe('PgEnterpriseIdentityRepository', () => {
     expect(database.queries.at(-1)?.values).toEqual([String(ENTERPRISE_IDENTITY_POSTGRES_SCHEMA_VERSION)])
   })
 
+  it('upgrades v6 memories with the purely additive project compartment column', async () => {
+    class VersionSixDatabase extends RecordingDatabase {
+      override async query<Row extends Record<string, unknown> = Record<string, unknown>>(
+        text: string, values: readonly unknown[] = [],
+      ): Promise<PostgresQueryResult<Row>> {
+        if (text.includes("SELECT value FROM enterprise_meta WHERE key = 'schema-version'")) {
+          this.queries.push({ text, values })
+          return { rows: [{ value: '6' }] as Row[], rowCount: 1 }
+        }
+        return super.query(text, values)
+      }
+    }
+    const database = new VersionSixDatabase()
+
+    await migrateEnterpriseIdentityPostgres(database)
+
+    const statements = database.queries.map(query => query.text)
+    // Only the additive column statement runs; no CHECK needs dropping for this version.
+    expect(statements.filter(text => text.includes('ALTER TABLE'))).toEqual([
+      expect.stringContaining('ADD COLUMN IF NOT EXISTS project_id TEXT'),
+    ])
+    expect(statements.some(statement => statement.includes('DROP CONSTRAINT'))).toBe(false)
+    expect(database.queries.at(-1)?.values).toEqual([String(ENTERPRISE_IDENTITY_POSTGRES_SCHEMA_VERSION)])
+  })
+
   it('uses parameterized PostgreSQL writes for enterprise users', async () => {
     const database = new RecordingDatabase()
     const repository = new PgEnterpriseIdentityRepository(database)
@@ -158,7 +183,7 @@ describe('PgEnterpriseIdentityRepository', () => {
 /** One stored agent-compartment memory row as a RETURNING payload. */
 const privateMemoryRow = {
   id: 'private-memory-1', org_id: 'org-a', scope_type: 'agent', department_id: null,
-  agent_employee_id: 'employee-1', pair_user_id: null, kind: 'preference', status: 'approved',
+  agent_employee_id: 'employee-1', pair_user_id: null, project_id: null, kind: 'preference', status: 'approved',
   summary: '回复保持正式书面语。', source_digest: 'a'.repeat(64), privacy_findings: [],
   importance: 0, last_access_at: null, created_by: 'user-1', reviewed_by: null, review_reason: null,
   revision: 1, created_at: 1_700_000_000_000, updated_at: 1_700_000_000_000,
@@ -195,10 +220,45 @@ describe('PgEnterpriseIdentityRepository private memory', () => {
     const insert = database.queries.find(query => query.text.includes('INSERT INTO enterprise_memories'))
     expect(insert?.text).toContain("'approved'")
     expect(insert?.values).toEqual([
-      expect.stringMatching(/^private-memory-[a-f0-9]{64}$/), 'org-a', 'agent', 'employee-1', null,
+      expect.stringMatching(/^private-memory-[a-f0-9]{64}$/), 'org-a', 'agent', 'employee-1', null, null,
       'preference', '回复保持正式书面语。', expect.stringMatching(/^[a-f0-9]{64}$/), '[]', 'user-1',
       1_700_000_000_000,
     ])
+  })
+
+  it('tags a private memory write with the requested project without changing untagged digests', async () => {
+    class ProjectTaggedDatabase extends MemoryDatabase {
+      override async query<Row extends Record<string, unknown> = Record<string, unknown>>(
+        text: string, values: readonly unknown[] = [],
+      ): Promise<PostgresQueryResult<Row>> {
+        if (text.includes('RETURNING *') && values.includes('project-alpha')) {
+          this.queries.push({ text, values })
+          return {
+            rows: [{ ...privateMemoryRow, id: values[0], project_id: 'project-alpha' }] as Row[],
+            rowCount: 1,
+          }
+        }
+        return super.query(text, values)
+      }
+    }
+    const database = new ProjectTaggedDatabase()
+    const repository = new PgEnterpriseIdentityRepository(database)
+
+    const untagged = await repository.writePrivateMemory({
+      orgId: 'org-a', scope: 'agent', kind: 'preference', summary: '回复保持正式书面语。',
+      createdBy: 'user-1', agentEmployeeId: 'employee-1',
+    })
+    const tagged = await repository.writePrivateMemory({
+      orgId: 'org-a', scope: 'agent', kind: 'preference', summary: '回复保持正式书面语。',
+      createdBy: 'user-1', agentEmployeeId: 'employee-1', projectId: 'project-alpha',
+    })
+
+    expect(untagged.projectId).toBeUndefined()
+    expect(tagged).toMatchObject({ projectId: 'project-alpha' })
+    expect(tagged.id).not.toBe(untagged.id)
+    const insert = database.queries.filter(query => query.text.includes('INSERT INTO enterprise_memories')).at(-1)
+    expect(insert?.text).toContain('project_id')
+    expect(insert?.values[5]).toBe('project-alpha')
   })
 
   it('returns the stored private memory without a second insert for a repeated source', async () => {
@@ -236,6 +296,21 @@ describe('PgEnterpriseIdentityRepository private memory', () => {
     expect(database.queries).toEqual([])
   })
 
+  it('rejects project memory whose scope and project pairing fails before any query', async () => {
+    const database = new RecordingDatabase()
+    const repository = new PgEnterpriseIdentityRepository(database)
+
+    await expect(repository.proposeMemory({
+      id: 'memory-project', orgId: 'org-a', scope: 'project', kind: 'process', summary: '缺少项目。',
+      sourceDigest: 'e'.repeat(64), createdBy: 'user-1',
+    })).rejects.toThrow(/scope and project/)
+    await expect(repository.proposeMemory({
+      id: 'memory-org-tagged', orgId: 'org-a', scope: 'organization', projectId: 'project-alpha',
+      kind: 'business-fact', summary: '组织记忆带项目。', sourceDigest: '2'.repeat(64), createdBy: 'user-1',
+    })).rejects.toThrow(/scope and project/)
+    expect(database.queries).toEqual([])
+  })
+
   it('narrows private-memory listings with scope and owner predicates', async () => {
     const database = new RecordingDatabase()
     const repository = new PgEnterpriseIdentityRepository(database)
@@ -261,6 +336,37 @@ describe('PgEnterpriseIdentityRepository private memory', () => {
     expect(explicit?.text).not.toContain("scope_type = 'agent'")
     expect(explicit?.text).toContain('pair_user_id = $3')
     expect(explicit?.values).toEqual(['org-a', ['organization'], 'user-1', [
+      'proposed', 'approved', 'rejected', 'retired',
+    ]])
+  })
+
+  it('narrows project memory listings with the project compartment and ownership predicates', async () => {
+    const database = new RecordingDatabase()
+    const repository = new PgEnterpriseIdentityRepository(database)
+
+    await repository.listMemories({ orgId: 'org-a', projectId: 'project-alpha' })
+    await repository.listMemories({ orgId: 'org-a', scopes: ['project'], projectId: 'project-alpha' })
+    await repository.listMemories({ orgId: 'org-a', scopes: ['organization'], projectId: 'project-alpha' })
+
+    const [implied, scoped, restricted] = database.queries
+    // Without explicit scopes the project compartment joins the legacy visibility and the
+    // ownership predicate narrows the rows to that project.
+    expect(implied?.text).toContain("(scope_type = 'organization' OR scope_type = 'project')")
+    expect(implied?.text).toContain('project_id = $2')
+    expect(implied?.values).toEqual(['org-a', 'project-alpha', [
+      'proposed', 'approved', 'rejected', 'retired',
+    ]])
+    // A listed project scope keeps the compartment and the ownership predicate.
+    expect(scoped?.text).toContain('scope_type = ANY($2::text[])')
+    expect(scoped?.text).toContain('project_id = $3')
+    expect(scoped?.values).toEqual(['org-a', ['project'], 'project-alpha', [
+      'proposed', 'approved', 'rejected', 'retired',
+    ]])
+    // Explicit non-project scopes stay fully restricted; only the ownership predicate survives.
+    expect(restricted?.text).toContain('scope_type = ANY($2::text[])')
+    expect(restricted?.text).not.toContain("scope_type = 'project'")
+    expect(restricted?.text).toContain('project_id = $3')
+    expect(restricted?.values).toEqual(['org-a', ['organization'], 'project-alpha', [
       'proposed', 'approved', 'rejected', 'retired',
     ]])
   })
@@ -356,6 +462,10 @@ describe('migrateSqliteEnterpriseIdentityToPostgres', () => {
       createdBy: 'user-1', agentEmployeeId: 'employee-1',
     })
     source.touchMemoryAccess(agent.id, 1_700_000_000_500)
+    source.proposeMemory({
+      id: 'memory-project', orgId: 'org-a', scope: 'project', projectId: 'project-alpha', kind: 'process',
+      summary: '项目按周同步进度。', sourceDigest: 'e'.repeat(64), createdBy: 'user-1',
+    })
     // No repository API raises importance yet, so seed non-default values through raw SQL: a
     // dropped importance column must not hide behind the 0 default.
     const raw = new DatabaseSync(sqlitePath)
@@ -382,7 +492,7 @@ describe('migrateSqliteEnterpriseIdentityToPostgres', () => {
     expect(report.source.organizations.count).toBe(1)
     expect(report.source.users.count).toBe(1)
     expect(report.source.authSessions.count).toBe(1)
-    expect(report.source.memories.count).toBe(2)
+    expect(report.source.memories.count).toBe(3)
     expect(report.source.authSessions.checksum).toMatch(/^[a-f0-9]{64}$/)
     expect(target.queries).toEqual([])
   })
@@ -412,18 +522,27 @@ describe('migrateSqliteEnterpriseIdentityToPostgres', () => {
                   : text.includes('FROM enterprise_memories ORDER BY id') ? [
                     {
                       id: 'memory-org', org_id: 'org-a', scope_type: 'organization', department_id: null,
-                      agent_employee_id: null, pair_user_id: null, kind: 'business-fact', status: 'approved',
-                      summary: '公司使用统一合同编号。', source_digest: 'f'.repeat(64), privacy_findings: [],
-                      importance: 1.25, last_access_at: '1700000000400', created_by: 'user-1',
+                      agent_employee_id: null, pair_user_id: null, project_id: null, kind: 'business-fact',
+                      status: 'approved', summary: '公司使用统一合同编号。', source_digest: 'f'.repeat(64),
+                      privacy_findings: [], importance: 1.25, last_access_at: '1700000000400', created_by: 'user-1',
                       reviewed_by: 'user-1', review_reason: '已核对', revision: '2',
                       created_at: '1700000000000', updated_at: '1700000000000',
                     },
                     {
+                      id: 'memory-project', org_id: 'org-a', scope_type: 'project', department_id: null,
+                      agent_employee_id: null, pair_user_id: null, project_id: 'project-alpha', kind: 'process',
+                      status: 'proposed', summary: '项目按周同步进度。', source_digest: 'e'.repeat(64),
+                      privacy_findings: [], importance: 0, last_access_at: null, created_by: 'user-1',
+                      reviewed_by: null, review_reason: null, revision: '1',
+                      created_at: '1700000000000', updated_at: '1700000000000',
+                    },
+                    {
                       id: agentMemory.id, org_id: 'org-a', scope_type: 'agent', department_id: null,
-                      agent_employee_id: 'employee-1', pair_user_id: null, kind: 'preference', status: 'approved',
-                      summary: '回复保持正式书面语。', source_digest: agentMemory.sourceDigest, privacy_findings: [],
-                      importance: 3.5, last_access_at: '1700000000500', created_by: 'user-1', reviewed_by: null,
-                      review_reason: null, revision: '1', created_at: '1700000000000', updated_at: '1700000000000',
+                      agent_employee_id: 'employee-1', pair_user_id: null, project_id: null, kind: 'preference',
+                      status: 'approved', summary: '回复保持正式书面语。', source_digest: agentMemory.sourceDigest,
+                      privacy_findings: [], importance: 3.5, last_access_at: '1700000000500', created_by: 'user-1',
+                      reviewed_by: null, review_reason: null, revision: '1',
+                      created_at: '1700000000000', updated_at: '1700000000000',
                     },
                   ]
                     : undefined
@@ -439,7 +558,7 @@ describe('migrateSqliteEnterpriseIdentityToPostgres', () => {
 
     expect(report.dryRun).toBe(false)
     expect(report.destination).toEqual(report.source)
-    expect(report.source.memories.count).toBe(2)
+    expect(report.source.memories.count).toBe(3)
     expect(target.queries.map(query => query.text)).toContain('BEGIN')
     expect(target.queries.map(query => query.text)).toContain('COMMIT')
     const sessionWrite = target.queries.find(query => query.text.includes('INSERT INTO auth_sessions'))
@@ -447,16 +566,21 @@ describe('migrateSqliteEnterpriseIdentityToPostgres', () => {
     expect(JSON.stringify(sessionWrite)).not.toContain('never-store-this-token')
     expect(sessionWrite?.values[0]).toMatch(/^[a-f0-9]{64}$/)
     const memoryWrites = target.queries.filter(query => query.text.includes('INSERT INTO enterprise_memories'))
-    expect(memoryWrites).toHaveLength(2)
-    expect(memoryWrites[0]?.text).toContain('agent_employee_id, pair_user_id,')
+    expect(memoryWrites).toHaveLength(3)
+    expect(memoryWrites[0]?.text).toContain('agent_employee_id, pair_user_id, project_id,')
     expect(memoryWrites[0]?.text).toContain('last_access_at, created_by')
     expect(memoryWrites[0]?.values).toEqual([
-      'memory-org', 'org-a', 'organization', null, null, null, 'business-fact', 'approved',
+      'memory-org', 'org-a', 'organization', null, null, null, null, 'business-fact', 'approved',
       '公司使用统一合同编号。', 'f'.repeat(64), '[]', 1.25, 1700000000400, 'user-1', 'user-1', '已核对',
       2, 1700000000000, 1700000000000,
     ])
     expect(memoryWrites[1]?.values).toEqual([
-      agentMemory.id, 'org-a', 'agent', null, 'employee-1', null, 'preference', 'approved',
+      'memory-project', 'org-a', 'project', null, null, null, 'project-alpha', 'process', 'proposed',
+      '项目按周同步进度。', 'e'.repeat(64), '[]', 0, null, 'user-1', null, null,
+      1, 1700000000000, 1700000000000,
+    ])
+    expect(memoryWrites[2]?.values).toEqual([
+      agentMemory.id, 'org-a', 'agent', null, 'employee-1', null, null, 'preference', 'approved',
       '回复保持正式书面语。', agentMemory.sourceDigest, '[]', 3.5, 1700000000500, 'user-1', null, null,
       1, 1700000000000, 1700000000000,
     ])

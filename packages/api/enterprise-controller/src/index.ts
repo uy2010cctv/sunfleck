@@ -190,6 +190,7 @@ import type {
 } from './contract/devices.ts'
 import { DeviceAgentHttpHandler } from './device-agent-http.ts'
 import { EmployeeHttpHandler } from './employee-http.ts'
+import { ProjectHttpHandler, SurfaceHttpHandler } from './surfaces-http.ts'
 
 export type * from './contract/index.ts'
 
@@ -2348,6 +2349,28 @@ async function writeResponse(res: ServerResponse, response: Response): Promise<v
   res.end()
 }
 
+/** One composed HTTP plane resolution: the service value, or the fail-loud response to answer with. */
+type ResolvedPlane<T> =
+  | { readonly service: T; readonly unavailable?: undefined }
+  | { readonly service?: undefined; readonly unavailable: Response }
+
+/** Resolve one lazily composed service; an absent plane yields the fail-loud 503 response. */
+function resolvePlane<T>(service: T | undefined, error: string): ResolvedPlane<T> {
+  return service === undefined
+    ? { unavailable: Response.json({ error }, { status: 503 }) }
+    : { service }
+}
+
+/** Route one parsed HTTP request through its handler, folding transport failures to 400. */
+async function serveRoute(
+  res: ServerResponse,
+  request: Request,
+  route: (request: Request) => Promise<Response>,
+): Promise<void> {
+  try { await writeResponse(res, await route(request)) }
+  catch { await writeResponse(res, Response.json({ error: 'invalid-request' }, { status: 400 })) }
+}
+
 /** Install all enterprise Remote namespace owners.
  * @param ctx - Input value used by this API.
 */
@@ -2379,6 +2402,37 @@ export function apply(ctx: Context): void {
       catch { await writeResponse(res, Response.json({ error: 'invalid-request' }, { status: 400 })) }
     },
   }), 'enterprise-employee: authenticated employee dm routes')
+  // The composed surface plugin provides `surfaces` (surfaces-http `inject`); without
+  // it the collaboration plane is absent and every route fails loud with a 503.
+  ctx.effect(() => ctx.webServer.register({
+    kind: 'prefix', path: '/enterprise/surfaces',
+    handler: async (req, res) => {
+      const plane = resolvePlane(ctx.get('surfaces'), 'surface-plane-unavailable')
+      if (plane.service === undefined) { await writeResponse(res, plane.unavailable); return }
+      await serveRoute(res, await enterpriseRequest(req), request =>
+        new SurfaceHttpHandler(plane.service, ctx.enterpriseSecurity).fetch(request))
+    },
+  }), 'enterprise-surface: authenticated collaboration surface routes')
+  ctx.effect(() => ctx.webServer.register({
+    kind: 'prefix', path: '/enterprise/channels',
+    handler: async (req, res) => {
+      const plane = resolvePlane(ctx.get('surfaces'), 'surface-plane-unavailable')
+      if (plane.service === undefined) { await writeResponse(res, plane.unavailable); return }
+      await serveRoute(res, await enterpriseRequest(req), request =>
+        new SurfaceHttpHandler(plane.service, ctx.enterpriseSecurity).fetchInbound(request))
+    },
+  }), 'enterprise-channel: token-authenticated channel inbound route')
+  // The composed project plugin provides `enterpriseProjects`; without it the
+  // project plane is absent and every route fails loud with a 503.
+  ctx.effect(() => ctx.webServer.register({
+    kind: 'prefix', path: '/enterprise/projects',
+    handler: async (req, res) => {
+      const plane = resolvePlane(ctx.get('enterpriseProjects'), 'project-plane-unavailable')
+      if (plane.service === undefined) { await writeResponse(res, plane.unavailable); return }
+      await serveRoute(res, await enterpriseRequest(req), request =>
+        new ProjectHttpHandler(plane.service, ctx.enterpriseSecurity).fetch(request))
+    },
+  }), 'enterprise-project: authenticated project routes')
   new EnterpriseDeviceController(ctx)
   new EnterpriseEmployeeController(ctx)
   new EnterpriseAssetController(ctx)

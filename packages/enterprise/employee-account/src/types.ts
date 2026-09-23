@@ -49,14 +49,22 @@ export interface EmployeeInboxItem {
   readonly state: InboxRow['state']
 }
 
-/** Actor triple a private-memory compartment write needs, resolved from one anchored session. */
+/** Actor one anchored session resolves for memory-compartment work. Dm sessions carry the full
+ * (user, employee) pair that owns the private compartments; group member sessions carry only
+ * their employee; channel topic sessions carry no principal identity. `projectId` is present
+ * when the anchoring surface is bound to a project, and consumers gate project-scoped work on
+ * their own membership check. */
 export interface SessionMemoryActor {
-  /** Organization the surface and its employee belong to. */
+  /** Organization the surface belongs to. */
   readonly orgId: string
-  /** User on the surface's (user, employee) pair; owns the `pair` compartment. */
-  readonly userId: string
-  /** Employee account serving the session; owns the `agent` compartment. */
-  readonly employeeId: string
+  /** User on the surface's (user, employee) pair; owns the `pair` compartment. Absent for group
+   * and channel anchors, which bind no dm pair. */
+  readonly userId?: string
+  /** Employee account serving the session; owns the `agent` compartment. Absent for channel
+   * topic sessions, whose anchoring stores no employee. */
+  readonly employeeId?: string
+  /** Project the anchoring surface is bound to, when any. */
+  readonly projectId?: string
 }
 
 /** Inputs for creating one employee account. */
@@ -152,11 +160,13 @@ export interface EmployeeAccounts {
    */
   findByHomeWorkspacePath(homeWorkspacePath: string): EmployeeAccount | undefined
   /**
-   * Resolve the private-memory actor triple for one anchored dm session so
-   * private compartments can be written at process time without a schema
-   * change to outbox rows.
-   * @param sessionId - session id attached to the surface with `attachSurfaceSession`.
-   * @returns the session's org, user, and employee, or undefined when no surface anchors the session.
+   * Resolve the memory actor for one anchored session so compartment work can resolve at
+   * process time without a schema change to outbox rows. Dm sessions resolve the full pair;
+   * group member sessions resolve their employee and the surface's project; channel topic
+   * sessions resolve only the surface's project.
+   * @param sessionId - session id attached through `attachSurfaceSession`,
+   *   `attachGroupSurfaceSession`, or `attachTopicSession`.
+   * @returns the session's memory actor, or undefined when no surface anchors the session.
    */
   resolveSessionActor(sessionId: string): SessionMemoryActor | undefined
 }

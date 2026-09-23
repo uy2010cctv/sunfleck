@@ -3,7 +3,7 @@
 import type { PostgresDatabase } from './types.ts'
 
 /** Value exported as `ENTERPRISE_IDENTITY_POSTGRES_SCHEMA_VERSION`. */
-export const ENTERPRISE_IDENTITY_POSTGRES_SCHEMA_VERSION = 6
+export const ENTERPRISE_IDENTITY_POSTGRES_SCHEMA_VERSION = 7
 
 /** Scope-to-owner pairing CHECK shared by the create-path and widen-path `enterprise_memories` DDL. */
 const ENTERPRISE_MEMORIES_PAIRING_CHECK = `(
@@ -22,9 +22,11 @@ const ENTERPRISE_MEMORIES_COLUMNS = `
     department_id TEXT REFERENCES departments(id) ON DELETE CASCADE,
     -- agent_employee_id and pair_user_id carry no FOREIGN KEY: employee accounts live only in the
     -- SQLite identity store, so the PostgreSQL mirror cannot reference them; the service layer owns
-    -- their referential checks.
+    -- their referential checks. project_id stays FOREIGN-KEY-free for the same reason: project
+    -- entities live in the enterprise-project store.
     agent_employee_id TEXT,
     pair_user_id TEXT,
+    project_id TEXT,
     kind TEXT NOT NULL CHECK (kind IN ('business-fact', 'process', 'terminology', 'decision', 'preference')),
     status TEXT NOT NULL CHECK (status IN ('proposed', 'approved', 'rejected', 'retired')),
     summary TEXT NOT NULL,
@@ -167,6 +169,7 @@ const STATEMENTS = [
 async function widenEnterpriseMemories(database: PostgresDatabase): Promise<void> {
   await database.query('ALTER TABLE enterprise_memories ADD COLUMN IF NOT EXISTS agent_employee_id TEXT')
   await database.query('ALTER TABLE enterprise_memories ADD COLUMN IF NOT EXISTS pair_user_id TEXT')
+  await database.query('ALTER TABLE enterprise_memories ADD COLUMN IF NOT EXISTS project_id TEXT')
   await database.query('ALTER TABLE enterprise_memories ADD COLUMN IF NOT EXISTS importance DOUBLE PRECISION NOT NULL DEFAULT 0')
   await database.query('ALTER TABLE enterprise_memories ADD COLUMN IF NOT EXISTS last_access_at BIGINT')
   await database.query(`DO $$
@@ -231,6 +234,13 @@ export async function migrateEnterpriseIdentityPostgres(database: PostgresDataba
       FROM enterprise_workspace_grants workspace
       WHERE workspace.workspace_id = binding.workspace_id AND binding.owner_user_id IS NULL`)
     await widenEnterpriseMemories(database)
+    await database.query("UPDATE enterprise_meta SET value = $1 WHERE key = 'schema-version'", [String(ENTERPRISE_IDENTITY_POSTGRES_SCHEMA_VERSION)])
+    return
+  }
+  // Version 6 shipped the P1 private memory compartments; project_id is purely additive, so a
+  // single ADD COLUMN completes the upgrade without touching committed rows.
+  if (Number(version) === 6) {
+    await database.query('ALTER TABLE enterprise_memories ADD COLUMN IF NOT EXISTS project_id TEXT')
     await database.query("UPDATE enterprise_meta SET value = $1 WHERE key = 'schema-version'", [String(ENTERPRISE_IDENTITY_POSTGRES_SCHEMA_VERSION)])
     return
   }

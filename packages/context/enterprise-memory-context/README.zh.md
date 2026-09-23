@@ -20,7 +20,7 @@ Reviewed organization and department memory context for DSH Enterprise。
 <a id="package-details"></a>
 ## 包详情
 
-面向企业 Profile 的已审核组织/部门记忆上下文。插件通过企业工作区授权解析 Session cwd，只注入已批准的摘要；不会加载原始对话正文、待审核/已驳回条目或工作区隔离范围外的记忆。
+面向企业 Profile 的已审核企业记忆上下文。插件通过企业工作区授权解析 Session cwd，注入共享组织/部门隔间、锚定会话私有的 agent 与 pair 隔间，以及项目服务确认会话行为人成员资格后的项目隔间的已批准摘要；不会加载原始对话正文、待审核/已驳回条目或这些隔间之外的记忆。
 
 启用自动业务记忆采集时，写入者依次取已认证请求主体和持久化的企业 Session 所有者。未绑定的后台运行必须配置已存在、且以 `service:` 开头的 `backgroundServiceUserId`；绝不会回退为 bootstrap 管理员。已确认的常规知识直接启用，不确定或冲突内容保持待确认。个人工作区偏好不会被提升为共享记忆。
 
@@ -32,7 +32,7 @@ Reviewed organization and department memory context for DSH Enterprise。
 
 #### What the model sees
 
-只呈现符合当前 Workspace 授权的已批准组织或部门摘要。每项注入内容带稳定 `memoryId` 和范围；个人偏好与原始对话内容被排除。
+只呈现会话授权解析出的隔间（组织、部门、自己的 agent 与 pair、按成员准入的项目）中已批准的摘要。每项注入内容带稳定 `memoryId` 和范围；个人偏好与原始对话内容被排除。
 
 #### Token effect
 

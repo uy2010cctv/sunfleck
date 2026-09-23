@@ -20,7 +20,7 @@ PostgreSQL persistence and safe SQLite migration for DSH enterprise identity.
 <a id="package-details"></a>
 ## Package Details
 
-PostgreSQL persistence for DSH enterprise organizations, users, roles, external identities, hashed sessions, department trees, Workspace grants, Session bindings, reviewed memory plus private agent and pair compartments written without review, resource policies, managed assets, and attributable audit records. Its SQLite migration command preserves IDs and imports all control-plane rows in one transaction.
+PostgreSQL persistence for DSH enterprise organizations, users, roles, external identities, hashed sessions, department trees, Workspace grants, Session bindings, reviewed memory plus private agent and pair compartments written without review and project compartments tagged by project id, resource policies, managed assets, and attributable audit records. Its SQLite migration command preserves IDs and imports all control-plane rows in one transaction.
 
 ## Migration
 

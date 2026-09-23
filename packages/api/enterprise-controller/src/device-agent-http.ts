@@ -1,4 +1,5 @@
-import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto'
+import { createHash, createHmac, randomBytes } from 'node:crypto'
+import { timingSafeTokenMatches } from './http.ts'
 import { verifyDeviceSignature } from '@deepseek-ai/dsh-enterprise-device-plane'
 import type {
   Device, OperationPermit, QueuedDeviceAction, RecorderDevice, RecorderPairingChallenge,
@@ -32,13 +33,6 @@ interface RecorderBindingOptions {
   readonly recorderBindingToken: string | undefined
   readonly serialHmacKey: string | undefined
   readonly credentialHmacKey: string | undefined
-}
-
-function exactSecret(supplied: string | null, expected: string | undefined): boolean {
-  if (supplied === null || expected === undefined || expected === '') return false
-  const left = Buffer.from(supplied)
-  const right = Buffer.from(expected)
-  return left.length === right.length && timingSafeEqual(left, right)
 }
 
 /** Signed HTTP boundary used only by paired local Device Agents. */
@@ -123,7 +117,7 @@ export class DeviceAgentHttpHandler {
   }
 
   private async bindRecorder(request: Request, body: string): Promise<Response> {
-    if (!exactSecret(request.headers.get('x-dsh-recorder-binding-token'), this.recorder.recorderBindingToken)) {
+    if (!timingSafeTokenMatches(request.headers.get('x-dsh-recorder-binding-token'), this.recorder.recorderBindingToken)) {
       return error(401, 'recorder-binding-authentication-failed')
     }
     if (!this.recorder.serialHmacKey || !this.recorder.credentialHmacKey

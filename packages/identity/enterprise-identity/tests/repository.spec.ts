@@ -352,6 +352,62 @@ describe('EnterpriseIdentityRepository', () => {
     expect(repository.listMemories({ orgId: 'org-a' })).toEqual([expect.objectContaining({ id: 'memory-org' })])
   })
 
+  it('keeps project memory in its own compartment behind the projectId filter', () => {
+    repository.proposeMemory({
+      id: 'memory-project-alpha', orgId: 'org-a', scope: 'project', projectId: 'project-alpha', kind: 'process',
+      summary: '项目甲按周同步进度。', sourceDigest: 'd'.repeat(64), createdBy: 'user-1',
+    })
+    repository.proposeMemory({
+      id: 'memory-project-beta', orgId: 'org-a', scope: 'project', projectId: 'project-beta', kind: 'process',
+      summary: '项目乙按日站会同步。', sourceDigest: 'e'.repeat(64), createdBy: 'user-1',
+    })
+    repository.proposeMemory({
+      id: 'memory-org', orgId: 'org-a', scope: 'organization', kind: 'business-fact',
+      summary: '公司使用统一合同编号。', sourceDigest: 'f'.repeat(64), createdBy: 'user-1',
+    })
+
+    // The scope and project pairing fails loud in both directions.
+    expect(() => repository.proposeMemory({
+      id: 'memory-project-none', orgId: 'org-a', scope: 'project', kind: 'process',
+      summary: '缺少项目。', sourceDigest: '1'.repeat(64), createdBy: 'user-1',
+    })).toThrow(/scope and project/)
+    expect(() => repository.proposeMemory({
+      id: 'memory-org-tagged', orgId: 'org-a', scope: 'organization', projectId: 'project-alpha', kind: 'business-fact',
+      summary: '组织记忆带项目。', sourceDigest: '2'.repeat(64), createdBy: 'user-1',
+    })).toThrow(/scope and project/)
+
+    // The projectId filter adds only its own project compartment and never the legacy visibility.
+    expect(repository.listMemories({ orgId: 'org-a', projectId: 'project-alpha' }))
+      .toEqual([expect.objectContaining({ id: 'memory-project-alpha', projectId: 'project-alpha' })])
+    expect(repository.listMemories({ orgId: 'org-a', projectId: 'project-beta' }).map(memory => memory.id))
+      .toEqual(['memory-project-beta'])
+    // With explicit scopes the compartment list stays restricted; a listed project scope composes
+    // with the ownership predicate, other scopes match nothing.
+    expect(repository.listMemories({ orgId: 'org-a', scopes: ['project'], projectId: 'project-alpha' })
+      .map(memory => memory.id)).toEqual(['memory-project-alpha'])
+    expect(repository.listMemories({ orgId: 'org-a', scopes: ['organization'], projectId: 'project-alpha' }))
+      .toEqual([])
+    // Legacy visibility without the filter still excludes the project compartment.
+    expect(repository.listMemories({ orgId: 'org-a' }).map(memory => memory.id)).toEqual(['memory-org'])
+  })
+
+  it('gives tagged private memory writes their own compartment row per project', () => {
+    const input = {
+      orgId: 'org-a', scope: 'agent' as const, kind: 'preference' as const, summary: '回复保持正式书面语。',
+      createdBy: 'user-1', agentEmployeeId: 'employee-1',
+    }
+    const untagged = repository.writePrivateMemory(input)
+    const tagged = repository.writePrivateMemory({ ...input, projectId: 'project-alpha' })
+
+    expect(untagged.projectId).toBeUndefined()
+    expect(tagged).toMatchObject({ projectId: 'project-alpha', scope: 'agent', status: 'approved' })
+    // The project tag participates in the write identity, so each tag lands in its own row.
+    expect(tagged.id).not.toBe(untagged.id)
+    expect(repository.listMemories({ orgId: 'org-a', scopes: ['agent'] })).toHaveLength(2)
+    // Repeating the tagged write converges on its committed row.
+    expect(repository.writePrivateMemory({ ...input, projectId: 'project-alpha' })).toEqual(tagged)
+  })
+
   it('records the last access time on a memory and fails loud for unknown ids', () => {
     const memory = repository.writePrivateMemory({
       orgId: 'org-a', scope: 'agent', kind: 'preference', summary: '回复保持正式书面语。',

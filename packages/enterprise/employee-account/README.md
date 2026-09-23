@@ -39,7 +39,7 @@ The only config field is a live `DatabaseSync` handle, which a cordis.yml row ca
 |---|---|---|
 | `database` | required | Migrated enterprise identity database the service reads and writes |
 
-`create` rejects an empty `displayName` or `roleCard` and a relative `homeWorkspacePath` with `TypeError` before any SQL runs; `setState` refuses any change to an archived account and names the current state in the error; `claim` passes `limit` through to the store unchanged; `resolveSessionActor` returns the org, surface user, and employee of the surface anchored to one session, or undefined when no surface anchors it.
+`create` rejects an empty `displayName` or `roleCard` and a relative `homeWorkspacePath` with `TypeError` before any SQL runs; `setState` refuses any change to an archived account and names the current state in the error; `claim` passes `limit` through to the store unchanged; `resolveSessionActor` returns the memory actor of the surface anchored to one session: the dm (user, employee) pair, a group session's employee plus the surface's `projectId`, or a channel topic session's `projectId` alone; undefined when no surface anchors the session.
 
 -----
 

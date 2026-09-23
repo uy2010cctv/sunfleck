@@ -38,6 +38,7 @@ adapter 当前只接受不含能力资产绑定的 Release。已配置的 `model
 - 启动、状态、取消、决策投影与 Human 回答使用稳定 operation id 和单调 runtime revision。
 - 取消先记录权威事件，再中断 live root 与 child；持久状态继续可供回放。
 - 对账折叠已存储根 Session，不要求 Agent 仍在线。
+- 来自 Surface 的输入经 `submitRunInput` 进入，向运行根追加一条 `team-run-message` 用户消息；run 不存在时响亮失败。
 
 -----
 
@@ -57,11 +58,11 @@ adapter 当前只接受不含能力资产绑定的 Release。已配置的 `model
 
 #### 模型看到什么
 
-Team Lead 与 Agent teammate 获得既有 `ctx.agentTeams` policy 与工具。Release persona 和 TeamRun 目标对模型可见。Human roster 与决策记录只进入 Team 事件投影；Human 回答还会作为用户消息送达 Lead，使运行继续。
+Team Lead 与 Agent teammate 获得既有 `ctx.agentTeams` policy 与工具。Release persona 和 TeamRun 目标对模型可见。Human roster 与决策记录只进入 Team 事件投影；Human 回答还会作为用户消息送达 Lead，使运行继续；Surface 提交的 run 输入同样如此。
 
 #### Token 影响
 
-固定的 persona 与 TeamRun 目标会进入每个 Agent 的初始上下文。Human 回答为 Lead 增加一条用户消息；roster 和决策投影事件不增加模型 token。
+固定的 persona 与 TeamRun 目标会进入每个 Agent 的初始上下文。Human 回答或 Surface 提交的输入为 Lead 增加一条用户消息；roster 和决策投影事件不增加模型 token。
 
 #### KV Cache 影响
 

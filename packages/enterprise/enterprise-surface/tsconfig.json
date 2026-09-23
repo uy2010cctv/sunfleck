@@ -33,6 +33,9 @@
       "path": "../../llm/llm"
     },
     {
+      "path": "../../operations/enterprise-operations"
+    },
+    {
       "path": "../../preset/agent-presets"
     },
     {

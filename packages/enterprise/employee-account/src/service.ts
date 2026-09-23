@@ -17,6 +17,7 @@ import {
   employeeByHomeWorkspacePath,
   enqueueInbox,
   getEmployee,
+  groupSessionBinding,
   listEmployees,
   resolveSticky,
   surfaceBySession,
@@ -154,11 +155,23 @@ export class EmployeeAccountService implements EmployeeAccounts {
     return claimInbox(this.database, employeeId, limit, Date.now()).map(inboxItemFromRow)
   }
 
-  /** The surface row was written only through `ensureSurface`, which validated the pair, so the
-   * row's own columns are the resolution; no account re-read is needed. */
+  /**
+   * The surface rows are written only through the ensure calls, which validated the references,
+   * so the rows' own columns are the resolution; no account re-read is needed. Dm rows carry the
+   * full pair, the group binding supplies the member employee, and channel topic sessions bind
+   * no employee.
+   */
   resolveSessionActor(sessionId: string): SessionMemoryActor | undefined {
     const surface = surfaceBySession(this.database, sessionId)
     if (surface === undefined) return undefined
-    return { orgId: surface.orgId, userId: surface.userId, employeeId: surface.employeeId }
+    if (surface.kind === 'dm') {
+      return { orgId: surface.orgId, userId: surface.userId, employeeId: surface.employeeId }
+    }
+    const member = surface.kind === 'group' ? groupSessionBinding(this.database, sessionId) : undefined
+    return {
+      orgId: surface.orgId,
+      ...(member === undefined ? {} : { employeeId: member.employeeId }),
+      ...(surface.projectId === undefined ? {} : { projectId: surface.projectId }),
+    }
   }
 }

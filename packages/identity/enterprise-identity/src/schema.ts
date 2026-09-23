@@ -3,7 +3,7 @@
 import type { DatabaseSync } from 'node:sqlite'
 
 /** Value exported as `ENTERPRISE_IDENTITY_SCHEMA_VERSION`. */
-export const ENTERPRISE_IDENTITY_SCHEMA_VERSION = 7
+export const ENTERPRISE_IDENTITY_SCHEMA_VERSION = 8
 
 /** Column and CHECK definition shared by the create-path and rebuild-path `enterprise_memories` DDL. */
 const ENTERPRISE_MEMORIES_COLUMNS = `
@@ -13,9 +13,11 @@ const ENTERPRISE_MEMORIES_COLUMNS = `
       department_id TEXT REFERENCES departments(id) ON DELETE CASCADE,
       -- agent_employee_id and pair_user_id carry no FOREIGN KEY: employee accounts live in this
       -- SQLite identity store only, so the PostgreSQL mirror cannot reference them; the service
-      -- layer owns their referential checks.
+      -- layer owns their referential checks. project_id stays FOREIGN-KEY-free for the same
+      -- reason: project entities live in the enterprise-project store.
       agent_employee_id TEXT,
       pair_user_id TEXT,
+      project_id TEXT,
       kind TEXT NOT NULL CHECK (kind IN ('business-fact', 'process', 'terminology', 'decision', 'preference')),
       status TEXT NOT NULL CHECK (status IN ('proposed', 'approved', 'rejected', 'retired')),
       summary TEXT NOT NULL,
@@ -36,6 +38,29 @@ const ENTERPRISE_MEMORIES_COLUMNS = `
         OR (scope_type = 'agent' AND agent_employee_id IS NOT NULL AND department_id IS NULL AND pair_user_id IS NULL)
         OR (scope_type = 'pair' AND pair_user_id IS NOT NULL AND department_id IS NULL AND agent_employee_id IS NULL)
       )`
+
+/** Column and CHECK definition shared by the create-path and rebuild-path `surfaces` DDL. */
+const SURFACES_COLUMNS = `
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      kind TEXT NOT NULL CHECK (kind IN ('dm', 'group', 'channel')),
+      -- Group and channel rows anchor a team or project instead of a user-employee pair; the
+      -- pairing CHECK keeps the dm columns populated exactly for dm rows and NULL otherwise, so
+      -- the dm UNIQUE(user_id, employee_id) pair key never constrains team rows.
+      user_id TEXT REFERENCES users(id) ON DELETE CASCADE,
+      employee_id TEXT REFERENCES employee_accounts(id) ON DELETE CASCADE,
+      session_id TEXT,
+      created_at INTEGER NOT NULL,
+      team_definition_id TEXT,
+      project_id TEXT,
+      external_key TEXT,
+      name TEXT,
+      topic_policy TEXT CHECK (topic_policy IN ('thread', 'command', 'lane')),
+      respond_policy TEXT CHECK (respond_policy IN ('mention_duty', 'ingest_only')),
+      duty_employee_ids TEXT,
+      UNIQUE(user_id, employee_id),
+      CHECK ((kind = 'dm' AND user_id IS NOT NULL AND employee_id IS NOT NULL)
+        OR (kind != 'dm' AND user_id IS NULL AND employee_id IS NULL))`
 
 /** Create or validate the enterprise identity schema.
  * @param database - Input value used by this API.
@@ -171,15 +196,30 @@ export function migrateEnterpriseIdentity(database: DatabaseSync): void {
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
     ) STRICT;
-    CREATE TABLE IF NOT EXISTS surfaces (
-      id TEXT PRIMARY KEY,
-      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
-      kind TEXT NOT NULL CHECK (kind IN ('dm')),
-      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-      employee_id TEXT NOT NULL REFERENCES employee_accounts(id) ON DELETE CASCADE,
+    CREATE TABLE IF NOT EXISTS surfaces (${SURFACES_COLUMNS}
+    ) STRICT;
+    CREATE TABLE IF NOT EXISTS surface_members (
+      surface_id TEXT NOT NULL REFERENCES surfaces(id) ON DELETE CASCADE,
+      principal_type TEXT NOT NULL CHECK (principal_type IN ('user', 'employee')),
+      principal_id TEXT NOT NULL,
+      role_id TEXT,
+      PRIMARY KEY(surface_id, principal_type, principal_id)
+    ) STRICT;
+    CREATE TABLE IF NOT EXISTS surface_sessions (
+      surface_id TEXT NOT NULL REFERENCES surfaces(id) ON DELETE CASCADE,
+      employee_id TEXT NOT NULL,
+      session_id TEXT NOT NULL,
+      PRIMARY KEY(surface_id, employee_id)
+    ) STRICT;
+    CREATE TABLE IF NOT EXISTS channel_topics (
+      topic_id TEXT PRIMARY KEY,
+      surface_id TEXT NOT NULL REFERENCES surfaces(id) ON DELETE CASCADE,
+      title TEXT NOT NULL,
+      state TEXT NOT NULL CHECK (state IN ('open', 'settled', 'archived')),
       session_id TEXT,
+      created_by TEXT NOT NULL,
       created_at INTEGER NOT NULL,
-      UNIQUE(user_id, employee_id)
+      settled_at INTEGER
     ) STRICT;
     CREATE TABLE IF NOT EXISTS employee_inbox (
       id TEXT PRIMARY KEY,
@@ -232,11 +272,23 @@ export function migrateEnterpriseIdentity(database: DatabaseSync): void {
     rebuildEnterpriseMemories(database)
     database.prepare("UPDATE enterprise_meta SET value = ? WHERE key = 'schema-version'")
       .run(String(ENTERPRISE_IDENTITY_SCHEMA_VERSION))
+  // Version 7 shipped dm-only surfaces and the private memory compartments; every v8 change is
+  // additive, so the surfaces rebuild copies the committed rows into the widened table and the
+  // project compartment column is appended without touching stored values.
+  } else if (Number(version.value) === 7) {
+    rebuildSurfaces(database)
+    database.exec('ALTER TABLE enterprise_memories ADD COLUMN project_id TEXT')
+    database.prepare("UPDATE enterprise_meta SET value = ? WHERE key = 'schema-version'")
+      .run(String(ENTERPRISE_IDENTITY_SCHEMA_VERSION))
   } else if (Number(version.value) !== ENTERPRISE_IDENTITY_SCHEMA_VERSION) {
     throw new Error(
       `enterprise identity schema version ${version.value} is not supported; expected ${String(ENTERPRISE_IDENTITY_SCHEMA_VERSION)}`,
     )
   }
+  // The partial external-key index targets the surfaces columns the v7 rebuild adds, so it is
+  // created after the version gate where every path already has the current surfaces shape.
+  database.exec(`CREATE UNIQUE INDEX IF NOT EXISTS surfaces_external_key
+    ON surfaces(org_id, kind, external_key) WHERE external_key IS NOT NULL`)
 }
 
 /** Rebuild enterprise_memories in place to the current CHECK set and columns. SQLite cannot widen a
@@ -257,4 +309,24 @@ function rebuildEnterpriseMemories(database: DatabaseSync): void {
     CREATE INDEX IF NOT EXISTS enterprise_memories_scope_status
       ON enterprise_memories(org_id, scope_type, department_id, status, updated_at DESC, id);
   `)
+}
+
+/** Rebuild surfaces in place to the current columns and CHECK set. SQLite cannot widen a CHECK, so
+ * every row is copied into a fresh table and the old one dropped. employee_inbox references
+ * surfaces, so foreign keys are suspended for the rebuild; committed rows keep their ids, which
+ * keeps the inbox references valid once the rebuilt table takes the surfaces name back. */
+function rebuildSurfaces(database: DatabaseSync): void {
+  database.exec('PRAGMA foreign_keys = OFF')
+  try {
+    database.exec(`
+      CREATE TABLE surfaces_rebuild (${SURFACES_COLUMNS}
+      ) STRICT;
+      INSERT INTO surfaces_rebuild(id, org_id, kind, user_id, employee_id, session_id, created_at)
+        SELECT id, org_id, kind, user_id, employee_id, session_id, created_at FROM surfaces;
+      DROP TABLE surfaces;
+      ALTER TABLE surfaces_rebuild RENAME TO surfaces;
+    `)
+  } finally {
+    database.exec('PRAGMA foreign_keys = ON')
+  }
 }

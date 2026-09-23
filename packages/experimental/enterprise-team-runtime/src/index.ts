@@ -14,10 +14,11 @@ import {
   type EnterpriseTeamRuntimeMutation,
   type EnterpriseTeamRuntimeReconciliation,
   type EnterpriseTeamRuntimeStart,
+  type EnterpriseTeamRunSubmission,
 } from '@deepseek-ai/dsh-enterprise-operations'
 import type { TeamReleaseSnapshot } from '@deepseek-ai/dsh-experimental-agent-team'
 import { teamProjectionDefinition } from '@deepseek-ai/dsh-experimental-agent-team/src/projection.ts'
-import { createUserMessage } from '@deepseek-ai/dsh-llm'
+import { createUserMessage, type UserMessage } from '@deepseek-ai/dsh-llm'
 import { SessionId, type SessionEvent, type SessionHeader } from '@deepseek-ai/dsh-session'
 import { SessionPersistenceNotFoundError } from '@deepseek-ai/dsh-session-persistence'
 import type {} from '@deepseek-ai/dsh-subagent'
@@ -27,6 +28,23 @@ import { WorkspaceId } from '@deepseek-ai/dsh-workspace'
 declare module '@deepseek-ai/cordis' {
   interface Context {
     enterpriseTeamRuntimeDriver: EnterpriseTeamRuntimeDriver
+  }
+}
+
+/** Source of a user message injected into a chartered TeamRun from one conversation surface. */
+export interface TeamRunMessageSource {
+  readonly kind: 'team-run-message'
+  /** Run the input was submitted to. */
+  readonly runId: string
+  /** Conversation surface the message arrived on. */
+  readonly originSurfaceId: string
+  /** Enterprise user that originated the message. */
+  readonly actorUserId: string
+}
+
+declare module '@deepseek-ai/dsh-llm' {
+  interface MessageSourceMap {
+    'team-run-message': TeamRunMessageSource
   }
 }
 
@@ -340,6 +358,48 @@ export class EnterpriseTeamRuntimeAdapter implements EnterpriseTeamRuntimeDriver
       this.handles.delete(id)
     }
     if (failures.length > 0) throw new AggregateError(failures, 'enterprise Team runtime handle disposal failed')
+  }
+
+  async submitRunInput(
+    runId: string,
+    input: Parameters<EnterpriseTeamRuntimeDriver['submitRunInput']>[1],
+  ): Promise<EnterpriseTeamRunSubmission> {
+    const root = await this.ctx.enterpriseRequestContext.withoutPrincipal(() =>
+      this.resumeFromLog(deterministicRootSessionId(runId)))
+    const state = projectTeam(root.session.header, root.session.snapshotEvents())
+    /* v8 ignore next -- the root Session id derives from the run id, so a projected run under
+       another id means a foreign-written log no public path can produce. */
+    if (state.run === undefined || state.run.runId !== runId) this.fail('team-run-log-mismatch')
+    if (state.run.state !== 'active') {
+      throw new EnterpriseTeamRuntimeError(
+        'deterministic',
+        'team-run-not-active',
+        `run ${runId} is ${state.run.state} and cannot accept surface input`,
+      )
+    }
+    const matchesSubmission = (message: UserMessage): boolean =>
+      message.source.kind === 'team-run-message' && message.source.runId === runId
+    const submittedBefore = root.session.snapshotEvents()
+      .filter(event => event.type === 'user/message' && matchesSubmission(event.data)).length
+    this.ctx.enterpriseRequestContext.withoutPrincipal(() => {
+      root.followup(createUserMessage({
+        content: [{ type: 'text', text: input.text }],
+        source: {
+          kind: 'team-run-message',
+          runId,
+          originSurfaceId: input.originSurfaceId,
+          actorUserId: input.actorUserId,
+        },
+      }))
+    })
+    await this.ctx.sessions.flush(root.session)
+    const events = root.session.snapshotEvents()
+    const appended = events.filter(event => event.type === 'user/message' && matchesSubmission(event.data))
+    const landed = appended.at(-1)
+    if (appended.length === submittedBefore || landed === undefined) {
+      throw new EnterpriseTeamRuntimeError('unknown', 'team-run-input-not-landed', `run ${runId} did not record the submitted input in its root session log`)
+    }
+    return { runtimeRevision: state.run.runtimeRevision, sourceEventSeq: landed.seq }
   }
 
   private async resolveRosterReleases(

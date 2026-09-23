@@ -907,6 +907,9 @@ importers:
       '@deepseek-ai/dsh-enterprise-postgres':
         specifier: workspace:^
         version: link:../../enterprise/enterprise-postgres
+      '@deepseek-ai/dsh-enterprise-project':
+        specifier: workspace:^
+        version: link:../../enterprise/enterprise-project
       '@deepseek-ai/dsh-enterprise-surface':
         specifier: workspace:^
         version: link:../../enterprise/enterprise-surface
@@ -5955,6 +5958,21 @@ importers:
         specifier: ^8.15.5
         version: 8.23.1
 
+  packages/enterprise/enterprise-project:
+    devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: workspace:^
+        version: link:../../../vendor/cordis
+      '@deepseek-ai/dsh-brand':
+        specifier: workspace:^
+        version: link:../../util/brand
+      '@types/pg':
+        specifier: ^8.15.5
+        version: 8.23.1
+      pg:
+        specifier: ^8.16.3
+        version: 8.23.0
+
   packages/enterprise/enterprise-surface:
     dependencies:
       '@deepseek-ai/dsh-brand':
@@ -5982,6 +6000,9 @@ importers:
       '@deepseek-ai/dsh-enterprise-identity':
         specifier: workspace:^
         version: link:../../identity/enterprise-identity
+      '@deepseek-ai/dsh-enterprise-operations':
+        specifier: workspace:^
+        version: link:../../operations/enterprise-operations
       '@deepseek-ai/dsh-llm':
         specifier: workspace:^
         version: link:../../llm/llm

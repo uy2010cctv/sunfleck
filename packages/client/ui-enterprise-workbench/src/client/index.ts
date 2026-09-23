@@ -274,6 +274,12 @@ export function apply(ctx: Context): void {
       controller.reviewEmployeeMemory(employeeId, memoryId, decision, revision),
     retireEmployeeMemory: (employeeId, memoryId, revision) =>
       controller.retireEmployeeMemory(employeeId, memoryId, revision),
+    loadProjects: () => controller.loadProjects(),
+    loadSurfaces: () => controller.loadSurfaces(),
+    createProject: input => controller.createProject(input),
+    selectProject: projectId => controller.selectProject(projectId),
+    addProjectMember: (projectId, member) => controller.addProjectMember(projectId, member),
+    archiveProject: projectId => controller.archiveProject(projectId),
     prepareWork: input => controller.prepareWork(input),
     startPreparedWork: input => controller.startPreparedWork(input),
     openRecord: (id) => { controller.openRecord(id) },
@@ -343,6 +349,9 @@ export {
   type EmployeeOperationalState, type EnterpriseEmployeeView,
   type EmployeeSendError, type EmployeeSummary, type EmployeeSummaryState,
   type EnterpriseStaffState,
+  type EnterpriseProjectActionError, type EnterpriseProjectDetail, type EnterpriseProjectDetailError,
+  type EnterpriseProjectLifecycle, type EnterpriseProjectMemberView, type EnterpriseProjectsState,
+  type EnterpriseProjectSummary, type EnterpriseSurfacesState, type EnterpriseSurfaceView,
   type EnterpriseMetrics, type EnterpriseView, type EnterpriseWorkbenchState,
   type EnterpriseWorkRecord, type WorkRecordState,
 } from './store.ts'

@@ -212,6 +212,7 @@
       "@deepseek-ai/dsh-enterprise-cordis/types": ["./packages/enterprise/enterprise-cordis/src/types.ts"],
       "@deepseek-ai/dsh-enterprise-cordis-runtime": ["./packages/enterprise/enterprise-cordis-runtime/src"],
       "@deepseek-ai/dsh-enterprise-postgres": ["./packages/enterprise/enterprise-postgres/src"],
+      "@deepseek-ai/dsh-enterprise-project": ["./packages/enterprise/enterprise-project/src"],
       "@deepseek-ai/dsh-employee-account": ["./packages/enterprise/employee-account/src"],
       "@deepseek-ai/dsh-enterprise-surface": ["./packages/enterprise/enterprise-surface/src"],
       "@deepseek-ai/dsh-knowledge-pgvector": ["./packages/knowledge/knowledge-pgvector/src"],

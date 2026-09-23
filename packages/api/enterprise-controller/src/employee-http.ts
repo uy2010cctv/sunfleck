@@ -43,6 +43,7 @@ import type {
 import type {
   EnterpriseMemoryEntry, IdentityAwaitable, ReviewEnterpriseMemoryInput,
 } from '@deepseek-ai/dsh-enterprise-identity'
+import { failure, jsonObjectBody, methodFailure, stringField } from './http.ts'
 
 /** Cordis service keys the employee dm and memory governance endpoints require. */
 export const inject: readonly string[] = ['employeeAccounts', 'surfaces', 'enterprisePostgres']
@@ -158,15 +159,6 @@ const EMPLOYEE_NOT_FOUND_CODES: ReadonlySet<EnterpriseSurfaceErrorCode> = new Se
   'employee-missing', 'employee-cross-org',
 ])
 
-function failure(status: number, code: string): Response {
-  return Response.json({ error: code }, { status })
-}
-
-/** Reject one unsupported method while advertising the methods the route accepts. */
-function methodFailure(allow: string): Response {
-  return Response.json({ error: 'method-not-allowed' }, { status: 405, headers: { allow } })
-}
-
 /** Project one account to its governance fields. */
 function presentAccount(account: EmployeeAccount): EmployeeAccountView {
   return { id: account.id, displayName: account.displayName, roleCard: account.roleCard, state: account.state }
@@ -178,25 +170,6 @@ function presentMemory(entry: EnterpriseMemoryEntry): EmployeeMemoryView {
     id: entry.id, scope: entry.scope, kind: entry.kind, status: entry.status,
     summary: entry.summary, createdAt: entry.createdAt, revision: entry.revision,
     ...(entry.reviewedBy === undefined ? {} : { reviewedBy: entry.reviewedBy }),
-  }
-}
-
-/** Read one non-empty trimmed string field from a parsed request body. */
-function stringField(body: Record<string, unknown>, field: string): string | undefined {
-  const value = body[field]
-  return typeof value === 'string' && value.trim() !== '' ? value : undefined
-}
-
-/** Parse one JSON object request body; `undefined` for absent, malformed, or non-object bodies. */
-async function jsonObjectBody(request: Request): Promise<Record<string, unknown> | undefined> {
-  try {
-    const value: unknown = await request.json()
-    return typeof value === 'object' && value !== null && !Array.isArray(value)
-      ? value as Record<string, unknown>
-      : undefined
-  } catch {
-    // Invalid JSON and body-stream failures both mean one unreadable request payload.
-    return undefined
   }
 }
 

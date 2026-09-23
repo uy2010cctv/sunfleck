@@ -28,21 +28,34 @@ import {
   type InboxItemId,
 } from '@deepseek-ai/dsh-employee-account'
 import { attachSurfaceSession, ensureSurface, failInboxItem } from '@deepseek-ai/dsh-enterprise-identity'
+import type { SurfaceRow } from '@deepseek-ai/dsh-enterprise-identity'
 import { createUserMessage, errorChain, type UserMessage } from '@deepseek-ai/dsh-llm'
 import type { Session, SessionId } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-session-title'
 import type {} from '@deepseek-ai/dsh-workspace'
-import { EnterpriseSurfaceError, type EnterpriseSurfaces, type Surface } from './types.ts'
+import { EnterpriseSurfaceError, type DmSurface, type Surface } from './types.ts'
 
 /** Log a rollback failure without replacing the operation's original failure. */
 function reportRollbackFailure(ctx: Context, subject: string, error: unknown): void {
   ctx.logger.warn(`enterprise surface: ${subject} rollback failed: ${errorChain(error)}`)
 }
 
+/** Parse one stored dm surface row into its surface value; the anchored session stays absent while unbound. */
+export function dmSurfaceFromRow(row: SurfaceRow): DmSurface {
+  return {
+    id: surfaceId(row.id),
+    kind: 'dm',
+    orgId: row.orgId,
+    userId: row.userId,
+    employeeId: employeeId(row.employeeId),
+    ...(row.sessionId === null ? {} : { sessionId: brandString<SessionId>(row.sessionId) }),
+  }
+}
+
 /** Registry of durable dm surfaces and inbound delivery into anchored employee sessions. */
-export class DmSurfaceRegistry implements EnterpriseSurfaces {
+export class DmSurfaceRegistry {
   /** Swallowed delivery tails per employee, serializing claim-and-deliver passes in queued order. */
-  private readonly deliveryTails = new Map<EmployeeId, Promise<void>>()
+  private readonly deliveryTails = new Map<string, Promise<void>>()
   /** Swallowed creation tails per (user, employee) pair, serializing session creation. */
   private readonly pairCreationTails = new Map<string, Promise<void>>()
 
@@ -52,16 +65,16 @@ export class DmSurfaceRegistry implements EnterpriseSurfaces {
    * @param defaultAgentPreset - preset composed into every anchored session this registry creates.
    */
   constructor(
-    private readonly ctx: Context,
-    private readonly database: DatabaseSync,
-    private readonly defaultAgentPreset: string,
+    protected readonly ctx: Context,
+    protected readonly database: DatabaseSync,
+    protected readonly defaultAgentPreset: string,
   ) {}
 
-  private get accounts(): EmployeeAccounts {
+  protected get accounts(): EmployeeAccounts {
     return this.ctx.employeeAccounts
   }
 
-  async ensureDm(input: { orgId: string; userId: string; employeeId: EmployeeId }): Promise<Surface> {
+  async ensureDm(input: { orgId: string; userId: string; employeeId: EmployeeId }): Promise<DmSurface> {
     const account = this.requireEmployeeInOrg(input.employeeId, input.orgId)
     return this.ensurePairSurface(input, account)
   }
@@ -71,6 +84,12 @@ export class DmSurfaceRegistry implements EnterpriseSurfaces {
   }
 
   async deliverToEmployee(surface: Surface, originActor: string, payloadText: string): Promise<InboxItemId> {
+    if (surface.kind !== 'dm') {
+      throw new EnterpriseSurfaceError(
+        'surface-kind-mismatch',
+        `enterprise surface ${surface.id} is a ${surface.kind} surface, not a dm surface`,
+      )
+    }
     this.requireEmployeeInOrg(surface.employeeId, surface.orgId)
     if (surface.sessionId === undefined) {
       throw new EnterpriseSurfaceError(
@@ -81,11 +100,12 @@ export class DmSurfaceRegistry implements EnterpriseSurfaces {
     const item = this.accounts.enqueue({
       employeeId: surface.employeeId, surfaceId: surface.id, originActor, payloadText,
     })
-    return this.serializeDelivery(surface.employeeId, surface.sessionId, item)
+    const sessionId: SessionId = surface.sessionId
+    return this.runInTail(this.deliveryTails, surface.employeeId, () => this.deliverQueued(sessionId, item))
   }
 
   /** Read one account and refuse a missing employee or one from another organization. */
-  private requireEmployeeInOrg(id: EmployeeId, orgId: string): EmployeeAccount {
+  protected requireEmployeeInOrg(id: EmployeeId, orgId: string): EmployeeAccount {
     const account = this.accounts.get(id)
     if (account === undefined) {
       throw new EnterpriseSurfaceError('employee-missing', `enterprise employee ${id} is missing`)
@@ -106,18 +126,27 @@ export class DmSurfaceRegistry implements EnterpriseSurfaces {
   private async ensurePairSurface(
     input: { orgId: string; userId: string; employeeId: EmployeeId },
     account: EmployeeAccount,
-  ): Promise<Surface> {
+  ): Promise<DmSurface> {
     const key = `${input.userId}:${input.employeeId}`
-    const prior = this.pairCreationTails.get(key) ?? Promise.resolve()
-    /* v8 ignore next -- creation tails absorb rejection, so the recovery callback is a fail-safe backstop. */
-    const run = prior.then(() => this.ensurePairSurfaceNow(input, account), () => this.ensurePairSurfaceNow(input, account))
-    /* v8 ignore next -- ensurePairSurfaceNow contains creation failures and ensurePairSurface itself does not throw. */
+    return this.runInTail(this.pairCreationTails, key, () => this.ensurePairSurfaceNow(input, account))
+  }
+
+  /**
+   * Run one unit of work behind a per-key tail so concurrent units for the
+   * same key execute in queued order. The tail absorbs the work's rejection
+   * so the chain survives; callers await the work's own result.
+   */
+  protected async runInTail<T>(tails: Map<string, Promise<void>>, key: string, work: () => Promise<T>): Promise<T> {
+    const prior = tails.get(key) ?? Promise.resolve()
+    /* v8 ignore next -- tails absorb rejection, so the recovery callback is a fail-safe backstop. */
+    const run = prior.then(work, work)
+    /* v8 ignore next -- work captures its own failures and runInTail itself does not throw. */
     const tail = run.then(() => undefined, () => undefined)
-    this.pairCreationTails.set(key, tail)
+    tails.set(key, tail)
     try {
       return await run
     } finally {
-      if (this.pairCreationTails.get(key) === tail) this.pairCreationTails.delete(key)
+      if (tails.get(key) === tail) tails.delete(key)
     }
   }
 
@@ -125,7 +154,7 @@ export class DmSurfaceRegistry implements EnterpriseSurfaces {
   private async ensurePairSurfaceNow(
     input: { orgId: string; userId: string; employeeId: EmployeeId },
     account: EmployeeAccount,
-  ): Promise<Surface> {
+  ): Promise<DmSurface> {
     const row = ensureSurface(this.database, {
       id: surfaceId(randomUUID()),
       orgId: input.orgId,
@@ -135,40 +164,37 @@ export class DmSurfaceRegistry implements EnterpriseSurfaces {
       sessionId: null,
       createdAt: Date.now(),
     })
-    if (row.sessionId !== null) {
-      return {
-        id: surfaceId(row.id),
-        kind: row.kind,
-        orgId: row.orgId,
-        userId: row.userId,
-        employeeId: employeeId(row.employeeId),
-        sessionId: brandString<SessionId>(row.sessionId),
-      }
-    }
-    const sessionId = await this.createAnchoredSession(account, row.id)
-    return {
-      id: surfaceId(row.id),
-      kind: 'dm',
-      orgId: row.orgId,
-      userId: row.userId,
-      employeeId: input.employeeId,
-      sessionId,
-    }
+    if (row.sessionId !== null) return dmSurfaceFromRow(row)
+    const sessionId = await this.createAnchoredSession(
+      account,
+      'employee-dm',
+      (id) => { attachSurfaceSession(this.database, row.id, id) },
+    )
+    return { ...dmSurfaceFromRow(row), sessionId }
   }
 
   /**
-   * Create the Workspace-backed session one dm surface lives in and bind it to
-   * the surface row. The row keeps `session_id` null until this resolves, so a
-   * failed attempt is retried by the next `ensureDm` call for the same pair.
-   * The store attach runs inside the creation transaction: a failure after the
-   * workspace attach rolls the live agent back instead of leaking it.
+   * Create the Workspace-backed session one surface lives in and hand it to
+   * `attach` for its durable binding. The caller keeps the binding absent
+   * until this resolves, so a failed attempt is retried by the next ensure
+   * call for the same surface. The attach runs inside the creation sequence: a
+   * failure after the workspace attach rolls the live agent back instead of
+   * leaking it.
+   * @param account - employee account whose home workspace anchors the session.
+   * @param sessionIdPrefix - durable session-id prefix naming the surface kind.
+   * @param attach - durable binding written once the live agent exists.
+   * @returns the anchored session id.
    */
-  private async createAnchoredSession(account: EmployeeAccount, surfaceRowId: string): Promise<SessionId> {
+  protected async createAnchoredSession(
+    account: EmployeeAccount,
+    sessionIdPrefix: string,
+    attach: (sessionId: SessionId) => void,
+  ): Promise<SessionId> {
     const selection = this.ctx.agentDefaultModel.currentSelection()
     const preset = await this.ctx.agentPresets.resolve(this.defaultAgentPreset)
     await this.ctx.agentPresets.standingKeyFor(preset.id)
     const workspace = await this.ctx.workspaceRegistry.create(account.homeWorkspacePath)
-    const sessionId = brandString<SessionId>(`employee-dm-${randomUUID()}`)
+    const sessionId = brandString<SessionId>(`${sessionIdPrefix}-${randomUUID()}`)
     const handle = await this.ctx.agents.create({
       sessionId,
       meta: { cwd: workspace.path, agentPreset: preset.id },
@@ -184,7 +210,7 @@ export class DmSurfaceRegistry implements EnterpriseSurfaces {
       await workspace.attachSession(sessionId)
       attached = true
       this.ctx.sessionTitle.rename(handle.agent.session, account.displayName)
-      attachSurfaceSession(this.database, surfaceRowId, sessionId)
+      attach(sessionId)
     } catch (error: unknown) {
       if (attached) {
         try {
@@ -201,28 +227,6 @@ export class DmSurfaceRegistry implements EnterpriseSurfaces {
       throw error
     }
     return sessionId
-  }
-
-  /**
-   * Serialize one employee's claim-and-deliver passes so concurrent passes
-   * claim in queued order and each message lands in its own surface's session.
-   */
-  private async serializeDelivery(
-    employeeId: EmployeeId,
-    sessionId: SessionId,
-    item: EmployeeInboxItem,
-  ): Promise<InboxItemId> {
-    const prior = this.deliveryTails.get(employeeId) ?? Promise.resolve()
-    /* v8 ignore next -- delivery tails absorb rejection, so the recovery callback is a fail-safe backstop. */
-    const run = prior.then(() => this.deliverQueued(sessionId, item), () => this.deliverQueued(sessionId, item))
-    /* v8 ignore next -- deliverQueued contains delivery failures and serializeDelivery itself does not throw. */
-    const tail = run.then(() => undefined, () => undefined)
-    this.deliveryTails.set(employeeId, tail)
-    try {
-      return await run
-    } finally {
-      if (this.deliveryTails.get(employeeId) === tail) this.deliveryTails.delete(employeeId)
-    }
   }
 
   /** Claim queued items in creation order until this call's item is delivered. */

@@ -326,4 +326,73 @@ describe('enterprise Agent Teams runtime driver', () => {
       },
     })).resolves.toMatchObject({ state: 'cancelled', rootSessionId: String(root.id) })
   })
+
+  it('submits surface-originated input into the run root and records the team-run-message source', async () => {
+    const app = await setup()
+    const driver = app.driver!
+    const started = await driver.startRun(startInput())
+    const root = app.ctx.agents.get(started.rootSessionId as never)!
+
+    const receipt = await driver.submitRunInput('run-a', {
+      actorUserId: 'reviewer-a', text: '来自支持群的新指令', originSurfaceId: 'surface-group-1',
+    })
+
+    expect(receipt).toMatchObject({ runtimeRevision: 2 })
+    const events = root.session.snapshotEvents()
+    const appended = events.filter(event =>
+      event.type === 'user/message' && (event.data as { source: { kind: string } }).source.kind === 'team-run-message')
+    expect(appended).toHaveLength(1)
+    const landed = appended[0]
+    expect(landed).toBeDefined()
+    expect(landed?.seq).toBe(receipt.sourceEventSeq)
+    expect((landed?.data as { source: unknown; content: unknown }).source).toEqual({
+      kind: 'team-run-message', runId: 'run-a', originSurfaceId: 'surface-group-1', actorUserId: 'reviewer-a',
+    })
+    expect((landed?.data as { content: Array<{ type: string; text: string }> }).content)
+      .toEqual([{ type: 'text', text: '来自支持群的新指令' }])
+  })
+
+  it('rejects a submission for an unknown run with the coded team-run-not-found error', async () => {
+    const app = await setup()
+    await expect(app.driver!.submitRunInput('run-missing', {
+      actorUserId: 'reviewer-a', text: '任何输入', originSurfaceId: 'surface-group-1',
+    })).rejects.toMatchObject({ constructor: EnterpriseTeamRuntimeError, outcome: 'deterministic', code: 'team-run-not-found' })
+  })
+
+  it('reports an unknown outcome when the submitted input never lands in the root log', async () => {
+    const app = await setup()
+    const driver = app.driver!
+    const started = await driver.startRun(startInput())
+    const root = app.ctx.agents.get(started.rootSessionId as never)!
+    vi.spyOn(root, 'followup').mockImplementation(() => {})
+
+    await expect(driver.submitRunInput('run-a', {
+      actorUserId: 'reviewer-a', text: '不会落地的输入', originSurfaceId: 'surface-group-1',
+    })).rejects.toMatchObject({
+      constructor: EnterpriseTeamRuntimeError, outcome: 'unknown', code: 'team-run-input-not-landed',
+    })
+  })
+
+  it('refuses surface input for a terminal run with the coded team-run-not-active error', async () => {
+    const app = await setup()
+    const driver = app.driver!
+    const started = await driver.startRun(startInput())
+    const root = app.ctx.agents.get(started.rootSessionId as never)!
+    await driver.cancelRun({
+      operationId: 'team-run:cancel:run-a:key-a',
+      run: {
+        runId: 'run-a', orgId: 'org-a', teamId: 'team-a', teamDefinitionRevision: 4,
+        workspaceId: 'workspace-a', rootSessionId: String(root.id), rosterSnapshot: definition().roster,
+        createdBy: 'owner-a', source: 'console', state: 'active', runtimeRevision: 4, revision: 2,
+        createdAt: 1, updatedAt: 1,
+      } satisfies EnterpriseTeamRun,
+      actor,
+    })
+
+    await expect(driver.submitRunInput('run-a', {
+      actorUserId: 'reviewer-a', text: '取消后的输入', originSurfaceId: 'surface-group-1',
+    })).rejects.toMatchObject({
+      constructor: EnterpriseTeamRuntimeError, outcome: 'deterministic', code: 'team-run-not-active',
+    })
+  })
 })
