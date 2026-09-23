@@ -266,6 +266,9 @@ export function apply(ctx: Context): void {
     rollbackEmployee: releaseId => controller.rollbackEmployee(releaseId),
     closeEmployeeEditor: () => { controller.closeEmployeeEditor() },
     startEmployee: id => controller.startEmployee(id),
+    loadEmployees: () => controller.loadEmployees(),
+    sendMessage: (employeeId, text) => controller.sendMessage(employeeId, text),
+    selectEmployee: (employeeId) => { controller.selectEmployee(employeeId) },
     prepareWork: input => controller.prepareWork(input),
     startPreparedWork: input => controller.startPreparedWork(input),
     openRecord: (id) => { controller.openRecord(id) },
@@ -333,6 +336,8 @@ export type { EnterpriseWorkbenchProps, EnterpriseWorkbenchInjected } from './En
 export {
   deriveEnterpriseView, EnterpriseWorkbenchController,
   type EmployeeOperationalState, type EnterpriseEmployeeView,
+  type EmployeeSendError, type EmployeeSummary, type EmployeeSummaryState,
+  type EnterpriseStaffState,
   type EnterpriseMetrics, type EnterpriseView, type EnterpriseWorkbenchState,
   type EnterpriseWorkRecord, type WorkRecordState,
 } from './store.ts'

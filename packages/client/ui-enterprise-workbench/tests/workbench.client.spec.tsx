@@ -95,6 +95,7 @@ const EMPTY_PAGE = { phase: 'idle' as const, items: [], error: null }
 const BASE_STATE: EnterpriseWorkbenchState = {
   open: true, phase: 'ready', mode: 'fallback', page: 'employees', view: VIEW,
   error: null, busyEmployee: null, employeeFilters: {}, employees: EMPTY_PAGE,
+  staff: { phase: 'idle', list: [], error: null, sending: false, sendError: null },
   workRecords: EMPTY_PAGE, approvals: EMPTY_PAGE, schedules: EMPTY_PAGE,
   assets: EMPTY_PAGE, teams: EMPTY_PAGE,
   channels: EMPTY_PAGE,
@@ -121,6 +122,9 @@ function workbenchProps(overrides: Partial<EnterpriseWorkbenchProps> & {
     close: vi.fn(),
     refresh: vi.fn(() => Promise.resolve()),
     startEmployee: vi.fn(() => Promise.resolve()),
+    loadEmployees: vi.fn(() => Promise.resolve(true)),
+    sendMessage: vi.fn(() => Promise.resolve(true)),
+    selectEmployee: vi.fn(),
     prepareWork: vi.fn(() => Promise.resolve({ kind: 'needs-workspace-selection', availableWorkspaceIds: [] })),
     startPreparedWork: vi.fn(() => Promise.resolve({ sessionId: 'session-created', workspaceId: 'workspace-1', employeeReleaseId: 'release-1', executionSummary: 'Ready.' })),
     openRecord: vi.fn(),

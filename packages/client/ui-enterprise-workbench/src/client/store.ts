@@ -86,6 +86,34 @@ export interface EnterprisePageState<T> {
   readonly error: string | null
 }
 
+/** Lifecycle state of one persistent employee account, as reported by the employee dm endpoints. */
+export type EmployeeSummaryState = 'active' | 'suspended' | 'archived'
+
+/** Governance fields of one persistent employee account; the exact employee dm response body. */
+export interface EmployeeSummary {
+  /** Durable employee identifier. */
+  readonly id: string
+  /** Human-readable employee name. */
+  readonly displayName: string
+  /** Role-card preset text that seeds the employee's persona. */
+  readonly roleCard: string
+  /** Current lifecycle state. */
+  readonly state: EmployeeSummaryState
+}
+
+/** Stable keys for contained dm send failures, rendered by the UI dictionaries. */
+export type EmployeeSendError = 'employee-inactive' | 'delivery-failed' | 'send-failed'
+
+/** Persistent employee directory served by the same-origin employee dm endpoints. */
+export interface EnterpriseStaffState {
+  readonly phase: 'idle' | 'loading' | 'ready' | 'error'
+  readonly list: readonly EmployeeSummary[]
+  readonly selected?: EmployeeSummary | undefined
+  readonly error: string | null
+  readonly sending: boolean
+  readonly sendError: EmployeeSendError | null
+}
+
 /** Server-owned roster filters. Empty fields are omitted from the request. */
 export interface EnterpriseEmployeeFilters {
   readonly search?: string
@@ -146,6 +174,7 @@ export interface EnterpriseWorkbenchState {
   readonly busyEmployee: string | null
   readonly employeeFilters: EnterpriseEmployeeFilters
   readonly employees: EnterprisePageState<EnterpriseEmployeeDraft>
+  readonly staff: EnterpriseStaffState
   readonly workRecords: EnterprisePageState<EnterpriseOperationWorkRecord>
   readonly approvals: EnterprisePageState<EnterpriseApproval>
   readonly schedules: EnterprisePageState<EnterpriseSchedule>
@@ -366,6 +395,7 @@ const INITIAL_STATE: EnterpriseWorkbenchState = {
   busyEmployee: null,
   employeeFilters: {},
   employees: emptyPage(),
+  staff: { phase: 'idle', list: [], error: null, sending: false, sendError: null },
   workRecords: emptyPage(),
   approvals: emptyPage(),
   schedules: emptyPage(),
@@ -473,6 +503,7 @@ export class EnterpriseWorkbenchController {
   private conflictMutationAction: (() => Promise<void>) | undefined
   private saveGeneration = 0
   private employeeRequestGeneration = 0
+  private staffRequestGeneration = 0
   private readonly pageRequestGeneration = new Map<string, number>()
   private mutationAttemptId = 0
   private editorGeneration = 0
@@ -645,6 +676,85 @@ export class EnterpriseWorkbenchController {
       const current = this.store.getSnapshot()
       this.store.set({ ...current, employees: pageFailure(before.employees, error) })
       return false
+    }
+  }
+
+  /** Load the persistent employee directory through the same-origin employee dm endpoints.
+   * @returns whether the latest load replaced the previous directory.
+   */
+  async loadEmployees(): Promise<boolean> {
+    const generation = ++this.staffRequestGeneration
+    const before = this.store.getSnapshot()
+    this.store.set({ ...before, staff: { ...before.staff, phase: 'loading', error: null } })
+    try {
+      const response = await fetch('/enterprise/employees', {
+        credentials: 'same-origin', headers: { accept: 'application/json' },
+      })
+      if (!response.ok) throw new Error(`employee list request failed (${String(response.status)})`)
+      const list = await response.json() as readonly EmployeeSummary[]
+      if (generation !== this.staffRequestGeneration) return false
+      const current = this.store.getSnapshot()
+      const selectedId = current.staff.selected?.id
+      this.store.set({ ...current, staff: {
+        ...current.staff, phase: 'ready', list, error: null,
+        selected: list.find(employee => employee.id === selectedId),
+      } })
+      return true
+    } catch (error) {
+      if (generation !== this.staffRequestGeneration) return false
+      const current = this.store.getSnapshot()
+      this.store.set({ ...current, staff: {
+        ...current.staff, phase: 'error',
+        error: error instanceof Error ? error.message : String(error),
+      } })
+      return false
+    }
+  }
+
+  /** Show one persistent employee's detail pane, or return to the list.
+   * @param employeeId - Directory row to select; `undefined` clears the selection.
+   */
+  selectEmployee(employeeId?: string): void {
+    const staff = this.store.getSnapshot().staff
+    const selected = employeeId === undefined
+      ? undefined
+      : staff.list.find(employee => employee.id === employeeId)
+    if (selected?.id === staff.selected?.id) return
+    if (selected === undefined) {
+      const { selected: _clearedSelection, ...rest } = staff
+      this.store.set({ ...this.store.getSnapshot(), staff: rest })
+      return
+    }
+    this.store.set({ ...this.store.getSnapshot(), staff: { ...staff, selected } })
+  }
+
+  /** Deliver one dm text through the employee dm endpoint; 409 and 502 stay contained in the directory slice.
+   * @param employeeId - Target employee from the directory.
+   * @param text - Non-empty message text.
+   * @returns whether the message was delivered and the caller may clear its draft.
+   */
+  async sendMessage(employeeId: string, text: string): Promise<boolean> {
+    const before = this.store.getSnapshot()
+    if (before.staff.sending) return false
+    this.store.set({ ...before, staff: { ...before.staff, sending: true, sendError: null } })
+    const settle = (sendError: EmployeeSendError | null): boolean => {
+      const current = this.store.getSnapshot()
+      this.store.set({ ...current, staff: { ...current.staff, sending: false, sendError } })
+      return sendError === null
+    }
+    try {
+      const response = await fetch(`/enterprise/employees/${encodeURIComponent(employeeId)}/messages`, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ text }),
+      })
+      if (response.status === 409) return settle('employee-inactive')
+      if (response.status === 502) return settle('delivery-failed')
+      if (!response.ok) return settle('send-failed')
+      return settle(null)
+    } catch {
+      return settle('send-failed')
     }
   }
 
