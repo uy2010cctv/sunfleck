@@ -14,10 +14,12 @@ import {
   bindSticky,
   claimInbox,
   createEmployee,
+  employeeByHomeWorkspacePath,
   enqueueInbox,
   getEmployee,
   listEmployees,
   resolveSticky,
+  surfaceBySession,
   updateEmployeeState,
   type EmployeeAccountRow,
   type InboxRow,
@@ -31,6 +33,7 @@ import type {
   EmployeeInboxItem,
   EmployeeState,
   EnqueueEmployeeInboxInput,
+  SessionMemoryActor,
 } from './types.ts'
 
 /** Map one stored employee account row to its domain value.
@@ -101,6 +104,11 @@ export class EmployeeAccountService implements EmployeeAccounts {
     return listEmployees(this.database, orgId, options).map(accountFromRow)
   }
 
+  findByHomeWorkspacePath(homeWorkspacePath: string): EmployeeAccount | undefined {
+    const row = employeeByHomeWorkspacePath(this.database, homeWorkspacePath)
+    return row === undefined ? undefined : accountFromRow(row)
+  }
+
   /**
    * The archived guard duplicates the store's on purpose: this service's callers get an error
    * naming the id and requested state, while the store keeps its own guard for direct store
@@ -144,5 +152,13 @@ export class EmployeeAccountService implements EmployeeAccounts {
   claim(employeeId: EmployeeId, limit: number): EmployeeInboxItem[] {
     if (limit < 0) throw new TypeError(`employee claim limit must not be negative, received ${limit}`)
     return claimInbox(this.database, employeeId, limit, Date.now()).map(inboxItemFromRow)
+  }
+
+  /** The surface row was written only through `ensureSurface`, which validated the pair, so the
+   * row's own columns are the resolution; no account re-read is needed. */
+  resolveSessionActor(sessionId: string): SessionMemoryActor | undefined {
+    const surface = surfaceBySession(this.database, sessionId)
+    if (surface === undefined) return undefined
+    return { orgId: surface.orgId, userId: surface.userId, employeeId: surface.employeeId }
   }
 }

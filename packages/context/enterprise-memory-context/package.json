@@ -51,8 +51,10 @@
   "devDependencies": {
     "@deepseek-ai/cordis": "workspace:^",
     "@deepseek-ai/dsh-agent": "workspace:^",
+    "@deepseek-ai/dsh-agent-loop": "workspace:^",
     "@deepseek-ai/dsh-enterprise-auth-web": "workspace:^",
     "@deepseek-ai/dsh-enterprise-identity": "workspace:^",
+    "@deepseek-ai/dsh-employee-account": "workspace:^",
     "@deepseek-ai/dsh-invariants": "workspace:^",
     "@deepseek-ai/dsh-llm": "workspace:^",
     "@deepseek-ai/dsh-session": "workspace:^",

@@ -1,11 +1,17 @@
 /** Bounded completed-turn snapshot and strict enterprise-memory extraction output. */
-import { inspectEnterpriseMemory } from '@deepseek-ai/dsh-enterprise-identity'
 import type { Session } from '@deepseek-ai/dsh-session'
 
 export type MemoryCandidateAction = 'skip' | 'create' | 'conflict'
+
+/** Closed set of extraction targets; the extractor may omit the field and defaults to `private`. */
+const EXTRACTION_TARGETS = ['private', 'organization', 'department', 'pair'] as const
+/** Compartment one extracted candidate is destined for. */
+export type MemoryExtractionTarget = (typeof EXTRACTION_TARGETS)[number]
+
 export interface MemoryExtractionCandidate {
   readonly action: MemoryCandidateAction
-  readonly scope: 'organization' | 'department'
+  /** Destination compartment; `private` keeps the fact out of shared review entirely. */
+  readonly target: MemoryExtractionTarget
   readonly kind: 'business-fact' | 'process' | 'terminology' | 'decision'
   readonly summary: string
   readonly confidence: number
@@ -55,7 +61,14 @@ function record(value: unknown): Record<string, unknown> | undefined {
   return typeof value === 'object' && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : undefined
 }
 
-/** Parse the extractor's complete JSON response and reject unsafe or ambiguous candidates. */
+/** Parse the extractor's complete JSON response and reject candidates whose fields leave the
+ * contract. Privacy classification stays with the worker's scope-aware policy, so candidates with
+ * findings reach the router and a personal preference downgrades into a private compartment
+ * instead of failing the whole extraction. A missing `target` defaults to `private`; a `target`
+ * outside the closed set rejects the candidate like any other invalid field.
+ * @param output - Input value used by this API.
+ * @returns Result produced by this API.
+ */
 export function parseExtractionOutput(output: string): MemoryExtractionCandidate[] {
   const unfenced = output.trim().replace(/^```(?:json)?\s*/iu, '').replace(/\s*```$/u, '')
   let parsed: unknown
@@ -66,26 +79,23 @@ export function parseExtractionOutput(output: string): MemoryExtractionCandidate
   return items.map((value, index) => {
     const item = record(value)
     const action = item?.['action']
-    const scope = item?.['scope']
+    const target = item?.['target']
     const kind = item?.['kind']
     const summary = item?.['summary']
     const confidence = item?.['confidence']
     const reason = item?.['reason']
-    if (!['skip', 'create', 'conflict'].includes(String(action))
-      || !['organization', 'department'].includes(String(scope))
+    if ((target !== undefined && !EXTRACTION_TARGETS.includes(target as MemoryExtractionTarget))
+      || !['skip', 'create', 'conflict'].includes(String(action))
       || !['business-fact', 'process', 'terminology', 'decision'].includes(String(kind))
       || typeof summary !== 'string' || summary.trim().length === 0 || summary.trim().length > 1_000
       || typeof confidence !== 'number' || !Number.isFinite(confidence) || confidence < 0 || confidence > 1
       || typeof reason !== 'string' || reason.trim().length === 0 || reason.trim().length > 500) {
       throw new Error(`enterprise memory extraction candidate ${String(index)} is invalid`)
     }
-    const inspection = inspectEnterpriseMemory(summary)
-    if (inspection.findings.length > 0) {
-      throw new Error(`enterprise memory extraction privacy or credential check failed: ${inspection.findings.join(',')}`)
-    }
     return {
       action: action as MemoryCandidateAction,
-      scope: scope as MemoryExtractionCandidate['scope'], kind: kind as MemoryExtractionCandidate['kind'],
+      target: target === undefined ? 'private' : target as MemoryExtractionTarget,
+      kind: kind as MemoryExtractionCandidate['kind'],
       summary: summary.trim(), confidence, reason: reason.trim(),
     }
   })
@@ -93,8 +103,8 @@ export function parseExtractionOutput(output: string): MemoryExtractionCandidate
 
 export const EXTRACTION_SYSTEM_PROMPT = [
   'Extract durable reusable enterprise knowledge from one completed conversation turn.',
-  'Return JSON only: {"candidates":[{"action":"skip|create|conflict","scope":"organization|department","kind":"business-fact|process|terminology|decision","summary":"...","confidence":0.0,"reason":"..."}]}.',
+  'Return JSON only: {"candidates":[{"action":"skip|create|conflict","target":"private|organization|department|pair","kind":"business-fact|process|terminology|decision","summary":"...","confidence":0.0,"reason":"..."}]}.',
   'Use create only for stable confirmed knowledge with long-term value. Use conflict for uncertainty or contradiction. Use skip for task status, one-time output, guesses, personal data, customer raw content, credentials, or knowledge already present.',
-  'Choose organization only for explicitly company-wide knowledge; otherwise choose department.',
+  'Choose target private by default; it holds the fact for this employee and user only. Choose organization or department only for explicitly company-wide or department-wide reusable facts. Choose pair only for a stated user-specific collaboration preference.',
   'Never copy secrets or raw records. Prefer zero candidates over weak memory.',
 ].join(' ')

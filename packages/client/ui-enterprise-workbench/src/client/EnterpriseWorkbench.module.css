@@ -473,6 +473,15 @@
 .assetStats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); margin-block-start: auto; padding-block: var(--dse-space-sm); border-block: 1px solid var(--dse-color-border-subtle); }
 .assetStats span { min-inline-size: 0; color: var(--dse-color-muted); font-size: 0.75rem; text-align: center; font-variant-numeric: tabular-nums; }
 .assetStats span + span { border-inline-start: 1px solid var(--dse-color-border-subtle); }
+.memoryDots { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); margin-block-start: auto; padding-block: var(--dse-space-sm); border-block: 1px solid var(--dse-color-border-subtle); }
+.memoryDots > span { display: inline-flex; align-items: center; justify-content: center; gap: var(--dse-space-3xs); min-inline-size: 0; color: var(--dse-color-muted); font-size: 0.75rem; font-variant-numeric: tabular-nums; }
+.memoryDots > span + span { border-inline-start: 1px solid var(--dse-color-border-subtle); }
+.memoryList { margin-block: var(--dse-space-sm) 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: var(--dse-space-3xs); }
+.memoryRow { display: flex; align-items: center; gap: var(--dse-space-3xs); min-inline-size: 0; font-size: 0.75rem; }
+.memorySummary { min-inline-size: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--dse-color-ink); }
+.memoryStatus { flex: none; padding: 0 var(--dse-space-3xs); border-radius: 999px; corner-shape: round; background: var(--dse-color-surface-raised); color: var(--dse-color-muted); white-space: nowrap; }
+.memoryAge { flex: none; color: var(--dse-color-muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.memoryRow button { flex: none; min-block-size: 24px; padding-inline: var(--dse-space-3xs); }
 .employeeActions { display: flex; align-items: center; justify-content: flex-end; gap: var(--dse-space-2xs); margin-block-start: var(--dse-space-sm); }
 .employeeFoot { display: flex; align-items: center; justify-content: space-between; gap: var(--dse-space-xs); margin-block-start: var(--dse-space-sm); }
 .workCount { color: var(--dse-color-muted); font-size: 0.75rem; font-variant-numeric: tabular-nums; }

@@ -104,6 +104,33 @@ export interface EmployeeSummary {
 /** Stable keys for contained dm send failures, rendered by the UI dictionaries. */
 export type EmployeeSendError = 'employee-inactive' | 'delivery-failed' | 'send-failed'
 
+/** One memory entry of the employee governance view; the exact employee dm response body. */
+export interface EmployeeMemoryEntryView {
+  /** Durable memory identifier. */
+  readonly id: string
+  /** Compartment the memory lives in. */
+  readonly scope: 'organization' | 'department' | 'project' | 'agent' | 'pair'
+  /** Content classification. */
+  readonly kind: 'business-fact' | 'process' | 'terminology' | 'decision' | 'preference'
+  /** Review lifecycle state. */
+  readonly status: 'proposed' | 'approved' | 'rejected' | 'retired'
+  /** Reviewed memory summary shown to governance viewers. */
+  readonly summary: string
+  /** Creation timestamp in epoch milliseconds. */
+  readonly createdAt: number
+  /** Current revision; the client pins it on review and retire requests. */
+  readonly revision: number
+  /** Reviewer user id, absent while a proposal is unreviewed. */
+  readonly reviewedBy?: string
+}
+
+/** Memory governance state for the selected persistent employee. */
+export interface EnterpriseStaffMemoriesState {
+  readonly phase: 'idle' | 'loading' | 'ready' | 'error'
+  readonly entries: readonly EmployeeMemoryEntryView[]
+  readonly error: string | null
+}
+
 /** Persistent employee directory served by the same-origin employee dm endpoints. */
 export interface EnterpriseStaffState {
   readonly phase: 'idle' | 'loading' | 'ready' | 'error'
@@ -175,6 +202,7 @@ export interface EnterpriseWorkbenchState {
   readonly employeeFilters: EnterpriseEmployeeFilters
   readonly employees: EnterprisePageState<EnterpriseEmployeeDraft>
   readonly staff: EnterpriseStaffState
+  readonly staffMemories: EnterpriseStaffMemoriesState
   readonly workRecords: EnterprisePageState<EnterpriseOperationWorkRecord>
   readonly approvals: EnterprisePageState<EnterpriseApproval>
   readonly schedules: EnterprisePageState<EnterpriseSchedule>
@@ -386,6 +414,9 @@ export function deriveEnterpriseView(
 
 const emptyPage = <T>(): EnterprisePageState<T> => ({ phase: 'idle', items: [], error: null })
 
+/** Review reason the workbench records on every proposal decision; audit data, not UI copy. */
+const REVIEW_REASON = 'reviewed in the employee workbench'
+
 const INITIAL_STATE: EnterpriseWorkbenchState = {
   open: false,
   phase: 'idle',
@@ -396,6 +427,7 @@ const INITIAL_STATE: EnterpriseWorkbenchState = {
   employeeFilters: {},
   employees: emptyPage(),
   staff: { phase: 'idle', list: [], error: null, sending: false, sendError: null },
+  staffMemories: { phase: 'idle', entries: [], error: null },
   workRecords: emptyPage(),
   approvals: emptyPage(),
   schedules: emptyPage(),
@@ -504,6 +536,7 @@ export class EnterpriseWorkbenchController {
   private saveGeneration = 0
   private employeeRequestGeneration = 0
   private staffRequestGeneration = 0
+  private staffMemoriesRequestGeneration = 0
   private readonly pageRequestGeneration = new Map<string, number>()
   private mutationAttemptId = 0
   private editorGeneration = 0
@@ -755,6 +788,91 @@ export class EnterpriseWorkbenchController {
       return settle(null)
     } catch {
       return settle('send-failed')
+    }
+  }
+
+  /** Load one persistent employee's memory governance view through the same-origin endpoint.
+   * @param employeeId - Directory row whose memory view is loaded.
+   * @returns whether the latest load replaced the previous entries.
+   */
+  async loadEmployeeMemories(employeeId: string): Promise<boolean> {
+    const generation = ++this.staffMemoriesRequestGeneration
+    const before = this.store.getSnapshot()
+    this.store.set({ ...before, staffMemories: { ...before.staffMemories, phase: 'loading', error: null } })
+    try {
+      const response = await fetch(`/enterprise/employees/${encodeURIComponent(employeeId)}/memories`, {
+        credentials: 'same-origin', headers: { accept: 'application/json' },
+      })
+      if (!response.ok) throw new Error(`employee memory request failed (${String(response.status)})`)
+      const entries = await response.json() as readonly EmployeeMemoryEntryView[]
+      if (generation !== this.staffMemoriesRequestGeneration) return false
+      const current = this.store.getSnapshot()
+      this.store.set({ ...current, staffMemories: { phase: 'ready', entries, error: null } })
+      return true
+    } catch (error) {
+      if (generation !== this.staffMemoriesRequestGeneration) return false
+      const current = this.store.getSnapshot()
+      this.store.set({ ...current, staffMemories: {
+        ...current.staffMemories, phase: 'error',
+        error: error instanceof Error ? error.message : String(error),
+      } })
+      return false
+    }
+  }
+
+  /** Approve or reject one proposed memory and reload the view on success.
+   * @param employeeId - Directory row owning the memory view.
+   * @param memoryId - Proposed memory to review.
+   * @param decision - Approve or reject the proposal.
+   * @param revision - Entry revision the caller last saw; a stale pin fails the request.
+   * @returns whether the review landed and the view reloaded.
+   */
+  async reviewEmployeeMemory(
+    employeeId: string,
+    memoryId: string,
+    decision: 'approved' | 'rejected',
+    revision: number,
+  ): Promise<boolean> {
+    return this.mutateEmployeeMemory(employeeId, `${encodeURIComponent(memoryId)}/review`, 'review',
+      { decision, reason: REVIEW_REASON, revision })
+  }
+
+  /** Retire one approved memory and reload the view on success.
+   * @param employeeId - Directory row owning the memory view.
+   * @param memoryId - Approved memory to retire.
+   * @param revision - Entry revision the caller last saw; a stale pin fails the request.
+   * @returns whether the retire landed and the view reloaded.
+   */
+  async retireEmployeeMemory(employeeId: string, memoryId: string, revision: number): Promise<boolean> {
+    return this.mutateEmployeeMemory(employeeId, `${encodeURIComponent(memoryId)}/retire`, 'retire', { revision })
+  }
+
+  /** Post one memory mutation and re-read the view; failures stay contained in the slice.
+   * @param action - Mutation name used in the failure text.
+   */
+  private async mutateEmployeeMemory(
+    employeeId: string,
+    route: string,
+    action: 'review' | 'retire',
+    body: Readonly<Record<string, unknown>>,
+  ): Promise<boolean> {
+    try {
+      const response = await fetch(
+        `/enterprise/employees/${encodeURIComponent(employeeId)}/memories/${route}`, {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(body),
+        })
+      if (!response.ok) throw new Error(`employee memory ${action} failed (${String(response.status)})`)
+      return await this.loadEmployeeMemories(employeeId)
+    } catch (error) {
+      const current = this.store.getSnapshot()
+      this.store.set({ ...current, staffMemories: {
+        ...current.staffMemories, phase: 'error',
+        error: error instanceof Error ? error.message : String(error),
+      } })
+      return false
     }
   }
 

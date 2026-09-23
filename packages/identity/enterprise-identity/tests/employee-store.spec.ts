@@ -6,12 +6,14 @@ import {
   bindSticky,
   claimInbox,
   createEmployee,
+  employeeByHomeWorkspacePath,
   enqueueInbox,
   ensureSurface,
   failInboxItem,
   getEmployee,
   listEmployees,
   resolveSticky,
+  surfaceBySession,
   updateEmployeeState,
   type EmployeeAccountRow,
   type InboxRow,
@@ -148,6 +150,45 @@ describe('employee row store', () => {
     ])
   })
 
+  it('reads an employee by exact home workspace path and returns undefined otherwise', () => {
+    const database = makeDatabase()
+    seedOrgAndUser(database, 'org-1', 'user-1')
+    createEmployee(database, employeeRow('employee-1', T1))
+    createEmployee(database, {
+      ...employeeRow('employee-2', T2),
+      homeWorkspacePath: '/managed/employees/billing',
+    })
+
+    expect(employeeByHomeWorkspacePath(database, '/managed/employees/billing')).toEqual({
+      ...employeeRow('employee-2', T2),
+      homeWorkspacePath: '/managed/employees/billing',
+    })
+    // Exact string equality mirrors `workspaceGrantByRootPath`: no normalization, no realpath.
+    expect(employeeByHomeWorkspacePath(database, '/managed/employees/support/')).toBeUndefined()
+    expect(employeeByHomeWorkspacePath(database, '/managed/employees/missing')).toBeUndefined()
+  })
+
+  it('hides archived accounts from the home workspace path lookup so an active replacement wins', () => {
+    const database = makeDatabase()
+    seedOrgAndUser(database, 'org-1', 'user-1')
+    createEmployee(database, {
+      ...employeeRow('employee-archived', T1),
+      state: 'archived',
+      homeWorkspacePath: '/managed/employees/billing',
+    })
+
+    expect(employeeByHomeWorkspacePath(database, '/managed/employees/billing')).toBeUndefined()
+
+    createEmployee(database, {
+      ...employeeRow('employee-active', T2),
+      homeWorkspacePath: '/managed/employees/billing',
+    })
+    expect(employeeByHomeWorkspacePath(database, '/managed/employees/billing')).toEqual({
+      ...employeeRow('employee-active', T2),
+      homeWorkspacePath: '/managed/employees/billing',
+    })
+  })
+
   it('moves an employee to a new state and stamps the update time', () => {
     const database = makeDatabase()
     seedOrgAndUser(database, 'org-1', 'user-1')
@@ -195,6 +236,17 @@ describe('employee row store', () => {
     expect(() => {
       attachSurfaceSession(database, 'surface-x', 'session-1')
     }).toThrow(/missing/)
+  })
+
+  it('reads the surface anchored to one session and returns undefined for unknown sessions', () => {
+    const database = makeDatabase()
+    seedGraph(database)
+    ensureDefaultSurface(database)
+
+    expect(surfaceBySession(database, 'session-1')).toBeUndefined()
+    attachSurfaceSession(database, 'surface-1', 'session-1')
+    expect(surfaceBySession(database, 'session-1')).toEqual({ ...surfaceRow(), sessionId: 'session-1' })
+    expect(surfaceBySession(database, 'session-2')).toBeUndefined()
   })
 
   it('enqueues an inbox row and claims it back delivered', () => {

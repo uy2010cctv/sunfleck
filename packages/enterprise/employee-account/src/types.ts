@@ -49,6 +49,16 @@ export interface EmployeeInboxItem {
   readonly state: InboxRow['state']
 }
 
+/** Actor triple a private-memory compartment write needs, resolved from one anchored session. */
+export interface SessionMemoryActor {
+  /** Organization the surface and its employee belong to. */
+  readonly orgId: string
+  /** User on the surface's (user, employee) pair; owns the `pair` compartment. */
+  readonly userId: string
+  /** Employee account serving the session; owns the `agent` compartment. */
+  readonly employeeId: string
+}
+
 /** Inputs for creating one employee account. */
 export interface CreateEmployeeAccountInput {
   /** Owning organization identifier. */
@@ -133,6 +143,22 @@ export interface EmployeeAccounts {
    * @returns the claimed items in creation order.
    */
   claim(employeeId: EmployeeId, limit: number): EmployeeInboxItem[]
+  /**
+   * Read the employee account whose home workspace is one path. Matching is exact string
+   * equality against the stored column, mirroring the workspace-grant root-path lookup; no
+   * path normalization runs on either side.
+   * @param homeWorkspacePath - absolute home workspace path to look up.
+   * @returns the stored account, or undefined when no account claims that path.
+   */
+  findByHomeWorkspacePath(homeWorkspacePath: string): EmployeeAccount | undefined
+  /**
+   * Resolve the private-memory actor triple for one anchored dm session so
+   * private compartments can be written at process time without a schema
+   * change to outbox rows.
+   * @param sessionId - session id attached to the surface with `attachSurfaceSession`.
+   * @returns the session's org, user, and employee, or undefined when no surface anchors the session.
+   */
+  resolveSessionActor(sessionId: string): SessionMemoryActor | undefined
 }
 
 declare module '@deepseek-ai/cordis' {

@@ -20,7 +20,7 @@ PostgreSQL persistence and safe SQLite migration for DSH enterprise identity。
 <a id="package-details"></a>
 ## 包详情
 
-为 DSH 企业组织、用户、角色、外部身份、哈希会话、部门树、Workspace 授权、Session 绑定、已审核记忆、资源策略、受管资产和可归因审计记录提供 PostgreSQL 持久化。SQLite 迁移命令会保留 ID，并在一个事务内导入所有控制面记录。
+为 DSH 企业组织、用户、角色、外部身份、哈希会话、部门树、Workspace 授权、Session 绑定、已审核记忆以及免审核直写的私有 agent 与 pair 记忆分区、资源策略、受管资产和可归因审计记录提供 PostgreSQL 持久化。SQLite 迁移命令会保留 ID，并在一个事务内导入所有控制面记录。
 
 ## 迁移
 

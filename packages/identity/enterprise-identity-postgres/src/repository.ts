@@ -17,14 +17,24 @@ import type {
   UpdateEnterpriseUserProfileInput,
   EnterpriseWorkspaceGrant,
   ExternalIdentityBinding,
+  MemoryScope,
   RepositoryOptions,
   ProposeEnterpriseMemoryInput,
   ReviewEnterpriseMemoryInput,
   SaveEnterpriseDepartmentInput,
   SaveEnterpriseWorkspaceGrantInput,
   SetUserDepartmentsInput,
+  WritePrivateMemoryInput,
 } from '@deepseek-ai/dsh-enterprise-identity'
-import { inspectEnterpriseMemory, sessionTokenHash } from '@deepseek-ai/dsh-enterprise-identity'
+import {
+  enumColumn,
+  inspectEnterpriseMemory,
+  MEMORY_KINDS,
+  MEMORY_SCOPES,
+  planMemoryListFilters,
+  sessionTokenHash,
+  validatePrivateMemoryInput,
+} from '@deepseek-ai/dsh-enterprise-identity'
 import type { EnterpriseRole } from '@deepseek-ai/dsh-enterprise-governance'
 import type { PostgresDatabase } from './types.ts'
 
@@ -95,13 +105,17 @@ interface WorkspaceGrantRow extends Record<string, unknown> {
 interface MemoryRow extends Record<string, unknown> {
   readonly id: string
   readonly org_id: string
-  readonly scope_type: 'organization' | 'department'
+  readonly scope_type: unknown
   readonly department_id: string | null
-  readonly kind: EnterpriseMemoryEntry['kind']
+  readonly agent_employee_id: string | null
+  readonly pair_user_id: string | null
+  readonly kind: unknown
   readonly status: EnterpriseMemoryEntry['status']
   readonly summary: string
   readonly source_digest: string
   readonly privacy_findings: unknown
+  readonly importance: number | string | null
+  readonly last_access_at: number | string | null
   readonly created_by: string
   readonly reviewed_by: string | null
   readonly review_reason: string | null
@@ -634,6 +648,45 @@ export class PgEnterpriseIdentityRepository {
     })
   }
 
+  /** Writes one approved memory straight into a private compartment, bypassing review. The row id
+   * derives deterministically from the write tuple (`private-memory-<digest>`), so repeat and
+   * concurrent duplicate writes converge on one row.
+   * @param input - Input value used by this API.
+   * @returns The stored memory; the existing row when this exact source was written before.
+   */
+  async writePrivateMemory(input: WritePrivateMemoryInput): Promise<EnterpriseMemoryEntry> {
+    const { summary, findings, sourceDigest } = validatePrivateMemoryInput(input)
+    return this.transaction(async (database) => {
+      await this.assertMemoryReferences(database, input.orgId, input.createdBy)
+      // The scope predicate keeps a hypothetical digest collision in a shared compartment from
+      // satisfying a private write.
+      const existing = await database.query<MemoryRow>(`SELECT * FROM enterprise_memories
+        WHERE org_id = $1 AND source_digest = $2 AND scope_type IN ('agent', 'pair')`,
+      [input.orgId, sourceDigest])
+      const found = existing.rows[0]
+      if (found !== undefined) return this.memoryFromRow(found)
+      const at = this.now()
+      const result = await database.query<MemoryRow>(`INSERT INTO enterprise_memories(id, org_id, scope_type,
+        department_id, agent_employee_id, pair_user_id, kind, status, summary, source_digest, privacy_findings,
+        importance, last_access_at, created_by, reviewed_by, review_reason, revision, created_at, updated_at)
+        VALUES ($1, $2, $3, NULL, $4, $5, $6, 'approved', $7, $8, $9::jsonb, 0, NULL, $10, NULL, NULL, 1, $11, $11)
+        ON CONFLICT (id) DO NOTHING RETURNING *`,
+      [`private-memory-${sourceDigest}`, input.orgId, input.scope, input.agentEmployeeId ?? null,
+        input.pairUserId ?? null, input.kind, summary, sourceDigest, JSON.stringify(findings),
+        input.createdBy, at])
+      const row = result.rows[0]
+      if (row !== undefined) return this.memoryFromRow(row)
+      // A concurrent writer committed the same deterministic id between the lookup and the insert;
+      // the unique-index wait guarantees its row is committed and visible to the re-select.
+      const raced = await database.query<MemoryRow>(`SELECT * FROM enterprise_memories
+        WHERE org_id = $1 AND source_digest = $2 AND scope_type IN ('agent', 'pair')`,
+      [input.orgId, sourceDigest])
+      const winner = raced.rows[0]
+      if (winner === undefined) throw new Error('enterprise private memory write returned no row')
+      return this.memoryFromRow(winner)
+    })
+  }
+
   /** Executes `PgEnterpriseIdentityRepository.reviewMemory` for this instance.
    * @param input - Input value used by this API.
    * @returns Result produced by this API.
@@ -676,15 +729,59 @@ export class PgEnterpriseIdentityRepository {
     orgId: string
     departmentIds?: readonly string[]
     statuses?: readonly EnterpriseMemoryEntry['status'][]
+    scopes?: readonly MemoryScope[]
+    agentEmployeeId?: string
+    pairUserId?: string
   }): Promise<EnterpriseMemoryEntry[]> {
-    const departmentIds = [...new Set(input.departmentIds ?? [])]
-    const statuses = [...new Set(input.statuses ?? ['proposed', 'approved', 'rejected', 'retired'])]
-    if (statuses.length === 0) return []
+    const plan = planMemoryListFilters(input)
+    if (plan === undefined) return []
+    const values: unknown[] = [input.orgId]
+    let index = 2
+    const scopeAlternatives: string[] = ["scope_type = 'organization'"]
+    if (plan.scopes === undefined) {
+      if (plan.departmentIds.length > 0) {
+        scopeAlternatives.push(`department_id = ANY($${index}::text[])`)
+        values.push([...plan.departmentIds])
+        index += 1
+      }
+    } else {
+      scopeAlternatives.length = 0
+      scopeAlternatives.push(`scope_type = ANY($${index}::text[])`)
+      values.push([...plan.scopes])
+      index += 1
+    }
+    if (plan.includeAgentScope) scopeAlternatives.push("scope_type = 'agent'")
+    if (plan.includePairScope) scopeAlternatives.push("scope_type = 'pair'")
+    const scopeClause = scopeAlternatives.length === 1 ? scopeAlternatives[0] : `(${scopeAlternatives.join(' OR ')})`
+    const ownerClauses: string[] = []
+    if (input.agentEmployeeId !== undefined) {
+      ownerClauses.push(`agent_employee_id = $${index}`)
+      values.push(input.agentEmployeeId)
+      index += 1
+    }
+    if (input.pairUserId !== undefined) {
+      ownerClauses.push(`pair_user_id = $${index}`)
+      values.push(input.pairUserId)
+      index += 1
+    }
+    const statusIndex = index
+    values.push([...plan.statuses])
     const result = await this.database.query<MemoryRow>(`SELECT * FROM enterprise_memories
-      WHERE org_id = $1
-        AND (scope_type = 'organization' OR (cardinality($2::text[]) > 0 AND department_id = ANY($2::text[])))
-        AND status = ANY($3::text[]) ORDER BY updated_at DESC, id`, [input.orgId, departmentIds, statuses])
+      WHERE org_id = $1 AND ${scopeClause}
+        AND status = ANY($${statusIndex}::text[])${ownerClauses.length === 0 ? '' : ` AND ${ownerClauses.join(' AND ')}`}
+      ORDER BY updated_at DESC, id`, values)
     return result.rows.map(row => this.memoryFromRow(row))
+  }
+
+  /** Records the last access time on one memory.
+   * @param id - Memory id whose access is recorded.
+   * @param at - Access time in epoch milliseconds.
+   */
+  async touchMemoryAccess(id: string, at: number): Promise<void> {
+    const result = await this.database.query(
+      'UPDATE enterprise_memories SET last_access_at = $1 WHERE id = $2', [at, id],
+    )
+    if (result.rowCount === 0) throw new Error('enterprise memory is missing')
   }
 
   private async assertMemoryReferences(
@@ -705,18 +802,27 @@ export class PgEnterpriseIdentityRepository {
     }
   }
 
+  /* jscpd:ignore-start */
+  // The row mapping mirrors the SQLite store on purpose: both implementations keep the same
+  // memory columns and semantics so the two stores stay interchangeable.
   private memoryFromRow(row: MemoryRow): EnterpriseMemoryEntry {
     return {
-      id: row.id, orgId: row.org_id, scope: row.scope_type,
+      id: row.id, orgId: row.org_id, scope: enumColumn(row, 'scope_type', MEMORY_SCOPES),
       ...(row.department_id === null ? {} : { departmentId: row.department_id }),
-      kind: row.kind, status: row.status, summary: row.summary, sourceDigest: row.source_digest,
+      ...(row.agent_employee_id === null ? {} : { agentEmployeeId: row.agent_employee_id }),
+      ...(row.pair_user_id === null ? {} : { pairUserId: row.pair_user_id }),
+      kind: enumColumn(row, 'kind', MEMORY_KINDS),
+      status: row.status, summary: row.summary, sourceDigest: row.source_digest,
       privacyFindings: safeStringArray(row.privacy_findings) as EnterpriseMemoryPrivacyFinding[],
+      importance: row.importance === null ? 0 : Number(row.importance),
+      ...(row.last_access_at === null ? {} : { lastAccessAt: Number(row.last_access_at) }),
       createdBy: row.created_by,
       ...(row.reviewed_by === null ? {} : { reviewedBy: row.reviewed_by }),
       ...(row.review_reason === null ? {} : { reviewReason: row.review_reason }),
       revision: Number(row.revision), createdAt: Number(row.created_at), updatedAt: Number(row.updated_at),
     }
   }
+  /* jscpd:ignore-end */
 
   /** Executes `PgEnterpriseIdentityRepository.setPasswordVerifier` for this instance.
    * @param userId - Input value used by this API.

@@ -96,6 +96,7 @@ const BASE_STATE: EnterpriseWorkbenchState = {
   open: true, phase: 'ready', mode: 'fallback', page: 'employees', view: VIEW,
   error: null, busyEmployee: null, employeeFilters: {}, employees: EMPTY_PAGE,
   staff: { phase: 'idle', list: [], error: null, sending: false, sendError: null },
+  staffMemories: { phase: 'idle', entries: [], error: null },
   workRecords: EMPTY_PAGE, approvals: EMPTY_PAGE, schedules: EMPTY_PAGE,
   assets: EMPTY_PAGE, teams: EMPTY_PAGE,
   channels: EMPTY_PAGE,
@@ -125,6 +126,9 @@ function workbenchProps(overrides: Partial<EnterpriseWorkbenchProps> & {
     loadEmployees: vi.fn(() => Promise.resolve(true)),
     sendMessage: vi.fn(() => Promise.resolve(true)),
     selectEmployee: vi.fn(),
+    loadEmployeeMemories: vi.fn(() => Promise.resolve(true)),
+    reviewEmployeeMemory: vi.fn(() => Promise.resolve(true)),
+    retireEmployeeMemory: vi.fn(() => Promise.resolve(true)),
     prepareWork: vi.fn(() => Promise.resolve({ kind: 'needs-workspace-selection', availableWorkspaceIds: [] })),
     startPreparedWork: vi.fn(() => Promise.resolve({ sessionId: 'session-created', workspaceId: 'workspace-1', employeeReleaseId: 'release-1', executionSummary: 'Ready.' })),
     openRecord: vi.fn(),
@@ -200,7 +204,7 @@ describe('EnterpriseWorkbench', () => {
     expect(screen.getByTestId('employee-channel-panel').textContent)
       .toBe('新媒体员工:media-operator:release-media-v1')
     expect(renderSlot).toHaveBeenLastCalledWith('enterprise.employee-channels', expect.objectContaining({
-      employee: expect.objectContaining({ presetId: 'media-operator', releaseId: 'release-media-v1' }),
+      employee: expect.objectContaining({ presetId: 'media-operator', releaseId: 'release-media-v1' }) as unknown,
     }), expect.any(Object))
   })
 
@@ -1238,7 +1242,7 @@ describe('EnterpriseWorkbench', () => {
 
     await waitFor(() => { expect(saveTeamDefinitionDraft).toHaveBeenCalledOnce() })
     expect(saveTeamDefinitionDraft).toHaveBeenCalledWith(expect.objectContaining({
-      teamId: expect.stringMatching(/^team-/u), name: '采购协同组', ownerUserId: 'owner-1',
+      teamId: expect.stringMatching(/^team-/u) as unknown, name: '采购协同组', ownerUserId: 'owner-1',
       state: 'needs-charter', expectedRevision: 0,
       attentionPolicy: { decisionQueue: 'centralized' },
     }))
@@ -1290,8 +1294,8 @@ describe('EnterpriseWorkbench', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '完善章程' }))
     expect(screen.getByRole('heading', { name: '完善团队章程' })).toBeDefined()
-    expect((screen.getByLabelText('Human 负责人') as HTMLInputElement).value).toBe('')
-    expect((screen.getByLabelText('领队 Agent') as HTMLSelectElement).value).toBe('release-lead-old')
+    expect(screen.getByLabelText<HTMLInputElement>('Human 负责人').value).toBe('')
+    expect(screen.getByLabelText<HTMLSelectElement>('领队 Agent').value).toBe('release-lead-old')
     fireEvent.change(screen.getByLabelText('北极星目标'), { target: { value: '让每次采购交付都可验证、可追溯' } })
     fireEvent.change(screen.getByLabelText('Human 负责人'), { target: { value: 'owner-1' } })
     fireEvent.change(screen.getByLabelText('Agent lead 职责说明'), { target: { value: '拆解工作并持续汇报' } })
@@ -1307,10 +1311,10 @@ describe('EnterpriseWorkbench', () => {
         { actor: { kind: 'human', userId: 'owner-1' }, roleId: 'owner' },
         { actor: { kind: 'agent', employeeReleaseId: 'release-lead-old' }, roleId: 'lead' },
         { actor: { kind: 'agent', employeeReleaseId: 'release-verifier' }, roleId: 'verifier' },
-      ]),
+      ]) as unknown,
       verificationPolicy: expect.objectContaining({
         verifierRequired: true, rubricRefs: ['来源可追溯', '金额复核通过'], highRiskHumanReviewRequired: true,
-      }),
+      }) as unknown,
     }))
     expect(publishTeamDefinitionDraft).toHaveBeenCalledWith({ teamId: 'team-migrated', expectedRevision: 2 })
   })
@@ -1349,11 +1353,11 @@ describe('EnterpriseWorkbench', () => {
     fireEvent.change(screen.getByLabelText('团队名称'), { target: { value: '本地未保存名称' } })
 
     rerender(<EnterpriseWorkbench {...props({ ...baseDefinition, name: '服务器新版本', revision: 2 })}/>)
-    expect((screen.getByLabelText('团队名称') as HTMLInputElement).value).toBe('本地未保存名称')
+    expect(screen.getByLabelText<HTMLInputElement>('团队名称').value).toBe('本地未保存名称')
     expect(screen.getByText('服务器已有更新版本')).toBeDefined()
     vi.spyOn(window, 'confirm').mockReturnValue(true)
     fireEvent.click(screen.getByRole('button', { name: '载入服务器版本' }))
-    expect((screen.getByLabelText('团队名称') as HTMLInputElement).value).toBe('服务器新版本')
+    expect(screen.getByLabelText<HTMLInputElement>('团队名称').value).toBe('服务器新版本')
     fireEvent.change(screen.getByLabelText('Human 负责人'), { target: { value: 'owner-1' } })
     fireEvent.change(screen.getByLabelText('协调者 职责说明'), { target: { value: '协调既有流程' } })
     fireEvent.click(screen.getByText('注意力与并发上限'))
@@ -1366,12 +1370,12 @@ describe('EnterpriseWorkbench', () => {
       roster: expect.arrayContaining([
         { actor: { kind: 'human', userId: 'observer-1' }, roleId: 'observer' },
         { actor: { kind: 'agent', employeeReleaseId: 'release-lead' }, roleId: 'coordinator' },
-      ]),
+      ]) as unknown,
       roles: expect.arrayContaining([
         { roleId: 'observer', name: '观察员', responsibility: '监督业务边界' },
         { roleId: 'coordinator', name: '协调者', responsibility: '协调既有流程' },
-      ]),
-      approvalPolicy: expect.objectContaining({ retainCustomGate: true }),
+      ]) as unknown,
+      approvalPolicy: expect.objectContaining({ retainCustomGate: true }) as unknown,
     }))
     expect(saveTeamDefinitionDraft.mock.calls[0]![0].attentionPolicy).not.toHaveProperty('openDecisionLimit')
   })
@@ -1832,7 +1836,7 @@ describe('EnterpriseWorkbench', () => {
     expect(screen.getByTestId('knowledge-core')).toBeDefined()
     expect(screen.queryByText('还没有知识资产')).toBeNull()
     expect(renderSlot).toHaveBeenCalledWith('enterprise.knowledge-assets', expect.objectContaining({
-      onCountChange: expect.any(Function),
+      onCountChange: expect.any(Function) as unknown,
     }), expect.any(Object))
 
     act(() => { knowledgeOwner?.onCountChange(4) })
@@ -2241,7 +2245,9 @@ describe('EnterpriseWorkbench', () => {
 
     await waitFor(() => { expect(startPreparedWork).toHaveBeenCalledOnce() })
     expect(prepareWork).toHaveBeenCalledWith(expect.objectContaining({ objective: '核验本周供应商报价' }))
-    expect(startPreparedWork).toHaveBeenCalledWith(expect.objectContaining({ idempotencyKey: expect.stringMatching(/^enterprise-work:/u) }))
+    expect(startPreparedWork).toHaveBeenCalledWith(expect.objectContaining({
+      idempotencyKey: expect.stringMatching(/^enterprise-work:/u) as unknown,
+    }))
     expect(openRecord).toHaveBeenCalledWith('session-created')
     expect(close).toHaveBeenCalledOnce()
     expect(screen.queryByText('workspace-1')).toBeNull()

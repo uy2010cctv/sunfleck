@@ -11,7 +11,7 @@ import {
 import {
   EnterpriseMemoryWritebackRepository, type MemoryWritebackDatabase, type MemoryWritebackView,
 } from './writeback-repository.ts'
-import { processMemoryWriteback, type MemoryWritebackJob, type MemoryWritebackResult } from './writeback-worker.ts'
+import { processMemoryWriteback, type MemoryWritebackJob, type MemoryWritebackResult, type PrivateMemoryActor } from './writeback-worker.ts'
 
 declare module '@deepseek-ai/cordis' {
   interface Context { enterpriseMemoryWriteback: EnterpriseMemoryWritebackRuntime }
@@ -132,6 +132,8 @@ export class EnterpriseMemoryWritebackRuntime {
         return values.filter(memory => memory.scope === scope)
       },
       extract: (value, existing) => this.extract(value, existing),
+      writePrivateMemory: input => Promise.resolve(this.identity.writePrivateMemory(input)),
+      resolvePrivateMemoryActor: sessionId => Promise.resolve(this.resolvePrivateMemoryActor(sessionId)),
       propose: input => Promise.resolve(this.identity.proposeMemory(input)),
       approve: (memory, reason) => Promise.resolve(this.identity.reviewMemory({
         id: memory.id, orgId: job.orgId, decision: 'approved', reviewedBy: job.actorUserId,
@@ -165,6 +167,19 @@ export class EnterpriseMemoryWritebackRuntime {
     const finish = chunks.findLast(chunk => chunk.type === 'finish')
     if (finish?.reason?.kind !== 'stop') throw new Error(`enterprise memory extractor ended with ${finish?.reason?.kind ?? 'no finish'}`)
     return parseExtractionOutput(textFromStream(chunks))
+  }
+
+  /**
+   * Resolve the private-memory actor for one session through the employee-account service, kept
+   * optional because compositions without persistent employees do not mount it. An absent service
+   * or unanchored session resolves to undefined, and the worker skips private-target candidates
+   * with the ordinary skip count instead of failing the job.
+   */
+  private resolvePrivateMemoryActor(sessionId: string): PrivateMemoryActor | undefined {
+    const accounts = (this.ctx.get.bind(this.ctx) as (name: string) => unknown)('employeeAccounts') as
+      | { resolveSessionActor(sessionId: string): PrivateMemoryActor | undefined }
+      | undefined
+    return accounts?.resolveSessionActor(sessionId)
   }
 
   async close(): Promise<void> {

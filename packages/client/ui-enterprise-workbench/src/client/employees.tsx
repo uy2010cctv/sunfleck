@@ -1,9 +1,11 @@
 /** Persistent employee directory with one direct-message entry, rendered with the workbench row primitives. */
 import { useEffect, useState } from 'react'
 import { IconUserOutline16, IconWarningOutline16, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
+import type { StateDotState } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { EnterpriseWorkbenchKey } from './locales.ts'
 import type {
-  EmployeeSendError, EmployeeSummary, EmployeeSummaryState, EnterpriseStaffState,
+  EmployeeMemoryEntryView, EmployeeSendError, EmployeeSummary, EmployeeSummaryState,
+  EnterpriseStaffMemoriesState, EnterpriseStaffState,
 } from './store.ts'
 import css from './EnterpriseWorkbench.module.css'
 
@@ -21,6 +23,40 @@ function staffDot(state: EmployeeSummaryState): 'ongoing' | 'warning' | 'idle' {
   return state === 'suspended' ? 'warning' : 'idle'
 }
 
+/** Compartments the governance view counts as dots, in display order. */
+const MEMORY_SCOPES = ['organization', 'department', 'agent'] as const
+type MemoryDotScope = (typeof MEMORY_SCOPES)[number]
+
+const MEMORY_SCOPE_DOTS: Record<MemoryDotScope, StateDotState> = {
+  organization: 'ongoing',
+  department: 'done',
+  agent: 'idle',
+}
+
+const MEMORY_SCOPE_KEYS: Record<MemoryDotScope, EnterpriseWorkbenchKey> = {
+  organization: 'staff.memoryScope.organization',
+  department: 'staff.memoryScope.department',
+  agent: 'staff.memoryScope.agent',
+}
+
+/** Employee row and memory-slice callbacks shared by the detail view and its memory section. */
+type EmployeeMemoryViewProps = {
+  employee: EmployeeSummary
+  memories: EnterpriseStaffMemoriesState
+  loadEmployeeMemories: (employeeId: string) => Promise<boolean>
+  reviewEmployeeMemory: (
+    employeeId: string, memoryId: string, decision: 'approved' | 'rejected', revision: number,
+  ) => Promise<boolean>
+  retireEmployeeMemory: (employeeId: string, memoryId: string, revision: number) => Promise<boolean>
+}
+
+const MEMORY_STATUS_KEYS: Record<EmployeeMemoryEntryView['status'], EnterpriseWorkbenchKey> = {
+  proposed: 'staff.memoryStatus.proposed',
+  approved: 'staff.memoryStatus.approved',
+  rejected: 'staff.memoryStatus.rejected',
+  retired: 'staff.memoryStatus.retired',
+}
+
 function EmployeeStatus({ state, className, t }: {
   state: EmployeeSummaryState
   className: string | undefined
@@ -33,8 +69,100 @@ function EmployeeStatus({ state, className, t }: {
   </span>
 }
 
-function EmployeeDetail({ employee, sendMessage, selectEmployee, sending, sendError, t }: {
-  employee: EmployeeSummary
+function memoryDays(createdAt: number): number {
+  return Math.max(0, Math.floor((Date.now() - createdAt) / 86_400_000))
+}
+
+/** Compartment dots: approved entries per scope, plus the proposed-review queue count. */
+function MemoryDots({ entries, t }: {
+  entries: readonly EmployeeMemoryEntryView[]
+  t: Translate
+}) {
+  const counts: Record<MemoryDotScope, number> = { organization: 0, department: 0, agent: 0 }
+  let proposed = 0
+  for (const entry of entries) {
+    if (entry.status === 'proposed') proposed += 1
+    else if (entry.status === 'approved' && entry.scope !== 'pair' && entry.scope !== 'project') {
+      counts[entry.scope] += 1
+    }
+  }
+  return <div className={css.memoryDots} aria-label={t('staff.memoryAria')}>
+    {MEMORY_SCOPES.map(scope => <span key={scope} role="img"
+      aria-label={t(MEMORY_SCOPE_KEYS[scope], { count: counts[scope] })}>
+      <StateDot state={MEMORY_SCOPE_DOTS[scope]}/><span>{counts[scope]}</span>
+    </span>)}
+    <span role="img" aria-label={t('staff.memoryQueue', { count: proposed })}>
+      <StateDot state="warning"/><span>{proposed}</span>
+    </span>
+  </div>
+}
+
+function MemoryRow({ employeeId, entry, reviewEmployeeMemory, retireEmployeeMemory, t }: {
+  employeeId: string
+  entry: EmployeeMemoryEntryView
+  reviewEmployeeMemory: (
+    employeeId: string, memoryId: string, decision: 'approved' | 'rejected', revision: number,
+  ) => Promise<boolean>
+  retireEmployeeMemory: (employeeId: string, memoryId: string, revision: number) => Promise<boolean>
+  t: Translate
+}) {
+  const shared = entry.scope === 'organization' || entry.scope === 'department' || entry.scope === 'agent'
+  const dot = shared ? MEMORY_SCOPE_DOTS[entry.scope] : 'idle'
+  // The row dot is decorative; the dots row and the summary text carry the accessible names.
+  return <li className={css.memoryRow}>
+    <span aria-hidden="true"><StateDot state={dot}/></span>
+    <span className={css.memorySummary}>{entry.summary}</span>
+    <span className={css.memoryStatus} data-status={entry.status}>{t(MEMORY_STATUS_KEYS[entry.status])}</span>
+    <span className={css.memoryAge}>{t('staff.memoryAge', { count: memoryDays(entry.createdAt) })}</span>
+    {entry.status === 'proposed' && <>
+      <button type="button" className={css.secondaryButton}
+        aria-label={t('staff.memoryApproveAria', { summary: entry.summary })}
+        onClick={() => { void reviewEmployeeMemory(employeeId, entry.id, 'approved', entry.revision) }}>
+        {t('staff.memoryApprove')}
+      </button>
+      <button type="button" className={css.secondaryButton}
+        aria-label={t('staff.memoryRejectAria', { summary: entry.summary })}
+        onClick={() => { void reviewEmployeeMemory(employeeId, entry.id, 'rejected', entry.revision) }}>
+        {t('staff.memoryReject')}
+      </button>
+    </>}
+    {entry.status === 'approved' && entry.scope === 'agent' && <button type="button" className={css.secondaryButton}
+      aria-label={t('staff.memoryRetireAria', { summary: entry.summary })}
+      onClick={() => { void retireEmployeeMemory(employeeId, entry.id, entry.revision) }}>
+      {t('staff.memoryRetire')}
+    </button>}
+  </li>
+}
+
+function EmployeeMemorySection({
+  employee, memories, loadEmployeeMemories, reviewEmployeeMemory, retireEmployeeMemory, t,
+}: EmployeeMemoryViewProps & { t: Translate }) {
+  useEffect(() => {
+    void loadEmployeeMemories(employee.id)
+  }, [employee.id, loadEmployeeMemories])
+  return <>
+    <MemoryDots entries={memories.entries} t={t}/>
+    {memories.phase === 'error'
+      ? <div className={css.inlineError} role="alert">
+        <strong>{t('staff.memoryLoadError')}</strong><span>{memories.error}</span>
+        <button type="button" className={css.secondaryButton}
+          onClick={() => { void loadEmployeeMemories(employee.id) }}>{t('retry')}</button>
+      </div>
+      : memories.phase === 'idle' || memories.phase === 'loading'
+        ? <p className={css.description}>{t('staff.memoryLoading')}</p>
+        : memories.entries.length === 0
+          ? <p className={css.description}>{t('staff.memoryEmpty')}</p>
+          : <ul className={css.memoryList}>
+            {memories.entries.map(entry => <MemoryRow key={entry.id} employeeId={employee.id} entry={entry}
+              reviewEmployeeMemory={reviewEmployeeMemory} retireEmployeeMemory={retireEmployeeMemory} t={t}/>)}
+          </ul>}
+  </>
+}
+
+function EmployeeDetail({
+  employee, memories, loadEmployeeMemories, reviewEmployeeMemory, retireEmployeeMemory,
+  sendMessage, selectEmployee, sending, sendError, t,
+}: EmployeeMemoryViewProps & {
   sendMessage: (employeeId: string, text: string) => Promise<boolean>
   selectEmployee: (employeeId?: string) => void
   sending: boolean
@@ -60,9 +188,14 @@ function EmployeeDetail({ employee, sendMessage, selectEmployee, sending, sendEr
         <EmployeeStatus state={employee.state} className={css.status} t={t}/>
       </div>
       <p className={css.description}>{t('staff.roleCardValue', { value: employee.roleCard })}</p>
-      <div className={css.assetStats} aria-label={t('staff.memoryAria')}>
-        <span>{t('staff.memory', { count: t('staff.memoryPlaceholder') })}</span>
-      </div>
+      <EmployeeMemorySection
+        employee={employee}
+        memories={memories}
+        loadEmployeeMemories={loadEmployeeMemories}
+        reviewEmployeeMemory={reviewEmployeeMemory}
+        retireEmployeeMemory={retireEmployeeMemory}
+        t={t}
+      />
       {sendError !== null && <div className={css.inlineError} role="alert">
         {t(`staff.sendError.${sendError}`, { name: employee.displayName })}
       </div>}
@@ -88,14 +221,24 @@ function EmployeeDetail({ employee, sendMessage, selectEmployee, sending, sendEr
 
 export interface EmployeeDirectoryProps {
   readonly staff: EnterpriseStaffState
+  readonly memories: EnterpriseStaffMemoriesState
   readonly loadEmployees: () => Promise<boolean>
+  readonly loadEmployeeMemories: (employeeId: string) => Promise<boolean>
+  readonly reviewEmployeeMemory: (
+    employeeId: string, memoryId: string, decision: 'approved' | 'rejected', revision: number,
+  ) => Promise<boolean>
+  readonly retireEmployeeMemory: (employeeId: string, memoryId: string, revision: number) => Promise<boolean>
   readonly sendMessage: (employeeId: string, text: string) => Promise<boolean>
   readonly selectEmployee: (employeeId?: string) => void
   readonly t: Translate
 }
 
 /** Persistent employee list where one selected row opens the detail pane with the dm entry. */
-export function EmployeeDirectory({ staff, loadEmployees, sendMessage, selectEmployee, t }: EmployeeDirectoryProps) {
+export function EmployeeDirectory(props: EmployeeDirectoryProps) {
+  const {
+    staff, memories, loadEmployees, loadEmployeeMemories, reviewEmployeeMemory,
+    retireEmployeeMemory, sendMessage, selectEmployee, t,
+  } = props
   useEffect(() => {
     if (staff.phase === 'idle') void loadEmployees()
   }, [staff.phase, loadEmployees])
@@ -111,6 +254,10 @@ export function EmployeeDirectory({ staff, loadEmployees, sendMessage, selectEmp
     </div>
       : selected !== undefined ? <EmployeeDetail
         employee={selected}
+        memories={memories}
+        loadEmployeeMemories={loadEmployeeMemories}
+        reviewEmployeeMemory={reviewEmployeeMemory}
+        retireEmployeeMemory={retireEmployeeMemory}
         sendMessage={sendMessage}
         selectEmployee={selectEmployee}
         sending={staff.sending}

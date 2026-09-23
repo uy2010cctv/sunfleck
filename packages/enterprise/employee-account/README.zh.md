@@ -39,7 +39,7 @@ kind: "package-reference"
 |---|---|---|
 | `database` | 必填 | 服务读写的企业身份数据库（已完成迁移） |
 
-`create` 在执行任何 SQL 之前拒绝空 `displayName`、空 `roleCard` 与相对路径 `homeWorkspacePath`（`TypeError`）；`setState` 拒绝对 archived 账号的任何变更，并在错误信息中带上当前状态；`claim` 将 `limit` 原样透传给 store。
+`create` 在执行任何 SQL 之前拒绝空 `displayName`、空 `roleCard` 与相对路径 `homeWorkspacePath`（`TypeError`）；`setState` 拒绝对 archived 账号的任何变更，并在错误信息中带上当前状态；`claim` 将 `limit` 原样透传给 store；`resolveSessionActor` 返回锚定会话的 surface 所在组织、用户与员工，无 surface 锚定时返回 undefined。
 
 -----
 

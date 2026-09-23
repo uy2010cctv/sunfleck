@@ -3,7 +3,39 @@
 import type { DatabaseSync } from 'node:sqlite'
 
 /** Value exported as `ENTERPRISE_IDENTITY_SCHEMA_VERSION`. */
-export const ENTERPRISE_IDENTITY_SCHEMA_VERSION = 6
+export const ENTERPRISE_IDENTITY_SCHEMA_VERSION = 7
+
+/** Column and CHECK definition shared by the create-path and rebuild-path `enterprise_memories` DDL. */
+const ENTERPRISE_MEMORIES_COLUMNS = `
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      scope_type TEXT NOT NULL CHECK (scope_type IN ('organization', 'department', 'project', 'agent', 'pair')),
+      department_id TEXT REFERENCES departments(id) ON DELETE CASCADE,
+      -- agent_employee_id and pair_user_id carry no FOREIGN KEY: employee accounts live in this
+      -- SQLite identity store only, so the PostgreSQL mirror cannot reference them; the service
+      -- layer owns their referential checks.
+      agent_employee_id TEXT,
+      pair_user_id TEXT,
+      kind TEXT NOT NULL CHECK (kind IN ('business-fact', 'process', 'terminology', 'decision', 'preference')),
+      status TEXT NOT NULL CHECK (status IN ('proposed', 'approved', 'rejected', 'retired')),
+      summary TEXT NOT NULL,
+      source_digest TEXT NOT NULL,
+      privacy_findings TEXT NOT NULL,
+      importance REAL NOT NULL DEFAULT 0,
+      last_access_at INTEGER,
+      created_by TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+      reviewed_by TEXT REFERENCES users(id) ON DELETE RESTRICT,
+      review_reason TEXT,
+      revision INTEGER NOT NULL,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      CHECK (
+        (scope_type = 'organization' AND department_id IS NULL AND agent_employee_id IS NULL AND pair_user_id IS NULL)
+        OR (scope_type = 'department' AND department_id IS NOT NULL AND agent_employee_id IS NULL AND pair_user_id IS NULL)
+        OR (scope_type = 'project' AND department_id IS NULL AND agent_employee_id IS NULL AND pair_user_id IS NULL)
+        OR (scope_type = 'agent' AND agent_employee_id IS NOT NULL AND department_id IS NULL AND pair_user_id IS NULL)
+        OR (scope_type = 'pair' AND pair_user_id IS NOT NULL AND department_id IS NULL AND agent_employee_id IS NULL)
+      )`
 
 /** Create or validate the enterprise identity schema.
  * @param database - Input value used by this API.
@@ -118,24 +150,7 @@ export function migrateEnterpriseIdentity(database: DatabaseSync): void {
     ) STRICT;
     CREATE INDEX IF NOT EXISTS enterprise_workspace_grants_org_kind
       ON enterprise_workspace_grants(org_id, kind, name, workspace_id);
-    CREATE TABLE IF NOT EXISTS enterprise_memories (
-      id TEXT PRIMARY KEY,
-      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
-      scope_type TEXT NOT NULL CHECK (scope_type IN ('organization', 'department')),
-      department_id TEXT REFERENCES departments(id) ON DELETE CASCADE,
-      kind TEXT NOT NULL CHECK (kind IN ('business-fact', 'process', 'terminology', 'decision')),
-      status TEXT NOT NULL CHECK (status IN ('proposed', 'approved', 'rejected', 'retired')),
-      summary TEXT NOT NULL,
-      source_digest TEXT NOT NULL,
-      privacy_findings TEXT NOT NULL,
-      created_by TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
-      reviewed_by TEXT REFERENCES users(id) ON DELETE RESTRICT,
-      review_reason TEXT,
-      revision INTEGER NOT NULL,
-      created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL,
-      CHECK ((scope_type = 'organization' AND department_id IS NULL)
-        OR (scope_type = 'department' AND department_id IS NOT NULL))
+    CREATE TABLE IF NOT EXISTS enterprise_memories (${ENTERPRISE_MEMORIES_COLUMNS}
     ) STRICT;
     CREATE INDEX IF NOT EXISTS enterprise_memories_scope_status
       ON enterprise_memories(org_id, scope_type, department_id, status, updated_at DESC, id);
@@ -197,9 +212,15 @@ export function migrateEnterpriseIdentity(database: DatabaseSync): void {
     database.exec('ALTER TABLE users ADD COLUMN department_revision INTEGER NOT NULL DEFAULT 0')
     database.prepare("UPDATE enterprise_meta SET value = ? WHERE key = 'schema-version'")
       .run(String(ENTERPRISE_IDENTITY_SCHEMA_VERSION))
-  // Versions 2, 3, and 5 differ from current only by additive tables that the IF NOT EXISTS
-  // DDL above already created; restamping the recorded version completes their migration.
-  } else if (Number(version.value) === 2 || Number(version.value) === 3 || Number(version.value) === 5) {
+  // Version 2 predates enterprise_memories, so the IF NOT EXISTS DDL above already created it at
+  // the current shape; restamping the recorded version completes the migration.
+  } else if (Number(version.value) === 2) {
+    database.prepare("UPDATE enterprise_meta SET value = ? WHERE key = 'schema-version'")
+      .run(String(ENTERPRISE_IDENTITY_SCHEMA_VERSION))
+  // Versions 3, 5, and 6 carry the v3-era enterprise_memories CHECKs, which SQLite cannot widen in
+  // place; the rebuild copies every row into the current table shape.
+  } else if (Number(version.value) === 3 || Number(version.value) === 5 || Number(version.value) === 6) {
+    rebuildEnterpriseMemories(database)
     database.prepare("UPDATE enterprise_meta SET value = ? WHERE key = 'schema-version'")
       .run(String(ENTERPRISE_IDENTITY_SCHEMA_VERSION))
   } else if (Number(version.value) === 4) {
@@ -208,6 +229,7 @@ export function migrateEnterpriseIdentity(database: DatabaseSync): void {
       SET owner_user_id = (SELECT owner_user_id FROM enterprise_workspace_grants workspace
         WHERE workspace.workspace_id = enterprise_session_workspaces.workspace_id)
       WHERE owner_user_id IS NULL`)
+    rebuildEnterpriseMemories(database)
     database.prepare("UPDATE enterprise_meta SET value = ? WHERE key = 'schema-version'")
       .run(String(ENTERPRISE_IDENTITY_SCHEMA_VERSION))
   } else if (Number(version.value) !== ENTERPRISE_IDENTITY_SCHEMA_VERSION) {
@@ -215,4 +237,24 @@ export function migrateEnterpriseIdentity(database: DatabaseSync): void {
       `enterprise identity schema version ${version.value} is not supported; expected ${String(ENTERPRISE_IDENTITY_SCHEMA_VERSION)}`,
     )
   }
+}
+
+/** Rebuild enterprise_memories in place to the current CHECK set and columns. SQLite cannot widen a
+ * CHECK, so every row is copied into a fresh table and the old one dropped; no table references
+ * enterprise_memories, and columns added after v3 take their defaults during the copy. */
+function rebuildEnterpriseMemories(database: DatabaseSync): void {
+  database.exec(`
+    CREATE TABLE enterprise_memories_rebuild (${ENTERPRISE_MEMORIES_COLUMNS}
+    ) STRICT;
+    INSERT INTO enterprise_memories_rebuild(id, org_id, scope_type, department_id, kind, status,
+      summary, source_digest, privacy_findings, created_by, reviewed_by, review_reason,
+      revision, created_at, updated_at)
+      SELECT id, org_id, scope_type, department_id, kind, status, summary, source_digest,
+        privacy_findings, created_by, reviewed_by, review_reason, revision, created_at, updated_at
+      FROM enterprise_memories;
+    DROP TABLE enterprise_memories;
+    ALTER TABLE enterprise_memories_rebuild RENAME TO enterprise_memories;
+    CREATE INDEX IF NOT EXISTS enterprise_memories_scope_status
+      ON enterprise_memories(org_id, scope_type, department_id, status, updated_at DESC, id);
+  `)
 }

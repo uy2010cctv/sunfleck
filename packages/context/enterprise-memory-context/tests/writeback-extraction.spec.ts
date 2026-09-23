@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import { MessageId } from '@deepseek-ai/dsh-llm'
-import { captureMemoryTurn, parseExtractionOutput } from '../src/writeback-extraction.ts'
+import { captureMemoryTurn, EXTRACTION_SYSTEM_PROMPT, parseExtractionOutput } from '../src/writeback-extraction.ts'
 
 function completedTurn(): Session {
   const id = SessionId('memory-turn')
@@ -43,15 +43,31 @@ describe('enterprise memory turn extraction', () => {
     expect(captureMemoryTurn(session, 1, 2_000)).toBeUndefined()
   })
 
-  it('validates strict durable candidates and rejects unsafe or malformed output', () => {
+  it('validates strict durable candidates and rejects malformed output', () => {
     expect(parseExtractionOutput(JSON.stringify({ candidates: [{
-      action: 'create', scope: 'department', kind: 'process',
+      action: 'create', target: 'department', kind: 'process',
       summary: '月度报表须在每月 5 日前完成。', confidence: 0.96, reason: '用户明确确认',
-    }] }))).toEqual([{ action: 'create', scope: 'department', kind: 'process',
+    }] }))).toEqual([{ action: 'create', target: 'department', kind: 'process',
       summary: '月度报表须在每月 5 日前完成。', confidence: 0.96, reason: '用户明确确认' }])
-    expect(() => parseExtractionOutput('{"candidates":[{"action":"create","scope":"department"}]}')).toThrow(/candidate/iu)
+    expect(() => parseExtractionOutput('{"candidates":[{"action":"create","target":"department"}]}')).toThrow(/candidate/iu)
     expect(() => parseExtractionOutput(JSON.stringify({ candidates: [{
-      action: 'create', scope: 'department', kind: 'process', summary: 'password=abc123', confidence: 1, reason: 'x',
-    }] }))).toThrow(/privacy|credential/iu)
+      action: 'create', target: 'company', kind: 'process', summary: '月度报表。', confidence: 1, reason: 'x',
+    }] }))).toThrow(/candidate/iu)
+  })
+
+  it('defaults a missing target to private and keeps finding-bearing summaries for the worker policy', () => {
+    expect(parseExtractionOutput(JSON.stringify({ candidates: [{
+      action: 'skip', kind: 'decision', summary: '任务已完成。', confidence: 0.1, reason: '一次性输出',
+    }] }))).toEqual([{ action: 'skip', target: 'private', kind: 'decision',
+      summary: '任务已完成。', confidence: 0.1, reason: '一次性输出' }])
+    expect(parseExtractionOutput(JSON.stringify({ candidates: [{
+      action: 'create', target: 'organization', kind: 'process', summary: 'apiKey=sk-company-secret', confidence: 1, reason: 'x',
+    }] }))).toEqual([{ action: 'create', target: 'organization', kind: 'process',
+      summary: 'apiKey=sk-company-secret', confidence: 1, reason: 'x' }])
+  })
+
+  it('declares the target compartment contract to the extractor', () => {
+    expect(EXTRACTION_SYSTEM_PROMPT).toContain('"target":"private|organization|department|pair"')
+    expect(EXTRACTION_SYSTEM_PROMPT).toContain('Choose target private by default')
   })
 })

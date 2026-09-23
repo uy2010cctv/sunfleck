@@ -2,10 +2,12 @@
 
 export { ENTERPRISE_IDENTITY_SCHEMA_VERSION, migrateEnterpriseIdentity } from './schema.ts'
 export {
+  classifyPrivacyForScope,
   inspectEnterpriseMemory,
   memorySourceDigest,
   type EnterpriseMemoryInspection,
   type EnterpriseMemoryPrivacyFinding,
+  type EnterpriseMemoryScopeDecision,
 } from './memory-policy.ts'
 export {
   EnterpriseIdentityRepository,
@@ -29,7 +31,16 @@ export {
   type EnterpriseWorkspaceGrant,
   type SaveEnterpriseWorkspaceGrantInput,
   type EnterpriseMemoryEntry,
+  type MemoryKind,
+  type MemoryListFilterPlan,
+  MEMORY_KINDS,
+  MEMORY_SCOPES,
+  type MemoryScope,
+  planMemoryListFilters,
   type ProposeEnterpriseMemoryInput,
+  validatePrivateMemoryInput,
+  type ValidatedPrivateMemory,
+  type WritePrivateMemoryInput,
   type ReviewEnterpriseMemoryInput,
   type ExternalIdentityBinding,
   type RepositoryOptions,
@@ -41,10 +52,13 @@ export {
   createEmployee,
   enqueueInbox,
   ensureSurface,
+  employeeByHomeWorkspacePath,
+  enumColumn,
   failInboxItem,
   getEmployee,
   listEmployees,
   resolveSticky,
+  surfaceBySession,
   updateEmployeeState,
   type EmployeeAccountRow,
   type InboxRow,

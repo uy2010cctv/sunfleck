@@ -898,6 +898,9 @@ importers:
       '@deepseek-ai/dsh-enterprise-governance':
         specifier: workspace:^
         version: link:../../governance/enterprise-governance
+      '@deepseek-ai/dsh-enterprise-identity':
+        specifier: workspace:^
+        version: link:../../identity/enterprise-identity
       '@deepseek-ai/dsh-enterprise-operations':
         specifier: workspace:^
         version: link:../../operations/enterprise-operations
@@ -5187,9 +5190,15 @@ importers:
       '@deepseek-ai/dsh-agent':
         specifier: workspace:^
         version: link:../../core/agent
+      '@deepseek-ai/dsh-agent-loop':
+        specifier: workspace:^
+        version: link:../../core/agent-loop
       '@deepseek-ai/dsh-agent-presets':
         specifier: workspace:^
         version: link:../../preset/agent-presets
+      '@deepseek-ai/dsh-employee-account':
+        specifier: workspace:^
+        version: link:../../enterprise/employee-account
       '@deepseek-ai/dsh-enterprise-auth-web':
         specifier: workspace:^
         version: link:../../identity/enterprise-auth-web

@@ -51,8 +51,8 @@ const SURFACE_KINDS = ['dm'] as const
  * @param values - Closed value set the column may hold.
  * @returns The stored value narrowed to the closed set.
  */
-function enumColumn<T extends string>(row: Record<string, unknown>, column: string, values: readonly T[]): T {
-  const value = row[column]
+export function enumColumn<T extends string>(row: object, column: string, values: readonly T[]): T {
+  const value = (row as Record<string, unknown>)[column]
   if (!values.includes(value as T)) {
     throw new Error(`enterprise identity database contains an invalid ${column} value: ${String(value)}`)
   }
@@ -136,6 +136,25 @@ export function getEmployee(database: DatabaseSync, id: string): EmployeeAccount
   const row = database.prepare('SELECT * FROM employee_accounts WHERE id = ?').get(id) as
     | Record<string, unknown>
     | undefined
+  return row === undefined ? undefined : employeeFromRow(row)
+}
+
+/** Read the employee account whose home workspace is one path.
+ * @param database - Migrated enterprise identity database.
+ * @param homeWorkspacePath - Absolute home workspace path to look up.
+ * @returns The first non-archived stored account in insertion order, or undefined when only
+ * archived accounts claim that path. Matching is exact string equality on the stored column,
+ * mirroring `workspaceGrantByRootPath`; no path normalization runs on either side. Archived
+ * accounts are excluded so a retired employee cannot shadow an active account bound to the same
+ * home workspace.
+ */
+export function employeeByHomeWorkspacePath(
+  database: DatabaseSync,
+  homeWorkspacePath: string,
+): EmployeeAccountRow | undefined {
+  const row = database.prepare(
+    "SELECT * FROM employee_accounts WHERE home_workspace_path = ? AND state != 'archived'",
+  ).get(homeWorkspacePath) as Record<string, unknown> | undefined
   return row === undefined ? undefined : employeeFromRow(row)
 }
 
@@ -290,4 +309,16 @@ export function resolveSticky(database: DatabaseSync, orgId: string, actorKey: s
     'SELECT employee_id FROM sticky_bindings WHERE org_id = ? AND actor_key = ?',
   ).get(orgId, actorKey) as { employee_id: string } | undefined
   return row?.employee_id
+}
+
+/** Read the direct-message surface anchored to one live session.
+ * @param database - Migrated enterprise identity database.
+ * @param sessionId - Session id the surface was attached with `attachSurfaceSession`.
+ * @returns The surface row, or undefined when no surface anchors that session.
+ */
+export function surfaceBySession(database: DatabaseSync, sessionId: string): SurfaceRow | undefined {
+  const row = database.prepare('SELECT * FROM surfaces WHERE session_id = ?').get(sessionId) as
+    | Record<string, unknown>
+    | undefined
+  return row === undefined ? undefined : surfaceFromRow(row)
 }

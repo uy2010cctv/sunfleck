@@ -1,6 +1,7 @@
-/** Privacy and prompt-safety gate for shared enterprise memory candidates. */
+/** Privacy and prompt-safety gate for enterprise memory candidates. */
 
 import { createHash } from 'node:crypto'
+import type { MemoryScope } from './repository.ts'
 
 /** Allowed values for `EnterpriseMemoryPrivacyFinding`. */
 export type EnterpriseMemoryPrivacyFinding =
@@ -36,6 +37,38 @@ export function inspectEnterpriseMemory(summary: string): EnterpriseMemoryInspec
   if (summary.length > 2_000) findings.push('summary-too-long')
   for (const [finding, pattern] of RULES) if (pattern.test(summary)) findings.push(finding)
   return { allowed: findings.length === 0, findings }
+}
+
+/** Compartments whose memories reach people beyond their writer; `project` is stored from P1
+ * without writers yet and still counts as shared. */
+const SHARED_SCOPES: readonly MemoryScope[] = ['organization', 'department', 'project']
+/** Findings that block a memory write in every compartment. */
+const UNIVERSAL_BLOCKS: readonly EnterpriseMemoryPrivacyFinding[] = ['prompt-injection', 'summary-too-long']
+
+/** Data used by `EnterpriseMemoryScopeDecision`. */
+export interface EnterpriseMemoryScopeDecision {
+  /** Whether the content may be written into the requested scope. */
+  readonly allowed: boolean
+  /** Findings that blocked the write; empty when allowed. */
+  readonly blocked: readonly EnterpriseMemoryPrivacyFinding[]
+}
+
+/** Classify one memory candidate's findings against its target compartment. `prompt-injection` and
+ * `summary-too-long` block every scope. The shared scopes (organization, department, project) block
+ * every remaining finding too, so personal preferences and recorded personal data never enter
+ * shared memory, while the private `agent` and `pair` compartments record them without blocking.
+ * @param findings - Findings reported by `inspectEnterpriseMemory` for the candidate summary.
+ * @param scope - Compartment the candidate would be written into.
+ * @returns The write decision carrying the blocking findings.
+ */
+export function classifyPrivacyForScope(
+  findings: readonly EnterpriseMemoryPrivacyFinding[],
+  scope: MemoryScope,
+): EnterpriseMemoryScopeDecision {
+  const blocked = SHARED_SCOPES.includes(scope)
+    ? [...findings]
+    : findings.filter(finding => UNIVERSAL_BLOCKS.includes(finding))
+  return { allowed: blocked.length === 0, blocked }
 }
 
 /** Produce an immutable source reference without retaining the source body.

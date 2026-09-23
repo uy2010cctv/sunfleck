@@ -1,6 +1,6 @@
 import { DatabaseSync } from 'node:sqlite'
 import { Context } from '@deepseek-ai/cordis'
-import { ensureSurface, migrateEnterpriseIdentity } from '@deepseek-ai/dsh-enterprise-identity'
+import { attachSurfaceSession, ensureSurface, migrateEnterpriseIdentity } from '@deepseek-ai/dsh-enterprise-identity'
 import { describe, expect, it } from 'vitest'
 import { apply, employeeId, EmployeeAccountService, surfaceId } from '../src/index.ts'
 import type { EmployeeAccount, EmployeeId } from '../src/index.ts'
@@ -197,6 +197,23 @@ describe('EmployeeAccountService inbox', () => {
   })
 })
 
+describe('EmployeeAccountService.findByHomeWorkspacePath', () => {
+  it('reads the account claiming a home workspace and returns undefined for an unknown path', () => {
+    const { service } = makeService()
+    const support = service.create({
+      orgId: 'org-1', displayName: 'Support', roleCard: '客服助理', homeWorkspacePath: '/managed/employees/support',
+    })
+    service.create({
+      orgId: 'org-1', displayName: 'Billing', roleCard: '账务助理', homeWorkspacePath: '/managed/employees/billing',
+    })
+
+    expect(service.findByHomeWorkspacePath('/managed/employees/support')).toEqual(support)
+    // Exact string equality mirrors the workspace-grant root-path lookup; no normalization.
+    expect(service.findByHomeWorkspacePath('/managed/employees/support/')).toBeUndefined()
+    expect(service.findByHomeWorkspacePath('/managed/employees/missing')).toBeUndefined()
+  })
+})
+
 describe('employee-account plugin', () => {
   it('provides ctx.employeeAccounts over the configured database', () => {
     const database = makeDatabase()
@@ -208,5 +225,22 @@ describe('employee-account plugin', () => {
       orgId: 'org-1', displayName: 'Support', roleCard: '客服助理', homeWorkspacePath: '/managed/employees/support',
     })
     expect(ctx.employeeAccounts.get(account.id)?.id).toBe(account.id)
+  })
+})
+
+describe('EmployeeAccountService.resolveSessionActor', () => {
+  it('resolves the org, surface user, and employee from one anchored session', () => {
+    const { database, service } = makeService()
+    const account = createEmployeeWithSurface(service, database)
+    attachSurfaceSession(database, `surface-${account.id}`, 'session-1')
+
+    expect(service.resolveSessionActor('session-1')).toEqual({
+      orgId: 'org-1', userId: 'user-1', employeeId: account.id,
+    })
+  })
+
+  it('returns undefined for a session no surface anchors', () => {
+    const { service } = makeService()
+    expect(service.resolveSessionActor('session-unknown')).toBeUndefined()
   })
 })
