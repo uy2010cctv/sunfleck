@@ -189,6 +189,7 @@ import type {
   EnterpriseRecorderPairingRequest,
 } from './contract/devices.ts'
 import { DeviceAgentHttpHandler } from './device-agent-http.ts'
+import { EmployeeHttpHandler } from './employee-http.ts'
 
 export type * from './contract/index.ts'
 
@@ -2322,7 +2323,7 @@ function enterpriseFailure(
   return new RemoteError(code as never, message, { endpoint, resourceType, resourceId } as never)
 }
 
-async function deviceAgentRequest(req: IncomingMessage): Promise<Request> {
+async function enterpriseRequest(req: IncomingMessage): Promise<Request> {
   const chunks: Buffer[] = []
   let bytes = 0
   for await (const chunk of req) {
@@ -2340,7 +2341,7 @@ async function deviceAgentRequest(req: IncomingMessage): Promise<Request> {
   })
 }
 
-async function writeDeviceAgentResponse(res: ServerResponse, response: Response): Promise<void> {
+async function writeResponse(res: ServerResponse, response: Response): Promise<void> {
   res.writeHead(response.status, Object.fromEntries(response.headers.entries()))
   if (response.body === null) { res.end(); return }
   for await (const chunk of response.body) res.write(chunk)
@@ -2355,10 +2356,26 @@ export function apply(ctx: Context): void {
   ctx.effect(() => ctx.webServer.register({
     kind: 'prefix', path: '/device-agent/v1',
     handler: async (req, res) => {
-      try { await writeDeviceAgentResponse(res, await deviceAgent.fetch(await deviceAgentRequest(req))) }
-      catch { await writeDeviceAgentResponse(res, Response.json({ error: 'invalid-request' }, { status: 400 })) }
+      try { await writeResponse(res, await deviceAgent.fetch(await enterpriseRequest(req))) }
+      catch { await writeResponse(res, Response.json({ error: 'invalid-request' }, { status: 400 })) }
     },
   }), 'enterprise-device: signed device agent route')
+  ctx.effect(() => ctx.webServer.register({
+    kind: 'prefix', path: '/enterprise/employees',
+    handler: async (req, res) => {
+      // Composed plugins provide both keys (employee-http `inject`); without
+      // them the employee plane is absent and every route fails loud.
+      const accounts = ctx.get('employeeAccounts')
+      const surfaces = ctx.get('surfaces')
+      if (accounts === undefined || surfaces === undefined) {
+        await writeResponse(res, Response.json({ error: 'employee-plane-unavailable' }, { status: 503 }))
+        return
+      }
+      const employeeHttp = new EmployeeHttpHandler(accounts, surfaces, ctx.enterpriseSecurity)
+      try { await writeResponse(res, await employeeHttp.fetch(await enterpriseRequest(req))) }
+      catch { await writeResponse(res, Response.json({ error: 'invalid-request' }, { status: 400 })) }
+    },
+  }), 'enterprise-employee: authenticated employee dm routes')
   new EnterpriseDeviceController(ctx)
   new EnterpriseEmployeeController(ctx)
   new EnterpriseAssetController(ctx)

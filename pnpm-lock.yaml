@@ -883,6 +883,9 @@ importers:
       '@deepseek-ai/dsh-credentials':
         specifier: workspace:^
         version: link:../../credentials/credentials
+      '@deepseek-ai/dsh-employee-account':
+        specifier: workspace:^
+        version: link:../../enterprise/employee-account
       '@deepseek-ai/dsh-enterprise-auth-web':
         specifier: workspace:^
         version: link:../../identity/enterprise-auth-web
@@ -901,6 +904,9 @@ importers:
       '@deepseek-ai/dsh-enterprise-postgres':
         specifier: workspace:^
         version: link:../../enterprise/enterprise-postgres
+      '@deepseek-ai/dsh-enterprise-surface':
+        specifier: workspace:^
+        version: link:../../enterprise/enterprise-surface
       '@deepseek-ai/dsh-host-webserver':
         specifier: workspace:^
         version: link:../../host/webserver
