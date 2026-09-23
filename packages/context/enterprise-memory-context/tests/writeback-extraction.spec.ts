@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import { MessageId } from '@deepseek-ai/dsh-llm'
-import { captureMemoryTurn, EXTRACTION_SYSTEM_PROMPT, parseExtractionOutput } from '../src/writeback-extraction.ts'
+import { captureMemoryTurn, EXTRACTION_SYSTEM_PROMPT, parseExtractionOutput, unfenceModelJson } from '../src/writeback-extraction.ts'
 
 function completedTurn(): Session {
   const id = SessionId('memory-turn')
@@ -55,8 +55,13 @@ describe('enterprise memory turn extraction', () => {
     }] }))).toThrow(/candidate/iu)
   })
 
-  it('rejects non-JSON output, a non-array candidate list, and oversized batches', () => {
-    expect(() => parseExtractionOutput('not json at all')).toThrow(/not JSON/iu)
+  it('strips an optional code fence the model may wrap its JSON in', () => {
+    expect(unfenceModelJson('```json\n{"candidates":[]}\n```')).toBe('{"candidates":[]}')
+    expect(unfenceModelJson('```\n{"candidates":[]}\n```')).toBe('{"candidates":[]}')
+    expect(unfenceModelJson('  {"candidates":[]}  ')).toBe('{"candidates":[]}')
+  })
+
+  it('rejects non-JSON output, a non-array candidate list, and oversized batches', () => {    expect(() => parseExtractionOutput('not json at all')).toThrow(/not JSON/iu)
     expect(() => parseExtractionOutput('{"candidates":"x"}')).toThrow(/must be an array/iu)
     expect(() => parseExtractionOutput(JSON.stringify({ candidates: Array.from({ length: 9 }, () => ({
       action: 'skip', kind: 'decision', summary: 's', confidence: 0.1, reason: 'r',

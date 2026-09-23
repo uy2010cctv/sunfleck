@@ -53,6 +53,14 @@ export function textFromModelStream(chunks: readonly ModelStreamChunkView[]): st
     && typeof chunk.block.text === 'string' ? [chunk.block.text] : []).join('\n')
 }
 
+/** Strip the optional code fence a model may wrap its strict-JSON output in.
+ * @param output - complete visible model output.
+ * @returns the trimmed payload with a leading and trailing fence removed.
+ */
+export function unfenceModelJson(output: string): string {
+  return output.trim().replace(/^```(?:json)?\s*/iu, '').replace(/\s*```$/u, '')
+}
+
 /** Capture only direct user messages and the last visible assistant answer from one turn. */
 export function captureMemoryTurn(session: Session, turn: number, maxChars: number): MemoryTurnSnapshot | undefined {
   const events = session.snapshotEvents()
@@ -91,7 +99,7 @@ function record(value: unknown): Record<string, unknown> | undefined {
  * @returns Result produced by this API.
  */
 export function parseExtractionOutput(output: string): MemoryExtractionCandidate[] {
-  const unfenced = output.trim().replace(/^```(?:json)?\s*/iu, '').replace(/\s*```$/u, '')
+  const unfenced = unfenceModelJson(output)
   let parsed: unknown
   try { parsed = JSON.parse(unfenced) } catch { throw new Error('enterprise memory extraction output is not JSON') }
   const items = record(parsed)?.['candidates']

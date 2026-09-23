@@ -4,7 +4,7 @@ import type { EnterpriseMemoryEntry } from '@deepseek-ai/dsh-enterprise-identity
 import { classifyPrivacyForScope, inspectEnterpriseMemory } from '@deepseek-ai/dsh-enterprise-identity'
 import { createUserMessage, type GenerateOptions, type StreamChunk } from '@deepseek-ai/dsh-llm'
 import type { ConsolidationTunables } from './consolidation.ts'
-import { textFromModelStream, type ModelStreamChunkView } from './writeback-extraction.ts'
+import { textFromModelStream, unfenceModelJson, type ModelStreamChunkView } from './writeback-extraction.ts'
 
 /** Streaming surface of the harness `llm` service that consolidation refinement needs. */
 export interface ConsolidationLlm {
@@ -64,11 +64,6 @@ function record(value: unknown): Record<string, unknown> | undefined {
   return typeof value === 'object' && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : undefined
 }
 
-/** Strip an optional code fence the model may wrap its JSON in. */
-function unfence(output: string): string {
-  return output.trim().replace(/^```(?:json)?\s*/iu, '').replace(/\s*```$/u, '')
-}
-
 /** Stream one strict-JSON one-shot call to completion and return its visible text.
  * @param llm - streaming model surface the call runs on.
  * @param options - routing and budget of the call.
@@ -105,7 +100,7 @@ async function completeRefinement(
  * @returns the trimmed digest of at most 400 characters.
  */
 function parseCompartmentDigest(output: string): string {
-  const parsed: unknown = JSON.parse(unfence(output))
+  const parsed: unknown = JSON.parse(unfenceModelJson(output))
   const value = record(parsed)?.['summary']
   const summary = typeof value === 'string' ? value.trim() : ''
   if (summary.length === 0 || summary.length > 400) throw new Error('enterprise memory consolidation digest is invalid')
@@ -146,7 +141,7 @@ export async function summarizeCompartment(
  * @returns the parsed candidates in model order.
  */
 function parseReflections(output: string, limit: number): ReflectionCandidate[] {
-  const parsed: unknown = JSON.parse(unfence(output))
+  const parsed: unknown = JSON.parse(unfenceModelJson(output))
   const items = record(parsed)?.['reflections']
   if (!Array.isArray(items)) throw new Error('enterprise memory consolidation reflections must be an array')
   if (items.length > limit) throw new Error('enterprise memory consolidation returned more reflections than the batch limit')
