@@ -5955,6 +5955,9 @@ importers:
       '@deepseek-ai/dsh-agent-default-model':
         specifier: workspace:^
         version: link:../../core/agent-default-model
+      '@deepseek-ai/dsh-agent-loop':
+        specifier: workspace:^
+        version: link:../../core/agent-loop
       '@deepseek-ai/dsh-agent-presets':
         specifier: workspace:^
         version: link:../../preset/agent-presets

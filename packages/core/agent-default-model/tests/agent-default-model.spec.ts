@@ -2,10 +2,14 @@
 
 import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
-import AgentDefaultModelConfig, { AGENT_DEFAULT_MODEL_SETTINGS_NAMESPACE } from '../src/index.ts'
+import AgentDefaultModelConfig, {
+  AGENT_DEFAULT_MODEL_SETTINGS_NAMESPACE,
+  installInitialModelSelection,
+} from '../src/index.ts'
 import { SettingsProvider } from '@deepseek-ai/dsh-settings'
 import type { SettingsNamespace } from '@deepseek-ai/dsh-settings'
 import { ReasoningEffortId } from '@deepseek-ai/dsh-llm'
+import type { LlmCallConfig } from '@deepseek-ai/dsh-llm'
 
 /** The smallest real provider: one in-memory document, always writable. */
 class MemorySettings extends SettingsProvider {
@@ -93,6 +97,49 @@ describe('AgentDefaultModelConfig', () => {
     await ctx.plugin(AgentDefaultModelConfig, { provider: 'p', model: 'm' })
     await ctx.agentDefaultModel.saveSelection({ provider: 'other', model: 'other' })
     expect(ctx.agentDefaultModel.currentSelection()).toEqual({ provider: 'p', model: 'm' })
+    await ctx.fiber.dispose()
+  })
+})
+
+describe('installInitialModelSelection', () => {
+  /** Fire the pinned agent/request waterfall once against a stub agent session. */
+  async function fireRequest(
+    ctx: Context,
+    session: { requestHeader(): object | undefined },
+    next: LlmCallConfig,
+  ): Promise<LlmCallConfig> {
+    return await ctx.waterfall(
+      'agent/request',
+      { agent: { session }, turn: 1, step: 1, signal: new AbortController().signal } as never,
+      () => Promise.resolve(next),
+    )
+  }
+
+  it('pins the creation-time selection over inherited effort until the first request header', async () => {
+    const ctx = new Context()
+    installInitialModelSelection(ctx, {
+      provider: 'mock', model: 'mock-model', reasoningEffort: ReasoningEffortId('high'),
+    })
+    const session: { requestHeader(): object | undefined } = { requestHeader: () => undefined }
+    await expect(fireRequest(ctx, session, {
+      provider: 'mock', model: 'mock-model', reasoningEffort: ReasoningEffortId('low'),
+    })).resolves.toEqual({ provider: 'mock', model: 'mock-model', reasoningEffort: 'high' })
+    await expect(fireRequest(ctx, session, {
+      provider: 'other', model: 'mock-model', reasoningEffort: ReasoningEffortId('low'),
+    })).resolves.toEqual({ provider: 'other', model: 'mock-model', reasoningEffort: 'low' })
+    session.requestHeader = () => ({})
+    await expect(fireRequest(ctx, session, {
+      provider: 'mock', model: 'mock-model', reasoningEffort: ReasoningEffortId('low'),
+    })).resolves.toEqual({ provider: 'mock', model: 'mock-model', reasoningEffort: 'low' })
+    await ctx.fiber.dispose()
+  })
+
+  it('drops inherited effort without substituting one when the selection carries none', async () => {
+    const ctx = new Context()
+    installInitialModelSelection(ctx, { provider: 'mock', model: 'mock-model' })
+    await expect(fireRequest(ctx, { requestHeader: () => undefined }, {
+      provider: 'mock', model: 'mock-model', reasoningEffort: ReasoningEffortId('low'),
+    })).resolves.toEqual({ provider: 'mock', model: 'mock-model' })
     await ctx.fiber.dispose()
   })
 })

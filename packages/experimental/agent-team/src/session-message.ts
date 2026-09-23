@@ -1,20 +1,8 @@
 /** Durable Session-message acceptance checks shared by provisioning and mailbox recovery. */
 
+import { pendingInboxMessages } from '@deepseek-ai/dsh-agent-loop/inbox'
 import type { UserMessage } from '@deepseek-ai/dsh-llm'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
-
-type InboxProjection = Record<'next-turn' | 'next-step', UserMessage[]>
-
-/** Fold the durable inbox suffix into the messages still awaiting a claim. */
-function pendingInboxMessages(events: readonly SessionEvent[]): UserMessage[] {
-  const inbox: InboxProjection = { 'next-turn': [], 'next-step': [] }
-  for (const event of events) {
-    if (event.type !== 'agent/inbox/spliced') continue
-    const pending = inbox[event.data.target]
-    pending.splice(event.data.start, event.data.removedCount ?? 0, ...event.data.inserted)
-  }
-  return [...inbox['next-turn'], ...inbox['next-step']]
-}
 
 /**
  * Test whether one message is model-visible or still durably pending.
