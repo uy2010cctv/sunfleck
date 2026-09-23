@@ -83,7 +83,9 @@ export interface EnterpriseTeamRuntimeDriver {
     readonly run: EnterpriseTeamRun
   }): Promise<EnterpriseTeamRuntimeReconciliation>
   /**
-   * Inject one surface-originated message into the run's root session as user steering input.
+   * Inject one surface-originated message into the run's root session as
+   * user steering input. Only an active run accepts input; a terminal run
+   * fails loud with `team-run-not-active`.
    * @param runId - run receiving the input.
    * @param input - actor, text, and the surface the message arrived on.
    * @returns receipt for the appended input.

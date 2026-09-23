@@ -372,4 +372,27 @@ describe('enterprise Agent Teams runtime driver', () => {
       constructor: EnterpriseTeamRuntimeError, outcome: 'unknown', code: 'team-run-input-not-landed',
     })
   })
+
+  it('refuses surface input for a terminal run with the coded team-run-not-active error', async () => {
+    const app = await setup()
+    const driver = app.driver!
+    const started = await driver.startRun(startInput())
+    const root = app.ctx.agents.get(started.rootSessionId as never)!
+    await driver.cancelRun({
+      operationId: 'team-run:cancel:run-a:key-a',
+      run: {
+        runId: 'run-a', orgId: 'org-a', teamId: 'team-a', teamDefinitionRevision: 4,
+        workspaceId: 'workspace-a', rootSessionId: String(root.id), rosterSnapshot: definition().roster,
+        createdBy: 'owner-a', source: 'console', state: 'active', runtimeRevision: 4, revision: 2,
+        createdAt: 1, updatedAt: 1,
+      } satisfies EnterpriseTeamRun,
+      actor,
+    })
+
+    await expect(driver.submitRunInput('run-a', {
+      actorUserId: 'reviewer-a', text: '取消后的输入', originSurfaceId: 'surface-group-1',
+    })).rejects.toMatchObject({
+      constructor: EnterpriseTeamRuntimeError, outcome: 'deterministic', code: 'team-run-not-active',
+    })
+  })
 })
