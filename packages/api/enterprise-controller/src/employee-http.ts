@@ -97,6 +97,11 @@ function failure(status: number, code: string): Response {
   return Response.json({ error: code }, { status })
 }
 
+/** Reject one unsupported method while advertising the methods the route accepts. */
+function methodFailure(allow: string): Response {
+  return Response.json({ error: 'method-not-allowed' }, { status: 405, headers: { allow } })
+}
+
 /** Project one account to its governance fields. */
 function presentAccount(account: EmployeeAccount): EmployeeAccountView {
   return { id: account.id, displayName: account.displayName, roleCard: account.roleCard, state: account.state }
@@ -146,21 +151,21 @@ export class EmployeeHttpHandler {
     if (segments.length === 0) {
       if (request.method === 'GET') return this.list(principal)
       if (request.method === 'POST') return this.create(request, principal)
-      return failure(405, 'method-not-allowed')
+      return methodFailure('GET, POST')
     }
     const head = segments[0] as string
     if (segments.length === 1 && head === 'sticky') {
-      return request.method === 'GET' ? this.sticky(principal) : failure(405, 'method-not-allowed')
+      return request.method === 'GET' ? this.sticky(principal) : methodFailure('GET')
     }
     if (segments.length === 1) {
       return request.method === 'GET'
         ? this.detail(principal, employeeId(head))
-        : failure(405, 'method-not-allowed')
+        : methodFailure('GET')
     }
     if (segments.length === 2 && segments[1] === 'messages') {
       return request.method === 'POST'
         ? this.deliver(request, principal, employeeId(head))
-        : failure(405, 'method-not-allowed')
+        : methodFailure('POST')
     }
     return failure(404, 'not-found')
   }
@@ -172,8 +177,15 @@ export class EmployeeHttpHandler {
     return Response.json(this.accounts.list(principal.orgId).map(presentAccount))
   }
 
-  /** Create one active employee account owned by the caller organization. */
+  /**
+   * Create one active employee account owned by the caller organization.
+   *
+   * Creators are trusted to anchor an employee at any absolute path: P0 has no
+   * workspace-root prefix policy, so `isAbsolute` is the only validation.
+   */
   private async create(request: Request, principal: EnterprisePrincipal): Promise<Response> {
+    const decision = await this.guard(principal, 'employee.create', 'enterpriseEmployeeAccount.create', 'new', {})
+    if (!decision.allowed) return failure(403, 'forbidden')
     const body = await jsonObjectBody(request)
     const displayName = body === undefined ? undefined : stringField(body, 'displayName')
     const roleCard = body === undefined ? undefined : stringField(body, 'roleCard')
@@ -183,8 +195,6 @@ export class EmployeeHttpHandler {
       || homeWorkspacePath === undefined || !isAbsolute(homeWorkspacePath)) {
       return failure(400, 'invalid-payload')
     }
-    const decision = await this.guard(principal, 'employee.create', 'enterpriseEmployeeAccount.create', 'new', {})
-    if (!decision.allowed) return failure(403, 'forbidden')
     const account = this.accounts.create({
       orgId: principal.orgId, displayName, roleCard, homeWorkspacePath,
       ...(activeReleaseId === undefined ? {} : { activeReleaseId }),
@@ -215,13 +225,13 @@ export class EmployeeHttpHandler {
     principal: EnterprisePrincipal,
     id: EmployeeId,
   ): Promise<Response> {
-    const body = await jsonObjectBody(request)
-    const text = body === undefined ? undefined : stringField(body, 'text')
-    if (text === undefined) return failure(400, 'invalid-text')
     const decision = await this.guard(
       principal, 'employee.execute', 'enterpriseEmployeeAccount.deliverMessage', id, { employeeId: id },
     )
     if (!decision.allowed) return failure(403, 'forbidden')
+    const body = await jsonObjectBody(request)
+    const text = body === undefined ? undefined : stringField(body, 'text')
+    if (text === undefined) return failure(400, 'invalid-text')
     const account = this.requireOwnEmployee(principal, id)
     if (account === undefined) return failure(404, 'employee-not-found')
     if (account.state !== 'active') return failure(409, 'employee-inactive')
@@ -254,7 +264,12 @@ export class EmployeeHttpHandler {
     return failure(500, 'internal-error')
   }
 
-  /** Authorize one employee-plane operation through the shared policy and audit the decision. */
+  /**
+   * Authorize one employee-plane operation through the shared policy and audit the decision.
+   *
+   * `input` mirrors the security seam's audit signature; today it carries
+   * nothing beyond what `resourceId` already holds.
+   */
   private async guard(
     principal: EnterprisePrincipal,
     action: EnterpriseAction,
