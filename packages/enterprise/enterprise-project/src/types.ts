@@ -180,6 +180,9 @@ export interface EnterpriseProjects {
   requireMember(orgId: string, projectId: ProjectId, principal: EnterpriseProjectMemberPrincipal): Promise<Project | undefined>
 }
 
+/* jscpd:ignore-start -- the minimal driver-neutral PostgreSQL surface mirrors
+   operations/enterprise-operations/src/types.ts (as catalog and identity-postgres each do);
+   the packages stay decoupled, so each self-contains its own copy. */
 /** Data used by `PostgresQueryResult`. */
 export interface PostgresQueryResult<Row extends Record<string, unknown> = Record<string, unknown>> {
   readonly rows: readonly Row[]
@@ -191,6 +194,7 @@ export interface PostgresDatabase {
   query<Row extends Record<string, unknown>>(text: string, values?: readonly unknown[]): Promise<PostgresQueryResult<Row>>
   transaction<T>(operation: (database: PostgresDatabase) => Promise<T>): Promise<T>
 }
+/* jscpd:ignore-end */
 
 /** Data used by `EnterpriseProjectRepositoryOptions`. */
 export interface EnterpriseProjectRepositoryOptions {

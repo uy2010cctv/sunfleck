@@ -983,14 +983,27 @@ export class EnterpriseWorkbenchController {
     }
   }
 
+  /** Begin one exclusive projects mutation; `false` leaves the running one in charge. */
+  private beginProjectAction(): boolean {
+    const before = this.store.getSnapshot()
+    if (before.projects.busy) return false
+    this.store.set({ ...before, projects: { ...before.projects, busy: true, actionError: null } })
+    return true
+  }
+
+  /** Contain one failed projects mutation inside the slice: release the busy flag and record the failure key. */
+  private failProjectAction(actionError: EnterpriseProjectActionError): false {
+    const current = this.store.getSnapshot()
+    this.store.set({ ...current, projects: { ...current.projects, busy: false, actionError } })
+    return false
+  }
+
   /** Create one project and reload the directory on success; failures stay contained in the slice.
    * @param input - Business fields of the new project; the workspace path stays transport-only.
    * @returns whether the project was created and the directory reloaded.
    */
   async createProject(input: { name: string; goal: string; workspacePath: string }): Promise<boolean> {
-    const before = this.store.getSnapshot()
-    if (before.projects.busy) return false
-    this.store.set({ ...before, projects: { ...before.projects, busy: true, actionError: null } })
+    if (!this.beginProjectAction()) return false
     try {
       const response = await fetch('/enterprise/projects', {
         method: 'POST',
@@ -1004,11 +1017,7 @@ export class EnterpriseWorkbenchController {
       this.store.set({ ...current, projects: { ...current.projects, busy: false } })
       return reloaded
     } catch {
-      const current = this.store.getSnapshot()
-      this.store.set({ ...current, projects: {
-        ...current.projects, busy: false, actionError: 'create-failed',
-      } })
-      return false
+      return this.failProjectAction('create-failed')
     }
   }
 
@@ -1061,9 +1070,7 @@ export class EnterpriseWorkbenchController {
     projectId: string,
     member: { principalType: 'user' | 'employee'; principalId: string },
   ): Promise<boolean> {
-    const before = this.store.getSnapshot()
-    if (before.projects.busy) return false
-    this.store.set({ ...before, projects: { ...before.projects, busy: true, actionError: null } })
+    if (!this.beginProjectAction()) return false
     try {
       const response = await fetch(`/enterprise/projects/${encodeURIComponent(projectId)}/members`, {
         method: 'POST',
@@ -1082,11 +1089,7 @@ export class EnterpriseWorkbenchController {
       } })
       return true
     } catch {
-      const current = this.store.getSnapshot()
-      this.store.set({ ...current, projects: {
-        ...current.projects, busy: false, actionError: 'add-member-failed',
-      } })
-      return false
+      return this.failProjectAction('add-member-failed')
     }
   }
 
@@ -1095,9 +1098,7 @@ export class EnterpriseWorkbenchController {
    * @returns whether the project was archived and the directory reloaded.
    */
   async archiveProject(projectId: string): Promise<boolean> {
-    const before = this.store.getSnapshot()
-    if (before.projects.busy) return false
-    this.store.set({ ...before, projects: { ...before.projects, busy: true, actionError: null } })
+    if (!this.beginProjectAction()) return false
     try {
       const response = await fetch(`/enterprise/projects/${encodeURIComponent(projectId)}/archive`, {
         method: 'POST',
@@ -1112,11 +1113,7 @@ export class EnterpriseWorkbenchController {
       } })
       return reloaded
     } catch {
-      const current = this.store.getSnapshot()
-      this.store.set({ ...current, projects: {
-        ...current.projects, busy: false, actionError: 'archive-failed',
-      } })
-      return false
+      return this.failProjectAction('archive-failed')
     }
   }
 

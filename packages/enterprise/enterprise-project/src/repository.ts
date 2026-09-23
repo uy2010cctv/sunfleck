@@ -98,10 +98,28 @@ export class EnterpriseProjectRepository {
     private readonly options: EnterpriseProjectRepositoryOptions = {},
   ) {}
 
+  /* jscpd:ignore-start -- repository plumbing parallels enterprise-operations' team-control
+     repository; the packages stay decoupled, so the advisory-lock stanza repeats. */
   private initialize(): Promise<void> { return this.initialized ??= migrateEnterpriseProject(this.database) }
   private now(): number { return this.options.now?.() ?? Date.now() }
   private async lock(database: PostgresDatabase, key: string): Promise<void> {
     await database.query('SELECT pg_advisory_xact_lock(hashtext($1))', [key])
+  }
+  /* jscpd:ignore-end */
+
+  /**
+   * Lock one project row until the transaction ends and reject anything a mutation
+   * cannot target: unknown ids with `not-found`, non-active states with `invalid-state`.
+   */
+  private async lockActiveProject(database: PostgresDatabase, projectId: ProjectId): Promise<ProjectRow> {
+    await this.lock(database, `project:${projectId}`)
+    const current = await database.query<ProjectRow>(
+      'SELECT * FROM projects WHERE project_id=$1 FOR UPDATE', [projectId],
+    )
+    const row = current.rows[0]
+    if (row === undefined) throw new EnterpriseProjectError('not-found', 'project', projectId)
+    if (row.state !== 'active') throw new EnterpriseProjectError('invalid-state', 'project', projectId)
+    return row
   }
 
   /**
@@ -179,13 +197,7 @@ export class EnterpriseProjectRepository {
   async archiveProject(projectId: ProjectId): Promise<Project> {
     await this.initialize()
     return this.database.transaction(async (database) => {
-      await this.lock(database, `project:${projectId}`)
-      const current = await database.query<ProjectRow>(
-        'SELECT * FROM projects WHERE project_id=$1 FOR UPDATE', [projectId],
-      )
-      const row = current.rows[0]
-      if (row === undefined) throw new EnterpriseProjectError('not-found', 'project', projectId)
-      if (row.state !== 'active') throw new EnterpriseProjectError('invalid-state', 'project', projectId)
+      await this.lockActiveProject(database, projectId)
       const archived = await database.query<ProjectRow>(
         "UPDATE projects SET state='archived', archived_at=$2 WHERE project_id=$1 RETURNING *",
         [projectId, this.now()],
@@ -205,13 +217,7 @@ export class EnterpriseProjectRepository {
   async insertMember(projectId: ProjectId, input: AddProjectMemberInput): Promise<ProjectMember> {
     await this.initialize()
     return this.database.transaction(async (database) => {
-      await this.lock(database, `project:${projectId}`)
-      const current = await database.query<ProjectRow>(
-        'SELECT * FROM projects WHERE project_id=$1 FOR UPDATE', [projectId],
-      )
-      const row = current.rows[0]
-      if (row === undefined) throw new EnterpriseProjectError('not-found', 'project', projectId)
-      if (row.state !== 'active') throw new EnterpriseProjectError('invalid-state', 'project', projectId)
+      await this.lockActiveProject(database, projectId)
       const inserted = await database.query<MemberRow>(
         `INSERT INTO project_members(project_id,principal_type,principal_id,added_by,added_at)
          VALUES($1,$2,$3,$4,$5)
@@ -235,13 +241,7 @@ export class EnterpriseProjectRepository {
   async removeMember(projectId: ProjectId, principalType: ProjectPrincipalType, principalId: string): Promise<void> {
     await this.initialize()
     await this.database.transaction(async (database) => {
-      await this.lock(database, `project:${projectId}`)
-      const current = await database.query<ProjectRow>(
-        'SELECT * FROM projects WHERE project_id=$1 FOR UPDATE', [projectId],
-      )
-      const row = current.rows[0]
-      if (row === undefined) throw new EnterpriseProjectError('not-found', 'project', projectId)
-      if (row.state !== 'active') throw new EnterpriseProjectError('invalid-state', 'project', projectId)
+      await this.lockActiveProject(database, projectId)
       const deleted = await database.query(
         'DELETE FROM project_members WHERE project_id=$1 AND principal_type=$2 AND principal_id=$3',
         [projectId, principalType, principalId],
