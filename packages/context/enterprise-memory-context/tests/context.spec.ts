@@ -14,6 +14,7 @@ import {
 } from '@deepseek-ai/dsh-enterprise-identity'
 import type { EnterpriseMemoryEntry } from '@deepseek-ai/dsh-enterprise-identity'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
+import ToolRuntime from '@deepseek-ai/dsh-tools'
 import {
   apply,
   limitEnterpriseMemories,
@@ -153,6 +154,7 @@ describe('enterprise memory prompt context', () => {
     expect(proposed.status).toBe('proposed')
     const ctx = new Context()
     await ctx.plugin(SystemPrompt, { includeHarnessIdentity: false, includeRuntimeContext: true })
+    await ctx.plugin(ToolRuntime)
     ctx.provide('enterprisePostgres' as never, { identity } as never)
     apply(ctx, { maxEntries: 20, maxChars: 8_000 })
     const rendered = await assembleMemory(ctx, '/managed/alice')
@@ -187,6 +189,7 @@ describe('enterprise memory prompt context', () => {
     seedPrivateMemory(identity, { scope: 'pair', summary: '其他用户的偏好。', pairUserId: 'user-2' })
     const ctx = new Context()
     await ctx.plugin(SystemPrompt, { includeHarnessIdentity: false, includeRuntimeContext: true })
+    await ctx.plugin(ToolRuntime)
     ctx.provide('enterprisePostgres' as never, { identity } as never)
     provideEmployeeAccounts(ctx, 'session-1')
     apply(ctx, { maxEntries: 20, maxChars: 8_000 })
@@ -228,6 +231,7 @@ describe('enterprise memory prompt context', () => {
     seedPrivateMemory(identity, { scope: 'pair', summary: '偏好中文回复。', pairUserId: 'user-1' })
     const ctx = new Context()
     await ctx.plugin(SystemPrompt, { includeHarnessIdentity: false, includeRuntimeContext: true })
+    await ctx.plugin(ToolRuntime)
     ctx.provide('enterprisePostgres' as never, { identity } as never)
     provideEmployeeAccounts(ctx, 'session-1')
     apply(ctx, { maxEntries: 20, maxChars: 8_000 })
@@ -255,6 +259,7 @@ describe('enterprise memory prompt context', () => {
     })
     const ctx = new Context()
     await ctx.plugin(SystemPrompt, { includeHarnessIdentity: false, includeRuntimeContext: true })
+    await ctx.plugin(ToolRuntime)
     ctx.provide('enterprisePostgres' as never, { identity } as never)
     apply(ctx, { maxEntries: 2, maxChars: 8_000 })
     const rendered = await assembleMemory(ctx, '/managed/alice')
@@ -284,6 +289,7 @@ describe('enterprise memory prompt context', () => {
     const maxChars = renderEnterpriseMemory(rankedHead, Number.MAX_SAFE_INTEGER).length + 1
     const ctx = new Context()
     await ctx.plugin(SystemPrompt, { includeHarnessIdentity: false, includeRuntimeContext: true })
+    await ctx.plugin(ToolRuntime)
     ctx.provide('enterprisePostgres' as never, { identity } as never)
     apply(ctx, { maxEntries: 20, maxChars })
     const rendered = await assembleMemory(ctx, '/managed/alice', undefined)

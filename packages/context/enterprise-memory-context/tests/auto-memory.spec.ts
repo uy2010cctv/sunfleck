@@ -8,11 +8,17 @@ import Include from '@deepseek-ai/cordis-plugin-include'
 import { tmpdir } from 'node:os'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
-import type { Agent } from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
+import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { EnterpriseRequestContext } from '@deepseek-ai/dsh-enterprise-auth-web'
-import { EnterpriseIdentityRepository } from '@deepseek-ai/dsh-enterprise-identity'
-import { ToolCallId } from '@deepseek-ai/dsh-llm'
-import { Session, SessionId } from '@deepseek-ai/dsh-session'
+import {
+  EnterpriseIdentityRepository,
+  memorySourceDigest,
+  type EnterpriseMemoryEntry,
+} from '@deepseek-ai/dsh-enterprise-identity'
+import LlmRuntime, { createUserMessage, LlmAdapter, ToolCallId } from '@deepseek-ai/dsh-llm'
+import type { GenerateOptions, LlmResolvedModelInfo, StreamChunk } from '@deepseek-ai/dsh-llm'
+import SessionStore, { Session, SessionId } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import { apply, inject } from '../src/index.ts'
@@ -23,6 +29,50 @@ const signal = new AbortController().signal
 
 function resultText(result: { content: readonly { type: string; text?: string }[] }): string {
   return result.content.flatMap(block => block.type === 'text' ? [block.text ?? ''] : []).join('\n')
+}
+
+/** One scripted tool-call model response carrying the given arguments. */
+function toolCallChunks(rawCallId: string, name: string, args: object): StreamChunk[] {
+  const callId = ToolCallId(rawCallId)
+  const json = JSON.stringify(args)
+  return [
+    { type: 'block-start', index: 0, blockType: 'tool-call' },
+    { type: 'tool-call-delta', index: 0, id: callId, name, argumentsDelta: json },
+    { type: 'block-end', index: 0, block: { type: 'tool-call', id: callId, name, arguments: json } },
+    { type: 'usage', usage: { inputTokens: 10, outputTokens: 5 } },
+    { type: 'finish', reason: { kind: 'tool-calls' } },
+  ]
+}
+
+/** One scripted plain-text model response. */
+function textChunks(text: string): StreamChunk[] {
+  return [
+    { type: 'block-start', index: 0, blockType: 'text' },
+    ...Array.from(text, (char): StreamChunk => ({ type: 'text-delta', index: 0, text: char })),
+    { type: 'block-end', index: 0, block: { type: 'text', text } },
+    { type: 'usage', usage: { inputTokens: 10, outputTokens: text.length } },
+    { type: 'finish', reason: { kind: 'stop' } },
+  ]
+}
+
+/** Scripted adapter serving one queued response per model request and recording every request. */
+class ScriptAdapter extends LlmAdapter {
+  requests: GenerateOptions[] = []
+
+  constructor(private readonly script: StreamChunk[][]) {
+    super()
+  }
+
+  override resolveModel(provider: string, model: string): Promise<LlmResolvedModelInfo> {
+    return Promise.resolve({ provider, id: model, name: model })
+  }
+
+  async *stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
+    this.requests.push(options)
+    const chunks = this.script.shift()
+    if (chunks === undefined) throw new Error('ScriptAdapter: script exhausted')
+    for (const chunk of chunks) yield chunk
+  }
 }
 
 function agentAt(cwd: string, name = 'memory-agent'): Agent {
@@ -166,6 +216,57 @@ describe('Agent automatic enterprise memory', () => {
   async function remember(ctx: Context, args: unknown, agent: Agent = agentAt('/managed/ops')) {
     return ctx.tools.execute({
       signal, callId: ToolCallId('remember-call'), name: 'remember_business_knowledge', arguments: args, agent,
+    })
+  }
+
+  /** Expose a surface-anchored employee resolution for one session id. */
+  function provideAnchoredEmployee(
+    ctx: Context,
+    sessionId: string,
+    actor: { orgId: string; userId: string; employeeId: string } = { orgId: 'org-a', userId: 'member-1', employeeId: 'employee-1' },
+  ): void {
+    ctx.provide('employeeAccounts' as never, {
+      resolveSessionActor: (asked: string) => (asked === sessionId ? actor : undefined),
+    } as never)
+  }
+
+  /** Execute one memory tool for the standard managed-workspace agent. */
+  async function callTool(ctx: Context, name: string, args: unknown, agent: Agent = agentAt('/managed/ops')) {
+    return ctx.tools.execute({
+      signal, callId: ToolCallId(`${name}-call`), name, arguments: args, agent,
+    })
+  }
+
+  /** Seed one approved shared memory owned by member-1. */
+  function seedApprovedShared(
+    identity: EnterpriseIdentityRepository,
+    input: {
+      id: string
+      scope: 'organization' | 'department'
+      departmentId?: string
+      kind: EnterpriseMemoryEntry['kind']
+      summary: string
+    },
+  ): void {
+    const proposed = identity.proposeMemory({
+      id: input.id, orgId: 'org-a', scope: input.scope,
+      ...(input.departmentId === undefined ? {} : { departmentId: input.departmentId }),
+      kind: input.kind, summary: input.summary, sourceDigest: memorySourceDigest(input.id), createdBy: 'member-1',
+    })
+    identity.reviewMemory({
+      id: input.id, orgId: 'org-a', decision: 'approved', reviewedBy: 'member-1', reason: 'verified',
+      expectedRevision: proposed.revision,
+    })
+  }
+
+  /** Seed one private agent-compartment note for an employee account id. */
+  function seedAgentNote(
+    identity: EnterpriseIdentityRepository,
+    summary: string,
+    agentEmployeeId = 'employee-1',
+  ): EnterpriseMemoryEntry {
+    return identity.writePrivateMemory({
+      orgId: 'org-a', scope: 'agent', kind: 'preference', summary, createdBy: 'member-1', agentEmployeeId,
     })
   }
 
@@ -451,6 +552,319 @@ describe('Agent automatic enterprise memory', () => {
     expect(resultText(organization)).toMatch(/saved and active/iu)
     expect(identity.listMemories({ orgId: 'org-a', departmentIds: [] })).toEqual([
       expect.objectContaining({ scope: 'organization', status: 'approved' }),
+    ])
+    identity.close()
+  })
+
+  it('ranks memory_search by query hits, honors scopeFilter, and caps results', async () => {
+    const { ctx, identity } = await setup({ autoApproval: true })
+    provideAnchoredEmployee(ctx, 'memory-agent')
+    seedApprovedShared(identity, {
+      id: 'org-note', scope: 'organization', kind: 'business-fact', summary: '合同审批需要部门复核。',
+    })
+    for (const index of [1, 2, 3, 4, 5, 6, 7, 8, 9]) {
+      seedApprovedShared(identity, {
+        id: `filler-0${index}`, scope: 'organization', kind: 'business-fact', summary: `填充记忆${index}。`,
+      })
+    }
+    const agentNote = seedAgentNote(identity, '偏好简短回答。')
+    const pairNote = identity.writePrivateMemory({
+      orgId: 'org-a', scope: 'pair', kind: 'preference', summary: '偏好中文回复。', createdBy: 'member-1', pairUserId: 'member-1',
+    })
+    seedAgentNote(identity, '其他员工的笔记。', 'employee-2')
+
+    const search = await callTool(ctx, 'memory_search', { query: '合同' })
+    expect(search.isError).toBe(false)
+    const text = resultText(search)
+    // Two points for the only keyword hit rank org-note first; the eight-result cap drops the tail.
+    expect(text.indexOf('[org-note]')).toBeGreaterThanOrEqual(0)
+    expect(text.indexOf('[org-note]')).toBeLessThan(text.indexOf('[filler-01]'))
+    expect(text).not.toContain('[filler-08]')
+    expect(text).not.toContain('[filler-09]')
+    expect(text).not.toContain('其他员工的笔记')
+    expect(identity.listMemories({ orgId: 'org-a', departmentIds: [], statuses: ['approved'] })
+      .find(entry => entry.id === 'org-note')?.lastAccessAt).toBeGreaterThan(0)
+
+    const agents = await callTool(ctx, 'memory_search', { query: '偏好', scopeFilter: 'agent' })
+    expect(agents.isError).toBe(false)
+    expect(resultText(agents)).toContain('偏好简短回答。')
+    expect(resultText(agents)).not.toContain('偏好中文回复。')
+
+    const pairs = await callTool(ctx, 'memory_search', { query: '偏好', scopeFilter: 'pair' })
+    expect(pairs.isError).toBe(false)
+    expect(resultText(pairs)).toContain(pairNote.summary)
+
+    const organizations = await callTool(ctx, 'memory_search', { query: '合同', scopeFilter: 'organization' })
+    expect(organizations.isError).toBe(false)
+    expect(resultText(organizations)).toContain('合同审批需要部门复核。')
+    expect(resultText(organizations)).not.toContain(`[${agentNote.id}]`)
+    identity.close()
+  })
+
+  it('writes a private agent note for an anchored employee and deduplicates it', async () => {
+    const { ctx, identity } = await setup({ autoApproval: true })
+    provideAnchoredEmployee(ctx, 'memory-agent')
+
+    const first = await callTool(ctx, 'memory_write', { scope: 'agent', kind: 'preference', summary: '偏好简短回答。' })
+    expect(first.isError).toBe(false)
+    expect(resultText(first)).toMatch(/Private note saved and active: /)
+    expect(identity.listMemories({ orgId: 'org-a', scopes: ['agent'], agentEmployeeId: 'employee-1' })).toEqual([
+      expect.objectContaining({ scope: 'agent', kind: 'preference', status: 'approved', summary: '偏好简短回答。' }),
+    ])
+
+    const second = await callTool(ctx, 'memory_write', { scope: 'agent', kind: 'preference', summary: '偏好简短回答。' })
+    expect(second.isError).toBe(false)
+    expect(resultText(second)).toMatch(/Private note already recorded: /)
+    expect(identity.listMemories({ orgId: 'org-a', scopes: ['agent'], agentEmployeeId: 'employee-1' })).toHaveLength(1)
+
+    const blank = await callTool(ctx, 'memory_write', { scope: 'agent', kind: 'preference', summary: '   ' })
+    expect(blank.isError).toBe(true)
+    expect(resultText(blank)).toMatch(/must not be empty/iu)
+    identity.close()
+  })
+
+  it('keeps memory tools on an unanchored session read-only for shared compartments', async () => {
+    const { ctx, identity } = await setup()
+
+    const search = await callTool(ctx, 'memory_search', { query: 'anything' })
+    expect(search.isError).toBe(false)
+    expect(resultText(search)).toMatch(/No approved enterprise memory matched/iu)
+
+    const read = await callTool(ctx, 'memory_read', { ids: ['whatever'] })
+    expect(read.isError).toBe(false)
+    expect(resultText(read)).toMatch(/None of the requested memory ids/iu)
+
+    const retire = await callTool(ctx, 'memory_retire', { ids: ['whatever'] })
+    expect(retire.isError).toBe(false)
+    expect(resultText(retire)).toMatch(/No requested id belongs/iu)
+
+    const write = await callTool(ctx, 'memory_write', { scope: 'agent', kind: 'preference', summary: '偏好简短回答。' })
+    expect(write.isError).toBe(true)
+    expect(resultText(write)).toMatch(/anchored employee session/iu)
+    expect(identity.listMemories({ orgId: 'org-a', scopes: ['agent'] })).toEqual([])
+
+    const promote = await callTool(ctx, 'promote_proposal', {
+      targetScope: 'organization', kind: 'decision', summary: '公司统一使用年度合同模板。', rationale: '全员适用。',
+    })
+    expect(promote.isError).toBe(true)
+    expect(resultText(promote)).toMatch(/attribute the proposal/iu)
+    expect(identity.listMemories({ orgId: 'org-a', departmentIds: [] })).toEqual([])
+    identity.close()
+  })
+
+  it('requires an owning agent on an enterprise-managed workspace for memory tools', async () => {
+    const { ctx } = await setup()
+    const noAgent = await ctx.tools.execute({
+      signal, callId: ToolCallId('no-agent'), name: 'memory_search', arguments: { query: 'x' },
+    })
+    expect(noAgent.isError).toBe(true)
+    expect(resultText(noAgent)).toMatch(/owning Agent with a Workspace/iu)
+
+    const noCwdAgent = {
+      id: SessionId('no-cwd'),
+      session: Session.create(SessionId('no-cwd'), [], { version: 3, id: SessionId('no-cwd'), createdAt: 1, isSeeded: false }),
+    } as unknown as Agent
+    const noCwd = await callTool(ctx, 'memory_search', { query: 'x' }, noCwdAgent)
+    expect(noCwd.isError).toBe(true)
+    expect(resultText(noCwd)).toMatch(/owning Agent with a Workspace/iu)
+
+    const unmanaged = await callTool(ctx, 'memory_search', { query: 'x' }, agentAt('/unmanaged/other'))
+    expect(unmanaged.isError).toBe(true)
+    expect(resultText(unmanaged)).toMatch(/not enterprise-managed/iu)
+  })
+
+  it('reads only session-visible ids and silently omits foreign ones', async () => {
+    const { ctx, identity } = await setup()
+    provideAnchoredEmployee(ctx, 'memory-agent')
+    seedApprovedShared(identity, { id: 'org-note', scope: 'organization', kind: 'business-fact', summary: '公司统一合同编号。' })
+    seedApprovedShared(identity, {
+      id: 'dept-note', scope: 'department', departmentId: 'dept-ops', kind: 'process', summary: '运营审批保留版本记录。',
+    })
+    const own = seedAgentNote(identity, '偏好简短回答。')
+    const foreign = seedAgentNote(identity, '其他员工的笔记。', 'employee-2')
+    const pair = identity.writePrivateMemory({
+      orgId: 'org-a', scope: 'pair', kind: 'preference', summary: '偏好中文回复。', createdBy: 'member-1', pairUserId: 'member-1',
+    })
+
+    const result = await callTool(ctx, 'memory_read', { ids: ['org-note', 'dept-note', own.id, pair.id, foreign.id, 'missing-id'] })
+    expect(result.isError).toBe(false)
+    const text = resultText(result)
+    expect(text).toContain('[org-note]')
+    expect(text).toContain('[dept-note]')
+    expect(text).toContain(`[${own.id}]`)
+    expect(text).toContain(`[${pair.id}]`)
+    expect(text).not.toContain(`[${foreign.id}]`)
+    expect(text).not.toContain('其他员工的笔记')
+    expect(text).not.toContain('[missing-id]')
+    identity.close()
+  })
+
+  it('retires only own private entries and skips foreign ids without error', async () => {
+    const { ctx, identity } = await setup()
+    provideAnchoredEmployee(ctx, 'memory-agent')
+    const own = seedAgentNote(identity, '过时的偏好。')
+    const foreign = seedAgentNote(identity, '其他员工的笔记。', 'employee-2')
+    const pair = identity.writePrivateMemory({
+      orgId: 'org-a', scope: 'pair', kind: 'preference', summary: '偏好中文回复。', createdBy: 'member-1', pairUserId: 'member-1',
+    })
+
+    const result = await callTool(ctx, 'memory_retire', { ids: [own.id, foreign.id, 'missing-id'] })
+    expect(result.isError).toBe(false)
+    expect(resultText(result)).toContain(`Retired: ${own.id}`)
+    const ownNotes = identity.listMemories({ orgId: 'org-a', scopes: ['agent'], agentEmployeeId: 'employee-1' })
+    expect(ownNotes).toEqual([expect.objectContaining({ id: own.id, status: 'retired', reviewReason: 'memory_retire tool' })])
+    expect(identity.listMemories({ orgId: 'org-a', scopes: ['agent'], agentEmployeeId: 'employee-2' })).toEqual([
+      expect.objectContaining({ id: foreign.id, status: 'approved' }),
+    ])
+    // The pair note sits in an own compartment but was not requested, so it stays approved.
+    expect(identity.listMemories({ orgId: 'org-a', scopes: ['pair'], pairUserId: 'member-1' })).toEqual([
+      expect.objectContaining({ id: pair.id, status: 'approved' }),
+    ])
+    identity.close()
+  })
+
+  it('proposes shared memory with structured outcomes across actors', async () => {
+    const { ctx, identity, requestContext } = await setup({ autoApproval: true })
+    identity.setUserDepartments({
+      orgId: 'org-a', userId: 'member-1', departmentIds: ['dept-ops'], primaryDepartmentId: 'dept-ops', expectedRevision: 0,
+    })
+    identity.setUserDepartments({ orgId: 'org-a', userId: 'admin-1', departmentIds: ['dept-ops'], expectedRevision: 0 })
+    const memberArgs = {
+      targetScope: 'department', kind: 'process', summary: '付款申请必须关联已审批发票。', rationale: '该流程在本部门反复出现。',
+    }
+    const proposed = await requestContext.run({ orgId: 'org-a', userId: 'member-1', roles: ['member'] }, () =>
+      callTool(ctx, 'promote_proposal', memberArgs))
+    expect(proposed.isError).toBe(false)
+    expect(resultText(proposed)).toMatch(/submitted for review/)
+    expect(identity.listMemories({ orgId: 'org-a', departmentIds: ['dept-ops'], statuses: ['proposed'] })).toEqual([
+      expect.objectContaining({ scope: 'department', departmentId: 'dept-ops', status: 'proposed', createdBy: 'member-1' }),
+    ])
+
+    const duplicate = await requestContext.run({ orgId: 'org-a', userId: 'member-1', roles: ['member'] }, () =>
+      callTool(ctx, 'promote_proposal', memberArgs))
+    expect(duplicate.isError).toBe(false)
+    expect(resultText(duplicate)).toMatch(/already stands/)
+    expect(identity.listMemories({ orgId: 'org-a', departmentIds: ['dept-ops'], statuses: ['proposed'] })).toHaveLength(1)
+
+    const soleDepartment = await requestContext.run({ orgId: 'org-a', userId: 'admin-1', roles: ['administrator'] }, () =>
+      callTool(ctx, 'promote_proposal', {
+        targetScope: 'department', kind: 'process', summary: '入库需要两人在场复核。', rationale: '部门入库流程。',
+      }))
+    expect(soleDepartment.isError).toBe(false)
+    expect(resultText(soleDepartment)).toMatch(/submitted for review/)
+    expect(identity.listMemories({ orgId: 'org-a', departmentIds: ['dept-ops'], statuses: ['proposed'] })).toHaveLength(2)
+
+    const blank = await requestContext.run({ orgId: 'org-a', userId: 'member-1', roles: ['member'] }, () =>
+      callTool(ctx, 'promote_proposal', { ...memberArgs, summary: '   ' }))
+    expect(blank.isError).toBe(true)
+    expect(resultText(blank)).toMatch(/must not be empty/iu)
+
+    const audit = identity.listAudit({ orgId: 'org-a', action: 'capability.manage', limit: 10 })
+    expect(audit).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        actorUserId: 'member-1', resourceId: expect.stringMatching(/^agent-memory-[a-f0-9]{64}$/),
+        details: expect.objectContaining({ source: 'agent-memory-tools', rationale: '该流程在本部门反复出现。' }),
+      }),
+    ]))
+    identity.close()
+  })
+
+  it('rejects a department proposal when the actor resolves to no single department', async () => {
+    const { ctx, identity, requestContext } = await setup()
+    const result = await requestContext.run({ orgId: 'org-a', userId: 'member-1', roles: ['member'] }, () =>
+      callTool(ctx, 'promote_proposal', {
+        targetScope: 'department', kind: 'process', summary: '付款申请必须关联已审批发票。', rationale: '部门流程。',
+      }))
+    expect(result.isError).toBe(false)
+    expect(resultText(result)).toMatch(/exactly one department/iu)
+    expect(identity.listMemories({ orgId: 'org-a', departmentIds: ['dept-ops'] })).toEqual([])
+    identity.close()
+  })
+
+  it('rejects a personal preference from shared memory with a structured result', async () => {
+    const { ctx, identity, requestContext } = await setup()
+    const runAsMember = <T>(fn: () => Promise<T>) =>
+      requestContext.run({ orgId: 'org-a', userId: 'member-1', roles: ['member'] }, fn)
+    const rejected = await runAsMember(() => callTool(ctx, 'promote_proposal', {
+      targetScope: 'organization', kind: 'business-fact', summary: '我喜欢深色主题。', rationale: '常驻偏好。',
+    }))
+    expect(rejected.isError).toBe(false)
+    expect(resultText(rejected)).toMatch(/never enter shared/iu)
+
+    // A non-preference statement proposes normally through the same tool.
+    const accepted = await runAsMember(() => callTool(ctx, 'promote_proposal', {
+      targetScope: 'organization', kind: 'decision', summary: '公司统一使用年度合同模板。', rationale: '全员适用。',
+    }))
+    expect(accepted.isError).toBe(false)
+    expect(resultText(accepted)).toMatch(/submitted for review/)
+    expect(identity.listMemories({ orgId: 'org-a', departmentIds: [] })).toEqual([
+      expect.objectContaining({ scope: 'organization', status: 'proposed', createdBy: 'member-1' }),
+    ])
+    identity.close()
+  })
+
+  it('throws when a matching approved shared memory already records the proposed statement', async () => {
+    const { ctx, identity, requestContext } = await setup()
+    const summary = '公司统一使用年度合同模板。'
+    const digest = memorySourceDigest(JSON.stringify(['org-a', 'organization', null, 'process', summary]))
+    seedApprovedShared(identity, { id: `agent-memory-${digest}`, scope: 'organization', kind: 'process', summary })
+    const result = await requestContext.run({ orgId: 'org-a', userId: 'member-1', roles: ['member'] }, () =>
+      callTool(ctx, 'promote_proposal', {
+        targetScope: 'organization', kind: 'process', summary, rationale: '重复提升同一条陈述。',
+      }))
+    expect(result.isError).toBe(true)
+    expect(resultText(result)).toMatch(/approved and cannot be promoted/iu)
+    expect(identity.listMemories({ orgId: 'org-a', departmentIds: [] })).toHaveLength(1)
+    identity.close()
+  })
+
+  it('records memory tool calls as session log events while running the agent loop', async () => {
+    root = await mkdtemp(join(tmpdir(), 'dsh-agent-memory-loop-'))
+    const identity = new EnterpriseIdentityRepository(join(root, 'identity.sqlite'), { now: () => 1_700_000_000_000 })
+    identity.createOrganization({ id: 'org-a', name: 'Org A' })
+    identity.createUser({ id: 'member-1', orgId: 'org-a', username: 'member', displayName: 'Member', disabled: false })
+    identity.saveDepartment({ id: 'dept-ops', orgId: 'org-a', parentId: null, name: 'Operations', sortOrder: 0, expectedRevision: 0 })
+    identity.saveWorkspaceGrant({
+      workspaceId: 'workspace-ops', orgId: 'org-a', name: 'Operations', kind: 'department',
+      departmentId: 'dept-ops', rootPath: '/managed/ops', sandboxMode: 'workspace-write', expectedRevision: 0,
+    })
+    identity.bindSessionWorkspace({
+      sessionId: 'loop-agent', workspaceId: 'workspace-ops', orgId: 'org-a', ownerUserId: 'member-1',
+    })
+    const ctx = new Context()
+    context = ctx
+    await ctx.plugin(LlmRuntime)
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(SessionProjectionRegistry)
+    await ctx.plugin(SystemPrompt, { includeHarnessIdentity: false, includeRuntimeContext: true })
+    await ctx.plugin(ToolRuntime)
+    await ctx.plugin(AgentRegistry)
+    await ctx.plugin(AgentLoop, { agents: [] })
+    ctx.provide('enterprisePostgres' as never, { identity } as never)
+    ctx.provide('enterpriseRequestContext' as never, new EnterpriseRequestContext() as never)
+    provideAnchoredEmployee(ctx, 'loop-agent')
+    apply(ctx, { maxEntries: 20, maxChars: 8_000, autoSave: true })
+    ctx.llm.registerAdapter(['mock'], new ScriptAdapter([
+      toolCallChunks('memory-write-call', 'memory_write', { scope: 'agent', kind: 'preference', summary: '偏好简短回答。' }),
+      textChunks('已记录你的偏好。'),
+    ]))
+    const agent = await ctx.agentLoop.create(SessionId('loop-agent'), { provider: 'mock', model: 'mock' }, { cwd: '/managed/ops' })
+    agent.followup(createUserMessage({ content: [{ type: 'text', text: '记住我喜欢简短回答。' }], source: { kind: 'user' } }))
+    await new Promise<void>((resolve) => {
+      const dispose = ctx.on('agent/status', ({ agent: subject, status }) => {
+        if (subject === agent && status === 'idle') {
+          dispose()
+          resolve()
+        }
+      })
+    })
+
+    const events = agent.session.snapshotEvents()
+    const call = events.find(event => event.type === 'tool/call')
+    expect(call?.type === 'tool/call' ? call.data.name : undefined).toBe('memory_write')
+    expect(events.some(event => event.type === 'tool/result')).toBe(true)
+    expect(identity.listMemories({ orgId: 'org-a', scopes: ['agent'], agentEmployeeId: 'employee-1' })).toEqual([
+      expect.objectContaining({ status: 'approved', summary: '偏好简短回答。' }),
     ])
     identity.close()
   })
