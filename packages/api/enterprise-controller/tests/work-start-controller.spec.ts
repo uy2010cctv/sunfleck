@@ -272,6 +272,7 @@ describe('enterprise work Remote controller', () => {
       resourcePolicy: async () => undefined,
       appendAudit: async (audit: Record<string, unknown>) => { audits.push(audit) },
       bindSessionWorkspace: async () => undefined,
+      listUsers: async () => [],
     } as never, {
       organizationId: 'org-a', sessionCookieName: 'dsh-enterprise-session', sessionTtlMs: 60_000,
       secureCookies: false, autoProvisionSsoUsers: false,
@@ -310,6 +311,7 @@ describe('enterprise work Remote controller', () => {
       resourcePolicy: async () => undefined,
       appendAudit: async () => undefined,
       bindSessionWorkspace: async () => undefined,
+      listUsers: async () => [],
     } as never, {
       organizationId: 'org-a', sessionCookieName: 'dsh-enterprise-session', sessionTtlMs: 60_000,
       secureCookies: false, autoProvisionSsoUsers: false,
