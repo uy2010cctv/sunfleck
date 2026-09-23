@@ -32,7 +32,7 @@ import { createUserMessage, errorChain, type UserMessage } from '@deepseek-ai/ds
 import type { Session, SessionId } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-session-title'
 import type {} from '@deepseek-ai/dsh-workspace'
-import { EnterpriseSurfaceError, type EnterpriseSurfaces, type Surface } from './types.ts'
+import { EnterpriseSurfaceError, type DmSurface, type Surface } from './types.ts'
 
 /** Log a rollback failure without replacing the operation's original failure. */
 function reportRollbackFailure(ctx: Context, subject: string, error: unknown): void {
@@ -40,7 +40,7 @@ function reportRollbackFailure(ctx: Context, subject: string, error: unknown): v
 }
 
 /** Registry of durable dm surfaces and inbound delivery into anchored employee sessions. */
-export class DmSurfaceRegistry implements EnterpriseSurfaces {
+export class DmSurfaceRegistry {
   /** Swallowed delivery tails per employee, serializing claim-and-deliver passes in queued order. */
   private readonly deliveryTails = new Map<EmployeeId, Promise<void>>()
   /** Swallowed creation tails per (user, employee) pair, serializing session creation. */
@@ -52,16 +52,16 @@ export class DmSurfaceRegistry implements EnterpriseSurfaces {
    * @param defaultAgentPreset - preset composed into every anchored session this registry creates.
    */
   constructor(
-    private readonly ctx: Context,
-    private readonly database: DatabaseSync,
-    private readonly defaultAgentPreset: string,
+    protected readonly ctx: Context,
+    protected readonly database: DatabaseSync,
+    protected readonly defaultAgentPreset: string,
   ) {}
 
-  private get accounts(): EmployeeAccounts {
+  protected get accounts(): EmployeeAccounts {
     return this.ctx.employeeAccounts
   }
 
-  async ensureDm(input: { orgId: string; userId: string; employeeId: EmployeeId }): Promise<Surface> {
+  async ensureDm(input: { orgId: string; userId: string; employeeId: EmployeeId }): Promise<DmSurface> {
     const account = this.requireEmployeeInOrg(input.employeeId, input.orgId)
     return this.ensurePairSurface(input, account)
   }
@@ -71,6 +71,12 @@ export class DmSurfaceRegistry implements EnterpriseSurfaces {
   }
 
   async deliverToEmployee(surface: Surface, originActor: string, payloadText: string): Promise<InboxItemId> {
+    if (surface.kind !== 'dm') {
+      throw new EnterpriseSurfaceError(
+        'surface-kind-mismatch',
+        `enterprise surface ${surface.id} is a ${surface.kind} surface, not a dm surface`,
+      )
+    }
     this.requireEmployeeInOrg(surface.employeeId, surface.orgId)
     if (surface.sessionId === undefined) {
       throw new EnterpriseSurfaceError(
@@ -85,7 +91,7 @@ export class DmSurfaceRegistry implements EnterpriseSurfaces {
   }
 
   /** Read one account and refuse a missing employee or one from another organization. */
-  private requireEmployeeInOrg(id: EmployeeId, orgId: string): EmployeeAccount {
+  protected requireEmployeeInOrg(id: EmployeeId, orgId: string): EmployeeAccount {
     const account = this.accounts.get(id)
     if (account === undefined) {
       throw new EnterpriseSurfaceError('employee-missing', `enterprise employee ${id} is missing`)
@@ -106,7 +112,7 @@ export class DmSurfaceRegistry implements EnterpriseSurfaces {
   private async ensurePairSurface(
     input: { orgId: string; userId: string; employeeId: EmployeeId },
     account: EmployeeAccount,
-  ): Promise<Surface> {
+  ): Promise<DmSurface> {
     const key = `${input.userId}:${input.employeeId}`
     const prior = this.pairCreationTails.get(key) ?? Promise.resolve()
     /* v8 ignore next -- creation tails absorb rejection, so the recovery callback is a fail-safe backstop. */
@@ -125,7 +131,7 @@ export class DmSurfaceRegistry implements EnterpriseSurfaces {
   private async ensurePairSurfaceNow(
     input: { orgId: string; userId: string; employeeId: EmployeeId },
     account: EmployeeAccount,
-  ): Promise<Surface> {
+  ): Promise<DmSurface> {
     const row = ensureSurface(this.database, {
       id: surfaceId(randomUUID()),
       orgId: input.orgId,
@@ -145,7 +151,11 @@ export class DmSurfaceRegistry implements EnterpriseSurfaces {
         sessionId: brandString<SessionId>(row.sessionId),
       }
     }
-    const sessionId = await this.createAnchoredSession(account, row.id)
+    const sessionId = await this.createAnchoredSession(
+      account,
+      'employee-dm',
+      (id) => { attachSurfaceSession(this.database, row.id, id) },
+    )
     return {
       id: surfaceId(row.id),
       kind: 'dm',
@@ -157,18 +167,27 @@ export class DmSurfaceRegistry implements EnterpriseSurfaces {
   }
 
   /**
-   * Create the Workspace-backed session one dm surface lives in and bind it to
-   * the surface row. The row keeps `session_id` null until this resolves, so a
-   * failed attempt is retried by the next `ensureDm` call for the same pair.
-   * The store attach runs inside the creation transaction: a failure after the
-   * workspace attach rolls the live agent back instead of leaking it.
+   * Create the Workspace-backed session one surface lives in and hand it to
+   * `attach` for its durable binding. The caller keeps the binding absent
+   * until this resolves, so a failed attempt is retried by the next ensure
+   * call for the same surface. The attach runs inside the creation sequence: a
+   * failure after the workspace attach rolls the live agent back instead of
+   * leaking it.
+   * @param account - employee account whose home workspace anchors the session.
+   * @param sessionIdPrefix - durable session-id prefix naming the surface kind.
+   * @param attach - durable binding written once the live agent exists.
+   * @returns the anchored session id.
    */
-  private async createAnchoredSession(account: EmployeeAccount, surfaceRowId: string): Promise<SessionId> {
+  protected async createAnchoredSession(
+    account: EmployeeAccount,
+    sessionIdPrefix: string,
+    attach: (sessionId: SessionId) => void,
+  ): Promise<SessionId> {
     const selection = this.ctx.agentDefaultModel.currentSelection()
     const preset = await this.ctx.agentPresets.resolve(this.defaultAgentPreset)
     await this.ctx.agentPresets.standingKeyFor(preset.id)
     const workspace = await this.ctx.workspaceRegistry.create(account.homeWorkspacePath)
-    const sessionId = brandString<SessionId>(`employee-dm-${randomUUID()}`)
+    const sessionId = brandString<SessionId>(`${sessionIdPrefix}-${randomUUID()}`)
     const handle = await this.ctx.agents.create({
       sessionId,
       meta: { cwd: workspace.path, agentPreset: preset.id },
@@ -184,7 +203,7 @@ export class DmSurfaceRegistry implements EnterpriseSurfaces {
       await workspace.attachSession(sessionId)
       attached = true
       this.ctx.sessionTitle.rename(handle.agent.session, account.displayName)
-      attachSurfaceSession(this.database, surfaceRowId, sessionId)
+      attach(sessionId)
     } catch (error: unknown) {
       if (attached) {
         try {

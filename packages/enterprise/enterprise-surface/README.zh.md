@@ -1,5 +1,5 @@
 ---
-description: "企业渠道用户与持久员工之间的会话 surface 注册表与入站投递，把一条已认证的私信送入员工的锚定会话。"
+description: "企业渠道用户与持久员工或群组之间的会话 surface 注册表与入站投递，把一条已认证的消息送入锚定会话或有章程的团队 run。"
 kind: "package-reference"
 ---
 
@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## 概述
 
-`dsh-enterprise-surface` 持有企业渠道用户与持久员工之间的持久 dm surface，并把已认证的入站消息投递进员工的锚定会话。它暴露 `ctx.surfaces`：`ensureDm` 返回每个用户-员工对唯一的 dm surface，且至多创建一次锚定会话；`deliverToEmployee` 把每条入箱消息注入会话，使其落入会话日志，否则将收件行标记失败；`stickyEmployee` 解析 actor key 绑定的员工。P0 仅提供 dm 一种 kind；锚定会话的 preset 来自显式的 `defaultAgentPreset` 配置。组合方提供已迁移的数据库与 agent-host 服务；全部 SQL 留在 employee store 中。
+`dsh-enterprise-surface` 持有企业渠道用户与持久员工或群组之间的持久会话 surface，并把已认证的入站消息投递进服务它的锚定会话。它暴露 `ctx.surfaces`：`ensureDm` 返回每个用户-员工对唯一的 dm surface，且至多创建一次锚定会话；`deliverToEmployee` 把每条入箱消息注入会话，使其落入会话日志，否则将收件行标记失败；`ensureGroupSurface` 持久化群 surface 及其成员员工；`deliverToGroup` 把群消息路由到被提及成员各自的群会话，或注入有章程团队的活跃 run；`stickyEmployee` 解析 actor key 绑定的员工。锚定会话的 preset 来自显式的 `defaultAgentPreset` 配置。组合方提供已迁移的数据库与 agent-host 服务；全部 SQL 留在 employee store 中。
 
 ## 目录
 
@@ -25,7 +25,7 @@ kind: "package-reference"
 <a id="use-this-package"></a>
 ## 使用本包
 
-当入站桥接要把已认证的渠道消息转化为员工工作时挂载本插件。桥接方解析或确保 dm surface，然后携带来源 actor 与消息文本调用 `deliverToEmployee`。
+当入站桥接要把已认证的渠道消息转化为员工工作时挂载本插件。桥接方解析或确保 surface，然后携带来源 actor 与消息文本调用 `deliverToEmployee`，或携带来源用户与文本调用 `deliverToGroup`。
 
 ### 何时选择
 
@@ -38,7 +38,7 @@ kind: "package-reference"
 | `database` | 必填 | 承载 surface 与收件行的已迁移企业身份数据库 |
 | `defaultAgentPreset` | 必填 | 本注册表创建的每个锚定会话所组合的 Agent preset |
 
-服务读取 `ctx.employeeAccounts`、`ctx.agents`、`ctx.agentDefaultModel`、`ctx.agentPresets`、`ctx.sessionTitle`、`ctx.sessions` 与 `ctx.workspaceRegistry`，在 `inject` 中声明。`ensureDm` 拒绝未知员工与属于其他组织的员工；`deliverToEmployee` 复查 surface 与员工的组织配对，当消息未落入会话日志时先把已认领的收件行标记失败再向调用方抛出。
+服务读取 `ctx.employeeAccounts`、`ctx.agents`、`ctx.agentDefaultModel`、`ctx.agentPresets`、`ctx.sessionTitle`、`ctx.sessions` 与 `ctx.workspaceRegistry`，在 `inject` 中声明。团队式群还会按名称惰性读取 `enterpriseTeamControl` 与 `enterpriseTeamRuntimeDriver`；两者皆为可选，团队面未挂载时返回结构化的 `team-runtime-unavailable` 结果而非加载失败。`ensureDm` 拒绝未知员工与属于其他组织的员工；`deliverToEmployee` 复查 surface 与员工的组织配对，当消息未落入会话日志时先把已认领的收件行标记失败再向调用方抛出。
 
 -----
 
@@ -52,13 +52,16 @@ kind: "package-reference"
 
 `DmSurfaceRegistry` 是三个权威之上的薄协调者：employee store 持有持久的 `surfaces` 与 `employee_inbox` 行，`ctx.employeeAccounts` 持有账号事实与收件入队，锚定会话日志持有消息持久性。`ensureDm` 经 store 幂等的 `ensureSurface`（`UNIQUE(user_id, employee_id)`）生成 surface 行，按 webhook 会话运行时的同一形态创建锚定会话——workspace 取员工 `homeWorkspacePath`，会话标题取员工显示名，header meta 记录 `agentPreset` 与 `cwd`，创建时的模型选择被固定到首个持久请求头为止——创建成功后才把会话 id 附着到 surface 行，失败的尝试由下一次调用重试。`deliverToEmployee` 用 `claim(employeeId, 1)` 按创建顺序认领，直到本次调用入队的行被投递；每行作为 steering 输入提交（运行中的会话在最近的 step 边界消费，空闲的会话开启新回合），随后 flush 会话并在日志记录了该消息——已追加，或仍在收件箱拼接投影中待处理（取消拼接会将其移出）——时确认落地。同一员工的并发投递在 promise 链上串行，认领保持队列顺序，且每条消息落入自己 surface 的会话；同一对的并发 `ensureDm` 调用共享一次会话创建。已认领行上的任何失败都会调用 store 的 `failInboxItem` 并向调用方抛出。
 
+群投递加入第二种模式。`ensureGroupSurface` 以外部键或 id 为键，校验每个成员员工的组织归属，并经 store 的整体替换成员 API 存储成员集——ensure 阶段不创建会话。联邦式群把消息路由到显式提及的成员，或显示名以 @ 词元出现（大小写不敏感）的成员，并直接注入各成员自己的按员工绑定的群会话（`surface_sessions` 绑定，首次被提及时惰性创建）：群投递从不写员工收件行，收件保持 dm 专属。单个成员的失败记录在其目标上，批次其余部分照常落地。有章程的群（存在 `teamDefinitionId`）经运行时驱动的 `submitRunInput` 把文本提交进团队活跃 run，无活跃 run 时以 `source: 'channel'` 与稳定幂等键 `<surface id>:<origin user>` 启动一个 run。
+
 ### 源码地图
 
 | 文件 | 职责 |
 |---|---|
 | [`src/index.ts`](src/index.ts) | 插件入口：`Config`、`inject`、`apply`、服务提供与公共再导出 |
 | [`src/types.ts`](src/types.ts) | 领域类型、`EnterpriseSurfaces` 接口、`surface-message` 来源声明与 `ctx.surfaces` 键声明 |
-| [`src/dm.ts`](src/dm.ts) | `DmSurfaceRegistry`：surface 幂等、锚定会话创建与按序收件投递 |
+| [`src/dm.ts`](src/dm.ts) | dm surface 幂等、锚定会话创建与按序收件投递 |
+| [`src/group.ts`](src/group.ts) | `GroupSurfaceRegistry`：群 surface、联邦式成员路由与章程团队提交 |
 | — | 不发布运行时 invariant 伴生模块。本注册表只有一个权威：每一条持久观察要么是经 employee store 的 SQL 写入的行，要么是锚定会话自身日志中的事件，不存在能够分叉的独立观察（[包 invariant 规则](../../AGENTS.md)）。 |
 
 </details>
@@ -83,7 +86,7 @@ kind: "package-reference"
 
 #### 模型看到什么
 
-每条已投递的收件项对应一条 user 角色消息，承载消息文本；其 `surface-message` 来源把 surface、收件项 id 与来源 actor 记录在持久日志上。注册表自身不注册任何 prompt 段或工具 schema，锚定会话的 prompt 来自配置的 agent preset。
+每条已投递的收件项或被注入的群提及对应一条承载消息文本的 user 角色消息；其 `surface-message` 来源把 surface 与来源 actor 记录在持久日志上，dm 投递还带收件项 id。章程团队提交会以一条 `team-run-message` 来源（记录 run、来源 surface 与 actor）的用户消息抵达 run 的 Lead。注册表自身不注册任何 prompt 段或工具 schema，锚定会话的 prompt 来自配置的 agent preset。
 
 #### Token 影响
 
@@ -98,7 +101,7 @@ kind: "package-reference"
 
 这些限制界定了本注册表何时不适用或需要组合方支持。
 
-- **P0 仅提供 dm 一种 kind** — surface kind 并集闭合于 `'dm'`；群渠道与其他 kind 等待需求。
+- **频道 kind 等待后续** — dm 与群 surface 已提供；频道话题与当值路由随频道投递到来。
 - **`defaultAgentPreset` 是显式配置** — P0 直接从配置字段解析 preset；release 到 profile 的解析属于目录 release 流程，已延期。
 - **锚定会话不解析权限 preset** — 注册表只记录 agent preset，权限授予来自 preset 自身的配置；按 surface 的权限 preset 已延期。
 - **投递要求锚定会话在进程内活跃** — 注册表经 `ctx.agents` 查找会话，未活跃时快速失败；重启后锚定会话的冷恢复已延期。
@@ -113,6 +116,7 @@ kind: "package-reference"
 <details>
 <summary>维护者工作上下文 — 点击展开</summary>
 
+- 群路由规则：显式提及 id 仅在命名成员时生效；否则按 @ 词元匹配显示名（大小写不敏感，去除尾部标点）；无匹配返回结构化 `no-target` 而非抛出。团队控制失败以结构化结果返回，控制器可将其映射为 200。
 - 计划形态的同步签名变成了 `Promise<Surface>` 与 `Promise<InboxItemId>`：会话创建（`ctx.agents.create`、`ctx.workspaceRegistry.create`、`ctx.agentPresets.resolve`）与持久落地 flush 是异步的，且 `deliverToEmployee` 必须把投递失败交回调用方。
 - 溯源信息（`originSurface`、`originActor`）经由可合并扩展的 `MessageSourceMap`（`surface-message` kind）携带——即 webhook 模板的溯源通道——因为 `SessionHeader` 没有自由 meta 字段；`agentPreset` 走受支持的 header meta 字段。
 - 注册表按员工维度认领（`claim(employeeId, 1)`）并投递到该 surface 的锚定会话，直到自己的行被投递；P0 员工只有一个 dm surface，多 surface 员工到达时需要按 surface 认领。

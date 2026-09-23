@@ -527,6 +527,21 @@ describe('DmSurfaceRegistry.deliverToEmployee', () => {
     expect(database.prepare('SELECT COUNT(*) AS count FROM employee_inbox').get()).toEqual({ count: 0 })
   })
 
+  it('refuses a group surface with the coded kind mismatch', async () => {
+    const { ctx, host, accounts } = makeCtx()
+    const employee = createEmployee(accounts)
+    const group = await ctx.surfaces.ensureGroupSurface({
+      orgId: 'org-1', name: '支持群', memberEmployeeIds: [employee.id],
+    })
+
+    await expect(ctx.surfaces.deliverToEmployee(group, 'actor-a', '你好'))
+      .rejects.toMatchObject({
+        code: 'surface-kind-mismatch',
+        message: `enterprise surface ${group.id} is a group surface, not a dm surface`,
+      })
+    expect(host.steered).toEqual([])
+  })
+
   it('fails loud when the enqueued item vanishes from the claimed queue', async () => {
     const { ctx, accounts } = makeCtx({ vanishInbox: true })
     const employee = createEmployee(accounts)

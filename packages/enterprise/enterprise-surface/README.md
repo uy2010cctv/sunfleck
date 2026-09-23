@@ -1,5 +1,5 @@
 ---
-description: "Enterprise conversation-surface registry and inbound delivery between channel users and persistent employees, carrying an authenticated dm message into an employee's anchored session."
+description: "Enterprise conversation-surface registry and inbound delivery between channel users and persistent employees or groups, carrying an authenticated message into anchored sessions or a chartered team run."
 kind: "package-reference"
 ---
 
@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-`dsh-enterprise-surface` owns durable dm surfaces between enterprise channel users and persistent employees and delivers authenticated inbound messages into the employee's anchored session. It exposes `ctx.surfaces`: `ensureDm` returns the one dm surface per user-employee pair and creates its anchored session at most once; `deliverToEmployee` steers each enqueued message into the session, landing it in the session log or marking the row failed; `stickyEmployee` resolves an actor key's bound employee. P0 ships the dm kind only; the anchored-session preset is explicit `defaultAgentPreset` config. The composing plugin supplies the migrated database and agent-host services; SQL stays in the employee store.
+`dsh-enterprise-surface` owns durable conversation surfaces between enterprise channel users and persistent employees or groups and delivers authenticated inbound messages into the anchored sessions that serve them. It exposes `ctx.surfaces`: `ensureDm` returns the one dm surface per user-employee pair and creates its anchored session at most once; `deliverToEmployee` steers each enqueued message into the session, landing it in the session log or marking the row failed; `ensureGroupSurface` stores a group surface and its member employees; `deliverToGroup` routes a group message to the @-mentioned members' own group sessions, or into the chartered team's active run; `stickyEmployee` resolves an actor key's bound employee. The anchored-session preset is explicit `defaultAgentPreset` config. The composing plugin supplies the migrated database and agent-host services; SQL stays in the employee store.
 
 ## Table of Contents
 
@@ -25,7 +25,7 @@ English | [中文](README.zh.md)
 <a id="use-this-package"></a>
 ## Use this package
 
-Mount this plugin when an ingress bridge turns authenticated channel messages into employee work. The bridge resolves or ensures the dm surface, then calls `deliverToEmployee` with the origin actor and message text.
+Mount this plugin when an ingress bridge turns authenticated channel messages into employee work. The bridge resolves or ensures the surface, then calls `deliverToEmployee` with the origin actor and message text, or `deliverToGroup` with the originating user and text.
 
 ### When to choose it
 
@@ -38,7 +38,7 @@ Choose this package when the same process already hosts the employee's agent run
 | `database` | required | Migrated enterprise identity database backing surface and inbox rows |
 | `defaultAgentPreset` | required | Agent preset composed into every anchored session this registry creates |
 
-The service reads `ctx.employeeAccounts`, `ctx.agents`, `ctx.agentDefaultModel`, `ctx.agentPresets`, `ctx.sessionTitle`, `ctx.sessions`, and `ctx.workspaceRegistry`, declared in `inject`. `ensureDm` refuses an unknown employee and an employee from another organization; `deliverToEmployee` re-checks the surface-employee organization pairing, and marks the claimed inbox item failed before rethrowing when the message does not land in the session log.
+The service reads `ctx.employeeAccounts`, `ctx.agents`, `ctx.agentDefaultModel`, `ctx.agentPresets`, `ctx.sessionTitle`, `ctx.sessions`, and `ctx.workspaceRegistry`, declared in `inject`. Team-mode groups additionally read `enterpriseTeamControl` and `enterpriseTeamRuntimeDriver` lazily by name; both are optional, and an unmounted team plane returns a structured `team-runtime-unavailable` result instead of failing load. `ensureDm` refuses an unknown employee and an employee from another organization; `deliverToEmployee` re-checks the surface-employee organization pairing, and marks the claimed inbox item failed before rethrowing when the message does not land in the session log.
 
 -----
 
@@ -52,13 +52,16 @@ The service reads `ctx.employeeAccounts`, `ctx.agents`, `ctx.agentDefaultModel`,
 
 `DmSurfaceRegistry` is a thin coordinator over three authorities: the employee store owns the durable `surfaces` and `employee_inbox` rows, `ctx.employeeAccounts` owns account facts and inbox queueing, and the anchored session log owns message durability. `ensureDm` mints the surface row through the store's idempotent `ensureSurface` (`UNIQUE(user_id, employee_id)`), creates the anchored session through the same shape as the webhook session runtime — workspace from the employee's `homeWorkspacePath`, session title from the employee display name, header meta `agentPreset` and `cwd`, creation-time model selection pinned until the first durable request header — and attaches the session id to the surface row only after creation succeeds, so a failed attempt is retried by the next call. `deliverToEmployee` claims rows with `claim(employeeId, 1)` in creation order until the row this call enqueued is delivered, submits each as steering input (a running session consumes it at the nearest step boundary, an idle one opens a turn), then flushes the session and accepts the landing when the log records the message — appended, or still pending in the spliced-inbox projection (a cancellation splice un-lands it). Concurrent deliveries for one employee serialize on a promise chain, so claims stay in queued order and each message lands in its own surface's session; concurrent `ensureDm` calls for one pair share one session creation. Any failure on a claimed row calls the store's `failInboxItem` and rethrows to the caller.
 
+Group delivery adds a second mode. `ensureGroupSurface` keys the surface by external key or id, validates every member employee against the organization, and stores the member set through the store's replace-all member API — no session is created at ensure time. Federated groups route the message to the explicitly mentioned members, or to the members whose display name appears as an @-token (case-insensitive), and steer each one's per-employee group session (`surface_sessions` bindings, created lazily on first mention) directly: group delivery never enqueues employee inbox rows, which stay dm-specific. Per-member failures are captured on their targets while the rest of the batch lands. Chartered groups (`teamDefinitionId` present) submit the text into the team's active run through the runtime driver's `submitRunInput`, starting one run with `source: 'channel'` and the stable idempotency key `<surface id>:<origin user>` when none is active.
+
 ### Source map
 
 | File | Role |
 |---|---|
 | [`src/index.ts`](src/index.ts) | Plugin entry: `Config`, `inject`, `apply`, service provision, and the public re-exports |
 | [`src/types.ts`](src/types.ts) | Domain types, the `EnterpriseSurfaces` interface, the `surface-message` source declaration, and the `ctx.surfaces` key declaration |
-| [`src/dm.ts`](src/dm.ts) | `DmSurfaceRegistry`: surface idempotency, anchored-session creation, and ordered inbox delivery |
+| [`src/dm.ts`](src/dm.ts) | dm surface idempotency, anchored-session creation, and ordered inbox delivery |
+| [`src/group.ts`](src/group.ts) | `GroupSurfaceRegistry`: group surfaces, federated member routing, and chartered-team submission |
 | — | No runtime invariant companion is published. The registry has one authority: every durable observation is either a row written through the employee store's SQL or an event in the anchored session's own log, so no independent observation can diverge ([package invariant rules](../../AGENTS.md)). |
 
 </details>
@@ -83,7 +86,7 @@ Read these pages when the package-level contract is not enough.
 
 #### What the model sees
 
-One user-role message per delivered inbox item, carrying the payload text; its `surface-message` source records the surface, the inbox item id, and the origin actor on the durable log. The registry registers no prompt section or tool schema of its own, and the anchored session's prompt comes from the configured agent preset.
+One user-role message per delivered inbox item or steered group mention, carrying the payload text; its `surface-message` source records the surface and the origin actor on the durable log, plus the inbox item id for dm deliveries. A chartered-team submission reaches the run's Lead as one user message whose `team-run-message` source records the run, the origin surface, and the actor. The registry registers no prompt section or tool schema of its own, and the anchored session's prompt comes from the configured agent preset.
 
 #### Token effect
 
@@ -97,7 +100,7 @@ Each delivery extends the session tail; it never rewrites the cached prefix.
 
 These limits define when this registry is a poor fit or needs composing support.
 
-- **P0 ships the dm kind only** — the surface kind union is closed at `'dm'`; group channels and other kinds wait on demand.
+- **The channel kind waits** — dm and group surfaces are shipped; channel topics and duty routing arrive with channel delivery.
 - **`defaultAgentPreset` is explicit configuration** — P0 resolves the preset from the config field; release-to-profile resolution belongs to the catalog release flow and is deferred.
 - **Anchored sessions resolve no permission preset** — the registry records only the agent preset, so permission grants come from the preset's own configuration; per-surface permission presets are deferred.
 - **Delivery needs the anchored session live in-process** — the registry looks the session up through `ctx.agents` and fails loud when it is not live; cold resume of anchored sessions after a restart is deferred.
@@ -112,6 +115,7 @@ These limits define when this registry is a poor fit or needs composing support.
 <details>
 <summary>Working context for maintainers — click to expand</summary>
 
+- Group routing rules: explicit mentioned ids win only when they name members; otherwise @-token display-name matches (case-insensitive, trailing punctuation trimmed) route; no match is a structured `no-target`, never a throw. Team control failures come back as structured results so a controller can map them to a 200.
 - The plan-shaped synchronous signatures became `Promise<Surface>` and `Promise<InboxItemId>`: session creation (`ctx.agents.create`, `ctx.workspaceRegistry.create`, `ctx.agentPresets.resolve`) and the durable-landing flush are asynchronous, and `deliverToEmployee` must hand delivery failures back to its caller.
 - Provenance (`originSurface`, `originActor`) rides the merge-extensible `MessageSourceMap` (`surface-message` kind) — the webhook template's provenance channel — because `SessionHeader` has no free-form meta field; `agentPreset` is recorded through the supported header meta field.
 - The registry claims employee-scoped rows (`claim(employeeId, 1)`) and delivers them to the surface's anchored session until its own row is delivered; P0 employees carry one dm surface, and multi-surface employees need per-surface claiming when they arrive.

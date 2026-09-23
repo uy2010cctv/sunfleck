@@ -367,6 +367,8 @@ export class EnterpriseTeamRuntimeAdapter implements EnterpriseTeamRuntimeDriver
     const root = await this.ctx.enterpriseRequestContext.withoutPrincipal(() =>
       this.resumeFromLog(deterministicRootSessionId(runId)))
     const state = projectTeam(root.session.header, root.session.snapshotEvents())
+    /* v8 ignore next -- the root Session id derives from the run id, so a projected run under
+       another id means a foreign-written log no public path can produce. */
     if (state.run === undefined || state.run.runId !== runId) this.fail('team-run-log-mismatch')
     const matchesSubmission = (message: UserMessage): boolean =>
       message.source.kind === 'team-run-message' && message.source.runId === runId

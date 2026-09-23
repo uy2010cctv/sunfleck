@@ -358,4 +358,18 @@ describe('enterprise Agent Teams runtime driver', () => {
       actorUserId: 'reviewer-a', text: '任何输入', originSurfaceId: 'surface-group-1',
     })).rejects.toMatchObject({ constructor: EnterpriseTeamRuntimeError, outcome: 'deterministic', code: 'team-run-not-found' })
   })
+
+  it('reports an unknown outcome when the submitted input never lands in the root log', async () => {
+    const app = await setup()
+    const driver = app.driver!
+    const started = await driver.startRun(startInput())
+    const root = app.ctx.agents.get(started.rootSessionId as never)!
+    vi.spyOn(root, 'followup').mockImplementation(() => {})
+
+    await expect(driver.submitRunInput('run-a', {
+      actorUserId: 'reviewer-a', text: '不会落地的输入', originSurfaceId: 'surface-group-1',
+    })).rejects.toMatchObject({
+      constructor: EnterpriseTeamRuntimeError, outcome: 'unknown', code: 'team-run-input-not-landed',
+    })
+  })
 })

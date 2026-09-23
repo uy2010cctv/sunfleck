@@ -5997,6 +5997,9 @@ importers:
       '@deepseek-ai/dsh-enterprise-identity':
         specifier: workspace:^
         version: link:../../identity/enterprise-identity
+      '@deepseek-ai/dsh-enterprise-operations':
+        specifier: workspace:^
+        version: link:../../operations/enterprise-operations
       '@deepseek-ai/dsh-llm':
         specifier: workspace:^
         version: link:../../llm/llm
