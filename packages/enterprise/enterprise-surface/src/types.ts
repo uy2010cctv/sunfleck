@@ -59,8 +59,39 @@ export interface GroupSurface {
   readonly projectId?: string
 }
 
-/** One durable conversation surface. The channel kind lands with channel delivery. */
-export type Surface = DmSurface | GroupSurface
+/** How one channel surface decides the topic a routed message belongs to. */
+export type ChannelTopicPolicy =
+  /** The transport pins messages to topics; a routed message without one auto-creates a topic titled by its first 40 characters. */
+  | 'thread'
+  /** Topics exist only through the `/topic 标题` command; unpinned messages without a topic stay undelivered. */
+  | 'command'
+  /** The whole channel is one topic, titled by the channel name; per-message topic ids are ignored. */
+  | 'lane'
+
+/** How one channel surface answers a routed message. */
+export type ChannelRespondPolicy =
+  /** Route to the @-mentioned member employees, falling back to the duty roster head. */
+  | 'mention_duty'
+  /** Announcements only: every message becomes one organization-scope memory proposal; no session is steered. */
+  | 'ingest_only'
+
+/** One durable channel conversation surface partitioned into topics. */
+export interface ChannelSurface {
+  readonly id: SurfaceId
+  readonly kind: 'channel'
+  readonly orgId: string
+  /** Human-facing channel name stored on the surface row. */
+  readonly name: string
+  /** Policy deciding the topic of a routed message. */
+  readonly topicPolicy: ChannelTopicPolicy
+  /** Policy deciding the answer a routed message gets. */
+  readonly respondPolicy: ChannelRespondPolicy
+  /** Project the channel collaborates on, when the channel is project-bound. */
+  readonly projectId?: string
+}
+
+/** One durable conversation surface. */
+export type Surface = DmSurface | GroupSurface | ChannelSurface
 
 /** Source of a user message delivered from one enterprise conversation surface. */
 export interface SurfaceMessageSource {
@@ -75,6 +106,11 @@ export interface SurfaceMessageSource {
   readonly inboxItemId?: InboxItemId
   /** Opaque key of the authenticated actor that originated the message. */
   readonly originActor: string
+  /**
+   * Channel topic the message belongs to. Present for channel deliveries,
+   * which steer one session per topic; absent for dm and group deliveries.
+   */
+  readonly topicId?: string
 }
 
 declare module '@deepseek-ai/dsh-llm' {
@@ -127,6 +163,89 @@ export type GroupDeliveryResult =
     /** The resolved team control plane failed to reuse, start, or submit the run. */
     readonly reason: 'team-run-failed'
     /** Root cause chain of the failed team operation. */
+    readonly error: string
+  }
+
+/** One delivered channel message routed into its topic session. */
+export interface ChannelRoutedDelivery {
+  readonly delivered: true
+  /** The message steered the topic session of the resolved topic. */
+  readonly mode: 'routed'
+  /** Topic the message routed into; the transport pins later messages with this id. */
+  readonly topicId: string
+  /** Topic session the message steered. */
+  readonly sessionId: SessionId
+  /** Employees the message addressed: the @-mentioned members, or the duty roster head. */
+  readonly employeeIds: readonly EmployeeId[]
+}
+
+/** One `/done` command that settled its topic; the store row is the authoritative trace. */
+export interface ChannelSettledDelivery {
+  readonly delivered: true
+  /** The topic settled and the session, when one existed, recorded the settle marker. */
+  readonly mode: 'settled'
+  /** Topic the command settled. */
+  readonly topicId: string
+  /** Topic session that received the landed settle marker; absent when the topic had no live session. */
+  readonly sessionId?: SessionId
+}
+
+/** One announcement accepted into organization-scope memory. */
+export interface ChannelIngestedDelivery {
+  readonly delivered: true
+  /** The message became one memory proposal; no session exists on ingest-only channels. */
+  readonly mode: 'ingested'
+  /** Proposed memory entry carrying the truncated announcement; absent when the proposal failed. */
+  readonly proposedMemoryId?: string
+}
+
+/** Outcome of one channel-surface delivery. Structured: callers map it to a transport response without catching. */
+export type ChannelDeliveryResult =
+  | ChannelRoutedDelivery
+  | ChannelSettledDelivery
+  | ChannelIngestedDelivery
+  | {
+    readonly delivered: false
+    /** No member or duty employee matched the mention rules. */
+    readonly reason: 'no-target'
+  }
+  | {
+    readonly delivered: false
+    /** No open topic on this surface resolves the message or command. */
+    readonly reason: 'no-topic'
+  }
+  | {
+    readonly delivered: false
+    /** A `/topic` command carried no title. */
+    readonly reason: 'invalid-command'
+  }
+  | {
+    readonly delivered: false
+    /** The addressed topic already settled or archived, so it accepts neither routing nor a second settle. */
+    readonly reason: 'already-settled'
+  }
+  | {
+    readonly delivered: false
+    /** The enterprise identity store backing memory is not mounted in this process. */
+    readonly reason: 'memory-unavailable'
+  }
+  | {
+    readonly delivered: false
+    /** The privacy gate rejected the announcement; it is dropped, not proposed. */
+    readonly reason: 'privacy-gated'
+  }
+  | {
+    readonly delivered: false
+    /** The memory proposal failed after the privacy gate allowed it. */
+    readonly reason: 'intake-failed'
+    /** Root cause chain of the failed proposal. */
+    readonly error: string
+  }
+  | {
+    readonly delivered: false
+    /** The topic session could not be created, was not live, or the steer never landed. */
+    readonly reason: 'routing-failed'
+    /** Root cause chain of the failed routing. */
     readonly error: string
   }
 
@@ -196,6 +315,34 @@ export interface EnterpriseSurfaces {
     teamDefinitionId?: string
     projectId?: string
   }): Promise<GroupSurface>
+  /**
+   * Return the durable channel surface keyed by the organization and external
+   * key, creating it when absent and replacing its member set with the given
+   * employee ids — the same idempotency as `ensureGroupSurface`. Keyed repeats
+   * return the stored surface without rewriting its policies; duty roster
+   * updates ride `setDutyRoster`. Channel surfaces create no session at ensure
+   * time.
+   *
+   * Policy pairing: `respondPolicy: 'ingest_only'` makes the duty roster and
+   * mention routing moot — every message becomes a memory proposal — so a
+   * stored roster is allowed but inert. Every duty employee id must name an
+   * employee of the organization.
+   * @param input - organization, name, optional external key and project, the
+   * member employees, both policies, and the duty roster in routing order.
+   * @returns the stored channel surface.
+   * @throws an `EnterpriseSurfaceError` when a duty employee is missing or
+   * belongs to another organization.
+   */
+  ensureChannelSurface(input: {
+    orgId: string
+    name: string
+    externalKey?: string
+    memberEmployeeIds: readonly EmployeeId[]
+    topicPolicy: ChannelTopicPolicy
+    respondPolicy: ChannelRespondPolicy
+    dutyEmployeeIds: readonly EmployeeId[]
+    projectId?: string
+  }): Promise<ChannelSurface>
   /** Resolve the sticky employee for one channel actor. */
   stickyEmployee(orgId: string, actorKey: string): EmployeeId | undefined
   /**
@@ -233,6 +380,44 @@ export interface EnterpriseSurfaces {
     surface: Surface,
     input: { originUserId: string; text: string; mentionedEmployeeIds?: readonly EmployeeId[]; messageId?: string },
   ): Promise<GroupDeliveryResult>
+  /**
+   * Deliver one inbound channel message. Ingest-only surfaces propose the
+   * truncated text as one organization-scope memory announcement and never
+   * touch a session. Interactive (`mention_duty`) surfaces resolve the topic
+   * and the addressed employees, then steer the topic's one session:
+   *
+   * - `/done` settles the topic named by `topicId` and steers a settle marker
+   *   into its session when one exists — the store row and the session log
+   *   both record the settle. Without `topicId` the command is a `no-topic`
+   *   result; on a settled or archived topic it is `already-settled`.
+   * - `/topic 标题` ensures the topic titled by the command, under the given
+   *   `topicId` or a fresh one. A bare `/topic` with no title is
+   *   `invalid-command`.
+   * - Plain messages resolve their topic by policy: `thread` uses the given
+   *   `topicId` or auto-creates one titled by the message's first 40
+   *   characters; `command` requires `topicId` naming an existing topic of
+   *   this surface; `lane` routes into the one surface-wide topic titled by
+   *   the channel name, ignoring `topicId`.
+   *
+   * Routing targets the @-mentioned members — explicit ids win over
+   * display-name tokens, matching group delivery — and falls back to the duty
+   * roster head for unaddressed messages. A topic session anchors to its
+   * first routed employee's home workspace and the shared default preset;
+   * later messages from other employees steer the same session and attribute
+   * through the message's `originActor`. Topic sessions are created at most
+   * once per topic even under concurrent first messages.
+   * @param surface - surface the message arrived on.
+   * @param input - originating user, message text, optional explicitly
+   * mentioned employee ids, and the optional topic id the transport pinned
+   * from a previous routed result.
+   * @returns the structured delivery outcome; routing and intake failures
+   * come back as results, not rejections. Unknown or cross-org employees and
+   * a non-channel surface still reject, matching dm and group delivery.
+   */
+  deliverToChannel(
+    surface: Surface,
+    input: { originUserId: string; text: string; mentionedEmployeeIds?: readonly EmployeeId[]; topicId?: string },
+  ): Promise<ChannelDeliveryResult>
 }
 
 declare module '@deepseek-ai/cordis' {

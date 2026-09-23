@@ -4,7 +4,9 @@ import { migrateEnterpriseIdentity } from '../src/index.ts'
 import {
   attachGroupSurfaceSession,
   attachSurfaceSession,
+  attachTopicSession,
   bindSticky,
+  channelTopic,
   claimInbox,
   createEmployee,
   dutyRoster,
@@ -538,6 +540,26 @@ describe('collaboration surfaces', () => {
       .toEqual(['topic-a', 'topic-b', 'topic-other'])
     expect(topicBySession(database, 'session-1')?.topicId).toBe('topic-a')
     expect(topicBySession(database, 'session-missing')).toBeUndefined()
+  })
+
+  it('reads a topic by id and attaches its session in place', () => {
+    const database = makeDatabase()
+    seedSurfaceGraph(database)
+    ensureChannelSurface(database, channelRow())
+    ensureTopic(database, { topicId: 'topic-1', surfaceId: 'surface-channel', title: '上线事项', createdBy: 'user-1', createdAt: T1 })
+
+    expect(channelTopic(database, 'topic-1')?.sessionId).toBeUndefined()
+    expect(channelTopic(database, 'topic-missing')).toBeUndefined()
+
+    attachTopicSession(database, 'topic-1', 'session-1')
+    expect(channelTopic(database, 'topic-1')?.sessionId).toBe('session-1')
+    expect(topicBySession(database, 'session-1')?.topicId).toBe('topic-1')
+    // The binding replaces any previous session so a recreated session stays authoritative.
+    attachTopicSession(database, 'topic-1', 'session-2')
+    expect(channelTopic(database, 'topic-1')?.sessionId).toBe('session-2')
+    expect(() => {
+      attachTopicSession(database, 'topic-missing', 'session-3')
+    }).toThrow(/topic is missing/)
   })
 
   it('round-trips a duty roster and fails loud when stored values left their closed sets', () => {

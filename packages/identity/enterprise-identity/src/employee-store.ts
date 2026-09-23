@@ -566,6 +566,29 @@ export function topicsBySurface(database: DatabaseSync, surfaceId: string): Chan
   return rows.map(channelTopicFromRow)
 }
 
+/** Read one channel topic by id.
+ * @param database - Migrated enterprise identity database.
+ * @param topicId - Topic id to read.
+ * @returns The topic row, or undefined when the id is unknown.
+ */
+export function channelTopic(database: DatabaseSync, topicId: string): ChannelTopicRow | undefined {
+  const row = database.prepare('SELECT * FROM channel_topics WHERE topic_id = ?')
+    .get(topicId) as Record<string, unknown> | undefined
+  return row === undefined ? undefined : channelTopicFromRow(row)
+}
+
+/** Attach one live session to a channel topic, replacing any previous binding.
+ * @param database - Migrated enterprise identity database.
+ * @param topicId - Topic id the session serves.
+ * @param sessionId - Session id now serving the topic.
+ * @throws When the topic is missing.
+ */
+export function attachTopicSession(database: DatabaseSync, topicId: string, sessionId: string): void {
+  const result = database.prepare('UPDATE channel_topics SET session_id = ? WHERE topic_id = ?')
+    .run(sessionId, topicId)
+  if (Number(result.changes) === 0) throw new Error('enterprise topic is missing')
+}
+
 /** Read the topic anchored to one live session.
  * @param database - Migrated enterprise identity database.
  * @param sessionId - Session id the topic was created with.

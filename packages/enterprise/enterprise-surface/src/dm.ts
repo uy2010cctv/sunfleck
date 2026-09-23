@@ -42,7 +42,7 @@ function reportRollbackFailure(ctx: Context, subject: string, error: unknown): v
 /** Registry of durable dm surfaces and inbound delivery into anchored employee sessions. */
 export class DmSurfaceRegistry {
   /** Swallowed delivery tails per employee, serializing claim-and-deliver passes in queued order. */
-  private readonly deliveryTails = new Map<EmployeeId, Promise<void>>()
+  private readonly deliveryTails = new Map<string, Promise<void>>()
   /** Swallowed creation tails per (user, employee) pair, serializing session creation. */
   private readonly pairCreationTails = new Map<string, Promise<void>>()
 
@@ -87,7 +87,8 @@ export class DmSurfaceRegistry {
     const item = this.accounts.enqueue({
       employeeId: surface.employeeId, surfaceId: surface.id, originActor, payloadText,
     })
-    return this.serializeDelivery(surface.employeeId, surface.sessionId, item)
+    const sessionId: SessionId = surface.sessionId
+    return this.runInTail(this.deliveryTails, surface.employeeId, () => this.deliverQueued(sessionId, item))
   }
 
   /** Read one account and refuse a missing employee or one from another organization. */
@@ -114,16 +115,25 @@ export class DmSurfaceRegistry {
     account: EmployeeAccount,
   ): Promise<DmSurface> {
     const key = `${input.userId}:${input.employeeId}`
-    const prior = this.pairCreationTails.get(key) ?? Promise.resolve()
-    /* v8 ignore next -- creation tails absorb rejection, so the recovery callback is a fail-safe backstop. */
-    const run = prior.then(() => this.ensurePairSurfaceNow(input, account), () => this.ensurePairSurfaceNow(input, account))
-    /* v8 ignore next -- ensurePairSurfaceNow contains creation failures and ensurePairSurface itself does not throw. */
+    return this.runInTail(this.pairCreationTails, key, () => this.ensurePairSurfaceNow(input, account))
+  }
+
+  /**
+   * Run one unit of work behind a per-key tail so concurrent units for the
+   * same key execute in queued order. The tail absorbs the work's rejection
+   * so the chain survives; callers await the work's own result.
+   */
+  protected async runInTail<T>(tails: Map<string, Promise<void>>, key: string, work: () => Promise<T>): Promise<T> {
+    const prior = tails.get(key) ?? Promise.resolve()
+    /* v8 ignore next -- tails absorb rejection, so the recovery callback is a fail-safe backstop. */
+    const run = prior.then(work, work)
+    /* v8 ignore next -- work captures its own failures and runInTail itself does not throw. */
     const tail = run.then(() => undefined, () => undefined)
-    this.pairCreationTails.set(key, tail)
+    tails.set(key, tail)
     try {
       return await run
     } finally {
-      if (this.pairCreationTails.get(key) === tail) this.pairCreationTails.delete(key)
+      if (tails.get(key) === tail) tails.delete(key)
     }
   }
 
@@ -220,28 +230,6 @@ export class DmSurfaceRegistry {
       throw error
     }
     return sessionId
-  }
-
-  /**
-   * Serialize one employee's claim-and-deliver passes so concurrent passes
-   * claim in queued order and each message lands in its own surface's session.
-   */
-  private async serializeDelivery(
-    employeeId: EmployeeId,
-    sessionId: SessionId,
-    item: EmployeeInboxItem,
-  ): Promise<InboxItemId> {
-    const prior = this.deliveryTails.get(employeeId) ?? Promise.resolve()
-    /* v8 ignore next -- delivery tails absorb rejection, so the recovery callback is a fail-safe backstop. */
-    const run = prior.then(() => this.deliverQueued(sessionId, item), () => this.deliverQueued(sessionId, item))
-    /* v8 ignore next -- deliverQueued contains delivery failures and serializeDelivery itself does not throw. */
-    const tail = run.then(() => undefined, () => undefined)
-    this.deliveryTails.set(employeeId, tail)
-    try {
-      return await run
-    } finally {
-      if (this.deliveryTails.get(employeeId) === tail) this.deliveryTails.delete(employeeId)
-    }
   }
 
   /** Claim queued items in creation order until this call's item is delivered. */

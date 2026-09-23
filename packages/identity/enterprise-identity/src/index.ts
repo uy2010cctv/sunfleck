@@ -48,7 +48,9 @@ export {
 export {
   attachGroupSurfaceSession,
   attachSurfaceSession,
+  attachTopicSession,
   bindSticky,
+  channelTopic,
   claimInbox,
   createEmployee,
   dutyRoster,

@@ -28,7 +28,6 @@ import type { EnterpriseTeamRuntimeDriver } from '@deepseek-ai/dsh-enterprise-op
 import { DmSurfaceRegistry } from './dm.ts'
 import {
   EnterpriseSurfaceError,
-  type EnterpriseSurfaces,
   type GroupDeliveryResult,
   type GroupDeliveryTarget,
   type GroupSurface,
@@ -65,10 +64,10 @@ function groupSurfaceFromRow(row: GroupSurfaceRow): GroupSurface {
   }
 }
 
-/** Registry adding group surfaces and two-mode group delivery to the dm registry. */
-export class GroupSurfaceRegistry extends DmSurfaceRegistry implements EnterpriseSurfaces {
+/** Registry adding group surfaces and two-mode group delivery to the dm registry. The channel registry completes the surface interface. */
+export class GroupSurfaceRegistry extends DmSurfaceRegistry {
   /** Swallowed steering tails per employee, serializing group steering passes in queued order. */
-  private readonly groupDeliveryTails = new Map<EmployeeId, Promise<void>>()
+  private readonly groupDeliveryTails = new Map<string, Promise<void>>()
 
   async ensureGroupSurface(input: {
     orgId: string
@@ -178,22 +177,36 @@ export class GroupSurfaceRegistry extends DmSurfaceRegistry implements Enterpris
     surface: GroupSurface,
     input: { originUserId: string; text: string; mentionedEmployeeIds?: readonly EmployeeId[] },
   ): Promise<GroupDeliveryResult> {
-    const members = this.memberAccounts(surface)
-    const mentionedIds = new Set((input.mentionedEmployeeIds ?? []).map(id => String(id)))
-    const targets = mentionedIds.size > 0
-      ? members.filter(member => mentionedIds.has(member.id))
-      : this.mentionedMembersByDisplayName(members, input.text)
+    const targets = this.mentionedMembers(surface, input.text, input.mentionedEmployeeIds)
     if (targets.length === 0) return { delivered: false, reason: 'no-target' }
     const steered = await Promise.all(targets.map(member =>
-      this.serializeSteering(member.id, () => this.steerMember(surface, member, input.originUserId, input.text))))
+      this.runInTail(this.groupDeliveryTails, member.id,
+        () => this.steerMember(surface, member, input.originUserId, input.text))))
     return { delivered: true, mode: 'federated', targets: steered }
   }
 
   /** Read every member employee's account, refusing unknown or cross-org members. */
-  private memberAccounts(surface: GroupSurface): EmployeeAccount[] {
+  protected memberAccounts(surface: Pick<GroupSurface, 'id' | 'orgId'>): EmployeeAccount[] {
     return surfaceMembers(this.database, surface.id)
       .filter(member => member.principalType === 'employee')
       .map(member => this.requireEmployeeInOrg(employeeId(member.principalId), surface.orgId))
+  }
+
+  /**
+   * Resolve the member accounts the message addresses: explicitly mentioned
+   * ids when they name members, otherwise members whose display name appears
+   * as an @-token in the text.
+   */
+  protected mentionedMembers(
+    surface: Pick<GroupSurface, 'id' | 'orgId'>,
+    text: string,
+    mentionedEmployeeIds: readonly EmployeeId[] | undefined,
+  ): EmployeeAccount[] {
+    const members = this.memberAccounts(surface)
+    const mentionedIds = new Set((mentionedEmployeeIds ?? []).map(id => String(id)))
+    return mentionedIds.size > 0
+      ? members.filter(member => mentionedIds.has(member.id))
+      : this.mentionedMembersByDisplayName(members, text)
   }
 
   /** Resolve member accounts whose display name appears as an @-token in the text. */
@@ -201,27 +214,6 @@ export class GroupSurfaceRegistry extends DmSurfaceRegistry implements Enterpris
     const names = mentionNames(text)
     if (names.size === 0) return []
     return members.filter(member => names.has(member.displayName.toLowerCase()))
-  }
-
-  /**
-   * Serialize one employee's group steering so concurrent passes steer in
-   * queued order, mirroring the dm delivery tails.
-   */
-  private async serializeSteering(
-    member: EmployeeId,
-    steer: () => Promise<GroupDeliveryTarget>,
-  ): Promise<GroupDeliveryTarget> {
-    const prior = this.groupDeliveryTails.get(member) ?? Promise.resolve()
-    /* v8 ignore next -- steering tails absorb rejection, so the recovery callback is a fail-safe backstop. */
-    const run = prior.then(steer, steer)
-    /* v8 ignore next -- steer captures its own failures and serializeSteering itself does not throw. */
-    const tail = run.then(() => undefined, () => undefined)
-    this.groupDeliveryTails.set(member, tail)
-    try {
-      return await run
-    } finally {
-      if (this.groupDeliveryTails.get(member) === tail) this.groupDeliveryTails.delete(member)
-    }
   }
 
   /** Steer one member's group session and capture per-target failures on the returned target. */
@@ -275,11 +267,14 @@ export class GroupSurfaceRegistry extends DmSurfaceRegistry implements Enterpris
   }
 }
 
-/** Count the group messages currently visible in the session log or its pending steering projection. */
-function landedCount(session: Session, matches: (message: UserMessage) => boolean): number {
+/**
+ * Count the surface messages currently visible in the session log or its
+ * pending steering projection. The appended message and the still-pending
+ * spliced copy are mutually exclusive states of one steer, so the sum counts
+ * each landing once.
+ */
+export function landedCount(session: Session, matches: (message: UserMessage) => boolean): number {
   const suffix = session.ownEvents()
-  // The appended message and the still-pending spliced copy are mutually
-  // exclusive states of one steer, so the sum counts each landing once.
   return suffix.filter(event => event.type === 'user/message' && matches(event.data)).length
     + pendingInboxMessages(suffix).filter(matches).length
 }

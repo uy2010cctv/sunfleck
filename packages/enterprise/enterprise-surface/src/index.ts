@@ -3,17 +3,19 @@
  * `ctx.surfaces`. The composition supplies the already-migrated enterprise
  * identity SQLite database; this package never opens or closes it. Delivery
  * carries an authenticated inbound message into the anchored session of a dm
- * employee or a group surface's member employees or chartered team through
- * the injected agent-host services.
+ * employee, a group surface's member employees or chartered team, or a
+ * channel surface's topic session (or, on ingest-only channels, into
+ * organization-scope memory) through the injected agent-host services.
  *
  * @module @deepseek-ai/dsh-enterprise-surface
  */
 
 import type { Context } from '@deepseek-ai/cordis'
 import type { DatabaseSync } from 'node:sqlite'
-import { GroupSurfaceRegistry } from './group.ts'
+import { ChannelSurfaceRegistry } from './channel.ts'
 
 export * from './types.ts'
+export { ChannelSurfaceRegistry, MEMORY_ANNOUNCEMENT_SUMMARY_CHARS } from './channel.ts'
 export { DmSurfaceRegistry } from './dm.ts'
 export { GroupSurfaceRegistry } from './group.ts'
 
@@ -59,5 +61,5 @@ export function apply(ctx: Context, config: Config): void {
   if (config.defaultAgentPreset.trim() === '') {
     throw new TypeError('enterprise surfaces defaultAgentPreset must not be empty')
   }
-  ctx.provide('surfaces', new GroupSurfaceRegistry(ctx, config.database, config.defaultAgentPreset))
+  ctx.provide('surfaces', new ChannelSurfaceRegistry(ctx, config.database, config.defaultAgentPreset))
 }
