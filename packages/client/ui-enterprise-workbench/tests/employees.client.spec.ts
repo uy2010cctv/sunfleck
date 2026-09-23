@@ -230,7 +230,19 @@ describe('EnterpriseWorkbenchController employee memory slice', () => {
 
     const state = controller.store.getSnapshot().staffMemories
     expect(state.phase).toBe('error')
-    expect(state.error).toContain('409')
+    expect(state.error).toBe('employee memory review failed (409)')
+  })
+
+  it('names the retire in a failed retire error', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ error: 'memory-conflict' }, 409)))
+    const controller = new EnterpriseWorkbenchController({} as never, {} as never, {} as never)
+
+    await expect(controller.retireEmployeeMemory('employee-buyer', APPROVED_AGENT.id, 1))
+      .resolves.toBe(false)
+
+    const state = controller.store.getSnapshot().staffMemories
+    expect(state.phase).toBe('error')
+    expect(state.error).toBe('employee memory retire failed (409)')
   })
 })
 

@@ -833,7 +833,7 @@ export class EnterpriseWorkbenchController {
     decision: 'approved' | 'rejected',
     revision: number,
   ): Promise<boolean> {
-    return this.mutateEmployeeMemory(employeeId, `${encodeURIComponent(memoryId)}/review`,
+    return this.mutateEmployeeMemory(employeeId, `${encodeURIComponent(memoryId)}/review`, 'review',
       { decision, reason: REVIEW_REASON, revision })
   }
 
@@ -844,13 +844,16 @@ export class EnterpriseWorkbenchController {
    * @returns whether the retire landed and the view reloaded.
    */
   async retireEmployeeMemory(employeeId: string, memoryId: string, revision: number): Promise<boolean> {
-    return this.mutateEmployeeMemory(employeeId, `${encodeURIComponent(memoryId)}/retire`, { revision })
+    return this.mutateEmployeeMemory(employeeId, `${encodeURIComponent(memoryId)}/retire`, 'retire', { revision })
   }
 
-  /** Post one memory mutation and re-read the view; failures stay contained in the slice. */
+  /** Post one memory mutation and re-read the view; failures stay contained in the slice.
+   * @param action - Mutation name used in the failure text.
+   */
   private async mutateEmployeeMemory(
     employeeId: string,
     route: string,
+    action: 'review' | 'retire',
     body: Readonly<Record<string, unknown>>,
   ): Promise<boolean> {
     try {
@@ -861,7 +864,7 @@ export class EnterpriseWorkbenchController {
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify(body),
         })
-      if (!response.ok) throw new Error(`employee memory review failed (${String(response.status)})`)
+      if (!response.ok) throw new Error(`employee memory ${action} failed (${String(response.status)})`)
       return await this.loadEmployeeMemories(employeeId)
     } catch (error) {
       const current = this.store.getSnapshot()
