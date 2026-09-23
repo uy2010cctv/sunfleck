@@ -184,16 +184,20 @@ export class ChannelSurfaceRegistry extends GroupSurfaceRegistry implements Ente
   /**
    * Propose the announcement as one organization-scope memory entry. The
    * privacy gate classifies before the store runs, so a gated announcement is
-   * a structured drop instead of a failed write; the store re-runs the same
-   * gate inside `proposeMemory`.
+   * a structured drop instead of a failed write; `proposeMemory` re-runs the
+   * inspection itself, and its scope classification stays in parity with this
+   * call because the announcement scope is the fixed organization constant.
    */
   private async intakeAnnouncement(
     surface: ChannelSurface,
     input: { originUserId: string; text: string },
   ): Promise<ChannelDeliveryResult> {
+    const summary = announcementSummary(input.text)
+    // A trimmed-empty announcement has no summary to propose; reject it before
+    // the memory plane answers with a store-side validation failure.
+    if (summary === '') return { delivered: false, reason: 'invalid-text' }
     const identity = this.memoryIdentity()
     if (identity === undefined) return { delivered: false, reason: 'memory-unavailable' }
-    const summary = announcementSummary(input.text)
     const inspection = inspectEnterpriseMemory(summary)
     if (!classifyPrivacyForScope(inspection.findings, ANNOUNCEMENT_SCOPE).allowed) {
       return { delivered: false, reason: 'privacy-gated' }

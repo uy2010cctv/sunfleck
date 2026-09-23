@@ -195,8 +195,8 @@ export interface ChannelIngestedDelivery {
   readonly delivered: true
   /** The message became one memory proposal; no session exists on ingest-only channels. */
   readonly mode: 'ingested'
-  /** Proposed memory entry carrying the truncated announcement; absent when the proposal failed. */
-  readonly proposedMemoryId?: string
+  /** Proposed memory entry carrying the truncated announcement. */
+  readonly proposedMemoryId: string
 }
 
 /** Outcome of one channel-surface delivery. Structured: callers map it to a transport response without catching. */
@@ -218,6 +218,11 @@ export type ChannelDeliveryResult =
     readonly delivered: false
     /** A `/topic` command carried no title. */
     readonly reason: 'invalid-command'
+  }
+  | {
+    readonly delivered: false
+    /** The message text carries no non-whitespace content, so no proposal or topic can be formed. */
+    readonly reason: 'invalid-text'
   }
   | {
     readonly delivered: false
@@ -293,7 +298,6 @@ export interface EnterpriseSurfaces {
    * @returns the dm surface, with its anchored session id once attached.
    */
   ensureDm(input: { orgId: string; userId: string; employeeId: EmployeeId }): Promise<DmSurface>
-  /**
   /**
    * Return the durable group surface keyed by the organization and external
    * key, creating it when absent and replacing its member set with the given

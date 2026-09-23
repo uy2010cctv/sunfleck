@@ -635,6 +635,21 @@ describe('deliverToChannel announcement intake', () => {
     expect(host.created).toEqual([])
   })
 
+  it('rejects whitespace-only announcements before reaching the memory plane', async () => {
+    const { ctx, accounts } = makeCtx()
+    const support = createEmployee(accounts, 'support', 'Support')
+    const surface = await ctx.surfaces.ensureChannelSurface(channelInput({
+      respondPolicy: 'ingest_only', memberEmployeeIds: [support.id],
+    }))
+    // A failing proposal proves the early check answered before the memory call.
+    const memory = mountMemory(ctx, { failPropose: true })
+
+    const result = await ctx.surfaces.deliverToChannel(surface, { originUserId: 'user-1', text: '   \n\t ' })
+
+    expect(result).toEqual({ delivered: false, reason: 'invalid-text' })
+    expect(memory.proposed).toEqual([])
+  })
+
   it('reports intake failures after the privacy gate allowed the announcement', async () => {
     const { ctx, accounts } = makeCtx()
     const support = createEmployee(accounts, 'support', 'Support')
