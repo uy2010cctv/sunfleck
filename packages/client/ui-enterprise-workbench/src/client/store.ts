@@ -75,7 +75,7 @@ export interface EnterpriseView {
 
 /** Overlay-local route. Governance deliberately remains in Settings. */
 export type EnterpriseWorkbenchPage =
-  | 'employees' | 'devices' | 'work-records' | 'approvals' | 'attention'
+  | 'employees' | 'projects' | 'devices' | 'work-records' | 'approvals' | 'attention'
   | 'schedules' | 'assets' | 'teams' | 'channels' | 'extensions'
 
 /** Shared asynchronous page state for enterprise PostgreSQL read models. */
@@ -141,6 +141,78 @@ export interface EnterpriseStaffState {
   readonly sendError: EmployeeSendError | null
 }
 
+/** Lifecycle state of one enterprise project, as reported by the project endpoints. */
+export type EnterpriseProjectLifecycle = 'active' | 'archived'
+
+/** Governance fields of one enterprise project; the exact project endpoint response body. */
+export interface EnterpriseProjectSummary {
+  /** Durable project identifier. */
+  readonly id: string
+  /** Human-readable project name. */
+  readonly name: string
+  /** Project goal statement. */
+  readonly goal: string
+  /** Team definition owning the project's execution, when one is bound. */
+  readonly teamDefinitionId?: string
+  /** Current lifecycle state. */
+  readonly state: EnterpriseProjectLifecycle
+  /** Listing visibility inside the organization. */
+  readonly visibility: 'organization' | 'private' | 'restricted'
+  /** Actor id that created the project and its first membership. */
+  readonly createdBy: string
+  /** Creation timestamp in epoch milliseconds. */
+  readonly createdAt: number
+  /** Archival timestamp in epoch milliseconds, present once archived. */
+  readonly archivedAt?: number
+}
+
+/** One member principal of the selected project. The store seeds the creator and appends adds. */
+export interface EnterpriseProjectMemberView {
+  readonly principalType: 'user' | 'employee'
+  readonly principalId: string
+}
+
+/** Detail of one selected project. Membership is client-known: the creator seed plus members added through this client. */
+export interface EnterpriseProjectDetail {
+  readonly project: EnterpriseProjectSummary
+  readonly members: readonly EnterpriseProjectMemberView[]
+}
+
+/** Stable keys for contained project failures, rendered by the UI dictionaries. */
+export type EnterpriseProjectActionError =
+  | 'create-failed' | 'add-member-failed' | 'archive-failed'
+export type EnterpriseProjectDetailError = 'not-member' | 'load-failed'
+
+/** Project space served by the same-origin project endpoints. */
+export interface EnterpriseProjectsState {
+  readonly phase: 'idle' | 'loading' | 'ready' | 'error'
+  readonly list: readonly EnterpriseProjectSummary[]
+  readonly selected?: EnterpriseProjectDetail | undefined
+  /** Contained detail-load failure; `not-member` renders the member-gate copy for the 404 fold. */
+  readonly detailError: EnterpriseProjectDetailError | null
+  readonly error: string | null
+  /** True while one create, add-member, or archive request is in flight. */
+  readonly busy: boolean
+  readonly actionError: EnterpriseProjectActionError | null
+}
+
+/** Governance projection of one stored collaboration surface; the exact surfaces endpoint body. */
+export interface EnterpriseSurfaceView {
+  readonly id: string
+  readonly kind: 'dm' | 'group' | 'channel'
+  /** Human-facing name stored on group and channel surfaces; dm surfaces have none. */
+  readonly name?: string
+  /** Stored member principals; dm surfaces store no member rows and omit the count. */
+  readonly memberCount?: number
+}
+
+/** Collaboration-surface roster served by the same-origin surfaces endpoints. */
+export interface EnterpriseSurfacesState {
+  readonly phase: 'idle' | 'loading' | 'ready' | 'error'
+  readonly list: readonly EnterpriseSurfaceView[]
+  readonly error: string | null
+}
+
 /** Server-owned roster filters. Empty fields are omitted from the request. */
 export interface EnterpriseEmployeeFilters {
   readonly search?: string
@@ -203,6 +275,8 @@ export interface EnterpriseWorkbenchState {
   readonly employees: EnterprisePageState<EnterpriseEmployeeDraft>
   readonly staff: EnterpriseStaffState
   readonly staffMemories: EnterpriseStaffMemoriesState
+  readonly projects: EnterpriseProjectsState
+  readonly surfaces: EnterpriseSurfacesState
   readonly workRecords: EnterprisePageState<EnterpriseOperationWorkRecord>
   readonly approvals: EnterprisePageState<EnterpriseApproval>
   readonly schedules: EnterprisePageState<EnterpriseSchedule>
@@ -428,6 +502,8 @@ const INITIAL_STATE: EnterpriseWorkbenchState = {
   employees: emptyPage(),
   staff: { phase: 'idle', list: [], error: null, sending: false, sendError: null },
   staffMemories: { phase: 'idle', entries: [], error: null },
+  projects: { phase: 'idle', list: [], selected: undefined, detailError: null, error: null, busy: false, actionError: null },
+  surfaces: { phase: 'idle', list: [], error: null },
   workRecords: emptyPage(),
   approvals: emptyPage(),
   schedules: emptyPage(),
@@ -537,6 +613,9 @@ export class EnterpriseWorkbenchController {
   private employeeRequestGeneration = 0
   private staffRequestGeneration = 0
   private staffMemoriesRequestGeneration = 0
+  private projectsRequestGeneration = 0
+  private projectDetailRequestGeneration = 0
+  private surfacesRequestGeneration = 0
   private readonly pageRequestGeneration = new Map<string, number>()
   private mutationAttemptId = 0
   private editorGeneration = 0
@@ -871,6 +950,200 @@ export class EnterpriseWorkbenchController {
       this.store.set({ ...current, staffMemories: {
         ...current.staffMemories, phase: 'error',
         error: error instanceof Error ? error.message : String(error),
+      } })
+      return false
+    }
+  }
+
+  /** Load the project space directory through the same-origin project endpoints.
+   * @returns whether the latest load replaced the previous list.
+   */
+  async loadProjects(): Promise<boolean> {
+    const generation = ++this.projectsRequestGeneration
+    const before = this.store.getSnapshot()
+    this.store.set({ ...before, projects: { ...before.projects, phase: 'loading', error: null } })
+    try {
+      const response = await fetch('/enterprise/projects', {
+        credentials: 'same-origin', headers: { accept: 'application/json' },
+      })
+      if (!response.ok) throw new Error(`project list request failed (${String(response.status)})`)
+      const list = await response.json() as readonly EnterpriseProjectSummary[]
+      if (generation !== this.projectsRequestGeneration) return false
+      const current = this.store.getSnapshot()
+      this.store.set({ ...current, projects: { ...current.projects, phase: 'ready', list, error: null } })
+      return true
+    } catch (error) {
+      if (generation !== this.projectsRequestGeneration) return false
+      const current = this.store.getSnapshot()
+      this.store.set({ ...current, projects: {
+        ...current.projects, phase: 'error',
+        error: error instanceof Error ? error.message : String(error),
+      } })
+      return false
+    }
+  }
+
+  /** Create one project and reload the directory on success; failures stay contained in the slice.
+   * @param input - Business fields of the new project; the workspace path stays transport-only.
+   * @returns whether the project was created and the directory reloaded.
+   */
+  async createProject(input: { name: string; goal: string; workspacePath: string }): Promise<boolean> {
+    const before = this.store.getSnapshot()
+    if (before.projects.busy) return false
+    this.store.set({ ...before, projects: { ...before.projects, busy: true, actionError: null } })
+    try {
+      const response = await fetch('/enterprise/projects', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(input),
+      })
+      if (!response.ok) throw new Error(`project create failed (${String(response.status)})`)
+      const reloaded = await this.loadProjects()
+      const current = this.store.getSnapshot()
+      this.store.set({ ...current, projects: { ...current.projects, busy: false } })
+      return reloaded
+    } catch {
+      const current = this.store.getSnapshot()
+      this.store.set({ ...current, projects: {
+        ...current.projects, busy: false, actionError: 'create-failed',
+      } })
+      return false
+    }
+  }
+
+  /** Read one project behind the member gate; the 404 fold answers the contained `not-member` key.
+   * @param projectId - Directory row to open; `undefined` clears the selection.
+   */
+  async selectProject(projectId?: string): Promise<void> {
+    if (projectId === undefined) {
+      const current = this.store.getSnapshot()
+      this.store.set({ ...current, projects: {
+        ...current.projects, selected: undefined, detailError: null,
+      } })
+      return
+    }
+    const generation = ++this.projectDetailRequestGeneration
+    const before = this.store.getSnapshot()
+    this.store.set({ ...before, projects: { ...before.projects, selected: undefined, detailError: null } })
+    try {
+      const response = await fetch(`/enterprise/projects/${encodeURIComponent(projectId)}`, {
+        credentials: 'same-origin', headers: { accept: 'application/json' },
+      })
+      if (response.status === 404) {
+        if (generation !== this.projectDetailRequestGeneration) return
+        const current = this.store.getSnapshot()
+        this.store.set({ ...current, projects: { ...current.projects, detailError: 'not-member' } })
+        return
+      }
+      if (!response.ok) throw new Error(`project detail request failed (${String(response.status)})`)
+      const project = await response.json() as EnterpriseProjectSummary
+      if (generation !== this.projectDetailRequestGeneration) return
+      const current = this.store.getSnapshot()
+      // The store inserts the creator as the project's first user member; members added
+      // through this client extend the row after their 204 responses.
+      this.store.set({ ...current, projects: { ...current.projects, selected: {
+        project, members: [{ principalType: 'user', principalId: project.createdBy }],
+      } } })
+    } catch {
+      if (generation !== this.projectDetailRequestGeneration) return
+      const current = this.store.getSnapshot()
+      this.store.set({ ...current, projects: { ...current.projects, detailError: 'load-failed' } })
+    }
+  }
+
+  /** Add one member to an active project and extend the client-known member row on success.
+   * @param projectId - Selected project receiving the member.
+   * @param member - Principal type and id to add.
+   * @returns whether the member was added.
+   */
+  async addProjectMember(
+    projectId: string,
+    member: { principalType: 'user' | 'employee'; principalId: string },
+  ): Promise<boolean> {
+    const before = this.store.getSnapshot()
+    if (before.projects.busy) return false
+    this.store.set({ ...before, projects: { ...before.projects, busy: true, actionError: null } })
+    try {
+      const response = await fetch(`/enterprise/projects/${encodeURIComponent(projectId)}/members`, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(member),
+      })
+      if (!response.ok) throw new Error(`project member add failed (${String(response.status)})`)
+      const current = this.store.getSnapshot()
+      const selected = current.projects.selected
+      this.store.set({ ...current, projects: {
+        ...current.projects, busy: false, actionError: null,
+        ...(selected?.project.id === projectId
+          ? { selected: { project: selected.project, members: [...selected.members, member] } }
+          : {}),
+      } })
+      return true
+    } catch {
+      const current = this.store.getSnapshot()
+      this.store.set({ ...current, projects: {
+        ...current.projects, busy: false, actionError: 'add-member-failed',
+      } })
+      return false
+    }
+  }
+
+  /** Archive one active project, reload the directory, and return to the list on success.
+   * @param projectId - Selected project to archive.
+   * @returns whether the project was archived and the directory reloaded.
+   */
+  async archiveProject(projectId: string): Promise<boolean> {
+    const before = this.store.getSnapshot()
+    if (before.projects.busy) return false
+    this.store.set({ ...before, projects: { ...before.projects, busy: true, actionError: null } })
+    try {
+      const response = await fetch(`/enterprise/projects/${encodeURIComponent(projectId)}/archive`, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'content-type': 'application/json' },
+      })
+      if (!response.ok) throw new Error(`project archive failed (${String(response.status)})`)
+      const reloaded = await this.loadProjects()
+      const current = this.store.getSnapshot()
+      this.store.set({ ...current, projects: {
+        ...current.projects, busy: false, selected: undefined, detailError: null,
+      } })
+      return reloaded
+    } catch {
+      const current = this.store.getSnapshot()
+      this.store.set({ ...current, projects: {
+        ...current.projects, busy: false, actionError: 'archive-failed',
+      } })
+      return false
+    }
+  }
+
+  /** Load the collaboration-surface roster through the same-origin surfaces endpoints.
+   * @returns whether the latest load replaced the previous roster.
+   */
+  async loadSurfaces(): Promise<boolean> {
+    const generation = ++this.surfacesRequestGeneration
+    const before = this.store.getSnapshot()
+    this.store.set({ ...before, surfaces: { ...before.surfaces, phase: 'loading', error: null } })
+    try {
+      const response = await fetch('/enterprise/surfaces', {
+        credentials: 'same-origin', headers: { accept: 'application/json' },
+      })
+      if (!response.ok) throw new Error(`surface list request failed (${String(response.status)})`)
+      const list = await response.json() as readonly EnterpriseSurfaceView[]
+      if (generation !== this.surfacesRequestGeneration) return false
+      const current = this.store.getSnapshot()
+      this.store.set({ ...current, surfaces: { phase: 'ready', list, error: null } })
+      return true
+    } catch (error) {
+      if (generation !== this.surfacesRequestGeneration) return false
+      const current = this.store.getSnapshot()
+      this.store.set({ ...current, surfaces: {
+        phase: 'error',
+        error: error instanceof Error ? error.message : String(error),
+        list: current.surfaces.list,
       } })
       return false
     }
