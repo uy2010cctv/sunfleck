@@ -18,8 +18,8 @@ function job(): MemoryWritebackJob {
 function memory(summary: string, status: EnterpriseMemoryEntry['status'] = 'approved'): EnterpriseMemoryEntry {
   return {
     id: 'memory-1', orgId: 'org-a', scope: 'department', departmentId: 'finance', kind: 'process', status,
-    summary, sourceDigest: 'a'.repeat(64), privacyFindings: [], createdBy: 'user-1', revision: 2,
-    createdAt: 1, updatedAt: 2,
+    summary, sourceDigest: 'a'.repeat(64), privacyFindings: [], importance: 0, createdBy: 'user-1',
+    revision: 2, createdAt: 1, updatedAt: 2,
   }
 }
 

@@ -3,7 +3,42 @@
 import type { PostgresDatabase } from './types.ts'
 
 /** Value exported as `ENTERPRISE_IDENTITY_POSTGRES_SCHEMA_VERSION`. */
-export const ENTERPRISE_IDENTITY_POSTGRES_SCHEMA_VERSION = 5
+export const ENTERPRISE_IDENTITY_POSTGRES_SCHEMA_VERSION = 6
+
+/** Scope-to-owner pairing CHECK shared by the create-path and widen-path `enterprise_memories` DDL. */
+const ENTERPRISE_MEMORIES_PAIRING_CHECK = `(
+      (scope_type = 'organization' AND department_id IS NULL AND agent_employee_id IS NULL AND pair_user_id IS NULL)
+      OR (scope_type = 'department' AND department_id IS NOT NULL AND agent_employee_id IS NULL AND pair_user_id IS NULL)
+      OR (scope_type = 'project' AND department_id IS NULL AND agent_employee_id IS NULL AND pair_user_id IS NULL)
+      OR (scope_type = 'agent' AND agent_employee_id IS NOT NULL AND department_id IS NULL AND pair_user_id IS NULL)
+      OR (scope_type = 'pair' AND pair_user_id IS NOT NULL AND department_id IS NULL AND agent_employee_id IS NULL)
+    )`
+
+/** Column and CHECK definition shared by the create-path and widen-path `enterprise_memories` DDL. */
+const ENTERPRISE_MEMORIES_COLUMNS = `
+    id TEXT PRIMARY KEY,
+    org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+    scope_type TEXT NOT NULL CHECK (scope_type IN ('organization', 'department', 'project', 'agent', 'pair')),
+    department_id TEXT REFERENCES departments(id) ON DELETE CASCADE,
+    -- agent_employee_id and pair_user_id carry no FOREIGN KEY: employee accounts live only in the
+    -- SQLite identity store, so the PostgreSQL mirror cannot reference them; the service layer owns
+    -- their referential checks.
+    agent_employee_id TEXT,
+    pair_user_id TEXT,
+    kind TEXT NOT NULL CHECK (kind IN ('business-fact', 'process', 'terminology', 'decision', 'preference')),
+    status TEXT NOT NULL CHECK (status IN ('proposed', 'approved', 'rejected', 'retired')),
+    summary TEXT NOT NULL,
+    source_digest TEXT NOT NULL,
+    privacy_findings JSONB NOT NULL,
+    importance DOUBLE PRECISION NOT NULL DEFAULT 0,
+    last_access_at BIGINT,
+    created_by TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+    reviewed_by TEXT REFERENCES users(id) ON DELETE RESTRICT,
+    review_reason TEXT,
+    revision BIGINT NOT NULL,
+    created_at BIGINT NOT NULL,
+    updated_at BIGINT NOT NULL,
+    CHECK (${ENTERPRISE_MEMORIES_PAIRING_CHECK})`
 
 const STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS enterprise_meta (
@@ -114,24 +149,7 @@ const STATEMENTS = [
   )`,
   `CREATE INDEX IF NOT EXISTS enterprise_workspace_grants_org_kind
     ON enterprise_workspace_grants(org_id, kind, name, workspace_id)`,
-  `CREATE TABLE IF NOT EXISTS enterprise_memories (
-    id TEXT PRIMARY KEY,
-    org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
-    scope_type TEXT NOT NULL CHECK (scope_type IN ('organization', 'department')),
-    department_id TEXT REFERENCES departments(id) ON DELETE CASCADE,
-    kind TEXT NOT NULL CHECK (kind IN ('business-fact', 'process', 'terminology', 'decision')),
-    status TEXT NOT NULL CHECK (status IN ('proposed', 'approved', 'rejected', 'retired')),
-    summary TEXT NOT NULL,
-    source_digest TEXT NOT NULL,
-    privacy_findings JSONB NOT NULL,
-    created_by TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
-    reviewed_by TEXT REFERENCES users(id) ON DELETE RESTRICT,
-    review_reason TEXT,
-    revision BIGINT NOT NULL,
-    created_at BIGINT NOT NULL,
-    updated_at BIGINT NOT NULL,
-    CHECK ((scope_type = 'organization' AND department_id IS NULL)
-      OR (scope_type = 'department' AND department_id IS NOT NULL))
+  `CREATE TABLE IF NOT EXISTS enterprise_memories (${ENTERPRISE_MEMORIES_COLUMNS}
   )`,
   `CREATE INDEX IF NOT EXISTS enterprise_memories_scope_status
     ON enterprise_memories(org_id, scope_type, department_id, status, updated_at DESC, id)`,
@@ -142,6 +160,37 @@ const STATEMENTS = [
     owner_user_id TEXT REFERENCES users(id) ON DELETE RESTRICT
   )`,
 ] as const
+
+/** Widen enterprise_memories in place to the current CHECK set and columns. PostgreSQL cannot alter
+ * a CHECK, so every existing CHECK on the table is dropped and the current set is re-added under
+ * the same constraint names a fresh CREATE TABLE generates for these definitions. */
+async function widenEnterpriseMemories(database: PostgresDatabase): Promise<void> {
+  await database.query('ALTER TABLE enterprise_memories ADD COLUMN IF NOT EXISTS agent_employee_id TEXT')
+  await database.query('ALTER TABLE enterprise_memories ADD COLUMN IF NOT EXISTS pair_user_id TEXT')
+  await database.query('ALTER TABLE enterprise_memories ADD COLUMN IF NOT EXISTS importance DOUBLE PRECISION NOT NULL DEFAULT 0')
+  await database.query('ALTER TABLE enterprise_memories ADD COLUMN IF NOT EXISTS last_access_at BIGINT')
+  await database.query(`DO $$
+    DECLARE constraint_name text;
+    BEGIN
+      FOR constraint_name IN
+        SELECT conname FROM pg_constraint
+        WHERE conrelid = 'enterprise_memories'::regclass AND contype = 'c'
+      LOOP
+        EXECUTE format('ALTER TABLE enterprise_memories DROP CONSTRAINT %I', constraint_name);
+      END LOOP;
+    END $$`)
+  await database.query(`ALTER TABLE enterprise_memories
+    ADD CONSTRAINT enterprise_memories_scope_type_check
+    CHECK (scope_type IN ('organization', 'department', 'project', 'agent', 'pair'))`)
+  await database.query(`ALTER TABLE enterprise_memories
+    ADD CONSTRAINT enterprise_memories_kind_check
+    CHECK (kind IN ('business-fact', 'process', 'terminology', 'decision', 'preference'))`)
+  await database.query(`ALTER TABLE enterprise_memories
+    ADD CONSTRAINT enterprise_memories_status_check
+    CHECK (status IN ('proposed', 'approved', 'rejected', 'retired'))`)
+  await database.query(`ALTER TABLE enterprise_memories
+    ADD CONSTRAINT enterprise_memories_check CHECK (${ENTERPRISE_MEMORIES_PAIRING_CHECK})`)
+}
 
 /** Creates the schema in the current transaction; callers own commit or rollback.
  * @param database - Input value used by this API.
@@ -168,7 +217,10 @@ export async function migrateEnterpriseIdentityPostgres(database: PostgresDataba
     await database.query("UPDATE enterprise_meta SET value = $1 WHERE key = 'schema-version'", [String(ENTERPRISE_IDENTITY_POSTGRES_SCHEMA_VERSION)])
     return
   }
-  if (Number(version) === 3) {
+  // Versions 3 and 5 carry the v3-era enterprise_memories CHECKs, which PostgreSQL cannot alter in
+  // place; the widen drops and re-adds them together with the columns added after v3.
+  if (Number(version) === 3 || Number(version) === 5) {
+    await widenEnterpriseMemories(database)
     await database.query("UPDATE enterprise_meta SET value = $1 WHERE key = 'schema-version'", [String(ENTERPRISE_IDENTITY_POSTGRES_SCHEMA_VERSION)])
     return
   }
@@ -178,6 +230,7 @@ export async function migrateEnterpriseIdentityPostgres(database: PostgresDataba
       SET owner_user_id = workspace.owner_user_id
       FROM enterprise_workspace_grants workspace
       WHERE workspace.workspace_id = binding.workspace_id AND binding.owner_user_id IS NULL`)
+    await widenEnterpriseMemories(database)
     await database.query("UPDATE enterprise_meta SET value = $1 WHERE key = 'schema-version'", [String(ENTERPRISE_IDENTITY_POSTGRES_SCHEMA_VERSION)])
     return
   }

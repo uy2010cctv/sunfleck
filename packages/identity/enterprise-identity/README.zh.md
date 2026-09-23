@@ -20,7 +20,7 @@ Persistent enterprise organizations, users, sessions, resource policies, and aud
 <a id="package-details"></a>
 ## 包详情
 
-为组织、树状部门、用户成员关系、角色、外部身份、哈希登录会话、受管 Workspace 授权、Session-Workspace 绑定、已审核组织记忆、资源策略和可归因审计记录提供 SQLite 持久化。不直接存储 Bearer Token、密码或记忆来源的原始对话。
+为组织、树状部门、用户成员关系、角色、外部身份、哈希登录会话、受管 Workspace 授权、Session-Workspace 绑定、已审核组织记忆以及免审核直写的私有 agent 与 pair 记忆分区、资源策略和可归因审计记录提供 SQLite 持久化。不直接存储 Bearer Token、密码或记忆来源的原始对话。
 
 `EnterpriseIdentityStore` 是 Host 使用的持久化契约。SQLite `EnterpriseIdentityRepository` 只是其中一种实现；部署方可以注入事务型 PostgreSQL 实现，而不让认证逻辑依赖 SQLite 文件路径。
 

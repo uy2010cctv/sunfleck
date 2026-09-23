@@ -51,8 +51,8 @@ const SURFACE_KINDS = ['dm'] as const
  * @param values - Closed value set the column may hold.
  * @returns The stored value narrowed to the closed set.
  */
-function enumColumn<T extends string>(row: Record<string, unknown>, column: string, values: readonly T[]): T {
-  const value = row[column]
+export function enumColumn<T extends string>(row: object, column: string, values: readonly T[]): T {
+  const value = (row as Record<string, unknown>)[column]
   if (!values.includes(value as T)) {
     throw new Error(`enterprise identity database contains an invalid ${column} value: ${String(value)}`)
   }

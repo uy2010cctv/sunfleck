@@ -56,6 +56,71 @@ function seedSurface(database: DatabaseSync): void {
     .run('surface-1', 'org-1', 'dm', 'user-1', 'employee-1', null, 1)
 }
 
+/** Create the pre-existing tables and committed rows the in-place v6 migration must preserve. */
+function seedVersion6Memories(database: DatabaseSync): void {
+  database.exec(`
+    CREATE TABLE enterprise_meta (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    ) STRICT;
+    CREATE TABLE organizations (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL UNIQUE
+    ) STRICT;
+    CREATE TABLE users (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      username TEXT NOT NULL,
+      display_name TEXT NOT NULL,
+      disabled INTEGER NOT NULL CHECK (disabled IN (0, 1)),
+      password_verifier TEXT,
+      department_revision INTEGER NOT NULL DEFAULT 0,
+      UNIQUE(org_id, username)
+    ) STRICT;
+    CREATE TABLE departments (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      parent_id TEXT REFERENCES departments(id) ON DELETE RESTRICT,
+      name TEXT NOT NULL,
+      sort_order INTEGER NOT NULL,
+      revision INTEGER NOT NULL,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    ) STRICT;
+    CREATE TABLE enterprise_memories (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      scope_type TEXT NOT NULL CHECK (scope_type IN ('organization', 'department')),
+      department_id TEXT REFERENCES departments(id) ON DELETE CASCADE,
+      kind TEXT NOT NULL CHECK (kind IN ('business-fact', 'process', 'terminology', 'decision')),
+      status TEXT NOT NULL CHECK (status IN ('proposed', 'approved', 'rejected', 'retired')),
+      summary TEXT NOT NULL,
+      source_digest TEXT NOT NULL,
+      privacy_findings TEXT NOT NULL,
+      created_by TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+      reviewed_by TEXT REFERENCES users(id) ON DELETE RESTRICT,
+      review_reason TEXT,
+      revision INTEGER NOT NULL,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      CHECK ((scope_type = 'organization' AND department_id IS NULL)
+        OR (scope_type = 'department' AND department_id IS NOT NULL))
+    ) STRICT;
+  `)
+  seedOrgAndUser(database)
+  database.prepare(`INSERT INTO departments(id, org_id, parent_id, name, sort_order, revision, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).run('dept-1', 'org-1', null, '运营部', 0, 0, 1, 1)
+  const insertMemory = database.prepare(`INSERT INTO enterprise_memories(
+      id, org_id, scope_type, department_id, kind, status, summary, source_digest, privacy_findings,
+      created_by, reviewed_by, review_reason, revision, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+  insertMemory.run('memory-dept', 'org-1', 'department', 'dept-1', 'process', 'proposed',
+    '采购订单必须在入库前完成审批。', 'b'.repeat(64), '[]', 'user-1', null, null, 1, 1, 1)
+  insertMemory.run('memory-org', 'org-1', 'organization', null, 'business-fact', 'approved',
+    '公司使用统一合同编号。', 'a'.repeat(64), '[]', 'user-1', 'user-1', '已核对', 2, 1, 2)
+  database.prepare("INSERT INTO enterprise_meta(key, value) VALUES ('schema-version', '6')").run()
+}
+
 describe('migrateEnterpriseIdentity', () => {
   it('migrates a fresh database so the persistent-employee tables are queryable', () => {
     const database = new DatabaseSync(':memory:')
@@ -78,6 +143,62 @@ describe('migrateEnterpriseIdentity', () => {
     expect(database.prepare('SELECT count(*) AS n FROM employee_accounts').get()).toEqual({ n: 0 })
     expect(database.prepare("SELECT value FROM enterprise_meta WHERE key = 'schema-version'").get())
       .toEqual({ value: String(ENTERPRISE_IDENTITY_SCHEMA_VERSION) })
+  })
+
+  it('migrates a schema-version 6 file in place, rebuilding memories without losing rows', () => {
+    const database = new DatabaseSync(':memory:')
+    seedVersion6Memories(database)
+    migrateEnterpriseIdentity(database)
+
+    expect(database.prepare(`SELECT id, scope_type, department_id, status, importance, agent_employee_id,
+      pair_user_id FROM enterprise_memories ORDER BY id`).all()).toEqual([
+      {
+        id: 'memory-dept', scope_type: 'department', department_id: 'dept-1', status: 'proposed',
+        importance: 0, agent_employee_id: null, pair_user_id: null,
+      },
+      {
+        id: 'memory-org', scope_type: 'organization', department_id: null, status: 'approved',
+        importance: 0, agent_employee_id: null, pair_user_id: null,
+      },
+    ])
+    expect(database.prepare("SELECT value FROM enterprise_meta WHERE key = 'schema-version'").get())
+      .toEqual({ value: String(ENTERPRISE_IDENTITY_SCHEMA_VERSION) })
+  })
+
+  it('stores agent, pair, and CHECK-only project memory compartments after migration', () => {
+    const database = new DatabaseSync(':memory:')
+    seedVersion6Memories(database)
+    migrateEnterpriseIdentity(database)
+
+    const insert = database.prepare(`INSERT INTO enterprise_memories(
+        id, org_id, scope_type, department_id, agent_employee_id, pair_user_id, kind, status, summary,
+        source_digest, privacy_findings, created_by, revision, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 'approved', ?, ?, '[]', ?, 1, 1, 1)`)
+    insert.run('memory-agent', 'org-1', 'agent', null, 'employee-1', null, 'preference',
+      '回复保持正式书面语。', 'c'.repeat(64), 'user-1')
+    insert.run('memory-pair', 'org-1', 'pair', null, null, 'user-1', 'preference',
+      '用户偏好表格汇总。', 'd'.repeat(64), 'user-1')
+    insert.run('memory-project', 'org-1', 'project', null, null, null, 'process',
+      '项目约定。', 'e'.repeat(64), 'user-1')
+    expect(database.prepare(`SELECT count(*) AS n FROM enterprise_memories
+      WHERE scope_type IN ('agent', 'pair', 'project')`).get()).toEqual({ n: 3 })
+  })
+
+  it('rejects private memory rows whose scope owner column is missing or scope is unknown', () => {
+    const database = new DatabaseSync(':memory:')
+    migrateEnterpriseIdentity(database)
+    seedOrgAndUser(database)
+
+    const insert = database.prepare(`INSERT INTO enterprise_memories(
+        id, org_id, scope_type, department_id, agent_employee_id, pair_user_id, kind, status, summary,
+        source_digest, privacy_findings, created_by, revision, created_at, updated_at)
+      VALUES (?, ?, ?, NULL, ?, ?, 'preference', 'approved', ?, ?, '[]', ?, 1, 1, 1)`)
+    expect(() => insert.run('memory-agent', 'org-1', 'agent', null, null, '摘要', 'a'.repeat(64), 'user-1'))
+      .toThrow(/CHECK constraint failed/i)
+    expect(() => insert.run('memory-pair', 'org-1', 'pair', null, null, '摘要', 'b'.repeat(64), 'user-1'))
+      .toThrow(/CHECK constraint failed/i)
+    expect(() => insert.run('memory-bogus', 'org-1', 'workspace', 'employee-1', null, '摘要', 'c'.repeat(64), 'user-1'))
+      .toThrow(/CHECK constraint failed/i)
   })
 
   it('rejects employee_inbox rows whose state is outside the queued, delivered, and failed set', () => {

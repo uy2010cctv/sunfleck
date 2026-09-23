@@ -7,7 +7,8 @@ import { DatabaseSync } from 'node:sqlite'
 import type {
   EnterpriseAction, EnterpriseResource, EnterpriseRole,
 } from '@deepseek-ai/dsh-enterprise-governance'
-import { inspectEnterpriseMemory, type EnterpriseMemoryPrivacyFinding } from './memory-policy.ts'
+import { inspectEnterpriseMemory, memorySourceDigest, type EnterpriseMemoryPrivacyFinding } from './memory-policy.ts'
+import { enumColumn } from './employee-store.ts'
 import { migrateEnterpriseIdentity } from './schema.ts'
 
 /** Data used by `EnterpriseOrganization`. */
@@ -108,17 +109,31 @@ export interface SaveEnterpriseWorkspaceGrantInput extends Omit<EnterpriseWorksp
   readonly expectedRevision: number
 }
 
+/** Allowed values for `MemoryScope`; `project` is stored from P1 but has no writers until the P2 project scope lands. */
+export const MEMORY_SCOPES = ['organization', 'department', 'project', 'agent', 'pair'] as const
+/** Allowed values for `MemoryKind`. */
+export const MEMORY_KINDS = ['business-fact', 'process', 'terminology', 'decision', 'preference'] as const
+
+/** Compartment an enterprise memory lives in. */
+export type MemoryScope = (typeof MEMORY_SCOPES)[number]
+/** Content classification of an enterprise memory. */
+export type MemoryKind = (typeof MEMORY_KINDS)[number]
+
 /** Data used by `EnterpriseMemoryEntry`. */
 export interface EnterpriseMemoryEntry {
   readonly id: string
   readonly orgId: string
-  readonly scope: 'organization' | 'department'
+  readonly scope: MemoryScope
   readonly departmentId?: string
-  readonly kind: 'business-fact' | 'process' | 'terminology' | 'decision'
+  readonly agentEmployeeId?: string
+  readonly pairUserId?: string
+  readonly kind: MemoryKind
   readonly status: 'proposed' | 'approved' | 'rejected' | 'retired'
   readonly summary: string
   readonly sourceDigest: string
   readonly privacyFindings: readonly EnterpriseMemoryPrivacyFinding[]
+  readonly importance: number
+  readonly lastAccessAt?: number
   readonly createdBy: string
   readonly reviewedBy?: string
   readonly reviewReason?: string
@@ -137,6 +152,97 @@ export interface ProposeEnterpriseMemoryInput {
   readonly summary: string
   readonly sourceDigest: string
   readonly createdBy: string
+}
+
+/** Data used by `WritePrivateMemoryInput`; writes bypass review into the approved state. */
+export interface WritePrivateMemoryInput {
+  readonly orgId: string
+  /** Private compartment; `agent` requires `agentEmployeeId` and `pair` requires `pairUserId`. */
+  readonly scope: 'agent' | 'pair'
+  readonly kind: MemoryKind
+  readonly summary: string
+  readonly createdBy: string
+  /** Employee account owning an `agent` compartment; its referential check belongs to the service layer. */
+  readonly agentEmployeeId?: string
+  /** User owning a `pair` compartment; its referential check belongs to the service layer. */
+  readonly pairUserId?: string
+}
+
+/** Trimmed summary, recorded findings, and derived source digest of a validated private write. */
+export interface ValidatedPrivateMemory {
+  readonly summary: string
+  readonly findings: readonly EnterpriseMemoryPrivacyFinding[]
+  readonly sourceDigest: string
+}
+
+/** Validate one private-memory write and derive its source digest; both store implementations run
+ * this so gates, pairing rules, and digest identity cannot drift between them. Private compartments
+ * bypass review; until the scope-aware privacy policy arrives, prompt injection and overlong
+ * summaries stay hard gates while every other finding is recorded only.
+ * @param input - Input value used by this API.
+ * @returns The values both stores persist for this write.
+ * @throws When the summary is empty, a hard gate trips, or the pairing fields do not match the scope.
+ */
+export function validatePrivateMemoryInput(input: WritePrivateMemoryInput): ValidatedPrivateMemory {
+  const summary = input.summary.trim()
+  if (!summary) throw new Error('enterprise memory summary is required')
+  const inspection = inspectEnterpriseMemory(summary)
+  const blocked = inspection.findings
+    .filter(finding => finding === 'prompt-injection' || finding === 'summary-too-long')
+  if (blocked.length > 0) throw new Error(`enterprise memory privacy check failed: ${blocked.join(',')}`)
+  if ((input.scope === 'agent' && (input.agentEmployeeId === undefined || input.pairUserId !== undefined))
+    || (input.scope === 'pair' && (input.pairUserId === undefined || input.agentEmployeeId !== undefined))) {
+    throw new Error('enterprise memory scope and pairing fields do not match')
+  }
+  return {
+    summary,
+    findings: inspection.findings,
+    sourceDigest: memorySourceDigest(JSON.stringify([
+      input.orgId, input.scope, input.agentEmployeeId ?? null, input.pairUserId ?? null, input.kind, summary,
+    ])),
+  }
+}
+
+/** Normalized memory-list filters shared by both store implementations. */
+export interface MemoryListFilterPlan {
+  /** Deduplicated department ids; empty when the caller passed none. */
+  readonly departmentIds: readonly string[]
+  /** Deduplicated statuses; defaults to every status when the caller passed none. */
+  readonly statuses: readonly EnterpriseMemoryEntry['status'][]
+  /** Deduplicated explicit scope restriction, or undefined when the caller passed none. */
+  readonly scopes: readonly MemoryScope[] | undefined
+  /** The agent compartment participates although no explicit scopes were passed. */
+  readonly includeAgentScope: boolean
+  /** The pair compartment participates although no explicit scopes were passed. */
+  readonly includePairScope: boolean
+}
+
+/** Plan memory-list filtering; explicit scopes restrict the compartments, otherwise the legacy
+ * organization-plus-departments visibility holds and an owner filter implies its own compartment.
+ * @param input - Input value used by this API.
+ * @returns The normalized filters, or undefined when an empty status or scope set matches no row.
+ */
+export function planMemoryListFilters(input: {
+  departmentIds?: readonly string[]
+  statuses?: readonly EnterpriseMemoryEntry['status'][]
+  scopes?: readonly MemoryScope[]
+  agentEmployeeId?: string
+  pairUserId?: string
+}): MemoryListFilterPlan | undefined {
+  const departmentIds = [...new Set(input.departmentIds ?? [])]
+  const statuses = [...new Set<EnterpriseMemoryEntry['status']>(
+    input.statuses ?? ['proposed', 'approved', 'rejected', 'retired'],
+  )]
+  if (statuses.length === 0) return undefined
+  const scopes = input.scopes === undefined ? undefined : [...new Set(input.scopes)]
+  if (scopes !== undefined && scopes.length === 0) return undefined
+  return {
+    departmentIds,
+    statuses,
+    scopes,
+    includeAgentScope: input.agentEmployeeId !== undefined,
+    includePairScope: input.pairUserId !== undefined,
+  }
 }
 
 /** Data used by `ReviewEnterpriseMemoryInput`. */
@@ -240,13 +346,17 @@ interface SqliteWorkspaceGrantRow {
 interface SqliteMemoryRow {
   id: string
   org_id: string
-  scope_type: 'organization' | 'department'
+  scope_type: MemoryScope
   department_id: string | null
-  kind: EnterpriseMemoryEntry['kind']
+  agent_employee_id: string | null
+  pair_user_id: string | null
+  kind: MemoryKind
   status: EnterpriseMemoryEntry['status']
   summary: string
   source_digest: string
   privacy_findings: string
+  importance: number
+  last_access_at: number | null
   created_by: string
   reviewed_by: string | null
   review_reason: string | null
@@ -292,11 +402,16 @@ export interface EnterpriseIdentityStore {
   sessionOwnerUserId(sessionId: string): IdentityAwaitable<string | undefined>
   proposeMemory(input: ProposeEnterpriseMemoryInput): IdentityAwaitable<EnterpriseMemoryEntry>
   reviewMemory(input: ReviewEnterpriseMemoryInput): IdentityAwaitable<EnterpriseMemoryEntry>
+  writePrivateMemory(input: WritePrivateMemoryInput): IdentityAwaitable<EnterpriseMemoryEntry>
   listMemories(input: {
     orgId: string
     departmentIds?: readonly string[]
     statuses?: readonly EnterpriseMemoryEntry['status'][]
+    scopes?: readonly MemoryScope[]
+    agentEmployeeId?: string
+    pairUserId?: string
   }): IdentityAwaitable<EnterpriseMemoryEntry[]>
+  touchMemoryAccess(id: string, at: number): IdentityAwaitable<void>
   setPasswordVerifier(userId: string, verifier: string): IdentityAwaitable<void>
   passwordLoginRecord(orgId: string, username: string): IdentityAwaitable<{
     userId: string
@@ -774,6 +889,36 @@ export class EnterpriseIdentityRepository implements EnterpriseIdentityStore {
     }
   }
 
+  writePrivateMemory(input: WritePrivateMemoryInput): EnterpriseMemoryEntry {
+    const { summary, findings, sourceDigest } = validatePrivateMemoryInput(input)
+    this.database.exec('BEGIN IMMEDIATE')
+    try {
+      this.assertMemoryReferences(input.orgId, input.createdBy)
+      const existing = this.database.prepare(
+        'SELECT * FROM enterprise_memories WHERE org_id = ? AND source_digest = ?',
+      ).get(input.orgId, sourceDigest) as SqliteMemoryRow | undefined
+      if (existing !== undefined) {
+        this.database.exec('COMMIT')
+        return this.memoryFromRow(existing)
+      }
+      const at = this.now()
+      this.database.prepare(`INSERT INTO enterprise_memories(id, org_id, scope_type, department_id,
+        agent_employee_id, pair_user_id, kind, status, summary, source_digest, privacy_findings,
+        importance, last_access_at, created_by, reviewed_by, review_reason, revision, created_at, updated_at)
+        VALUES (?, ?, ?, NULL, ?, ?, ?, 'approved', ?, ?, ?, 0, NULL, ?, NULL, NULL, 1, ?, ?)`)
+        .run(`private-memory-${sourceDigest}`, input.orgId, input.scope,
+          input.agentEmployeeId ?? null, input.pairUserId ?? null, input.kind, summary, sourceDigest,
+          JSON.stringify(findings), input.createdBy, at, at)
+      const value = this.memory(`private-memory-${sourceDigest}`)
+      this.database.exec('COMMIT')
+      if (value === undefined) throw new Error('enterprise private memory write returned no row')
+      return value
+    } catch (error) {
+      this.database.exec('ROLLBACK')
+      throw error
+    }
+  }
+
   reviewMemory(input: ReviewEnterpriseMemoryInput): EnterpriseMemoryEntry {
     if (!input.reason.trim()) throw new Error('enterprise memory review reason is required')
     this.database.exec('BEGIN IMMEDIATE')
@@ -817,19 +962,45 @@ export class EnterpriseIdentityRepository implements EnterpriseIdentityStore {
     orgId: string
     departmentIds?: readonly string[]
     statuses?: readonly EnterpriseMemoryEntry['status'][]
+    scopes?: readonly MemoryScope[]
+    agentEmployeeId?: string
+    pairUserId?: string
   }): EnterpriseMemoryEntry[] {
-    const departmentIds = [...new Set(input.departmentIds ?? [])]
-    const statuses = [...new Set(input.statuses ?? ['proposed', 'approved', 'rejected', 'retired'])]
-    if (statuses.length === 0) return []
-    const statusSlots = statuses.map(() => '?').join(',')
-    const departmentSlots = departmentIds.map(() => '?').join(',')
-    const scope = departmentIds.length === 0
-      ? "scope_type = 'organization'"
-      : `(scope_type = 'organization' OR department_id IN (${departmentSlots}))`
+    const plan = planMemoryListFilters(input)
+    if (plan === undefined) return []
+    const scopeAlternatives: string[] = []
+    if (plan.scopes === undefined) {
+      scopeAlternatives.push("scope_type = 'organization'")
+      if (plan.departmentIds.length > 0) {
+        scopeAlternatives.push(`department_id IN (${plan.departmentIds.map(() => '?').join(',')})`)
+      }
+      if (plan.includeAgentScope) scopeAlternatives.push("scope_type = 'agent'")
+      if (plan.includePairScope) scopeAlternatives.push("scope_type = 'pair'")
+    } else {
+      scopeAlternatives.push(`scope_type IN (${plan.scopes.map(() => '?').join(',')})`)
+    }
+    const scope = scopeAlternatives.length === 1 ? scopeAlternatives[0] : `(${scopeAlternatives.join(' OR ')})`
+    const ownerPredicates = [
+      ...(input.agentEmployeeId === undefined ? [] : ['agent_employee_id = ?']),
+      ...(input.pairUserId === undefined ? [] : ['pair_user_id = ?']),
+    ]
     const rows = this.database.prepare(`SELECT * FROM enterprise_memories WHERE org_id = ? AND ${scope}
-      AND status IN (${statusSlots}) ORDER BY updated_at DESC, id`)
-      .all(input.orgId, ...departmentIds, ...statuses) as unknown as SqliteMemoryRow[]
+      AND status IN (${plan.statuses.map(() => '?').join(',')})${ownerPredicates.length === 0 ? '' : ` AND ${ownerPredicates.join(' AND ')}`}
+      ORDER BY updated_at DESC, id`)
+      .all(input.orgId,
+        ...(plan.scopes === undefined ? plan.departmentIds : plan.scopes),
+        ...plan.statuses,
+        ...(input.agentEmployeeId === undefined ? [] : [input.agentEmployeeId]),
+        ...(input.pairUserId === undefined ? [] : [input.pairUserId]),
+      ) as unknown as SqliteMemoryRow[]
     return rows.map(row => this.memoryFromRow(row))
+  }
+
+  touchMemoryAccess(id: string, at: number): void {
+    const result = this.database.prepare(
+      'UPDATE enterprise_memories SET last_access_at = ? WHERE id = ?',
+    ).run(at, id)
+    if (Number(result.changes) === 0) throw new Error('enterprise memory is missing')
   }
 
   private assertMemoryReferences(orgId: string, userId: string, departmentId?: string): void {
@@ -856,10 +1027,15 @@ export class EnterpriseIdentityRepository implements EnterpriseIdentityStore {
 
   private memoryFromRow(row: SqliteMemoryRow): EnterpriseMemoryEntry {
     return {
-      id: row.id, orgId: row.org_id, scope: row.scope_type,
+      id: row.id, orgId: row.org_id, scope: enumColumn(row, 'scope_type', MEMORY_SCOPES),
       ...(row.department_id === null ? {} : { departmentId: row.department_id }),
-      kind: row.kind, status: row.status, summary: row.summary, sourceDigest: row.source_digest,
+      ...(row.agent_employee_id === null ? {} : { agentEmployeeId: row.agent_employee_id }),
+      ...(row.pair_user_id === null ? {} : { pairUserId: row.pair_user_id }),
+      kind: enumColumn(row, 'kind', MEMORY_KINDS),
+      status: row.status, summary: row.summary, sourceDigest: row.source_digest,
       privacyFindings: safeJsonArray(row.privacy_findings) as EnterpriseMemoryPrivacyFinding[],
+      importance: row.importance,
+      ...(row.last_access_at === null ? {} : { lastAccessAt: row.last_access_at }),
       createdBy: row.created_by,
       ...(row.reviewed_by === null ? {} : { reviewedBy: row.reviewed_by }),
       ...(row.review_reason === null ? {} : { reviewReason: row.review_reason }),
