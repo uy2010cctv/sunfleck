@@ -14,10 +14,10 @@
  *   `{kind:"shared", scope:"department", departmentId}`, or
  *   `{kind:"project", projectId}`. The response is the run's `ConsolidationReport`.
  *
- * Authorization reuses the existing `memory.manage` `EnterpriseAction` — the
- * shared policy lets administrators through and holds the action for
- * department managers on department-scoped resources, which fits a
- * memory-governance administration act without widening the union. A body
+ * Authorization reuses the existing `memory.manage` `EnterpriseAction`. The guard presents the
+ * resource organization-visible and scope-free, so under the shared policy the action is
+ * effectively administrator-gated — plain role holders fall through to `insufficient-role`,
+ * and the union's department-manager delegation never applies on this route. A body
  * `orgId` outside the caller's organization answers 403 like any other
  * cross-organization denial. Audit endpoint name is
  * `enterpriseConsolidation.run`.

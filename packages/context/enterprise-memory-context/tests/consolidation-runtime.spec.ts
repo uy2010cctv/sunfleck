@@ -481,6 +481,92 @@ describe('memory consolidation runtime', () => {
     identity.close()
   })
 
+  it('pins the decay anchor: untouched entries re-apply the full anchor age each run, recall resets it', async () => {
+    root = await mkdtemp(join(tmpdir(), 'dsh-consolidation-runtime-'))
+    const identity = makeIdentity(root)
+    seedOrg(identity)
+    seedApprovedMemory(identity, {
+      id: 'org-decay', scope: 'organization', kind: 'decision', summary: '结算周期为 T+N。', at: NOW,
+    })
+    // Pin importance 1 anchored at the seeded updatedAt; consolidation never writes the clock.
+    identity.batchUpdateImportance([{ id: 'org-decay', importance: 1 }])
+    let clock = NOW + 30 * DAY_MS
+    const ctx = new Context()
+    const runtime = new MemoryConsolidationRuntime(ctx, identity, config(), { now: () => clock })
+
+    const first = await runtime.runCompartment('org-a', { kind: 'shared', scope: 'organization' })
+    expect(first.retired).toBe(0)
+    expect(identity.listMemories({ orgId: 'org-a' }).find(entry => entry.id === 'org-decay')?.importance)
+      .toBe(0.5)
+
+    // Second run with no access in between: the full anchor age (60d) is re-applied to the
+    // already-decayed 0.5, so the stored weight compounds to 0.125 instead of the true anchored
+    // 0.25. Pinned intentionally — see the structurePass anchor note.
+    clock = NOW + 60 * DAY_MS
+    const second = await runtime.runCompartment('org-a', { kind: 'shared', scope: 'organization' })
+    expect(second.retired).toBe(0)
+    expect(identity.listMemories({ orgId: 'org-a' }).find(entry => entry.id === 'org-decay')?.importance)
+      .toBe(0.125)
+
+    // Recall advances the anchor, so the next run decays only the elapsed window; here the
+    // decayed weight also crosses the retirement threshold and the stale entry retires.
+    identity.touchMemoryAccess('org-decay', NOW + 59 * DAY_MS)
+    clock = NOW + 90 * DAY_MS
+    const third = await runtime.runCompartment('org-a', { kind: 'shared', scope: 'organization' })
+    expect(third.retired).toBe(1)
+    const decayed = identity.listMemories({ orgId: 'org-a' }).find(entry => entry.id === 'org-decay')
+    expect(decayed?.status).toBe('retired')
+    expect(decayed?.importance).toBeCloseTo(0.125 * 0.5 ** (31 / 30), 12)
+    identity.close()
+  })
+
+  it('fails loud when a rejected digest is regenerated with identical text', async () => {
+    root = await mkdtemp(join(tmpdir(), 'dsh-consolidation-runtime-'))
+    const identity = makeIdentity(root)
+    seedOrg(identity)
+    seedApprovedMemory(identity, {
+      id: 'org-one', scope: 'organization', kind: 'process', summary: '月度报表每月 5 日前完成。', at: NOW - DAY_MS,
+    })
+    // A digest row left proposed by a crashed run and then rejected by an administrator keeps
+    // the deterministic id; regenerating identical text must hit the store id conflict.
+    const digestText = '报表流程摘要。'
+    const sourceDigest = memorySourceDigest(JSON.stringify(['org-a', 'organization', 'summary', digestText]))
+    const digestId = `consolidation-digest-${sourceDigest}`
+    const proposed = identity.proposeMemory({
+      id: digestId, orgId: 'org-a', scope: 'organization', kind: 'summary',
+      summary: digestText, sourceDigest, createdBy: 'user-1',
+    })
+    identity.reviewMemory({
+      id: digestId, orgId: 'org-a', decision: 'rejected', reviewedBy: 'user-1',
+      reason: '不适宜共享', expectedRevision: proposed.revision,
+    })
+    const ctx = new Context()
+    ctx.provide('llm' as never, fakeLlm([JSON.stringify({ summary: digestText })]) as never)
+    const runtime = new MemoryConsolidationRuntime(ctx, identity, config())
+
+    await expect(runtime.runCompartment('org-a', { kind: 'shared', scope: 'organization' }))
+      .rejects.toThrow(/UNIQUE constraint failed: enterprise_memories\.id/u)
+    const summaries = identity.listMemories({ orgId: 'org-a', kinds: ['summary'] })
+    expect(summaries).toHaveLength(1)
+    expect(summaries[0]).toMatchObject({ id: digestId, status: 'rejected' })
+    identity.close()
+  })
+
+  it('marks reflection as structurally skipped when the llm service is unmounted', async () => {
+    root = await mkdtemp(join(tmpdir(), 'dsh-consolidation-runtime-'))
+    const identity = makeIdentity(root)
+    seedOrg(identity)
+    seedAgentNote(identity, { summary: '团队约定评审输出必须带验收清单。', at: NOW - DAY_MS, importance: 1 })
+    const runtime = new MemoryConsolidationRuntime(new Context(), identity, config())
+    const report = await runtime.runCompartment('org-a', { kind: 'shared', scope: 'organization' })
+
+    expect(report.reflections).toEqual({ proposed: 0, droppedPrivacy: 0, failed: 0, skippedLlm: true })
+    const reflectionAudit = auditRows(identity).find(row => row.details['pass'] === 'reflection')
+    expect(reflectionAudit?.reason).toBe('reflection skipped without the llm service')
+    expect(reflectionAudit?.details['reflectionLlm']).toBe('unavailable')
+    identity.close()
+  })
+
   it('validates the runtime configuration loud at the boundary', () => {
     expect(consolidationRuntimeConfig({
       intervalMs: 21_600_000, orgIds: ['org-a'], actorUserId: ACTOR,

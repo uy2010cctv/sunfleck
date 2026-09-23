@@ -82,6 +82,6 @@ Reviewed organization and department memory context for DSH Enterprise。
 
 ## 记忆整理
 
-只要企业 PostgreSQL 平台已挂载，即可按分区运行整理：把重复组归并到最新一条、把其余已启用记忆的重要度改写为衰减值、在宽限期后停用衰减到阈值以下的记忆，并为每个共享分区提炼一条 `summary` 摘要。摘要在写入前经过分区感知的隐私门禁，通过后立即生效（整理是 `summary` 行的权威写入方）并取代上一条生效摘要；与在生摘要相同的结果记为 `unchanged`。organization 范围的整理还会把仍有足够重要度的已批准 agent 私有笔记提炼为 `business-fact` 反思提案等待管理员审核；被目标分区隐私门禁拦截的提案直接丢弃，department 目标的提案因缺少作者部门解析服务而暂不可用。
+只要企业 PostgreSQL 平台已挂载，即可按分区运行整理：把重复组归并到最新一条、把其余已启用记忆的重要度改写为衰减值、在宽限期后停用衰减到阈值以下的记忆，并为每个共享分区提炼一条 `summary` 摘要。衰减写入不动访问时钟，因此既未被召回也未被触碰的记忆会在每次整理时重新叠加完整的锚点龄期，以快于半衰曲线的速度衰减直至停用；只有召回会同时重置时钟与衰减。摘要在写入前经过分区感知的隐私门禁，通过后立即生效（整理是 `summary` 行的权威写入方）并取代上一条生效摘要；与在生摘要相同的结果记为 `unchanged`，而重新生成一条管理员已拒绝的相同文本会因确定性编号冲突而响亮失败。organization 范围的整理还会把仍有足够重要度的已批准 agent 私有笔记提炼为 `business-fact` 反思提案等待管理员审核；被目标分区隐私门禁拦截的提案直接丢弃，department 目标的提案因缺少作者部门解析服务而暂不可用。
 
 定时路径只处理 `consolidationOrgIds` 列出的组织（默认为空，即默认关闭），间隔 `consolidationIntervalMs`（默认 6 小时，`0` 表示关闭）；启用定时段落要求配置 `consolidationActorUserId`（`service:` 身份）、`consolidationProvider` 与 `consolidationModel`。手动触发端点 `POST /enterprise/consolidation/run` 按 `memory.manage` 策略按需整理一个分区；同一分区已有运行在途时返回 409。同进程内对同一分区做在途保护，因此定时路径只能在单台主机上启用。每个阶段都会追加一条审计记录；`consolidationTunables` 可覆盖各项阈值。

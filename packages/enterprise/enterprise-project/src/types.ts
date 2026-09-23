@@ -190,7 +190,9 @@ export interface EnterpriseProjects {
    the packages stay decoupled, so each self-contains its own copy. */
 /** Data used by `PostgresQueryResult`. */
 export interface PostgresQueryResult<Row extends Record<string, unknown> = Record<string, unknown>> {
+  /** Result rows of one executed statement, in driver return order. */
   readonly rows: readonly Row[]
+  /** Number of rows the statement affected, or `null` when the driver reports no count. */
   readonly rowCount: number | null
 }
 

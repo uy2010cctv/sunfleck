@@ -47,6 +47,10 @@ export interface ConsolidationReflectionReport {
   readonly droppedPrivacy: number
   /** Non-dropped candidates whose proposal write did not land. */
   readonly failed: number
+  /** Present only when the pass was skipped whole because the `llm` service is unmounted —
+   * the reflection mirror of the digest's `skipped-llm`. Proposal-level failures stay in
+   * `failed`; an absent marker means the pass ran. */
+  readonly skippedLlm?: true
 }
 
 /** Closed result of one consolidation run; the manual endpoint returns it as JSON. */
@@ -149,17 +153,27 @@ const DIGEST_APPROVE_REASON = 'consolidation digest auto-activated'
  * persistence because the rationale is reviewer context, never model-visible content. */
 const REFLECTION_RATIONALE_MAX = 500
 
+/** Runtime seams for deterministic tests and host clock injection. */
+export interface MemoryConsolidationRuntimeOptions {
+  /** Wall clock for run timestamps and decay ages; defaults to the process clock. */
+  readonly now?: () => number
+}
+
 /** Process-scoped consolidation service: interval lifecycle, per-compartment runs, and the
  * reentrancy guard the manual endpoint answers 409 through. */
 export class MemoryConsolidationRuntime {
   private timer: ReturnType<typeof setInterval> | undefined
   private closed = false
+  private readonly clock: () => number
 
   constructor(
     private readonly ctx: Context,
     private readonly identity: EnterpriseIdentityStore,
     private readonly config: MemoryConsolidationConfig,
-  ) {}
+    options: MemoryConsolidationRuntimeOptions = {},
+  ) {
+    this.clock = options.now ?? Date.now
+  }
 
   /** Start the interval timer; an interval of `0` or an empty org list starts nothing. */
   async start(): Promise<void> {
@@ -226,7 +240,7 @@ export class MemoryConsolidationRuntime {
   }
 
   private async execute(orgId: string, compartment: ConsolidationCompartment): Promise<ConsolidationReport> {
-    const now = Date.now()
+    const now = this.clock()
     const correlationId = randomUUID()
     const actor = await this.requireActor(orgId)
     const entries = await this.compartmentEntries(orgId, compartment)
@@ -262,7 +276,16 @@ export class MemoryConsolidationRuntime {
 
   /** Structure pass: supersede duplicate groups per survivor, rewrite every remaining entry's
    * importance to its decayed weight, and retire the entries decayed below the retirement
-   * threshold. Per-row failures are recorded in the pass audit and never abort the run. */
+   * threshold. Per-row failures are recorded in the pass audit and never abort the run.
+   *
+   * Decay anchor: `decayImportance` ages an entry from `lastAccessAt ?? updatedAt`, and the batch
+   * below writes only the weight — never the clock. A consecutive run therefore re-applies the
+   * full anchor-age factor to the already-decayed value, so an entry neither recalled nor
+   * otherwise touched decays faster than the half-life curve and reaches the retirement threshold
+   * sooner; this is intentional. Advancing the anchor here instead would reset `retirePlan`'s
+   * staleness test on every run and disable retirement outright — one clock serves both decay and
+   * staleness, and staleness wins. Recall (`touchMemoryAccess`) is what advances the anchor and
+   * resets decay for memories in active use. */
   private async structurePass(
     orgId: string,
     compartment: ConsolidationCompartment,
@@ -286,7 +309,8 @@ export class MemoryConsolidationRuntime {
     }
     const remaining = entries.filter(entry => !supersededIds.has(entry.id))
     // The decay write is the mutation API: every remaining entry's importance becomes its
-    // decayed weight, floored at zero by `decayImportance` itself.
+    // decayed weight, floored at zero by `decayImportance` itself. The access clock is
+    // deliberately left untouched — see the anchor note on this pass.
     const importanceUpdates = remaining.length === 0
       ? 0
       : await this.identity.batchUpdateImportance(remaining.map(entry => ({
@@ -320,7 +344,12 @@ export class MemoryConsolidationRuntime {
    * findings blocking its own scope is skipped, and a failed refinement is a structured skip.
    * The fresh digest activates immediately — consolidation is the authority over `summary`
    * rows, the scope-aware privacy gate has already run — so the previous digest can be
-   * superseded through the store's approved-status requirement on the next run. */
+   * superseded through the store's approved-status requirement on the next run.
+   *
+   * Rejected digests: a rejected `summary` row stays out of `liveSummaries`, so regenerating
+   * identical text re-proposes the same deterministic id and the store's id conflict fails the
+   * run loud. The propose-reject-regenerate cycle is pathological and requires human attention;
+   * it is never silently swallowed as `unchanged`. */
   private async digestPass(
     orgId: string,
     compartment: ConsolidationCompartment,
@@ -426,12 +455,18 @@ export class MemoryConsolidationRuntime {
     if (compartment.kind !== 'shared' || compartment.scope !== 'organization') {
       return { proposed: 0, droppedPrivacy: 0, failed: 0 }
     }
+    const llm = this.refinementLlm()
+    if (llm === undefined) {
+      await this.appendPassAudit({
+        orgId, actor, correlationId, at: now, pass: 'reflection', compartment,
+        reason: 'reflection skipped without the llm service',
+        details: { proposed: 0, droppedPrivacy: 0, failed: 0, reflectionLlm: 'unavailable' },
+      })
+      return { proposed: 0, droppedPrivacy: 0, failed: 0, skippedLlm: true }
+    }
     const agentRows = await this.identity.listMemories({ orgId, scopes: ['agent'], statuses: ['approved'] })
     const candidates = reflectionCandidates(agentRows, now, this.config.tunables)
-    const llm = this.refinementLlm()
-    const outcomes = llm === undefined
-      ? []
-      : await reflectOnPrivateNotes(llm, candidates, this.config.tunables, this.refinementOptions())
+    const outcomes = await reflectOnPrivateNotes(llm, candidates, this.config.tunables, this.refinementOptions())
     const report = { proposed: 0, droppedPrivacy: 0, failed: 0 }
     const failures: string[] = []
     const proposals: Array<{ memoryId: string; targetScope: string; rationale: string }> = []
