@@ -1,6 +1,15 @@
 import { DatabaseSync } from 'node:sqlite'
 import { Context } from '@deepseek-ai/cordis'
-import { attachSurfaceSession, ensureSurface, migrateEnterpriseIdentity } from '@deepseek-ai/dsh-enterprise-identity'
+import {
+  attachGroupSurfaceSession,
+  attachSurfaceSession,
+  attachTopicSession,
+  ensureChannelSurface,
+  ensureGroupSurface,
+  ensureSurface,
+  ensureTopic,
+  migrateEnterpriseIdentity,
+} from '@deepseek-ai/dsh-enterprise-identity'
 import { describe, expect, it } from 'vitest'
 import { apply, employeeId, EmployeeAccountService, surfaceId } from '../src/index.ts'
 import type { EmployeeAccount, EmployeeId } from '../src/index.ts'
@@ -237,6 +246,34 @@ describe('EmployeeAccountService.resolveSessionActor', () => {
     expect(service.resolveSessionActor('session-1')).toEqual({
       orgId: 'org-1', userId: 'user-1', employeeId: account.id,
     })
+  })
+
+  it('resolves a group member session to its employee and the surface project', () => {
+    const { database, service } = makeService()
+    const account = createEmployeeWithSurface(service, database)
+    ensureGroupSurface(database, {
+      id: 'surface-group', orgId: 'org-1', name: '支持群', projectId: 'project-1', createdAt: 1,
+    })
+    attachGroupSurfaceSession(database, 'surface-group', account.id, 'session-group')
+
+    expect(service.resolveSessionActor('session-group')).toEqual({
+      orgId: 'org-1', employeeId: account.id, projectId: 'project-1',
+    })
+  })
+
+  it('resolves a channel topic session to the surface project without a principal identity', () => {
+    const { database, service } = makeService()
+    createEmployeeWithSurface(service, database)
+    ensureChannelSurface(database, {
+      id: 'surface-channel', orgId: 'org-1', name: '值班频道', topicPolicy: 'thread',
+      respondPolicy: 'mention_duty', dutyEmployeeIds: [], createdAt: 1,
+    })
+    ensureTopic(database, {
+      topicId: 'topic-1', surfaceId: 'surface-channel', title: '值班', createdBy: 'user-1', createdAt: 1,
+    })
+    attachTopicSession(database, 'topic-1', 'session-topic')
+
+    expect(service.resolveSessionActor('session-topic')).toEqual({ orgId: 'org-1' })
   })
 
   it('returns undefined for a session no surface anchors', () => {

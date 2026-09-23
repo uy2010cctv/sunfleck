@@ -18,6 +18,7 @@ import {
   ensureTopic,
   failInboxItem,
   getEmployee,
+  groupSessionBinding,
   groupSurfaceSession,
   listEmployees,
   resolveSticky,
@@ -591,14 +592,13 @@ describe('collaboration surfaces', () => {
     expect(() => ensureGroupSurface(database, groupRow())).not.toThrow()
   })
 
-  it('fails loud when a session resolves to a surface that is not a dm surface', () => {
+  it('resolves a surfaces.session_id hit to its stored kind instead of rejecting non-dm rows', () => {
     const database = makeDatabase()
     seedSurfaceGraph(database)
     ensureChannelSurface(database, channelRow())
     attachSurfaceSession(database, 'surface-channel', 'session-channel')
 
-    expect(() => surfaceBySession(database, 'session-channel'))
-      .toThrow(/surface-channel.*not a dm surface/u)
+    expect(surfaceBySession(database, 'session-channel')?.id).toBe('surface-channel')
   })
 
   it('binds one group session per (surface, employee) pair and replaces it on re-attach', () => {
@@ -628,5 +628,44 @@ describe('collaboration surfaces', () => {
 
     database.prepare('DELETE FROM surfaces WHERE id = ?').run('surface-group')
     expect(groupSurfaceSession(database, 'surface-group', 'employee-1')).toBeUndefined()
+    expect(groupSessionBinding(database, 'session-1')).toBeUndefined()
+  })
+
+  it('reads the (surface, employee) binding of one group session by session id', () => {
+    const database = makeDatabase()
+    seedSurfaceGraph(database)
+    ensureGroupSurface(database, groupRow())
+    attachGroupSurfaceSession(database, 'surface-group', 'employee-1', 'session-1')
+
+    expect(groupSessionBinding(database, 'session-1')).toEqual({
+      surfaceId: 'surface-group', employeeId: 'employee-1',
+    })
+    expect(groupSessionBinding(database, 'session-other')).toBeUndefined()
+  })
+
+  it('resolves the anchoring surface through every anchor kind, projects included', () => {
+    const database = makeDatabase()
+    seedSurfaceGraph(database)
+    ensureDefaultSurface(database)
+    ensureGroupSurface(database, groupRow(row => ({ ...row, projectId: 'project-1' })))
+    ensureChannelSurface(database, channelRow())
+
+    // Dm anchor: the surface row's own session_id column.
+    attachSurfaceSession(database, 'surface-1', 'session-dm')
+    expect(surfaceBySession(database, 'session-dm')).toEqual({ ...surfaceRow(), sessionId: 'session-dm' })
+
+    // Group anchor: the surface_sessions binding; the resolved row carries the surface's project.
+    attachGroupSurfaceSession(database, 'surface-group', 'employee-1', 'session-group')
+    expect(surfaceBySession(database, 'session-group'))
+      .toEqual(expectedGroup({ projectId: 'project-1' }))
+
+    // Channel topic anchor: the topic's session binding resolves its surface.
+    ensureTopic(database, {
+      topicId: 'topic-1', surfaceId: 'surface-channel', title: '值班', createdBy: 'user-1', createdAt: T2,
+    })
+    attachTopicSession(database, 'topic-1', 'session-topic')
+    expect(surfaceBySession(database, 'session-topic')?.id).toBe('surface-channel')
+
+    expect(surfaceBySession(database, 'session-unknown')).toBeUndefined()
   })
 })

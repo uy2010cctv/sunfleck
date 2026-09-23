@@ -38,6 +38,14 @@ function textFromStream(chunks: readonly ExtractorChunk[]): string {
     && typeof chunk.block.text === 'string' ? [chunk.block.text] : []).join('\n')
 }
 
+/** Session actor the employee-account service resolves; structural so this package keeps no
+ * employee-account dependency. Group and channel anchors leave the pair identities absent. */
+interface SessionMemoryActor {
+  readonly orgId: string
+  readonly userId?: string
+  readonly employeeId?: string
+}
+
 async function departmentFor(identity: EnterpriseIdentityStore, grant: EnterpriseWorkspaceGrant): Promise<string | undefined> {
   if (grant.departmentId !== undefined) return grant.departmentId
   if (grant.ownerUserId === undefined) return undefined
@@ -171,15 +179,20 @@ export class EnterpriseMemoryWritebackRuntime {
 
   /**
    * Resolve the private-memory actor for one session through the employee-account service, kept
-   * optional because compositions without persistent employees do not mount it. An absent service
-   * or unanchored session resolves to undefined, and the worker skips private-target candidates
-   * with the ordinary skip count instead of failing the job.
+   * optional because compositions without persistent employees do not mount it. An absent
+   * service or unanchored session resolves to undefined, and the worker skips private-target
+   * candidates with the ordinary skip count instead of failing the job. Group and channel
+   * anchors resolve no dm pair, so their sessions also skip: private compartments stay scoped
+   * to the (user, employee) pair like the dm inbox.
    */
   private resolvePrivateMemoryActor(sessionId: string): PrivateMemoryActor | undefined {
     const accounts = (this.ctx.get.bind(this.ctx) as (name: string) => unknown)('employeeAccounts') as
-      | { resolveSessionActor(sessionId: string): PrivateMemoryActor | undefined }
+      | { resolveSessionActor(sessionId: string): SessionMemoryActor | undefined }
       | undefined
-    return accounts?.resolveSessionActor(sessionId)
+    const actor = accounts?.resolveSessionActor(sessionId)
+    return actor !== undefined && actor.userId !== undefined && actor.employeeId !== undefined
+      ? { orgId: actor.orgId, userId: actor.userId, employeeId: actor.employeeId }
+      : undefined
   }
 
   async close(): Promise<void> {

@@ -747,17 +747,42 @@ export function resolveSticky(database: DatabaseSync, orgId: string, actorKey: s
   return row?.employee_id
 }
 
-/** Read the direct-message surface anchored to one live session. Group and channel surfaces carry
- * no dm pair, so a session attached to one of those kinds fails loud here instead of resolving.
+/** Read the (surface, employee) group-session binding one session id belongs to.
  * @param database - Migrated enterprise identity database.
- * @param sessionId - Session id the surface was attached with `attachSurfaceSession`.
- * @returns The dm surface row, or undefined when no surface anchors that session.
- * @throws When the anchored surface is a group or channel surface.
+ * @param sessionId - Session id bound with `attachGroupSurfaceSession`.
+ * @returns The owning surface and employee ids, or undefined when no group session carries the id.
  */
-export function surfaceBySession(database: DatabaseSync, sessionId: string): SurfaceRow | undefined {
-  const row = database.prepare('SELECT * FROM surfaces WHERE session_id = ?')
+export function groupSessionBinding(
+  database: DatabaseSync,
+  sessionId: string,
+): { readonly surfaceId: string; readonly employeeId: string } | undefined {
+  const row = database.prepare('SELECT surface_id, employee_id FROM surface_sessions WHERE session_id = ?')
     .get(sessionId) as Record<string, unknown> | undefined
-  return row === undefined ? undefined : dmSurfaceFromRow(row)
+  return row === undefined
+    ? undefined
+    : { surfaceId: row.surface_id as string, employeeId: row.employee_id as string }
+}
+
+/** Read the surface row anchoring one session through any anchor kind: a dm row's `session_id`
+ * column, a group member session binding, or a channel topic's session binding. One session id
+ * anchors through exactly one kind because each anchor is written by its own delivery path.
+ * @param database - Migrated enterprise identity database.
+ * @param sessionId - Session id attached by `attachSurfaceSession`, `attachGroupSurfaceSession`,
+ *   or `attachTopicSession`.
+ * @returns The stored surface row of the anchoring kind, or undefined when no surface anchors
+ *   that session.
+ */
+export function surfaceBySession(
+  database: DatabaseSync,
+  sessionId: string,
+): SurfaceRow | GroupSurfaceRow | ChannelSurfaceRow | undefined {
+  const direct = database.prepare('SELECT * FROM surfaces WHERE session_id = ?')
+    .get(sessionId) as Record<string, unknown> | undefined
+  if (direct !== undefined) return surfaceFromRow(direct)
+  const member = groupSessionBinding(database, sessionId)
+  if (member !== undefined) return surfaceById(database, member.surfaceId)
+  const topic = topicBySession(database, sessionId)
+  return topic === undefined ? undefined : surfaceById(database, topic.surfaceId)
 }
 
 /** List one organization's surfaces in creation order, optionally narrowed to one kind.

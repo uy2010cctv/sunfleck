@@ -5,14 +5,16 @@ import { tmpdir } from 'node:os'
 import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import {
+  attachGroupSurfaceSession,
   attachSurfaceSession,
   EnterpriseIdentityRepository,
+  ensureGroupSurface,
   ensureSurface,
   memorySourceDigest,
   migrateEnterpriseIdentity,
-  surfaceBySession,
 } from '@deepseek-ai/dsh-enterprise-identity'
 import type { EnterpriseMemoryEntry } from '@deepseek-ai/dsh-enterprise-identity'
+import { EmployeeAccountService } from '@deepseek-ai/dsh-employee-account'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import {
@@ -75,6 +77,22 @@ function seedApprovedMemory(
   })
 }
 
+/** Propose one approved project-compartment memory on project-1 at the given clock time. */
+function seedApprovedProjectMemory(
+  identity: EnterpriseIdentityRepository,
+  input: { id: string; kind: EnterpriseMemoryEntry['kind']; summary: string; at: number },
+): void {
+  fixtureClock = input.at
+  const proposed = identity.proposeMemory({
+    id: input.id, orgId: 'org-a', scope: 'project', projectId: 'project-1',
+    kind: input.kind, summary: input.summary, sourceDigest: memorySourceDigest(input.id), createdBy: 'user-1',
+  })
+  identity.reviewMemory({
+    id: input.id, orgId: 'org-a', decision: 'approved', reviewedBy: 'user-1', reason: 'verified',
+    expectedRevision: proposed.revision,
+  })
+}
+
 /** Write one private-compartment memory; the store derives its id from the write digest. */
 function seedPrivateMemory(
   identity: EnterpriseIdentityRepository,
@@ -88,7 +106,8 @@ function seedPrivateMemory(
   })
 }
 
-/** Anchor one dm surface for (user-1, employee-1) to a session and expose the actor resolution. */
+/** Seed the identity database behind one real `EmployeeAccountService` and expose its actor
+ * resolution through the service itself, so the tests exercise the production anchor mapping. */
 function provideEmployeeAccounts(ctx: Context, sessionId: string): DatabaseSync {
   const database = new DatabaseSync(':memory:')
   migrateEnterpriseIdentity(database)
@@ -101,20 +120,43 @@ function provideEmployeeAccounts(ctx: Context, sessionId: string): DatabaseSync 
       home_workspace_path, created_at, updated_at
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
     .run('employee-1', 'org-a', 'Support', '客服助理', null, 'active', '/managed/employees/support', 1, 1)
+  database.prepare(`INSERT INTO employee_accounts(
+      id, org_id, display_name, role_card, active_release_id, state,
+      home_workspace_path, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+    .run('employee-2', 'org-a', 'Billing', '账务助理', null, 'active', '/managed/employees/billing', 1, 1)
   ensureSurface(database, {
     id: 'surface-1', orgId: 'org-a', kind: 'dm', userId: 'user-1', employeeId: 'employee-1',
     sessionId: null, createdAt: 1,
   })
   attachSurfaceSession(database, 'surface-1', sessionId)
-  ctx.provide('employeeAccounts' as never, {
-    resolveSessionActor: (anchorSessionId: string) => {
-      const surface = surfaceBySession(database, anchorSessionId)
-      return surface === undefined
-        ? undefined
-        : { orgId: surface.orgId, userId: surface.userId, employeeId: surface.employeeId }
+  ctx.provide('employeeAccounts' as never, new EmployeeAccountService(database) as never)
+  return database
+}
+
+/** Anchor one project-bound group surface whose member sessions are `session-member` (employee-1)
+ * and `session-outsider` (employee-2). */
+function anchorProjectGroupSessions(database: DatabaseSync): void {
+  ensureGroupSurface(database, {
+    id: 'surface-project', orgId: 'org-a', name: '项目群', projectId: 'project-1', createdAt: 1,
+  })
+  attachGroupSurfaceSession(database, 'surface-project', 'employee-1', 'session-member')
+  attachGroupSurfaceSession(database, 'surface-project', 'employee-2', 'session-outsider')
+}
+
+/** Provide the lazily resolved project service that admits employee-1 to project-1 only. */
+function provideProjectMembership(ctx: Context): { readonly asked: unknown[] } {
+  const asked: unknown[] = []
+  ctx.provide('enterpriseProjects' as never, {
+    requireMember: async (orgId: string, projectId: string, principal: unknown) => {
+      asked.push({ orgId, projectId, principal })
+      const employeeId = (principal as { employeeId?: string }).employeeId
+      return orgId === 'org-a' && projectId === 'project-1' && employeeId === 'employee-1'
+        ? { projectId }
+        : undefined
     },
   } as never)
-  return database
+  return { asked }
 }
 
 /** Assemble the prompt for one session cwd and return the injected enterprise memory text. */
@@ -217,6 +259,76 @@ describe('enterprise memory prompt context', () => {
       .toBeUndefined()
     expect(identity.listMemories({ orgId: 'org-a', scopes: ['pair'], pairUserId: 'user-2' })[0]?.lastAccessAt)
       .toBeUndefined()
+    identity.close()
+  })
+
+  it('injects project memory under [Project memory] only for the project member session', async () => {
+    root = await mkdtemp(join(tmpdir(), 'dsh-enterprise-memory-context-'))
+    const identity = makeIdentity(root)
+    seedWorkspace(identity)
+    seedApprovedMemory(identity, {
+      id: 'org-memory', scope: 'organization', kind: 'business-fact', summary: '公司使用统一合同编号。', at: NOW - DAY_MS,
+    })
+    seedApprovedProjectMemory(identity, {
+      id: 'proj-memory', kind: 'decision', summary: '项目采用统一发布流程。', at: NOW - DAY_MS,
+    })
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt, { includeHarnessIdentity: false, includeRuntimeContext: true })
+    await ctx.plugin(ToolRuntime)
+    ctx.provide('enterprisePostgres' as never, { identity } as never)
+    const database = provideEmployeeAccounts(ctx, 'session-1')
+    anchorProjectGroupSessions(database)
+    const { asked } = provideProjectMembership(ctx)
+    apply(ctx, { maxEntries: 20, maxChars: 8_000 })
+
+    const member = await assembleMemory(ctx, '/managed/alice', 'session-member')
+    // Equal scores keep fetch order: the shared listing precedes the project listing.
+    expect(member).toContain('[Project memory]')
+    expect(member.indexOf('[org-memory]')).toBeLessThan(member.indexOf('[proj-memory]'))
+    expect(member).toContain('[proj-memory]')
+
+    // The same surface's non-member session resolves the same project but no membership, so the
+    // compartment never enters, and its rows stay untouched by that assembly.
+    const outsider = await assembleMemory(ctx, '/managed/alice', 'session-outsider')
+    expect(outsider).toContain('[org-memory]')
+    expect(outsider).not.toContain('[Project memory]')
+    expect(outsider).not.toContain('[proj-memory]')
+
+    // The member gate ran per session actor with the resolved scope and principal.
+    expect(asked).toEqual([
+      { orgId: 'org-a', projectId: 'project-1', principal: { employeeId: 'employee-1' } },
+      { orgId: 'org-a', projectId: 'project-1', principal: { employeeId: 'employee-2' } },
+    ])
+
+    // Injected project rows are touched like every other compartment.
+    const project = identity.listMemories({
+      orgId: 'org-a', scopes: ['project'], projectId: 'project-1', statuses: ['approved'],
+    })[0]
+    expect(project?.lastAccessAt).toBeGreaterThanOrEqual(NOW)
+    identity.close()
+  })
+
+  it('injects no project compartment when the project service is unmounted', async () => {
+    root = await mkdtemp(join(tmpdir(), 'dsh-enterprise-memory-context-'))
+    const identity = makeIdentity(root)
+    seedWorkspace(identity)
+    seedApprovedProjectMemory(identity, {
+      id: 'proj-memory', kind: 'decision', summary: '项目采用统一发布流程。', at: NOW - DAY_MS,
+    })
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt, { includeHarnessIdentity: false, includeRuntimeContext: true })
+    await ctx.plugin(ToolRuntime)
+    ctx.provide('enterprisePostgres' as never, { identity } as never)
+    const database = provideEmployeeAccounts(ctx, 'session-1')
+    anchorProjectGroupSessions(database)
+    apply(ctx, { maxEntries: 20, maxChars: 8_000 })
+    const rendered = await assembleMemory(ctx, '/managed/alice', 'session-member')
+
+    expect(rendered).not.toContain('[Project memory]')
+    expect(rendered).not.toContain('[proj-memory]')
+    expect(identity.listMemories({
+      orgId: 'org-a', scopes: ['project'], projectId: 'project-1', statuses: ['approved'],
+    })[0]?.lastAccessAt).toBeUndefined()
     identity.close()
   })
 
@@ -352,6 +464,19 @@ describe('enterprise memory recall ranking', () => {
     const first = memoryEntry('first')
     const second = memoryEntry('second')
     expect(rankEnterpriseMemories([first, second], { now }).map(entry => entry.id)).toEqual(['first', 'second'])
+  })
+
+  it('renders the project compartment last and keeps fetch order on cross-compartment ties', () => {
+    const org = memoryEntry('org')
+    const project = memoryEntry('project', { scope: 'project', projectId: 'project-1' })
+    const rendered = renderEnterpriseMemory([org, project], Number.MAX_SAFE_INTEGER)
+    expect(rendered).toContain('[Project memory]')
+    expect(rendered.indexOf('[Organization memory]')).toBeLessThan(rendered.indexOf('[Project memory]'))
+    // Fetch order is the listener's merge order (shared first, project last), and exact ties
+    // between compartments keep it instead of re-sorting by scope.
+    expect(rankEnterpriseMemories([project, org], { now }).map(entry => entry.id))
+      .toEqual(['project', 'org'])
+    expect(renderEnterpriseMemory([project], Number.MAX_SAFE_INTEGER)).not.toContain('[Organization memory]')
   })
 
   it('limits the ranked list by dropping the tail and keeps the labeled sections intact', () => {

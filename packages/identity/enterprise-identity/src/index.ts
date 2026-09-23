@@ -64,6 +64,7 @@ export {
   enumColumn,
   failInboxItem,
   getEmployee,
+  groupSessionBinding,
   groupSurfaceSession,
   listEmployees,
   listSurfaces,

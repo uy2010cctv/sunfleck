@@ -103,10 +103,12 @@ export interface EnterpriseProjectViewer {
   readonly roles?: readonly string[]
 }
 
-/** Principal whose project membership `requireMember` resolves. */
+/** Principal whose project membership `requireMember` resolves. Both identities are optional:
+ * group session actors carry an employee without a user, and a missing identity simply never
+ * matches its member rows. */
 export interface EnterpriseProjectMemberPrincipal {
-  /** User id matched against 'user' member rows. */
-  readonly userId: string
+  /** User id matched against 'user' member rows; absent when the caller has no user identity. */
+  readonly userId?: string
   /** Employee id matched against 'employee' member rows, when the principal is an employee. */
   readonly employeeId?: string
 }

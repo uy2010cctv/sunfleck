@@ -20,7 +20,7 @@ Reviewed organization and department memory context for DSH Enterprise.
 <a id="package-details"></a>
 ## Package Details
 
-Enterprise-only prompt context for approved organization and department memories. The plugin resolves a Session cwd through enterprise workspace grants and injects only approved summaries. It never loads raw conversation bodies, proposed/rejected entries, or memory outside the workspace compartment.
+Enterprise-only prompt context for approved enterprise memories. The plugin resolves a Session cwd through enterprise workspace grants and injects approved summaries from the shared organization and department compartments, the anchored session's private agent and pair compartments, and the project compartment when the project service confirms the session actor's membership. It never loads raw conversation bodies, proposed/rejected entries, or memory outside these compartments.
 
 When automatic business-memory capture is enabled, writes belong to the authenticated request principal, then the durable enterprise Session owner. An unbound background run must configure an existing `backgroundServiceUserId` beginning with `service:`; it never falls back to a bootstrap administrator. Automatic capture creates a proposal by default. Activation requires a matching `enterprise-memory-autonomy` organization resource policy for `<orgId>:organization` or `<orgId>:department:<departmentId>`, with organization visibility, the actor listed, and an enabled administrator as policy creator. Personal Workspace preferences remain personal and are never promoted by this mechanism.
 
@@ -32,7 +32,7 @@ Memory values are rendered as quoted factual context with stable ids and an expl
 
 #### What the model sees
 
-Only approved organization or department summaries that match the current Workspace authorization. Each injected item carries its stable `memoryId` and scope; personal preferences and raw conversation content are excluded.
+Only approved summaries from the compartments the session's authorization resolves (organization, department, own agent and pair, member-gated project). Each injected item carries its stable `memoryId` and scope; personal preferences and raw conversation content are excluded.
 
 #### Token effect
 

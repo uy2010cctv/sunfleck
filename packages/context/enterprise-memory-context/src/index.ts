@@ -114,11 +114,15 @@ function requestPrincipal(ctx: Context): { orgId: string; userId: string } | und
     : undefined
 }
 
-/** Actor triple of one surface-anchored employee session; structural view of the employee-account service. */
+/** Actor of one surface-anchored employee session; structural view of the employee-account
+ * service. Dm sessions carry the full pair, group member sessions only their employee, and
+ * channel topic sessions no principal identity; `projectId` is present when the anchoring
+ * surface is bound to a project. */
 interface SessionActor {
   readonly orgId: string
-  readonly userId: string
-  readonly employeeId: string
+  readonly userId?: string
+  readonly employeeId?: string
+  readonly projectId?: string
 }
 
 /** Resolve the anchored employee session actor. Kept structural and optional because compositions
@@ -126,7 +130,7 @@ interface SessionActor {
  * unanchored session resolves to undefined and recall stays organization/department-only.
  * @param ctx - hosting context.
  * @param sessionId - session whose surface anchoring is consulted.
- * @returns the session's org, user, and employee, or undefined when unresolvable.
+ * @returns the session's memory actor, or undefined when unresolvable.
  */
 function sessionActor(ctx: Context, sessionId: string): SessionActor | undefined {
   const accounts = (ctx.get.bind(ctx) as (name: string) => unknown)('employeeAccounts') as
@@ -214,12 +218,14 @@ function renderEntry(entry: EnterpriseMemoryEntry): string {
   return `- [${entry.id}] ${entry.kind}: ${JSON.stringify(entry.summary)}`
 }
 
-/** Recall sections in display order; labels are model-visible English. */
+/** Recall sections in display order; labels are model-visible English. The project compartment
+ * renders last because its fetch joins the ranking input after the private compartments. */
 const SECTIONS = [
   { scope: 'organization', label: 'Organization memory' },
   { scope: 'department', label: 'Department memory' },
   { scope: 'agent', label: 'My notes' },
   { scope: 'pair', label: 'Collaboration preference' },
+  { scope: 'project', label: 'Project memory' },
 ] as const satisfies readonly { readonly scope: EnterpriseMemoryEntry['scope']; readonly label: string }[]
 
 /** Render the block body: header, policy, and each non-empty labeled compartment section. */
@@ -315,8 +321,8 @@ export function memoryRecallScore(
  *
  * Every entry scores through {@link memoryRecallScore}; one stable descending sort over the
  * fetch-order concatenation — the shared organization-plus-department listing first, then the
- * pair and agent listings — keeps exact ties in fetch order, so no compartment overrides the
- * score.
+ * pair and agent listings, then the member-gated project listing — keeps exact ties in fetch
+ * order, so no compartment overrides the score.
  * @param entries - memories already concatenated in compartment fetch order.
  * @param options - `now` in epoch milliseconds and the optional query terms from the current turn.
  * @returns the ranked copy; the input array is not mutated.
@@ -389,6 +395,47 @@ async function actorCompartments(
   // fetched along a department-only listing).
   return [...shared, ...own].filter((entry): entry is CompartmentEntry =>
     entry.scope !== 'project' && wanted.has(entry.scope))
+}
+
+/** Approved project-compartment memories for one anchored session, member-gated. The surface's
+ * project id enters the actor only through the surface row, so the membership check decides
+ * visibility: no actor project, no principal identity, an unmounted project service, or a
+ * non-member all resolve no compartment instead of an error, so a project never leaks into a
+ * session that cannot present its membership. The service is resolved lazily by name because
+ * compositions without the project entity do not mount it.
+ * @param ctx - hosting context.
+ * @param identity - enterprise identity store.
+ * @param scope - scope resolved by {@link resolveMemoryScope}; its org scopes both the check and the fetch.
+ * @param actor - surface-anchored session actor carrying the surface's project id, when any.
+ * @returns approved project entries; empty when the session may not see the compartment.
+ */
+async function projectCompartment(
+  ctx: Context,
+  identity: EnterpriseIdentityStore,
+  scope: MemoryActorScope,
+  actor: SessionActor | undefined,
+): Promise<EnterpriseMemoryEntry[]> {
+  const projectId = actor?.projectId
+  if (actor === undefined || projectId === undefined) return []
+  if (actor.userId === undefined && actor.employeeId === undefined) return []
+  const projects = (ctx.get.bind(ctx) as (name: string) => unknown)('enterpriseProjects') as
+    | {
+      requireMember(
+        orgId: string,
+        projectId: string,
+        principal: { userId?: string; employeeId?: string },
+      ): Promise<unknown>
+    }
+    | undefined
+  if (projects === undefined) return []
+  const project = await projects.requireMember(scope.orgId, projectId, {
+    ...(actor.userId === undefined ? {} : { userId: actor.userId }),
+    ...(actor.employeeId === undefined ? {} : { employeeId: actor.employeeId }),
+  })
+  if (project === undefined) return []
+  return identity.listMemories({
+    orgId: scope.orgId, scopes: ['project'], projectId, statuses: ['approved'],
+  })
 }
 
 /** Identity store plus resolved scope every memory tool executes against; the failure policy is
@@ -935,10 +982,12 @@ export function apply(ctx: Context, config: Config): void {
    * workspace grant's org (the pre-employee behavior). Organization and department compartments
    * are always fetched with their legacy owner-filter-free visibility; the agent and pair
    * compartments are fetched only for an anchored employee session, each with an explicit scope
-   * and the session's own owner, so private rows never enter the shared listing. The assemble
-   * event carries no turn user input, so ranking runs with empty query terms and reduces to
-   * importance plus recency. Every injected memory's access time is touched, and a failed touch
-   * never fails assembly.
+   * and the session's own owner, so private rows never enter the shared listing; the project
+   * compartment is fetched only after the project service confirms the session actor's
+   * membership. Ranking merges in fetch order — shared, pair, agent, project — so exact ties
+   * keep that order. The assemble event carries no turn user input, so ranking runs with empty
+   * query terms and reduces to importance plus recency. Every injected memory's access time is
+   * touched, and a failed touch never fails assembly.
    */
   ctx.on('system-prompt/assemble', async (_assembly, context, next) => {
     const result = await next()
@@ -950,8 +999,12 @@ export function apply(ctx: Context, config: Config): void {
     try { identity = postgresIdentity(ctx) } catch { return result }
     const grant = await identity.workspaceGrantByRootPath(cwd)
     if (grant === undefined) return result
-    const scope = await resolveMemoryScope(identity, grant, requestPrincipal(ctx), sessionActor(ctx, String(agent.id)))
-    const candidates = await actorCompartments(identity, scope, TOOL_COMPARTMENTS)
+    const actor = sessionActor(ctx, String(agent.id))
+    const scope = await resolveMemoryScope(identity, grant, requestPrincipal(ctx), actor)
+    const candidates = [
+      ...await actorCompartments(identity, scope, TOOL_COMPARTMENTS),
+      ...await projectCompartment(ctx, identity, scope, actor),
+    ]
     const ranked = rankEnterpriseMemories(candidates, { now: Date.now() }).slice(0, maxEntries)
     const { kept, text } = boundedMemoryBlock(ranked, maxChars)
     if (text === '') return result
