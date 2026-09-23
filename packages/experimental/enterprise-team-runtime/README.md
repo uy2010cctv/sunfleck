@@ -38,6 +38,7 @@ The adapter currently accepts Releases with no capability-asset bindings. A conf
 - Start, state, cancellation, projected decisions, and Human answers use stable operation ids and monotonic runtime revisions.
 - Cancellation records the authoritative event before interrupting the live root and children; persisted state remains available for replay.
 - Reconciliation folds the stored root Session and does not require a live Agent.
+- Surface-originated input arrives through `submitRunInput`, which appends one `team-run-message` user message to the run root and fails loud for an unknown run.
 
 -----
 
@@ -57,11 +58,11 @@ The adapter currently accepts Releases with no capability-asset bindings. A conf
 
 #### What the model sees
 
-The Team Lead and Agent teammates receive the existing `ctx.agentTeams` policy and tools. The Release persona and TeamRun objective are model-visible. Human roster and decision records stay in the Team event projection; a Human answer is also delivered to the Lead as a user message so the run can continue.
+The Team Lead and Agent teammates receive the existing `ctx.agentTeams` policy and tools. The Release persona and TeamRun objective are model-visible. Human roster and decision records stay in the Team event projection; a Human answer is also delivered to the Lead as a user message so the run can continue, and the same is true for a surface-submitted run input.
 
 #### Token effect
 
-The pinned persona and TeamRun objective contribute to each Agent's initial context. A Human answer adds one user message to the Lead; roster and decision projection events add no model tokens.
+The pinned persona and TeamRun objective contribute to each Agent's initial context. A Human answer or surface-submitted input adds one user message to the Lead; roster and decision projection events add no model tokens.
 
 #### KV Cache effect
 

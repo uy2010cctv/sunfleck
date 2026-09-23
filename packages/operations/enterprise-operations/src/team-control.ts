@@ -29,6 +29,12 @@ export interface EnterpriseTeamRuntimeReconciliation extends EnterpriseTeamRunti
   readonly failure?: EnterpriseTeamRunFailure
 }
 
+/** Submission outcome appended by the runtime driver for one surface-originated run input. */
+export interface EnterpriseTeamRunSubmission extends EnterpriseTeamRuntimeMutation {
+  /** Root Session event seq of the appended user message. */
+  readonly sourceEventSeq: number
+}
+
 /** Durable start reservation with the immutable definition used by the runtime driver. */
 export interface EnterpriseTeamRunStartReservation {
   readonly run: EnterpriseTeamRun
@@ -76,6 +82,20 @@ export interface EnterpriseTeamRuntimeDriver {
     readonly operationId: string
     readonly run: EnterpriseTeamRun
   }): Promise<EnterpriseTeamRuntimeReconciliation>
+  /**
+   * Inject one surface-originated message into the run's root session as user steering input.
+   * @param runId - run receiving the input.
+   * @param input - actor, text, and the surface the message arrived on.
+   * @returns receipt for the appended input.
+   */
+  submitRunInput(
+    runId: string,
+    input: {
+      readonly actorUserId: string
+      readonly text: string
+      readonly originSurfaceId: string
+    },
+  ): Promise<EnterpriseTeamRunSubmission>
 }
 
 /** Runtime failure classification used to distinguish rejection from unknown commit outcome. */
@@ -348,7 +368,8 @@ export class EnterpriseTeamControlService {
   }
 
   /**
-    * Documents this public API. @param principal - authenticated Host actor. @param input - browser-safe start fields. @returns runtime-backed run projection.
+    * Documents this public API. @param principal - authenticated Host actor. @param input - browser-safe start fields.
+   * @returns runtime-backed run projection.
    * @param input - Input value used by this API.
    * @param principal - Input value used by this API.
    * @returns Result produced by this API.
@@ -575,7 +596,8 @@ export class EnterpriseTeamControlService {
   }
 
   /**
-    * Documents this public API. @param principal - authenticated Host actor. @param input - run CAS and idempotency fields. @returns cancelled projection.
+    * Documents this public API. @param principal - authenticated Host actor. @param input - run CAS and idempotency fields.
+   * @returns cancelled projection.
    * @param input - Input value used by this API.
    * @param principal - Input value used by this API.
    * @returns Result produced by this API.
@@ -676,7 +698,8 @@ export class EnterpriseTeamControlService {
   }
 
   /**
-    * Documents this public API. @param principal - assigned human, team owner, or administrator. @param input - answer CAS. @returns answered projection.
+    * Documents this public API. @param principal - assigned human, team owner, or administrator. @param input - answer CAS.
+   * @returns answered projection.
    * @param input - Input value used by this API.
    * @param principal - Input value used by this API.
    * @returns Result produced by this API.
@@ -859,7 +882,8 @@ export class EnterpriseTeamControlService {
   }
 
   /**
-    * Documents this public API. @param principal - explicit human revoker. @param input - grant identity and CAS. @returns terminal revoked grant.
+    * Documents this public API. @param principal - explicit human revoker. @param input - grant identity and CAS.
+   * @returns terminal revoked grant.
    * @param input - Input value used by this API.
    * @param principal - Input value used by this API.
    * @returns Result produced by this API.
