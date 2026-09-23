@@ -93,6 +93,7 @@ kind: "package-reference"
 
 每次投递扩展会话尾部；不改写已缓存前缀。
 
+<a id="known-limitations-and-deferred-work"></a>
 ## 已知限制与延期工作
 
 这些限制界定了本注册表何时不适用或需要组合方支持。

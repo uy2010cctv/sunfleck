@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/enterprise/enterprise-surface/README.md
 README.md: fb65f5ac23def22d2beb08459a6594acfeae8f61
-README.zh.md: 29f397723ee73bb152ae659941e7d4d8d46346b0
+README.zh.md: 04991a3a16d8f1b58e8237f034df7ebe8965804c

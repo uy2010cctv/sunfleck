@@ -37,13 +37,19 @@ class FakeAgent {
     this.host.steered.push(message)
     if (this.host.steerFailure !== undefined) throw this.host.steerFailure
     if (this.host.silentSteer) return
+    // Mirror the real loop's consumption: the splice stores the pending input
+    // and the opened turn appends the claimed message, so the log holds the
+    // model-visible user message and its source.
     this.session.append('agent/inbox/spliced', { target: 'next-step', start: 0, inserted: [message] })
+    this.session.append('user/message', message)
   }
 }
 
 /** Minimal agent-host surface behind the ctx keys the surface registry injects. */
 class FakeAgentHost {
   readonly steered: UserMessage[] = []
+  /** Agents created through the mount, in creation order. */
+  readonly created: FakeAgent[] = []
   silentSteer = false
   steerFailure: Error | undefined = undefined
   private readonly live = new Map<string, FakeAgent>()
@@ -59,6 +65,7 @@ class FakeAgentHost {
       }) => {
         const agent = new FakeAgent(options.sessionId, this)
         this.live.set(options.sessionId, agent)
+        this.created.push(agent)
         await options.setup?.(ctx)
         return { agent, dispose: async () => { this.live.delete(options.sessionId) } }
       },
@@ -298,6 +305,49 @@ describe('employee http endpoints', () => {
     const sticky = await call(handler, 'GET', '/sticky')
     expect(sticky.status).toBe(200)
     expect(await sticky.json()).toMatchObject({ id: employee.id })
+  })
+
+  it('replays the delivered message and its provenance from the anchored session log', async () => {
+    const env = makeEnv()
+    const handler = makeHandler(env, principalOf(['creator']))
+
+    const created = await call(handler, 'POST', '', {
+      displayName: '报销助理', roleCard: '负责报销审核', homeWorkspacePath: '/managed/employees/finance',
+      activeReleaseId: 'release-1',
+    })
+    const employee = await created.json() as Record<string, unknown>
+    expect(created.status).toBe(201)
+
+    const delivery = await call(handler, 'POST', `/${String(employee['id'])}/messages`, { text: '帮我核对报销' })
+    expect(delivery.status).toBe(200)
+    const delivered = await delivery.json() as { employeeId: string; inboxItemId: string }
+
+    const agent = env.host.created[0]
+    const surfaceRow = env.database
+      .prepare('SELECT id, session_id FROM surfaces WHERE employee_id = ?')
+      .get(delivered.employeeId) as { id: string; session_id: string }
+    expect(agent?.session.id).toBe(surfaceRow.session_id)
+    const userMessages = agent?.session.ownEvents().filter(event => event.type === 'user/message') ?? []
+    expect(userMessages).toHaveLength(1)
+    const message = userMessages[0]?.data as UserMessage | undefined
+    expect(message?.content).toEqual([{ type: 'text', text: '帮我核对报销' }])
+    expect(message?.source).toEqual({
+      kind: 'surface-message',
+      surfaceId: surfaceRow.id,
+      inboxItemId: delivered.inboxItemId,
+      originActor: 'user-1',
+    })
+
+    const inboxRow = env.database
+      .prepare('SELECT state, origin_actor, payload_text FROM employee_inbox WHERE id = ?')
+      .get(delivered.inboxItemId) as { state: string; origin_actor: string; payload_text: string }
+    expect(inboxRow.state).toBe('delivered')
+    expect(inboxRow.origin_actor).toBe('user-1')
+    expect(inboxRow.payload_text).toBe('帮我核对报销')
+
+    const sticky = await call(handler, 'GET', '/sticky')
+    expect(sticky.status).toBe(200)
+    expect(await sticky.json()).toMatchObject({ id: employee['id'] })
   })
 
   it('refuses sticky resolution while the actor key is unbound', async () => {
