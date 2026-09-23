@@ -1014,6 +1014,19 @@ export class EnterpriseWorkbenchController {
     })), async () => { await this.refreshExtensions() })
   }
 
+  /** Activate a saved private Package, including one whose previous binding was stopped.
+   * @param pkg - Immutable private version to activate.
+   * @param binding - Existing scope binding, when present.
+   */
+  async activateExtension(pkg: CordisPackageVersion, binding?: CordisScopeBinding): Promise<void> {
+    if (pkg.scope.type !== 'personal-workspace') throw new Error('Only private Cordis packages can be activated here')
+    const workspaceId = pkg.scope.workspaceId
+    await this.runMutation('cordis-activate', async () => valueOf(await this.api.cordisWorkspace.activate({
+      workspaceId, pluginId: pkg.pluginId, packageId: pkg.packageId,
+      expectedRevision: binding?.revision ?? 0, idempotencyKey: mutationKey('cordis-activate'),
+    })), async () => { await this.refreshExtensions() })
+  }
+
   /** Roll a binding back by atomically moving its active pointer.
    * @param binding - Input value used by this API.
    * @param packageId - Input value used by this API.

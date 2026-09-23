@@ -86,6 +86,7 @@ export interface EnterpriseWorkbenchInjected {
   setExtensionWorkspace: (workspaceId: string) => void
   refreshExtensions: () => Promise<boolean>
   stopExtension: (binding: CordisScopeBinding, reason: string) => Promise<void>
+  activateExtension: (pkg: CordisPackageVersion, binding?: CordisScopeBinding) => Promise<void>
   rollbackExtension: (binding: CordisScopeBinding, packageId: string, reason: string) => Promise<void>
   reviewExtension: (review: CordisReviewRequest, action: 'approve' | 'return' | 'publish', reason: string) => Promise<void>
   retryMutation: () => Promise<void>
@@ -1606,12 +1607,22 @@ function ExtensionsPage({ state, workspaces, api, busy, t }: {
   busy: boolean
   t: Translate
 }) {
-  const [section, setSection] = useState<ExtensionSection>(EXTENSION_SECTION.running)
+  const [section, setSection] = useState<ExtensionSection>(EXTENSION_SECTION.personal)
   const [reason, setReason] = useState('')
   const formalPlugins = state.formalPlugins.items.filter(plugin =>
     plugin.installSource !== undefined || plugin.protectedProfile === true)
-  const bindingFor = (pkg: CordisPackageVersion): CordisScopeBinding | undefined => state.extensionBindings.find(binding =>
-    binding.pluginId === pkg.pluginId && sameExtensionScope(pkg.scope, binding.scope))
+  const bindingFor = (pkg: CordisPackageVersion): CordisScopeBinding | undefined => {
+    const matching = state.extensionBindings.filter(binding => binding.pluginId === pkg.pluginId
+      && (sameExtensionScope(pkg.scope, binding.scope)
+        || (binding.scope.type === 'organization' && binding.activePackageId === pkg.packageId)))
+    if (section === EXTENSION_SECTION.organization) {
+      return matching.find(binding => binding.scope.type === 'organization')
+    }
+    if (section === EXTENSION_SECTION.running) {
+      return matching.find(binding => binding.activePackageId === pkg.packageId && !binding.disabled)
+    }
+    return matching.find(binding => sameExtensionScope(pkg.scope, binding.scope)) ?? matching[0]
+  }
   const packagesByPlugin = new Map<string, CordisPackageVersion[]>()
   for (const pkg of state.extensions.items) {
     const rows = packagesByPlugin.get(pkg.pluginId) ?? []
@@ -1623,8 +1634,10 @@ function ExtensionsPage({ state, workspaces, api, busy, t }: {
       const binding = bindingFor(pkg)
       return binding?.activePackageId === pkg.packageId && !binding.disabled
     })
-    : state.extensions.items.filter(pkg => pkg.scope.type === (section === EXTENSION_SECTION.personal
-      ? 'personal-workspace' : section === EXTENSION_SECTION.department ? 'department' : 'organization'))
+    : state.extensions.items.filter(pkg => section === EXTENSION_SECTION.organization
+      ? pkg.scope.type === 'organization' || state.extensionBindings.some(binding =>
+        binding.scope.type === 'organization' && binding.activePackageId === pkg.packageId)
+      : pkg.scope.type === (section === EXTENSION_SECTION.personal ? 'personal-workspace' : 'department'))
   const tabs: readonly [ExtensionSection, EnterpriseWorkbenchKey][] = [
     [EXTENSION_SECTION.running, 'extensions.running'], [EXTENSION_SECTION.personal, 'extensions.personal'],
     [EXTENSION_SECTION.department, 'extensions.department'], [EXTENSION_SECTION.organization, 'extensions.organization'],
@@ -1691,12 +1704,14 @@ function ExtensionsPage({ state, workspaces, api, busy, t }: {
               <div className={css.extensionCapabilities}>{pkg.manifest.provides.map(capability => <span key={capability}>{capability}</span>)}</div>
               <div className={css.extensionMeta}><span>{active ? t('extensions.status.running') : binding?.disabled === true ? t('extensions.status.stopped') : t('extensions.status.available')}</span><span>{binding?.trustLevel === 'trusted-in-process' ? t('extensions.trust.trusted') : t('extensions.trust.isolated')}</span><span>{t('extensions.author', { user: pkg.authoredBy })}</span></div>
               <details className={css.extensionSource}><summary>{t('extensions.source')}</summary>{pkg.hostCode !== undefined && <pre>{pkg.hostCode}</pre>}{pkg.clientCode !== undefined && <pre>{pkg.clientCode}</pre>}</details>
-              {binding !== undefined && <div className={css.inlineActions}>
-                {!binding.disabled && <button type="button" className={css.secondaryButton} disabled={busy}
+              <div className={css.inlineActions}>
+                {pkg.scope.type === 'personal-workspace' && !active && <button type="button" className={css.secondaryButton} disabled={busy}
+                  onClick={() => { void api.activateExtension(pkg, binding) }}>{t('extensions.activate')}</button>}
+                {binding !== undefined && !binding.disabled && <button type="button" className={css.secondaryButton} disabled={busy}
                   onClick={() => { void api.stopExtension(binding, t('extensions.stopReason')) }}>{t('extensions.stop')}</button>}
-                {previous !== undefined && <button type="button" className={css.secondaryButton} disabled={busy}
+                {binding !== undefined && previous !== undefined && <button type="button" className={css.secondaryButton} disabled={busy}
                   onClick={() => { void api.rollbackExtension(binding, previous.packageId, t('extensions.rollbackReason')) }}>{t('extensions.rollback', { version: previous.version })}</button>}
-              </div>}
+              </div>
             </article>
           })}
         </div></PageBoundary>}

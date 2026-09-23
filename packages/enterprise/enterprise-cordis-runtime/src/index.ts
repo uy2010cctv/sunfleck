@@ -53,14 +53,19 @@ async function grantForAgent(ctx: Context, agent: Agent): Promise<EnterpriseWork
 async function principalFor(
   ctx: Context,
   grant: EnterpriseWorkspaceGrant,
+  agent?: Agent,
 ): Promise<EnterpriseCordisPrincipal> {
   const current = ctx.enterpriseRequestContext.current()
+  const ownerUserId = agent === undefined ? undefined : await identity(ctx).sessionOwnerUserId(String(agent.id))
   if (current !== undefined) {
     if (current.orgId !== grant.orgId) throw new Error('authenticated principal is outside the Workspace organization')
+    if (ownerUserId !== undefined && current.userId !== ownerUserId) {
+      throw new Error('authenticated principal does not own this Cordis Session')
+    }
     return current
   }
-  if (grant.kind === 'personal' && grant.ownerUserId !== undefined) {
-    const user = (await identity(ctx).listUsers(grant.orgId)).find(row => row.id === grant.ownerUserId)
+  if (ownerUserId !== undefined) {
+    const user = (await identity(ctx).listUsers(grant.orgId)).find(row => row.id === ownerUserId)
     if (user !== undefined && !user.disabled) return { orgId: user.orgId, userId: user.id, roles: user.roles }
   }
   throw new Error('authenticated enterprise principal is required for this Cordis persistence action')
@@ -75,7 +80,7 @@ function inspectedDraft(ctx: Context, agent: Agent, pluginId: string, packageId:
     agent, CordisDynamicPluginId(pluginId), CordisDynamicPackageId(packageId),
   )
   return {
-    pluginId,
+    pluginId: `${String(agent.id)}:${pluginId}`,
     dynamicPackageId: packageId,
     name: inspected.name,
     purpose: inspected.purpose,
@@ -100,7 +105,7 @@ async function restoreWorkspaceGeneration(
   agent: Agent,
 ): Promise<void> {
   const grant = await grantForAgent(ctx, agent)
-  const principal = await principalFor(ctx, grant)
+  const principal = await principalFor(ctx, grant, agent)
   const generation = await service.pinSessionGeneration({
     principal, workspaceId: grant.workspaceId, sessionId: String(agent.id),
   })
@@ -150,6 +155,22 @@ export function apply(ctx: Context, config: Config = {}): void {
   })
   ctx.provide('enterpriseCordis', service)
   ctx.systemPrompt.section({ name: 'enterprise:cordis-persistence', order: 2550, text: POLICY })
+  ctx.on('tools/post-execute', async (exec, result, next) => {
+    if (exec.name !== 'cordis_define' || result.isError || exec.agent === undefined) return next()
+    const value = result.value
+    if (typeof value !== 'object' || value === null || Array.isArray(value)
+      || typeof value['pluginId'] !== 'string' || typeof value['packageId'] !== 'string') return next()
+    const cwd = exec.agent.session.header.cwd
+    if (cwd === undefined || await identity(ctx).workspaceGrantByRootPath(cwd) === undefined) return next()
+    const grant = await grantForAgent(ctx, exec.agent)
+    const principal = await principalFor(ctx, grant, exec.agent)
+    await service.savePersonal({
+      principal, workspaceId: grant.workspaceId,
+      draft: inspectedDraft(ctx, exec.agent, value['pluginId'], value['packageId']),
+      idempotencyKey: `${String(exec.agent.id)}:${String(exec.rootCallId)}:auto-save`,
+    })
+    return next()
+  })
   const restores = new Map<string, Promise<void>>()
   ctx.on('system-prompt/assemble', async (_assembly, context, next) => {
     const agent = context.agent
@@ -179,14 +200,14 @@ export function apply(ctx: Context, config: Config = {}): void {
     execute: async (args, exec) => {
       if (exec.agent === undefined) throw new Error('cordis_save_personal requires an owning Agent')
       const grant = await grantForAgent(ctx, exec.agent)
-      if (grant.kind !== 'personal') throw new Error('cordis_save_personal requires a personal Workspace')
-      const principal = await principalFor(ctx, grant)
+      const principal = await principalFor(ctx, grant, exec.agent)
       const draft = inspectedDraft(ctx, exec.agent, args.pluginId, args.packageId)
-      const packageVersion = await service.savePersonal({
+      const view = await service.listWorkspace({ principal, workspaceId: grant.workspaceId })
+      const packageVersion = view.packages.find(pkg => pkg.pluginId === draft.pluginId
+        && pkg.dynamicPackageId === draft.dynamicPackageId) ?? await service.savePersonal({
         principal, workspaceId: grant.workspaceId, draft,
         idempotencyKey: `${String(exec.rootCallId)}:save`,
       })
-      const view = await service.listWorkspace({ principal, workspaceId: grant.workspaceId })
       const current = view.bindings.find(binding => binding.pluginId === packageVersion.pluginId)
       const binding = await service.activatePersonal({
         principal, workspaceId: grant.workspaceId, pluginId: packageVersion.pluginId,
@@ -213,7 +234,7 @@ export function apply(ctx: Context, config: Config = {}): void {
       if (exec.agent === undefined) throw new Error('cordis_submit_department requires an owning Agent')
       const grant = await grantForAgent(ctx, exec.agent)
       if (grant.kind !== 'department') throw new Error('cordis_submit_department requires a department Workspace')
-      const principal = await principalFor(ctx, grant)
+      const principal = await principalFor(ctx, grant, exec.agent)
       return jsonValue(await service.submitDepartment({
         principal, workspaceId: grant.workspaceId, sourceSessionId: String(exec.agent.id),
         draft: inspectedDraft(ctx, exec.agent, args.pluginId, args.packageId),

@@ -20,7 +20,7 @@ English | [中文](README.zh.md)
 
 ## Package Details
 
-The service persists immutable Package versions, binds approved versions to organization, department, or personal scopes, and records revision-checked review and audit actions. A Host supplies durable PostgreSQL composition and enforces the authenticated principal before calling it.
+The service persists immutable Package versions, binds approved versions to organization, department, or creator-private Workspace scopes, and records revision-checked review and audit actions. A private version in a shared department Workspace is visible only to its creator. A pending department submission is not listed for other members before approval; an organization publication is listed to members even when its source version was created in a department. A Host supplies durable PostgreSQL composition and enforces the authenticated principal before calling it.
 
 ## Model Experience
 

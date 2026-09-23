@@ -297,6 +297,7 @@ export function apply(ctx: Context): void {
     setExtensionWorkspace: (workspaceId) => { controller.setExtensionWorkspace(workspaceId) },
     refreshExtensions: () => controller.refreshExtensions(),
     stopExtension: (binding, reason) => controller.stopExtension(binding, reason),
+    activateExtension: (pkg, binding) => controller.activateExtension(pkg, binding),
     rollbackExtension: (binding, packageId, reason) => controller.rollbackExtension(binding, packageId, reason),
     reviewExtension: (review, action, reason) => controller.reviewExtension(review, action, reason),
     retryMutation: () => controller.retryMutation(),

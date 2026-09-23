@@ -20,7 +20,7 @@ English | [中文](README.zh.md)
 
 ## Package Details
 
-The runtime resolves the authenticated principal and enterprise Workspace grant, pins the Session generation, restores approved dynamic Packages, and routes personal or department publication through the review service. It never treats a browser request as authority to expand a Package scope.
+The runtime resolves the Session owner and enterprise Workspace grant, pins the Session generation, and restores approved dynamic Packages. A successful `cordis_define` in an enterprise Workspace saves a private version for that owner; activation and department submission remain explicit actions. Removing the Session-local Plugin does not delete its saved version. It never treats a browser request as authority to expand a Package scope.
 
 ## Model Experience
 

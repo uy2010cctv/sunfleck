@@ -414,6 +414,47 @@ describe('EnterpriseWorkbench', () => {
     expect(screen.getByText('受保护 Profile')).toBeDefined()
   })
 
+  it('shows a private saved Cordis version and lets its author restore it', () => {
+    const activateExtension = vi.fn(() => Promise.resolve())
+    render(<EnterpriseWorkbench {...workbenchProps({
+      state: { mode: 'enterprise', page: 'extensions', extensionWorkspaceId: 'workspace-1',
+        extensions: { phase: 'ready', error: null, items: [{
+          packageId: 'package-saved', orgId: 'org-a', pluginId: 'private-1', dynamicPackageId: 'pkg-1',
+          version: 1, scope: { type: 'personal-workspace', workspaceId: 'workspace-1', ownerUserId: 'user-1' },
+          name: '私有助手', purpose: '供创建者使用。', hostCode: 'return { apply() {} }',
+          manifest: { apiVersion: 'dsh-plugin/v1', runtime: 'isolated-realm', provides: [], capabilities: [] },
+          artifactRef: 'artifact://private', validationReportRef: 'report://private', authoredBy: 'user-1',
+          sourceDigest: 'a'.repeat(64), createdAt: 1,
+        }] }, extensionBindings: [],
+      }, activateExtension,
+    } as never)} />)
+    expect(screen.getByText('私有助手')).toBeDefined()
+    fireEvent.click(screen.getByRole('button', { name: '启用此版本' }))
+    expect(activateExtension).toHaveBeenCalledWith(expect.objectContaining({ packageId: 'package-saved' }), undefined)
+  })
+
+  it('lists a published department package under organization extensions', () => {
+    render(<EnterpriseWorkbench {...workbenchProps({
+      state: { mode: 'enterprise', page: 'extensions', extensionWorkspaceId: 'workspace-1',
+        extensions: { phase: 'ready', error: null, items: [{
+          packageId: 'published-1', orgId: 'org-a', pluginId: 'session-1:helper-1', dynamicPackageId: 'pkg-1',
+          version: 1, scope: { type: 'department', departmentId: 'dept-a' },
+          name: '组织助手', purpose: '供全组织使用。', hostCode: 'return { apply() {} }',
+          manifest: { apiVersion: 'dsh-plugin/v1', runtime: 'isolated-realm', provides: [], capabilities: [] },
+          artifactRef: 'artifact://published', validationReportRef: 'report://published', authoredBy: 'user-1',
+          sourceDigest: 'a'.repeat(64), createdAt: 1,
+        }] }, extensionBindings: [{
+          bindingId: 'org-binding', orgId: 'org-a', pluginId: 'session-1:helper-1', activePackageId: 'published-1',
+          scope: { type: 'organization', organizationId: 'org-a' }, generation: 1, revision: 1,
+          activatedBy: 'manager-1', disabled: false, trustLevel: 'isolated', updatedAt: 1,
+        }],
+      },
+    } as never)} />)
+    fireEvent.click(screen.getByRole('button', { name: '组织扩展' }))
+    expect(screen.getByText('组织助手')).toBeDefined()
+    expect(screen.getByText('对新 Session 生效')).toBeDefined()
+  })
+
   it('provides local management navigation and opens the employee draft editor from the roster', () => {
     const openEmployeeDraft = vi.fn(() => Promise.resolve())
     render(<EnterpriseWorkbench {...workbenchProps({

@@ -353,6 +353,28 @@ describe('EnterpriseWorkbenchController enterprise read models', () => {
     expect(controller.store.getSnapshot().extensionWorkspaceId).toBe('personal-current')
   })
 
+  it('activates a saved private Cordis version through the Workspace remote', async () => {
+    const base = controllerApi()
+    const pkg = {
+      packageId: 'saved-1', orgId: 'server-org', pluginId: 'session-1:helper-1', dynamicPackageId: 'pkg-1', version: 1,
+      scope: { type: 'personal-workspace', workspaceId: 'workspace-1', ownerUserId: 'owner-1' },
+      name: 'Helper', purpose: 'Help owner.', hostCode: 'return { apply() {} }',
+      manifest: { apiVersion: 'dsh-plugin/v1', runtime: 'isolated-realm', provides: [], capabilities: [] },
+      artifactRef: 'artifact://helper', validationReportRef: 'report://helper', authoredBy: 'owner-1',
+      sourceDigest: 'a'.repeat(64), createdAt: 1,
+    }
+    const activate = vi.fn(() => ok({}))
+    const controller = new EnterpriseWorkbenchController(controllerApi({
+      cordisWorkspace: { ...base.cordisWorkspace, activate },
+    }) as never, controllerServices().sessions as never, controllerServices().workspaces as never)
+
+    await controller.activateExtension(pkg as never)
+
+    expect(activate).toHaveBeenCalledWith(expect.objectContaining({
+      workspaceId: 'workspace-1', pluginId: 'session-1:helper-1', packageId: 'saved-1', expectedRevision: 0,
+    }))
+  })
+
   it('loads PostgreSQL employee and operations pages and forwards roster filters/cursor', async () => {
     const list = vi.fn(controllerApi().enterpriseEmployees.list)
     const api = controllerApi({ enterpriseEmployees: { ...controllerApi().enterpriseEmployees, list } })

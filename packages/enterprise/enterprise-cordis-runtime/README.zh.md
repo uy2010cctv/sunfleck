@@ -21,7 +21,7 @@ kind: "package-reference"
 <a id="package-details"></a>
 ## 包详情
 
-运行时解析认证主体和企业 Workspace grant，固定 Session generation，恢复已批准的动态 Package，并通过评审服务路由个人或部门发布。它不会把浏览器请求视为扩大 Package 范围的授权。
+运行时解析 Session 所有者和企业 Workspace grant，固定 Session generation，恢复已批准的动态 Package。企业 Workspace 中成功执行 `cordis_define` 后，会为该所有者保存私有版本；激活和部门提交仍需显式操作。删除 Session 内的临时 Plugin 不会删除已保存版本。运行时不会把浏览器请求视为扩大 Package 范围的授权。
 
 ## 模型体验
 

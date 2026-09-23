@@ -21,7 +21,7 @@ kind: "package-reference"
 <a id="package-details"></a>
 ## 包详情
 
-服务持久化不可变 Package 版本，将批准版本绑定到组织、部门或个人范围，并记录 revision 受控的评审和审计操作。Host 提供持久 PostgreSQL 组合，并在调用前强制认证主体。
+服务持久化不可变 Package 版本，将批准版本绑定到组织、部门或创建者私有的 Workspace 范围，并记录 revision 受控的评审和审计操作。共享部门 Workspace 中的私有版本仅创建者可见；待审部门提交在批准前不会列给其他成员。组织发布后，即使源码版本创建于部门，组织成员也能在列表中看到该版本。Host 提供持久 PostgreSQL 组合，并在调用前强制认证主体。
 
 ## 模型体验
 
