@@ -2,7 +2,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { Context } from '@deepseek-ai/cordis'
 import { EmployeeAccountService } from '@deepseek-ai/dsh-employee-account'
 import type { EmployeeAccount, EmployeeAccounts, EmployeeId } from '@deepseek-ai/dsh-employee-account'
-import type { EnterpriseTeamRun } from '@deepseek-ai/dsh-enterprise-operations'
+import { EnterpriseTeamRuntimeError, type EnterpriseTeamRun } from '@deepseek-ai/dsh-enterprise-operations'
 import { migrateEnterpriseIdentity } from '@deepseek-ai/dsh-enterprise-identity'
 import type { UserMessage } from '@deepseek-ai/dsh-llm'
 import { describe, expect, it, vi } from 'vitest'
@@ -201,16 +201,21 @@ interface MountedTeamServices {
   }>
 }
 
-/** Mount fake team control and runtime services under their lazy service names. */
+/** Mount fake team control and runtime services; the fake start is idempotent by key like the real service. */
 function mountTeamServices(ctx: Context, options: { activeRuns?: EnterpriseTeamRun[] } = {}): MountedTeamServices {
   const started: MountedTeamServices['started'] = []
   const submitted: MountedTeamServices['submitted'] = []
+  const runsByKey = new Map<string, EnterpriseTeamRun>()
   ctx.provide('enterpriseTeamControl' as never, {
     listTeamRuns: async (input: { state: string }) =>
       input.state === 'active' ? (options.activeRuns ?? []) : [],
     startRun: async (input: MountedTeamServices['started'][number]) => {
+      const stored = runsByKey.get(input.idempotencyKey)
+      if (stored !== undefined) return stored
       started.push(input)
-      return teamRun({ runId: `run-started-${String(started.length)}`, state: 'starting' })
+      const run = teamRun({ runId: `run-started-${String(started.length)}`, state: 'starting' })
+      runsByKey.set(input.idempotencyKey, run)
+      return run
     },
   } as never)
   ctx.provide('enterpriseTeamRuntimeDriver' as never, {
@@ -491,22 +496,104 @@ describe('deliverToGroup in team mode', () => {
     expect(setup.host.created).toEqual([])
   })
 
-  it('starts one channel-sourced run with the stable idempotency key when none is active', async () => {
+  it('starts one channel-sourced run keyed by the message id when none is active', async () => {
     const setup = makeCtx()
     const surface = await teamSurface(setup.ctx)
     const team = mountTeamServices(setup.ctx, { activeRuns: [] })
 
     const result = await setup.ctx.surfaces.deliverToGroup(surface, {
-      originUserId: 'user-1', text: '启动团队',
+      originUserId: 'user-1', text: '启动团队', messageId: 'env-1',
     })
 
     expect(result).toMatchObject({ delivered: true, mode: 'team' })
     expect(team.started).toEqual([{
       orgId: 'org-1', teamId: 'team-1', userId: 'user-1', prompt: '启动团队',
-      source: 'channel', idempotencyKey: `${surface.id}:user-1`,
+      source: 'channel', idempotencyKey: `${surface.id}:user-1:env-1`,
     }])
     expect(team.submitted).toHaveLength(1)
     expect(team.submitted[0]).toMatchObject({ runId: 'run-started-1', input: { originSurfaceId: surface.id } })
+  })
+
+  it('retries the same message id onto the run its first attempt started', async () => {
+    const setup = makeCtx()
+    const surface = await teamSurface(setup.ctx)
+    const team = mountTeamServices(setup.ctx, { activeRuns: [] })
+
+    const first = await setup.ctx.surfaces.deliverToGroup(surface, {
+      originUserId: 'user-1', text: '启动团队', messageId: 'env-1',
+    })
+    const retried = await setup.ctx.surfaces.deliverToGroup(surface, {
+      originUserId: 'user-1', text: '启动团队', messageId: 'env-1',
+    })
+
+    expect(first).toMatchObject({ delivered: true, mode: 'team' })
+    expect(retried).toMatchObject({
+      delivered: true, mode: 'team',
+      targets: [{ kind: 'team-run', runId: 'run-started-1', delivered: true }],
+    })
+    expect(team.started).toHaveLength(1)
+    expect(team.submitted.map(submission => submission.runId)).toEqual(['run-started-1', 'run-started-1'])
+  })
+
+  it('starts a new run for a distinct message id once the previous run left the active state', async () => {
+    const setup = makeCtx()
+    const surface = await teamSurface(setup.ctx)
+    // An empty active page models the previous run having gone terminal.
+    const team = mountTeamServices(setup.ctx, { activeRuns: [] })
+
+    await setup.ctx.surfaces.deliverToGroup(surface, { originUserId: 'user-1', text: '第一条', messageId: 'env-1' })
+    const second = await setup.ctx.surfaces.deliverToGroup(surface, {
+      originUserId: 'user-1', text: '第二条', messageId: 'env-2',
+    })
+
+    expect(second).toMatchObject({
+      delivered: true, mode: 'team',
+      targets: [{ kind: 'team-run', runId: 'run-started-2', delivered: true }],
+    })
+    expect(team.started.map(start => start.idempotencyKey)).toEqual([
+      `${surface.id}:user-1:env-1`,
+      `${surface.id}:user-1:env-2`,
+    ])
+    expect(team.submitted[1]).toMatchObject({ runId: 'run-started-2', input: { text: '第二条' } })
+  })
+
+  it('keys a start without a message id by a fresh per-call segment', async () => {
+    const setup = makeCtx()
+    const surface = await teamSurface(setup.ctx)
+    const team = mountTeamServices(setup.ctx, { activeRuns: [] })
+
+    await setup.ctx.surfaces.deliverToGroup(surface, { originUserId: 'user-1', text: '无信封投递' })
+    await setup.ctx.surfaces.deliverToGroup(surface, { originUserId: 'user-1', text: '第二条无信封投递' })
+
+    const keys = team.started.map(start => start.idempotencyKey)
+    expect(keys).toHaveLength(2)
+    expect(new Set(keys).size).toBe(2)
+    for (const key of keys) {
+      expect(key.startsWith(`${surface.id}:user-1:`)).toBe(true)
+    }
+  })
+
+  it('reports a not-delivered result when the listed run went terminal before submission', async () => {
+    const setup = makeCtx()
+    const surface = await teamSurface(setup.ctx)
+    setup.ctx.provide('enterpriseTeamControl' as never, {
+      listTeamRuns: async () => [teamRun()],
+      startRun: async () => teamRun(),
+    } as never)
+    setup.ctx.provide('enterpriseTeamRuntimeDriver' as never, {
+      submitRunInput: async () => {
+        throw new EnterpriseTeamRuntimeError('deterministic', 'team-run-not-active')
+      },
+    } as never)
+
+    const result = await setup.ctx.surfaces.deliverToGroup(surface, {
+      originUserId: 'user-1', text: '迟到的消息', messageId: 'env-1',
+    })
+
+    expect(result).toMatchObject({ delivered: false, reason: 'team-run-failed' })
+    if (!result.delivered && result.reason === 'team-run-failed') {
+      expect(result.error).toContain('team-run-not-active')
+    }
   })
 
   it('reports the team runtime as unavailable when its services are not mounted', async () => {

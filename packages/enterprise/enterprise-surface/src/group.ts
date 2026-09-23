@@ -107,7 +107,7 @@ export class GroupSurfaceRegistry extends DmSurfaceRegistry implements Enterpris
 
   async deliverToGroup(
     surface: Surface,
-    input: { originUserId: string; text: string; mentionedEmployeeIds?: readonly EmployeeId[] },
+    input: { originUserId: string; text: string; mentionedEmployeeIds?: readonly EmployeeId[]; messageId?: string },
   ): Promise<GroupDeliveryResult> {
     if (surface.kind !== 'group') {
       throw new EnterpriseSurfaceError(
@@ -128,11 +128,16 @@ export class GroupSurfaceRegistry extends DmSurfaceRegistry implements Enterpris
     return { control: control as GroupTeamControl, driver: driver as GroupRunInputDriver }
   }
 
-  /** Submit the text into the team's active run, starting one chartered run when none is active. */
+  /**
+   * Submit the text into the team's active run, starting one chartered run
+   * when none is active. The start key carries the message id when the caller
+   * supplies one, so a retried envelope reuses its run while a new message
+   * starts a new one after the previous run goes terminal.
+   */
   private async deliverToTeam(
     surface: GroupSurface,
     teamId: string,
-    input: { originUserId: string; text: string },
+    input: { originUserId: string; text: string; messageId?: string },
   ): Promise<GroupDeliveryResult> {
     const services = this.teamServices()
     if (services === undefined) return { delivered: false, reason: 'team-runtime-unavailable' }
@@ -147,7 +152,7 @@ export class GroupSurfaceRegistry extends DmSurfaceRegistry implements Enterpris
         userId: input.originUserId,
         prompt: input.text,
         source: 'channel',
-        idempotencyKey: `${surface.id}:${input.originUserId}`,
+        idempotencyKey: `${surface.id}:${input.originUserId}:${input.messageId ?? randomUUID()}`,
       })
       await driver.submitRunInput(run.runId, {
         actorUserId: input.originUserId,

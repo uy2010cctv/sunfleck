@@ -175,10 +175,13 @@ export interface EnterpriseSurfaces {
    */
   ensureDm(input: { orgId: string; userId: string; employeeId: EmployeeId }): Promise<DmSurface>
   /**
-   * Return the durable group surface for an organization and external key (or
-   * id when no external key is given), creating it when absent, and replace
-   * its member set with the given employee ids. Repeated calls return the
-   * stored surface; group surfaces create no session at ensure time.
+  /**
+   * Return the durable group surface keyed by the organization and external
+   * key, creating it when absent and replacing its member set with the given
+   * employee ids. The external key carries the idempotency: a call without
+   * one always creates a new surface keyed by its fresh id. Keyed repeats
+   * return the stored surface; group surfaces create no session at ensure
+   * time.
    * @param input - organization, name, optional external key and project, the
    * member employees, and the chartered team for team-mode groups.
    * @returns the stored group surface.
@@ -217,14 +220,18 @@ export interface EnterpriseSurfaces {
    * employees' group sessions. Group delivery never enqueues employee inbox
    * rows; the inbox stays dm-specific.
    * @param surface - surface the message arrived on.
-   * @param input - originating user, message text, and optional explicitly mentioned employee ids.
+   * @param input - originating user, message text, optional explicitly
+   * mentioned employee ids, and the optional channel message id: passing it
+   * makes a team-mode run start retry-safe (the same envelope reuses its
+   * run), while omitting it starts every start-needing message its own run
+   * and leaves transport-level dedup to the channel kernel.
    * @returns the structured delivery outcome; federated no-target and team
    * control failures come back as results, not rejections. Per-member steering
    * failures are captured on their targets while the rest of the batch lands.
    */
   deliverToGroup(
     surface: Surface,
-    input: { originUserId: string; text: string; mentionedEmployeeIds?: readonly EmployeeId[] },
+    input: { originUserId: string; text: string; mentionedEmployeeIds?: readonly EmployeeId[]; messageId?: string },
   ): Promise<GroupDeliveryResult>
 }
 
