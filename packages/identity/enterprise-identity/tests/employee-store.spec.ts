@@ -623,8 +623,9 @@ describe('collaboration surfaces', () => {
     ensureGroupSurface(database, groupRow())
     attachGroupSurfaceSession(database, 'surface-group', 'employee-1', 'session-1')
 
-    expect(() => attachGroupSurfaceSession(database, 'surface-missing', 'employee-1', 'session-x'))
-      .toThrow(/FOREIGN KEY constraint failed/i)
+    expect(() => {
+      attachGroupSurfaceSession(database, 'surface-missing', 'employee-1', 'session-x')
+    }).toThrow(/FOREIGN KEY constraint failed/i)
 
     database.prepare('DELETE FROM surfaces WHERE id = ?').run('surface-group')
     expect(groupSurfaceSession(database, 'surface-group', 'employee-1')).toBeUndefined()

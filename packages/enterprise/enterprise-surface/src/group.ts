@@ -69,6 +69,7 @@ export class GroupSurfaceRegistry extends DmSurfaceRegistry {
   /** Swallowed steering tails per employee, serializing group steering passes in queued order. */
   private readonly groupDeliveryTails = new Map<string, Promise<void>>()
 
+  // oxlint-disable-next-line typescript/require-await -- async keeps member validation a rejection, not a synchronous throw
   async ensureGroupSurface(input: {
     orgId: string
     name: string

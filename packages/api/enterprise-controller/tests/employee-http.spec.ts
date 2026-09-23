@@ -10,6 +10,7 @@ import { authorizeEnterprise } from '@deepseek-ai/dsh-enterprise-governance'
 import type {
   EnterpriseAction, EnterpriseAuthorizationDecision, EnterprisePrincipal, EnterpriseResource, EnterpriseRole,
 } from '@deepseek-ai/dsh-enterprise-governance'
+import type { EnterpriseTeamRun } from '@deepseek-ai/dsh-enterprise-operations'
 import { apply as applySurfaces } from '@deepseek-ai/dsh-enterprise-surface'
 import { EnterpriseProjectError, EnterpriseProjectService } from '@deepseek-ai/dsh-enterprise-project'
 import type {
@@ -1271,5 +1272,227 @@ describe('project endpoints', () => {
     expect((await callProject(handler, 'DELETE', '/project-1')).status).toBe(405)
     expect((await callProject(handler, 'GET', '/project-1/members')).status).toBe(405)
     expect((await callProject(handler, 'POST', '/project-1/unknown')).status).toBe(404)
+  })
+})
+
+/** One chartered team run the fake control starts idempotently by key, like the real service. */
+interface FakeTeamRun {
+  readonly started: Array<{ orgId: string; teamId: string; userId: string; prompt: string; source: string; idempotencyKey: string }>
+  readonly submitted: Array<{ runId: string; input: { actorUserId: string; text: string; originSurfaceId: string } }>
+  /** The fake run root's durable log: `submitRunInput` appends the landed team-run message. */
+  readonly runRootLog: Array<{ type: string; data: unknown }>
+  readonly decisions: Map<string, { state: string; answer: string }>
+}
+
+/** Mount fake team control and runtime services whose run root records each landed input. */
+function mountTeamRun(env: Setup, activeRuns: EnterpriseTeamRun[] = []): FakeTeamRun {
+  const flow: FakeTeamRun = {
+    started: [],
+    submitted: [],
+    runRootLog: [],
+    decisions: new Map(),
+  }
+  const runsByKey = new Map<string, EnterpriseTeamRun>()
+  env.ctx.provide('enterpriseTeamControl' as never, {
+    listTeamRuns: async (input: { state: string }) => input.state === 'active' ? activeRuns : [],
+    startRun: async (input: FakeTeamRun['started'][number]) => {
+      const stored = runsByKey.get(input.idempotencyKey)
+      if (stored !== undefined) return stored
+      flow.started.push(input)
+      const run: EnterpriseTeamRun = {
+        runId: `run-${flow.started.length}`, orgId: input.orgId, teamId: input.teamId,
+        teamDefinitionRevision: 1, workspaceId: 'workspace-1', rosterSnapshot: [],
+        createdBy: input.userId, source: input.source as EnterpriseTeamRun['source'],
+        state: 'active', runtimeRevision: 1, revision: 1, createdAt: 1, updatedAt: 1,
+      }
+      runsByKey.set(input.idempotencyKey, run)
+      return run
+    },
+  } as never)
+  env.ctx.provide('enterpriseTeamRuntimeDriver' as never, {
+    submitRunInput: async (runId: string, input: FakeTeamRun['submitted'][number]['input']) => {
+      flow.submitted.push({ runId, input })
+      flow.runRootLog.push({
+        type: 'user/message',
+        data: {
+          content: [{ type: 'text', text: input.text }],
+          source: { kind: 'team-run-message', runId, originSurfaceId: input.originSurfaceId, actorUserId: input.actorUserId },
+        },
+      })
+      return { runtimeRevision: 1, sourceEventSeq: flow.runRootLog.length }
+    },
+    respondDecision: async (input: {
+      decision: { decisionId: string }
+      answer: string
+    }) => {
+      flow.decisions.set(input.decision.decisionId, { state: 'answered', answer: input.answer })
+      return { runtimeRevision: 2, decisionId: input.decision.decisionId, state: 'answered' as const }
+    },
+  } as never)
+  return flow
+}
+
+describe('collaboration surface acceptance (P2)', () => {
+  const TOKEN = { channelInboundToken: 'bridge-secret' } satisfies SurfaceHttpOptions
+
+  it('runs one chartered group message from the channel envelope to an answered team decision', async () => {
+    // Coverage: HTTP envelope → startRun(source 'channel', idempotent per message) →
+    // submitRunInput lands the envelope text in the run root log → respondDecision answers the
+    // decision. The Lead→Doer→Verifier internals behind the run root are the team-runtime
+    // suite's own coverage (runtime.spec.ts).
+    const env = makeEnv()
+    const flow = mountTeamRun(env)
+    const creator = makeSurfaceHandler(env, principalOf(['creator']))
+    const created = await callSurface(creator, 'POST', '/groups', {
+      name: '章程群', externalKey: 'fe-team', memberEmployeeIds: [], teamDefinitionId: 'team-1',
+    })
+    expect(created.status).toBe(201)
+    const surfaceIdValue = (await created.json() as Record<string, unknown>)['id'] as string
+
+    const deliver = async (): Promise<Record<string, unknown>> => {
+      const response = await callSurface(makeSurfaceHandler(env), 'POST', `/${surfaceIdValue}/messages`, {
+        text: '请盘点本季度采购缺口', messageId: 'msg-1',
+      })
+      expect(response.status).toBe(200)
+      return await response.json() as Record<string, unknown>
+    }
+
+    // The first envelope starts the chartered run; a retried envelope reuses it by key.
+    const first = await deliver()
+    expect(first).toMatchObject({
+      delivered: true, mode: 'team',
+      targets: [{ kind: 'team-run', runId: 'run-1', delivered: true }],
+    })
+    const retried = await deliver()
+    expect(retried).toEqual(first)
+    expect(flow.started).toHaveLength(1)
+    expect(flow.started[0]).toMatchObject({
+      orgId: 'org-1', teamId: 'team-1', userId: 'user-1', source: 'channel',
+      idempotencyKey: `${surfaceIdValue}:user-1:msg-1`,
+    })
+    expect(flow.started[0]?.prompt).toBe('请盘点本季度采购缺口')
+
+    // Each delivery submits into the same run, and the run root's own log records the landing.
+    expect(flow.submitted).toEqual([
+      {
+        runId: 'run-1',
+        input: { actorUserId: 'user-1', text: '请盘点本季度采购缺口', originSurfaceId: surfaceIdValue },
+      },
+      {
+        runId: 'run-1',
+        input: { actorUserId: 'user-1', text: '请盘点本季度采购缺口', originSurfaceId: surfaceIdValue },
+      },
+    ])
+    const landed = flow.runRootLog[0]
+    expect(landed?.type).toBe('user/message')
+    expect(landed?.data).toMatchObject({
+      content: [{ type: 'text', text: '请盘点本季度采购缺口' }],
+      source: { kind: 'team-run-message', runId: 'run-1', originSurfaceId: surfaceIdValue, actorUserId: 'user-1' },
+    })
+
+    // The decision the team projected flows back through the driver and is answered.
+    const driver = env.ctx.get('enterpriseTeamRuntimeDriver') as unknown as {
+      respondDecision(input: { decision: Record<string, unknown>; answer: string }): Promise<unknown>
+    }
+    await driver.respondDecision({
+      decision: {
+        decisionId: 'decision-1', orgId: 'org-1', runId: 'run-1', kind: 'clarification',
+        question: '是否继续？', options: ['yes'], contextDigest: 'digest', sourceEventSeq: 1,
+        createdAt: 1, updatedAt: 1, state: 'open', createdBy: 'user-1',
+      },
+      answer: 'yes',
+    })
+    expect(flow.decisions.get('decision-1')).toEqual({ state: 'answered', answer: 'yes' })
+  })
+
+  it('routes channel envelopes by mention and by duty, and settles with a dual trace', async () => {
+    const env = makeEnv()
+    const support = createEmployee(env.accounts, 'org-1', 'Support')
+    const reviewer = createEmployee(env.accounts, 'org-1', 'Reviewer')
+    const creator = makeSurfaceHandler(env, principalOf(['creator']))
+    const created = await callSurface(creator, 'POST', '/channels', {
+      name: '值班频道', externalKey: 'fe-duty', topicPolicy: 'thread', respondPolicy: 'mention_duty',
+      memberEmployeeIds: [support.id, reviewer.id], dutyEmployeeIds: [support.id],
+    })
+    expect(created.status).toBe(201)
+    const surfaceIdValue = (await created.json() as Record<string, unknown>)['id'] as string
+    const handler = makeSurfaceHandler(env, principalOf(), TOKEN)
+
+    // The @-mentioned member's envelope opens a topic session anchored to that member.
+    const mentioned = await callInbound(handler, 'fe-duty', {
+      channelId: 'fe-duty', actorKey: 'wecom-1', text: '@Reviewer 请复核这批数据', messageId: 'm-1',
+    }, 'bridge-secret')
+    expect(mentioned.status).toBe(200)
+    const mentionedBody = await mentioned.json() as Record<string, unknown>
+    expect(mentionedBody).toMatchObject({ delivered: true, mode: 'routed', employeeIds: [reviewer.id] })
+    const mentionedTopicId = mentionedBody['topicId'] as string
+
+    // The unaddressed envelope falls to the duty roster head.
+    const duty = await callInbound(handler, 'fe-duty', {
+      channelId: 'fe-duty', actorKey: 'wecom-1', text: '例行巡检没有发现异常', messageId: 'm-2',
+    }, 'bridge-secret')
+    expect(await duty.json()).toMatchObject({ delivered: true, mode: 'routed', employeeIds: [support.id] })
+
+    // Both routes landed in their anchored topic sessions through the same transport contract;
+    // each thread envelope opened its own topic with one anchored session.
+    expect(env.host.steered.map(message => (message.content as Array<{ type: string; text: string }>)[0]?.text))
+      .toEqual(['@Reviewer 请复核这批数据', '例行巡检没有发现异常'])
+    expect(env.host.steered[0]?.source).toMatchObject({ kind: 'surface-message', surfaceId: surfaceIdValue, originActor: 'wecom-1' })
+    const topics = env.database.prepare('SELECT topic_id, state, session_id FROM channel_topics ORDER BY created_at')
+      .all() as Array<{ topic_id: string; state: string; session_id: string | null }>
+    expect(topics.map(topic => topic.topic_id)).toEqual([mentionedTopicId, expect.any(String)])
+    expect(topics.map(topic => topic.state)).toEqual(['open', 'open'])
+    expect(topics.every(topic => typeof topic.session_id === 'string')).toBe(true)
+
+    // /done settles the first topic twice over: the store row and the session-log marker.
+    const settled = await callSurface(makeSurfaceHandler(env), 'POST', `/${surfaceIdValue}/messages`, {
+      text: '/done', topicId: mentionedTopicId,
+    })
+    expect(settled.status).toBe(200)
+    expect(await settled.json()).toMatchObject({ delivered: true, mode: 'settled', topicId: mentionedTopicId })
+    const stored = env.database.prepare('SELECT state, settled_at FROM channel_topics WHERE topic_id = ?')
+      .get(mentionedTopicId) as { state: string; settled_at: number }
+    expect(stored.state).toBe('settled')
+    expect(stored.settled_at).toBeGreaterThan(0)
+    const anchoredSessionId = topics[0]?.session_id as string
+    const markerSession = env.host.created.find(agent => agent.session.id === anchoredSessionId)
+    expect(markerSession).toBeDefined()
+    const marker = markerSession?.session.events.find(event => event.type === 'user/message'
+      && ((event.data as { content?: Array<{ type: string; text: string }> }).content?.[0]?.text) === '/done')
+    expect(marker).toBeDefined()
+    expect((marker?.data as { source: { originActor: string } }).source.originActor).toBe('user-1')
+  })
+
+  it('intakes an ingest-only channel announcement as a proposed organization memory row', async () => {
+    const env = makeEnv()
+    const support = createEmployee(env.accounts, 'org-1', 'Support')
+    const creator = makeSurfaceHandler(env, principalOf(['creator']))
+    const created = await callSurface(creator, 'POST', '/channels', {
+      name: '公告频道', externalKey: 'fe-ads', topicPolicy: 'thread', respondPolicy: 'ingest_only',
+      dutyEmployeeIds: [support.id],
+    })
+    expect(created.status).toBe(201)
+    // The real memory store runs the intake write so the assertion reads the durable row.
+    env.ctx.provide('enterprisePostgres' as never, { identity: env.memories } as never)
+    const handler = makeSurfaceHandler(env, principalOf(), TOKEN)
+
+    const response = await callInbound(handler, 'fe-ads', {
+      channelId: 'fe-ads', actorKey: 'user-1', text: '全公司下季度统一启用新版合同模板', messageId: 'a-1',
+    }, 'bridge-secret')
+    expect(response.status).toBe(200)
+    const body = await response.json() as Record<string, unknown>
+    expect(body).toMatchObject({ delivered: true, mode: 'ingested' })
+    const proposedId = body['proposedMemoryId'] as string
+
+    // The announcement became one proposed organization row attributed to the envelope actor;
+    // no session was created and nothing was activated without review.
+    const proposed = env.memories.listMemories({ orgId: 'org-1', scopes: ['organization'], statuses: ['proposed'] })
+    expect(proposed.map(entry => entry.id)).toEqual([proposedId])
+    expect(proposed[0]).toMatchObject({
+      summary: '全公司下季度统一启用新版合同模板', status: 'proposed', createdBy: 'user-1',
+    })
+    expect(env.memories.listMemories({ orgId: 'org-1', statuses: ['approved'] })).toEqual([])
+    expect(env.host.created).toEqual([])
+    expect(env.host.steered).toEqual([])
   })
 })

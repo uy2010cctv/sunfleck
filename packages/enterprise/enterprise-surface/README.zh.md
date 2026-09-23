@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## 概述
 
-`dsh-enterprise-surface` 持有企业渠道用户与持久员工、群组或频道之间的持久会话 surface，并把已认证的入站消息投递进服务它的锚定会话。它暴露 `ctx.surfaces`：`ensureDm` 返回每个用户-员工对唯一的 dm surface，且至多创建一次锚定会话；`deliverToEmployee` 把每条入箱消息注入会话，使其落入会话日志，否则将收件行标记失败；`ensureGroupSurface` 持久化群 surface 及其成员员工；`deliverToGroup` 把群消息路由到被提及成员各自的群会话，或注入有章程团队的活跃 run；`ensureChannelSurface` 持久化频道 surface 及其话题与应答策略、当值名册和成员；`deliverToChannel` 按提及与当值把频道消息路由进其话题的唯一会话，通过 `/done` 收束话题，或在仅接入频道上把公告提案进组织记忆；`stickyEmployee` 解析 actor key 绑定的员工；`listSurfaces`、`findSurface` 与 `findChannelByExternalKey` 把已存储的 surface 读回。锚定会话的 preset 来自显式的 `defaultAgentPreset` 配置。组合方提供已迁移的数据库与 agent-host 服务；全部 SQL 留在 employee store 中。
+`dsh-enterprise-surface` 持有企业用户与持久员工之间的持久会话 surface，并把已认证的入站消息投递进服务它的锚定会话。它暴露 `ctx.surfaces`：`ensureDm` 返回每个用户-员工对唯一的 dm surface 及其锚定会话，`deliverToEmployee` 把每条入箱消息注入该会话；`ensureGroupSurface` 与 `deliverToGroup` 把群消息路由到被提及成员的群会话，或注入有章程团队的活跃 run；`ensureChannelSurface` 与 `deliverToChannel` 按话题、提及与当值名册路由频道消息，经 `/done` 收束，或在仅接入频道上把公告提案进组织记忆。组合方提供已迁移的数据库、preset 与 agent-host 服务。
 
 ## 目录
 

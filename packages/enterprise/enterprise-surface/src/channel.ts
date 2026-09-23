@@ -134,6 +134,7 @@ export class ChannelSurfaceRegistry extends GroupSurfaceRegistry implements Ente
   /** Swallowed work tails per topic, serializing session creation and steering in queued order. */
   private readonly topicTails = new Map<string, Promise<void>>()
 
+  // oxlint-disable-next-line typescript/require-await -- async keeps roster validation a rejection, not a synchronous throw
   async ensureChannelSurface(input: {
     orgId: string
     name: string
