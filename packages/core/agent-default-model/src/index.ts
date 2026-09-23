@@ -7,7 +7,7 @@
 import { Context, Service } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import type { ModelSelection } from '@deepseek-ai/dsh-agent'
-import { ReasoningEffortId } from '@deepseek-ai/dsh-llm'
+import { ReasoningEffortId, type LlmCallConfig } from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-settings'
 
 declare module '@deepseek-ai/cordis' {
@@ -107,3 +107,22 @@ export class AgentDefaultModelConfig extends Service {
 }
 
 export default AgentDefaultModelConfig
+
+/**
+ * Apply the creation-time selection until its first durable request header exists.
+ * @param agentCtx - fresh Agent context receiving the request-waterfall override.
+ * @param selection - creation-time selection pinned over inherited defaults.
+ */
+export function installInitialModelSelection(agentCtx: Context, selection: ModelSelection): void {
+  agentCtx.on('agent/request', async ({ agent }, next): Promise<LlmCallConfig> => {
+    const resolved = await next()
+    if (agent.session.requestHeader() !== undefined
+      || resolved.provider !== selection.provider
+      || resolved.model !== selection.model) return resolved
+    const { reasoningEffort: _inheritedEffort, ...withoutInheritedEffort } = resolved
+    return {
+      ...withoutInheritedEffort,
+      ...selection.reasoningEffort === undefined ? {} : { reasoningEffort: selection.reasoningEffort },
+    }
+  })
+}

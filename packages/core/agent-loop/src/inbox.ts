@@ -7,7 +7,7 @@
 import type { MessageId } from '@deepseek-ai/dsh-llm'
 import type { ProjectionDefinition } from '@deepseek-ai/dsh-session-projection'
 import type SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
-import type { Session, SessionEventMap, UserMessage } from '@deepseek-ai/dsh-session'
+import type { Session, SessionEvent, SessionEventMap, UserMessage } from '@deepseek-ai/dsh-session'
 import type {
   AgentEventDispatch,
   Inbox as InboxContract,
@@ -63,6 +63,24 @@ export const inboxProjectionDefinition = {
   },
   stateVersion: 1,
 } satisfies ProjectionDefinition<'inbox', InboxState>
+
+/**
+ * Fold one Session's durable inbox suffix into the messages still awaiting a
+ * claim. The lenient read for delivery checkers: unlike the authoritative
+ * {@link inboxProjectionDefinition}, a malformed splice stops contributing
+ * instead of failing the fold.
+ * @param events - one Session's non-inherited event suffix.
+ * @returns the pending user messages across both inbox targets.
+ */
+export function pendingInboxMessages(events: readonly SessionEvent[]): UserMessage[] {
+  const inbox: Record<InboxTarget, UserMessage[]> = { 'next-turn': [], 'next-step': [] }
+  for (const event of events) {
+    if (event.type !== 'agent/inbox/spliced') continue
+    const pending = inbox[event.data.target]
+    pending.splice(event.data.start, event.data.removedCount ?? 0, ...event.data.inserted)
+  }
+  return [...inbox['next-turn'], ...inbox['next-step']]
+}
 
 /**
  * Driver-owned durable Inbox implementation used by ReactLoopAgent and focused

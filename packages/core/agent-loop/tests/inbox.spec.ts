@@ -5,7 +5,7 @@ import SessionStore, { Session, SessionId } from '@deepseek-ai/dsh-session'
 import type { UserMessage } from '@deepseek-ai/dsh-session'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import { describe, expect, it } from 'vitest'
-import { ReactLoopInbox } from '../src/inbox.ts'
+import { pendingInboxMessages, ReactLoopInbox } from '../src/inbox.ts'
 
 function unsupportedInbox(): Agent['inbox'] {
   const rejectMutation = (): never => {
@@ -262,5 +262,36 @@ describe('ReactLoopInbox', () => {
 
     agent.inbox.clear()
     expect(session.snapshotEvents()).toHaveLength(beforeClear + 2)
+  })
+})
+
+describe('pendingInboxMessages', () => {
+  function sessionWith(populate: (session: Session) => void): Session {
+    const session = Session.create(SessionId('pending-inbox-fold'))
+    populate(session)
+    return session
+  }
+
+  it('projects inserted splices and drops removal splices from the pending set', () => {
+    const pending = createUserMessage({ content: [{ type: 'text', text: 'pending' }], source: { kind: 'user' } })
+    const canceled = createUserMessage({ content: [{ type: 'text', text: 'canceled' }], source: { kind: 'user' } })
+    const session = sessionWith((session) => {
+      session.append('agent/inbox/spliced', { target: 'next-turn', start: 0, inserted: [pending] })
+      session.append('agent/inbox/spliced', { target: 'next-step', start: 0, inserted: [canceled] })
+      session.append('agent/inbox/spliced', {
+        target: 'next-step', start: 0, removedCount: 1, inserted: [], outcome: 'canceled',
+      })
+    })
+
+    expect(pendingInboxMessages(session.ownEvents())).toEqual([pending])
+  })
+
+  it('ignores non-splice events and tolerates out-of-range coordinates', () => {
+    const session = sessionWith((session) => {
+      session.append('turn/start', { turn: 1 })
+      session.append('agent/inbox/spliced', { target: 'next-turn', start: 5, removedCount: 2, inserted: [] })
+    })
+
+    expect(pendingInboxMessages(session.ownEvents())).toEqual([])
   })
 })

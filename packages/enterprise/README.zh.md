@@ -13,7 +13,7 @@ kind: "package-group"
 
 ## 包详情
 
-[`enterprise-postgres`](enterprise-postgres/README.zh.md)组合共享企业存储；[`enterprise-cordis`](enterprise-cordis/README.zh.md)负责受治理 Cordis 产物；[`enterprise-cordis-runtime`](enterprise-cordis-runtime/README.zh.md)将其接入 Agent 工作。
+[`enterprise-postgres`](enterprise-postgres/README.zh.md)组合共享企业存储；[`enterprise-cordis`](enterprise-cordis/README.zh.md)负责受治理 Cordis 产物；[`enterprise-cordis-runtime`](enterprise-cordis-runtime/README.zh.md)将其接入 Agent 工作；[`employee-account`](employee-account/README.zh.md)在企业身份数据库上持久化数字员工账号；[`enterprise-surface`](enterprise-surface/README.zh.md)把已认证的私信投递进员工的锚定会话。
 
 ## 开发备注
 

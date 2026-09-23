@@ -22,10 +22,15 @@
       "types": "./lib/types/invariant.d.ts",
       "default": "./lib/invariant.js"
     },
+    "./inbox": {
+      "types": "./lib/types/inbox.d.ts",
+      "default": "./lib/inbox.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [
     "lib/index.js",
+    "lib/inbox.js",
     "lib/invariant.js",
     "lib/types/**/*.d.ts"
   ],

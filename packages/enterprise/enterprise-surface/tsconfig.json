@@ -1,0 +1,48 @@
+{
+  "extends": "../../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "lib/types"
+  },
+  "include": [
+    "src"
+  ],
+  "references": [
+    {
+      "path": "../../../vendor/cordis"
+    },
+    {
+      "path": "../../util/brand"
+    },
+    {
+      "path": "../../core/agent"
+    },
+    {
+      "path": "../../core/agent-default-model"
+    },
+    {
+      "path": "../../core/agent-loop"
+    },
+    {
+      "path": "../../core/session"
+    },
+    {
+      "path": "../../identity/enterprise-identity"
+    },
+    {
+      "path": "../../llm/llm"
+    },
+    {
+      "path": "../../preset/agent-presets"
+    },
+    {
+      "path": "../../session/session-title"
+    },
+    {
+      "path": "../../workspace/workspace"
+    },
+    {
+      "path": "../employee-account"
+    }
+  ]
+}
