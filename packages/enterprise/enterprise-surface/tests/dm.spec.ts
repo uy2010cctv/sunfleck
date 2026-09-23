@@ -21,12 +21,11 @@ class FakeSession {
       data: { target: 'next-step', start: 0, inserted: [{ source: { kind: 'user' } }] },
     },
   ]
-  inheritedEventCount = 0
   private pinnedHeader: object | undefined = undefined
 
   constructor(readonly id: string) {}
 
-  snapshotEvents(): Array<{ type: string; data: unknown }> {
+  ownEvents(): Array<{ type: string; data: unknown }> {
     return this.events
   }
 
@@ -105,6 +104,10 @@ class FakeAgentHost {
   failDetach = false
   failRename = false
   failDispose = false
+  /** Park every agent creation until released, modeling a slow host. */
+  createGate: Promise<void> | undefined = undefined
+  /** Park every session flush until released, modeling a slow durable landing. */
+  flushGate: Promise<void> | undefined = undefined
   selection: { provider: string; model: string; reasoningEffort?: string } = {
     provider: 'mock',
     model: 'mock-model',
@@ -122,12 +125,13 @@ class FakeAgentHost {
         agentOptions?: CreatedAgentRecord['agentOptions']
         setup?: (agentCtx: Context) => Promise<void>
       }) => {
-        const agent = new FakeAgent(options.sessionId, this)
         this.created.push({
           sessionId: options.sessionId,
           meta: options.meta,
           agentOptions: options.agentOptions,
         })
+        if (this.createGate !== undefined) await this.createGate
+        const agent = new FakeAgent(options.sessionId, this)
         this.agents.push(agent)
         this.live.set(options.sessionId, agent)
         await options.setup?.(ctx)
@@ -164,6 +168,7 @@ class FakeAgentHost {
     ctx.provide('sessions' as never, {
       flush: async (session: FakeSession) => {
         this.flushedSessions.push(session)
+        if (this.flushGate !== undefined) await this.flushGate
         return true
       },
     } as never)
@@ -297,9 +302,12 @@ describe('DmSurfaceRegistry.ensureDm', () => {
     const foreign = createEmployee(accounts, 'org-2')
 
     await expect(ctx.surfaces.ensureDm({ orgId: 'org-1', userId: 'user-1', employeeId: foreign.id }))
-      .rejects.toThrow(`enterprise employee ${foreign.id} cannot be bound under org-1 (belongs to org-2)`)
+      .rejects.toMatchObject({
+        code: 'employee-cross-org',
+        message: `enterprise employee ${foreign.id} cannot be bound under org-1 (belongs to org-2)`,
+      })
     await expect(ctx.surfaces.ensureDm({ orgId: 'org-1', userId: 'user-1', employeeId: employeeId('employee-missing') }))
-      .rejects.toThrow('enterprise employee employee-missing is missing')
+      .rejects.toMatchObject({ code: 'employee-missing', message: 'enterprise employee employee-missing is missing' })
     expect(host.created).toEqual([])
   })
 
@@ -335,6 +343,44 @@ describe('DmSurfaceRegistry.ensureDm', () => {
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('Workspace detach'))
     expect(host.disposed).toEqual([host.created[0]?.sessionId])
     warn.mockRestore()
+  })
+
+  it('detaches and disposes the created session when the store attach fails', async () => {
+    const { ctx, host, database, accounts } = makeCtx()
+    const employee = createEmployee(accounts)
+    const realPrepare = database.prepare.bind(database)
+    database.prepare = (sql: string) => {
+      if (sql.startsWith('UPDATE surfaces')) throw new Error('injected store attach failure')
+      return realPrepare(sql)
+    }
+
+    await expect(ctx.surfaces.ensureDm({ orgId: 'org-1', userId: 'user-1', employeeId: employee.id }))
+      .rejects.toThrow('injected store attach failure')
+    database.prepare = realPrepare
+
+    expect(host.detached).toHaveLength(1)
+    expect(host.disposed).toEqual(host.detached)
+  })
+
+  it('creates one session for concurrent ensureDm calls of the same pair', async () => {
+    const { ctx, host, accounts } = makeCtx()
+    const employee = createEmployee(accounts)
+    const input = { orgId: 'org-1', userId: 'user-1', employeeId: employee.id }
+    let release!: () => void
+    host.createGate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+
+    const first = ctx.surfaces.ensureDm(input)
+    await vi.waitFor(() => {
+      expect(host.created).toHaveLength(1)
+    })
+    const second = ctx.surfaces.ensureDm(input)
+    release()
+    const [left, right] = await Promise.all([first, second])
+
+    expect(host.created).toHaveLength(1)
+    expect(right).toEqual(left)
   })
 })
 
@@ -425,12 +471,45 @@ describe('DmSurfaceRegistry.deliverToEmployee', () => {
   })
 
   it('counts the appended user message as a durable landing', async () => {
-    const { ctx, host, accounts } = makeCtx()
+    const { ctx, host, database, accounts } = makeCtx()
     const employee = createEmployee(accounts)
     const surface = await ctx.surfaces.ensureDm({ orgId: 'org-1', userId: 'user-1', employeeId: employee.id })
     host.appendMode = 'user-message'
 
-    await expect(ctx.surfaces.deliverToEmployee(surface, 'actor-a', '你好')).resolves.toBeTypeOf('string')
+    const id = await ctx.surfaces.deliverToEmployee(surface, 'actor-a', '你好')
+    expect(inboxState(database, surface.id)).toMatchObject({ id, state: 'delivered' })
+  })
+
+  it('delivers concurrent messages through their own surfaces without cross-claiming', async () => {
+    const { ctx, host, database, accounts } = makeCtx()
+    const employee = createEmployee(accounts)
+    const surfaceA = await ctx.surfaces.ensureDm({ orgId: 'org-1', userId: 'user-1', employeeId: employee.id })
+    database.prepare('INSERT INTO users(id, org_id, username, display_name, disabled) VALUES (?, ?, ?, ?, ?)')
+      .run('user-2', 'org-1', 'bob', 'Bob', 0)
+    const surfaceB = await ctx.surfaces.ensureDm({ orgId: 'org-1', userId: 'user-2', employeeId: employee.id })
+    expect(surfaceA.sessionId).not.toBe(surfaceB.sessionId)
+
+    let releaseA!: () => void
+    host.flushGate = new Promise<void>((resolve) => {
+      releaseA = resolve
+    })
+    const deliveryA = ctx.surfaces.deliverToEmployee(surfaceA, 'actor-a', 'a 的消息')
+    await vi.waitFor(() => {
+      expect(host.flushedSessions).toHaveLength(1)
+    })
+    const deliveryB = ctx.surfaces.deliverToEmployee(surfaceB, 'actor-b', 'b 的消息')
+
+    expect(database.prepare('SELECT state FROM employee_inbox WHERE surface_id = ?').get(surfaceB.id))
+      .toMatchObject({ state: 'queued' })
+    releaseA()
+    expect(await deliveryA).toBeTypeOf('string')
+    expect(await deliveryB).toBeTypeOf('string')
+
+    const steeredSurfaces = host.steered.map(message =>
+      message.source.kind === 'surface-message' ? message.source.surfaceId : '')
+    expect(steeredSurfaces).toEqual([surfaceA.id, surfaceB.id])
+    expect(inboxState(database, surfaceA.id)).toMatchObject({ state: 'delivered' })
+    expect(inboxState(database, surfaceB.id)).toMatchObject({ state: 'delivered' })
   })
 
   it('refuses a surface without an anchored session before queueing anything', async () => {

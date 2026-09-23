@@ -50,7 +50,7 @@ kind: "package-reference"
 
 ### 设计概念
 
-`DmSurfaceRegistry` 是三个权威之上的薄协调者：employee store 持有持久的 `surfaces` 与 `employee_inbox` 行，`ctx.employeeAccounts` 持有账号事实与收件入队，锚定会话日志持有消息持久性。`ensureDm` 经 store 幂等的 `ensureSurface`（`UNIQUE(user_id, employee_id)`）生成 surface 行，按 webhook 会话运行时的同一形态创建锚定会话——workspace 取员工 `homeWorkspacePath`，会话标题取员工显示名，header meta 记录 `agentPreset` 与 `cwd`，创建时的模型选择被固定到首个持久请求头为止——创建成功后才把会话 id 附着到 surface 行，失败的尝试由下一次调用重试。`deliverToEmployee` 用 `claim(employeeId, 1)` 按创建顺序认领，直到本次调用入队的行被投递；每行作为 steering 输入提交（运行中的会话在最近的 step 边界消费，空闲的会话开启新回合），随后 flush 会话并在日志记录了该消息——已追加，或仍在收件箱拼接投影中待处理（取消拼接会将其移出）——时确认落地。已认领行上的任何失败都会调用 store 的 `failInboxItem` 并向调用方抛出。
+`DmSurfaceRegistry` 是三个权威之上的薄协调者：employee store 持有持久的 `surfaces` 与 `employee_inbox` 行，`ctx.employeeAccounts` 持有账号事实与收件入队，锚定会话日志持有消息持久性。`ensureDm` 经 store 幂等的 `ensureSurface`（`UNIQUE(user_id, employee_id)`）生成 surface 行，按 webhook 会话运行时的同一形态创建锚定会话——workspace 取员工 `homeWorkspacePath`，会话标题取员工显示名，header meta 记录 `agentPreset` 与 `cwd`，创建时的模型选择被固定到首个持久请求头为止——创建成功后才把会话 id 附着到 surface 行，失败的尝试由下一次调用重试。`deliverToEmployee` 用 `claim(employeeId, 1)` 按创建顺序认领，直到本次调用入队的行被投递；每行作为 steering 输入提交（运行中的会话在最近的 step 边界消费，空闲的会话开启新回合），随后 flush 会话并在日志记录了该消息——已追加，或仍在收件箱拼接投影中待处理（取消拼接会将其移出）——时确认落地。同一员工的并发投递在 promise 链上串行，认领保持队列顺序，且每条消息落入自己 surface 的会话；同一对的并发 `ensureDm` 调用共享一次会话创建。已认领行上的任何失败都会调用 store 的 `failInboxItem` 并向调用方抛出。
 
 ### 源码地图
 
@@ -99,8 +99,10 @@ kind: "package-reference"
 
 - **P0 仅提供 dm 一种 kind** — surface kind 并集闭合于 `'dm'`；群渠道与其他 kind 等待需求。
 - **`defaultAgentPreset` 是显式配置** — P0 直接从配置字段解析 preset；release 到 profile 的解析属于目录 release 流程，已延期。
+- **锚定会话不解析权限 preset** — 注册表只记录 agent preset，权限授予来自 preset 自身的配置；按 surface 的权限 preset 已延期。
 - **投递要求锚定会话在进程内活跃** — 注册表经 `ctx.agents` 查找会话，未活跃时快速失败；重启后锚定会话的冷恢复已延期。
 - **投递为一次认领** — 未持久落地的消息被标记失败并报告给调用方；重投策略属于组合流程。
+- **挂起员工在会话活跃时仍接受投递** — 一次认领的收件模型延迟的是休眠而非挂起；对挂起员工阻断投递已延期。
 - **单进程写入者** — surface 创建与认领后置失败是单连接上的 check-then-act 对，仅在当前单连接用法下原子（[防御模式](../../../docs/defensive-patterns.zh.md)）。
 - **渠道接线属于部署证据** — WeCom 等已认证的入站渠道不属于本包；就绪状态由在本注册表之后组合、持有传输认证的桥接来表达。
 

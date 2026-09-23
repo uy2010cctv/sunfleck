@@ -32,7 +32,7 @@ import { createUserMessage, errorChain, type UserMessage } from '@deepseek-ai/ds
 import type { Session, SessionId } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-session-title'
 import type {} from '@deepseek-ai/dsh-workspace'
-import type { EnterpriseSurfaces, Surface } from './types.ts'
+import { EnterpriseSurfaceError, type EnterpriseSurfaces, type Surface } from './types.ts'
 
 /** Log a rollback failure without replacing the operation's original failure. */
 function reportRollbackFailure(ctx: Context, subject: string, error: unknown): void {
@@ -41,6 +41,11 @@ function reportRollbackFailure(ctx: Context, subject: string, error: unknown): v
 
 /** Registry of durable dm surfaces and inbound delivery into anchored employee sessions. */
 export class DmSurfaceRegistry implements EnterpriseSurfaces {
+  /** Swallowed delivery tails per employee, serializing claim-and-deliver passes in queued order. */
+  private readonly deliveryTails = new Map<EmployeeId, Promise<void>>()
+  /** Swallowed creation tails per (user, employee) pair, serializing session creation. */
+  private readonly pairCreationTails = new Map<string, Promise<void>>()
+
   /**
    * @param ctx - harness context owning the anchored sessions and the injected agent-host services.
    * @param database - migrated enterprise identity database; the composition owns its lifecycle.
@@ -58,24 +63,7 @@ export class DmSurfaceRegistry implements EnterpriseSurfaces {
 
   async ensureDm(input: { orgId: string; userId: string; employeeId: EmployeeId }): Promise<Surface> {
     const account = this.requireEmployeeInOrg(input.employeeId, input.orgId)
-    const row = ensureSurface(this.database, {
-      id: surfaceId(randomUUID()),
-      orgId: input.orgId,
-      kind: 'dm',
-      userId: input.userId,
-      employeeId: input.employeeId,
-      sessionId: null,
-      createdAt: Date.now(),
-    })
-    const sessionId = row.sessionId ?? await this.attachNewSession(account, row.id)
-    return {
-      id: surfaceId(row.id),
-      kind: row.kind,
-      orgId: row.orgId,
-      userId: row.userId,
-      employeeId: employeeId(row.employeeId),
-      sessionId,
-    }
+    return this.ensurePairSurface(input, account)
   }
 
   stickyEmployee(orgId: string, actorKey: string): EmployeeId | undefined {
@@ -85,51 +73,97 @@ export class DmSurfaceRegistry implements EnterpriseSurfaces {
   async deliverToEmployee(surface: Surface, originActor: string, payloadText: string): Promise<InboxItemId> {
     this.requireEmployeeInOrg(surface.employeeId, surface.orgId)
     if (surface.sessionId === undefined) {
-      throw new Error(`enterprise surface ${surface.id} has no anchored session`)
+      throw new EnterpriseSurfaceError(
+        'surface-session-missing',
+        `enterprise surface ${surface.id} has no anchored session`,
+      )
     }
     const item = this.accounts.enqueue({
       employeeId: surface.employeeId, surfaceId: surface.id, originActor, payloadText,
     })
-    for (;;) {
-      const claimed = this.accounts.claim(surface.employeeId, 1)
-      const current = claimed[0]
-      if (current === undefined) {
-        throw new Error(`enterprise inbox item ${item.id} for surface ${surface.id} vanished from the claimed queue`)
-      }
-      try {
-        await this.deliverClaimed(surface.sessionId, current)
-      } catch (error: unknown) {
-        failInboxItem(this.database, current.id, Date.now())
-        throw error
-      }
-      if (current.id === item.id) return item.id
-    }
+    return this.serializeDelivery(surface.employeeId, surface.sessionId, item)
   }
 
   /** Read one account and refuse a missing employee or one from another organization. */
   private requireEmployeeInOrg(id: EmployeeId, orgId: string): EmployeeAccount {
     const account = this.accounts.get(id)
-    if (account === undefined) throw new Error(`enterprise employee ${id} is missing`)
+    if (account === undefined) {
+      throw new EnterpriseSurfaceError('employee-missing', `enterprise employee ${id} is missing`)
+    }
     if (account.orgId !== orgId) {
-      throw new Error(`enterprise employee ${id} cannot be bound under ${orgId} (belongs to ${account.orgId})`)
+      throw new EnterpriseSurfaceError(
+        'employee-cross-org',
+        `enterprise employee ${id} cannot be bound under ${orgId} (belongs to ${account.orgId})`,
+      )
     }
     return account
   }
 
   /**
-   * Create the Workspace-backed session one dm surface lives in and bind it
-   * to the surface row. The row keeps `session_id` null until this resolves,
-   * so a failed attempt is retried by the next `ensureDm` call for the same
-   * pair.
+   * Serialize one pair's surface creation so concurrent `ensureDm` calls mint
+   * and anchor the session once instead of leaking the loser's live agent.
    */
-  private async attachNewSession(account: EmployeeAccount, surfaceRowId: string): Promise<string> {
-    const sessionId = await this.createAnchoredSession(account)
-    attachSurfaceSession(this.database, surfaceRowId, sessionId)
-    return sessionId
+  private async ensurePairSurface(
+    input: { orgId: string; userId: string; employeeId: EmployeeId },
+    account: EmployeeAccount,
+  ): Promise<Surface> {
+    const key = `${input.userId}:${input.employeeId}`
+    const prior = this.pairCreationTails.get(key) ?? Promise.resolve()
+    /* v8 ignore next -- creation tails absorb rejection, so the recovery callback is a fail-safe backstop. */
+    const run = prior.then(() => this.ensurePairSurfaceNow(input, account), () => this.ensurePairSurfaceNow(input, account))
+    /* v8 ignore next -- ensurePairSurfaceNow contains creation failures and ensurePairSurface itself does not throw. */
+    const tail = run.then(() => undefined, () => undefined)
+    this.pairCreationTails.set(key, tail)
+    try {
+      return await run
+    } finally {
+      if (this.pairCreationTails.get(key) === tail) this.pairCreationTails.delete(key)
+    }
   }
 
-  /** Create one anchored session through the webhook session-creation shape. */
-  private async createAnchoredSession(account: EmployeeAccount): Promise<string> {
+  /** Mint or read the pair's surface row and attach its missing session. */
+  private async ensurePairSurfaceNow(
+    input: { orgId: string; userId: string; employeeId: EmployeeId },
+    account: EmployeeAccount,
+  ): Promise<Surface> {
+    const row = ensureSurface(this.database, {
+      id: surfaceId(randomUUID()),
+      orgId: input.orgId,
+      kind: 'dm',
+      userId: input.userId,
+      employeeId: input.employeeId,
+      sessionId: null,
+      createdAt: Date.now(),
+    })
+    if (row.sessionId !== null) {
+      return {
+        id: surfaceId(row.id),
+        kind: row.kind,
+        orgId: row.orgId,
+        userId: row.userId,
+        employeeId: employeeId(row.employeeId),
+        sessionId: brandString<SessionId>(row.sessionId),
+      }
+    }
+    const sessionId = await this.createAnchoredSession(account, row.id)
+    return {
+      id: surfaceId(row.id),
+      kind: 'dm',
+      orgId: row.orgId,
+      userId: row.userId,
+      employeeId: input.employeeId,
+      sessionId,
+    }
+  }
+
+  /**
+   * Create the Workspace-backed session one dm surface lives in and bind it to
+   * the surface row. The row keeps `session_id` null until this resolves, so a
+   * failed attempt is retried by the next `ensureDm` call for the same pair.
+   * The store attach runs inside the creation transaction: a failure after the
+   * workspace attach rolls the live agent back instead of leaking it.
+   */
+  private async createAnchoredSession(account: EmployeeAccount, surfaceRowId: string): Promise<SessionId> {
     const selection = this.ctx.agentDefaultModel.currentSelection()
     const preset = await this.ctx.agentPresets.resolve(this.defaultAgentPreset)
     await this.ctx.agentPresets.standingKeyFor(preset.id)
@@ -150,6 +184,7 @@ export class DmSurfaceRegistry implements EnterpriseSurfaces {
       await workspace.attachSession(sessionId)
       attached = true
       this.ctx.sessionTitle.rename(handle.agent.session, account.displayName)
+      attachSurfaceSession(this.database, surfaceRowId, sessionId)
     } catch (error: unknown) {
       if (attached) {
         try {
@@ -169,6 +204,49 @@ export class DmSurfaceRegistry implements EnterpriseSurfaces {
   }
 
   /**
+   * Serialize one employee's claim-and-deliver passes so concurrent passes
+   * claim in queued order and each message lands in its own surface's session.
+   */
+  private async serializeDelivery(
+    employeeId: EmployeeId,
+    sessionId: SessionId,
+    item: EmployeeInboxItem,
+  ): Promise<InboxItemId> {
+    const prior = this.deliveryTails.get(employeeId) ?? Promise.resolve()
+    /* v8 ignore next -- delivery tails absorb rejection, so the recovery callback is a fail-safe backstop. */
+    const run = prior.then(() => this.deliverQueued(sessionId, item), () => this.deliverQueued(sessionId, item))
+    /* v8 ignore next -- deliverQueued contains delivery failures and serializeDelivery itself does not throw. */
+    const tail = run.then(() => undefined, () => undefined)
+    this.deliveryTails.set(employeeId, tail)
+    try {
+      return await run
+    } finally {
+      if (this.deliveryTails.get(employeeId) === tail) this.deliveryTails.delete(employeeId)
+    }
+  }
+
+  /** Claim queued items in creation order until this call's item is delivered. */
+  private async deliverQueued(sessionId: SessionId, item: EmployeeInboxItem): Promise<InboxItemId> {
+    for (;;) {
+      const claimed = this.accounts.claim(item.employeeId, 1)
+      const current = claimed[0]
+      if (current === undefined) {
+        throw new EnterpriseSurfaceError(
+          'inbox-item-vanished',
+          `enterprise inbox item ${item.id} for surface ${item.surfaceId} vanished from the claimed queue`,
+        )
+      }
+      try {
+        await this.deliverClaimed(sessionId, current)
+      } catch (error: unknown) {
+        failInboxItem(this.database, current.id, Date.now())
+        throw error
+      }
+      if (current.id === item.id) return item.id
+    }
+  }
+
+  /**
    * Submit one claimed inbox item to the anchored session and confirm its
    * durable landing. The message enters as steering input — a running session
    * consumes it at the nearest step boundary, an idle one opens a turn — and
@@ -177,10 +255,13 @@ export class DmSurfaceRegistry implements EnterpriseSurfaces {
    * un-lands the item, so the row cannot count as delivered once its payload
    * can no longer reach the model.
    */
-  private async deliverClaimed(sessionId: string, item: EmployeeInboxItem): Promise<void> {
-    const agent = this.ctx.agents.get(brandString<SessionId>(sessionId))
+  private async deliverClaimed(sessionId: SessionId, item: EmployeeInboxItem): Promise<void> {
+    const agent = this.ctx.agents.get(sessionId)
     if (agent === undefined) {
-      throw new Error(`anchored session ${sessionId} for enterprise inbox item ${item.id} is not live`)
+      throw new EnterpriseSurfaceError(
+        'session-not-live',
+        `anchored session ${sessionId} for enterprise inbox item ${item.id} is not live`,
+      )
     }
     agent.steer(createUserMessage({
       content: [{ type: 'text', text: item.payloadText }],
@@ -194,7 +275,10 @@ export class DmSurfaceRegistry implements EnterpriseSurfaces {
     const session: Session = agent.session
     await this.ctx.sessions.flush(session)
     if (!this.landed(session, item.id)) {
-      throw new Error(`enterprise inbox item ${item.id} did not land in anchored session ${sessionId}`)
+      throw new EnterpriseSurfaceError(
+        'delivery-not-landed',
+        `enterprise inbox item ${item.id} did not land in anchored session ${sessionId}`,
+      )
     }
   }
 
@@ -207,7 +291,7 @@ export class DmSurfaceRegistry implements EnterpriseSurfaces {
   private landed(session: Session, itemId: InboxItemId): boolean {
     const fromSurface = (message: UserMessage): boolean =>
       message.source.kind === 'surface-message' && message.source.inboxItemId === itemId
-    const suffix = session.snapshotEvents(session.inheritedEventCount)
+    const suffix = session.ownEvents()
     return suffix.some(event => event.type === 'user/message' && fromSurface(event.data))
       || pendingInboxMessages(suffix).some(fromSurface)
   }
