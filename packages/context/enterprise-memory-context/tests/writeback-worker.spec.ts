@@ -259,6 +259,36 @@ describe('enterprise memory compartment routing', () => {
     expect(captured.proposed).toEqual([])
   })
 
+  it('downgrades organization-target candidates carrying an email finding without proposing', async () => {
+    const captured = recording()
+    const result = await processMemoryWriteback(job(), dependencies(captured, {
+      extract: async () => [{ action: 'create', target: 'organization', kind: 'business-fact',
+        summary: '联系 alice@example.com 确认。', confidence: .98, reason: '联系人' }],
+    }))
+    expect(result).toMatchObject({ outcome: 'completed', activated: 1, pending: 0, skipped: 0 })
+    expect(captured.privateInputs).toEqual([{
+      orgId: 'org-a', scope: 'agent', kind: 'business-fact', summary: '联系 alice@example.com 确认。', createdBy: 'user-1', agentEmployeeId: 'employee-1',
+    }])
+    expect(captured.proposed).toEqual([])
+    expect(captured.audits).toEqual([{
+      memoryId: 'private-agent-联系 alice@example.com 确认。', action: 'activated', reason: 'email-address-downgraded-to-private',
+    }])
+  })
+
+  it('downgrades department-target candidates carrying a telephone finding the same way', async () => {
+    const captured = recording()
+    const result = await processMemoryWriteback(job(), dependencies(captured, {
+      extract: async () => [{ action: 'create', target: 'department', kind: 'process',
+        summary: '客户手机号 13800138000。', confidence: .95, reason: '联系人' }],
+    }))
+    expect(result.activated).toBe(1)
+    expect(captured.privateInputs).toEqual([expect.objectContaining({
+      scope: 'agent', summary: '客户手机号 13800138000。', agentEmployeeId: 'employee-1',
+    })])
+    expect(captured.proposed).toEqual([])
+    expect(captured.audits).toEqual([expect.objectContaining({ reason: 'telephone-number-downgraded-to-private' })])
+  })
+
   it('skips a downgraded preference when the session actor is unresolvable', async () => {
     const captured = recording()
     const result = await processMemoryWriteback(job(), dependencies(captured, {

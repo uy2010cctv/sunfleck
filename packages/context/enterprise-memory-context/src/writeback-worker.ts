@@ -58,8 +58,8 @@ function digest(value: string): string { return createHash('sha256').update(valu
 
 /** Reconcile extracted candidates while preserving organization, workspace, actor and conflict boundaries.
  * Private targets write straight into the session actor's compartments through `writePrivateMemory`.
- * Shared targets keep the propose/auto-approve path, except a `personal-preference` finding, which
- * downgrades the candidate into the actor's own agent compartment instead of entering shared memory.
+ * Shared targets keep the propose/auto-approve path; any privacy finding instead downgrades the
+ * candidate into the actor's own agent compartment, mirroring the shared proposal gate.
  */
 export async function processMemoryWriteback(
   job: MemoryWritebackJob,
@@ -92,7 +92,8 @@ export async function processMemoryWriteback(
   for (const candidate of candidates) {
     if (candidate.action === 'skip' || candidate.confidence < .75) { skipped += 1; continue }
     const findings = inspectEnterpriseMemory(candidate.summary).findings
-    // Hard gates hold in every compartment, so the most permissive scope decides them.
+    // Universal gates block even the most permissive scope, so classifying against `agent` drops
+    // exactly prompt injection and overlong summaries; every other finding routes by scope below.
     if (!classifyPrivacyForScope(findings, 'agent').allowed) { skipped += 1; continue }
     if (candidate.target === 'private' || candidate.target === 'pair') {
       const written = await writePrivate(candidate, candidate.target === 'pair' ? 'pair' : 'agent')
@@ -103,14 +104,16 @@ export async function processMemoryWriteback(
       await dependencies.audit({ memoryId: written.id, action: 'activated', reason: 'private-compartment-write' })
       continue
     }
-    if (!classifyPrivacyForScope(findings, candidate.target).allowed) {
-      // Only personal preference can block here, and it never enters shared memory: the candidate
-      // is downgraded into the actor's own agent compartment instead of proposed for review.
+    const decision = classifyPrivacyForScope(findings, candidate.target)
+    if (!decision.allowed) {
+      // No finding may enter shared memory — the store's proposal gate rejects them all — so the
+      // candidate downgrades into the actor's own agent compartment instead of failing the whole
+      // job at proposeMemory.
       const written = await writePrivate(candidate, 'agent')
       if (written === undefined) { skipped += 1; continue }
       activated += 1
       memoryIds.push(written.id)
-      await dependencies.audit({ memoryId: written.id, action: 'activated', reason: 'personal-preference-downgraded-to-private' })
+      await dependencies.audit({ memoryId: written.id, action: 'activated', reason: `${decision.blocked[0]}-downgraded-to-private` })
       continue
     }
     const departmentId = candidate.target === 'department' ? job.departmentId : undefined

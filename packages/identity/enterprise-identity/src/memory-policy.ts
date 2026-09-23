@@ -54,9 +54,9 @@ export interface EnterpriseMemoryScopeDecision {
 }
 
 /** Classify one memory candidate's findings against its target compartment. `prompt-injection` and
- * `summary-too-long` block every scope. `personal-preference` blocks the shared scopes so a
- * personal preference never enters organization, department, or project memory, while the private
- * `agent` and `pair` compartments record it. Every other finding never blocks here.
+ * `summary-too-long` block every scope. The shared scopes (organization, department, project) block
+ * every remaining finding too, so personal preferences and recorded personal data never enter
+ * shared memory, while the private `agent` and `pair` compartments record them without blocking.
  * @param findings - Findings reported by `inspectEnterpriseMemory` for the candidate summary.
  * @param scope - Compartment the candidate would be written into.
  * @returns The write decision carrying the blocking findings.
@@ -65,8 +65,9 @@ export function classifyPrivacyForScope(
   findings: readonly EnterpriseMemoryPrivacyFinding[],
   scope: MemoryScope,
 ): EnterpriseMemoryScopeDecision {
-  const blocked = findings.filter(finding => UNIVERSAL_BLOCKS.includes(finding)
-    || (finding === 'personal-preference' && SHARED_SCOPES.includes(scope)))
+  const blocked = SHARED_SCOPES.includes(scope)
+    ? [...findings]
+    : findings.filter(finding => UNIVERSAL_BLOCKS.includes(finding))
   return { allowed: blocked.length === 0, blocked }
 }
 

@@ -50,11 +50,14 @@ describe('scope-aware enterprise memory privacy policy', () => {
     }
   })
 
-  it('never blocks the informational findings in any scope', () => {
+  it('blocks informational findings only in the shared scopes', () => {
     for (const finding of [
       'email-address', 'telephone-number', 'government-identifier', 'credential-shaped-content',
     ] as const satisfies readonly EnterpriseMemoryPrivacyFinding[]) {
-      for (const scope of MEMORY_SCOPES) {
+      for (const scope of ['organization', 'department', 'project'] as const) {
+        expect(classifyPrivacyForScope([finding], scope)).toEqual({ allowed: false, blocked: [finding] })
+      }
+      for (const scope of ['agent', 'pair'] as const) {
         expect(classifyPrivacyForScope([finding], scope)).toEqual({ allowed: true, blocked: [] })
       }
     }
