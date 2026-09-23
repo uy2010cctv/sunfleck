@@ -231,6 +231,11 @@ describe('EnterpriseSecurity', () => {
     expect(classifyApiEndpoint('cordisWorkspace.save', { pluginId: 'plugin-1' })).toEqual({
       action: 'plugin.create', resourceType: 'cordis-plugin', resourceId: 'plugin-1',
     })
+    for (const endpoint of ['cordisWorkspace.archive', 'cordisWorkspace.restore']) {
+      expect(classifyApiEndpoint(endpoint, { pluginId: 'plugin-1' })).toEqual({
+        action: 'plugin.create', resourceType: 'cordis-plugin', resourceId: 'plugin-1',
+      })
+    }
     expect(classifyApiEndpoint('cordisReview.publishOrganization', { pluginId: 'plugin-1' })).toEqual({
       action: 'plugin.publish', resourceType: 'cordis-plugin', resourceId: 'plugin-1',
     })

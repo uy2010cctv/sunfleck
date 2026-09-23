@@ -1,5 +1,6 @@
 import type {
   CordisPackageVersion,
+  CordisPluginArchive,
   CordisReviewRequest,
   CordisScopeBinding,
   CordisSessionGeneration,
@@ -8,6 +9,7 @@ import type {
   DepartmentManagerSet,
   EnterpriseCordisAuditEvent,
 } from './types.ts'
+import { archiveScopeKey } from './archive-key.ts'
 
 /** Data used by `EnterpriseCordisRepository`. */
 export interface EnterpriseCordisRepository {
@@ -36,6 +38,10 @@ export interface EnterpriseCordisRepository {
   bindingForScope(orgId: string, scopeKey: string, pluginId: string): Promise<CordisScopeBinding | undefined>
   putBinding(value: CordisScopeBinding, expectedRevision: number): Promise<void>
   listBindings(orgId: string): Promise<readonly CordisScopeBinding[]>
+  archiveForScope(orgId: string, scopeKey: string, pluginId: string): Promise<CordisPluginArchive | undefined>
+  listArchives(orgId: string): Promise<readonly CordisPluginArchive[]>
+  putArchive(value: CordisPluginArchive, expectedRevision: number,
+    stopBinding?: { binding: CordisScopeBinding; expectedRevision: number }): Promise<void>
   sessionGeneration(sessionId: string): Promise<CordisSessionGeneration | undefined>
   putSessionGeneration(value: CordisSessionGeneration): Promise<void>
   validationReport(reportRef: string): Promise<CordisValidationReport | undefined>
@@ -56,6 +62,7 @@ export class InMemoryEnterpriseCordisRepository implements EnterpriseCordisRepos
   private readonly artifactRows = new Map<string, CordisArtifactMetadata>()
   private readonly reviewRows = new Map<string, CordisReviewRequest>()
   private readonly bindingRows = new Map<string, CordisScopeBinding>()
+  private readonly archiveRows = new Map<string, CordisPluginArchive>()
   private readonly commands = new Map<string, unknown>()
   private readonly sessionGenerations = new Map<string, CordisSessionGeneration>()
   private readonly validationReports = new Map<string, CordisValidationReport>()
@@ -156,6 +163,29 @@ export class InMemoryEnterpriseCordisRepository implements EnterpriseCordisRepos
   async listBindings(orgId: string): Promise<readonly CordisScopeBinding[]> {
     return [...this.bindingRows.values()].filter(row => row.orgId === orgId)
       .sort((left, right) => left.bindingId.localeCompare(right.bindingId)).map(copy)
+  }
+
+  async archiveForScope(orgId: string, scopeKey: string, pluginId: string): Promise<CordisPluginArchive | undefined> {
+    const value = this.archiveRows.get(`${orgId}:${scopeKey}:${pluginId}`)
+    return value === undefined ? undefined : copy(value)
+  }
+
+  async listArchives(orgId: string): Promise<readonly CordisPluginArchive[]> {
+    return [...this.archiveRows.values()].filter(row => row.orgId === orgId).map(copy)
+  }
+
+  async putArchive(value: CordisPluginArchive, expectedRevision: number,
+    stopBinding?: { binding: CordisScopeBinding; expectedRevision: number }): Promise<void> {
+    const key = `${value.orgId}:${archiveScopeKey(value.scope)}:${value.pluginId}`
+    if ((this.archiveRows.get(key)?.revision ?? 0) !== expectedRevision) {
+      throw new Error('Cordis archive revision conflict')
+    }
+    if (stopBinding !== undefined
+      && (this.bindingRows.get(stopBinding.binding.bindingId)?.revision ?? 0) !== stopBinding.expectedRevision) {
+      throw new Error('Cordis binding revision conflict')
+    }
+    if (stopBinding !== undefined) this.bindingRows.set(stopBinding.binding.bindingId, copy(stopBinding.binding))
+    this.archiveRows.set(key, copy(value))
   }
 
   async sessionGeneration(sessionId: string): Promise<CordisSessionGeneration | undefined> {

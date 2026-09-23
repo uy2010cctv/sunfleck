@@ -1,6 +1,8 @@
 import type { EnterpriseCordisRepository } from './repository.ts'
+import { archiveScopeKey } from './archive-key.ts'
 import type {
   CordisPackageVersion,
+  CordisPluginArchive,
   CordisReviewRequest,
   CordisScopeBinding,
   CordisSessionGeneration,
@@ -78,6 +80,17 @@ const SCHEMA = [
     trust_level TEXT NOT NULL DEFAULT 'isolated',
     updated_at BIGINT NOT NULL,
     UNIQUE(org_id, scope_key, plugin_id)
+  )`,
+  `CREATE TABLE IF NOT EXISTS dsh_enterprise_cordis_archives (
+    org_id TEXT NOT NULL,
+    scope_key TEXT NOT NULL,
+    scope_json JSONB NOT NULL,
+    plugin_id TEXT NOT NULL,
+    archived BOOLEAN NOT NULL,
+    revision BIGINT NOT NULL,
+    updated_by TEXT NOT NULL,
+    updated_at BIGINT NOT NULL,
+    PRIMARY KEY(org_id, scope_key, plugin_id)
   )`,
   "ALTER TABLE dsh_enterprise_cordis_bindings ADD COLUMN IF NOT EXISTS trust_level TEXT NOT NULL DEFAULT 'isolated'",
   `CREATE TABLE IF NOT EXISTS dsh_enterprise_cordis_commands (
@@ -206,6 +219,16 @@ interface BindingRow extends Record<string, unknown> {
   updated_at: string | number
 }
 
+interface ArchiveRow extends Record<string, unknown> {
+  org_id: string
+  scope_json: unknown
+  plugin_id: string
+  archived: boolean
+  revision: string | number
+  updated_by: string
+  updated_at: string | number
+}
+
 function packageFromRow(row: PackageRow): CordisPackageVersion {
   return {
     packageId: row.package_id, orgId: row.org_id, pluginId: row.plugin_id,
@@ -243,6 +266,14 @@ function bindingFromRow(row: BindingRow): CordisScopeBinding {
     ...(row.disabled_reason === null ? {} : { disabledReason: row.disabled_reason }),
     trustLevel: row.trust_level,
     updatedAt: Number(row.updated_at),
+  }
+}
+
+function archiveFromRow(row: ArchiveRow): CordisPluginArchive {
+  return {
+    orgId: row.org_id, scope: value(row.scope_json), pluginId: row.plugin_id,
+    archived: row.archived, revision: Number(row.revision),
+    updatedBy: row.updated_by, updatedAt: Number(row.updated_at),
   }
 }
 
@@ -435,6 +466,43 @@ export class PostgresEnterpriseCordisRepository implements EnterpriseCordisRepos
       'SELECT * FROM dsh_enterprise_cordis_bindings WHERE org_id=$1 ORDER BY binding_id', [orgId],
     )
     return result.rows.map(bindingFromRow)
+  }
+
+  async archiveForScope(orgId: string, key: string, pluginId: string): Promise<CordisPluginArchive | undefined> {
+    const result = await this.database.query<ArchiveRow>(
+      'SELECT * FROM dsh_enterprise_cordis_archives WHERE org_id=$1 AND scope_key=$2 AND plugin_id=$3',
+      [orgId, key, pluginId],
+    )
+    return result.rows[0] === undefined ? undefined : archiveFromRow(result.rows[0])
+  }
+
+  async listArchives(orgId: string): Promise<readonly CordisPluginArchive[]> {
+    const result = await this.database.query<ArchiveRow>(
+      'SELECT * FROM dsh_enterprise_cordis_archives WHERE org_id=$1', [orgId],
+    )
+    return result.rows.map(archiveFromRow)
+  }
+
+  async putArchive(value: CordisPluginArchive, expectedRevision: number,
+    stopBinding?: { binding: CordisScopeBinding; expectedRevision: number }): Promise<void> {
+    await this.database.transaction(async (database) => {
+      if (stopBinding !== undefined) {
+        await new PostgresEnterpriseCordisRepository(database).putBinding(stopBinding.binding, stopBinding.expectedRevision)
+      }
+      const result = expectedRevision === 0
+        ? await database.query(`INSERT INTO dsh_enterprise_cordis_archives(
+          org_id,scope_key,scope_json,plugin_id,archived,revision,updated_by,updated_at
+        ) VALUES ($1,$2,$3::jsonb,$4,$5,$6,$7,$8) ON CONFLICT DO NOTHING`, [
+          value.orgId, archiveScopeKey(value.scope), JSON.stringify(value.scope), value.pluginId,
+          value.archived, value.revision, value.updatedBy, value.updatedAt,
+        ])
+        : await database.query(`UPDATE dsh_enterprise_cordis_archives SET archived=$1,revision=$2,
+          updated_by=$3,updated_at=$4 WHERE org_id=$5 AND scope_key=$6 AND plugin_id=$7 AND revision=$8`, [
+          value.archived, value.revision, value.updatedBy, value.updatedAt,
+          value.orgId, archiveScopeKey(value.scope), value.pluginId, expectedRevision,
+        ])
+      if (result.rowCount !== 1) throw new Error('Cordis archive revision conflict')
+    })
   }
 
   async sessionGeneration(sessionId: string): Promise<CordisSessionGeneration | undefined> {

@@ -182,12 +182,13 @@ Exact-read consumer that prepares immutable cross-session message context.
  *
  * Discovery runs at keystroke rate, so a title only ever comes from a
  * projection read: see {@link SessionReferenceResolver.projectedTitle} for
- * which sessions can answer one and which fall back to their id.
+ * which sessions can answer one. Sessions without a projected title stay
+ * out of the user-facing picker.
  * @param agent - target agent; self is excluded and its cwd drives ranking.
  * @param query - optional case-insensitive session-id/cwd/title substring.
  * @param limit - optional positive result cap.
  * @param signal - optional cancellation boundary for host autocomplete teardown.
- * @returns candidates labeled by latest title or, when absent, session id.
+ * @returns candidates labeled by their latest projected title.
  */
 async listCandidates( agent: Agent, query: string = '', limit: number = this.config.candidateLimit, signal?: AbortSignal, ): Promise<SessionReferenceCandidate[]>
 

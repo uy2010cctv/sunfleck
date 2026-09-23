@@ -210,6 +210,7 @@ function controllerApi(overrides: Record<string, unknown> = {}) {
     },
     cordisWorkspace: {
       list: () => ok({ packages: [], bindings: [] }), save: () => ok({}), activate: () => ok({}),
+      archive: () => ok({}), restore: () => ok({}),
       stop: () => ok({}), rollback: () => ok({}), pinGeneration: () => ok({}),
     },
     cordisReview: {
@@ -462,6 +463,27 @@ describe('EnterpriseWorkbenchController enterprise read models', () => {
 
     expect(activate).toHaveBeenCalledWith(expect.objectContaining({
       workspaceId: 'workspace-1', pluginId: 'session-1:helper-1', packageId: 'saved-1', expectedRevision: 0,
+    }))
+  })
+
+  it('archives and restores a private Plugin through owner-scoped Remote requests', async () => {
+    const base = controllerApi()
+    const pkg = { packageId: 'saved-1', pluginId: 'helper-1',
+      scope: { type: 'personal-workspace', workspaceId: 'workspace-1', ownerUserId: 'owner-1' } }
+    const archive = vi.fn(() => ok({}))
+    const restore = vi.fn(() => ok({}))
+    const controller = new EnterpriseWorkbenchController(controllerApi({
+      cordisWorkspace: { ...base.cordisWorkspace, archive, restore },
+    }) as never, controllerServices().sessions as never, controllerServices().workspaces as never)
+
+    await controller.archiveExtension(pkg as never)
+    await controller.restoreExtension(pkg as never)
+
+    expect(archive).toHaveBeenCalledWith(expect.objectContaining({
+      workspaceId: 'workspace-1', pluginId: 'helper-1', idempotencyKey: expect.any(String),
+    }))
+    expect(restore).toHaveBeenCalledWith(expect.objectContaining({
+      workspaceId: 'workspace-1', pluginId: 'helper-1', idempotencyKey: expect.any(String),
     }))
   })
 

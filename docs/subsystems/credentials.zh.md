@@ -362,6 +362,12 @@ async issueSessionAsync(userId: string): Promise<LoginResult>
  */
 async loginExternalAsync(identity: SsoMappedIdentity): Promise<LoginResult>
 
+/** Whether this principal may administer Host-level organization tenancy.
+ * @param principal - authenticated enterprise principal.
+ * @returns whether the principal has administrator authority in this Host organization.
+ */
+isPlatformAdministrator(principal: EnterprisePrincipal): boolean
+
 /**
  * Authenticate one cookie through the asynchronous identity adapter.
  * @param cookieHeader - Incoming Cookie header.

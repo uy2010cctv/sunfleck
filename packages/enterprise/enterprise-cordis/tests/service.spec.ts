@@ -43,9 +43,11 @@ function directory(): EnterpriseCordisDirectory {
   return {
     workspace: async workspaceId => workspaceId === 'personal-1'
       ? { workspaceId, orgId: 'org-a', kind: 'personal', ownerUserId: 'member-1' }
-      : workspaceId === 'department-1'
-        ? { workspaceId, orgId: 'org-a', kind: 'department', departmentId: 'dept-a' }
-        : undefined,
+      : workspaceId === 'personal-2'
+        ? { workspaceId, orgId: 'org-a', kind: 'personal', ownerUserId: 'outsider-1' }
+        : workspaceId === 'department-1'
+          ? { workspaceId, orgId: 'org-a', kind: 'department', departmentId: 'dept-a' }
+          : undefined,
     userDepartments: async (_orgId, userId) =>
       ['member-1', 'manager-1', 'manager-2'].includes(userId) ? ['dept-a'] : [],
     isDepartmentManager: async (_orgId, departmentId, userId) =>
@@ -63,6 +65,86 @@ function service() {
 }
 
 describe('EnterpriseCordisService', () => {
+  it('archives a private plugin for its owner and restores its immutable versions', async () => {
+    const cordis = service()
+    const saved = await cordis.savePersonal({
+      principal: member, workspaceId: 'department-1', draft, idempotencyKey: 'save-archive',
+    })
+    const binding = await cordis.activatePersonal({
+      principal: member, workspaceId: 'department-1', pluginId: saved.pluginId,
+      packageId: saved.packageId, expectedRevision: 0, idempotencyKey: 'activate-archive',
+    })
+
+    await cordis.archivePersonal({
+      principal: member, workspaceId: 'department-1', pluginId: saved.pluginId,
+      idempotencyKey: 'archive-1',
+    })
+    const archived = await cordis.listWorkspace({ principal: member, workspaceId: 'department-1' })
+    expect(archived.packages.map(pkg => pkg.packageId)).not.toContain(saved.packageId)
+    expect(archived.bindings.map(row => row.bindingId)).not.toContain(binding.bindingId)
+    expect(archived.archivedPackages.map(pkg => pkg.packageId)).toContain(saved.packageId)
+    expect((await cordis.pinSessionGeneration({
+      principal: member, workspaceId: 'department-1', sessionId: 'session-after-archive',
+    })).entries).toEqual([])
+    await expect(cordis.activatePersonal({
+      principal: member, workspaceId: 'department-1', pluginId: saved.pluginId,
+      packageId: saved.packageId, expectedRevision: binding.revision, idempotencyKey: 'archived-activate',
+    })).rejects.toMatchObject({ code: 'plugin-archived' })
+
+    await cordis.restorePersonal({
+      principal: member, workspaceId: 'department-1', pluginId: saved.pluginId,
+      idempotencyKey: 'restore-1',
+    })
+    const restored = await cordis.listWorkspace({ principal: member, workspaceId: 'department-1' })
+    expect(restored.packages.map(pkg => pkg.packageId)).toContain(saved.packageId)
+    expect(restored.archivedPackages).toEqual([])
+    expect(restored.bindings).toEqual([expect.objectContaining({ bindingId: binding.bindingId, disabled: true })])
+  })
+
+  it('does not expose or allow deleting another member private plugin in a shared Workspace', async () => {
+    const cordis = service()
+    const saved = await cordis.savePersonal({
+      principal: member, workspaceId: 'department-1', draft, idempotencyKey: 'save-private',
+    })
+    const colleague = await cordis.listWorkspace({ principal: otherManager, workspaceId: 'department-1' })
+    expect(colleague.packages.map(pkg => pkg.packageId)).not.toContain(saved.packageId)
+    expect(colleague.archivedPackages).toEqual([])
+    await expect(cordis.archivePersonal({
+      principal: otherManager, workspaceId: 'department-1', pluginId: saved.pluginId,
+      idempotencyKey: 'delete-other',
+    })).rejects.toMatchObject({ code: 'package-not-found' })
+    await cordis.archivePersonal({
+      principal: member, workspaceId: 'department-1', pluginId: saved.pluginId,
+      idempotencyKey: 'delete-own',
+    })
+    expect((await cordis.listWorkspace({ principal: otherManager, workspaceId: 'department-1' })).archivedPackages)
+      .toEqual([])
+  })
+
+  it('keeps restoration inactive if an activation races the archive', async () => {
+    const repository = new InMemoryEnterpriseCordisRepository()
+    const cordis = new EnterpriseCordisService(repository, { directory: directory() })
+    const saved = await cordis.savePersonal({
+      principal: member, workspaceId: 'personal-1', draft, idempotencyKey: 'race-save',
+    })
+    const active = await cordis.activatePersonal({
+      principal: member, workspaceId: 'personal-1', pluginId: saved.pluginId,
+      packageId: saved.packageId, expectedRevision: 0, idempotencyKey: 'race-activate',
+    })
+    await cordis.archivePersonal({
+      principal: member, workspaceId: 'personal-1', pluginId: saved.pluginId, idempotencyKey: 'race-archive',
+    })
+    const stopped = await repository.binding(active.bindingId)
+    if (stopped === undefined) throw new Error('binding missing')
+    await repository.putBinding({ ...stopped, disabled: false, revision: stopped.revision + 1 }, stopped.revision)
+
+    await cordis.restorePersonal({
+      principal: member, workspaceId: 'personal-1', pluginId: saved.pluginId, idempotencyKey: 'race-restore',
+    })
+
+    expect((await repository.binding(active.bindingId))?.disabled).toBe(true)
+  })
+
   it('keeps a member-created package private inside a department Workspace', async () => {
     const cordis = service()
     const saved = await cordis.savePersonal({
@@ -193,12 +275,30 @@ describe('EnterpriseCordisService', () => {
     expect((await cordis.listWorkspace({ principal: member, workspaceId: 'department-1' })).bindings)
       .toEqual(expect.arrayContaining([expect.objectContaining({
         scope: { type: 'department', departmentId: 'dept-a' }, activePackageId: derived.packageId,
+        canManage: false,
+      })]))
+    expect((await cordis.listWorkspace({ principal: manager, workspaceId: 'department-1' })).bindings)
+      .toEqual(expect.arrayContaining([expect.objectContaining({
+        activePackageId: derived.packageId, canManage: true,
       })]))
     expect(published).toMatchObject({
       status: 'published-organization', publishedBy: 'manager-1',
       organizationBinding: { scope: { type: 'organization', organizationId: 'org-a' }, generation: 1 },
     })
     expect((await cordis.listWorkspace({ principal: member, workspaceId: 'personal-1' })).packages
+      .map(pkg => pkg.packageId)).toContain(derived.packageId)
+    expect((await cordis.listWorkspace({ principal: member, workspaceId: 'personal-1' })).bindings)
+      .toEqual(expect.arrayContaining([expect.objectContaining({
+        scope: { type: 'organization', organizationId: 'org-a' }, canManage: false,
+      })]))
+    expect((await cordis.listWorkspace({ principal: admin, workspaceId: 'personal-1' })).bindings)
+      .toEqual(expect.arrayContaining([expect.objectContaining({
+        scope: { type: 'organization', organizationId: 'org-a' }, canManage: true,
+      })]))
+    const outsider = { ...member, userId: 'outsider-1' }
+    await expect(cordis.listWorkspace({ principal: outsider, workspaceId: 'department-1' }))
+      .rejects.toMatchObject({ code: 'department-member-required' })
+    expect((await cordis.listWorkspace({ principal: outsider, workspaceId: 'personal-2' })).packages
       .map(pkg => pkg.packageId)).toContain(derived.packageId)
   })
 
@@ -212,6 +312,46 @@ describe('EnterpriseCordisService', () => {
       principal: otherManager, reviewId: submitted.reviewId, packageId: submitted.packageId,
       expectedRevision: submitted.revision, idempotencyKey: 'publish-other',
     })).rejects.toMatchObject({ code: 'department-manager-required' })
+  })
+
+  it('does not let governed rollback select a private or pending Package', async () => {
+    const cordis = service()
+    const personal = await cordis.savePersonal({
+      principal: member, workspaceId: 'department-1', draft, idempotencyKey: 'rollback-private',
+    })
+    const submitted = await cordis.submitDepartment({
+      principal: member, workspaceId: 'department-1', draft, sourceSessionId: 'session-1',
+      idempotencyKey: 'rollback-submit',
+    })
+    const approved = await cordis.reviewDepartment({
+      principal: manager, reviewId: submitted.reviewId, packageId: submitted.packageId,
+      action: 'approve_department', reason: 'Reviewed.', expectedRevision: submitted.revision,
+      idempotencyKey: 'rollback-approve',
+    })
+    const departmentBinding = (await cordis.listWorkspace({ principal: manager, workspaceId: 'department-1' }))
+      .bindings.find(binding => binding.scope.type === 'department')
+    if (departmentBinding === undefined) throw new Error('department binding missing')
+    const pending = await cordis.submitDepartment({
+      principal: member, workspaceId: 'department-1',
+      draft: { ...draft, dynamicPackageId: 'pkg-pending' }, sourceSessionId: 'session-2',
+      idempotencyKey: 'rollback-pending',
+    })
+    for (const packageId of [personal.packageId, pending.packageId]) {
+      await expect(cordis.rollbackBinding({
+        principal: manager, bindingId: departmentBinding.bindingId, packageId,
+        expectedRevision: departmentBinding.revision, reason: 'Unreviewed.',
+        idempotencyKey: `rollback-invalid-${packageId}`,
+      })).rejects.toMatchObject({ code: 'package-not-found' })
+    }
+    const published = await cordis.publishOrganization({
+      principal: manager, reviewId: submitted.reviewId, packageId: submitted.packageId,
+      expectedRevision: approved.revision, idempotencyKey: 'rollback-publish',
+    })
+    await expect(cordis.rollbackBinding({
+      principal: admin, bindingId: published.organizationBinding.bindingId, packageId: personal.packageId,
+      expectedRevision: published.organizationBinding.revision, reason: 'Private target.',
+      idempotencyKey: 'rollback-private-organization',
+    })).rejects.toMatchObject({ code: 'package-not-found' })
   })
 
   it('blocks user packages from providing protected enterprise contracts', async () => {

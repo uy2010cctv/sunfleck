@@ -100,6 +100,19 @@ export interface CordisScopeBinding {
   readonly disabledReason?: string
   readonly trustLevel: 'isolated' | 'trusted-in-process'
   readonly updatedAt: number
+  /** Caller-specific management permission on Workspace list projections. */
+  readonly canManage?: boolean
+}
+
+/** Reversible private Plugin removal; immutable Package source remains stored. */
+export interface CordisPluginArchive {
+  readonly orgId: string
+  readonly scope: Extract<CordisPluginScope, { type: 'personal-workspace' }>
+  readonly pluginId: string
+  readonly archived: boolean
+  readonly revision: number
+  readonly updatedBy: string
+  readonly updatedAt: number
 }
 
 /** Data used by `CordisSessionGenerationEntry`. */
@@ -200,6 +213,7 @@ export interface PublishedCordisReview extends CordisReviewRequest {
 /** Data used by `CordisWorkspaceProjection`. */
 export interface CordisWorkspaceProjection {
   readonly packages: readonly CordisPackageVersion[]
+  readonly archivedPackages: readonly CordisPackageVersion[]
   readonly bindings: readonly CordisScopeBinding[]
 }
 

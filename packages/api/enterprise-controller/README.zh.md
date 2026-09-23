@@ -26,6 +26,8 @@ kind: "package-reference"
 
 `enterpriseTeamDefinition` 将章程编辑与可执行历史分开：`draft` 追加不可变修订，`getDraft` 只向负责人可见地返回当前草稿而不替换 active 章程，`publish` 为后续 Run 提升一份已校验草稿，`discardDraft` 只归档该草稿。每个端点都使用既有 `team.read` 或 `team.manage` 策略与审计链路；调用者不能提供组织或 actor 身份。
 
+`cordisWorkspace` 读取使用已认证主体过滤私有 Package 和绑定。`archive` 与 `restore` 只操作该主体在指定 Workspace 内拥有的 Plugin；归档保留不可变源码并停止新 Session 激活。部门审核与组织发布继续分别遵循负责人和管理员权限。
+
 员工发布会先写入不可变目录版本，再更新新 Session 使用的可写原生 Agent Preset。Preset 写入遇到瞬时失败会重试一次。持续失败时会明确说明目录版本已经发布并要求重试同步；未变化的已发布草稿会返回同一个版本。
 
 <a id="model-experience"></a>

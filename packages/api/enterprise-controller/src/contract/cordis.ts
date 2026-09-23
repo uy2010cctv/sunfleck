@@ -1,6 +1,7 @@
 import type {
   CordisPackageDraft,
   CordisPackageVersion,
+  CordisPluginArchive,
   CordisReviewRequest,
   CordisScopeBinding,
   CordisSessionGeneration,
@@ -16,6 +17,12 @@ export interface CordisWorkspaceListRequest { readonly workspaceId: string }
 export interface CordisWorkspaceSaveRequest {
   readonly workspaceId: string
   readonly draft: CordisPackageDraft
+  readonly idempotencyKey: string
+}
+/** Archive or restore one owner-private Workspace Plugin. */
+export interface CordisWorkspaceArchiveRequest {
+  readonly workspaceId: string
+  readonly pluginId: string
   readonly idempotencyKey: string
 }
 /** Data used by `CordisWorkspaceActivateRequest`. */
@@ -101,6 +108,7 @@ export interface CordisGovernanceSetTrustRequest extends CordisGovernanceDisable
 export type {
   CordisPackageDraft,
   CordisPackageVersion,
+  CordisPluginArchive,
   CordisReviewRequest,
   CordisScopeBinding,
   CordisSessionGeneration,

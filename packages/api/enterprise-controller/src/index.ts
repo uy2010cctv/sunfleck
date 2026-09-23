@@ -47,6 +47,7 @@ import {
 } from '@deepseek-ai/dsh-enterprise-cordis'
 import type {
   CordisPackageVersion,
+  CordisPluginArchive,
   CordisReviewRequest,
   CordisScopeBinding,
   CordisSessionGeneration,
@@ -158,6 +159,7 @@ import type {
   CordisReviewSubmitRequest,
   CordisReviewTransitionRequest,
   CordisWorkspaceActivateRequest,
+  CordisWorkspaceArchiveRequest,
   CordisWorkspacePinGenerationRequest,
   CordisWorkspaceRollbackRequest,
   CordisWorkspaceStopRequest,
@@ -2140,6 +2142,24 @@ export class CordisWorkspaceController extends TypertRemoteService {
   @Remote('save') async save(request: CordisWorkspaceSaveRequest): Promise<CordisPackageVersion> {
     return catalogCall(this.ctx, 'cordisWorkspace.save', request, 'cordis-plugin', request.draft.pluginId, actor =>
       cordis(this.ctx).savePersonal({ principal: actor, ...request }))
+  }
+
+  /** Archive one owner-private Plugin while retaining its immutable versions.
+   * @param request - Workspace, Plugin, and idempotency key.
+   * @returns archived Plugin state.
+   */
+  @Remote('archive') async archive(request: CordisWorkspaceArchiveRequest): Promise<CordisPluginArchive> {
+    return catalogCall(this.ctx, 'cordisWorkspace.archive', request, 'cordis-plugin', request.pluginId, actor =>
+      cordis(this.ctx).archivePersonal({ principal: actor, ...request }))
+  }
+
+  /** Restore one archived owner-private Plugin without activating it.
+   * @param request - Workspace, Plugin, and idempotency key.
+   * @returns restored Plugin state.
+   */
+  @Remote('restore') async restore(request: CordisWorkspaceArchiveRequest): Promise<CordisPluginArchive> {
+    return catalogCall(this.ctx, 'cordisWorkspace.restore', request, 'cordis-plugin', request.pluginId, actor =>
+      cordis(this.ctx).restorePersonal({ principal: actor, ...request }))
   }
 
   /**

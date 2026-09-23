@@ -158,6 +158,7 @@ export interface EnterpriseWorkbenchState {
   readonly teamDecisions: EnterprisePageState<EnterpriseTeamDecision>
   readonly teamAutonomy: EnterprisePageState<EnterpriseTeamAutonomyGrant>
   readonly extensions: EnterprisePageState<CordisPackageVersion>
+  readonly archivedExtensions: EnterprisePageState<CordisPackageVersion>
   readonly extensionBindings: readonly CordisScopeBinding[]
   readonly extensionReviews: EnterprisePageState<CordisReviewRequest>
   readonly formalPlugins: EnterprisePageState<PluginInventorySnapshot['entries'][number]>
@@ -378,6 +379,7 @@ const INITIAL_STATE: EnterpriseWorkbenchState = {
   teamDecisions: emptyPage(),
   teamAutonomy: emptyPage(),
   extensions: emptyPage(),
+  archivedExtensions: emptyPage(),
   extensionBindings: [],
   extensionReviews: emptyPage(),
   formalPlugins: emptyPage(),
@@ -936,7 +938,8 @@ export class EnterpriseWorkbenchController {
     const before = this.store.getSnapshot()
     const { extensionWorkspaceId: _selected, ...state } = before
     this.store.set({ ...state, ...(workspaceId === '' ? {} : { extensionWorkspaceId: workspaceId }),
-      extensions: { phase: 'loading', items: [], error: null }, extensionBindings: [] })
+      extensions: { phase: 'loading', items: [], error: null },
+      archivedExtensions: { phase: 'loading', items: [], error: null }, extensionBindings: [] })
     void this.refreshExtensions()
   }
 
@@ -951,6 +954,7 @@ export class EnterpriseWorkbenchController {
       : [before.extensionWorkspaceId]
     this.store.set({ ...before,
       extensions: { ...before.extensions, phase: 'loading', error: null },
+      archivedExtensions: { ...before.archivedExtensions, phase: 'loading', error: null },
       extensionReviews: { ...before.extensionReviews, phase: 'loading', error: null } })
     try {
       const [workspaceResults, reviewResult] = await Promise.all([
@@ -971,12 +975,16 @@ export class EnterpriseWorkbenchController {
       })
       const packages = new Map(projections.flatMap(projection => projection.packages)
         .map(pkg => [pkg.packageId, pkg]))
+      const archivedPackages = new Map(projections.flatMap(projection => projection.archivedPackages ?? [])
+        .map(pkg => [pkg.packageId, pkg]))
       const bindings = new Map(projections.flatMap(projection => projection.bindings)
         .map(binding => [binding.bindingId, binding]))
       const current = this.store.getSnapshot()
       this.store.set({ ...this.store.getSnapshot(),
         extensions: { phase: failedWorkspaces.length > 0 ? 'error' : 'ready',
           items: [...packages.values()], error: failedWorkspaces.length > 0 ? failedWorkspaces.join('、') : null },
+        archivedExtensions: { phase: failedWorkspaces.length > 0 ? 'error' : 'ready',
+          items: [...archivedPackages.values()], error: failedWorkspaces.length > 0 ? failedWorkspaces.join('、') : null },
         extensionBindings: [...bindings.values()],
         extensionReviews: reviewResult.status === 'fulfilled'
           ? { phase: 'ready', items: reviewResult.value, error: null }
@@ -987,6 +995,7 @@ export class EnterpriseWorkbenchController {
       const current = this.store.getSnapshot()
       this.store.set({ ...current,
         extensions: pageFailure(current.extensions, error),
+        archivedExtensions: pageFailure(current.archivedExtensions, error),
         extensionReviews: pageFailure(current.extensionReviews, error) })
       return false
     }
@@ -1042,6 +1051,28 @@ export class EnterpriseWorkbenchController {
     await this.runMutation('cordis-activate', async () => valueOf(await this.api.cordisWorkspace.activate({
       workspaceId, pluginId: pkg.pluginId, packageId: pkg.packageId,
       expectedRevision: binding?.revision ?? 0, idempotencyKey: mutationKey('cordis-activate'),
+    })), async () => { await this.refreshExtensions() })
+  }
+
+  /** Archive one private Plugin while keeping its versions recoverable.
+   * @param pkg - one version belonging to the private Plugin.
+   */
+  async archiveExtension(pkg: CordisPackageVersion): Promise<void> {
+    if (pkg.scope.type !== 'personal-workspace') throw new Error('Only private Cordis packages can be archived here')
+    await this.runMutation('cordis-archive', async () => valueOf(await this.api.cordisWorkspace.archive({
+      workspaceId: pkg.scope.type === 'personal-workspace' ? pkg.scope.workspaceId : '',
+      pluginId: pkg.pluginId, idempotencyKey: mutationKey('cordis-archive'),
+    })), async () => { await this.refreshExtensions() })
+  }
+
+  /** Restore one private Plugin without reactivating its binding.
+   * @param pkg - one archived immutable version.
+   */
+  async restoreExtension(pkg: CordisPackageVersion): Promise<void> {
+    if (pkg.scope.type !== 'personal-workspace') throw new Error('Only private Cordis packages can be restored here')
+    await this.runMutation('cordis-restore', async () => valueOf(await this.api.cordisWorkspace.restore({
+      workspaceId: pkg.scope.type === 'personal-workspace' ? pkg.scope.workspaceId : '',
+      pluginId: pkg.pluginId, idempotencyKey: mutationKey('cordis-restore'),
     })), async () => { await this.refreshExtensions() })
   }
 

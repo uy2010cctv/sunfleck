@@ -868,6 +868,18 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'immutable Package version.',
       },
       {
+        signature: '@Remote(\'archive\') async archive(request: CordisWorkspaceArchiveRequest): Promise<CordisPluginArchive>',
+        description: 'Archive one owner-private Plugin while retaining its immutable versions.',
+        parameters: [{ name: 'request', description: 'Workspace, Plugin, and idempotency key.' }],
+        returns: 'archived Plugin state.',
+      },
+      {
+        signature: '@Remote(\'restore\') async restore(request: CordisWorkspaceArchiveRequest): Promise<CordisPluginArchive>',
+        description: 'Restore one archived owner-private Plugin without activating it.',
+        parameters: [{ name: 'request', description: 'Workspace, Plugin, and idempotency key.' }],
+        returns: 'restored Plugin state.',
+      },
+      {
         signature: '@Remote(\'activate\') async activate(request: CordisWorkspaceActivateRequest): Promise<CordisScopeBinding>',
         description: 'Activate a personal Workspace Package.',
         parameters: [{ name: 'request', description: 'Package, Workspace, and CAS data.' }],
@@ -1199,6 +1211,18 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'updated personal binding.',
       },
       {
+        signature: 'async archivePersonal(input: { principal: EnterpriseCordisPrincipal workspaceId: string pluginId: string idempotencyKey: string }): Promise<CordisPluginArchive>',
+        description: 'Hide a private Plugin and stop its binding while retaining every immutable version.',
+        parameters: [{ name: 'input', description: 'authenticated owner, Workspace, Plugin, and idempotency key.' }],
+        returns: 'the archived Plugin state.',
+      },
+      {
+        signature: 'async restorePersonal(input: { principal: EnterpriseCordisPrincipal workspaceId: string pluginId: string idempotencyKey: string }): Promise<CordisPluginArchive>',
+        description: 'Restore a previously archived private Plugin without reactivating its binding.',
+        parameters: [{ name: 'input', description: 'authenticated owner, Workspace, Plugin, and idempotency key.' }],
+        returns: 'restored Plugin state.',
+      },
+      {
         signature: 'async submitDepartment(input: { principal: EnterpriseCordisPrincipal workspaceId: string draft: CordisPackageDraft sourceSessionId: string idempotencyKey: string }): Promise<CordisReviewRequest>',
         description: 'Submit a department Workspace Package for manager review.',
         parameters: [{ name: 'input', description: 'principal, Workspace, source Session, draft, and idempotency data.' }],
@@ -1236,7 +1260,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'async rollbackBinding(input: { principal: EnterpriseCordisPrincipal bindingId: string packageId: string expectedRevision: number reason: string idempotencyKey: string }): Promise<CordisScopeBinding>',
-        description: 'Move a binding pointer to an older immutable Package.',
+        description: 'Roll a private binding to an older Package or resume a governed binding\'s approved Package.',
         parameters: [{ name: 'input', description: 'principal, binding, Package, reason, CAS revision, and idempotency data.' }],
         returns: 'updated binding.',
       },
@@ -1318,6 +1342,48 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         description: 'Pair a local device identity with the authenticated user.',
         parameters: [{ name: 'request', description: 'Local device name, platform, and public key.' }],
         returns: 'The server-assigned device identity.',
+      },
+      {
+        signature: '@Remote(\'createRecorderPairing\') async createRecorderPairing( request: EnterpriseRecorderPairingRequest, ): Promise<EnterpriseRecorderPairingChallenge>',
+        description: 'Create one ten-minute recorder binding code for the authenticated user.',
+        parameters: [{ name: 'request', description: 'Empty recorder-pairing request owned by the authenticated principal.' }],
+        returns: 'One plaintext code and its expiry; only the hash remains durable.',
+      },
+      {
+        signature: '@Remote(\'listRecorders\') async listRecorders(request: EnterpriseRecorderListRequest): Promise<EnterpriseRecorderDeviceView[]>',
+        description: 'List recorder devices owned by the authenticated user.',
+        parameters: [{ name: 'request', description: 'Recorder status filter.' }],
+        returns: 'Redacted recorder devices for the authenticated principal.',
+      },
+      {
+        signature: '@Remote(\'getRecorderRuntime\') async getRecorderRuntime( request: EnterpriseRecorderRuntimeRequest, ): Promise<EnterpriseRecorderRuntimeView>',
+        description: 'Read saved recorder model configuration and fresh runtime health.',
+        parameters: [{ name: 'request', description: 'Empty authenticated runtime lookup.' }],
+        returns: 'Redacted ASR/CAM configuration and verified readiness.',
+      },
+      {
+        signature: '@Remote(\'saveRecorderRuntime\') async saveRecorderRuntime( request: EnterpriseRecorderRuntimeSaveRequest, ): Promise<EnterpriseRecorderRuntimeView>',
+        description: 'Save recorder model configuration after resolving Host-owned Credential references.',
+        parameters: [{ name: 'request', description: 'Revision-aware ASR/CAM configuration.' }],
+        returns: 'Saved redacted configuration and current readiness.',
+      },
+      {
+        signature: '@Remote(\'startRecorderRuntime\') async startRecorderRuntime( request: EnterpriseRecorderRuntimeRequest, ): Promise<EnterpriseRecorderRuntimeView>',
+        description: 'Start or hot-reload the saved recorder model configuration.',
+        parameters: [{ name: 'request', description: 'Empty authenticated start request.' }],
+        returns: 'Fresh runtime health after startup settles.',
+      },
+      {
+        signature: '@Remote(\'getRecorderMemoryRuntime\') async getRecorderMemoryRuntime( request: EnterpriseRecorderRuntimeRequest, ): Promise<EnterpriseRecorderMemoryRuntimeView>',
+        description: 'Read the recorder-memory model route and the caller\'s dedicated processing Session id.',
+        parameters: [{ name: 'request', description: 'Empty authenticated runtime lookup.' }],
+        returns: 'Persisted model route and dedicated Session id.',
+      },
+      {
+        signature: '@Remote(\'saveRecorderMemoryRuntime\') async saveRecorderMemoryRuntime( request: EnterpriseRecorderMemoryRuntimeSaveRequest, ): Promise<EnterpriseRecorderMemoryRuntimeView>',
+        description: 'Save the recorder-memory model route after verifying it exists in the active model catalog.',
+        parameters: [{ name: 'request', description: 'Revision-aware provider, model, and timeout.' }],
+        returns: 'Persisted model route and dedicated Session id.',
       },
       {
         signature: '@Remote(\'heartbeat\') async heartbeat(request: { deviceId: string }): Promise<void>',
@@ -1575,6 +1641,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         description: 'Resolve or provision an external identity through the asynchronous adapter.',
         parameters: [{ name: 'identity', description: 'Validated and mapped external identity.' }],
         returns: 'the issued token, cookie, and principal.',
+      },
+      {
+        signature: 'isPlatformAdministrator(principal: EnterprisePrincipal): boolean',
+        description: 'Whether this principal may administer Host-level organization tenancy.',
+        parameters: [{ name: 'principal', description: 'authenticated enterprise principal.' }],
+        returns: 'whether the principal has administrator authority in this Host organization.',
       },
       {
         signature: 'async authenticateCookieAsync(cookieHeader: string): Promise<EnterprisePrincipalView | undefined>',
@@ -2788,9 +2860,9 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     methods: [
       {
         signature: 'async listCandidates( agent: Agent, query: string = \'\', limit: number = this.config.candidateLimit, signal?: AbortSignal, ): Promise<SessionReferenceCandidate[]>',
-        description: 'List reference candidates, ranked by working-directory affinity.\n\nDiscovery runs at keystroke rate, so a title only ever comes from a projection read: see SessionReferenceResolver.projectedTitle for which sessions can answer one and which fall back to their id.',
+        description: 'List reference candidates, ranked by working-directory affinity.\n\nDiscovery runs at keystroke rate, so a title only ever comes from a projection read: see SessionReferenceResolver.projectedTitle for which sessions can answer one. Sessions without a projected title stay out of the user-facing picker.',
         parameters: [{ name: 'agent', description: 'target agent; self is excluded and its cwd drives ranking.' }, { name: 'query', description: 'optional case-insensitive session-id/cwd/title substring.' }, { name: 'limit', description: 'optional positive result cap.' }, { name: 'signal', description: 'optional cancellation boundary for host autocomplete teardown.' }],
-        returns: 'candidates labeled by latest title or, when absent, session id.',
+        returns: 'candidates labeled by their latest projected title.',
       },
       {
         signature: '@Remote(\'candidates\') async remoteExportCandidates( agent: Agent, query: string, signal: AbortSignal, ): Promise<SessionReferenceMentionCandidate[]>',
@@ -5003,6 +5075,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface CordisPackageVersion extends CordisPackageDraft {\n    readonly packageId: string;\n    readonly orgId: string;\n    readonly version: number;\n    readonly scope: CordisPluginScope;\n    readonly derivedFromPackageId?: string;\n    readonly authoredBy: string;\n    readonly modifiedBy?: string;\n    readonly sourceDigest: string;\n    readonly createdAt: number;\n}',
   },
   {
+    name: 'CordisPluginArchive',
+    declaration: 'export interface CordisPluginArchive {\n    readonly orgId: string;\n    readonly scope: Extract<CordisPluginScope, {\n        type: \'personal-workspace\';\n    }>;\n    readonly pluginId: string;\n    readonly archived: boolean;\n    readonly revision: number;\n    readonly updatedBy: string;\n    readonly updatedAt: number;\n}',
+  },
+  {
     name: 'CordisPluginScope',
     declaration: 'export type CordisPluginScope = {\n    type: \'session\';\n    sessionId: string;\n} | {\n    type: \'personal-workspace\';\n    workspaceId: string;\n    ownerUserId: string;\n} | {\n    type: \'department\';\n    departmentId: string;\n} | {\n    type: \'organization\';\n    organizationId: string;\n};',
   },
@@ -5076,7 +5152,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'CordisScopeBinding',
-    declaration: 'export interface CordisScopeBinding {\n    readonly bindingId: string;\n    readonly orgId: string;\n    readonly scope: CordisPluginScope;\n    readonly pluginId: string;\n    readonly activePackageId: string;\n    readonly generation: number;\n    readonly revision: number;\n    readonly activatedBy: string;\n    readonly disabled: boolean;\n    readonly disabledReason?: string;\n    readonly trustLevel: \'isolated\' | \'trusted-in-process\';\n    readonly updatedAt: number;\n}',
+    declaration: 'export interface CordisScopeBinding {\n    readonly bindingId: string;\n    readonly orgId: string;\n    readonly scope: CordisPluginScope;\n    readonly pluginId: string;\n    readonly activePackageId: string;\n    readonly generation: number;\n    readonly revision: number;\n    readonly activatedBy: string;\n    readonly disabled: boolean;\n    readonly disabledReason?: string;\n    readonly trustLevel: \'isolated\' | \'trusted-in-process\';\n    readonly updatedAt: number;\n    readonly canManage?: boolean;\n}',
   },
   {
     name: 'CordisSessionGeneration',
@@ -5091,6 +5167,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface CordisWorkspaceActivateRequest {\n    readonly workspaceId: string;\n    readonly pluginId: string;\n    readonly packageId: string;\n    readonly expectedRevision: number;\n    readonly idempotencyKey: string;\n}',
   },
   {
+    name: 'CordisWorkspaceArchiveRequest',
+    declaration: 'export interface CordisWorkspaceArchiveRequest {\n    readonly workspaceId: string;\n    readonly pluginId: string;\n    readonly idempotencyKey: string;\n}',
+  },
+  {
     name: 'CordisWorkspaceListRequest',
     declaration: 'export interface CordisWorkspaceListRequest {\n    readonly workspaceId: string;\n}',
   },
@@ -5100,7 +5180,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'CordisWorkspaceProjection',
-    declaration: 'export interface CordisWorkspaceProjection {\n    readonly packages: readonly CordisPackageVersion[];\n    readonly bindings: readonly CordisScopeBinding[];\n}',
+    declaration: 'export interface CordisWorkspaceProjection {\n    readonly packages: readonly CordisPackageVersion[];\n    readonly archivedPackages: readonly CordisPackageVersion[];\n    readonly bindings: readonly CordisScopeBinding[];\n}',
   },
   {
     name: 'CordisWorkspaceRollbackRequest',
@@ -5508,7 +5588,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'EnterpriseDeviceView',
-    declaration: 'export interface EnterpriseDeviceView {\n    readonly deviceId: string;\n    readonly deviceName: string;\n    readonly platform: \'macos\' | \'windows\' | \'linux\';\n    readonly status: \'online\' | \'offline\' | \'revoked\';\n    readonly lastHeartbeatAt?: number;\n}',
+    declaration: 'export interface EnterpriseDeviceView {\n    readonly deviceId: string;\n    readonly deviceName: string;\n    readonly kind?: \'computer\' | \'recorder\';\n    readonly platform: \'macos\' | \'windows\' | \'linux\' | \'recorder\';\n    readonly status: \'online\' | \'offline\' | \'revoked\';\n    readonly lastHeartbeatAt?: number;\n}',
   },
   {
     name: 'EnterpriseEmployeeAssetRef',
@@ -5569,6 +5649,58 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'EnterprisePrincipalView',
     declaration: 'export interface EnterprisePrincipalView {\n    readonly actorType: \'human\';\n    readonly userId: string;\n    readonly orgId: string;\n    readonly username: string;\n    readonly displayName: string;\n    readonly roles: readonly EnterpriseRole[];\n    readonly departmentIds: readonly string[];\n    readonly primaryDepartmentId?: string;\n}',
+  },
+  {
+    name: 'EnterpriseRecorderAsrConfig',
+    declaration: 'export interface EnterpriseRecorderAsrConfig {\n    readonly mode: EnterpriseRecorderModelMode;\n    readonly model: string;\n    readonly endpoint?: string;\n    readonly credentialRef?: string;\n}',
+  },
+  {
+    name: 'EnterpriseRecorderCamConfig',
+    declaration: 'export interface EnterpriseRecorderCamConfig {\n    readonly enabled: boolean;\n    readonly mode: EnterpriseRecorderModelMode;\n    readonly model: string;\n    readonly endpoint?: string;\n    readonly credentialRef?: string;\n    readonly matchThreshold: number;\n}',
+  },
+  {
+    name: 'EnterpriseRecorderDeviceView',
+    declaration: 'export interface EnterpriseRecorderDeviceView {\n    readonly recorderId: string;\n    readonly deviceName: string;\n    readonly status: \'active\' | \'revoked\';\n    readonly lastSeenAt?: number;\n}',
+  },
+  {
+    name: 'EnterpriseRecorderListRequest',
+    declaration: 'export interface EnterpriseRecorderListRequest {\n    readonly includeRevoked?: boolean;\n}',
+  },
+  {
+    name: 'EnterpriseRecorderMemoryRuntimeSaveRequest',
+    declaration: 'export interface EnterpriseRecorderMemoryRuntimeSaveRequest {\n    readonly expectedRevision: number;\n    readonly provider: string;\n    readonly model: string;\n    readonly timeoutMs: number;\n}',
+  },
+  {
+    name: 'EnterpriseRecorderMemoryRuntimeView',
+    declaration: 'export interface EnterpriseRecorderMemoryRuntimeView {\n    readonly revision: number;\n    readonly provider: string;\n    readonly model: string;\n    readonly timeoutMs: number;\n    readonly sessionId: string;\n}',
+  },
+  {
+    name: 'EnterpriseRecorderModelMode',
+    declaration: 'export type EnterpriseRecorderModelMode = \'local\' | \'online\';',
+  },
+  {
+    name: 'EnterpriseRecorderPairingChallenge',
+    declaration: 'export interface EnterpriseRecorderPairingChallenge {\n    readonly pairingId: string;\n    readonly code: string;\n    readonly expiresAt: number;\n}',
+  },
+  {
+    name: 'EnterpriseRecorderPairingRequest',
+    declaration: 'export interface EnterpriseRecorderPairingRequest {\n}',
+  },
+  {
+    name: 'EnterpriseRecorderRuntimeConfig',
+    declaration: 'export interface EnterpriseRecorderRuntimeConfig {\n    readonly revision: number;\n    readonly asr: EnterpriseRecorderAsrConfig;\n    readonly cam: EnterpriseRecorderCamConfig;\n}',
+  },
+  {
+    name: 'EnterpriseRecorderRuntimeRequest',
+    declaration: 'export interface EnterpriseRecorderRuntimeRequest {\n}',
+  },
+  {
+    name: 'EnterpriseRecorderRuntimeSaveRequest',
+    declaration: 'export interface EnterpriseRecorderRuntimeSaveRequest {\n    readonly expectedRevision: number;\n    readonly asr: EnterpriseRecorderAsrConfig;\n    readonly cam: EnterpriseRecorderCamConfig;\n}',
+  },
+  {
+    name: 'EnterpriseRecorderRuntimeView',
+    declaration: 'export interface EnterpriseRecorderRuntimeView extends EnterpriseRecorderRuntimeConfig {\n    readonly activeRevision?: number;\n    readonly state: \'stopped\' | \'starting\' | \'running\' | \'error\';\n    readonly asrReady: boolean;\n    readonly camReady: boolean;\n    readonly credentialReady: boolean;\n    readonly error?: string;\n    readonly checkedAt: number;\n}',
   },
   {
     name: 'EnterpriseResource',
@@ -6848,7 +6980,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SessionPersistenceSnapshot',
-    declaration: 'export interface SessionPersistenceSnapshot {\n    readonly header: SessionHeader;\n    readonly revision: SessionPersistenceRevision;\n    readonly eventCount?: number;\n    readonly conversationStarted?: boolean;\n    readonly sizeBytes?: number;\n}',
+    declaration: 'export interface SessionPersistenceSnapshot {\n    readonly header: SessionHeader;\n    readonly revision: SessionPersistenceRevision;\n    readonly eventCount?: number;\n    readonly conversationStarted?: boolean;\n    readonly title?: string;\n    readonly sizeBytes?: number;\n}',
   },
   {
     name: 'SessionPersistenceStatOptions',
@@ -6896,7 +7028,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SessionRecord',
-    declaration: 'export interface SessionRecord {\n    header: SessionHeader;\n    live: boolean;\n    persisted: boolean;\n    conversationStarted?: boolean;\n}',
+    declaration: 'export interface SessionRecord {\n    header: SessionHeader;\n    live: boolean;\n    persisted: boolean;\n    conversationStarted?: boolean;\n    title?: string;\n}',
   },
   {
     name: 'SessionReferenceCandidate',
@@ -6984,7 +7116,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SessionSummary',
-    declaration: 'export interface SessionSummary {\n    readonly sessionId: SessionId;\n    readonly updatedAt: number;\n    readonly running: boolean;\n    readonly blank: boolean;\n    readonly parentSessionId?: SessionId;\n    readonly origin?: \'subagent\';\n    readonly cwd?: string;\n    readonly projections?: SessionProjectionHints;\n}',
+    declaration: 'export interface SessionSummary {\n    readonly sessionId: SessionId;\n    readonly title?: string;\n    readonly updatedAt: number;\n    readonly running: boolean;\n    readonly blank: boolean;\n    readonly parentSessionId?: SessionId;\n    readonly origin?: \'subagent\';\n    readonly cwd?: string;\n    readonly projections?: SessionProjectionHints;\n}',
   },
   {
     name: 'SessionSurface',

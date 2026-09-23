@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-08-29-enterprise-cordis-distribution.md
-2026-08-29-enterprise-cordis-distribution.md: f4768ac92699997bcefeba6431640ee423093455
-2026-08-29-enterprise-cordis-distribution.zh.md: b825bf32530b5534e95e507669e2c51a99d89a40
+2026-08-29-enterprise-cordis-distribution.md: db767a6244bd258ddfd419502226c6c528ea1f23
+2026-08-29-enterprise-cordis-distribution.zh.md: 18d66a570b750d355dc1d0a06a430a2163332e29

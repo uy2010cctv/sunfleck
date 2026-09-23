@@ -252,7 +252,8 @@ export function classifyApiEndpoint(endpoint: string, input: unknown): ApiClassi
       ...(cordisPluginId === undefined ? {} : { resourceId: cordisPluginId }),
     }
   }
-  if (['cordisWorkspace.save', 'cordisWorkspace.activate', 'cordisWorkspace.stop', 'cordisWorkspace.rollback',
+  if (['cordisWorkspace.save', 'cordisWorkspace.activate', 'cordisWorkspace.archive', 'cordisWorkspace.restore',
+    'cordisWorkspace.stop', 'cordisWorkspace.rollback',
     'cordisReview.submit'].includes(endpoint)) {
     return {
       action: 'plugin.create', resourceType: 'cordis-plugin',
@@ -514,7 +515,10 @@ export class EnterpriseSecurity {
     return this.issueSessionForOrganizationAsync(identity.organizationId, user.id)
   }
 
-  /** Whether this principal may administer Host-level organization tenancy. */
+  /** Whether this principal may administer Host-level organization tenancy.
+   * @param principal - authenticated enterprise principal.
+   * @returns whether the principal has administrator authority in this Host organization.
+   */
   isPlatformAdministrator(principal: EnterprisePrincipal): boolean {
     return principal.orgId === this.config.organizationId && principal.roles.includes('administrator')
   }

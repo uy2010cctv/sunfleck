@@ -85,6 +85,48 @@ Authenticated Device Plane pairing and heartbeat service.
  */
 @Remote('pair') async pair(request: EnterpriseDevicePairRequest): Promise<{ deviceId: string }>
 
+/** Create one ten-minute recorder binding code for the authenticated user.
+ * @param request - Empty recorder-pairing request owned by the authenticated principal.
+ * @returns One plaintext code and its expiry; only the hash remains durable.
+ */
+@Remote('createRecorderPairing') async createRecorderPairing( request: EnterpriseRecorderPairingRequest, ): Promise<EnterpriseRecorderPairingChallenge>
+
+/** List recorder devices owned by the authenticated user.
+ * @param request - Recorder status filter.
+ * @returns Redacted recorder devices for the authenticated principal.
+ */
+@Remote('listRecorders') async listRecorders(request: EnterpriseRecorderListRequest): Promise<EnterpriseRecorderDeviceView[]>
+
+/** Read saved recorder model configuration and fresh runtime health.
+ * @param request - Empty authenticated runtime lookup.
+ * @returns Redacted ASR/CAM configuration and verified readiness.
+ */
+@Remote('getRecorderRuntime') async getRecorderRuntime( request: EnterpriseRecorderRuntimeRequest, ): Promise<EnterpriseRecorderRuntimeView>
+
+/** Save recorder model configuration after resolving Host-owned Credential references.
+ * @param request - Revision-aware ASR/CAM configuration.
+ * @returns Saved redacted configuration and current readiness.
+ */
+@Remote('saveRecorderRuntime') async saveRecorderRuntime( request: EnterpriseRecorderRuntimeSaveRequest, ): Promise<EnterpriseRecorderRuntimeView>
+
+/** Start or hot-reload the saved recorder model configuration.
+ * @param request - Empty authenticated start request.
+ * @returns Fresh runtime health after startup settles.
+ */
+@Remote('startRecorderRuntime') async startRecorderRuntime( request: EnterpriseRecorderRuntimeRequest, ): Promise<EnterpriseRecorderRuntimeView>
+
+/** Read the recorder-memory model route and the caller's dedicated processing Session id.
+ * @param request - Empty authenticated runtime lookup.
+ * @returns Persisted model route and dedicated Session id.
+ */
+@Remote('getRecorderMemoryRuntime') async getRecorderMemoryRuntime( request: EnterpriseRecorderRuntimeRequest, ): Promise<EnterpriseRecorderMemoryRuntimeView>
+
+/** Save the recorder-memory model route after verifying it exists in the active model catalog.
+ * @param request - Revision-aware provider, model, and timeout.
+ * @returns Persisted model route and dedicated Session id.
+ */
+@Remote('saveRecorderMemoryRuntime') async saveRecorderMemoryRuntime( request: EnterpriseRecorderMemoryRuntimeSaveRequest, ): Promise<EnterpriseRecorderMemoryRuntimeView>
+
 /**
  * Refresh the online status of an owned device.
  * @param request - Owned device identity.

@@ -102,6 +102,7 @@ const BASE_STATE: EnterpriseWorkbenchState = {
   devices: EMPTY_PAGE,
   modelOptions: [],
   extensions: EMPTY_PAGE, extensionBindings: [], extensionReviews: EMPTY_PAGE, formalPlugins: EMPTY_PAGE,
+  archivedExtensions: EMPTY_PAGE,
   releases: [],
   mutationPhase: 'idle', mutationError: null, retryAction: null,
 }
@@ -385,6 +386,7 @@ describe('EnterpriseWorkbench', () => {
           bindingId: 'binding-1', orgId: 'org-a', pluginId: 'orders-1', activePackageId: 'package-1',
           scope: { type: 'personal-workspace', workspaceId: 'workspace-1', ownerUserId: 'user-1' },
           generation: 1, revision: 1, activatedBy: 'user-1', disabled: false, trustLevel: 'isolated', updatedAt: 1,
+          canManage: true,
         }],
         extensionReviews: { phase: 'ready', error: null, items: [{
           reviewId: 'review-1', orgId: 'org-a', departmentId: 'dept-a', pluginId: 'orders-1',
@@ -416,6 +418,7 @@ describe('EnterpriseWorkbench', () => {
 
   it('shows a private saved Cordis version and lets its author restore it', () => {
     const activateExtension = vi.fn(() => Promise.resolve())
+    const archiveExtension = vi.fn(() => Promise.resolve())
     render(<EnterpriseWorkbench {...workbenchProps({
       state: { mode: 'enterprise', page: 'extensions', extensionWorkspaceId: 'workspace-1',
         extensions: { phase: 'ready', error: null, items: [{
@@ -426,11 +429,33 @@ describe('EnterpriseWorkbench', () => {
           artifactRef: 'artifact://private', validationReportRef: 'report://private', authoredBy: 'user-1',
           sourceDigest: 'a'.repeat(64), createdAt: 1,
         }] }, extensionBindings: [],
-      }, activateExtension,
+      }, activateExtension, archiveExtension,
     } as never)} />)
     expect(screen.getByText('私有助手')).toBeDefined()
     fireEvent.click(screen.getByRole('button', { name: '启用此版本' }))
     expect(activateExtension).toHaveBeenCalledWith(expect.objectContaining({ packageId: 'package-saved' }), undefined)
+    fireEvent.click(screen.getByRole('button', { name: '删除' }))
+    expect(archiveExtension).toHaveBeenCalledWith(expect.objectContaining({ packageId: 'package-saved' }))
+  })
+
+  it('restores a private Plugin from the recycle bin without activating it', () => {
+    const restoreExtension = vi.fn(() => Promise.resolve())
+    render(<EnterpriseWorkbench {...workbenchProps({ state: {
+      mode: 'enterprise', page: 'extensions', archivedExtensions: { phase: 'ready', error: null, items: [{
+        packageId: 'archived-1', orgId: 'org-a', pluginId: 'private-1', dynamicPackageId: 'pkg-1',
+        version: 1, scope: { type: 'personal-workspace', workspaceId: 'workspace-1', ownerUserId: 'user-1' },
+        name: '归档助手', purpose: '供创建者使用。', hostCode: 'return { apply() {} }',
+        manifest: { apiVersion: 'dsh-plugin/v1', runtime: 'isolated-realm', provides: [], capabilities: [] },
+        artifactRef: 'artifact://private', validationReportRef: 'report://private', authoredBy: 'user-1',
+        sourceDigest: 'a'.repeat(64), createdAt: 1,
+      }] },
+    }, restoreExtension } as never)} />)
+    fireEvent.click(screen.getByRole('button', { name: '回收站' }))
+    expect(screen.getByText('归档助手')).toBeDefined()
+    expect(screen.getByText('已删除，可恢复')).toBeDefined()
+    expect(screen.queryByRole('button', { name: '启用此版本' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: '恢复' }))
+    expect(restoreExtension).toHaveBeenCalledWith(expect.objectContaining({ packageId: 'archived-1' }))
   })
 
   it('shows all Workspace extensions together with their source Workspace and an optional filter', () => {
@@ -494,12 +519,38 @@ describe('EnterpriseWorkbench', () => {
           bindingId: 'org-binding', orgId: 'org-a', pluginId: 'session-1:helper-1', activePackageId: 'published-1',
           scope: { type: 'organization', organizationId: 'org-a' }, generation: 1, revision: 1,
           activatedBy: 'manager-1', disabled: false, trustLevel: 'isolated', updatedAt: 1,
+          canManage: false,
         }],
       },
     } as never)} />)
     fireEvent.click(screen.getByRole('button', { name: '组织扩展' }))
     expect(screen.getByText('组织助手')).toBeDefined()
     expect(screen.getByText('对新 Session 生效')).toBeDefined()
+    expect(screen.queryByRole('button', { name: '停止' })).toBeNull()
+  })
+
+  it('keeps pending department source out of the Department tab and gives members read-only access', () => {
+    const row = (packageId: string, name: string) => ({
+      packageId, orgId: 'org-a', pluginId: packageId, dynamicPackageId: 'pkg-1', version: 1,
+      scope: { type: 'department', departmentId: 'dept-a' }, name, purpose: '部门能力。',
+      hostCode: 'return { apply() {} }',
+      manifest: { apiVersion: 'dsh-plugin/v1', runtime: 'isolated-realm', provides: [], capabilities: [] },
+      artifactRef: `artifact://${packageId}`, validationReportRef: `report://${packageId}`,
+      authoredBy: 'user-1', sourceDigest: 'a'.repeat(64), createdAt: 1,
+    })
+    render(<EnterpriseWorkbench {...workbenchProps({ state: {
+      mode: 'enterprise', page: 'extensions', extensions: { phase: 'ready', error: null, items: [
+        row('pending-1', '待审源码'), row('approved-1', '部门共享助手'),
+      ] }, extensionBindings: [{
+        bindingId: 'department-binding', orgId: 'org-a', pluginId: 'approved-1', activePackageId: 'approved-1',
+        scope: { type: 'department', departmentId: 'dept-a' }, generation: 1, revision: 1,
+        activatedBy: 'manager-1', disabled: false, trustLevel: 'isolated', updatedAt: 1, canManage: false,
+      }],
+    } as never })} />)
+    fireEvent.click(screen.getByRole('button', { name: '部门扩展' }))
+    expect(screen.getByText('部门共享助手')).toBeDefined()
+    expect(screen.queryByText('待审源码')).toBeNull()
+    expect(screen.queryByRole('button', { name: '停止' })).toBeNull()
   })
 
   it('provides local management navigation and opens the employee draft editor from the roster', () => {
