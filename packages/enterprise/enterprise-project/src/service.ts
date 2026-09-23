@@ -12,6 +12,7 @@
 
 import { randomUUID } from 'node:crypto'
 import { isAbsolute } from 'node:path'
+import { EnterpriseProjectError } from './repository.ts'
 import type { EnterpriseProjectRepository } from './repository.ts'
 import { projectId } from './ids.ts'
 import type { ProjectId } from './ids.ts'
@@ -120,11 +121,13 @@ export class EnterpriseProjectService implements EnterpriseProjects {
     return projects.filter(project => visibleToListing(project, viewer.userId))
   }
 
-  async addMember(projectId: ProjectId, input: AddProjectMemberInput): Promise<ProjectMember> {
+  async addMember(orgId: string, projectId: ProjectId, input: AddProjectMemberInput): Promise<ProjectMember> {
+    await this.requireOwnProject(orgId, projectId)
     return this.store.insertMember(projectId, input)
   }
 
-  async removeMember(projectId: ProjectId, principalType: ProjectPrincipalType, principalId: string): Promise<void> {
+  async removeMember(orgId: string, projectId: ProjectId, principalType: ProjectPrincipalType, principalId: string): Promise<void> {
+    await this.requireOwnProject(orgId, projectId)
     await this.store.removeMember(projectId, principalType, principalId)
   }
 
@@ -132,9 +135,18 @@ export class EnterpriseProjectService implements EnterpriseProjects {
     return this.store.listMembers(projectId)
   }
 
-  async archive(projectId: ProjectId, byUserId: string): Promise<Project> {
+  async archive(orgId: string, projectId: ProjectId, byUserId: string): Promise<Project> {
     if (byUserId.trim() === '') throw new TypeError('enterprise project archive byUserId must not be empty')
+    await this.requireOwnProject(orgId, projectId)
     return this.store.archiveProject(projectId)
+  }
+
+  /** Fold unknown and foreign-organization ids into one `not-found` before a mutation. */
+  private async requireOwnProject(orgId: string, projectId: ProjectId): Promise<void> {
+    const project = await this.store.getProject(projectId)
+    if (project === undefined || project.orgId !== orgId) {
+      throw new EnterpriseProjectError('not-found', 'project', projectId)
+    }
   }
 
   async requireMember(

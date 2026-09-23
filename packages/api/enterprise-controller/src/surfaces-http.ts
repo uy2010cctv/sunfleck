@@ -654,7 +654,7 @@ export class ProjectHttpHandler {
       return failure(400, 'invalid-payload')
     }
     try {
-      await this.projects.addMember(id, { principalType, principalId, addedBy: principal.userId })
+      await this.projects.addMember(principal.orgId, id, { principalType, principalId, addedBy: principal.userId })
       return new Response(null, { status: 204 })
     } catch (error: unknown) {
       return this.projectFailure(error)
@@ -668,7 +668,7 @@ export class ProjectHttpHandler {
     )
     if (!decision.allowed) return failure(403, 'forbidden')
     try {
-      const project = await this.projects.archive(id, principal.userId)
+      const project = await this.projects.archive(principal.orgId, id, principal.userId)
       return Response.json({ id: project.projectId, state: project.state })
     } catch (error: unknown) {
       return this.projectFailure(error)

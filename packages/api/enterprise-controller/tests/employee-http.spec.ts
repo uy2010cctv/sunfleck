@@ -1265,6 +1265,20 @@ describe('project endpoints', () => {
     expect((await callProject(creator, 'POST', '/project-missing/archive')).status).toBe(404)
   })
 
+  it('folds foreign-organization project mutations behind 404', async () => {
+    const projects = makeProjects()
+    const foreign = await projects.create({
+      orgId: 'org-2', name: '外部项目', goal: 'x', workspacePath: '/managed/projects/foreign', createdBy: 'user-3',
+    })
+    const handler = makeProjectHandler(projects, principalOf(['administrator'], 'user-1'))
+
+    expect((await callProject(handler, 'POST', `/${foreign.projectId}/members`, {
+      principalType: 'user', principalId: 'user-1',
+    })).status).toBe(404)
+    expect((await callProject(handler, 'POST', `/${foreign.projectId}/archive`)).status).toBe(404)
+    expect(foreign.state).toBe('active')
+  })
+
   it('answers wrong methods and unknown project paths with 405 and 404', async () => {
     const handler = makeProjectHandler(makeProjects())
 

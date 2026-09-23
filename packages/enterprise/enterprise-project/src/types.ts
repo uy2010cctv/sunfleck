@@ -137,20 +137,24 @@ export interface EnterpriseProjects {
    */
   list(orgId: string, viewer?: EnterpriseProjectViewer): Promise<readonly Project[]>
   /**
-   * Add one member to an active project.
-   * @param projectId - project identifier; must be active.
+   * Add one member to an active project. A project of another organization is
+   * indistinguishable from an unknown id.
+   * @param orgId - organization the caller acts within.
+   * @param projectId - project identifier; must be active and belong to `orgId`.
    * @param input - member principal and the actor adding it.
    * @returns the created membership.
    */
-  addMember(projectId: ProjectId, input: AddProjectMemberInput): Promise<ProjectMember>
+  addMember(orgId: string, projectId: ProjectId, input: AddProjectMemberInput): Promise<ProjectMember>
   /**
    * Remove one member from an active project. Removing the last member is allowed; archiving,
-   * not membership, ends a project's life.
-   * @param projectId - project identifier; must be active.
+   * not membership, ends a project's life. A project of another organization is
+   * indistinguishable from an unknown id.
+   * @param orgId - organization the caller acts within.
+   * @param projectId - project identifier; must be active and belong to `orgId`.
    * @param principalType - whether the member is a user or an employee.
    * @param principalId - identifier of the member to remove.
    */
-  removeMember(projectId: ProjectId, principalType: ProjectPrincipalType, principalId: string): Promise<void>
+  removeMember(orgId: string, projectId: ProjectId, principalType: ProjectPrincipalType, principalId: string): Promise<void>
   /**
    * List one project's members in addition order.
    * @param projectId - project identifier.
@@ -160,12 +164,13 @@ export interface EnterpriseProjects {
   /**
    * Move one active project to archived; archived is terminal and every mutation except reads
    * rejects afterwards. The actor is recorded by the caller's audit trail; the store keeps only
-   * the archival time.
-   * @param projectId - project identifier; must be active.
+   * the archival time. A project of another organization is indistinguishable from an unknown id.
+   * @param orgId - organization the caller acts within.
+   * @param projectId - project identifier; must be active and belong to `orgId`.
    * @param byUserId - actor id requesting the archival; must not be empty.
    * @returns the archived project.
    */
-  archive(projectId: ProjectId, byUserId: string): Promise<Project>
+  archive(orgId: string, projectId: ProjectId, byUserId: string): Promise<Project>
   /**
    * Resolve the project one principal may work in, or undefined without leaking existence:
    * unknown ids, other organizations' projects, and non-members all return undefined. Projects

@@ -115,20 +115,20 @@ describe('EnterpriseProjectService.members', () => {
       projectId: project.projectId, principalType: 'user' as const, principalId: 'owner-a',
       addedBy: 'owner-a', addedAt: project.createdAt,
     }
-    await service.addMember(project.projectId, {
+    await service.addMember('org-a', project.projectId, {
       principalType: 'employee', principalId: 'employee-a', addedBy: 'owner-a',
     })
-    const user = await service.addMember(project.projectId, {
+    const user = await service.addMember('org-a', project.projectId, {
       principalType: 'user', principalId: 'user-b', addedBy: 'owner-a',
     })
 
     const listed = await service.listMembers(project.projectId)
     expect(listed.map(row => `${row.principalType}:${row.principalId}`).sort())
       .toEqual(['employee:employee-a', 'user:owner-a', 'user:user-b'].sort())
-    await service.removeMember(project.projectId, 'employee', 'employee-a')
+    await service.removeMember('org-a', project.projectId, 'employee', 'employee-a')
     await expect(service.listMembers(project.projectId)).resolves.toEqual([creator, user])
 
-    await expect(service.addMember(project.projectId, {
+    await expect(service.addMember('org-a', project.projectId, {
       principalType: 'user', principalId: 'user-b', addedBy: 'owner-a',
     })).rejects.toMatchObject({ code: 'conflict', resourceType: 'project-member' })
   })
@@ -137,9 +137,9 @@ describe('EnterpriseProjectService.members', () => {
     const service = makeService()
     const project = await createFixture(service, 'organization')
 
-    await service.removeMember(project.projectId, 'user', 'owner-a')
+    await service.removeMember('org-a', project.projectId, 'user', 'owner-a')
     await expect(service.listMembers(project.projectId)).resolves.toEqual([])
-    await expect(service.removeMember(project.projectId, 'user', 'owner-a')).rejects.toMatchObject({
+    await expect(service.removeMember('org-a', project.projectId, 'user', 'owner-a')).rejects.toMatchObject({
       code: 'not-found', resourceType: 'project-member',
     })
   })
@@ -147,15 +147,15 @@ describe('EnterpriseProjectService.members', () => {
   it('rejects membership mutations on unknown and archived projects while reads keep working', async () => {
     const service = makeService()
     const project = await createFixture(service, 'organization')
-    await service.archive(project.projectId, 'owner-a')
+    await service.archive('org-a', project.projectId, 'owner-a')
 
-    await expect(service.addMember(project.projectId, {
+    await expect(service.addMember('org-a', project.projectId, {
       principalType: 'user', principalId: 'user-b', addedBy: 'owner-a',
     })).rejects.toMatchObject({ code: 'invalid-state', resourceType: 'project' })
-    await expect(service.removeMember(project.projectId, 'user', 'owner-a')).rejects.toMatchObject({
+    await expect(service.removeMember('org-a', project.projectId, 'user', 'owner-a')).rejects.toMatchObject({
       code: 'invalid-state', resourceType: 'project',
     })
-    await expect(service.addMember(projectId('project-missing'), {
+    await expect(service.addMember('org-a', projectId('project-missing'), {
       principalType: 'user', principalId: 'user-b', addedBy: 'owner-a',
     })).rejects.toBeInstanceOf(EnterpriseProjectError)
     await expect(service.listMembers(project.projectId)).resolves.toEqual([{
@@ -169,15 +169,15 @@ describe('EnterpriseProjectService.archive', () => {
   it('archives an active project once and names the terminal state afterwards', async () => {
     const service = makeService()
     const project = await createFixture(service, 'organization')
-    const archived = await service.archive(project.projectId, 'owner-a')
+    const archived = await service.archive('org-a', project.projectId, 'owner-a')
 
     expect(archived.state).toBe('archived')
     expect(archived.archivedAt).toBeGreaterThanOrEqual(project.createdAt)
     await expect(service.get(project.projectId)).resolves.toMatchObject({ state: 'archived' })
-    await expect(service.archive(project.projectId, 'owner-a')).rejects.toMatchObject({
+    await expect(service.archive('org-a', project.projectId, 'owner-a')).rejects.toMatchObject({
       code: 'invalid-state', resourceType: 'project',
     })
-    await expect(service.archive(projectId('project-missing'), 'owner-a')).rejects.toMatchObject({
+    await expect(service.archive('org-a', projectId('project-missing'), 'owner-a')).rejects.toMatchObject({
       code: 'not-found', resourceType: 'project',
     })
   })
@@ -185,7 +185,21 @@ describe('EnterpriseProjectService.archive', () => {
   it('rejects an empty archiving actor before touching the store', async () => {
     const service = makeService()
     const project = await createFixture(service, 'organization')
-    await expect(service.archive(project.projectId, '  ')).rejects.toThrow(TypeError)
+    await expect(service.archive('org-a', project.projectId, '  ')).rejects.toThrow(TypeError)
+    await expect(service.get(project.projectId)).resolves.toMatchObject({ state: 'active' })
+  })
+
+  it('folds foreign-organization mutations behind not-found', async () => {
+    const service = makeService()
+    const project = await createFixture(service, 'organization', { orgId: 'org-b' })
+    await expect(service.addMember('org-a', project.projectId, {
+      principalType: 'user', principalId: 'user-a', addedBy: 'user-a',
+    })).rejects.toMatchObject({ code: 'not-found', resourceType: 'project' })
+    await expect(service.removeMember('org-a', project.projectId, 'user', 'owner-a'))
+      .rejects.toMatchObject({ code: 'not-found', resourceType: 'project' })
+    await expect(service.archive('org-a', project.projectId, 'owner-a')).rejects.toMatchObject({
+      code: 'not-found', resourceType: 'project',
+    })
     await expect(service.get(project.projectId)).resolves.toMatchObject({ state: 'active' })
   })
 })
@@ -194,7 +208,7 @@ describe('EnterpriseProjectService.requireMember', () => {
   it('resolves explicit user and employee members', async () => {
     const service = makeService()
     const project = await createFixture(service, 'organization')
-    await service.addMember(project.projectId, { principalType: 'employee', principalId: 'employee-a', addedBy: 'owner-a' })
+    await service.addMember('org-a', project.projectId, { principalType: 'employee', principalId: 'employee-a', addedBy: 'owner-a' })
 
     await expect(service.requireMember('org-a', project.projectId, { userId: 'owner-a' }))
       .resolves.toEqual(project)
@@ -205,7 +219,7 @@ describe('EnterpriseProjectService.requireMember', () => {
   it('returns undefined without leaking existence for unknown, cross-org, and non-member callers', async () => {
     const service = makeService()
     const project = await createFixture(service, 'restricted', { allowedUserIds: ['user-b'] })
-    await service.addMember(project.projectId, { principalType: 'employee', principalId: 'employee-a', addedBy: 'owner-a' })
+    await service.addMember('org-a', project.projectId, { principalType: 'employee', principalId: 'employee-a', addedBy: 'owner-a' })
 
     await expect(service.requireMember('org-a', projectId('project-missing'), { userId: 'owner-a' }))
       .resolves.toBeUndefined()
@@ -227,7 +241,7 @@ describe('EnterpriseProjectService.requireMember', () => {
       .resolves.toBeUndefined()
     await expect(service.requireMember('org-a', project.projectId, { userId: 'nobody', employeeId: 'owner-a' }))
       .resolves.toBeUndefined()
-    await service.addMember(project.projectId, { principalType: 'employee', principalId: 'employee-a', addedBy: 'owner-a' })
+    await service.addMember('org-a', project.projectId, { principalType: 'employee', principalId: 'employee-a', addedBy: 'owner-a' })
     await expect(service.requireMember('org-a', project.projectId, { userId: 'employee-a' }))
       .resolves.toBeUndefined()
   })
@@ -235,7 +249,7 @@ describe('EnterpriseProjectService.requireMember', () => {
   it('stays readable for members after archival', async () => {
     const service = makeService()
     const project = await createFixture(service, 'organization')
-    await service.archive(project.projectId, 'owner-a')
+    await service.archive('org-a', project.projectId, 'owner-a')
     await expect(service.requireMember('org-a', project.projectId, { userId: 'owner-a' }))
       .resolves.toMatchObject({ state: 'archived' })
   })
