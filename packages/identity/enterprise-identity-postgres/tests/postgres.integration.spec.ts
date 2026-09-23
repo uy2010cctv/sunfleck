@@ -141,6 +141,59 @@ describe.skipIf(url === undefined)('enterprise identity PostgreSQL directory int
     expect(listed.find(entry => entry.id === written.id)?.lastAccessAt).toBe(1_700_000_000_500)
     await expect(repository.touchMemoryAccess('memory-missing', 1_700_000_000_500)).rejects.toThrow(/missing/)
   })
+
+  it('supersedes approved memory and batch updates consolidation importance', async () => {
+    const superseded = await repository.proposeMemory({
+      id: 'memory-superseded', orgId: 'org-a', scope: 'organization', kind: 'process',
+      summary: '旧流程：邮件审批。', sourceDigest: 'd'.repeat(64), createdBy: 'user-1',
+    })
+    await repository.reviewMemory({
+      id: superseded.id, orgId: 'org-a', decision: 'approved', reviewedBy: 'user-1',
+      reason: '已核对', expectedRevision: superseded.revision,
+    })
+    const summary = await repository.proposeMemory({
+      id: 'memory-summary', orgId: 'org-a', scope: 'organization', kind: 'summary',
+      summary: '审批流程纪要汇总。', sourceDigest: 'e'.repeat(64), createdBy: 'user-1',
+    })
+    await repository.reviewMemory({
+      id: summary.id, orgId: 'org-a', decision: 'approved', reviewedBy: 'user-1',
+      reason: '已核对', expectedRevision: summary.revision,
+    })
+
+    await repository.supersedeMemory(superseded.id, summary.id, 1_700_000_000_900)
+    const retired = await repository.listMemories({ orgId: 'org-a', statuses: ['retired'] })
+    expect(retired).toHaveLength(1)
+    expect(retired[0]).toMatchObject({
+      id: superseded.id, status: 'retired', invalidatedBy: summary.id, updatedAt: 1_700_000_000_900,
+    })
+
+    await expect(repository.supersedeMemory(superseded.id, superseded.id, 1)).rejects.toThrow(/itself/)
+    await expect(repository.supersedeMemory(superseded.id, summary.id, 1)).rejects.toThrow(/approved/)
+    await expect(repository.supersedeMemory(superseded.id, 'memory-missing', 1)).rejects.toThrow(/superseding/)
+    await expect(repository.supersedeMemory('memory-missing', summary.id, 1)).rejects.toThrow(/missing/)
+
+    await expect(repository.batchUpdateImportance([
+      { id: summary.id, importance: 4.5, lastAccessAt: 1_700_000_001_000 },
+      { id: 'memory-missing', importance: 1 },
+    ])).resolves.toBe(1)
+    await expect(repository.listMemories({ orgId: 'org-a', kinds: ['summary'] })).resolves.toEqual([
+      expect.objectContaining({
+        id: summary.id, kind: 'summary', importance: 4.5, lastAccessAt: 1_700_000_001_000,
+      }),
+    ])
+    await expect(repository.batchUpdateImportance([{ id: summary.id, importance: -2 }]))
+      .rejects.toThrow(/non-negative/)
+  })
+
+  it('lists stale approved memories on the coalesced staleness clock', async () => {
+    // memory-pg was approved and never touched, so updated_at is its staleness clock; the summary
+    // row's refreshed access clock keeps it out.
+    await expect(repository.listMemories({ orgId: 'org-a', staleBefore: 1_700_000_000_400 }))
+      .resolves.toEqual([expect.objectContaining({ id: 'memory-pg' })])
+    await repository.touchMemoryAccess('memory-pg', 1_700_000_000_450)
+    await expect(repository.listMemories({ orgId: 'org-a', staleBefore: 1_700_000_000_400 }))
+      .resolves.toEqual([])
+  })
 })
 
 describe.skipIf(url === undefined)('enterprise identity PostgreSQL memory widening migration', () => {
@@ -218,10 +271,11 @@ describe.skipIf(url === undefined)('enterprise identity PostgreSQL memory wideni
   it('widens the memories table in place while preserving committed rows', async () => {
     await migrateEnterpriseIdentityPostgres(new PgDatabase(client))
 
-    const memories = await client.query(`SELECT id, scope_type, importance, agent_employee_id, pair_user_id
-      FROM enterprise_memories ORDER BY id`)
+    const memories = await client.query(`SELECT id, scope_type, importance, agent_employee_id, pair_user_id,
+      valid_from, invalidated_by FROM enterprise_memories ORDER BY id`)
     expect(memories.rows).toEqual([{
-      id: 'memory-org', scope_type: 'organization', importance: 0, agent_employee_id: null, pair_user_id: null,
+      id: 'memory-org', scope_type: 'organization', importance: 0, agent_employee_id: null,
+      pair_user_id: null, valid_from: null, invalidated_by: null,
     }])
     const version = await client.query<{ value: string }>(
       "SELECT value FROM enterprise_meta WHERE key = 'schema-version'",
@@ -233,6 +287,13 @@ describe.skipIf(url === undefined)('enterprise identity PostgreSQL memory wideni
       created_by, revision, created_at, updated_at)
       VALUES ('memory-agent', 'org-a', 'agent', NULL, 'employee-1', NULL, 'preference', 'approved',
         '回复保持正式书面语。', '${'b'.repeat(64)}', '[]'::jsonb, 'user-1', 1, 1, 1)`)
+    // The widened kind set accepts consolidation summaries next to every committed kind, and the
+    // lineage columns take non-null values.
+    await client.query(`INSERT INTO enterprise_memories(id, org_id, scope_type, department_id,
+      agent_employee_id, pair_user_id, kind, status, summary, source_digest, privacy_findings,
+      created_by, revision, created_at, updated_at, valid_from, invalidated_by)
+      VALUES ('memory-summary', 'org-a', 'organization', NULL, NULL, NULL, 'summary', 'approved',
+        '审批流程纪要汇总。', '${'d'.repeat(64)}', '[]'::jsonb, 'user-1', 1, 1, 1, 500, 'memory-agent')`)
     await expect(client.query(`INSERT INTO enterprise_memories(id, org_id, scope_type, department_id,
       agent_employee_id, pair_user_id, kind, status, summary, source_digest, privacy_findings,
       created_by, revision, created_at, updated_at)

@@ -3,7 +3,7 @@
 import type { PostgresDatabase } from './types.ts'
 
 /** Value exported as `ENTERPRISE_IDENTITY_POSTGRES_SCHEMA_VERSION`. */
-export const ENTERPRISE_IDENTITY_POSTGRES_SCHEMA_VERSION = 7
+export const ENTERPRISE_IDENTITY_POSTGRES_SCHEMA_VERSION = 8
 
 /** Scope-to-owner pairing CHECK shared by the create-path and widen-path `enterprise_memories` DDL. */
 const ENTERPRISE_MEMORIES_PAIRING_CHECK = `(
@@ -27,7 +27,7 @@ const ENTERPRISE_MEMORIES_COLUMNS = `
     agent_employee_id TEXT,
     pair_user_id TEXT,
     project_id TEXT,
-    kind TEXT NOT NULL CHECK (kind IN ('business-fact', 'process', 'terminology', 'decision', 'preference')),
+    kind TEXT NOT NULL CHECK (kind IN ('business-fact', 'process', 'terminology', 'decision', 'preference', 'summary')),
     status TEXT NOT NULL CHECK (status IN ('proposed', 'approved', 'rejected', 'retired')),
     summary TEXT NOT NULL,
     source_digest TEXT NOT NULL,
@@ -40,6 +40,11 @@ const ENTERPRISE_MEMORIES_COLUMNS = `
     revision BIGINT NOT NULL,
     created_at BIGINT NOT NULL,
     updated_at BIGINT NOT NULL,
+    -- valid_from and invalidated_by carry consolidation lineage: the epoch-ms time the row became
+    -- valid and the id of the memory that superseded it. invalidated_by references another memory
+    -- id by convention only — no FOREIGN KEY — and the service layer maintains the supersede chain.
+    valid_from BIGINT,
+    invalidated_by TEXT,
     CHECK (${ENTERPRISE_MEMORIES_PAIRING_CHECK})`
 
 const STATEMENTS = [
@@ -172,6 +177,8 @@ async function widenEnterpriseMemories(database: PostgresDatabase): Promise<void
   await database.query('ALTER TABLE enterprise_memories ADD COLUMN IF NOT EXISTS project_id TEXT')
   await database.query('ALTER TABLE enterprise_memories ADD COLUMN IF NOT EXISTS importance DOUBLE PRECISION NOT NULL DEFAULT 0')
   await database.query('ALTER TABLE enterprise_memories ADD COLUMN IF NOT EXISTS last_access_at BIGINT')
+  await database.query('ALTER TABLE enterprise_memories ADD COLUMN IF NOT EXISTS valid_from BIGINT')
+  await database.query('ALTER TABLE enterprise_memories ADD COLUMN IF NOT EXISTS invalidated_by TEXT')
   await database.query(`DO $$
     DECLARE constraint_name text;
     BEGIN
@@ -187,7 +194,7 @@ async function widenEnterpriseMemories(database: PostgresDatabase): Promise<void
     CHECK (scope_type IN ('organization', 'department', 'project', 'agent', 'pair'))`)
   await database.query(`ALTER TABLE enterprise_memories
     ADD CONSTRAINT enterprise_memories_kind_check
-    CHECK (kind IN ('business-fact', 'process', 'terminology', 'decision', 'preference'))`)
+    CHECK (kind IN ('business-fact', 'process', 'terminology', 'decision', 'preference', 'summary'))`)
   await database.query(`ALTER TABLE enterprise_memories
     ADD CONSTRAINT enterprise_memories_status_check
     CHECK (status IN ('proposed', 'approved', 'rejected', 'retired'))`)
@@ -237,10 +244,19 @@ export async function migrateEnterpriseIdentityPostgres(database: PostgresDataba
     await database.query("UPDATE enterprise_meta SET value = $1 WHERE key = 'schema-version'", [String(ENTERPRISE_IDENTITY_POSTGRES_SCHEMA_VERSION)])
     return
   }
-  // Version 6 shipped the P1 private memory compartments; project_id is purely additive, so a
-  // single ADD COLUMN completes the upgrade without touching committed rows.
+  // Version 6 shipped the P1 private memory compartments and the purely additive project column;
+  // v8 widens the kind CHECK, which PostgreSQL cannot alter in place, so the widen completes the
+  // upgrade without touching committed rows.
   if (Number(version) === 6) {
-    await database.query('ALTER TABLE enterprise_memories ADD COLUMN IF NOT EXISTS project_id TEXT')
+    await widenEnterpriseMemories(database)
+    await database.query("UPDATE enterprise_meta SET value = $1 WHERE key = 'schema-version'", [String(ENTERPRISE_IDENTITY_POSTGRES_SCHEMA_VERSION)])
+    return
+  }
+  // Version 7 shipped the project compartment column; v8 adds the consolidation lineage columns
+  // and the summary kind, and PostgreSQL cannot alter a CHECK in place, so the widen appends the
+  // columns and drops/re-adds the current CHECK set without touching committed rows.
+  if (Number(version) === 7) {
+    await widenEnterpriseMemories(database)
     await database.query("UPDATE enterprise_meta SET value = $1 WHERE key = 'schema-version'", [String(ENTERPRISE_IDENTITY_POSTGRES_SCHEMA_VERSION)])
     return
   }

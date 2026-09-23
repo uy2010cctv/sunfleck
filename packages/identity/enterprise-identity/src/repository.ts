@@ -111,8 +111,8 @@ export interface SaveEnterpriseWorkspaceGrantInput extends Omit<EnterpriseWorksp
 
 /** Allowed values for `MemoryScope`; `project` rows carry a `projectId` compartment tag. */
 export const MEMORY_SCOPES = ['organization', 'department', 'project', 'agent', 'pair'] as const
-/** Allowed values for `MemoryKind`. */
-export const MEMORY_KINDS = ['business-fact', 'process', 'terminology', 'decision', 'preference'] as const
+/** Allowed values for `MemoryKind`; `summary` rows are written by memory consolidation. */
+export const MEMORY_KINDS = ['business-fact', 'process', 'terminology', 'decision', 'preference', 'summary'] as const
 
 /** Compartment an enterprise memory lives in. */
 export type MemoryScope = (typeof MEMORY_SCOPES)[number]
@@ -136,9 +136,14 @@ export interface EnterpriseMemoryEntry {
   readonly summary: string
   readonly sourceDigest: string
   readonly privacyFindings: readonly EnterpriseMemoryPrivacyFinding[]
-  /** Non-negative importance weight for recall ranking; writes default to 0 and no repository API mutates it until consolidation lands. */
+  /** Non-negative importance weight for recall ranking; writes default to 0 and consolidation batches raise it. */
   readonly importance: number
   readonly lastAccessAt?: number
+  /** Epoch-ms time the row became valid; memory consolidation writes it on summary rows. */
+  readonly validFrom?: number
+  /** Id of the memory that superseded this row; a convention-only reference maintained by the
+   * service layer, so no foreign key and no store-level existence guarantee. */
+  readonly invalidatedBy?: string
   readonly createdBy: string
   readonly reviewedBy?: string
   readonly reviewReason?: string
@@ -221,6 +226,8 @@ export interface MemoryListFilterPlan {
   readonly departmentIds: readonly string[]
   /** Deduplicated statuses; defaults to every status when the caller passed none. */
   readonly statuses: readonly EnterpriseMemoryEntry['status'][]
+  /** Deduplicated kind restriction, or undefined when the caller passed none. */
+  readonly kinds: readonly MemoryKind[] | undefined
   /** Deduplicated explicit scope restriction, or undefined when the caller passed none. */
   readonly scopes: readonly MemoryScope[] | undefined
   /** The agent compartment participates because an owner filter implied it; never true alongside explicit scopes. */
@@ -237,13 +244,16 @@ export interface MemoryListFilterPlan {
  * `scope_type='project' AND project_id=?` ownership: without explicit scopes it adds the project
  * compartment to the visible set, and with explicit scopes the compartment list stays restricted
  * (the project compartment then participates only when `'project'` is listed) while the ownership
- * predicate still applies.
+ * predicate still applies. Kind restrictions are planned here because their set semantics mirror
+ * statuses; the `staleBefore` consolidation clock stays a store-side SQL predicate because it is a
+ * scalar comparison with no set semantics to normalize.
  * @param input - Input value used by this API.
- * @returns The normalized filters, or undefined when an empty status or scope set matches no row.
+ * @returns The normalized filters, or undefined when an empty status, kind, or scope set matches no row.
  */
 export function planMemoryListFilters(input: {
   departmentIds?: readonly string[]
   statuses?: readonly EnterpriseMemoryEntry['status'][]
+  kinds?: readonly MemoryKind[]
   scopes?: readonly MemoryScope[]
   agentEmployeeId?: string
   pairUserId?: string
@@ -254,15 +264,40 @@ export function planMemoryListFilters(input: {
     input.statuses ?? ['proposed', 'approved', 'rejected', 'retired'],
   )]
   if (statuses.length === 0) return undefined
+  const kinds = input.kinds === undefined ? undefined : [...new Set(input.kinds)]
+  if (kinds !== undefined && kinds.length === 0) return undefined
   const scopes = input.scopes === undefined ? undefined : [...new Set(input.scopes)]
   if (scopes !== undefined && scopes.length === 0) return undefined
   return {
     departmentIds,
     statuses,
+    kinds,
     scopes,
     includeAgentScope: input.scopes === undefined && input.agentEmployeeId !== undefined,
     includePairScope: input.scopes === undefined && input.pairUserId !== undefined,
     includeProjectScope: input.scopes === undefined && input.projectId !== undefined,
+  }
+}
+
+/** One importance write inside a consolidation batch. */
+export interface MemoryImportanceUpdate {
+  readonly id: string
+  /** Non-negative finite replacement weight. */
+  readonly importance: number
+  /** Omit to leave the stored access clock untouched. */
+  readonly lastAccessAt?: number
+}
+
+/** Validate one batch of consolidation importance writes; both store implementations run this so
+ * the non-negative gate cannot drift between them.
+ * @param updates - Input value used by this API.
+ * @throws When any update carries a negative, non-finite, or non-number importance.
+ */
+export function validateMemoryImportanceUpdates(updates: readonly MemoryImportanceUpdate[]): void {
+  for (const update of updates) {
+    if (typeof update.importance !== 'number' || !Number.isFinite(update.importance) || update.importance < 0) {
+      throw new Error('enterprise memory importance must be a finite non-negative number')
+    }
   }
 }
 
@@ -379,6 +414,8 @@ interface SqliteMemoryRow {
   privacy_findings: string
   importance: number
   last_access_at: number | null
+  valid_from: number | null
+  invalidated_by: string | null
   created_by: string
   reviewed_by: string | null
   review_reason: string | null
@@ -426,6 +463,21 @@ export interface EnterpriseIdentityStore {
   reviewMemory(input: ReviewEnterpriseMemoryInput): IdentityAwaitable<EnterpriseMemoryEntry>
   writePrivateMemory(input: WritePrivateMemoryInput): IdentityAwaitable<EnterpriseMemoryEntry>
   /**
+   * Retires one approved memory on behalf of memory consolidation and records which memory
+   * replaced it. Consolidation is the authority here: no caller-supplied revision, reviewer, or
+   * reason is involved, so this stays outside the review CAS path.
+   * @param oldId - Approved memory the consolidation replaced; left `retired` with `invalidatedBy` set.
+   * @param newId - Memory that superseded `oldId`; must already exist.
+   * @param at - Supersede time in epoch milliseconds, written as the old row's `updatedAt`.
+   */
+  supersedeMemory(oldId: string, newId: string, at: number): IdentityAwaitable<void>
+  /**
+   * Applies a consolidation batch of importance rewrites in one transaction and returns how many
+   * rows changed; ids that match no row are skipped without failing the batch.
+   * @param updates - Per-id replacement weights; `lastAccessAt` also rewrites the access clock when present.
+   */
+  batchUpdateImportance(updates: readonly MemoryImportanceUpdate[]): IdentityAwaitable<number>
+  /**
    * Lists memories visible to the caller. Authorization for private compartments — constraining
    * `agentEmployeeId` and `pairUserId` to the caller's own identity — is owned by the recall layer
    * above this store.
@@ -434,10 +486,14 @@ export interface EnterpriseIdentityStore {
     orgId: string
     departmentIds?: readonly string[]
     statuses?: readonly EnterpriseMemoryEntry['status'][]
+    kinds?: readonly MemoryKind[]
     scopes?: readonly MemoryScope[]
     agentEmployeeId?: string
     pairUserId?: string
     projectId?: string
+    /** Constrains rows to approved memories whose `COALESCE(last_access_at, updated_at)` staleness
+     * clock is older than this epoch-ms time, regardless of the `statuses` list. */
+    staleBefore?: number
   }): IdentityAwaitable<EnterpriseMemoryEntry[]>
   touchMemoryAccess(id: string, at: number): IdentityAwaitable<void>
   setPasswordVerifier(userId: string, verifier: string): IdentityAwaitable<void>
@@ -992,14 +1048,57 @@ export class EnterpriseIdentityRepository implements EnterpriseIdentityStore {
     }
   }
 
+  /** Retires one approved memory for consolidation; see `EnterpriseIdentityStore.supersedeMemory`. */
+  supersedeMemory(oldId: string, newId: string, at: number): void {
+    if (oldId === newId) throw new Error('enterprise memory cannot supersede itself')
+    this.database.exec('BEGIN IMMEDIATE')
+    try {
+      const current = this.database.prepare('SELECT status FROM enterprise_memories WHERE id = ?')
+        .get(oldId) as { status: EnterpriseMemoryEntry['status'] } | undefined
+      if (current === undefined) throw new Error('enterprise memory is missing')
+      // A retired old row fails here too, so a second supersede of the same chain never rewrites it.
+      if (current.status !== 'approved') throw new Error('enterprise memory supersede requires the approved status')
+      const replacement = this.database.prepare('SELECT id FROM enterprise_memories WHERE id = ?').get(newId)
+      if (replacement === undefined) throw new Error('superseding enterprise memory is missing')
+      this.database.prepare(`UPDATE enterprise_memories SET status = 'retired', invalidated_by = ?, updated_at = ?
+        WHERE id = ?`).run(newId, at, oldId)
+      this.database.exec('COMMIT')
+    } catch (error) {
+      this.database.exec('ROLLBACK')
+      throw error
+    }
+  }
+
+  /** Applies one consolidation importance batch; see `EnterpriseIdentityStore.batchUpdateImportance`. */
+  batchUpdateImportance(updates: readonly MemoryImportanceUpdate[]): number {
+    validateMemoryImportanceUpdates(updates)
+    if (updates.length === 0) return 0
+    this.database.exec('BEGIN IMMEDIATE')
+    try {
+      const statement = this.database.prepare(`UPDATE enterprise_memories
+        SET importance = ?, last_access_at = COALESCE(?, last_access_at) WHERE id = ?`)
+      let changed = 0
+      for (const update of updates) {
+        changed += Number(statement.run(update.importance, update.lastAccessAt ?? null, update.id).changes)
+      }
+      this.database.exec('COMMIT')
+      return changed
+    } catch (error) {
+      this.database.exec('ROLLBACK')
+      throw error
+    }
+  }
+
   listMemories(input: {
     orgId: string
     departmentIds?: readonly string[]
     statuses?: readonly EnterpriseMemoryEntry['status'][]
+    kinds?: readonly MemoryKind[]
     scopes?: readonly MemoryScope[]
     agentEmployeeId?: string
     pairUserId?: string
     projectId?: string
+    staleBefore?: number
   }): EnterpriseMemoryEntry[] {
     const plan = planMemoryListFilters(input)
     if (plan === undefined) return []
@@ -1021,15 +1120,23 @@ export class EnterpriseIdentityRepository implements EnterpriseIdentityStore {
       ...(input.pairUserId === undefined ? [] : ['pair_user_id = ?']),
       ...(input.projectId === undefined ? [] : ['project_id = ?']),
     ]
+    // staleBefore keeps its own approved predicate: the consolidation clock only ever applies to
+    // approved rows, and COALESCE lets a never-touched row age on its updated_at instead.
+    const stalePredicate = input.staleBefore === undefined
+      ? ''
+      : " AND status = 'approved' AND COALESCE(last_access_at, updated_at) < ?"
+    const kindPredicate = plan.kinds === undefined ? '' : ` AND kind IN (${plan.kinds.map(() => '?').join(',')})`
     const rows = this.database.prepare(`SELECT * FROM enterprise_memories WHERE org_id = ? AND ${scope}
-      AND status IN (${plan.statuses.map(() => '?').join(',')})${ownerPredicates.length === 0 ? '' : ` AND ${ownerPredicates.join(' AND ')}`}
+      AND status IN (${plan.statuses.map(() => '?').join(',')})${kindPredicate}${ownerPredicates.length === 0 ? '' : ` AND ${ownerPredicates.join(' AND ')}`}${stalePredicate}
       ORDER BY updated_at DESC, id`)
       .all(input.orgId,
         ...(plan.scopes === undefined ? plan.departmentIds : plan.scopes),
         ...plan.statuses,
+        ...(plan.kinds ?? []),
         ...(input.agentEmployeeId === undefined ? [] : [input.agentEmployeeId]),
         ...(input.pairUserId === undefined ? [] : [input.pairUserId]),
         ...(input.projectId === undefined ? [] : [input.projectId]),
+        ...(input.staleBefore === undefined ? [] : [input.staleBefore]),
       ) as unknown as SqliteMemoryRow[]
     return rows.map(row => this.memoryFromRow(row))
   }
@@ -1078,6 +1185,8 @@ export class EnterpriseIdentityRepository implements EnterpriseIdentityStore {
       privacyFindings: safeJsonArray(row.privacy_findings) as EnterpriseMemoryPrivacyFinding[],
       importance: row.importance,
       ...(row.last_access_at === null ? {} : { lastAccessAt: row.last_access_at }),
+      ...(row.valid_from === null ? {} : { validFrom: row.valid_from }),
+      ...(row.invalidated_by === null ? {} : { invalidatedBy: row.invalidated_by }),
       createdBy: row.created_by,
       ...(row.reviewed_by === null ? {} : { reviewedBy: row.reviewed_by }),
       ...(row.review_reason === null ? {} : { reviewReason: row.review_reason }),

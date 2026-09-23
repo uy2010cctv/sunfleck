@@ -3,7 +3,7 @@
 import type { DatabaseSync } from 'node:sqlite'
 
 /** Value exported as `ENTERPRISE_IDENTITY_SCHEMA_VERSION`. */
-export const ENTERPRISE_IDENTITY_SCHEMA_VERSION = 8
+export const ENTERPRISE_IDENTITY_SCHEMA_VERSION = 9
 
 /** Column and CHECK definition shared by the create-path and rebuild-path `enterprise_memories` DDL. */
 const ENTERPRISE_MEMORIES_COLUMNS = `
@@ -18,7 +18,7 @@ const ENTERPRISE_MEMORIES_COLUMNS = `
       agent_employee_id TEXT,
       pair_user_id TEXT,
       project_id TEXT,
-      kind TEXT NOT NULL CHECK (kind IN ('business-fact', 'process', 'terminology', 'decision', 'preference')),
+      kind TEXT NOT NULL CHECK (kind IN ('business-fact', 'process', 'terminology', 'decision', 'preference', 'summary')),
       status TEXT NOT NULL CHECK (status IN ('proposed', 'approved', 'rejected', 'retired')),
       summary TEXT NOT NULL,
       source_digest TEXT NOT NULL,
@@ -31,6 +31,11 @@ const ENTERPRISE_MEMORIES_COLUMNS = `
       revision INTEGER NOT NULL,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL,
+      -- valid_from and invalidated_by carry consolidation lineage: the epoch-ms time the row became
+      -- valid and the id of the memory that superseded it. invalidated_by references another memory
+      -- id by convention only — no FOREIGN KEY — and the service layer maintains the supersede chain.
+      valid_from INTEGER,
+      invalidated_by TEXT,
       CHECK (
         (scope_type = 'organization' AND department_id IS NULL AND agent_employee_id IS NULL AND pair_user_id IS NULL)
         OR (scope_type = 'department' AND department_id IS NOT NULL AND agent_employee_id IS NULL AND pair_user_id IS NULL)
@@ -38,6 +43,18 @@ const ENTERPRISE_MEMORIES_COLUMNS = `
         OR (scope_type = 'agent' AND agent_employee_id IS NOT NULL AND department_id IS NULL AND pair_user_id IS NULL)
         OR (scope_type = 'pair' AND pair_user_id IS NOT NULL AND department_id IS NULL AND agent_employee_id IS NULL)
       )`
+
+/** Memory columns committed at schema version 6; the v3/v4/v5/v6 rebuild arms copy only these
+ * because the private compartments, ranking columns, and project tag did not exist yet. */
+const ENTERPRISE_MEMORIES_COPY_V6 = `id, org_id, scope_type, department_id, kind, status,
+      summary, source_digest, privacy_findings, created_by, reviewed_by, review_reason,
+      revision, created_at, updated_at`
+
+/** Memory columns committed at schema version 8; the v8 rebuild arm copies these so the private
+ * compartments, ranking columns, and project tag survive the kind CHECK widening. */
+const ENTERPRISE_MEMORIES_COPY_V8 = `id, org_id, scope_type, department_id, agent_employee_id,
+      pair_user_id, project_id, kind, status, summary, source_digest, privacy_findings,
+      importance, last_access_at, created_by, reviewed_by, review_reason, revision, created_at, updated_at`
 
 /** Column and CHECK definition shared by the create-path and rebuild-path `surfaces` DDL. */
 const SURFACES_COLUMNS = `
@@ -260,7 +277,7 @@ export function migrateEnterpriseIdentity(database: DatabaseSync): void {
   // Versions 3, 5, and 6 carry the v3-era enterprise_memories CHECKs, which SQLite cannot widen in
   // place; the rebuild copies every row into the current table shape.
   } else if (Number(version.value) === 3 || Number(version.value) === 5 || Number(version.value) === 6) {
-    rebuildEnterpriseMemories(database)
+    rebuildEnterpriseMemories(database, ENTERPRISE_MEMORIES_COPY_V6)
     database.prepare("UPDATE enterprise_meta SET value = ? WHERE key = 'schema-version'")
       .run(String(ENTERPRISE_IDENTITY_SCHEMA_VERSION))
   } else if (Number(version.value) === 4) {
@@ -269,7 +286,7 @@ export function migrateEnterpriseIdentity(database: DatabaseSync): void {
       SET owner_user_id = (SELECT owner_user_id FROM enterprise_workspace_grants workspace
         WHERE workspace.workspace_id = enterprise_session_workspaces.workspace_id)
       WHERE owner_user_id IS NULL`)
-    rebuildEnterpriseMemories(database)
+    rebuildEnterpriseMemories(database, ENTERPRISE_MEMORIES_COPY_V6)
     database.prepare("UPDATE enterprise_meta SET value = ? WHERE key = 'schema-version'")
       .run(String(ENTERPRISE_IDENTITY_SCHEMA_VERSION))
   // Version 7 shipped dm-only surfaces and the private memory compartments; every v8 change is
@@ -278,6 +295,17 @@ export function migrateEnterpriseIdentity(database: DatabaseSync): void {
   } else if (Number(version.value) === 7) {
     rebuildSurfaces(database)
     database.exec('ALTER TABLE enterprise_memories ADD COLUMN project_id TEXT')
+    // v9 widens the kind CHECK, which the v7-era table still carries and SQLite cannot alter in
+    // place; the rebuild copies the freshly appended project tag together with every other
+    // committed column.
+    rebuildEnterpriseMemories(database, ENTERPRISE_MEMORIES_COPY_V8)
+    database.prepare("UPDATE enterprise_meta SET value = ? WHERE key = 'schema-version'")
+      .run(String(ENTERPRISE_IDENTITY_SCHEMA_VERSION))
+  // Version 8 shipped the project memory compartment; v9 adds the summary kind, which SQLite
+  // cannot widen in place, so the rebuild copies every committed column — private compartments,
+  // ranking columns, and project tag included — and the consolidation lineage columns start NULL.
+  } else if (Number(version.value) === 8) {
+    rebuildEnterpriseMemories(database, ENTERPRISE_MEMORIES_COPY_V8)
     database.prepare("UPDATE enterprise_meta SET value = ? WHERE key = 'schema-version'")
       .run(String(ENTERPRISE_IDENTITY_SCHEMA_VERSION))
   } else if (Number(version.value) !== ENTERPRISE_IDENTITY_SCHEMA_VERSION) {
@@ -293,16 +321,17 @@ export function migrateEnterpriseIdentity(database: DatabaseSync): void {
 
 /** Rebuild enterprise_memories in place to the current CHECK set and columns. SQLite cannot widen a
  * CHECK, so every row is copied into a fresh table and the old one dropped; no table references
- * enterprise_memories, and columns added after v3 take their defaults during the copy. */
-function rebuildEnterpriseMemories(database: DatabaseSync): void {
+ * enterprise_memories, and columns added after the carried set take their defaults during the copy.
+ * @param database - Input value used by this API.
+ * @param carriedColumns - Memory columns the committed rows already have; each rebuild arm passes
+ *   the set committed at its own version so later columns never read from a missing source column.
+ */
+function rebuildEnterpriseMemories(database: DatabaseSync, carriedColumns: string): void {
   database.exec(`
     CREATE TABLE enterprise_memories_rebuild (${ENTERPRISE_MEMORIES_COLUMNS}
     ) STRICT;
-    INSERT INTO enterprise_memories_rebuild(id, org_id, scope_type, department_id, kind, status,
-      summary, source_digest, privacy_findings, created_by, reviewed_by, review_reason,
-      revision, created_at, updated_at)
-      SELECT id, org_id, scope_type, department_id, kind, status, summary, source_digest,
-        privacy_findings, created_by, reviewed_by, review_reason, revision, created_at, updated_at
+    INSERT INTO enterprise_memories_rebuild(${carriedColumns})
+      SELECT ${carriedColumns}
       FROM enterprise_memories;
     DROP TABLE enterprise_memories;
     ALTER TABLE enterprise_memories_rebuild RENAME TO enterprise_memories;
