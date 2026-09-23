@@ -46,7 +46,7 @@ Persistent enterprise organizations, users, sessions, resource policies, and aud
 
 - SQLite 是本地实现；企业 PostgreSQL 部署通过 `EnterpriseIdentityStore` 组合边界使用独立的 `@deepseek-ai/dsh-enterprise-identity-postgres` 适配器。 集群部署需要共享事务后端。
 - 外部 IdP 和 LDAP 实时验证需要部署方提供的端点和证书。
-- 记忆隐私筛查是人工审核之前的确定性门禁，不是完整 DLP 产品；共享前仍必须人工审核。
+- 记忆隐私筛查是按目标分区分类的确定性门禁：提示注入与超长摘要在任何分区阻断，个人偏好绝不进入共享分区。它不是完整 DLP 产品；共享前仍必须人工审核。
 
 <a id="dev-note"></a>
 ### 开发备注

@@ -291,3 +291,15 @@ export function resolveSticky(database: DatabaseSync, orgId: string, actorKey: s
   ).get(orgId, actorKey) as { employee_id: string } | undefined
   return row?.employee_id
 }
+
+/** Read the direct-message surface anchored to one live session.
+ * @param database - Migrated enterprise identity database.
+ * @param sessionId - Session id the surface was attached with `attachSurfaceSession`.
+ * @returns The surface row, or undefined when no surface anchors that session.
+ */
+export function surfaceBySession(database: DatabaseSync, sessionId: string): SurfaceRow | undefined {
+  const row = database.prepare('SELECT * FROM surfaces WHERE session_id = ?').get(sessionId) as
+    | Record<string, unknown>
+    | undefined
+  return row === undefined ? undefined : surfaceFromRow(row)
+}

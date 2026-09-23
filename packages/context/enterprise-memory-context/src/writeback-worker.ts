@@ -1,8 +1,9 @@
 /** Authority-rechecked reconciliation for one durable enterprise-memory writeback job. */
 import { createHash } from 'node:crypto'
 import type {
-  EnterpriseMemoryEntry, EnterpriseWorkspaceGrant, ProposeEnterpriseMemoryInput,
+  EnterpriseMemoryEntry, EnterpriseWorkspaceGrant, ProposeEnterpriseMemoryInput, WritePrivateMemoryInput,
 } from '@deepseek-ai/dsh-enterprise-identity'
+import { classifyPrivacyForScope, inspectEnterpriseMemory } from '@deepseek-ai/dsh-enterprise-identity'
 import type { MemoryExtractionCandidate } from './writeback-extraction.ts'
 
 export interface MemoryWritebackJob {
@@ -29,11 +30,24 @@ export interface MemoryWritebackResult {
   readonly memoryIds: readonly string[]
 }
 
+/** Actor a private-compartment write needs, resolved from the job's session at process time.
+ * Structurally matches the employee-account service's `resolveSessionActor` result so the runtime
+ * injects that service without a package dependency from this package. */
+export interface PrivateMemoryActor {
+  readonly orgId: string
+  readonly userId: string
+  readonly employeeId: string
+}
+
 export interface MemoryWritebackDependencies {
   currentGrant(): Promise<EnterpriseWorkspaceGrant | undefined>
   currentActorEnabled(): Promise<boolean>
   listMemories(scope: 'organization' | 'department', departmentId?: string): Promise<readonly EnterpriseMemoryEntry[]>
   extract(job: MemoryWritebackJob, existing: readonly EnterpriseMemoryEntry[]): Promise<readonly MemoryExtractionCandidate[]>
+  /** Direct approved write into one private compartment; the store's private digest makes repeats idempotent. */
+  writePrivateMemory(input: WritePrivateMemoryInput): Promise<EnterpriseMemoryEntry>
+  /** Resolve the session's private-memory actor; undefined sends private-target candidates to the skip count. */
+  resolvePrivateMemoryActor(sessionId: string): Promise<PrivateMemoryActor | undefined>
   propose(input: ProposeEnterpriseMemoryInput): Promise<EnterpriseMemoryEntry>
   approve(memory: EnterpriseMemoryEntry, reason: string): Promise<EnterpriseMemoryEntry>
   audit(input: { memoryId: string; action: 'activated' | 'pending' | 'skipped'; reason: string }): Promise<void>
@@ -42,7 +56,11 @@ export interface MemoryWritebackDependencies {
 function normalized(value: string): string { return value.normalize('NFKC').replaceAll(/\s+/gu, '').replaceAll(/[，。；：、,.!?！？;:]/gu, '').toLowerCase() }
 function digest(value: string): string { return createHash('sha256').update(value).digest('hex') }
 
-/** Reconcile extracted candidates while preserving organization, workspace, actor and conflict boundaries. */
+/** Reconcile extracted candidates while preserving organization, workspace, actor and conflict boundaries.
+ * Private targets write straight into the session actor's compartments through `writePrivateMemory`.
+ * Shared targets keep the propose/auto-approve path, except a `personal-preference` finding, which
+ * downgrades the candidate into the actor's own agent compartment instead of entering shared memory.
+ */
 export async function processMemoryWriteback(
   job: MemoryWritebackJob,
   dependencies: MemoryWritebackDependencies,
@@ -59,13 +77,46 @@ export async function processMemoryWriteback(
   const candidates = await dependencies.extract(job, visible.slice(0, 80))
   let activated = 0; let pending = 0; let skipped = 0
   const memoryIds: string[] = []
+  const writePrivate = async (
+    candidate: MemoryExtractionCandidate,
+    scope: 'agent' | 'pair',
+  ): Promise<EnterpriseMemoryEntry | undefined> => {
+    const actor = await dependencies.resolvePrivateMemoryActor(job.sessionId)
+    if (actor === undefined) return undefined
+    return dependencies.writePrivateMemory({
+      orgId: job.orgId, scope, kind: candidate.kind, summary: candidate.summary, createdBy: job.actorUserId,
+      ...(scope === 'pair' ? { pairUserId: actor.userId } : { agentEmployeeId: actor.employeeId }),
+    })
+  }
   for (const candidate of candidates) {
     if (candidate.action === 'skip' || candidate.confidence < .75) { skipped += 1; continue }
-    const departmentId = candidate.scope === 'department' ? job.departmentId : undefined
-    if (candidate.scope === 'department' && departmentId === undefined) { skipped += 1; continue }
-    const sourceDigest = digest(JSON.stringify([job.sourceKey, candidate.scope, departmentId ?? null, candidate.kind, candidate.summary]))
+    const findings = inspectEnterpriseMemory(candidate.summary).findings
+    // Hard gates hold in every compartment, so the most permissive scope decides them.
+    if (!classifyPrivacyForScope(findings, 'agent').allowed) { skipped += 1; continue }
+    if (candidate.target === 'private' || candidate.target === 'pair') {
+      const written = await writePrivate(candidate, candidate.target === 'pair' ? 'pair' : 'agent')
+      if (written === undefined) { skipped += 1; continue }
+      // The store returns the existing entry on a repeated digest; it still counts as this job's activation.
+      activated += 1
+      memoryIds.push(written.id)
+      await dependencies.audit({ memoryId: written.id, action: 'activated', reason: 'private-compartment-write' })
+      continue
+    }
+    if (!classifyPrivacyForScope(findings, candidate.target).allowed) {
+      // Only personal preference can block here, and it never enters shared memory: the candidate
+      // is downgraded into the actor's own agent compartment instead of proposed for review.
+      const written = await writePrivate(candidate, 'agent')
+      if (written === undefined) { skipped += 1; continue }
+      activated += 1
+      memoryIds.push(written.id)
+      await dependencies.audit({ memoryId: written.id, action: 'activated', reason: 'personal-preference-downgraded-to-private' })
+      continue
+    }
+    const departmentId = candidate.target === 'department' ? job.departmentId : undefined
+    if (candidate.target === 'department' && departmentId === undefined) { skipped += 1; continue }
+    const sourceDigest = digest(JSON.stringify([job.sourceKey, candidate.target, departmentId ?? null, candidate.kind, candidate.summary]))
     const id = `turn-memory-${sourceDigest}`
-    const sameScope = visible.filter(memory => memory.scope === candidate.scope
+    const sameScope = visible.filter(memory => memory.scope === candidate.target
       && memory.departmentId === departmentId && (memory.status === 'approved' || memory.status === 'proposed'))
     const exact = sameScope.find(memory => normalized(memory.summary) === normalized(candidate.summary))
     if (exact !== undefined) {
@@ -81,7 +132,7 @@ export async function processMemoryWriteback(
       continue
     }
     const proposed = await dependencies.propose({
-      id, orgId: job.orgId, scope: candidate.scope,
+      id, orgId: job.orgId, scope: candidate.target,
       ...(departmentId === undefined ? {} : { departmentId }),
       kind: candidate.kind, summary: candidate.summary, sourceDigest, createdBy: job.actorUserId,
     })

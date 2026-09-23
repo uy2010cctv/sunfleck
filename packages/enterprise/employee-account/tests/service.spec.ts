@@ -1,6 +1,6 @@
 import { DatabaseSync } from 'node:sqlite'
 import { Context } from '@deepseek-ai/cordis'
-import { ensureSurface, migrateEnterpriseIdentity } from '@deepseek-ai/dsh-enterprise-identity'
+import { attachSurfaceSession, ensureSurface, migrateEnterpriseIdentity } from '@deepseek-ai/dsh-enterprise-identity'
 import { describe, expect, it } from 'vitest'
 import { apply, employeeId, EmployeeAccountService, surfaceId } from '../src/index.ts'
 import type { EmployeeAccount, EmployeeId } from '../src/index.ts'
@@ -208,5 +208,22 @@ describe('employee-account plugin', () => {
       orgId: 'org-1', displayName: 'Support', roleCard: '客服助理', homeWorkspacePath: '/managed/employees/support',
     })
     expect(ctx.employeeAccounts.get(account.id)?.id).toBe(account.id)
+  })
+})
+
+describe('EmployeeAccountService.resolveSessionActor', () => {
+  it('resolves the org, surface user, and employee from one anchored session', () => {
+    const { database, service } = makeService()
+    const account = createEmployeeWithSurface(service, database)
+    attachSurfaceSession(database, `surface-${account.id}`, 'session-1')
+
+    expect(service.resolveSessionActor('session-1')).toEqual({
+      orgId: 'org-1', userId: 'user-1', employeeId: account.id,
+    })
+  })
+
+  it('returns undefined for a session no surface anchors', () => {
+    const { service } = makeService()
+    expect(service.resolveSessionActor('session-unknown')).toBeUndefined()
   })
 })

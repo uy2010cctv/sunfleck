@@ -2,10 +2,12 @@
 
 export { ENTERPRISE_IDENTITY_SCHEMA_VERSION, migrateEnterpriseIdentity } from './schema.ts'
 export {
+  classifyPrivacyForScope,
   inspectEnterpriseMemory,
   memorySourceDigest,
   type EnterpriseMemoryInspection,
   type EnterpriseMemoryPrivacyFinding,
+  type EnterpriseMemoryScopeDecision,
 } from './memory-policy.ts'
 export {
   EnterpriseIdentityRepository,
@@ -55,6 +57,7 @@ export {
   getEmployee,
   listEmployees,
   resolveSticky,
+  surfaceBySession,
   updateEmployeeState,
   type EmployeeAccountRow,
   type InboxRow,

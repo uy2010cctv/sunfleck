@@ -251,6 +251,7 @@ function vanishingAccounts(accounts: EmployeeAccountService, database: DatabaseS
       return item
     },
     claim: (id, limit) => accounts.claim(id, limit),
+    resolveSessionActor: sessionId => accounts.resolveSessionActor(sessionId),
   }
 }
 

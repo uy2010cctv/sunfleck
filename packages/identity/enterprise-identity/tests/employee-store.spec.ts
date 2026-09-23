@@ -12,6 +12,7 @@ import {
   getEmployee,
   listEmployees,
   resolveSticky,
+  surfaceBySession,
   updateEmployeeState,
   type EmployeeAccountRow,
   type InboxRow,
@@ -195,6 +196,17 @@ describe('employee row store', () => {
     expect(() => {
       attachSurfaceSession(database, 'surface-x', 'session-1')
     }).toThrow(/missing/)
+  })
+
+  it('reads the surface anchored to one session and returns undefined for unknown sessions', () => {
+    const database = makeDatabase()
+    seedGraph(database)
+    ensureDefaultSurface(database)
+
+    expect(surfaceBySession(database, 'session-1')).toBeUndefined()
+    attachSurfaceSession(database, 'surface-1', 'session-1')
+    expect(surfaceBySession(database, 'session-1')).toEqual({ ...surfaceRow(), sessionId: 'session-1' })
+    expect(surfaceBySession(database, 'session-2')).toBeUndefined()
   })
 
   it('enqueues an inbox row and claims it back delivered', () => {

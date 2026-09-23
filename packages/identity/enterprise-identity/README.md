@@ -46,7 +46,7 @@ None; identity persistence does not assemble provider requests.
 
 - SQLite is the local implementation; enterprise PostgreSQL deployments use the separate `@deepseek-ai/dsh-enterprise-identity-postgres` adapter through the `EnterpriseIdentityStore` composition seam. Clustered deployments require a shared transactional backend.
 - External IdP and LDAP live validation requires deployment-owned endpoints and certificates.
-- Memory privacy screening is a deterministic pre-review gate, not a complete DLP product; a human reviewer remains required before shared use.
+- Memory privacy screening is a deterministic gate classified per target compartment: prompt injection and overlong summaries block every compartment, and a personal preference never enters shared memory. It is not a complete DLP product; a human reviewer remains required before shared use.
 
 <a id="dev-note"></a>
 ### Dev Note

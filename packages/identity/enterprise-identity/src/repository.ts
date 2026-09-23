@@ -7,7 +7,7 @@ import { DatabaseSync } from 'node:sqlite'
 import type {
   EnterpriseAction, EnterpriseResource, EnterpriseRole,
 } from '@deepseek-ai/dsh-enterprise-governance'
-import { inspectEnterpriseMemory, memorySourceDigest, type EnterpriseMemoryPrivacyFinding } from './memory-policy.ts'
+import { classifyPrivacyForScope, inspectEnterpriseMemory, memorySourceDigest, type EnterpriseMemoryPrivacyFinding } from './memory-policy.ts'
 import { enumColumn } from './employee-store.ts'
 import { migrateEnterpriseIdentity } from './schema.ts'
 
@@ -178,19 +178,19 @@ export interface ValidatedPrivateMemory {
 
 /** Validate one private-memory write and derive its source digest; both store implementations run
  * this so gates, pairing rules, and digest identity cannot drift between them. Private compartments
- * bypass review; until the scope-aware privacy policy arrives, prompt injection and overlong
- * summaries stay hard gates while every other finding is recorded only.
+ * bypass review; the scope-aware policy owns the gates, so prompt injection and overlong summaries
+ * block every scope while every other finding — including personal preference, which private
+ * compartments allow — is recorded on the entry only.
  * @param input - Input value used by this API.
  * @returns The values both stores persist for this write.
- * @throws When the summary is empty, a hard gate trips, or the pairing fields do not match the scope.
+ * @throws When the summary is empty, the scope-aware policy blocks the write, or the pairing fields do not match the scope.
  */
 export function validatePrivateMemoryInput(input: WritePrivateMemoryInput): ValidatedPrivateMemory {
   const summary = input.summary.trim()
   if (!summary) throw new Error('enterprise memory summary is required')
   const inspection = inspectEnterpriseMemory(summary)
-  const blocked = inspection.findings
-    .filter(finding => finding === 'prompt-injection' || finding === 'summary-too-long')
-  if (blocked.length > 0) throw new Error(`enterprise memory privacy check failed: ${blocked.join(',')}`)
+  const decision = classifyPrivacyForScope(inspection.findings, input.scope)
+  if (!decision.allowed) throw new Error(`enterprise memory privacy check failed: ${decision.blocked.join(',')}`)
   if ((input.scope === 'agent' && (input.agentEmployeeId === undefined || input.pairUserId !== undefined))
     || (input.scope === 'pair' && (input.pairUserId === undefined || input.agentEmployeeId !== undefined))) {
     throw new Error('enterprise memory scope and pairing fields do not match')
