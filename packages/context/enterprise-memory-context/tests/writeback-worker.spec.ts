@@ -200,6 +200,21 @@ describe('enterprise memory compartment routing', () => {
     expect(captured.audits).toEqual([])
   })
 
+  it('skips private-target candidates whose resolved actor belongs to another organization', async () => {
+    const captured = recording()
+    const result = await processMemoryWriteback(job(), dependencies(captured, {
+      resolvePrivateMemoryActor: async () => ({ orgId: 'org-b', userId: 'user-1', employeeId: 'employee-1' }),
+      extract: async () => [
+        { action: 'create', target: 'private', kind: 'terminology', summary: '内部把结算周期称为 T+N。', confidence: .9, reason: 'x' },
+        { action: 'create', target: 'organization', kind: 'process', summary: '我喜欢周五下午不开会。', confidence: .98, reason: 'x' },
+      ],
+    }))
+    expect(result).toMatchObject({ outcome: 'completed', activated: 0, pending: 0, skipped: 2 })
+    expect(captured.privateInputs).toEqual([])
+    expect(captured.proposed).toEqual([])
+    expect(captured.audits).toEqual([])
+  })
+
   it('proposes organization-target candidates through the reviewed path', async () => {
     const captured = recording()
     const result = await processMemoryWriteback(job(), dependencies(captured, {

@@ -82,7 +82,8 @@ export async function processMemoryWriteback(
     scope: 'agent' | 'pair',
   ): Promise<EnterpriseMemoryEntry | undefined> => {
     const actor = await dependencies.resolvePrivateMemoryActor(job.sessionId)
-    if (actor === undefined) return undefined
+    // Private writes land only under the job's org; a cross-org session actor skips like an unresolvable one.
+    if (actor === undefined || actor.orgId !== job.orgId) return undefined
     return dependencies.writePrivateMemory({
       orgId: job.orgId, scope, kind: candidate.kind, summary: candidate.summary, createdBy: job.actorUserId,
       ...(scope === 'pair' ? { pairUserId: actor.userId } : { agentEmployeeId: actor.employeeId }),
