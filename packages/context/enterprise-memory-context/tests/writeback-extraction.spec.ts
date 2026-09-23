@@ -55,6 +55,14 @@ describe('enterprise memory turn extraction', () => {
     }] }))).toThrow(/candidate/iu)
   })
 
+  it('rejects non-JSON output, a non-array candidate list, and oversized batches', () => {
+    expect(() => parseExtractionOutput('not json at all')).toThrow(/not JSON/iu)
+    expect(() => parseExtractionOutput('{"candidates":"x"}')).toThrow(/must be an array/iu)
+    expect(() => parseExtractionOutput(JSON.stringify({ candidates: Array.from({ length: 9 }, () => ({
+      action: 'skip', kind: 'decision', summary: 's', confidence: 0.1, reason: 'r',
+    })) }))).toThrow(/more than 8/iu)
+  })
+
   it('defaults a missing target to private and keeps finding-bearing summaries for the worker policy', () => {
     expect(parseExtractionOutput(JSON.stringify({ candidates: [{
       action: 'skip', kind: 'decision', summary: '任务已完成。', confidence: 0.1, reason: '一次性输出',

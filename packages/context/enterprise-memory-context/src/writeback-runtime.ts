@@ -5,8 +5,8 @@ import type { EnterpriseIdentityStore, EnterpriseWorkspaceGrant } from '@deepsee
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import {
-  captureMemoryTurn, EXTRACTION_SYSTEM_PROMPT, parseExtractionOutput,
-  type MemoryExtractionCandidate, type MemoryTurnSnapshot,
+  captureMemoryTurn, EXTRACTION_SYSTEM_PROMPT, parseExtractionOutput, textFromModelStream,
+  type MemoryExtractionCandidate, type MemoryTurnSnapshot, type ModelStreamChunkView,
 } from './writeback-extraction.ts'
 import {
   EnterpriseMemoryWritebackRepository, type MemoryWritebackDatabase, type MemoryWritebackView,
@@ -22,20 +22,6 @@ interface RuntimeConfig {
   readonly maxTokens: number
   readonly timeoutMs: number
   readonly pollMs: number
-}
-
-interface ExtractorChunk {
-  readonly type: string
-  readonly text?: string
-  readonly block?: { readonly type: string; readonly text?: string }
-  readonly reason?: { readonly kind: string }
-}
-
-function textFromStream(chunks: readonly ExtractorChunk[]): string {
-  const deltas = chunks.flatMap(chunk => chunk.type === 'text-delta' && typeof chunk.text === 'string' ? [chunk.text] : [])
-  if (deltas.length > 0) return deltas.join('')
-  return chunks.flatMap(chunk => chunk.type === 'block-end' && chunk.block?.type === 'text'
-    && typeof chunk.block.text === 'string' ? [chunk.block.text] : []).join('\n')
 }
 
 /** Session actor the employee-account service resolves; structural so this package keeps no
@@ -167,14 +153,14 @@ export class EnterpriseMemoryWritebackRuntime {
         existing: existing.map(memory => ({ id: memory.id, summary: memory.summary, status: memory.status })),
       }) }],
     })
-    const chunks: ExtractorChunk[] = []
+    const chunks: ModelStreamChunkView[] = []
     for await (const chunk of this.ctx.llm.stream({
       provider: job.provider, model: job.model, messages: [request], system: EXTRACTION_SYSTEM_PROMPT,
       maxTokens: this.config.maxTokens, sessionId: SessionId(job.sessionId), signal: AbortSignal.timeout(this.config.timeoutMs),
     })) chunks.push(chunk)
     const finish = chunks.findLast(chunk => chunk.type === 'finish')
     if (finish?.reason?.kind !== 'stop') throw new Error(`enterprise memory extractor ended with ${finish?.reason?.kind ?? 'no finish'}`)
-    return parseExtractionOutput(textFromStream(chunks))
+    return parseExtractionOutput(textFromModelStream(chunks))
   }
 
   /**
