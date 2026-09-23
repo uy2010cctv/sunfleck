@@ -139,6 +139,22 @@ export function getEmployee(database: DatabaseSync, id: string): EmployeeAccount
   return row === undefined ? undefined : employeeFromRow(row)
 }
 
+/** Read the employee account whose home workspace is one path.
+ * @param database - Migrated enterprise identity database.
+ * @param homeWorkspacePath - Absolute home workspace path to look up.
+ * @returns The first stored account in insertion order, or undefined when no account claims that path.
+ * Matching is exact string equality on the stored column, mirroring `workspaceGrantByRootPath`; no
+ * path normalization runs on either side.
+ */
+export function employeeByHomeWorkspacePath(
+  database: DatabaseSync,
+  homeWorkspacePath: string,
+): EmployeeAccountRow | undefined {
+  const row = database.prepare('SELECT * FROM employee_accounts WHERE home_workspace_path = ?')
+    .get(homeWorkspacePath) as Record<string, unknown> | undefined
+  return row === undefined ? undefined : employeeFromRow(row)
+}
+
 /** List one organization's employee accounts in creation order.
  * @param database - Migrated enterprise identity database.
  * @param orgId - Organization id whose employees are listed.

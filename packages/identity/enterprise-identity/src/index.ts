@@ -52,6 +52,7 @@ export {
   createEmployee,
   enqueueInbox,
   ensureSurface,
+  employeeByHomeWorkspacePath,
   enumColumn,
   failInboxItem,
   getEmployee,

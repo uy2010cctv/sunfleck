@@ -6,6 +6,7 @@ import {
   bindSticky,
   claimInbox,
   createEmployee,
+  employeeByHomeWorkspacePath,
   enqueueInbox,
   ensureSurface,
   failInboxItem,
@@ -147,6 +148,24 @@ describe('employee row store', () => {
       employeeRow('employee-b', T2),
       { ...employeeRow('employee-c', T3), state: 'archived' },
     ])
+  })
+
+  it('reads an employee by exact home workspace path and returns undefined otherwise', () => {
+    const database = makeDatabase()
+    seedOrgAndUser(database, 'org-1', 'user-1')
+    createEmployee(database, employeeRow('employee-1', T1))
+    createEmployee(database, {
+      ...employeeRow('employee-2', T2),
+      homeWorkspacePath: '/managed/employees/billing',
+    })
+
+    expect(employeeByHomeWorkspacePath(database, '/managed/employees/billing')).toEqual({
+      ...employeeRow('employee-2', T2),
+      homeWorkspacePath: '/managed/employees/billing',
+    })
+    // Exact string equality mirrors `workspaceGrantByRootPath`: no normalization, no realpath.
+    expect(employeeByHomeWorkspacePath(database, '/managed/employees/support/')).toBeUndefined()
+    expect(employeeByHomeWorkspacePath(database, '/managed/employees/missing')).toBeUndefined()
   })
 
   it('moves an employee to a new state and stamps the update time', () => {

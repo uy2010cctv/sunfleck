@@ -197,6 +197,23 @@ describe('EmployeeAccountService inbox', () => {
   })
 })
 
+describe('EmployeeAccountService.findByHomeWorkspacePath', () => {
+  it('reads the account claiming a home workspace and returns undefined for an unknown path', () => {
+    const { service } = makeService()
+    const support = service.create({
+      orgId: 'org-1', displayName: 'Support', roleCard: '客服助理', homeWorkspacePath: '/managed/employees/support',
+    })
+    service.create({
+      orgId: 'org-1', displayName: 'Billing', roleCard: '账务助理', homeWorkspacePath: '/managed/employees/billing',
+    })
+
+    expect(service.findByHomeWorkspacePath('/managed/employees/support')).toEqual(support)
+    // Exact string equality mirrors the workspace-grant root-path lookup; no normalization.
+    expect(service.findByHomeWorkspacePath('/managed/employees/support/')).toBeUndefined()
+    expect(service.findByHomeWorkspacePath('/managed/employees/missing')).toBeUndefined()
+  })
+})
+
 describe('employee-account plugin', () => {
   it('provides ctx.employeeAccounts over the configured database', () => {
     const database = makeDatabase()

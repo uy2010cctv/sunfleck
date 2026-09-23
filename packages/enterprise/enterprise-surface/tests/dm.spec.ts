@@ -237,6 +237,7 @@ function vanishingAccounts(accounts: EmployeeAccountService, database: DatabaseS
   return {
     create: input => accounts.create(input),
     get: id => accounts.get(id),
+    findByHomeWorkspacePath: path => accounts.findByHomeWorkspacePath(path),
     list: (orgId, options) => accounts.list(orgId, options),
     setState: (id, state) => {
       accounts.setState(id, state)

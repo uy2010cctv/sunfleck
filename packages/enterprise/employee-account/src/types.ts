@@ -144,6 +144,14 @@ export interface EmployeeAccounts {
    */
   claim(employeeId: EmployeeId, limit: number): EmployeeInboxItem[]
   /**
+   * Read the employee account whose home workspace is one path. Matching is exact string
+   * equality against the stored column, mirroring the workspace-grant root-path lookup; no
+   * path normalization runs on either side.
+   * @param homeWorkspacePath - absolute home workspace path to look up.
+   * @returns the stored account, or undefined when no account claims that path.
+   */
+  findByHomeWorkspacePath(homeWorkspacePath: string): EmployeeAccount | undefined
+  /**
    * Resolve the private-memory actor triple for one anchored dm session so
    * private compartments can be written at process time without a schema
    * change to outbox rows.

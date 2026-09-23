@@ -14,6 +14,7 @@ import {
   bindSticky,
   claimInbox,
   createEmployee,
+  employeeByHomeWorkspacePath,
   enqueueInbox,
   getEmployee,
   listEmployees,
@@ -101,6 +102,11 @@ export class EmployeeAccountService implements EmployeeAccounts {
 
   list(orgId: string, options?: { includeArchived?: boolean }): EmployeeAccount[] {
     return listEmployees(this.database, orgId, options).map(accountFromRow)
+  }
+
+  findByHomeWorkspacePath(homeWorkspacePath: string): EmployeeAccount | undefined {
+    const row = employeeByHomeWorkspacePath(this.database, homeWorkspacePath)
+    return row === undefined ? undefined : accountFromRow(row)
   }
 
   /**

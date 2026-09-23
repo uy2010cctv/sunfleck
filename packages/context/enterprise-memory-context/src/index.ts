@@ -99,12 +99,38 @@ async function existingMemory(
 type AutoMemoryActor = { userId: string; source: 'request-principal' | 'session-owner' | 'background-service' }
 
 function requestPrincipal(ctx: Context): { orgId: string; userId: string } | undefined {
-  const current = ctx.enterpriseRequestContext.current()
+  // Tolerant lookup because direct compositions (tests, diagnostics) may assemble without the
+  // request-context service mounted; the principal is optional by design.
+  const requestContext = (ctx.get.bind(ctx) as (name: string) => unknown)('enterpriseRequestContext') as
+    | { current?: () => unknown }
+    | undefined
+  const current = requestContext?.current?.()
   if (current === undefined || typeof current !== 'object') return undefined
   const value = current as { orgId?: unknown; userId?: unknown }
   return typeof value.orgId === 'string' && typeof value.userId === 'string'
     ? { orgId: value.orgId, userId: value.userId }
     : undefined
+}
+
+/** Actor triple of one surface-anchored employee session; structural view of the employee-account service. */
+interface SessionActor {
+  readonly orgId: string
+  readonly userId: string
+  readonly employeeId: string
+}
+
+/** Resolve the anchored employee session actor. Kept structural and optional because compositions
+ * without persistent employees do not mount the employee-account service; an absent service or an
+ * unanchored session resolves to undefined and recall stays organization/department-only.
+ * @param ctx - hosting context.
+ * @param sessionId - session whose surface anchoring is consulted.
+ * @returns the session's org, user, and employee, or undefined when unresolvable.
+ */
+function sessionActor(ctx: Context, sessionId: string): SessionActor | undefined {
+  const accounts = (ctx.get.bind(ctx) as (name: string) => unknown)('employeeAccounts') as
+    | { resolveSessionActor(sessionId: string): SessionActor | undefined }
+    | undefined
+  return accounts?.resolveSessionActor(sessionId)
 }
 
 async function autoMemoryActor(
@@ -146,25 +172,102 @@ function renderEntry(entry: EnterpriseMemoryEntry): string {
   return `- [${entry.id}] ${entry.kind}: ${JSON.stringify(entry.summary)}`
 }
 
-/** Render a bounded, non-authoritative context block from already approved entries.
- * @param entries - Input value used by this API.
- * @param maxChars - Input value used by this API.
- * @returns Result produced by this API.
+/** Recall sections in display order; labels are model-visible English. */
+const SECTIONS = [
+  { scope: 'organization', label: 'Organization memory' },
+  { scope: 'department', label: 'Department memory' },
+  { scope: 'agent', label: 'My notes' },
+  { scope: 'pair', label: 'Collaboration preference' },
+] as const satisfies readonly { readonly scope: EnterpriseMemoryEntry['scope']; readonly label: string }[]
+
+/** Render the block body: header, policy, and each non-empty labeled compartment section. */
+function renderSections(entries: readonly EnterpriseMemoryEntry[]): string {
+  const lines = ['<enterprise-memory trust="reviewed-business-context">', `Policy: ${POLICY}`]
+  for (const section of SECTIONS) {
+    const scoped = entries.filter(entry => entry.scope === section.scope)
+    if (scoped.length === 0) continue
+    lines.push(`[${section.label}]`, ...scoped.map(renderEntry))
+  }
+  lines.push('</enterprise-memory>')
+  return lines.join('\n')
+}
+
+/** Drop the lowest-ranked tail entries until the rendered block fits `maxChars`.
+ * @param entries - ranked entries, highest recall first.
+ * @param maxChars - maximum total characters of the rendered block.
+ * @returns the kept prefix in rank order; empty when no entry fits.
+ */
+export function limitEnterpriseMemories(
+  entries: readonly EnterpriseMemoryEntry[],
+  maxChars: number,
+): EnterpriseMemoryEntry[] {
+  let kept = [...entries]
+  while (kept.length > 0 && renderSections(kept).length > maxChars) kept = kept.slice(0, -1)
+  return kept
+}
+
+/** Render a bounded, non-authoritative context block from already ranked entries.
+ *
+ * Entries render under their compartment label and empty compartments are omitted. When the
+ * rendered text exceeds `maxChars`, the lowest-ranked tail entries are dropped before rendering
+ * and the `[context truncated]` marker is appended, so truncation cuts by rank rather than by
+ * list position inside a section.
+ * @param entries - ranked entries, highest recall first.
+ * @param maxChars - maximum total characters of the rendered block.
+ * @returns the rendered block, or '' when no entry fits.
  */
 export function renderEnterpriseMemory(entries: readonly EnterpriseMemoryEntry[], maxChars: number): string {
-  const organization = entries.filter(entry => entry.scope === 'organization')
-  const department = entries.filter(entry => entry.scope === 'department')
-  const lines = [
-    '<enterprise-memory trust="reviewed-business-context">',
-    `Policy: ${POLICY}`,
-    'Organization memory:',
-    ...organization.map(renderEntry),
-    'Department memory:',
-    ...department.map(renderEntry),
-    '</enterprise-memory>',
-  ]
-  const rendered = lines.join('\n')
-  return rendered.length <= maxChars ? rendered : `${rendered.slice(0, Math.max(0, maxChars - 22))}\n[context truncated]\n`
+  const kept = limitEnterpriseMemories(entries, maxChars)
+  if (kept.length === 0) return ''
+  const rendered = renderSections(kept)
+  return kept.length < entries.length ? `${rendered}\n[context truncated]\n` : rendered
+}
+
+/** One day in epoch milliseconds. */
+const DAY_MS = 86_400_000
+
+/** Score one memory for recall: `2 × keyword hits + importance + recency weight`.
+ *
+ * Keyword hits count the distinct non-blank query terms contained case-insensitively in the
+ * summary. Recency weight is 1 within 7 days of `lastAccessAt ?? updatedAt`, 0.5 within 30 days,
+ * and 0 older; a future timestamp counts as the freshest bucket.
+ * @param entry - the approved memory to score.
+ * @param now - current time in epoch milliseconds.
+ * @param queryTerms - terms from the current turn's user input; empty when unavailable.
+ * @returns the deterministic recall score; higher sorts earlier.
+ */
+export function memoryRecallScore(
+  entry: EnterpriseMemoryEntry,
+  now: number,
+  queryTerms: readonly string[],
+): number {
+  const summary = entry.summary.toLowerCase()
+  const terms = [...new Set(queryTerms.map(term => term.trim().toLowerCase()))].filter(term => term !== '')
+  const hits = terms.filter(term => summary.includes(term)).length
+  const ageMs = now - (entry.lastAccessAt ?? entry.updatedAt)
+  const recencyWeight = ageMs <= 7 * DAY_MS ? 1 : ageMs <= 30 * DAY_MS ? 0.5 : 0
+  return 2 * hits + entry.importance + recencyWeight
+}
+
+/** Rank approved memories for one injection.
+ *
+ * Every entry scores through {@link memoryRecallScore}; one stable descending sort over the
+ * fetch-order concatenation — the shared organization-plus-department listing first, then the
+ * pair and agent listings — keeps exact ties in fetch order, so no compartment overrides the
+ * score.
+ * @param entries - memories already concatenated in compartment fetch order.
+ * @param options - `now` in epoch milliseconds and the optional query terms from the current turn.
+ * @returns the ranked copy; the input array is not mutated.
+ */
+export function rankEnterpriseMemories(
+  entries: readonly EnterpriseMemoryEntry[],
+  options: { now: number; queryTerms?: readonly string[] },
+): EnterpriseMemoryEntry[] {
+  const queryTerms = options.queryTerms ?? []
+  return entries
+    .map((entry, index) => ({ entry, index, score: memoryRecallScore(entry, options.now, queryTerms) }))
+    .sort((left, right) => right.score - left.score || left.index - right.index)
+    .map(scored => scored.entry)
 }
 
 /** Register the async workspace-scoped memory projection.
@@ -317,9 +420,22 @@ export function apply(ctx: Context, config: Config): void {
       }),
     }))
   }
+  /**
+   * Recall authorized memory for the assembling session. The org chain is: the request
+   * principal's org on request-scoped turns, else the surface-anchored employee's org, else the
+   * workspace grant's org (the pre-employee behavior). Organization and department compartments
+   * are always fetched with their legacy owner-filter-free visibility; the agent and pair
+   * compartments are fetched only for an anchored employee session, each with an explicit scope
+   * and the session's own owner, so private rows never enter the shared listing. The assemble
+   * event carries no turn user input, so ranking runs with empty query terms and reduces to
+   * importance plus recency. Every injected memory's access time is touched, and a failed touch
+   * never fails assembly.
+   */
   ctx.on('system-prompt/assemble', async (_assembly, context, next) => {
     const result = await next()
-    const cwd = context.agent?.session.header.cwd
+    const agent = context.agent
+    if (agent === undefined) return result
+    const cwd = agent.session.header.cwd
     if (cwd === undefined) return result
     let identity: EnterpriseIdentityStore
     try { identity = postgresIdentity(ctx) } catch { return result }
@@ -330,11 +446,30 @@ export function apply(ctx: Context, config: Config): void {
       departmentIds = (await identity.listUsers(grant.orgId))
         .find(user => user.id === grant.ownerUserId)?.departmentIds.slice() ?? []
     }
-    const entries = (await identity.listMemories({
-      orgId: grant.orgId, departmentIds, statuses: ['approved'],
-    })).slice(0, maxEntries)
-    if (entries.length === 0) return result
-    result.contexts.push({ name: 'enterprise:memory', text: renderEnterpriseMemory(entries, maxChars) })
+    const principal = requestPrincipal(ctx)
+    const actor = sessionActor(ctx, String(agent.id))
+    const orgId = principal?.orgId ?? actor?.orgId ?? grant.orgId
+    const userId = principal?.userId ?? actor?.userId
+    const employeeId = actor?.employeeId
+    const shared = await identity.listMemories({ orgId, departmentIds, statuses: ['approved'] })
+    const own = employeeId === undefined || userId === undefined ? [] : [
+      ...await identity.listMemories({ orgId, scopes: ['pair'], pairUserId: userId, statuses: ['approved'] }),
+      ...await identity.listMemories({ orgId, scopes: ['agent'], agentEmployeeId: employeeId, statuses: ['approved'] }),
+    ]
+    const compartments = new Set<EnterpriseMemoryEntry['scope']>(SECTIONS.map(section => section.scope))
+    const candidates = [...shared, ...own].filter(entry => compartments.has(entry.scope))
+    const ranked = rankEnterpriseMemories(candidates, { now: Date.now() }).slice(0, maxEntries)
+    const text = renderEnterpriseMemory(ranked, maxChars)
+    if (text === '') return result
+    const now = Date.now()
+    for (const entry of limitEnterpriseMemories(ranked, maxChars)) {
+      try { await identity.touchMemoryAccess(entry.id, now) }
+      catch {
+        // Access bookkeeping only feeds the recency signal; nothing else observes a failed touch,
+        // and prompt assembly must not fail because it happened.
+      }
+    }
+    result.contexts.push({ name: 'enterprise:memory', text })
     return result
   })
 }
