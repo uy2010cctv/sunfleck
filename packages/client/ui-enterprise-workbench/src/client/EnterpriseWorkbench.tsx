@@ -57,6 +57,11 @@ export interface EnterpriseWorkbenchInjected {
   loadEmployees: () => Promise<boolean>
   sendMessage: (employeeId: string, text: string) => Promise<boolean>
   selectEmployee: (employeeId?: string) => void
+  loadEmployeeMemories: (employeeId: string) => Promise<boolean>
+  reviewEmployeeMemory: (
+    employeeId: string, memoryId: string, decision: 'approved' | 'rejected', revision: number,
+  ) => Promise<boolean>
+  retireEmployeeMemory: (employeeId: string, memoryId: string, revision: number) => Promise<boolean>
   prepareWork: (input: { objective: string; deadline?: string; workspaceId?: string; preferredEmployeeReleaseId?: string }) => Promise<import('@deepseek-ai/dsh-api-enterprise-controller/types').EnterpriseWorkPreparation>
   startPreparedWork: (input: import('@deepseek-ai/dsh-api-enterprise-controller/types').EnterpriseWorkStartRequest) => Promise<import('@deepseek-ai/dsh-api-enterprise-controller/types').EnterpriseWorkStartValue>
   openRecord: (sessionId: SessionId) => void
@@ -1794,7 +1799,7 @@ export function EnterpriseWorkbench(props: EnterpriseWorkbenchProps) {
       <nav className={css.nav} aria-label={props.t('nav.aria')}>{NAV_GROUPS.map(group => <div className={css.navGroup} key={group.label}><span>{props.t(group.label)}</span>{group.items.map(([id, key]) => <button type="button" key={id} aria-current={page === id ? 'page' : undefined} onClick={() => { requestPage(id) }}>{props.t(key)}</button>)}</div>)}</nav>
       <main className={css.main}>
         {partial && <div className={css.notice} role="status">{props.t('partial')}</div>}
-        {page === 'employees' && <><StartWorkPanel workspaces={workspaces} releases={state.releases} prepareWork={props.prepareWork} startPreparedWork={props.startPreparedWork} onStarted={(sessionId) => { props.openRecord(sessionId as SessionId); props.close() }} t={props.t}/><EmployeesPage state={state} api={api} guardDirty={guardDirty} renderEmployeeKnowledgeBindings={props.renderSlot} t={props.t} /><EmployeeDirectory staff={state.staff} loadEmployees={props.loadEmployees} sendMessage={props.sendMessage} selectEmployee={props.selectEmployee} t={props.t}/></>}
+        {page === 'employees' && <><StartWorkPanel workspaces={workspaces} releases={state.releases} prepareWork={props.prepareWork} startPreparedWork={props.startPreparedWork} onStarted={(sessionId) => { props.openRecord(sessionId as SessionId); props.close() }} t={props.t}/><EmployeesPage state={state} api={api} guardDirty={guardDirty} renderEmployeeKnowledgeBindings={props.renderSlot} t={props.t} /><EmployeeDirectory staff={state.staff} memories={state.staffMemories} loadEmployees={props.loadEmployees} loadEmployeeMemories={props.loadEmployeeMemories} reviewEmployeeMemory={props.reviewEmployeeMemory} retireEmployeeMemory={props.retireEmployeeMemory} sendMessage={props.sendMessage} selectEmployee={props.selectEmployee} t={props.t}/></>}
         {page === 'devices' && <DevicesPage page={devices} api={api} busy={mutationBusy} t={props.t}/>}
         {page === 'work-records' && <WorkRecordsPage page={state.workRecords} update={props.updateWorkRecord} busy={mutationBusy} t={props.t} />}
         {page === 'approvals' && <ApprovalsPage page={state.approvals} api={api} busy={mutationBusy} t={props.t} />}

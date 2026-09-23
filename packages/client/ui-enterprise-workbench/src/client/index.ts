@@ -269,6 +269,11 @@ export function apply(ctx: Context): void {
     loadEmployees: () => controller.loadEmployees(),
     sendMessage: (employeeId, text) => controller.sendMessage(employeeId, text),
     selectEmployee: (employeeId) => { controller.selectEmployee(employeeId) },
+    loadEmployeeMemories: employeeId => controller.loadEmployeeMemories(employeeId),
+    reviewEmployeeMemory: (employeeId, memoryId, decision, revision) =>
+      controller.reviewEmployeeMemory(employeeId, memoryId, decision, revision),
+    retireEmployeeMemory: (employeeId, memoryId, revision) =>
+      controller.retireEmployeeMemory(employeeId, memoryId, revision),
     prepareWork: input => controller.prepareWork(input),
     startPreparedWork: input => controller.startPreparedWork(input),
     openRecord: (id) => { controller.openRecord(id) },
