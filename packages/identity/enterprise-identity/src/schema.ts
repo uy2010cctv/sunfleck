@@ -205,6 +205,12 @@ export function migrateEnterpriseIdentity(database: DatabaseSync): void {
       role_id TEXT,
       PRIMARY KEY(surface_id, principal_type, principal_id)
     ) STRICT;
+    CREATE TABLE IF NOT EXISTS surface_sessions (
+      surface_id TEXT NOT NULL REFERENCES surfaces(id) ON DELETE CASCADE,
+      employee_id TEXT NOT NULL,
+      session_id TEXT NOT NULL,
+      PRIMARY KEY(surface_id, employee_id)
+    ) STRICT;
     CREATE TABLE IF NOT EXISTS channel_topics (
       topic_id TEXT PRIMARY KEY,
       surface_id TEXT NOT NULL REFERENCES surfaces(id) ON DELETE CASCADE,

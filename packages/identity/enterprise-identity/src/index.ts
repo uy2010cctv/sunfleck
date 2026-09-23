@@ -46,6 +46,7 @@ export {
   type RepositoryOptions,
 } from './repository.ts'
 export {
+  attachGroupSurfaceSession,
   attachSurfaceSession,
   bindSticky,
   claimInbox,
@@ -60,6 +61,7 @@ export {
   enumColumn,
   failInboxItem,
   getEmployee,
+  groupSurfaceSession,
   listEmployees,
   resolveSticky,
   setDutyRoster,

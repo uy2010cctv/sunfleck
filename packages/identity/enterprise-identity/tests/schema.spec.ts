@@ -244,7 +244,8 @@ describe('migrateEnterpriseIdentity', () => {
     migrateEnterpriseIdentity(database)
 
     for (const table of [
-      'employee_accounts', 'surfaces', 'surface_members', 'channel_topics', 'employee_inbox', 'sticky_bindings',
+      'employee_accounts', 'surfaces', 'surface_members', 'surface_sessions', 'channel_topics', 'employee_inbox',
+      'sticky_bindings',
     ]) {
       expect(database.prepare(`SELECT count(*) AS n FROM ${table}`).get()).toEqual({ n: 0 })
     }
@@ -363,7 +364,7 @@ describe('migrateEnterpriseIdentity', () => {
         last_access_at: null, project_id: null,
       },
     ])
-    for (const table of ['surface_members', 'channel_topics']) {
+    for (const table of ['surface_members', 'surface_sessions', 'channel_topics']) {
       expect(database.prepare(`SELECT count(*) AS n FROM ${table}`).get()).toEqual({ n: 0 })
     }
     expect(database.prepare("SELECT value FROM enterprise_meta WHERE key = 'schema-version'").get())

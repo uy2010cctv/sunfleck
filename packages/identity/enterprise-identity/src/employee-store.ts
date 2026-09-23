@@ -613,6 +613,36 @@ export function attachSurfaceSession(database: DatabaseSync, id: string, session
   if (Number(result.changes) === 0) throw new Error('enterprise surface is missing')
 }
 
+/** Bind one employee's group-surface session, replacing any previous binding for the pair.
+ * @param database - Migrated enterprise identity database.
+ * @param surfaceId - Group surface the session serves.
+ * @param employeeId - Employee account the anchored session belongs to.
+ * @param sessionId - Session id now serving the (surface, employee) pair.
+ * @throws When the surface is missing (the foreign key fails loud).
+ */
+export function attachGroupSurfaceSession(
+  database: DatabaseSync,
+  surfaceId: string,
+  employeeId: string,
+  sessionId: string,
+): void {
+  database.prepare(`INSERT INTO surface_sessions(surface_id, employee_id, session_id) VALUES (?, ?, ?)
+    ON CONFLICT(surface_id, employee_id) DO UPDATE SET session_id = excluded.session_id`)
+    .run(surfaceId, employeeId, sessionId)
+}
+
+/** Read the session bound to one (group surface, employee) pair.
+ * @param database - Migrated enterprise identity database.
+ * @param surfaceId - Group surface whose member session is read.
+ * @param employeeId - Employee account whose group session is read.
+ * @returns The bound session id, or undefined when the pair has none yet.
+ */
+export function groupSurfaceSession(database: DatabaseSync, surfaceId: string, employeeId: string): string | undefined {
+  const row = database.prepare('SELECT session_id FROM surface_sessions WHERE surface_id = ? AND employee_id = ?')
+    .get(surfaceId, employeeId) as { session_id: string } | undefined
+  return row?.session_id
+}
+
 /** Insert one queued employee inbox row.
  * @param database - Migrated enterprise identity database.
  * @param row - Complete inbox row; callers enqueue in the queued state.

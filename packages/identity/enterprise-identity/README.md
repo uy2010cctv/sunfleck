@@ -20,7 +20,7 @@ Persistent enterprise organizations, users, sessions, resource policies, and aud
 <a id="package-details"></a>
 ## Package Details
 
-SQLite persistence for organizations, nested departments, users and memberships, roles, external identities, hashed login sessions, managed Workspace grants, Session-to-Workspace bindings, dm, group, and channel collaboration surfaces with members, topics, and duty rosters, reviewed organizational memory plus private agent and pair compartments written without review and project compartments tagged by project id, resource policies, and attributable audit records. Bearer tokens, passwords, and raw memory source conversations are never stored directly.
+SQLite persistence for organizations, nested departments, users and memberships, roles, external identities, hashed login sessions, managed Workspace grants, Session-to-Workspace bindings, dm, group, and channel collaboration surfaces with members, per-employee group sessions, topics, and duty rosters, reviewed organizational memory plus private agent and pair compartments written without review and project compartments tagged by project id, resource policies, and attributable audit records. Bearer tokens, passwords, and raw memory source conversations are never stored directly.
 
 `EnterpriseIdentityStore` is the Host-facing persistence contract. The SQLite `EnterpriseIdentityRepository` is one implementation; deployments may inject a transactional PostgreSQL-backed implementation without coupling authentication to SQLite file paths.
 

@@ -2,6 +2,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { describe, expect, it } from 'vitest'
 import { migrateEnterpriseIdentity } from '../src/index.ts'
 import {
+  attachGroupSurfaceSession,
   attachSurfaceSession,
   bindSticky,
   claimInbox,
@@ -15,6 +16,7 @@ import {
   ensureTopic,
   failInboxItem,
   getEmployee,
+  groupSurfaceSession,
   listEmployees,
   resolveSticky,
   setDutyRoster,
@@ -575,5 +577,34 @@ describe('collaboration surfaces', () => {
 
     expect(() => surfaceBySession(database, 'session-channel'))
       .toThrow(/surface-channel.*not a dm surface/u)
+  })
+
+  it('binds one group session per (surface, employee) pair and replaces it on re-attach', () => {
+    const database = makeDatabase()
+    seedSurfaceGraph(database)
+    ensureGroupSurface(database, groupRow())
+
+    expect(groupSurfaceSession(database, 'surface-group', 'employee-1')).toBeUndefined()
+    attachGroupSurfaceSession(database, 'surface-group', 'employee-1', 'session-1')
+    attachGroupSurfaceSession(database, 'surface-group', 'employee-2', 'session-2')
+    expect(groupSurfaceSession(database, 'surface-group', 'employee-1')).toBe('session-1')
+    expect(groupSurfaceSession(database, 'surface-group', 'employee-2')).toBe('session-2')
+
+    attachGroupSurfaceSession(database, 'surface-group', 'employee-1', 'session-1b')
+    expect(groupSurfaceSession(database, 'surface-group', 'employee-1')).toBe('session-1b')
+    expect(groupSurfaceSession(database, 'surface-group', 'employee-missing')).toBeUndefined()
+  })
+
+  it('fails loud when attaching a group session to a missing surface and cascades on surface delete', () => {
+    const database = makeDatabase()
+    seedSurfaceGraph(database)
+    ensureGroupSurface(database, groupRow())
+    attachGroupSurfaceSession(database, 'surface-group', 'employee-1', 'session-1')
+
+    expect(() => attachGroupSurfaceSession(database, 'surface-missing', 'employee-1', 'session-x'))
+      .toThrow(/FOREIGN KEY constraint failed/i)
+
+    database.prepare('DELETE FROM surfaces WHERE id = ?').run('surface-group')
+    expect(groupSurfaceSession(database, 'surface-group', 'employee-1')).toBeUndefined()
   })
 })
