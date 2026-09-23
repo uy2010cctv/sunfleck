@@ -433,6 +433,53 @@ describe('EnterpriseWorkbench', () => {
     expect(activateExtension).toHaveBeenCalledWith(expect.objectContaining({ packageId: 'package-saved' }), undefined)
   })
 
+  it('shows all Workspace extensions together with their source Workspace and an optional filter', () => {
+    const setExtensionWorkspace = vi.fn()
+    const workspaceSnapshot = workbenchProps().useWorkspaces(snapshot => snapshot)
+    const saved = (packageId: string, workspaceId: string, name: string) => ({
+      packageId, orgId: 'org-a', pluginId: packageId, dynamicPackageId: 'pkg-1', version: 1,
+      scope: { type: 'personal-workspace', workspaceId, ownerUserId: 'user-1' },
+      name, purpose: '验证统一管理。', hostCode: 'return { apply() {} }',
+      manifest: { apiVersion: 'dsh-plugin/v1', runtime: 'isolated-realm', provides: [], capabilities: [] },
+      artifactRef: `artifact://${packageId}`, validationReportRef: `report://${packageId}`, authoredBy: 'user-1',
+      sourceDigest: 'a'.repeat(64), createdAt: 1,
+    })
+    render(<EnterpriseWorkbench {...workbenchProps({
+      state: { mode: 'enterprise', page: 'extensions',
+        extensions: { phase: 'ready', error: null, items: [
+          saved('saved-1', 'workspace-1', '采购助手'), saved('saved-2', 'workspace-2', '财务助手'),
+        ] }, extensionBindings: [] },
+      useWorkspaces: (select: (snapshot: typeof workspaceSnapshot) => unknown) => select({ ...workspaceSnapshot, items: [
+        ...workspaceSnapshot.items,
+        { ...workspaceSnapshot.items[0]!, workspaceId: 'workspace-2', title: '财务部' },
+      ] } as never),
+      setExtensionWorkspace,
+    } as never)} />)
+
+    const filter = screen.getByRole('combobox', { name: '工作区' }) as HTMLSelectElement
+    expect(filter.value).toBe('')
+    expect(screen.getByRole('option', { name: '全部工作区' })).toBeDefined()
+    expect(within(screen.getByText('采购助手').closest('article')!).getByText('采购部')).toBeDefined()
+    expect(within(screen.getByText('财务助手').closest('article')!).getByText('财务部')).toBeDefined()
+    fireEvent.change(filter, { target: { value: 'workspace-2' } })
+    expect(setExtensionWorkspace).toHaveBeenCalledWith('workspace-2')
+  })
+
+  it('names the Workspace that failed while retaining other extension rows', () => {
+    render(<EnterpriseWorkbench {...workbenchProps({ state: {
+      mode: 'enterprise', page: 'extensions', extensions: { phase: 'error', error: '财务部', items: [{
+        packageId: 'saved-1', orgId: 'org-a', pluginId: 'helper-1', dynamicPackageId: 'pkg-1', version: 1,
+        scope: { type: 'personal-workspace', workspaceId: 'workspace-1', ownerUserId: 'user-1' },
+        name: '采购助手', purpose: '验证部分加载。', hostCode: 'return { apply() {} }',
+        manifest: { apiVersion: 'dsh-plugin/v1', runtime: 'isolated-realm', provides: [], capabilities: [] },
+        artifactRef: 'artifact://saved', validationReportRef: 'report://saved', authoredBy: 'user-1',
+        sourceDigest: 'a'.repeat(64), createdAt: 1,
+      }] },
+    } as never })} />)
+    expect(screen.getByText('采购助手')).toBeDefined()
+    expect(screen.getByRole('status').textContent).toContain('未能加载 财务部 的扩展')
+  })
+
   it('lists a published department package under organization extensions', () => {
     render(<EnterpriseWorkbench {...workbenchProps({
       state: { mode: 'enterprise', page: 'extensions', extensionWorkspaceId: 'workspace-1',

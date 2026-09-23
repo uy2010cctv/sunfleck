@@ -1649,6 +1649,7 @@ function ExtensionsPage({ state, workspaces, api, busy, t }: {
       <div className={css.extensionWorkspace}>
         <label>{t('extensions.workspace')}<select value={state.extensionWorkspaceId ?? ''}
           onChange={(event) => { api.setExtensionWorkspace(event.target.value) }}>
+          <option value="">{t('extensions.allWorkspaces')}</option>
           {workspaces.items.map(workspace => <option key={workspace.workspaceId} value={workspace.workspaceId}>{workspace.title}</option>)}
         </select></label>
         <button type="button" className={css.secondaryButton} disabled={busy}
@@ -1659,6 +1660,9 @@ function ExtensionsPage({ state, workspaces, api, busy, t }: {
       {tabs.map(([id, key]) => <button type="button" key={id} aria-current={section === id ? 'page' : undefined}
         onClick={() => { setSection(id) }}>{t(key)}</button>)}
     </nav>
+    {state.extensions.phase === 'error' && state.extensions.items.length > 0 && <div className={css.notice} role="status">
+      {t('extensions.partialWorkspaces', { workspaces: state.extensions.error ?? '' })}
+    </div>}
     {section === EXTENSION_SECTION.formal
       ? <PageBoundary page={{ ...state.formalPlugins, items: formalPlugins }} t={t}><div className={css.extensionList}>
         {formalPlugins.map(plugin => <article className={css.extensionRow} key={plugin.entryId}>
@@ -1696,13 +1700,19 @@ function ExtensionsPage({ state, workspaces, api, busy, t }: {
         : <PageBoundary page={{ ...state.extensions, items: packages }} t={t}><div className={css.extensionList}>
           {packages.map((pkg) => {
             const binding = bindingFor(pkg)
+            const sourceWorkspaceId = pkg.scope.type === 'personal-workspace' ? pkg.scope.workspaceId : undefined
             const versions = packagesByPlugin.get(pkg.pluginId)?.toSorted((left, right) => right.version - left.version) ?? []
             const previous = versions.find(version => version.version < pkg.version)
             const active = binding?.activePackageId === pkg.packageId && !binding.disabled
             return <article className={css.extensionRow} key={pkg.packageId} data-active={active}>
               <div className={css.extensionIdentity}><strong>{pkg.name}</strong><span>{pkg.pluginId} · {t('extensions.version', { version: pkg.version })} · {extensionScope(pkg, t)}</span><p>{pkg.purpose}</p></div>
               <div className={css.extensionCapabilities}>{pkg.manifest.provides.map(capability => <span key={capability}>{capability}</span>)}</div>
-              <div className={css.extensionMeta}><span>{active ? t('extensions.status.running') : binding?.disabled === true ? t('extensions.status.stopped') : t('extensions.status.available')}</span><span>{binding?.trustLevel === 'trusted-in-process' ? t('extensions.trust.trusted') : t('extensions.trust.isolated')}</span><span>{t('extensions.author', { user: pkg.authoredBy })}</span></div>
+              <div className={css.extensionMeta}>
+                {sourceWorkspaceId !== undefined && <span>{workspaces.items.find(workspace => workspace.workspaceId === sourceWorkspaceId)?.title ?? t('extensions.workspaceUnavailable')}</span>}
+                <span>{active ? t('extensions.status.running') : binding?.disabled === true ? t('extensions.status.stopped') : t('extensions.status.available')}</span>
+                <span>{binding?.trustLevel === 'trusted-in-process' ? t('extensions.trust.trusted') : t('extensions.trust.isolated')}</span>
+                <span>{t('extensions.author', { user: pkg.authoredBy })}</span>
+              </div>
               <details className={css.extensionSource}><summary>{t('extensions.source')}</summary>{pkg.hostCode !== undefined && <pre>{pkg.hostCode}</pre>}{pkg.clientCode !== undefined && <pre>{pkg.clientCode}</pre>}</details>
               <div className={css.inlineActions}>
                 {pkg.scope.type === 'personal-workspace' && !active && <button type="button" className={css.secondaryButton} disabled={busy}

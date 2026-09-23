@@ -18,7 +18,7 @@ Each Session captures visible active bindings once. Restoration uses the ordinar
 
 Package source is stored by SHA-256 content address in the controlled Artifact Store; PostgreSQL retains only its reference, digest, size, and governance metadata, and every read verifies the digest again. Publication gates check malicious construction signatures, embedded secrets, Host APIs, license allowlists, exact dependency versions, and SHA-512 integrity. The scanner contract can append enterprise antivirus and SCA implementations, and any failed check leaves the active pointer unchanged.
 
-The enterprise workbench exposes Workspace extensions as operational rows: running, personal, department, organization, and pending-review views. It opens on the creator's saved versions and can activate a saved or stopped private version. It shows real versions, scope, capabilities, isolation, source, lifecycle actions, and review actions without exposing Cordis implementation choices as a separate builder.
+The enterprise workbench exposes Workspace extensions as operational rows: running, personal, department, organization, and pending-review views. It opens on the creator's saved versions across authorized Workspaces, labels private versions with their source Workspace, and offers a Workspace filter. The client deduplicates organization versions returned by several Workspace reads and retains reachable records if one Workspace read fails. Owners can activate a saved or stopped private version. The page shows real versions, scope, capabilities, isolation, source, lifecycle actions, and review actions without exposing Cordis implementation choices as a separate builder.
 
 ## Verification
 

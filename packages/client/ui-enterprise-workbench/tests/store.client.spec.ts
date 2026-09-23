@@ -327,11 +327,12 @@ describe('EnterpriseWorkbenchController enterprise read models', () => {
       bindingId: 'binding-1', expectedRevision: 1, reason: 'Pause.',
     }))
     expect(controller.store.getSnapshot()).toMatchObject({
-      extensionWorkspaceId: 'workspace-1', extensions: { phase: 'ready', items: [expect.objectContaining({ packageId: 'package-1' })] },
+      extensions: { phase: 'ready', items: [expect.objectContaining({ packageId: 'package-1' })] },
     })
+    expect(controller.store.getSnapshot().extensionWorkspaceId).toBeUndefined()
   })
 
-  it('defaults extensions to the current Session Workspace instead of list order', async () => {
+  it('loads all visible Workspaces by default, including those outside the current Session', async () => {
     const base = controllerServices()
     const list = vi.fn(() => ok({ packages: [], bindings: [] }))
     const currentSessions = sessions([{ id: 'current-session' }])
@@ -349,8 +350,97 @@ describe('EnterpriseWorkbenchController enterprise read models', () => {
 
     await controller.refreshExtensions()
 
+    expect(list).toHaveBeenCalledWith({ workspaceId: 'department-first' })
     expect(list).toHaveBeenCalledWith({ workspaceId: 'personal-current' })
-    expect(controller.store.getSnapshot().extensionWorkspaceId).toBe('personal-current')
+    expect(controller.store.getSnapshot().extensionWorkspaceId).toBeUndefined()
+  })
+
+  it('keeps reachable extensions visible when one authorized Workspace fails to load', async () => {
+    const base = controllerServices()
+    const list = vi.fn(({ workspaceId }: { workspaceId: string }) => workspaceId === 'workspace-2'
+      ? Promise.reject(new Error('Workspace read failed'))
+      : ok({ packages: [{ packageId: 'saved-1', pluginId: 'helper-1', name: 'Saved helper',
+        scope: { type: 'personal-workspace', workspaceId: 'workspace-1', ownerUserId: 'owner-1' } }], bindings: [] }))
+    const controller = new EnterpriseWorkbenchController(controllerApi({
+      cordisWorkspace: { ...controllerApi().cordisWorkspace, list },
+    }) as never, base.sessions as never, {
+      list: { getSnapshot: () => ({ ...workspaces(), items: [
+        workspaces().items[0]!, { ...workspaces().items[0]!, workspaceId: 'workspace-2' as WorkspaceId, title: 'Second' },
+      ] }), subscribe: () => () => {} },
+    } as never)
+
+    expect(await controller.refreshExtensions()).toBe(false)
+    expect(controller.store.getSnapshot().extensions).toMatchObject({
+      phase: 'error', items: [expect.objectContaining({ packageId: 'saved-1' })],
+    })
+    expect(controller.store.getSnapshot().extensionReviews.phase).toBe('ready')
+  })
+
+  it('shows one organization version when several Workspaces return the same binding', async () => {
+    const base = controllerServices()
+    const pkg = { packageId: 'published-1', pluginId: 'helper-1', scope: { type: 'organization', organizationId: 'org-a' } }
+    const binding = { bindingId: 'org-binding', pluginId: 'helper-1', activePackageId: 'published-1',
+      scope: { type: 'organization', organizationId: 'org-a' } }
+    const list = vi.fn(() => ok({ packages: [pkg], bindings: [binding] }))
+    const controller = new EnterpriseWorkbenchController(controllerApi({
+      cordisWorkspace: { ...controllerApi().cordisWorkspace, list },
+    }) as never, base.sessions as never, {
+      list: { getSnapshot: () => ({ ...workspaces(), items: [
+        workspaces().items[0]!, { ...workspaces().items[0]!, workspaceId: 'workspace-2' as WorkspaceId },
+      ] }), subscribe: () => () => {} },
+    } as never)
+
+    await controller.refreshExtensions()
+
+    expect(controller.store.getSnapshot().extensions.items).toHaveLength(1)
+    expect(controller.store.getSnapshot().extensionBindings).toHaveLength(1)
+  })
+
+  it('does not let a slower all-Workspace read overwrite a newer filter', async () => {
+    const base = controllerServices()
+    let settleFirst!: (value: Awaited<ReturnType<typeof ok>>) => void
+    const first = new Promise<Awaited<ReturnType<typeof ok>>>((resolve) => { settleFirst = resolve })
+    const list = vi.fn(({ workspaceId }: { workspaceId: string }) => workspaceId === 'workspace-1'
+      ? first : ok({ packages: [{ packageId: 'workspace-2', pluginId: 'helper-2',
+        scope: { type: 'personal-workspace', workspaceId, ownerUserId: 'owner-1' } }], bindings: [] }))
+    const controller = new EnterpriseWorkbenchController(controllerApi({
+      cordisWorkspace: { ...controllerApi().cordisWorkspace, list },
+    }) as never, base.sessions as never, {
+      list: { getSnapshot: () => ({ ...workspaces(), items: [
+        workspaces().items[0]!, { ...workspaces().items[0]!, workspaceId: 'workspace-2' as WorkspaceId },
+      ] }), subscribe: () => () => {} },
+    } as never)
+
+    const all = controller.refreshExtensions()
+    controller.setExtensionWorkspace('workspace-2')
+    await vi.waitFor(() => { expect(controller.store.getSnapshot().extensions.items).toEqual([
+      expect.objectContaining({ packageId: 'workspace-2' }),
+    ]) })
+    settleFirst(await ok({ packages: [{ packageId: 'old', pluginId: 'old' }], bindings: [] }))
+    await all
+
+    expect(controller.store.getSnapshot().extensions.items).toEqual([
+      expect.objectContaining({ packageId: 'workspace-2' }),
+    ])
+  })
+
+  it('drops rows from a prior Workspace immediately when the filter changes', async () => {
+    const base = controllerServices()
+    const list = vi.fn(({ workspaceId }: { workspaceId: string }) => ok({
+      packages: [{ packageId: workspaceId, pluginId: workspaceId,
+        scope: { type: 'personal-workspace', workspaceId, ownerUserId: 'owner-1' } }], bindings: [],
+    }))
+    const controller = new EnterpriseWorkbenchController(controllerApi({
+      cordisWorkspace: { ...controllerApi().cordisWorkspace, list },
+    }) as never, base.sessions as never, base.workspaces as never)
+    await controller.refreshExtensions()
+
+    controller.setExtensionWorkspace('another-workspace')
+
+    expect(controller.store.getSnapshot().extensions.items).toEqual([])
+    await vi.waitFor(() => { expect(controller.store.getSnapshot().extensions.items).toEqual([
+      expect.objectContaining({ packageId: 'another-workspace' }),
+    ]) })
   })
 
   it('activates a saved private Cordis version through the Workspace remote', async () => {

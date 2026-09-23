@@ -473,6 +473,7 @@ export class EnterpriseWorkbenchController {
   private conflictMutationAction: (() => Promise<void>) | undefined
   private saveGeneration = 0
   private employeeRequestGeneration = 0
+  private extensionRequestGeneration = 0
   private readonly pageRequestGeneration = new Map<string, number>()
   private mutationAttemptId = 0
   private editorGeneration = 0
@@ -928,50 +929,67 @@ export class EnterpriseWorkbenchController {
     }))
   }
 
-  /** Select the Workspace whose personal or department extensions are projected.
-   * @param workspaceId - Input value used by this API.
+  /** Filter the extension catalog to one Workspace, or show all visible Workspaces.
+   * @param workspaceId - Workspace id, or an empty string for the unified catalog.
    */
   setExtensionWorkspace(workspaceId: string): void {
-    this.store.set({ ...this.store.getSnapshot(), extensionWorkspaceId: workspaceId })
+    const before = this.store.getSnapshot()
+    const { extensionWorkspaceId: _selected, ...state } = before
+    this.store.set({ ...state, ...(workspaceId === '' ? {} : { extensionWorkspaceId: workspaceId }),
+      extensions: { phase: 'loading', items: [], error: null }, extensionBindings: [] })
     void this.refreshExtensions()
   }
 
-  /** Load visible personal, department, organization, and review projections.
+  /** Load visible extensions across authorized Workspaces and the review queue.
    * @returns Result produced by this API.
    */
   async refreshExtensions(): Promise<boolean> {
     const before = this.store.getSnapshot()
-    const workspaceId = before.extensionWorkspaceId
-      ?? this.currentWorkspaceId()
-    if (workspaceId === undefined) {
-      this.store.set({ ...before, extensions: { phase: 'ready', items: [], error: null },
-        extensionBindings: [], extensionReviews: { phase: 'ready', items: [], error: null } })
-      return true
-    }
-    this.store.set({ ...before, extensionWorkspaceId: workspaceId,
+    const generation = ++this.extensionRequestGeneration
+    const workspaceIds = before.extensionWorkspaceId === undefined
+      ? this.workspaces.list.getSnapshot().items.map(workspace => workspace.workspaceId)
+      : [before.extensionWorkspaceId]
+    this.store.set({ ...before,
       extensions: { ...before.extensions, phase: 'loading', error: null },
       extensionReviews: { ...before.extensionReviews, phase: 'loading', error: null } })
     try {
-      const [projection, reviews] = await Promise.all([
-        this.api.cordisWorkspace.list({ workspaceId }).then(response => valueOf(response)),
-        this.api.cordisReview.list({}).then(response => valueOf(response)),
+      const [workspaceResults, reviewResult] = await Promise.all([
+        Promise.allSettled(workspaceIds.map(workspaceId =>
+          this.api.cordisWorkspace.list({ workspaceId }).then(response => valueOf(response)))),
+        this.api.cordisReview.list({}).then(
+          response => ({ status: 'fulfilled' as const, value: valueOf(response) }),
+          (reason: unknown) => ({ status: 'rejected' as const, reason }),
+        ),
       ])
-      this.store.set({ ...this.store.getSnapshot(), extensionWorkspaceId: workspaceId,
-        extensions: { phase: 'ready', items: projection.packages, error: null },
-        extensionBindings: projection.bindings,
-        extensionReviews: { phase: 'ready', items: reviews, error: null } })
-      return true
+      if (generation !== this.extensionRequestGeneration) return false
+      const projections = workspaceResults.flatMap(result => result.status === 'fulfilled' ? [result.value] : [])
+      const failedWorkspaces = workspaceResults.flatMap((result, index) => {
+        const workspaceId = workspaceIds[index]
+        if (result.status !== 'rejected' || workspaceId === undefined) return []
+        return [this.workspaces.list.getSnapshot().items.find(workspace => workspace.workspaceId === workspaceId)?.title
+          ?? workspaceId]
+      })
+      const packages = new Map(projections.flatMap(projection => projection.packages)
+        .map(pkg => [pkg.packageId, pkg]))
+      const bindings = new Map(projections.flatMap(projection => projection.bindings)
+        .map(binding => [binding.bindingId, binding]))
+      const current = this.store.getSnapshot()
+      this.store.set({ ...this.store.getSnapshot(),
+        extensions: { phase: failedWorkspaces.length > 0 ? 'error' : 'ready',
+          items: [...packages.values()], error: failedWorkspaces.length > 0 ? failedWorkspaces.join('、') : null },
+        extensionBindings: [...bindings.values()],
+        extensionReviews: reviewResult.status === 'fulfilled'
+          ? { phase: 'ready', items: reviewResult.value, error: null }
+          : pageFailure(current.extensionReviews, reviewResult.reason) })
+      return failedWorkspaces.length === 0 && reviewResult.status === 'fulfilled'
     } catch (error) {
+      if (generation !== this.extensionRequestGeneration) return false
       const current = this.store.getSnapshot()
       this.store.set({ ...current,
         extensions: pageFailure(current.extensions, error),
         extensionReviews: pageFailure(current.extensionReviews, error) })
       return false
     }
-  }
-
-  private currentWorkspaceId(): string | undefined {
-    return this.currentSessionWorkspaceId() ?? this.workspaces.list.getSnapshot().items[0]?.workspaceId
   }
 
   /** Resolve only the Workspace actually containing the currently open native Session.
