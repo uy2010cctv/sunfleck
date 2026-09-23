@@ -907,6 +907,9 @@ importers:
       '@deepseek-ai/dsh-enterprise-postgres':
         specifier: workspace:^
         version: link:../../enterprise/enterprise-postgres
+      '@deepseek-ai/dsh-enterprise-project':
+        specifier: workspace:^
+        version: link:../../enterprise/enterprise-project
       '@deepseek-ai/dsh-enterprise-surface':
         specifier: workspace:^
         version: link:../../enterprise/enterprise-surface

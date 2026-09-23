@@ -759,3 +759,62 @@ export function surfaceBySession(database: DatabaseSync, sessionId: string): Sur
     .get(sessionId) as Record<string, unknown> | undefined
   return row === undefined ? undefined : dmSurfaceFromRow(row)
 }
+
+/** List one organization's surfaces in creation order, optionally narrowed to one kind.
+ * @param database - Migrated enterprise identity database.
+ * @param orgId - Organization id whose surfaces are listed.
+ * @param kind - Surface kind to narrow the list to; omitted returns every kind.
+ * @returns The matching surface rows ordered by creation time and id.
+ */
+export function listSurfaces(
+  database: DatabaseSync,
+  orgId: string,
+  kind?: 'dm' | 'group' | 'channel',
+): Array<SurfaceRow | GroupSurfaceRow | ChannelSurfaceRow> {
+  const rows = (kind === undefined
+    ? database.prepare('SELECT * FROM surfaces WHERE org_id = ? ORDER BY created_at, id').all(orgId)
+    : database.prepare('SELECT * FROM surfaces WHERE org_id = ? AND kind = ? ORDER BY created_at, id')
+      .all(orgId, kind)) as unknown as Record<string, unknown>[]
+  return rows.map(surfaceFromRow)
+}
+
+/** Read one surface by id.
+ * @param database - Migrated enterprise identity database.
+ * @param id - Surface id to read.
+ * @returns The stored surface row, or undefined when the id is unknown.
+ */
+export function surfaceById(
+  database: DatabaseSync,
+  id: string,
+): SurfaceRow | GroupSurfaceRow | ChannelSurfaceRow | undefined {
+  const row = database.prepare('SELECT * FROM surfaces WHERE id = ?').get(id) as
+    | Record<string, unknown>
+    | undefined
+  return row === undefined ? undefined : surfaceFromRow(row)
+}
+
+/** Read the one channel surface bound to an external key. The deployment token owns the
+ * organization scope on the inbound path, so the key alone addresses the surface; more than one
+ * organization binding the same key is a deployment misconfiguration that fails loud here.
+ * @param database - Migrated enterprise identity database.
+ * @param externalKey - Transport-pinned external key to resolve.
+ * @returns The stored channel surface row carrying the key, or undefined when none does.
+ * @throws When several surfaces across organizations bound the same external key.
+ */
+export function channelSurfaceByExternalKey(
+  database: DatabaseSync,
+  externalKey: string,
+): ChannelSurfaceRow | undefined {
+  const rows = database.prepare("SELECT * FROM surfaces WHERE kind = 'channel' AND external_key = ?")
+    .all(externalKey) as unknown as Record<string, unknown>[]
+  if (rows.length > 1) {
+    throw new Error(`enterprise channel external key ${externalKey} is bound by ${rows.length} surfaces`)
+  }
+  const row = rows[0]
+  if (row === undefined) return undefined
+  const surface = surfaceFromRow(row)
+  if (surface.kind !== 'channel') {
+    throw new Error(`enterprise surface ${surface.id} is a ${surface.kind} surface, not a channel surface`)
+  }
+  return surface
+}

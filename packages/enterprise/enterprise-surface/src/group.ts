@@ -53,7 +53,7 @@ function mentionNames(text: string): Set<string> {
 }
 
 /** Parse one stored group-surface row into its surface value. */
-function groupSurfaceFromRow(row: GroupSurfaceRow): GroupSurface {
+export function groupSurfaceFromRow(row: GroupSurfaceRow): GroupSurface {
   return {
     id: surfaceId(row.id),
     kind: 'group',

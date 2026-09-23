@@ -16,6 +16,7 @@
     { "path": "../../enterprise/device-plane" },
     { "path": "../../enterprise/enterprise-postgres" },
     { "path": "../../enterprise/employee-account" },
+    { "path": "../../enterprise/enterprise-project" },
     { "path": "../../enterprise/enterprise-surface" },
     { "path": "../../preset/agent-presets" },
     { "path": "../../core/session" },

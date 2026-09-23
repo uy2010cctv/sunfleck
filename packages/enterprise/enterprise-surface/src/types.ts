@@ -287,6 +287,18 @@ export interface GroupTeamControl {
   }): Promise<EnterpriseTeamRun>
 }
 
+/** One stored surface with its stored member count, the governance listing slice. */
+export interface SurfaceListEntry {
+  /** The stored surface value. */
+  readonly surface: Surface
+  /**
+   * Stored member principals: group and channel surfaces count their
+   * `surface_members` rows; dm surfaces store no member rows and always
+   * report 0 — their bound user-employee pair is the surface itself.
+   */
+  readonly memberCount: number
+}
+
 /** Enterprise conversation surface registry and inbound delivery. */
 export interface EnterpriseSurfaces {
   /**
@@ -422,6 +434,27 @@ export interface EnterpriseSurfaces {
     surface: Surface,
     input: { originUserId: string; text: string; mentionedEmployeeIds?: readonly EmployeeId[]; topicId?: string },
   ): Promise<ChannelDeliveryResult>
+  /**
+   * List one organization's stored surfaces in creation order, optionally narrowed to one kind.
+   * @param input - organization and the optional kind filter.
+   * @returns The stored surfaces with their stored member counts.
+   */
+  listSurfaces(input: { orgId: string; kind?: Surface['kind'] }): Promise<readonly SurfaceListEntry[]>
+  /**
+   * Read one stored surface by id within one organization; unknown and
+   * cross-organization ids both resolve nothing so callers can fold existence.
+   * @param input - organization and surface id.
+   * @returns The stored surface, or undefined when the id is missing or foreign.
+   */
+  findSurface(input: { orgId: string; surfaceId: SurfaceId }): Promise<Surface | undefined>
+  /**
+   * Read the one channel surface bound to an external key. The deployment token
+   * owns the organization scope on the inbound path, so the key alone addresses
+   * the surface; the store fails loud when several organizations bound the same key.
+   * @param input - the transport-pinned external key.
+   * @returns The stored channel surface, or undefined when the key is unbound.
+   */
+  findChannelByExternalKey(input: { externalKey: string }): Promise<ChannelSurface | undefined>
 }
 
 declare module '@deepseek-ai/cordis' {

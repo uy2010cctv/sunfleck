@@ -11,10 +11,17 @@ import type {
   EnterpriseAction, EnterpriseAuthorizationDecision, EnterprisePrincipal, EnterpriseResource, EnterpriseRole,
 } from '@deepseek-ai/dsh-enterprise-governance'
 import { apply as applySurfaces } from '@deepseek-ai/dsh-enterprise-surface'
+import { EnterpriseProjectError, EnterpriseProjectService } from '@deepseek-ai/dsh-enterprise-project'
+import type {
+  AddProjectMemberInput, EnterpriseProjectStore, EnterpriseProjects, Project, ProjectId, ProjectMember,
+  ProjectPrincipalType,
+} from '@deepseek-ai/dsh-enterprise-project'
 import type { UserMessage } from '@deepseek-ai/dsh-llm'
 import { describe, expect, it } from 'vitest'
 import { EmployeeHttpHandler, inject } from '../src/employee-http.ts'
 import type { EmployeeHttpSecurity } from '../src/employee-http.ts'
+import { inject as surfaceInject, ProjectHttpHandler, SurfaceHttpHandler } from '../src/surfaces-http.ts'
+import type { SurfaceHttpOptions } from '../src/surfaces-http.ts'
 
 const PRESET = 'employee-preset'
 const ACCOUNT_FIELDS = ['displayName', 'id', 'roleCard', 'state']
@@ -221,6 +228,170 @@ function writeAgentMemory(
   return memories.writePrivateMemory({
     orgId: 'org-1', scope: 'agent', kind: 'process', summary, createdBy: 'user-1', agentEmployeeId: employeeId,
   })
+}
+
+/** In-memory project store double mirroring the repository's state guards for handler tests. */
+class MemoryProjectStore implements EnterpriseProjectStore {
+  private readonly projects = new Map<string, Project>()
+  private readonly members = new Map<string, ProjectMember>()
+
+  async createProject(input: Parameters<EnterpriseProjectStore['createProject']>[0]): Promise<Project> {
+    const at = 1_700_000_000_000
+    const project: Project = {
+      projectId: input.projectId, orgId: input.orgId, name: input.name, goal: input.goal,
+      workspacePath: input.workspacePath,
+      ...(input.teamDefinitionId === undefined ? {} : { teamDefinitionId: input.teamDefinitionId }),
+      state: 'active', visibility: input.visibility, allowedUserIds: input.allowedUserIds,
+      createdBy: input.createdBy, createdAt: at,
+    }
+    this.projects.set(input.projectId, project)
+    // The store inserts the creator as the first 'user' member, like the repository.
+    this.members.set(`${input.projectId}:user:${input.createdBy}`, {
+      projectId: input.projectId, principalType: 'user', principalId: input.createdBy,
+      addedBy: input.createdBy, addedAt: at,
+    })
+    return project
+  }
+
+  async getProject(projectId: ProjectId): Promise<Project | undefined> {
+    return this.projects.get(projectId)
+  }
+
+  async listProjects(orgId: string): Promise<readonly Project[]> {
+    return [...this.projects.values()].filter(project => project.orgId === orgId)
+  }
+
+  async archiveProject(projectId: ProjectId): Promise<Project> {
+    const project = this.requireActive(projectId)
+    const archived: Project = { ...project, state: 'archived', archivedAt: project.createdAt + 1 }
+    this.projects.set(projectId, archived)
+    return archived
+  }
+
+  async insertMember(projectId: ProjectId, input: AddProjectMemberInput): Promise<ProjectMember> {
+    this.requireActive(projectId)
+    const key = `${projectId}:${input.principalType}:${input.principalId}`
+    if (this.members.has(key)) throw new EnterpriseProjectError('conflict', 'project-member', key)
+    const member: ProjectMember = {
+      projectId, principalType: input.principalType, principalId: input.principalId,
+      addedBy: input.addedBy, addedAt: projectAddedAt(this.projects, projectId),
+    }
+    this.members.set(key, member)
+    return member
+  }
+
+  async removeMember(
+    projectId: ProjectId,
+    principalType: ProjectPrincipalType,
+    principalId: string,
+  ): Promise<void> {
+    this.requireActive(projectId)
+    this.members.delete(`${projectId}:${principalType}:${principalId}`)
+  }
+
+  async listMembers(projectId: ProjectId): Promise<readonly ProjectMember[]> {
+    return [...this.members.values()].filter(member => member.projectId === projectId)
+  }
+
+  /** Read one active project, folding missing and archived rows to the repository's errors. */
+  private requireActive(projectId: ProjectId): Project {
+    const project = this.projects.get(projectId)
+    if (project === undefined) throw new EnterpriseProjectError('not-found', 'project', projectId)
+    if (project.state !== 'active') throw new EnterpriseProjectError('invalid-state', 'project', projectId)
+    return project
+  }
+}
+
+/** Read one project's creation time for member timestamps, falling back to the store clock. */
+function projectAddedAt(projects: Map<string, Project>, projectId: ProjectId): number {
+  return projects.get(projectId)?.createdAt ?? 1_700_000_000_000
+}
+
+/** Build one project service over a fresh in-memory store. */
+function makeProjects(): EnterpriseProjects {
+  return new EnterpriseProjectService(new MemoryProjectStore())
+}
+
+/** Mount a recording enterprisePostgres identity store so ingest-only announcements propose. */
+function mountChannelMemory(env: Setup): { proposed: Array<{ id: string; summary: string }> } {
+  const proposed: Array<{ id: string; summary: string }> = []
+  env.ctx.provide('enterprisePostgres' as never, {
+    identity: {
+      proposeMemory: async (input: { id: string; summary: string }) => {
+        proposed.push({ id: input.id, summary: input.summary })
+        return { id: input.id }
+      },
+    },
+  } as never)
+  return { proposed }
+}
+
+/** Create one surface boundary whose cookie authenticates as the given principal. */
+function makeSurfaceHandler(
+  env: Setup,
+  principal: EnterprisePrincipal | undefined = principalOf(),
+  options: SurfaceHttpOptions = {},
+): SurfaceHttpHandler {
+  return new SurfaceHttpHandler(env.ctx.surfaces, new RecordingSecurity(principal), options)
+}
+
+/** Create one project boundary whose cookie authenticates as the given principal. */
+function makeProjectHandler(
+  projects: EnterpriseProjects,
+  principal: EnterprisePrincipal | undefined = principalOf(),
+): ProjectHttpHandler {
+  return new ProjectHttpHandler(projects, new RecordingSecurity(principal))
+}
+
+/** Send one request to the surface routes. */
+async function callSurface(
+  handler: SurfaceHttpHandler,
+  method: string,
+  path: string,
+  body?: unknown,
+): Promise<Response> {
+  return handler.fetch(new Request(`http://dsh/enterprise/surfaces${path}`, {
+    method,
+    headers: {
+      cookie: 'dsh_enterprise_session=ticket',
+      ...(body === undefined ? {} : { 'content-type': 'application/json' }),
+    },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+  }))
+}
+
+/** Send one request to the project routes. */
+async function callProject(
+  handler: ProjectHttpHandler,
+  method: string,
+  path: string,
+  body?: unknown,
+): Promise<Response> {
+  return handler.fetch(new Request(`http://dsh/enterprise/projects${path}`, {
+    method,
+    headers: {
+      cookie: 'dsh_enterprise_session=ticket',
+      ...(body === undefined ? {} : { 'content-type': 'application/json' }),
+    },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+  }))
+}
+
+/** Send one inbound envelope to the channel inbound route. */
+async function callInbound(
+  handler: SurfaceHttpHandler,
+  channelId: string,
+  body: unknown,
+  token?: string,
+): Promise<Response> {
+  return handler.fetchInbound(new Request(`http://dsh/enterprise/channels/${channelId}/inbound`, {
+    method: 'POST',
+    headers: {
+      ...(token === undefined ? {} : { 'x-dsh-channel-token': token }),
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  }))
 }
 
 describe('employee http endpoints', () => {
@@ -663,5 +834,421 @@ describe('employee memory governance endpoints', () => {
     expect((await call(makeHandler(env), 'POST', `/${employee.id}/memories/${approved.id}/retire`, {
       revision: 1,
     })).status).toBe(403)
+  })
+})
+
+describe('collaboration surface endpoints', () => {
+  it('declares the composed keys it reads from the context', () => {
+    expect(surfaceInject).toEqual(['surfaces', 'enterpriseProjects'])
+  })
+
+  it('creates one group surface with governance fields and rejects unusable members', async () => {
+    const env = makeEnv()
+    const member = createEmployee(env.accounts)
+    const handler = makeSurfaceHandler(env, principalOf(['creator']))
+
+    const created = await callSurface(handler, 'POST', '/groups', {
+      name: '项目组', memberEmployeeIds: [member.id], projectId: 'project-1',
+    })
+    expect(created.status).toBe(201)
+    const body = await created.json() as Record<string, unknown>
+    expect(Object.keys(body).sort()).toEqual(['id', 'kind', 'memberCount', 'name'])
+    expect(body).toMatchObject({ kind: 'group', name: '项目组', memberCount: 1 })
+
+    const repeated = await callSurface(handler, 'POST', '/groups', {
+      name: '项目组', externalKey: 'g-1', memberEmployeeIds: [member.id],
+    })
+    expect(repeated.status).toBe(201)
+    expect(await repeated.json()).toMatchObject({ kind: 'group', memberCount: 1 })
+
+    const crossOrg = createEmployee(env.accounts, 'org-2', '外部员工')
+    expect((await callSurface(handler, 'POST', '/groups', {
+      name: '项目组', memberEmployeeIds: [crossOrg.id],
+    })).status).toBe(400)
+    expect((await callSurface(handler, 'POST', '/groups', {
+      name: '项目组', memberEmployeeIds: [],
+    })).status).toBe(400)
+    expect((await callSurface(handler, 'POST', '/groups', {
+      name: '项目组', memberEmployeeIds: 'support',
+    })).status).toBe(400)
+  })
+
+  it('requires authentication and the creator role for surface creation', async () => {
+    const env = makeEnv()
+    const member = createEmployee(env.accounts)
+    const anonymous = new SurfaceHttpHandler(env.ctx.surfaces, new RecordingSecurity(undefined))
+    expect((await callSurface(anonymous, 'POST', '/groups', {
+      name: '项目组', memberEmployeeIds: [member.id],
+    })).status).toBe(401)
+    expect((await callSurface(makeSurfaceHandler(env), 'POST', '/groups', {
+      name: '项目组', memberEmployeeIds: [member.id],
+    })).status).toBe(403)
+    expect((await callSurface(makeSurfaceHandler(env, principalOf(['auditor'])), 'POST', '/channels', {
+      name: '值班频道', topicPolicy: 'thread', respondPolicy: 'ingest_only', dutyEmployeeIds: [member.id],
+    })).status).toBe(403)
+  })
+
+  it('creates one channel surface and validates its policies and roster', async () => {
+    const env = makeEnv()
+    const support = createEmployee(env.accounts, 'org-1', 'Support')
+    const handler = makeSurfaceHandler(env, principalOf(['creator']))
+
+    const created = await callSurface(handler, 'POST', '/channels', {
+      name: '值班频道', externalKey: 'fe-c1', topicPolicy: 'thread', respondPolicy: 'mention_duty',
+      dutyEmployeeIds: [support.id],
+    })
+    expect(created.status).toBe(201)
+    const body = await created.json() as Record<string, unknown>
+    expect(Object.keys(body).sort()).toEqual(['id', 'kind', 'memberCount', 'name'])
+    expect(body).toMatchObject({ kind: 'channel', name: '值班频道', memberCount: 1 })
+
+    expect((await callSurface(handler, 'POST', '/channels', {
+      name: '值班频道', topicPolicy: 'latest', respondPolicy: 'mention_duty', dutyEmployeeIds: [support.id],
+    })).status).toBe(400)
+    expect((await callSurface(handler, 'POST', '/channels', {
+      name: '值班频道', topicPolicy: 'thread', respondPolicy: 'everyone', dutyEmployeeIds: [support.id],
+    })).status).toBe(400)
+    expect((await callSurface(handler, 'POST', '/channels', {
+      name: '值班频道', topicPolicy: 'thread', respondPolicy: 'mention_duty', dutyEmployeeIds: 'support',
+    })).status).toBe(400)
+  })
+
+  it('lists the organization surfaces with governance fields and filters by kind', async () => {
+    const env = makeEnv()
+    const support = createEmployee(env.accounts, 'org-1', 'Support')
+    await env.ctx.surfaces.ensureDm({ orgId: 'org-1', userId: 'user-1', employeeId: support.id })
+    await env.ctx.surfaces.ensureGroupSurface({
+      orgId: 'org-1', name: '项目组', memberEmployeeIds: [support.id],
+    })
+    await env.ctx.surfaces.ensureChannelSurface({
+      orgId: 'org-1', name: '值班频道', memberEmployeeIds: [support.id], dutyEmployeeIds: [support.id],
+      topicPolicy: 'lane', respondPolicy: 'ingest_only',
+    })
+    const foreign = createEmployee(env.accounts, 'org-2', '外部员工')
+    await env.ctx.surfaces.ensureGroupSurface({
+      orgId: 'org-2', name: '外部组', memberEmployeeIds: [foreign.id],
+    })
+    const handler = makeSurfaceHandler(env)
+
+    const all = await callSurface(handler, 'GET', '')
+    expect(all.status).toBe(200)
+    const body = await all.json() as Array<Record<string, unknown>>
+    expect(body).toHaveLength(3)
+    expect(JSON.stringify(body)).not.toContain('外部组')
+    const dm = body.find(entry => entry['kind'] === 'dm') as Record<string, unknown>
+    expect(Object.keys(dm).sort()).toEqual(['id', 'kind'])
+    const group = body.find(entry => entry['kind'] === 'group') as Record<string, unknown>
+    expect(Object.keys(group).sort()).toEqual(['id', 'kind', 'memberCount', 'name'])
+    expect(group).toMatchObject({ name: '项目组', memberCount: 1 })
+
+    const groups = await callSurface(handler, 'GET', '?kind=group')
+    expect((await groups.json() as unknown[])).toHaveLength(1)
+    expect((await callSurface(handler, 'GET', '?kind=channel')).status).toBe(200)
+    expect((await callSurface(handler, 'GET', '?kind=latest')).status).toBe(400)
+  })
+
+  it('dispatches dm messages into the anchored session and validates the body', async () => {
+    const env = makeEnv()
+    const employee = createEmployee(env.accounts)
+    const surface = await env.ctx.surfaces.ensureDm({
+      orgId: 'org-1', userId: 'user-1', employeeId: employee.id,
+    })
+    const handler = makeSurfaceHandler(env)
+
+    const response = await callSurface(handler, 'POST', `/${surface.id}/messages`, { text: '你好' })
+    expect(response.status).toBe(200)
+    const body = await response.json() as Record<string, unknown>
+    expect(body['delivered']).toBe(true)
+    expect(body['kind']).toBe('dm')
+    expect(typeof body['inboxItemId']).toBe('string')
+    expect(env.host.steered[0]?.source).toMatchObject({ kind: 'surface-message', originActor: 'user-1' })
+
+    expect((await callSurface(handler, 'POST', `/${surface.id}/messages`, { text: '   ' })).status).toBe(400)
+    expect((await callSurface(handler, 'POST', `/${surface.id}/messages`, {})).status).toBe(400)
+  })
+
+  it('routes group messages to mentioned members and reports structured no-target', async () => {
+    const env = makeEnv()
+    const support = createEmployee(env.accounts, 'org-1', 'Support')
+    const surface = await env.ctx.surfaces.ensureGroupSurface({
+      orgId: 'org-1', name: '项目组', memberEmployeeIds: [support.id],
+    })
+    const handler = makeSurfaceHandler(env)
+
+    const mentioned = await callSurface(handler, 'POST', `/${surface.id}/messages`, { text: '@Support 开始吧' })
+    expect(mentioned.status).toBe(200)
+    const body = await mentioned.json() as Record<string, unknown>
+    expect(body['delivered']).toBe(true)
+    expect(body['mode']).toBe('federated')
+    expect(body['targets']).toEqual([{ kind: 'employee', employeeId: support.id, delivered: true }])
+    expect(JSON.stringify(body)).not.toContain('sessionId')
+
+    const unaddressed = await callSurface(handler, 'POST', `/${surface.id}/messages`, { text: '没有人被提及' })
+    expect(await unaddressed.json()).toEqual({ delivered: false, reason: 'no-target' })
+  })
+
+  it('routes channel messages by topic and settles through the topic endpoint', async () => {
+    const env = makeEnv()
+    const support = createEmployee(env.accounts, 'org-1', 'Support')
+    const surface = await env.ctx.surfaces.ensureChannelSurface({
+      orgId: 'org-1', name: '值班频道', memberEmployeeIds: [support.id], dutyEmployeeIds: [support.id],
+      topicPolicy: 'thread', respondPolicy: 'mention_duty',
+    })
+    const handler = makeSurfaceHandler(env)
+
+    const routed = await callSurface(handler, 'POST', `/${surface.id}/messages`, { text: '第一条消息' })
+    expect(routed.status).toBe(200)
+    const routedBody = await routed.json() as Record<string, unknown>
+    expect(routedBody).toMatchObject({ delivered: true, mode: 'routed', employeeIds: [support.id] })
+    const topicId = routedBody['topicId'] as string
+    expect(typeof topicId).toBe('string')
+    expect(JSON.stringify(routedBody)).not.toContain('sessionId')
+
+    const settled = await callSurface(handler, 'POST', `/${surface.id}/topics/${topicId}/settle`)
+    expect(settled.status).toBe(200)
+    expect(await settled.json()).toEqual({ topicId, state: 'settled' })
+
+    expect((await callSurface(handler, 'POST', `/${surface.id}/topics/${topicId}/settle`)).status).toBe(409)
+    expect((await callSurface(handler, 'POST', `/${surface.id}/topics/topic-missing/settle`)).status).toBe(404)
+  })
+
+  it('ingests announcements on ingest-only channels into organization memory', async () => {
+    const env = makeEnv()
+    const support = createEmployee(env.accounts, 'org-1', 'Support')
+    const surface = await env.ctx.surfaces.ensureChannelSurface({
+      orgId: 'org-1', name: '公告频道', memberEmployeeIds: [support.id], dutyEmployeeIds: [support.id],
+      topicPolicy: 'thread', respondPolicy: 'ingest_only',
+    })
+    mountChannelMemory(env)
+    const handler = makeSurfaceHandler(env)
+
+    const response = await callSurface(handler, 'POST', `/${surface.id}/messages`, { text: '本周发布公告' })
+    expect(response.status).toBe(200)
+    const body = await response.json() as Record<string, unknown>
+    expect(body['delivered']).toBe(true)
+    expect(body['mode']).toBe('ingested')
+    expect(typeof body['proposedMemoryId']).toBe('string')
+    expect(env.host.created).toEqual([])
+  })
+
+  it('folds unknown and cross-organization surfaces behind 404 and maps delivery failures', async () => {
+    const env = makeEnv()
+    const support = createEmployee(env.accounts, 'org-1', 'Support')
+    const foreign = createEmployee(env.accounts, 'org-2', '外部员工')
+    const foreignSurface = await env.ctx.surfaces.ensureGroupSurface({
+      orgId: 'org-2', name: '外部组', memberEmployeeIds: [foreign.id],
+    })
+    const handler = makeSurfaceHandler(env)
+
+    expect((await callSurface(handler, 'POST', '/surface-missing/messages', { text: '你好' })).status).toBe(404)
+    expect((await callSurface(handler, 'POST', `/${foreignSurface.id}/messages`, { text: '你好' })).status).toBe(404)
+    expect((await callSurface(handler, 'POST', `/${foreignSurface.id}/topics/topic-1/settle`)).status).toBe(404)
+
+    const dm = await env.ctx.surfaces.ensureDm({
+      orgId: 'org-1', userId: 'user-1', employeeId: support.id,
+    })
+    env.host.silentSteer = true
+    expect((await callSurface(handler, 'POST', `/${dm.id}/messages`, { text: '你好' })).status).toBe(502)
+    env.host.silentSteer = false
+
+    const anonymous = new SurfaceHttpHandler(env.ctx.surfaces, new RecordingSecurity(undefined))
+    expect((await callSurface(anonymous, 'POST', `/${dm.id}/messages`, { text: '你好' })).status).toBe(401)
+    expect((await callSurface(makeSurfaceHandler(env, principalOf(['auditor'])), 'POST', `/${dm.id}/messages`, {
+      text: '你好',
+    })).status).toBe(403)
+  })
+
+  it('answers wrong methods and unknown surface paths with 405 and 404', async () => {
+    const env = makeEnv()
+    const handler = makeSurfaceHandler(env)
+
+    expect((await callSurface(handler, 'PUT', '')).status).toBe(405)
+    expect((await callSurface(handler, 'GET', '/groups')).status).toBe(405)
+    expect((await callSurface(handler, 'DELETE', '/channels')).status).toBe(405)
+    expect((await callSurface(handler, 'GET', '/surface-1/messages')).status).toBe(405)
+    expect((await callSurface(handler, 'GET', '/surface-1/topics/topic-1/settle')).status).toBe(405)
+    expect((await callSurface(handler, 'GET', '/surface-1/unknown')).status).toBe(404)
+  })
+})
+
+describe('channel inbound endpoint', () => {
+  const TOKEN = { channelInboundToken: 'bridge-secret' } satisfies SurfaceHttpOptions
+
+  it('fails loud without configuration and rejects missing or mismatched tokens', async () => {
+    const env = makeEnv()
+    const support = createEmployee(env.accounts, 'org-1', 'Support')
+    await env.ctx.surfaces.ensureChannelSurface({
+      orgId: 'org-1', name: '公告频道', externalKey: 'fe-c1', memberEmployeeIds: [support.id],
+      topicPolicy: 'thread', respondPolicy: 'ingest_only', dutyEmployeeIds: [support.id],
+    })
+    const unconfigured = makeSurfaceHandler(env, principalOf(), { channelInboundToken: '' })
+    expect((await callInbound(unconfigured, 'fe-c1', {
+      channelId: 'fe-c1', actorKey: 'wecom-1', text: '公告',
+    })).status).toBe(503)
+
+    const handler = makeSurfaceHandler(env, principalOf(), TOKEN)
+    expect((await callInbound(handler, 'fe-c1', {
+      channelId: 'fe-c1', actorKey: 'wecom-1', text: '公告',
+    })).status).toBe(401)
+    expect((await callInbound(handler, 'fe-c1', {
+      channelId: 'fe-c1', actorKey: 'wecom-1', text: '公告',
+    }, 'wrong-token')).status).toBe(401)
+  })
+
+  it('delivers a correct envelope by external key and folds unknown channels', async () => {
+    const env = makeEnv()
+    const support = createEmployee(env.accounts, 'org-1', 'Support')
+    await env.ctx.surfaces.ensureChannelSurface({
+      orgId: 'org-1', name: '公告频道', externalKey: 'fe-c1', memberEmployeeIds: [support.id],
+      topicPolicy: 'thread', respondPolicy: 'ingest_only', dutyEmployeeIds: [support.id],
+    })
+    mountChannelMemory(env)
+    const handler = makeSurfaceHandler(env, principalOf(), TOKEN)
+
+    const response = await callInbound(handler, 'fe-c1', {
+      channelId: 'fe-c1', actorKey: 'wecom-1', text: '发布公告', messageId: 'msg-1',
+    }, 'bridge-secret')
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({ delivered: true, mode: 'ingested' })
+
+    expect((await callInbound(handler, 'fe-missing', {
+      channelId: 'fe-missing', actorKey: 'wecom-1', text: '公告',
+    }, 'bridge-secret')).status).toBe(404)
+    expect((await callInbound(handler, 'fe-c1', {
+      channelId: 'fe-other', actorKey: 'wecom-1', text: '公告',
+    }, 'bridge-secret')).status).toBe(400)
+  })
+
+  it('routes an interactive inbound message into its topic session', async () => {
+    const env = makeEnv()
+    const support = createEmployee(env.accounts, 'org-1', 'Support')
+    await env.ctx.surfaces.ensureChannelSurface({
+      orgId: 'org-1', name: '值班频道', externalKey: 'fe-c2', memberEmployeeIds: [support.id],
+      topicPolicy: 'thread', respondPolicy: 'mention_duty', dutyEmployeeIds: [support.id],
+    })
+    const handler = makeSurfaceHandler(env, principalOf(), TOKEN)
+
+    const response = await callInbound(handler, 'fe-c2', {
+      channelId: 'fe-c2', actorKey: 'wecom-1', text: '第一条消息',
+    }, 'bridge-secret')
+    expect(response.status).toBe(200)
+    const body = await response.json() as Record<string, unknown>
+    expect(body).toMatchObject({ delivered: true, mode: 'routed', employeeIds: [support.id] })
+    expect(env.host.steered[0]?.source).toMatchObject({
+      kind: 'surface-message', originActor: 'wecom-1',
+    })
+  })
+})
+
+describe('project endpoints', () => {
+  const CREATE = { name: 'Support', goal: 'Ship support.', workspacePath: '/managed/projects/support' }
+
+  it('creates one project owned by the caller and strips internal fields', async () => {
+    const projects = makeProjects()
+    const handler = makeProjectHandler(projects, principalOf(['creator']))
+
+    const created = await callProject(handler, 'POST', '', {
+      ...CREATE, visibility: 'restricted', allowedUserIds: ['user-2'],
+    })
+    expect(created.status).toBe(201)
+    const body = await created.json() as Record<string, unknown>
+    expect(Object.keys(body).sort()).toEqual(['createdAt', 'createdBy', 'goal', 'id', 'name', 'state', 'visibility'])
+    expect(body).toMatchObject({ name: 'Support', state: 'active', visibility: 'restricted', createdBy: 'user-1' })
+    expect(JSON.stringify(body)).not.toContain('workspacePath')
+    expect(JSON.stringify(body)).not.toContain('allowedUserIds')
+
+    expect((await callProject(handler, 'POST', '', {
+      ...CREATE, workspacePath: 'managed/projects/relative',
+    })).status).toBe(400)
+    expect((await callProject(handler, 'POST', '', { name: 'Support', goal: 'Ship support.' })).status).toBe(400)
+    expect((await callProject(makeProjectHandler(projects), 'POST', '', CREATE)).status).toBe(403)
+    const anonymous = new ProjectHttpHandler(projects, new RecordingSecurity(undefined))
+    expect((await callProject(anonymous, 'POST', '', CREATE)).status).toBe(401)
+  })
+
+  it('lists only the projects the caller may see', async () => {
+    const projects = makeProjects()
+    const creator = makeProjectHandler(projects, principalOf(['creator']))
+    await callProject(creator, 'POST', '', CREATE)
+    await callProject(creator, 'POST', '', { ...CREATE, name: '私人项目', visibility: 'private' })
+    await projects.create({
+      orgId: 'org-1', name: '他人项目', goal: 'x', workspacePath: '/managed/projects/other', createdBy: 'user-2',
+    })
+    await projects.create({
+      orgId: 'org-2', name: '外部项目', goal: 'x', workspacePath: '/managed/projects/foreign', createdBy: 'user-3',
+    })
+
+    const listed = await callProject(creator, 'GET', '')
+    expect(listed.status).toBe(200)
+    const body = await listed.json() as Array<Record<string, unknown>>
+    expect(body.map(project => project['name']).sort()).toEqual(['Support', '他人项目', '私人项目'])
+
+    const other = makeProjectHandler(projects, principalOf(['operator'], 'user-2'))
+    const otherListed = await callProject(other, 'GET', '')
+    // The organization project stays visible; the creator's private project folds out.
+    expect((await otherListed.json() as Array<Record<string, unknown>>).map(project => project['name']).sort())
+      .toEqual(['Support', '他人项目'])
+
+    expect((await callProject(makeProjectHandler(projects, principalOf(['auditor'])), 'GET', '')).status)
+      .toBe(200)
+  })
+
+  it('folds non-member reads behind 404 and reveals projects to members', async () => {
+    const projects = makeProjects()
+    const creator = makeProjectHandler(projects, principalOf(['creator']))
+    const created = await callProject(creator, 'POST', '', CREATE)
+    const id = (await created.json() as Record<string, unknown>)['id'] as string
+
+    const member = await callProject(creator, 'GET', `/${id}`)
+    expect(member.status).toBe(200)
+    expect(await member.json()).toMatchObject({ id, name: 'Support' })
+
+    expect((await callProject(
+      makeProjectHandler(projects, principalOf(['operator'], 'user-2')), 'GET', `/${id}`,
+    )).status).toBe(404)
+    // Even an administrator without membership sees no existence.
+    expect((await callProject(
+      makeProjectHandler(projects, principalOf(['administrator'], 'user-2')), 'GET', `/${id}`,
+    )).status).toBe(404)
+    expect((await callProject(creator, 'GET', '/project-missing')).status).toBe(404)
+  })
+
+  it('adds members, archives, and refuses mutations after archive', async () => {
+    const projects = makeProjects()
+    const creator = makeProjectHandler(projects, principalOf(['creator']))
+    const created = await callProject(creator, 'POST', '', CREATE)
+    const id = (await created.json() as Record<string, unknown>)['id'] as string
+
+    expect((await callProject(creator, 'POST', `/${id}/members`, {
+      principalType: 'user', principalId: 'user-2',
+    })).status).toBe(204)
+    expect((await callProject(
+      makeProjectHandler(projects, principalOf(['operator'], 'user-2')), 'GET', `/${id}`,
+    )).status).toBe(200)
+    expect((await callProject(creator, 'POST', `/${id}/members`, {
+      principalType: 'robot', principalId: 'x',
+    })).status).toBe(400)
+
+    const archived = await callProject(creator, 'POST', `/${id}/archive`)
+    expect(archived.status).toBe(200)
+    expect(await archived.json()).toEqual({ id, state: 'archived' })
+
+    expect((await callProject(creator, 'POST', `/${id}/archive`)).status).toBe(409)
+    expect((await callProject(creator, 'POST', `/${id}/members`, {
+      principalType: 'user', principalId: 'user-3',
+    })).status).toBe(409)
+    expect((await callProject(creator, 'POST', '/project-missing/members', {
+      principalType: 'user', principalId: 'user-3',
+    })).status).toBe(404)
+    expect((await callProject(creator, 'POST', '/project-missing/archive')).status).toBe(404)
+  })
+
+  it('answers wrong methods and unknown project paths with 405 and 404', async () => {
+    const handler = makeProjectHandler(makeProjects())
+
+    expect((await callProject(handler, 'PUT', '')).status).toBe(405)
+    expect((await callProject(handler, 'DELETE', '/project-1')).status).toBe(405)
+    expect((await callProject(handler, 'GET', '/project-1/members')).status).toBe(405)
+    expect((await callProject(handler, 'POST', '/project-1/unknown')).status).toBe(404)
   })
 })

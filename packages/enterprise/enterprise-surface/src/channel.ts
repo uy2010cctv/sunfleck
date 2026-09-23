@@ -21,6 +21,7 @@ import {
   type SurfaceId,
 } from '@deepseek-ai/dsh-employee-account'
 import {
+  channelSurfaceByExternalKey,
   attachTopicSession,
   channelTopic,
   classifyPrivacyForScope,
@@ -28,22 +29,29 @@ import {
   ensureChannelSurface as ensureChannelSurfaceRow,
   ensureTopic,
   inspectEnterpriseMemory,
+  listSurfaces as listSurfaceRows,
   memorySourceDigest,
   settleTopic,
   setSurfaceMembers,
+  surfaceById,
+  surfaceMembers,
   type ChannelSurfaceRow,
   type ChannelTopicRow,
   type EnterpriseIdentityStore,
+  type GroupSurfaceRow,
+  type SurfaceRow,
 } from '@deepseek-ai/dsh-enterprise-identity'
 import { createUserMessage, errorChain, type UserMessage } from '@deepseek-ai/dsh-llm'
 import type { Session, SessionId } from '@deepseek-ai/dsh-session'
-import { GroupSurfaceRegistry, landedCount } from './group.ts'
+import { dmSurfaceFromRow } from './dm.ts'
+import { GroupSurfaceRegistry, groupSurfaceFromRow, landedCount } from './group.ts'
 import {
   EnterpriseSurfaceError,
   type ChannelDeliveryResult,
   type ChannelSurface,
   type EnterpriseSurfaces,
   type Surface,
+  type SurfaceListEntry,
 } from './types.ts'
 
 /** Maximum characters of an announcement carried into its memory-proposal summary. */
@@ -96,7 +104,7 @@ function parseCommand(text: string): ChannelCommand | undefined {
 }
 
 /** Parse one stored channel-surface row into its surface value. */
-function channelSurfaceFromRow(row: ChannelSurfaceRow): ChannelSurface {
+export function channelSurfaceFromRow(row: ChannelSurfaceRow): ChannelSurface {
   return {
     id: surfaceId(row.id),
     kind: 'channel',
@@ -106,6 +114,13 @@ function channelSurfaceFromRow(row: ChannelSurfaceRow): ChannelSurface {
     respondPolicy: row.respondPolicy,
     ...(row.projectId === undefined ? {} : { projectId: row.projectId }),
   }
+}
+
+/** Parse any stored surface row into its surface value, dispatching on the stored kind. */
+function surfaceValueFromRow(row: SurfaceRow | GroupSurfaceRow | ChannelSurfaceRow): Surface {
+  if (row.kind === 'dm') return dmSurfaceFromRow(row)
+  if (row.kind === 'group') return groupSurfaceFromRow(row)
+  return channelSurfaceFromRow(row)
 }
 
 /**
@@ -225,6 +240,40 @@ export class ChannelSurfaceRegistry extends GroupSurfaceRegistry implements Ente
       | { identity?: EnterpriseIdentityStore }
       | undefined
     return postgres?.identity
+  }
+
+  /**
+   * List one organization's stored surfaces in creation order, optionally narrowed to one kind.
+   * Member counts read the stored member rows; dm surfaces store none and stay dm-specific.
+   */
+  listSurfaces(input: {
+    orgId: string
+    kind?: Surface['kind']
+  }): Promise<readonly SurfaceListEntry[]> {
+    return Promise.resolve(listSurfaceRows(this.database, input.orgId, input.kind).map(row => ({
+      surface: surfaceValueFromRow(row),
+      memberCount: row.kind === 'dm' ? 0 : surfaceMembers(this.database, row.id).length,
+    })))
+  }
+
+  /**
+   * Read one stored surface by id within one organization; unknown and cross-organization ids
+   * both resolve nothing so callers can fold existence behind one 404.
+   */
+  findSurface(input: { orgId: string; surfaceId: SurfaceId }): Promise<Surface | undefined> {
+    const row = surfaceById(this.database, input.surfaceId)
+    if (row === undefined || row.orgId !== input.orgId) return Promise.resolve(undefined)
+    return Promise.resolve(surfaceValueFromRow(row))
+  }
+
+  /**
+   * Read the one channel surface bound to an external key. The deployment token owns the
+   * organization scope on the inbound path, so the key alone addresses the surface; the store
+   * fails loud when several organizations bound the same key.
+   */
+  findChannelByExternalKey(input: { externalKey: string }): Promise<ChannelSurface | undefined> {
+    const row = channelSurfaceByExternalKey(this.database, input.externalKey)
+    return Promise.resolve(row === undefined ? undefined : channelSurfaceFromRow(row))
   }
 
   /** Resolve the employees a routed message addresses: mentioned members first, then the duty roster head. */

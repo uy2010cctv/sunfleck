@@ -28,6 +28,7 @@ import {
   type InboxItemId,
 } from '@deepseek-ai/dsh-employee-account'
 import { attachSurfaceSession, ensureSurface, failInboxItem } from '@deepseek-ai/dsh-enterprise-identity'
+import type { SurfaceRow } from '@deepseek-ai/dsh-enterprise-identity'
 import { createUserMessage, errorChain, type UserMessage } from '@deepseek-ai/dsh-llm'
 import type { Session, SessionId } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-session-title'
@@ -37,6 +38,18 @@ import { EnterpriseSurfaceError, type DmSurface, type Surface } from './types.ts
 /** Log a rollback failure without replacing the operation's original failure. */
 function reportRollbackFailure(ctx: Context, subject: string, error: unknown): void {
   ctx.logger.warn(`enterprise surface: ${subject} rollback failed: ${errorChain(error)}`)
+}
+
+/** Parse one stored dm surface row into its surface value; the anchored session stays absent while unbound. */
+export function dmSurfaceFromRow(row: SurfaceRow): DmSurface {
+  return {
+    id: surfaceId(row.id),
+    kind: 'dm',
+    orgId: row.orgId,
+    userId: row.userId,
+    employeeId: employeeId(row.employeeId),
+    ...(row.sessionId === null ? {} : { sessionId: brandString<SessionId>(row.sessionId) }),
+  }
 }
 
 /** Registry of durable dm surfaces and inbound delivery into anchored employee sessions. */
@@ -151,29 +164,13 @@ export class DmSurfaceRegistry {
       sessionId: null,
       createdAt: Date.now(),
     })
-    if (row.sessionId !== null) {
-      return {
-        id: surfaceId(row.id),
-        kind: row.kind,
-        orgId: row.orgId,
-        userId: row.userId,
-        employeeId: employeeId(row.employeeId),
-        sessionId: brandString<SessionId>(row.sessionId),
-      }
-    }
+    if (row.sessionId !== null) return dmSurfaceFromRow(row)
     const sessionId = await this.createAnchoredSession(
       account,
       'employee-dm',
       (id) => { attachSurfaceSession(this.database, row.id, id) },
     )
-    return {
-      id: surfaceId(row.id),
-      kind: 'dm',
-      orgId: row.orgId,
-      userId: row.userId,
-      employeeId: input.employeeId,
-      sessionId,
-    }
+    return { ...dmSurfaceFromRow(row), sessionId }
   }
 
   /**
