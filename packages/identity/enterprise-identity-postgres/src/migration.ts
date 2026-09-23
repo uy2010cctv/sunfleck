@@ -130,7 +130,7 @@ function readSnapshot(sqliteFilename: string): MigrationSnapshot {
         root_path, sandbox_mode, revision, created_at, updated_at
         FROM enterprise_workspace_grants ORDER BY workspace_id`),
       memories: rows(database, `SELECT id, org_id, scope_type, department_id, agent_employee_id, pair_user_id,
-        kind, status, summary, source_digest, privacy_findings, importance, last_access_at, created_by,
+        project_id, kind, status, summary, source_digest, privacy_findings, importance, last_access_at, created_by,
         reviewed_by, review_reason, revision, created_at, updated_at
         FROM enterprise_memories ORDER BY id`),
       sessionWorkspaces: rows(database, `SELECT session_id, workspace_id, org_id, owner_user_id
@@ -380,11 +380,11 @@ async function importSnapshot(target: PostgresDatabase, snapshot: MigrationSnaps
   }
   for (const row of snapshot.memories) {
     await target.query(`INSERT INTO enterprise_memories(id, org_id, scope_type, department_id,
-      agent_employee_id, pair_user_id, kind, status, summary, source_digest, privacy_findings, importance,
+      agent_employee_id, pair_user_id, project_id, kind, status, summary, source_digest, privacy_findings, importance,
       last_access_at, created_by, reviewed_by, review_reason, revision, created_at, updated_at)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11, $12, $13, $14, $15, $16, $17, $18, $19)`, [
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, $12, $13, $14, $15, $16, $17, $18, $19, $20)`, [
       string(row, 'id'), string(row, 'org_id'), string(row, 'scope_type'), nullableString(row, 'department_id'),
-      nullableString(row, 'agent_employee_id'), nullableString(row, 'pair_user_id'),
+      nullableString(row, 'agent_employee_id'), nullableString(row, 'pair_user_id'), nullableString(row, 'project_id'),
       string(row, 'kind'), string(row, 'status'), string(row, 'summary'), string(row, 'source_digest'),
       string(row, 'privacy_findings'), real(row, 'importance'),
       row['last_access_at'] === null ? null : number(row, 'last_access_at'),
@@ -432,7 +432,7 @@ async function readPostgresSnapshot(target: PostgresDatabase): Promise<Migration
       root_path, sandbox_mode, revision, created_at, updated_at
       FROM enterprise_workspace_grants ORDER BY workspace_id`),
     memories: await select(`SELECT id, org_id, scope_type, department_id, agent_employee_id, pair_user_id,
-      kind, status, summary, source_digest, privacy_findings, importance, last_access_at, created_by,
+      project_id, kind, status, summary, source_digest, privacy_findings, importance, last_access_at, created_by,
       reviewed_by, review_reason, revision, created_at, updated_at
       FROM enterprise_memories ORDER BY id`),
     sessionWorkspaces: await select(`SELECT session_id, workspace_id, org_id, owner_user_id

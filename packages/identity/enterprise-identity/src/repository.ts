@@ -109,7 +109,7 @@ export interface SaveEnterpriseWorkspaceGrantInput extends Omit<EnterpriseWorksp
   readonly expectedRevision: number
 }
 
-/** Allowed values for `MemoryScope`; `project` is stored from P1 but has no writers until the P2 project scope lands. */
+/** Allowed values for `MemoryScope`; `project` rows carry a `projectId` compartment tag. */
 export const MEMORY_SCOPES = ['organization', 'department', 'project', 'agent', 'pair'] as const
 /** Allowed values for `MemoryKind`. */
 export const MEMORY_KINDS = ['business-fact', 'process', 'terminology', 'decision', 'preference'] as const
@@ -127,6 +127,10 @@ export interface EnterpriseMemoryEntry {
   readonly departmentId?: string
   readonly agentEmployeeId?: string
   readonly pairUserId?: string
+  /** Project compartment tag; present only for project-scope rows and tagged private rows. Its
+   * referential check belongs to the service layer because projects live in the enterprise-project
+   * store, not in this identity database. */
+  readonly projectId?: string
   readonly kind: MemoryKind
   readonly status: 'proposed' | 'approved' | 'rejected' | 'retired'
   readonly summary: string
@@ -149,6 +153,8 @@ export interface ProposeEnterpriseMemoryInput {
   readonly orgId: string
   readonly scope: EnterpriseMemoryEntry['scope']
   readonly departmentId?: string
+  /** Project owning a `project` compartment; required exactly when the scope is `project`. */
+  readonly projectId?: string
   readonly kind: EnterpriseMemoryEntry['kind']
   readonly summary: string
   readonly sourceDigest: string
@@ -167,6 +173,8 @@ export interface WritePrivateMemoryInput {
   readonly agentEmployeeId?: string
   /** User owning a `pair` compartment; its referential check belongs to the service layer. */
   readonly pairUserId?: string
+  /** Optional project tag on the private compartment row. */
+  readonly projectId?: string
 }
 
 /** Trimmed summary, recorded findings, and derived source digest of a validated private write. */
@@ -198,8 +206,11 @@ export function validatePrivateMemoryInput(input: WritePrivateMemoryInput): Vali
   return {
     summary,
     findings: inspection.findings,
+    // The project tag participates in the digest only when present, so digests written before the
+    // tag existed stay stable and untagged repeats still converge on their committed row.
     sourceDigest: memorySourceDigest(JSON.stringify([
       input.orgId, input.scope, input.agentEmployeeId ?? null, input.pairUserId ?? null, input.kind, summary,
+      ...(input.projectId === undefined ? [] : [input.projectId]),
     ])),
   }
 }
@@ -216,11 +227,17 @@ export interface MemoryListFilterPlan {
   readonly includeAgentScope: boolean
   /** The pair compartment participates because an owner filter implied it; never true alongside explicit scopes. */
   readonly includePairScope: boolean
+  /** The project compartment participates because a projectId filter implied it; never true alongside explicit scopes. */
+  readonly includeProjectScope: boolean
 }
 
-/** Plan memory-list filtering; explicit scopes restrict the compartments, otherwise the legacy
- * organization-plus-departments visibility holds, and only there does an owner filter imply its
- * own compartment.
+/** Plan memory-list filtering. Explicit scopes restrict the compartments; otherwise the legacy
+ * organization-plus-departments visibility holds, and only there does an owner or project filter
+ * imply its own compartment. A `projectId` filter always narrows rows to
+ * `scope_type='project' AND project_id=?` ownership: without explicit scopes it adds the project
+ * compartment to the visible set, and with explicit scopes the compartment list stays restricted
+ * (the project compartment then participates only when `'project'` is listed) while the ownership
+ * predicate still applies.
  * @param input - Input value used by this API.
  * @returns The normalized filters, or undefined when an empty status or scope set matches no row.
  */
@@ -230,6 +247,7 @@ export function planMemoryListFilters(input: {
   scopes?: readonly MemoryScope[]
   agentEmployeeId?: string
   pairUserId?: string
+  projectId?: string
 }): MemoryListFilterPlan | undefined {
   const departmentIds = [...new Set(input.departmentIds ?? [])]
   const statuses = [...new Set<EnterpriseMemoryEntry['status']>(
@@ -244,6 +262,7 @@ export function planMemoryListFilters(input: {
     scopes,
     includeAgentScope: input.scopes === undefined && input.agentEmployeeId !== undefined,
     includePairScope: input.scopes === undefined && input.pairUserId !== undefined,
+    includeProjectScope: input.scopes === undefined && input.projectId !== undefined,
   }
 }
 
@@ -352,6 +371,7 @@ interface SqliteMemoryRow {
   department_id: string | null
   agent_employee_id: string | null
   pair_user_id: string | null
+  project_id: string | null
   kind: MemoryKind
   status: EnterpriseMemoryEntry['status']
   summary: string
@@ -417,6 +437,7 @@ export interface EnterpriseIdentityStore {
     scopes?: readonly MemoryScope[]
     agentEmployeeId?: string
     pairUserId?: string
+    projectId?: string
   }): IdentityAwaitable<EnterpriseMemoryEntry[]>
   touchMemoryAccess(id: string, at: number): IdentityAwaitable<void>
   setPasswordVerifier(userId: string, verifier: string): IdentityAwaitable<void>
@@ -877,15 +898,19 @@ export class EnterpriseIdentityRepository implements EnterpriseIdentityStore {
       || (input.scope === 'department' && input.departmentId === undefined)) {
       throw new Error('enterprise memory scope and department do not match')
     }
+    if ((input.scope === 'project' && input.projectId === undefined)
+      || (input.scope !== 'project' && input.projectId !== undefined)) {
+      throw new Error('enterprise memory scope and project do not match')
+    }
     this.database.exec('BEGIN IMMEDIATE')
     try {
       this.assertMemoryReferences(input.orgId, input.createdBy, input.departmentId)
       const at = this.now()
-      this.database.prepare(`INSERT INTO enterprise_memories(id, org_id, scope_type, department_id, kind, status,
+      this.database.prepare(`INSERT INTO enterprise_memories(id, org_id, scope_type, department_id, project_id, kind, status,
         summary, source_digest, privacy_findings, created_by, reviewed_by, review_reason, revision, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, 'proposed', ?, ?, ?, ?, NULL, NULL, 1, ?, ?)`)
-        .run(input.id, input.orgId, input.scope, input.departmentId ?? null, input.kind, summary,
-          input.sourceDigest, JSON.stringify(inspection.findings), input.createdBy, at, at)
+        VALUES (?, ?, ?, ?, ?, ?, 'proposed', ?, ?, ?, ?, NULL, NULL, 1, ?, ?)`)
+        .run(input.id, input.orgId, input.scope, input.departmentId ?? null, input.projectId ?? null,
+          input.kind, summary, input.sourceDigest, JSON.stringify(inspection.findings), input.createdBy, at, at)
       const value = this.memory(input.id)
       this.database.exec('COMMIT')
       if (value === undefined) throw new Error('enterprise memory proposal returned no row')
@@ -912,12 +937,12 @@ export class EnterpriseIdentityRepository implements EnterpriseIdentityStore {
       }
       const at = this.now()
       this.database.prepare(`INSERT INTO enterprise_memories(id, org_id, scope_type, department_id,
-        agent_employee_id, pair_user_id, kind, status, summary, source_digest, privacy_findings,
+        agent_employee_id, pair_user_id, project_id, kind, status, summary, source_digest, privacy_findings,
         importance, last_access_at, created_by, reviewed_by, review_reason, revision, created_at, updated_at)
-        VALUES (?, ?, ?, NULL, ?, ?, ?, 'approved', ?, ?, ?, 0, NULL, ?, NULL, NULL, 1, ?, ?)`)
+        VALUES (?, ?, ?, NULL, ?, ?, ?, ?, 'approved', ?, ?, ?, 0, NULL, ?, NULL, NULL, 1, ?, ?)`)
         .run(`private-memory-${sourceDigest}`, input.orgId, input.scope,
-          input.agentEmployeeId ?? null, input.pairUserId ?? null, input.kind, summary, sourceDigest,
-          JSON.stringify(findings), input.createdBy, at, at)
+          input.agentEmployeeId ?? null, input.pairUserId ?? null, input.projectId ?? null, input.kind,
+          summary, sourceDigest, JSON.stringify(findings), input.createdBy, at, at)
       const value = this.memory(`private-memory-${sourceDigest}`)
       this.database.exec('COMMIT')
       if (value === undefined) throw new Error('enterprise private memory write returned no row')
@@ -974,6 +999,7 @@ export class EnterpriseIdentityRepository implements EnterpriseIdentityStore {
     scopes?: readonly MemoryScope[]
     agentEmployeeId?: string
     pairUserId?: string
+    projectId?: string
   }): EnterpriseMemoryEntry[] {
     const plan = planMemoryListFilters(input)
     if (plan === undefined) return []
@@ -985,6 +1011,7 @@ export class EnterpriseIdentityRepository implements EnterpriseIdentityStore {
       }
       if (plan.includeAgentScope) scopeAlternatives.push("scope_type = 'agent'")
       if (plan.includePairScope) scopeAlternatives.push("scope_type = 'pair'")
+      if (plan.includeProjectScope) scopeAlternatives.push("scope_type = 'project'")
     } else {
       scopeAlternatives.push(`scope_type IN (${plan.scopes.map(() => '?').join(',')})`)
     }
@@ -992,6 +1019,7 @@ export class EnterpriseIdentityRepository implements EnterpriseIdentityStore {
     const ownerPredicates = [
       ...(input.agentEmployeeId === undefined ? [] : ['agent_employee_id = ?']),
       ...(input.pairUserId === undefined ? [] : ['pair_user_id = ?']),
+      ...(input.projectId === undefined ? [] : ['project_id = ?']),
     ]
     const rows = this.database.prepare(`SELECT * FROM enterprise_memories WHERE org_id = ? AND ${scope}
       AND status IN (${plan.statuses.map(() => '?').join(',')})${ownerPredicates.length === 0 ? '' : ` AND ${ownerPredicates.join(' AND ')}`}
@@ -1001,6 +1029,7 @@ export class EnterpriseIdentityRepository implements EnterpriseIdentityStore {
         ...plan.statuses,
         ...(input.agentEmployeeId === undefined ? [] : [input.agentEmployeeId]),
         ...(input.pairUserId === undefined ? [] : [input.pairUserId]),
+        ...(input.projectId === undefined ? [] : [input.projectId]),
       ) as unknown as SqliteMemoryRow[]
     return rows.map(row => this.memoryFromRow(row))
   }
@@ -1043,6 +1072,7 @@ export class EnterpriseIdentityRepository implements EnterpriseIdentityStore {
       ...(row.department_id === null ? {} : { departmentId: row.department_id }),
       ...(row.agent_employee_id === null ? {} : { agentEmployeeId: row.agent_employee_id }),
       ...(row.pair_user_id === null ? {} : { pairUserId: row.pair_user_id }),
+      ...(row.project_id === null ? {} : { projectId: row.project_id }),
       kind: enumColumn(row, 'kind', MEMORY_KINDS),
       status: row.status, summary: row.summary, sourceDigest: row.source_digest,
       privacyFindings: safeJsonArray(row.privacy_findings) as EnterpriseMemoryPrivacyFinding[],

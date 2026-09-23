@@ -109,6 +109,7 @@ interface MemoryRow extends Record<string, unknown> {
   readonly department_id: string | null
   readonly agent_employee_id: string | null
   readonly pair_user_id: string | null
+  readonly project_id: string | null
   readonly kind: unknown
   readonly status: EnterpriseMemoryEntry['status']
   readonly summary: string
@@ -633,15 +634,19 @@ export class PgEnterpriseIdentityRepository {
       || (input.scope === 'department' && input.departmentId === undefined)) {
       throw new Error('enterprise memory scope and department do not match')
     }
+    if ((input.scope === 'project' && input.projectId === undefined)
+      || (input.scope !== 'project' && input.projectId !== undefined)) {
+      throw new Error('enterprise memory scope and project do not match')
+    }
     return this.transaction(async (database) => {
       await this.assertMemoryReferences(database, input.orgId, input.createdBy, input.departmentId)
       const at = this.now()
       const result = await database.query<MemoryRow>(`INSERT INTO enterprise_memories(id, org_id, scope_type,
-        department_id, kind, status, summary, source_digest, privacy_findings, created_by, reviewed_by,
-        review_reason, revision, created_at, updated_at)
-        VALUES ($1, $2, $3, $4, $5, 'proposed', $6, $7, $8::jsonb, $9, NULL, NULL, 1, $10, $10) RETURNING *`,
-      [input.id, input.orgId, input.scope, input.departmentId ?? null, input.kind, summary,
-        input.sourceDigest, JSON.stringify(inspection.findings), input.createdBy, at])
+        department_id, project_id, kind, status, summary, source_digest, privacy_findings, created_by,
+        reviewed_by, review_reason, revision, created_at, updated_at)
+        VALUES ($1, $2, $3, $4, $5, $6, 'proposed', $7, $8, $9::jsonb, $10, NULL, NULL, 1, $11, $11) RETURNING *`,
+      [input.id, input.orgId, input.scope, input.departmentId ?? null, input.projectId ?? null, input.kind,
+        summary, input.sourceDigest, JSON.stringify(inspection.findings), input.createdBy, at])
       const row = result.rows[0]
       if (row === undefined) throw new Error('enterprise memory proposal returned no row')
       return this.memoryFromRow(row)
@@ -667,13 +672,14 @@ export class PgEnterpriseIdentityRepository {
       if (found !== undefined) return this.memoryFromRow(found)
       const at = this.now()
       const result = await database.query<MemoryRow>(`INSERT INTO enterprise_memories(id, org_id, scope_type,
-        department_id, agent_employee_id, pair_user_id, kind, status, summary, source_digest, privacy_findings,
-        importance, last_access_at, created_by, reviewed_by, review_reason, revision, created_at, updated_at)
-        VALUES ($1, $2, $3, NULL, $4, $5, $6, 'approved', $7, $8, $9::jsonb, 0, NULL, $10, NULL, NULL, 1, $11, $11)
+        department_id, agent_employee_id, pair_user_id, project_id, kind, status, summary, source_digest,
+        privacy_findings, importance, last_access_at, created_by, reviewed_by, review_reason, revision,
+        created_at, updated_at)
+        VALUES ($1, $2, $3, NULL, $4, $5, $6, $7, 'approved', $8, $9, $10::jsonb, 0, NULL, $11, NULL, NULL, 1, $12, $12)
         ON CONFLICT (id) DO NOTHING RETURNING *`,
       [`private-memory-${sourceDigest}`, input.orgId, input.scope, input.agentEmployeeId ?? null,
-        input.pairUserId ?? null, input.kind, summary, sourceDigest, JSON.stringify(findings),
-        input.createdBy, at])
+        input.pairUserId ?? null, input.projectId ?? null, input.kind, summary, sourceDigest,
+        JSON.stringify(findings), input.createdBy, at])
       const row = result.rows[0]
       if (row !== undefined) return this.memoryFromRow(row)
       // A concurrent writer committed the same deterministic id between the lookup and the insert;
@@ -732,6 +738,7 @@ export class PgEnterpriseIdentityRepository {
     scopes?: readonly MemoryScope[]
     agentEmployeeId?: string
     pairUserId?: string
+    projectId?: string
   }): Promise<EnterpriseMemoryEntry[]> {
     const plan = planMemoryListFilters(input)
     if (plan === undefined) return []
@@ -752,6 +759,7 @@ export class PgEnterpriseIdentityRepository {
     }
     if (plan.includeAgentScope) scopeAlternatives.push("scope_type = 'agent'")
     if (plan.includePairScope) scopeAlternatives.push("scope_type = 'pair'")
+    if (plan.includeProjectScope) scopeAlternatives.push("scope_type = 'project'")
     const scopeClause = scopeAlternatives.length === 1 ? scopeAlternatives[0] : `(${scopeAlternatives.join(' OR ')})`
     const ownerClauses: string[] = []
     if (input.agentEmployeeId !== undefined) {
@@ -762,6 +770,11 @@ export class PgEnterpriseIdentityRepository {
     if (input.pairUserId !== undefined) {
       ownerClauses.push(`pair_user_id = $${index}`)
       values.push(input.pairUserId)
+      index += 1
+    }
+    if (input.projectId !== undefined) {
+      ownerClauses.push(`project_id = $${index}`)
+      values.push(input.projectId)
       index += 1
     }
     const statusIndex = index
@@ -811,6 +824,7 @@ export class PgEnterpriseIdentityRepository {
       ...(row.department_id === null ? {} : { departmentId: row.department_id }),
       ...(row.agent_employee_id === null ? {} : { agentEmployeeId: row.agent_employee_id }),
       ...(row.pair_user_id === null ? {} : { pairUserId: row.pair_user_id }),
+      ...(row.project_id === null ? {} : { projectId: row.project_id }),
       kind: enumColumn(row, 'kind', MEMORY_KINDS),
       status: row.status, summary: row.summary, sourceDigest: row.source_digest,
       privacyFindings: safeStringArray(row.privacy_findings) as EnterpriseMemoryPrivacyFinding[],
