@@ -15,6 +15,8 @@ import type {} from '@deepseek-ai/dsh-enterprise-auth-web'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import z from '@deepseek-ai/schemastery'
+import type { ConsolidationTunables } from './consolidation.ts'
+import { consolidationRuntimeConfig, MemoryConsolidationRuntime } from './consolidation-runtime.ts'
 import { EnterpriseMemoryWritebackRuntime } from './writeback-runtime.ts'
 
 /** Data used by `Config`. */
@@ -35,6 +37,25 @@ export interface Config {
   readonly writebackMaxTokens?: number
   /** Timeout for one independent extraction model call. */
   readonly writebackTimeoutMs?: number
+  /** Interval between automatic memory-consolidation ticks in epoch milliseconds; `0` disables
+   * the interval while the manual trigger endpoint keeps working. */
+  readonly consolidationIntervalMs?: number
+  /** Organizations the automatic interval consolidates; empty keeps the interval inert — the
+   * manual trigger endpoint still consolidates any org per request. */
+  readonly consolidationOrgIds?: string[]
+  /** Explicit `service:` identity consolidation attributes its writes, reviews, and audits to;
+   * required for the interval path and for any consolidation run that writes. */
+  readonly consolidationActorUserId?: string
+  /** Registered provider route for the consolidation digest and reflection model calls. */
+  readonly consolidationProvider?: string
+  /** Model the consolidation digest and reflection model calls run on. */
+  readonly consolidationModel?: string
+  /** Maximum output tokens for one consolidation refinement model call. */
+  readonly consolidationMaxTokens?: number
+  /** Wall-clock timeout for one consolidation refinement model call. */
+  readonly consolidationTimeoutMs?: number
+  /** Overrides for the consolidation thresholds; every omitted field keeps its documented default. */
+  readonly consolidationTunables?: Partial<ConsolidationTunables>
 }
 
 export const Config: z<Config> = z.object({
@@ -46,6 +67,14 @@ export const Config: z<Config> = z.object({
   writebackMaxInputChars: z.natural().min(1_000).max(64_000).default(12_000),
   writebackMaxTokens: z.natural().min(128).max(4_096).default(1_024),
   writebackTimeoutMs: z.natural().min(1_000).max(300_000).default(60_000),
+  consolidationIntervalMs: z.natural().max(604_800_000).default(21_600_000),
+  consolidationOrgIds: z.array(z.string()).default([]),
+  consolidationActorUserId: z.string().default(''),
+  consolidationProvider: z.string().default(''),
+  consolidationModel: z.string().default(''),
+  consolidationMaxTokens: z.natural().min(128).max(4_096).default(1_024),
+  consolidationTimeoutMs: z.natural().min(1_000).max(300_000).default(60_000),
+  consolidationTunables: z.dict(z.number()).default({}),
 })
 
 /** Services required for memory context, tool registration and completed-turn extraction. */
@@ -529,6 +558,23 @@ export function apply(ctx: Context, config: Config): void {
         pollMs: 2_000,
       }).install()
     }
+  }
+  // Consolidation mounts whenever the enterprise postgres plane exists: the interval stays
+  // inert until an org list is configured, and the manual trigger endpoint works per org.
+  const consolidationPostgres = (ctx.get.bind(ctx) as (name: string) => unknown)('enterprisePostgres') as {
+    identity?: EnterpriseIdentityStore
+  } | undefined
+  if (consolidationPostgres?.identity !== undefined) {
+    new MemoryConsolidationRuntime(ctx, consolidationPostgres.identity, consolidationRuntimeConfig({
+      intervalMs: config.consolidationIntervalMs ?? 21_600_000,
+      orgIds: config.consolidationOrgIds ?? [],
+      actorUserId: config.consolidationActorUserId ?? '',
+      provider: config.consolidationProvider ?? '',
+      model: config.consolidationModel ?? '',
+      maxTokens: config.consolidationMaxTokens ?? 1_024,
+      timeoutMs: config.consolidationTimeoutMs ?? 60_000,
+      tunables: config.consolidationTunables ?? {},
+    })).install()
   }
   if (autoSave) {
     ctx.effect(() => ctx.systemPrompt.section({
@@ -1022,3 +1068,8 @@ export function apply(ctx: Context, config: Config): void {
 }
 
 export { name } from './invariant.ts'
+export {
+  compartmentKey, compartmentTag, ConsolidationRunningError, MemoryConsolidationRuntime,
+  type ConsolidationCompartment, type ConsolidationDigestOutcome, type ConsolidationReflectionReport,
+  type ConsolidationReport, type MemoryConsolidationConfig,
+} from './consolidation-runtime.ts'

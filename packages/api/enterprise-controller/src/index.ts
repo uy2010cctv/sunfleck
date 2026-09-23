@@ -190,6 +190,7 @@ import type {
 } from './contract/devices.ts'
 import { DeviceAgentHttpHandler } from './device-agent-http.ts'
 import { EmployeeHttpHandler } from './employee-http.ts'
+import { serveConsolidation } from './consolidation-http.ts'
 import { ProjectHttpHandler, SurfaceHttpHandler } from './surfaces-http.ts'
 
 export type * from './contract/index.ts'
@@ -2433,6 +2434,15 @@ export function apply(ctx: Context): void {
         new ProjectHttpHandler(plane.service, ctx.enterpriseSecurity).fetch(request))
     },
   }), 'enterprise-project: authenticated project routes')
+  // The memory-context plugin provides `memoryConsolidation`; without it the
+  // consolidation plane is absent and every route fails loud with a 503.
+  ctx.effect(() => ctx.webServer.register({
+    kind: 'prefix', path: '/enterprise/consolidation',
+    handler: async (req, res) => {
+      await serveRoute(res, await enterpriseRequest(req), request =>
+        serveConsolidation(ctx.get('memoryConsolidation'), ctx.enterpriseSecurity, request))
+    },
+  }), 'enterprise-consolidation: authenticated memory-consolidation trigger route')
   new EnterpriseDeviceController(ctx)
   new EnterpriseEmployeeController(ctx)
   new EnterpriseAssetController(ctx)

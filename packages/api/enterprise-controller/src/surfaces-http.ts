@@ -56,7 +56,6 @@
  * @module @deepseek-ai/dsh-api-enterprise-controller/surfaces-http
  */
 
-import { randomUUID } from 'node:crypto'
 import { isAbsolute } from 'node:path'
 import { employeeId, surfaceId } from '@deepseek-ai/dsh-employee-account'
 import type { EmployeeId, InboxItemId, SurfaceId } from '@deepseek-ai/dsh-employee-account'
@@ -73,12 +72,12 @@ import type {
   EnterpriseProjects, Project, ProjectId, ProjectVisibility,
 } from '@deepseek-ai/dsh-enterprise-project'
 import type {
-  EnterpriseAction, EnterpriseAuthorizationDecision, EnterprisePrincipal, EnterpriseResource,
+  EnterpriseAction, EnterprisePrincipal,
 } from '@deepseek-ai/dsh-enterprise-governance'
 import type { EmployeeHttpSecurity } from './employee-http.ts'
 import {
-  cookiePrincipal, failure, jsonObjectBody, methodFailure, optionalStringArrayField, optionalStringField,
-  stringArrayField, stringField, timingSafeTokenMatches,
+  cookiePrincipal, failure, guardResource, jsonObjectBody, methodFailure, optionalStringArrayField,
+  optionalStringField, stringArrayField, stringField, timingSafeTokenMatches,
 } from './http.ts'
 
 /** Cordis service keys the collaboration surface and project endpoints require. */
@@ -217,29 +216,6 @@ function presentChannelDelivery(result: ChannelDeliveryResult): SurfaceDeliveryV
   }
   if (result.mode === 'settled') return { delivered: true, mode: 'settled', topicId: result.topicId }
   return { delivered: true, mode: 'ingested', proposedMemoryId: result.proposedMemoryId }
-}
-
-/** Authorize one surface- or project-plane operation through the shared policy and audit the decision.
- *
- * Actions reuse the existing `EnterpriseAction` values — the union has no surface- or
- * project-specific members; the module JSDoc records the reuse choices per plane.
- * `input` mirrors the security seam's audit signature; today it carries nothing beyond what
- * `resourceId` already holds.
- */
-async function guardResource(
-  security: EmployeeHttpSecurity,
-  principal: EnterprisePrincipal,
-  action: EnterpriseAction,
-  endpoint: string,
-  resourceType: string,
-  resourceId: string,
-): Promise<EnterpriseAuthorizationDecision> {
-  const resource: EnterpriseResource = { orgId: principal.orgId, visibility: 'organization' }
-  const decision = await security.authorizeResourceAsync(principal, action, resource)
-  await security.auditApiResourceAsync(
-    principal, endpoint, { id: resourceId }, decision, randomUUID(), { type: resourceType, id: resourceId },
-  )
-  return decision
 }
 
 /** Outcome of one guarded write route: the parsed body, or the denial response to return. */

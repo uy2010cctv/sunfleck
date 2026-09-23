@@ -15,6 +15,7 @@
     { "path": "../../enterprise/enterprise-cordis" },
     { "path": "../../enterprise/device-plane" },
     { "path": "../../enterprise/enterprise-postgres" },
+    { "path": "../../context/enterprise-memory-context" },
     { "path": "../../enterprise/employee-account" },
     { "path": "../../enterprise/enterprise-project" },
     { "path": "../../enterprise/enterprise-surface" },
