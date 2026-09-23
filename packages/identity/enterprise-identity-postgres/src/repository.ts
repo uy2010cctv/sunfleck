@@ -802,6 +802,9 @@ export class PgEnterpriseIdentityRepository {
     }
   }
 
+  /* jscpd:ignore-start */
+  // The row mapping mirrors the SQLite store on purpose: both implementations keep the same
+  // memory columns and semantics so the two stores stay interchangeable.
   private memoryFromRow(row: MemoryRow): EnterpriseMemoryEntry {
     return {
       id: row.id, orgId: row.org_id, scope: enumColumn(row, 'scope_type', MEMORY_SCOPES),
@@ -819,6 +822,7 @@ export class PgEnterpriseIdentityRepository {
       revision: Number(row.revision), createdAt: Number(row.created_at), updatedAt: Number(row.updated_at),
     }
   }
+  /* jscpd:ignore-end */
 
   /** Executes `PgEnterpriseIdentityRepository.setPasswordVerifier` for this instance.
    * @param userId - Input value used by this API.

@@ -133,7 +133,7 @@ describe('PgEnterpriseIdentityRepository', () => {
     await repository.updateOrganization('org-a', 'Renamed enterprise')
 
     expect(database.queries).toEqual([{
-      text: expect.stringContaining('UPDATE organizations SET name = $2 WHERE id = $1'),
+      text: expect.stringContaining('UPDATE organizations SET name = $2 WHERE id = $1') as unknown,
       values: ['org-a', 'Renamed enterprise'],
     }])
   })

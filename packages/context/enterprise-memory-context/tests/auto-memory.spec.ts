@@ -1,6 +1,7 @@
 import { mkdtemp, rm, writeFile, realpath } from 'node:fs/promises'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
+import { DatabaseSync } from 'node:sqlite'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import { agentPresetProjectionDefinition } from '../../../preset/agent-presets/src/session.ts'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
@@ -12,10 +13,13 @@ import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { EnterpriseRequestContext } from '@deepseek-ai/dsh-enterprise-auth-web'
 import {
+  attachSurfaceSession,
+  ensureSurface,
   EnterpriseIdentityRepository,
   memorySourceDigest,
   type EnterpriseMemoryEntry,
 } from '@deepseek-ai/dsh-enterprise-identity'
+import { EmployeeAccountService, surfaceId } from '@deepseek-ai/dsh-employee-account'
 import LlmRuntime, { createUserMessage, LlmAdapter, ToolCallId } from '@deepseek-ai/dsh-llm'
 import type { GenerateOptions, LlmResolvedModelInfo, StreamChunk } from '@deepseek-ai/dsh-llm'
 import SessionStore, { Session, SessionId } from '@deepseek-ai/dsh-session'
@@ -281,7 +285,7 @@ describe('Agent automatic enterprise memory', () => {
     agent.session.append('agent-preset/selected', { agentPreset: 'employee-1' })
     const result = await ctx.tools.execute({ signal, callId: ToolCallId('learn'), rootCallId: ToolCallId('batch'), name: 'learn_employee_capability', arguments: { kind: 'sop', name: 'Checking', sourcePath: 'check.md' }, agent })
     expect(result.isError).toBe(false)
-    expect(learnEmployeeAsset).toHaveBeenCalledWith(expect.objectContaining({ presetId: 'employee-1', orgId: 'org-a', kind: 'sop', content: expect.objectContaining({ sourcePath: 'check.md', learnedBy: 'employee-1', content: '# Check totals\nVerify the totals.' }) }))
+    expect(learnEmployeeAsset).toHaveBeenCalledWith(expect.objectContaining({ presetId: 'employee-1', orgId: 'org-a', kind: 'sop', content: expect.objectContaining({ sourcePath: 'check.md', learnedBy: 'employee-1', content: '# Check totals\nVerify the totals.' }) as unknown }))
     const prompt = await ctx.systemPrompt.assemble({ agent })
     expect(prompt.contexts.find(item => item.name === 'enterprise:learned-capabilities')?.text).toContain('Verify the totals.')
     const rejected = await ctx.tools.execute({ signal, callId: ToolCallId('escape'), name: 'learn_employee_capability', arguments: { kind: 'sop', name: 'Escape', sourcePath: '../outside.md' }, agent })
@@ -304,14 +308,14 @@ describe('Agent automatic enterprise memory', () => {
     expect(result.isError).toBe(false)
     const memories = identity.listMemories({ orgId: 'org-a', departmentIds: ['dept-ops'] })
     expect(memories).toEqual([expect.objectContaining({
-      id: expect.stringMatching(/^agent-memory-[a-f0-9]{64}$/), scope: 'department', departmentId: 'dept-ops',
+      id: expect.stringMatching(/^agent-memory-[a-f0-9]{64}$/) as unknown, scope: 'department', departmentId: 'dept-ops',
       kind: 'process', status: 'approved', summary: '采购订单必须在入库前完成审批。',
       createdBy: 'member-1', reviewedBy: 'member-1', reviewReason: 'Agent 自动评估并直接启用',
     })])
     const audit = identity.listAudit({ orgId: 'org-a', action: 'capability.manage', limit: 10 })
     expect(audit).toEqual([expect.objectContaining({
       actorUserId: 'member-1', resourceType: 'enterprise-memory', resourceId: memories[0]?.id,
-      details: expect.objectContaining({ source: 'agent-auto-memory', scope: 'department', sessionId: 'memory-agent' }),
+      details: expect.objectContaining({ source: 'agent-auto-memory', scope: 'department', sessionId: 'memory-agent' }) as unknown,
     })])
     expect(JSON.stringify(audit)).not.toContain('采购订单必须')
 
@@ -386,12 +390,12 @@ describe('Agent automatic enterprise memory', () => {
     expect(identity.listMemories({ orgId: 'org-b', departmentIds: ['dept-finance'] })).toEqual([
       expect.objectContaining({ departmentId: 'dept-finance', createdBy: 'member-b', reviewedBy: 'member-b', status: 'approved' }),
     ])
-    expect(await identity.resourcePolicy('enterprise-memory-autonomy', 'org-a:department:dept-ops')).toEqual(
+    expect(identity.resourcePolicy('enterprise-memory-autonomy', 'org-a:department:dept-ops')).toEqual(
       expect.objectContaining({
-        orgId: 'org-a', creatorUserId: 'admin-1', allowedUserIds: expect.arrayContaining(['member-1', 'admin-1']),
+        orgId: 'org-a', creatorUserId: 'admin-1', allowedUserIds: expect.arrayContaining(['member-1', 'admin-1']) as unknown,
       }),
     )
-    expect(await identity.resourcePolicy('enterprise-memory-autonomy', 'org-b:department:dept-finance')).toEqual(
+    expect(identity.resourcePolicy('enterprise-memory-autonomy', 'org-b:department:dept-finance')).toEqual(
       expect.objectContaining({ orgId: 'org-b', creatorUserId: 'admin-b', allowedUserIds: ['member-b'] }),
     )
     identity.close()
@@ -443,7 +447,7 @@ describe('Agent automatic enterprise memory', () => {
     expect(memory).toEqual(expect.objectContaining({ createdBy: 'member-1', status: 'approved' }))
     expect(memory).toHaveProperty('reviewedBy', 'member-1')
     expect(identity.listAudit({ orgId: 'org-a', action: 'capability.manage', limit: 10 })).toEqual([
-      expect.objectContaining({ actorUserId: 'member-1', details: expect.objectContaining({ autoApproved: true }) }),
+      expect.objectContaining({ actorUserId: 'member-1', details: expect.objectContaining({ autoApproved: true }) as unknown }),
     ])
     identity.close()
   })
@@ -762,8 +766,8 @@ describe('Agent automatic enterprise memory', () => {
     const audit = identity.listAudit({ orgId: 'org-a', action: 'capability.manage', limit: 10 })
     expect(audit).toEqual(expect.arrayContaining([
       expect.objectContaining({
-        actorUserId: 'member-1', resourceId: expect.stringMatching(/^agent-memory-[a-f0-9]{64}$/),
-        details: expect.objectContaining({ source: 'agent-memory-tools', rationale: '该流程在本部门反复出现。' }),
+        actorUserId: 'member-1', resourceId: expect.stringMatching(/^agent-memory-[a-f0-9]{64}$/) as unknown,
+        details: expect.objectContaining({ source: 'agent-memory-tools', rationale: '该流程在本部门反复出现。' }) as unknown,
       }),
     ]))
     identity.close()
@@ -867,5 +871,76 @@ describe('Agent automatic enterprise memory', () => {
       expect.objectContaining({ status: 'approved', summary: '偏好简短回答。' }),
     ])
     identity.close()
+  })
+
+  it('carries an employee note across sessions and through shared promotion end to end', async () => {
+    const { ctx, identity } = await setup({ autoApproval: true })
+    // The real surface→service actor chain over the same identity database: one employee
+    // account, one dm surface bound to session A, and session B re-attached to that surface.
+    const database = new DatabaseSync(join(root, 'identity.sqlite'))
+    const accounts = new EmployeeAccountService(database)
+    const employee = accounts.create({
+      orgId: 'org-a', displayName: '档案员', roleCard: 'Archivist', homeWorkspacePath: '/managed/ops',
+    })
+    ensureSurface(database, {
+      id: surfaceId('surface-employee-1'), orgId: 'org-a', kind: 'dm', userId: 'member-1',
+      employeeId: employee.id, sessionId: 'session-a', createdAt: 1_700_000_000_000,
+    })
+    ctx.provide('employeeAccounts' as never, accounts as never)
+
+    // Session A (same home workspace cwd as session B): the model records one private note.
+    const write = await callTool(ctx, 'memory_write', {
+      scope: 'agent', kind: 'preference', summary: '汇报优先给结论，再给依据。',
+    }, agentAt('/managed/ops', 'session-a'))
+    expect(write.isError).toBe(false)
+    expect(resultText(write)).toMatch(/Private note saved and active: /)
+    const privateRows = identity.listMemories({ orgId: 'org-a', scopes: ['agent'], agentEmployeeId: employee.id })
+    expect(privateRows).toEqual([
+      expect.objectContaining({ scope: 'agent', status: 'approved', summary: '汇报优先给结论，再给依据。' }),
+    ])
+
+    // Session B: the same surface resolves the same employee, so recall injects the note.
+    attachSurfaceSession(database, surfaceId('surface-employee-1'), 'session-b')
+    const sessionB = agentAt('/managed/ops', 'session-b')
+    const prompt = await ctx.systemPrompt.assemble({ agent: sessionB })
+    const memory = prompt.contexts.find(item => item.name === 'enterprise:memory')
+    expect(memory?.text).toContain('[My notes]')
+    expect(memory?.text).toContain('汇报优先给结论，再给依据。')
+
+    // From session B, promote a company-wide finding; an administrator approves it in the store.
+    const promote = await callTool(ctx, 'promote_proposal', {
+      targetScope: 'organization', kind: 'decision', summary: '公司统一使用年度合同模板。', rationale: '全员适用。',
+    }, sessionB)
+    expect(promote.isError).toBe(false)
+    expect(resultText(promote)).toMatch(/submitted for review/)
+    const proposedRow = identity.listMemories({ orgId: 'org-a', departmentIds: [] })
+      .find(row => row.summary === '公司统一使用年度合同模板。')
+    expect(proposedRow).toEqual(expect.objectContaining({
+      scope: 'organization', status: 'proposed', createdBy: 'member-1',
+    }))
+    if (proposedRow === undefined) throw new Error('proposed organization memory row is missing')
+    const approvedRow = identity.reviewMemory({
+      id: proposedRow.id, orgId: 'org-a', decision: 'approved', reviewedBy: 'admin-1',
+      reason: 'verified', expectedRevision: proposedRow.revision,
+    })
+    expect(approvedRow.status).toBe('approved')
+
+    // The approved shared memory reaches the next session-B assembly under its own label.
+    const sharedPrompt = await ctx.systemPrompt.assemble({ agent: sessionB })
+    const sharedMemory = sharedPrompt.contexts.find(item => item.name === 'enterprise:memory')
+    expect(sharedMemory?.text).toContain('[Organization memory]')
+    expect(sharedMemory?.text).toContain('公司统一使用年度合同模板。')
+
+    // A personal preference is refused with the structured result and never becomes a shared row.
+    const rejected = await callTool(ctx, 'promote_proposal', {
+      targetScope: 'organization', kind: 'business-fact', summary: '我喜欢深色主题。', rationale: '常驻偏好。',
+    }, sessionB)
+    if (rejected.isError) expect.fail('a personal preference must be a structured refusal, not a tool error')
+    expect(rejected.value).toEqual({ proposed: false, reason: 'personal-preference' })
+    expect(identity.listMemories({ orgId: 'org-a', departmentIds: [] })
+      .some(row => row.summary === '我喜欢深色主题。')).toBe(false)
+
+    identity.close()
+    database.close()
   })
 })

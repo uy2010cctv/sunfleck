@@ -39,6 +39,17 @@ const MEMORY_SCOPE_KEYS: Record<MemoryDotScope, EnterpriseWorkbenchKey> = {
   agent: 'staff.memoryScope.agent',
 }
 
+/** Employee row and memory-slice callbacks shared by the detail view and its memory section. */
+type EmployeeMemoryViewProps = {
+  employee: EmployeeSummary
+  memories: EnterpriseStaffMemoriesState
+  loadEmployeeMemories: (employeeId: string) => Promise<boolean>
+  reviewEmployeeMemory: (
+    employeeId: string, memoryId: string, decision: 'approved' | 'rejected', revision: number,
+  ) => Promise<boolean>
+  retireEmployeeMemory: (employeeId: string, memoryId: string, revision: number) => Promise<boolean>
+}
+
 const MEMORY_STATUS_KEYS: Record<EmployeeMemoryEntryView['status'], EnterpriseWorkbenchKey> = {
   proposed: 'staff.memoryStatus.proposed',
   approved: 'staff.memoryStatus.approved',
@@ -123,16 +134,9 @@ function MemoryRow({ employeeId, entry, reviewEmployeeMemory, retireEmployeeMemo
   </li>
 }
 
-function EmployeeMemorySection({ employee, memories, loadEmployeeMemories, reviewEmployeeMemory, retireEmployeeMemory, t }: {
-  employee: EmployeeSummary
-  memories: EnterpriseStaffMemoriesState
-  loadEmployeeMemories: (employeeId: string) => Promise<boolean>
-  reviewEmployeeMemory: (
-    employeeId: string, memoryId: string, decision: 'approved' | 'rejected', revision: number,
-  ) => Promise<boolean>
-  retireEmployeeMemory: (employeeId: string, memoryId: string, revision: number) => Promise<boolean>
-  t: Translate
-}) {
+function EmployeeMemorySection({
+  employee, memories, loadEmployeeMemories, reviewEmployeeMemory, retireEmployeeMemory, t,
+}: EmployeeMemoryViewProps & { t: Translate }) {
   useEffect(() => {
     void loadEmployeeMemories(employee.id)
   }, [employee.id, loadEmployeeMemories])
@@ -158,14 +162,7 @@ function EmployeeMemorySection({ employee, memories, loadEmployeeMemories, revie
 function EmployeeDetail({
   employee, memories, loadEmployeeMemories, reviewEmployeeMemory, retireEmployeeMemory,
   sendMessage, selectEmployee, sending, sendError, t,
-}: {
-  employee: EmployeeSummary
-  memories: EnterpriseStaffMemoriesState
-  loadEmployeeMemories: (employeeId: string) => Promise<boolean>
-  reviewEmployeeMemory: (
-    employeeId: string, memoryId: string, decision: 'approved' | 'rejected', revision: number,
-  ) => Promise<boolean>
-  retireEmployeeMemory: (employeeId: string, memoryId: string, revision: number) => Promise<boolean>
+}: EmployeeMemoryViewProps & {
   sendMessage: (employeeId: string, text: string) => Promise<boolean>
   selectEmployee: (employeeId?: string) => void
   sending: boolean

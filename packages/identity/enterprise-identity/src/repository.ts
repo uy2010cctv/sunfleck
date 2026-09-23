@@ -1034,6 +1034,9 @@ export class EnterpriseIdentityRepository implements EnterpriseIdentityStore {
     return row === undefined ? undefined : this.memoryFromRow(row)
   }
 
+  /* jscpd:ignore-start */
+  // The row mapping mirrors the PostgreSQL store on purpose: both implementations keep the same
+  // memory columns and semantics so the two stores stay interchangeable.
   private memoryFromRow(row: SqliteMemoryRow): EnterpriseMemoryEntry {
     return {
       id: row.id, orgId: row.org_id, scope: enumColumn(row, 'scope_type', MEMORY_SCOPES),
@@ -1051,6 +1054,7 @@ export class EnterpriseIdentityRepository implements EnterpriseIdentityStore {
       revision: row.revision, createdAt: row.created_at, updatedAt: row.updated_at,
     }
   }
+  /* jscpd:ignore-end */
 
   setPasswordVerifier(userId: string, verifier: string): void {
     this.database.prepare('UPDATE users SET password_verifier = ? WHERE id = ?').run(verifier, userId)
