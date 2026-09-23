@@ -365,11 +365,13 @@ describe('employee http endpoints', () => {
     env.host.silentSteer = true
     const unlanded = await call(handler, 'POST', `/${employee.id}/messages`, { text: '你好' })
     expect(unlanded.status).toBe(502)
+    expect(env.accounts.resolveSticky('org-1', 'user-1')).toBeUndefined()
 
     env.host.silentSteer = false
     env.host.steerFailure = new Error('injected steer failure')
     const foreign = await call(handler, 'POST', `/${employee.id}/messages`, { text: '你好' })
     expect(foreign.status).toBe(500)
+    expect(env.accounts.resolveSticky('org-1', 'user-1')).toBeUndefined()
     env.host.steerFailure = undefined
 
     const retry = await call(handler, 'POST', `/${employee.id}/messages`, { text: '你好' })
