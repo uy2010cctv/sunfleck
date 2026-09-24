@@ -9,8 +9,9 @@ import { unfenceModelJson } from './writeback-extraction.ts'
 export interface AnnouncementCandidate {
   /** Proposed memory summary. */
   readonly summary: string
-  /** Memory kind of the proposed entry; `summary` rows belong to consolidation and never extract. */
-  readonly kind: Exclude<MemoryKind, 'summary'>
+  /** Memory kind of the proposed entry; only the shared-compartment knowledge kinds extract —
+   * `preference` is personal and `summary` rows belong to consolidation, so neither is offered. */
+  readonly kind: Exclude<MemoryKind, 'preference' | 'summary'>
 }
 
 /** One parsed candidate with its privacy verdict: `dropped: 'privacy'` marks a candidate whose
@@ -32,12 +33,15 @@ const ANNOUNCEMENT_SUMMARY_MAX = 1_000
 
 const ANNOUNCEMENT_EXTRACTION_SYSTEM_PROMPT = [
   'Extract durable reusable company knowledge from one enterprise broadcast announcement.',
-  `Return JSON only: {"candidates":[{"kind":"business-fact|process|terminology|decision|preference","summary":"..."}]} with at most ${ANNOUNCEMENT_CANDIDATE_LIMIT} candidates.`,
+  `Return JSON only: {"candidates":[{"kind":"business-fact|process|terminology|decision","summary":"..."}]} with at most ${ANNOUNCEMENT_CANDIDATE_LIMIT} candidates.`,
   'Propose only statements with lasting company-wide value; skip meeting notices, one-time events, task asks, and chit-chat.',
   'Never include personal data, credentials, customer records, or raw announcement text. Prefer zero candidates over weak memory.',
 ].join(' ')
 
-const WRITEABLE_KINDS: readonly string[] = ['business-fact', 'process', 'terminology', 'decision', 'preference']
+/** Kinds a shared-memory candidate may carry; the same set the shared write paths accept. A kind
+ * outside it fails parse validation, so the whole extraction is a structured skip and intake
+ * falls back instead of proposing personal or consolidation-owned rows. */
+const WRITEABLE_KINDS: readonly string[] = ['business-fact', 'process', 'terminology', 'decision']
 
 function record(value: unknown): Record<string, unknown> | undefined {
   return typeof value === 'object' && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : undefined

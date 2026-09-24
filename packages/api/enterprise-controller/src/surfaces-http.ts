@@ -676,11 +676,13 @@ export class ProjectHttpHandler {
     if (!decision.allowed) return failure(403, 'forbidden')
     try {
       const project = await this.projects.archive(principal.orgId, id, principal.userId)
-      // Fire-and-forget: the archive is committed, so distillation must never block or fail the
-      // response, and the runtime audits the run either way — nothing else can reach this failure.
       this.options.consolidation?.distillProject({
         orgId: principal.orgId, projectId: id, actorUserId: principal.userId,
-      }).catch(() => {})
+      }).catch(() => {
+        // Swallows the fire-and-forget rejection: the archive is already committed, so
+        // distillation must never block or fail the response, and the runtime audits the
+        // run either way — nothing else can reach this failure.
+      })
       return Response.json({ id: project.projectId, state: project.state })
     } catch (error: unknown) {
       return this.projectFailure(error)

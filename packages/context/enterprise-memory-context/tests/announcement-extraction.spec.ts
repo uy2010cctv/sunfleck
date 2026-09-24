@@ -74,7 +74,10 @@ describe('announcement memory extraction', () => {
     for (const response of [
       'not json at all',
       JSON.stringify({ reflections: [] }),
+      // Out-of-contract kinds — consolidation-owned summaries and personal preferences —
+      // fail the whole extraction so intake falls back instead of proposing them.
       JSON.stringify({ candidates: [{ kind: 'summary', summary: '摘要不属于抽取。' }] }),
+      JSON.stringify({ candidates: [{ kind: 'preference', summary: '偏好不算公告知识。' }] }),
       JSON.stringify({ candidates: [{ kind: 'business-fact', summary: '' }] }),
       JSON.stringify({ candidates: [{ kind: 'business-fact', summary: '超限。'.repeat(700) }] }),
     ]) {
