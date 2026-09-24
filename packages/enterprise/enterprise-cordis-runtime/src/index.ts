@@ -25,9 +25,9 @@ export const inject = [
 
 const POLICY = [
   'Preserve the native DSH Cordis workflow: inspect, define, run, and repair a dynamic Plugin first.',
-  'After a useful Plugin is running, use cordis_save_personal when the user wants it available in their personal Workspace after restart.',
-  'Use cordis_submit_department when a department Workspace extension should enter manager review.',
-  'Do not persist experiments, failed Packages, or capabilities the user did not ask to keep.',
+  'A defined Plugin in a personal Workspace is saved privately; one in a department Workspace enters manager review and is not shared until approved.',
+  'Use cordis_save_personal only for an explicitly private version, and cordis_submit_department to resubmit a changed department version.',
+  'Use a personal Workspace for private experiments.',
 ].join(' ')
 
 /** Data used by `Config`. */
@@ -164,11 +164,18 @@ export function apply(ctx: Context, config: Config = {}): void {
     if (cwd === undefined || await identity(ctx).workspaceGrantByRootPath(cwd) === undefined) return next()
     const grant = await grantForAgent(ctx, exec.agent)
     const principal = await principalFor(ctx, grant, exec.agent)
-    await service.savePersonal({
-      principal, workspaceId: grant.workspaceId,
-      draft: inspectedDraft(ctx, exec.agent, value['pluginId'], value['packageId']),
-      idempotencyKey: `${String(exec.agent.id)}:${String(exec.rootCallId)}:auto-save`,
-    })
+    const draft = inspectedDraft(ctx, exec.agent, value['pluginId'], value['packageId'])
+    if (grant.kind === 'department') {
+      await service.submitDepartment({
+        principal, workspaceId: grant.workspaceId, sourceSessionId: String(exec.agent.id), draft,
+        idempotencyKey: `${String(exec.agent.id)}:${String(exec.rootCallId)}:auto-submit`,
+      })
+    } else {
+      await service.savePersonal({
+        principal, workspaceId: grant.workspaceId, draft,
+        idempotencyKey: `${String(exec.agent.id)}:${String(exec.rootCallId)}:auto-save`,
+      })
+    }
     return next()
   })
   const restores = new Map<string, Promise<void>>()

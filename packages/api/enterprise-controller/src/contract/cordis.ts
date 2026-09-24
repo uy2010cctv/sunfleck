@@ -57,6 +57,12 @@ export interface CordisReviewSubmitRequest {
   readonly draft: CordisPackageDraft
   readonly idempotencyKey: string
 }
+/** Submit one owned private version from a department Workspace for manager review. */
+export interface CordisReviewSubmitSavedRequest {
+  readonly workspaceId: string
+  readonly packageId: string
+  readonly idempotencyKey: string
+}
 /** Data used by `CordisReviewListRequest`. */
 export interface CordisReviewListRequest { readonly status?: CordisReviewRequest['status'] }
 /** Data used by `CordisReviewDeriveRequest`. */

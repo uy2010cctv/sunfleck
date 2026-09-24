@@ -1054,6 +1054,20 @@ export class EnterpriseWorkbenchController {
     })), async () => { await this.refreshExtensions() })
   }
 
+  /** Submit a saved private version from its department Workspace for manager review.
+   * @param pkg - owned immutable version offered by the Host projection.
+   */
+  async submitExtensionForDepartment(pkg: CordisPackageVersion): Promise<void> {
+    if (pkg.scope.type !== 'personal-workspace' || pkg.canSubmitDepartment !== true) {
+      throw new Error('Only an owned private version in a department Workspace can be submitted')
+    }
+    const workspaceId = pkg.scope.workspaceId
+    await this.runMutation('cordis-submit-saved', async () => valueOf(await this.api.cordisReview.submitSaved({
+      workspaceId,
+      packageId: pkg.packageId, idempotencyKey: mutationKey('cordis-submit-saved'),
+    })), async () => { await this.refreshExtensions() })
+  }
+
   /** Archive one private Plugin while keeping its versions recoverable.
    * @param pkg - one version belonging to the private Plugin.
    */

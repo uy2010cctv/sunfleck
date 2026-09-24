@@ -254,7 +254,7 @@ export function classifyApiEndpoint(endpoint: string, input: unknown): ApiClassi
   }
   if (['cordisWorkspace.save', 'cordisWorkspace.activate', 'cordisWorkspace.archive', 'cordisWorkspace.restore',
     'cordisWorkspace.stop', 'cordisWorkspace.rollback',
-    'cordisReview.submit'].includes(endpoint)) {
+    'cordisReview.submit', 'cordisReview.submitSaved'].includes(endpoint)) {
     return {
       action: 'plugin.create', resourceType: 'cordis-plugin',
       ...(cordisPluginId === undefined ? {} : { resourceId: cordisPluginId }),

@@ -157,6 +157,7 @@ import type {
   CordisReviewListRequest,
   CordisReviewPublishRequest,
   CordisReviewSubmitRequest,
+  CordisReviewSubmitSavedRequest,
   CordisReviewTransitionRequest,
   CordisWorkspaceActivateRequest,
   CordisWorkspaceArchiveRequest,
@@ -2230,6 +2231,15 @@ export class CordisReviewController extends TypertRemoteService {
   @Remote('submit') async submit(request: CordisReviewSubmitRequest): Promise<CordisReviewRequest> {
     return catalogCall(this.ctx, 'cordisReview.submit', request, 'cordis-plugin', request.draft.pluginId, actor =>
       cordis(this.ctx).submitDepartment({ principal: actor, ...request }))
+  }
+
+  /** Submit an owned saved version from a department Workspace for review.
+   * @param request - saved Package and Workspace identity.
+   * @returns pending review.
+   */
+  @Remote('submitSaved') async submitSaved(request: CordisReviewSubmitSavedRequest): Promise<CordisReviewRequest> {
+    return catalogCall(this.ctx, 'cordisReview.submitSaved', request, 'cordis-plugin', request.packageId, actor =>
+      cordis(this.ctx).submitSavedDepartment({ principal: actor, ...request }))
   }
 
   /**

@@ -69,29 +69,22 @@ describe('enterprise Cordis runtime tools', () => {
     expect(await app.cordis.listPackages('org-a')).toEqual([])
   })
 
-  it('saves a newly defined department plugin privately before any review or activation', async () => {
+  it('submits a newly defined department plugin for review without activating it', async () => {
     const app = await setup()
     const owner = agent('session-new', '/managed/department')
     const result = await call(app.ctx, 'cordis_define', {
-      plugin: { kind: 'new', idPrefix: 'test' }, name: 'Private helper', purpose: 'Help the author.',
+      plugin: { kind: 'new', idPrefix: 'test' }, name: 'Department helper', purpose: 'Help the department.',
       code: { host: 'return { apply() {} }' },
     }, owner)
     expect(result.isError).toBe(false)
-    expect(await app.cordis.listPackages('org-a')).toEqual([
-      expect.objectContaining({ pluginId: expect.stringContaining('session-new:'), name: 'Private helper', scope: {
-        type: 'personal-workspace', workspaceId: 'department-1', ownerUserId: 'member-1',
-      } }),
-    ])
+    const packages = await app.cordis.listPackages('org-a')
+    expect(packages).toHaveLength(1)
+    expect(packages[0]?.pluginId).toContain('session-new:')
+    expect(packages[0]?.name).toBe('Department helper')
+    expect(packages[0]?.scope).toEqual({ type: 'department', departmentId: 'dept-a' })
     expect(await app.cordis.listBindings('org-a')).toEqual([])
-    expect(await app.cordis.listReviews('org-a')).toEqual([])
-    const saved = (await app.cordis.listPackages('org-a'))[0]!
-    const activated = await call(app.ctx, 'cordis_save_personal', {
-      pluginId: String(app.ctx.dynamicCordisRunner.inventory()[0]?.pluginId), packageId: saved.dynamicPackageId,
-    }, owner)
-    expect(activated.isError).toBe(false)
-    expect(await app.cordis.listPackages('org-a')).toHaveLength(1)
-    expect(await app.cordis.listBindings('org-a')).toEqual([
-      expect.objectContaining({ activePackageId: saved.packageId }),
+    expect(await app.cordis.listReviews('org-a')).toEqual([
+      expect.objectContaining({ submittedBy: 'member-1', status: 'pending' }),
     ])
   })
 

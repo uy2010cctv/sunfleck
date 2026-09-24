@@ -155,6 +155,41 @@ describe('EnterpriseCordisService', () => {
     expect(saved.scope).toEqual({ type: 'personal-workspace', workspaceId: 'department-1', ownerUserId: 'member-1' })
     expect(own.packages.map(row => row.packageId)).toContain(saved.packageId)
     expect(colleague.packages.map(row => row.packageId)).not.toContain(saved.packageId)
+    expect(own.packages.find(row => row.packageId === saved.packageId)?.canSubmitDepartment).toBe(true)
+  })
+
+  it('submits an existing owner-private department Workspace version without publishing it', async () => {
+    const cordis = service()
+    const saved = await cordis.savePersonal({ principal: member, workspaceId: 'department-1', draft,
+      idempotencyKey: 'saved-for-department' })
+    await expect(cordis.submitSavedDepartment({ principal: otherManager, workspaceId: 'department-1',
+      packageId: saved.packageId, idempotencyKey: 'other-owner' }))
+      .rejects.toMatchObject({ code: 'package-not-found' })
+    const review = await cordis.submitSavedDepartment({ principal: member, workspaceId: 'department-1',
+      packageId: saved.packageId, idempotencyKey: 'submit-saved' })
+    expect(review).toMatchObject({ departmentId: 'dept-a', status: 'pending', submittedBy: 'member-1' })
+    expect((await cordis.listWorkspace({ principal: member, workspaceId: 'department-1' })).packages)
+      .toContainEqual(expect.objectContaining({ packageId: review.packageId,
+        scope: { type: 'department', departmentId: 'dept-a' } }))
+    expect((await cordis.listWorkspace({ principal: otherManager, workspaceId: 'department-1' })).packages)
+      .not.toContainEqual(expect.objectContaining({ packageId: review.packageId }))
+    await cordis.archivePersonal({ principal: member, workspaceId: 'department-1',
+      pluginId: saved.pluginId, idempotencyKey: 'archive-before-resubmit' })
+    await expect(cordis.submitSavedDepartment({ principal: member, workspaceId: 'department-1',
+      packageId: saved.packageId, idempotencyKey: 'resubmit-archived' }))
+      .rejects.toMatchObject({ code: 'plugin-archived' })
+  })
+
+  it('does not return a pinned private generation to another member of the shared Workspace', async () => {
+    const cordis = service()
+    const saved = await cordis.savePersonal({ principal: member, workspaceId: 'department-1', draft,
+      idempotencyKey: 'private-generation' })
+    await cordis.activatePersonal({ principal: member, workspaceId: 'department-1',
+      pluginId: saved.pluginId, packageId: saved.packageId, expectedRevision: 0,
+      idempotencyKey: 'activate-private-generation' })
+    await cordis.pinSessionGeneration({ principal: member, workspaceId: 'department-1', sessionId: 'session-shared' })
+    await expect(cordis.pinSessionGeneration({ principal: otherManager, workspaceId: 'department-1',
+      sessionId: 'session-shared' })).rejects.toMatchObject({ code: 'personal-owner-required' })
   })
 
   it('refuses to activate or roll back a package from another private scope', async () => {

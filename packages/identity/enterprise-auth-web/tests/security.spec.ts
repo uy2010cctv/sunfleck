@@ -166,6 +166,9 @@ describe('EnterpriseSecurity', () => {
     }
     expect(classifyApiEndpoint('enterpriseEmployee.getDraft', { presetId: 'employee-1' })).toEqual({ action: 'employee.read', resourceType: 'employee', resourceId: 'employee-1' })
     expect(classifyApiEndpoint('enterpriseEmployee.publish', { presetId: 'employee-1' })).toEqual({ action: 'employee.update', resourceType: 'employee', resourceId: 'employee-1' })
+    expect(classifyApiEndpoint('cordisReview.submitSaved', { packageId: 'package-1' })).toEqual({
+      action: 'plugin.create', resourceType: 'cordis-plugin',
+    })
     expect(classifyApiEndpoint('enterpriseAsset.get', { assetId: 'asset-1' })).toEqual({ action: 'capability.read', resourceType: 'enterprise-asset', resourceId: 'asset-1' })
     expect(classifyApiEndpoint('enterpriseAsset.archive', { assetId: 'asset-1' })).toEqual({ action: 'capability.manage', resourceType: 'enterprise-asset', resourceId: 'asset-1' })
     expect(classifyApiEndpoint('enterpriseKnowledge.read', { baseId: 'finance' })).toEqual({

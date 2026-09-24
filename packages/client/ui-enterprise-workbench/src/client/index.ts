@@ -298,6 +298,7 @@ export function apply(ctx: Context): void {
     refreshExtensions: () => controller.refreshExtensions(),
     stopExtension: (binding, reason) => controller.stopExtension(binding, reason),
     activateExtension: (pkg, binding) => controller.activateExtension(pkg, binding),
+    submitExtensionForDepartment: pkg => controller.submitExtensionForDepartment(pkg),
     archiveExtension: pkg => controller.archiveExtension(pkg),
     restoreExtension: pkg => controller.restoreExtension(pkg),
     rollbackExtension: (binding, packageId, reason) => controller.rollbackExtension(binding, packageId, reason),

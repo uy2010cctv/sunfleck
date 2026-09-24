@@ -333,6 +333,23 @@ describe('EnterpriseWorkbenchController enterprise read models', () => {
     expect(controller.store.getSnapshot().extensionWorkspaceId).toBeUndefined()
   })
 
+  it('submits an owner-private department Workspace version through the review remote', async () => {
+    const base = controllerApi()
+    const submitSaved = vi.fn(() => ok({ reviewId: 'review-1', status: 'pending' }))
+    const controller = new EnterpriseWorkbenchController(controllerApi({
+      cordisReview: { ...base.cordisReview, submitSaved },
+    }) as never, controllerServices().sessions as never, controllerServices().workspaces as never)
+    const pkg = { packageId: 'saved-1', pluginId: 'session-1:board',
+      scope: { type: 'personal-workspace', workspaceId: 'workspace-1', ownerUserId: 'owner-1' },
+      canSubmitDepartment: true }
+
+    await controller.submitExtensionForDepartment(pkg as never)
+
+    expect(submitSaved).toHaveBeenCalledWith(expect.objectContaining({
+      workspaceId: 'workspace-1', packageId: 'saved-1',
+    }))
+  })
+
   it('loads all visible Workspaces by default, including those outside the current Session', async () => {
     const base = controllerServices()
     const list = vi.fn(() => ok({ packages: [], bindings: [] }))

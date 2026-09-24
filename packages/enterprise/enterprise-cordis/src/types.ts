@@ -84,6 +84,8 @@ export interface CordisPackageVersion extends CordisPackageDraft {
   readonly modifiedBy?: string
   readonly sourceDigest: string
   readonly createdAt: number
+  /** Caller-specific permission to submit a private version from a department Workspace for review. */
+  readonly canSubmitDepartment?: boolean
 }
 
 /** Data used by `CordisScopeBinding`. */

@@ -485,30 +485,77 @@ export class EnterpriseCordisService {
     sourceSessionId: string
     idempotencyKey: string
   }): Promise<CordisReviewRequest> {
-    return this.idempotent(input.principal, 'submit-department', input.idempotencyKey, async () => {
-      const workspace = await this.workspace(input.principal, input.workspaceId)
-      if (workspace.kind !== 'department' || workspace.departmentId === undefined) {
-        throw new EnterpriseCordisError('department-member-required', 'Department Workspace is required')
+    return this.idempotent(input.principal, 'submit-department', input.idempotencyKey, () =>
+      this.createDepartmentReview(input))
+  }
+
+  /** Submit an existing owner-private version in a department Workspace without activating it for members.
+   * @param input - owner, Workspace, saved version, and idempotency key.
+   * @returns pending department review.
+   */
+  async submitSavedDepartment(input: {
+    principal: EnterpriseCordisPrincipal
+    workspaceId: string
+    packageId: string
+    idempotencyKey: string
+  }): Promise<CordisReviewRequest> {
+    return this.idempotent(input.principal, 'submit-saved-department', input.idempotencyKey, async () => {
+      const stored = await this.repository.package(input.packageId)
+      if (stored === undefined || stored.orgId !== input.principal.orgId
+        || stored.scope.type !== 'personal-workspace'
+        || stored.scope.workspaceId !== input.workspaceId
+        || stored.scope.ownerUserId !== input.principal.userId) {
+        throw new EnterpriseCordisError('package-not-found', 'Private Cordis package was not found')
       }
-      const memberships = await this.options.directory.userDepartments(input.principal.orgId, input.principal.userId)
-      if (!memberships.includes(workspace.departmentId) && !isAdmin(input.principal.roles)) {
-        throw new EnterpriseCordisError('department-member-required', 'Department membership is required')
+      if ((await this.repository.archiveForScope(stored.orgId, archiveScopeKey(stored.scope), stored.pluginId))?.archived) {
+        throw new EnterpriseCordisError('plugin-archived', 'Restore the private Plugin before submitting it')
       }
-      const pkg = await this.packageFromDraft({
-        principal: input.principal, draft: input.draft,
-        scope: { type: 'department', departmentId: workspace.departmentId },
+      const source = await this.hydrate(stored)
+      const draft: CordisPackageDraft = {
+        pluginId: source.pluginId, dynamicPackageId: source.dynamicPackageId,
+        name: source.name, purpose: source.purpose, manifest: source.manifest,
+        artifactRef: source.artifactRef, validationReportRef: source.validationReportRef,
+        ...(source.hostCode === undefined ? {} : { hostCode: source.hostCode }),
+        ...(source.clientCode === undefined ? {} : { clientCode: source.clientCode }),
+      }
+      return this.createDepartmentReview({
+        principal: input.principal, workspaceId: input.workspaceId, draft,
+        sourceSessionId: source.pluginId.split(':', 1)[0] ?? source.pluginId,
+        derivedFromPackageId: source.packageId,
       })
-      const at = this.now()
-      const review: CordisReviewRequest = {
-        reviewId: this.randomId('cordis-review'), orgId: input.principal.orgId,
-        departmentId: workspace.departmentId, pluginId: pkg.pluginId, packageId: pkg.packageId,
-        sourceSessionId: input.sourceSessionId, submittedBy: input.principal.userId,
-        status: 'pending', revision: 1, createdAt: at, updatedAt: at,
-      }
-      await this.repository.putReview(review, 0)
-      this.emit('enterprise/cordis-review-requested', { orgId: review.orgId, pluginId: review.pluginId, packageId: review.packageId, reviewId: review.reviewId })
-      return review
     })
+  }
+
+  private async createDepartmentReview(input: {
+    principal: EnterpriseCordisPrincipal
+    workspaceId: string
+    draft: CordisPackageDraft
+    sourceSessionId: string
+    derivedFromPackageId?: string
+  }): Promise<CordisReviewRequest> {
+    const workspace = await this.workspace(input.principal, input.workspaceId)
+    if (workspace.kind !== 'department' || workspace.departmentId === undefined) {
+      throw new EnterpriseCordisError('department-member-required', 'Department Workspace is required')
+    }
+    const memberships = await this.options.directory.userDepartments(input.principal.orgId, input.principal.userId)
+    if (!memberships.includes(workspace.departmentId) && !isAdmin(input.principal.roles)) {
+      throw new EnterpriseCordisError('department-member-required', 'Department membership is required')
+    }
+    const pkg = await this.packageFromDraft({
+      principal: input.principal, draft: input.draft,
+      scope: { type: 'department', departmentId: workspace.departmentId },
+      ...(input.derivedFromPackageId === undefined ? {} : { derivedFromPackageId: input.derivedFromPackageId }),
+    })
+    const at = this.now()
+    const review: CordisReviewRequest = {
+      reviewId: this.randomId('cordis-review'), orgId: input.principal.orgId,
+      departmentId: workspace.departmentId, pluginId: pkg.pluginId, packageId: pkg.packageId,
+      sourceSessionId: input.sourceSessionId, submittedBy: input.principal.userId,
+      status: 'pending', revision: 1, createdAt: at, updatedAt: at,
+    }
+    await this.repository.putReview(review, 0)
+    this.emit('enterprise/cordis-review-requested', { orgId: review.orgId, pluginId: review.pluginId, packageId: review.packageId, reviewId: review.reviewId })
+    return review
   }
 
   private async review(input: { principal: EnterpriseCordisPrincipal; reviewId: string }): Promise<CordisReviewRequest> {
@@ -812,6 +859,10 @@ export class EnterpriseCordisService {
       if (existing.orgId !== input.principal.orgId || existing.workspaceId !== input.workspaceId) {
         throw new EnterpriseCordisError('organization-mismatch', 'Session generation belongs to another Workspace')
       }
+      if (existing.entries.some(entry => entry.scope.type === 'personal-workspace'
+        && entry.scope.ownerUserId !== input.principal.userId)) {
+        throw new EnterpriseCordisError('personal-owner-required', 'Session generation contains another user private Plugin')
+      }
       return existing
     }
     const projection = await this.listWorkspace({ principal: input.principal, workspaceId: input.workspaceId })
@@ -932,7 +983,12 @@ export class EnterpriseCordisService {
             && (row.scope.type === 'personal-workspace' || (row.scope.type === 'department'
               && (row.authoredBy === input.principal.userId || sharedPackageIds.has(row.packageId)
                 || mayReviewDepartment))))))
-        .map(row => this.hydrate(row))),
+        .map(async (row) => {
+          const pkg = await this.hydrate(row)
+          return pkg.scope.type === 'personal-workspace' && workspace.kind === 'department'
+            && pkg.scope.ownerUserId === input.principal.userId
+            ? { ...pkg, canSubmitDepartment: true } : pkg
+        })),
       archivedPackages: await Promise.all(rows
         .filter(row => visible(row.scope) && archivedPrivate(row.scope, row.pluginId))
         .map(row => this.hydrate(row))),

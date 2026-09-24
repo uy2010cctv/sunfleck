@@ -20,7 +20,7 @@ English | [中文](README.zh.md)
 
 ## Package Details
 
-The runtime resolves the Session owner and enterprise Workspace grant, pins the Session generation, and restores approved dynamic Packages. A successful `cordis_define` in an enterprise Workspace saves a private version for that owner; activation and department submission remain explicit actions. Removing the Session-local Plugin does not delete its saved version. It never treats a browser request as authority to expand a Package scope.
+The runtime resolves the Session owner and enterprise Workspace grant, pins the Session generation, and restores approved dynamic Packages. A successful `cordis_define` in a personal Workspace saves a private version; in a department Workspace it submits an immutable version for manager review without activating a shared binding. Removing the Session-local Plugin does not delete its saved or pending version. The Session plugin panel reports the current Session's running Plugins, while the enterprise extensions page reports saved versions, reviews, and governed bindings. Browser requests cannot expand a Package scope.
 
 ## Model Experience
 

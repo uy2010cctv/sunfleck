@@ -93,6 +93,19 @@ describe('enterprise Cordis Remote controllers', () => {
     expect((await app.requestContext.run(member, () => app.workspace.list({ workspaceId: 'department-1' }))).packages
       .map(pkg => pkg.packageId)).toContain(saved.packageId)
   })
+  it('submits only the current owner saved version for department review', async () => {
+    const app = await setup()
+    const saved = await app.requestContext.run(member, () => app.workspace.save({
+      workspaceId: 'department-1', draft, idempotencyKey: 'saved-for-review',
+    }))
+    await expect(app.requestContext.run(colleague, () => app.review.submitSaved({
+      workspaceId: 'department-1', packageId: saved.packageId, idempotencyKey: 'not-owner',
+    }))).rejects.toMatchObject({ code: 'enterprise-not-found' })
+    const review = await app.requestContext.run(member, () => app.review.submitSaved({
+      workspaceId: 'department-1', packageId: saved.packageId, idempotencyKey: 'submit-own',
+    }))
+    expect(review).toMatchObject({ status: 'pending', submittedBy: 'member-1' })
+  })
   it('saves, activates, and lists personal Workspace extensions through the authenticated principal', async () => {
     const app = await setup()
     const saved = await app.requestContext.run(member, () => app.workspace.save({
