@@ -3,15 +3,19 @@
  * intake. Interactive (`mention_duty`) channels partition conversation into
  * topics — one durable session per topic, anchored by its first routed
  * employee — and route each message to the @-mentioned member employees or
- * the duty roster head. Ingest-only channels never steer a session: every
- * message becomes one organization-scope memory proposal through the lazily
- * mounted enterprise identity store, dropped as a structured result when the
- * privacy gate rejects it.
+ * the duty roster head. Ingest-only channels never steer a session: with an
+ * extraction route and the `llm` service mounted, every message is distilled
+ * into at most three organization-scope memory proposals (privacy-blocked
+ * candidates counted, not proposed); otherwise the message becomes one
+ * truncated proposal through the lazily mounted enterprise identity store,
+ * dropped as a structured result when the privacy gate rejects it.
  *
  * @module @deepseek-ai/dsh-enterprise-surface/channel
  */
 
 import { randomUUID } from 'node:crypto'
+import type { DatabaseSync } from 'node:sqlite'
+import type { Context } from '@deepseek-ai/cordis'
 import { brandString } from '@deepseek-ai/dsh-brand'
 import {
   employeeId,
@@ -43,6 +47,9 @@ import {
 } from '@deepseek-ai/dsh-enterprise-identity'
 import { createUserMessage, errorChain, type UserMessage } from '@deepseek-ai/dsh-llm'
 import type { Session, SessionId } from '@deepseek-ai/dsh-session'
+import {
+  extractAnnouncementMemories, type ConsolidationLlm, type ConsolidationRefinementOptions,
+} from '@deepseek-ai/dsh-enterprise-memory-context'
 import { dmSurfaceFromRow } from './dm.ts'
 import { GroupSurfaceRegistry, groupSurfaceFromRow, landedCount } from './group.ts'
 import {
@@ -56,6 +63,11 @@ import {
 
 /** Maximum characters of an announcement carried into its memory-proposal summary. */
 export const MEMORY_ANNOUNCEMENT_SUMMARY_CHARS = 500
+
+/** Maximum characters of an announcement carried into one extraction model call. Announcements
+ * are short broadcast messages; the cap only bounds a pathological or hostile paste, and the
+ * fallback summary cap stays independent at 500 characters. */
+const ANNOUNCEMENT_EXTRACTION_INPUT_CHARS = 4_000
 
 /** Maximum characters of a routed message carried into an auto-created topic title. */
 const TOPIC_TITLE_CHARS = 40
@@ -123,16 +135,52 @@ function surfaceValueFromRow(row: SurfaceRow | GroupSurfaceRow | ChannelSurfaceR
   return channelSurfaceFromRow(row)
 }
 
+/** Routing and budget of one announcement-extraction model call, resolved once per composition.
+ * An empty provider or model keeps intake on the truncated fallback. */
+export interface AnnouncementExtractionOptions {
+  /** Registered provider route selecting the adapter instance. */
+  readonly provider: string
+  /** Model the extraction call runs on. */
+  readonly model: string
+  /** Maximum output tokens for one extraction call. */
+  readonly maxTokens: number
+  /** Wall-clock timeout for one extraction call, carried by the request abort signal. */
+  readonly timeoutMs: number
+}
+
+/** Default intake options: no extraction route, so every announcement takes the P2 fallback. */
+const DEFAULT_EXTRACTION_OPTIONS: AnnouncementExtractionOptions = {
+  provider: '', model: '', maxTokens: 1_024, timeoutMs: 60_000,
+}
+
 /**
  * Registry adding channel surfaces to the group registry. Interactive
  * channels steer one session per topic; ingest-only channels propose
  * announcements into organization-scope memory through the `enterprisePostgres`
  * identity store, resolved lazily so deployments without memory report
- * `memory-unavailable` instead of failing.
+ * `memory-unavailable` instead of failing. With an extraction route configured
+ * and the `llm` service mounted, intake first extracts up to three durable
+ * candidates and falls back to the single truncated proposal whenever the
+ * extraction is unavailable or fails.
  */
 export class ChannelSurfaceRegistry extends GroupSurfaceRegistry implements EnterpriseSurfaces {
   /** Swallowed work tails per topic, serializing session creation and steering in queued order. */
   private readonly topicTails = new Map<string, Promise<void>>()
+
+  /**
+   * @param ctx - harness context owning the anchored sessions and the injected agent-host services.
+   * @param database - migrated enterprise identity database; the composition owns its lifecycle.
+   * @param defaultAgentPreset - preset composed into every anchored session this registry creates.
+   * @param extractionOptions - routing of the announcement-extraction model call; defaults to none.
+   */
+  constructor(
+    ctx: Context,
+    database: DatabaseSync,
+    defaultAgentPreset: string,
+    private readonly extractionOptions: AnnouncementExtractionOptions = DEFAULT_EXTRACTION_OPTIONS,
+  ) {
+    super(ctx, database, defaultAgentPreset)
+  }
 
   // oxlint-disable-next-line typescript/require-await -- async keeps roster validation a rejection, not a synchronous throw
   async ensureChannelSurface(input: {
@@ -198,11 +246,15 @@ export class ChannelSurfaceRegistry extends GroupSurfaceRegistry implements Ente
   }
 
   /**
-   * Propose the announcement as one organization-scope memory entry. The
-   * privacy gate classifies before the store runs, so a gated announcement is
-   * a structured drop instead of a failed write; `proposeMemory` re-runs the
-   * inspection itself, and its scope classification stays in parity with this
-   * call because the announcement scope is the fixed organization constant.
+   * Propose the announcement as organization-scope memory entries. With an
+   * extraction route configured and the `llm` service mounted, the announcement
+   * first goes through the shared extractor: every candidate is
+   * privacy-classified for the organization scope, blocked candidates are
+   * counted instead of proposed, and survivors land as proposals with
+   * deterministic ids so a repeated announcement converges on its rows. Any
+   * extraction failure — unmounted service, stream failure, malformed output —
+   * falls back to the exact pre-extraction behavior: one truncated proposal
+   * behind the whole-announcement privacy gate.
    */
   private async intakeAnnouncement(
     surface: ChannelSurface,
@@ -214,6 +266,12 @@ export class ChannelSurfaceRegistry extends GroupSurfaceRegistry implements Ente
     if (summary === '') return { delivered: false, reason: 'invalid-text' }
     const identity = this.memoryIdentity()
     if (identity === undefined) return { delivered: false, reason: 'memory-unavailable' }
+    const extracted = await this.extractAnnouncementProposals(surface, input)
+    if (extracted !== undefined) return extracted
+    // The privacy gate classifies before the store runs, so a gated announcement is
+    // a structured drop instead of a failed write; `proposeMemory` re-runs the
+    // inspection itself, and its scope classification stays in parity with this
+    // call because the announcement scope is the fixed organization constant.
     const inspection = inspectEnterpriseMemory(summary)
     if (!classifyPrivacyForScope(inspection.findings, ANNOUNCEMENT_SCOPE).allowed) {
       return { delivered: false, reason: 'privacy-gated' }
@@ -229,10 +287,71 @@ export class ChannelSurfaceRegistry extends GroupSurfaceRegistry implements Ente
         sourceDigest: memorySourceDigest(JSON.stringify([surface.orgId, surface.id, input.originUserId, summary])),
         createdBy: input.originUserId,
       })
-      return { delivered: true, mode: 'ingested', proposedMemoryId: entry.id }
+      return { delivered: true, mode: 'ingested', proposedMemoryIds: [entry.id], droppedPrivacy: 0 }
     } catch (error: unknown) {
       return { delivered: false, reason: 'intake-failed', error: errorChain(error) }
     }
+  }
+
+  /**
+   * Extract durable candidates from the announcement and propose the survivors.
+   * Returns undefined — without touching the store — whenever extraction is not
+   * in play: no configured route, no mounted `llm` service, or a failed or
+   * malformed refinement call. The caller falls back to the truncated proposal.
+   */
+  private async extractAnnouncementProposals(
+    surface: ChannelSurface,
+    input: { originUserId: string; text: string },
+  ): Promise<ChannelDeliveryResult | undefined> {
+    if (this.extractionOptions.provider === '' || this.extractionOptions.model === '') return undefined
+    const identity = this.memoryIdentity()
+    const llm = this.ctx.get.bind(this.ctx)('llm') as ConsolidationLlm | undefined
+    if (identity === undefined || llm === undefined) return undefined
+    const options: ConsolidationRefinementOptions = {
+      provider: this.extractionOptions.provider,
+      model: this.extractionOptions.model,
+      maxTokens: this.extractionOptions.maxTokens,
+      timeoutMs: this.extractionOptions.timeoutMs,
+      plugin: 'enterprise-surface',
+    }
+    const outcomes = await extractAnnouncementMemories(
+      llm, input.text.slice(0, ANNOUNCEMENT_EXTRACTION_INPUT_CHARS), ANNOUNCEMENT_SCOPE, options,
+    )
+    if (outcomes === undefined) return undefined
+    const proposedMemoryIds: string[] = []
+    let droppedPrivacy = 0
+    for (const outcome of outcomes) {
+      if (outcome.dropped === 'privacy') {
+        droppedPrivacy += 1
+        continue
+      }
+      const { summary } = outcome.candidate
+      const sourceDigest = memorySourceDigest(JSON.stringify([surface.orgId, surface.id, input.originUserId, summary]))
+      const id = `announcement-memory-${sourceDigest}`
+      const standing = (await identity.listMemories({ orgId: surface.orgId, statuses: ['proposed', 'approved'] }))
+        .find(row => row.id === id)
+      if (standing !== undefined) {
+        proposedMemoryIds.push(id)
+        continue
+      }
+      try {
+        const entry = await identity.proposeMemory({
+          id,
+          orgId: surface.orgId,
+          scope: ANNOUNCEMENT_SCOPE,
+          kind: outcome.candidate.kind,
+          summary,
+          sourceDigest,
+          createdBy: input.originUserId,
+        })
+        proposedMemoryIds.push(entry.id)
+      } catch (error: unknown) {
+        // A store failure mid-batch surfaces as the structured intake failure;
+        // already-proposed siblings stand as ordinary proposals awaiting review.
+        return { delivered: false, reason: 'intake-failed', error: errorChain(error) }
+      }
+    }
+    return { delivered: true, mode: 'ingested', proposedMemoryIds, droppedPrivacy }
   }
 
   /** Resolve the lazily mounted enterprise identity store; absent means announcements cannot intake. */

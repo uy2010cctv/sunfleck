@@ -24,6 +24,9 @@
       "path": "../../core/agent-loop"
     },
     {
+      "path": "../../context/enterprise-memory-context"
+    },
+    {
       "path": "../../core/session"
     },
     {

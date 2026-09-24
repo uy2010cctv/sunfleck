@@ -193,10 +193,19 @@ export interface ChannelSettledDelivery {
 /** One announcement accepted into organization-scope memory. */
 export interface ChannelIngestedDelivery {
   readonly delivered: true
-  /** The message became one memory proposal; no session exists on ingest-only channels. */
+  /** The message became memory proposals; no session exists on ingest-only channels. */
   readonly mode: 'ingested'
-  /** Proposed memory entry carrying the truncated announcement. */
-  readonly proposedMemoryId: string
+  /**
+   * Ids of the memory proposals that stand after intake: one truncated-announcement proposal on
+   * the fallback path, or one per extracted candidate on the extraction path. A candidate whose
+   * deterministic id already stands is listed here without a second write.
+   */
+  readonly proposedMemoryIds: readonly string[]
+  /**
+   * Extracted candidates dropped by the scope-aware privacy gate instead of proposed; always 0
+   * on the fallback path, which gates the whole announcement before proposing.
+   */
+  readonly droppedPrivacy: number
 }
 
 /** Outcome of one channel-surface delivery. Structured: callers map it to a transport response without catching. */
@@ -236,7 +245,11 @@ export type ChannelDeliveryResult =
   }
   | {
     readonly delivered: false
-    /** The privacy gate rejected the announcement; it is dropped, not proposed. */
+    /**
+     * The privacy gate rejected the truncated fallback proposal; it is dropped, not proposed.
+     * The LLM extraction path drops gated candidates per candidate instead, reporting them in
+     * `droppedPrivacy` while still delivering.
+     */
     readonly reason: 'privacy-gated'
   }
   | {

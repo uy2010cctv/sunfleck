@@ -759,12 +759,24 @@ export interface Config {
    * deferred.
    */
   readonly defaultAgentPreset: string
+  /**
+   * Registered provider route for announcement memory extraction on ingest-only
+   * channels. Empty (the default, like the model) keeps intake on the single
+   * truncated-proposal fallback.
+   */
+  readonly announcementExtractionProvider?: string
+  /** Model the announcement extraction call runs on; empty keeps the fallback. */
+  readonly announcementExtractionModel?: string
+  /** Maximum output tokens for one announcement extraction call. */
+  readonly announcementExtractionMaxTokens?: number
+  /** Wall-clock timeout for one announcement extraction call. */
+  readonly announcementExtractionTimeoutMs?: number
 }
 ```
 
 Depends on: `DatabaseSync` (`node:sqlite`)
 
-Source: [`packages/enterprise/enterprise-surface/src/index.ts:37`](../packages/enterprise/enterprise-surface/src/index.ts)
+Source: [`packages/enterprise/enterprise-surface/src/index.ts:38`](../packages/enterprise/enterprise-surface/src/index.ts)
 
 <a id="deepseek-aidsh-experimental-agent-team"></a>
 

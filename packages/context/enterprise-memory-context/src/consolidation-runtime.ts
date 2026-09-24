@@ -21,6 +21,7 @@ import {
 import {
   reflectOnPrivateNotes, summarizeCompartment, type ConsolidationLlm, type ConsolidationRefinementOptions,
 } from './consolidation-llm.ts'
+import { distillProjectMemory, type ProjectDistillReport, type ProjectDistillationProjects } from './distillation.ts'
 
 declare module '@deepseek-ai/cordis' {
   interface Context { memoryConsolidation: MemoryConsolidationRuntime }
@@ -524,7 +525,7 @@ export class MemoryConsolidationRuntime {
     actor: string
     correlationId: string
     at: number
-    pass: 'structure' | 'digest' | 'reflection'
+    pass: 'structure' | 'digest' | 'reflection' | 'distill'
     compartment: ConsolidationCompartment
     reason: string
     details: Record<string, unknown>
@@ -546,6 +547,52 @@ export class MemoryConsolidationRuntime {
       throw new Error(`enterprise memory consolidation actor is unavailable or disabled in ${orgId}`)
     }
     return user.id
+  }
+
+  /** Structural view of the lazily resolved project governance service; compositions without the
+   * project entity do not mount it, and distillation fails loud on the absence. */
+  private projectsService(): ProjectDistillationProjects | undefined {
+    return (this.ctx.get.bind(this.ctx) as (name: string) => unknown)('enterpriseProjects') as
+      | ProjectDistillationProjects
+      | undefined
+  }
+
+  /**
+   * Distill one project's approved memory compartment into shared-memory lesson proposals. The
+   * manual controller route awaits this and returns the report; the post-archive trigger runs it
+   * fire-and-forget. The refinement route, budget, and audit shape are the consolidation ones.
+   * @param input - organization, project, and the actor the proposals and audit attribute to.
+   * @returns the closed run report.
+   * @throws When the project service is unmounted, the project does not resolve, or the
+   *   compartment has a store failure outside the per-lesson recording; the failure is audited
+   *   before the rethrow because the archive trigger swallows rejections.
+   */
+  async distillProject(input: { orgId: string; projectId: string; actorUserId: string }): Promise<ProjectDistillReport> {
+    const now = this.clock()
+    const correlationId = randomUUID()
+    try {
+      return await distillProjectMemory({
+        identity: this.identity,
+        projects: this.projectsService(),
+        llm: this.refinementLlm(),
+        options: this.refinementOptions(),
+        now: this.clock,
+        audit: async ({ reason, details }) => {
+          await this.appendPassAudit({
+            orgId: input.orgId, actor: input.actorUserId, correlationId, at: now,
+            pass: 'distill', compartment: { kind: 'project', projectId: input.projectId },
+            reason, details,
+          })
+        },
+      }, input)
+    } catch (error: unknown) {
+      await this.appendPassAudit({
+        orgId: input.orgId, actor: input.actorUserId, correlationId, at: now,
+        pass: 'distill', compartment: { kind: 'project', projectId: input.projectId },
+        reason: 'project distillation failed', details: { error: String(error) },
+      })
+      throw error
+    }
   }
 
   /** Tolerant lookup of the streaming model surface: compositions without the `llm` service

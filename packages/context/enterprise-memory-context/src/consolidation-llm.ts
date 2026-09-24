@@ -24,6 +24,9 @@ export interface ConsolidationRefinementOptions {
   readonly timeoutMs: number
   /** Session the call attributes to, when consolidation runs inside a session scope. */
   readonly sessionId?: GenerateOptions['sessionId']
+  /** Plugin name the request message source carries; defaults to the consolidation runtime,
+   * which owns this module. Cross-feature callers pass their own plugin name. */
+  readonly plugin?: string
 }
 
 /** Shared compartment a reflection may propose. */
@@ -64,7 +67,9 @@ function record(value: unknown): Record<string, unknown> | undefined {
   return typeof value === 'object' && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : undefined
 }
 
-/** Stream one strict-JSON one-shot call to completion and return its visible text.
+/** Stream one strict-JSON one-shot call to completion and return its visible text. Shared by the
+ * consolidation passes, the announcement extractor, and the project distiller so every
+ * enterprise-memory refinement call times out, finishes, and assembles text the same way.
  * @param llm - streaming model surface the call runs on.
  * @param options - routing and budget of the call.
  * @param system - strict-JSON system prompt.
@@ -72,14 +77,14 @@ function record(value: unknown): Record<string, unknown> | undefined {
  * @returns the assembled visible text of the response.
  * @throws When the stream ends for any reason other than a normal stop, including a timeout abort.
  */
-async function completeRefinement(
+export async function completeRefinement(
   llm: ConsolidationLlm,
   options: ConsolidationRefinementOptions,
   system: string,
   user: Record<string, unknown>,
 ): Promise<string> {
   const request = createUserMessage({
-    source: { kind: 'plugin', plugin: 'enterprise-memory-consolidation' },
+    source: { kind: 'plugin', plugin: options.plugin ?? 'enterprise-memory-consolidation' },
     content: [{ type: 'text', text: JSON.stringify(user) }],
   })
   const chunks: ModelStreamChunkView[] = []

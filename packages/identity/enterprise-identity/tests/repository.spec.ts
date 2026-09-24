@@ -321,6 +321,36 @@ describe('EnterpriseIdentityRepository', () => {
     })).toThrow(/pairing/)
   })
 
+  it('writes approved project memory gated by the shared privacy policy and project pairing', () => {
+    const input = {
+      orgId: 'org-a', scope: 'project' as const, kind: 'process' as const,
+      summary: '项目联调环境每晚重置。', createdBy: 'user-1', projectId: 'project-1',
+    }
+    const entry = repository.writePrivateMemory(input)
+    expect(entry).toMatchObject({
+      scope: 'project', projectId: 'project-1', status: 'approved', revision: 1,
+    })
+    // The repeat converges on the committed row like the private compartments do.
+    expect(repository.writePrivateMemory(input)).toEqual(entry)
+    expect(repository.listMemories({ orgId: 'org-a', scopes: ['project'], projectId: 'project-1' })
+      .map(memory => memory.id)).toEqual([entry.id])
+
+    expect(() => repository.writePrivateMemory({
+      orgId: 'org-a', scope: 'project', kind: 'process', summary: '缺少项目。',
+      createdBy: 'user-1',
+    })).toThrow(/pairing/)
+    expect(() => repository.writePrivateMemory({
+      orgId: 'org-a', scope: 'project', kind: 'process', summary: '带归属人。',
+      createdBy: 'user-1', projectId: 'project-1', agentEmployeeId: 'employee-1',
+    })).toThrow(/pairing/)
+    // The project compartment is shared, so personal data blocks the direct write
+    // instead of being recorded the way private compartments record it.
+    expect(() => repository.writePrivateMemory({
+      orgId: 'org-a', scope: 'project', kind: 'process', summary: '客户邮箱 alice@example.com。',
+      createdBy: 'user-1', projectId: 'project-1',
+    })).toThrow(/privacy/)
+  })
+
   it('filters memory lists by scope and owner columns alongside the existing predicates', () => {
     repository.writePrivateMemory({
       orgId: 'org-a', scope: 'agent', kind: 'preference', summary: '回复保持正式书面语。',

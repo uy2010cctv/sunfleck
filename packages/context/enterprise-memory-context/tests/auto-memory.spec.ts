@@ -223,15 +223,38 @@ describe('Agent automatic enterprise memory', () => {
     })
   }
 
-  /** Expose a surface-anchored employee resolution for one session id. */
+  /** Expose a surface-anchored employee resolution for one session id. A cordis service cannot
+   * be re-provided, so the returned handle swaps the resolved actor between calls. */
   function provideAnchoredEmployee(
     ctx: Context,
     sessionId: string,
-    actor: { orgId: string; userId: string; employeeId: string } = { orgId: 'org-a', userId: 'member-1', employeeId: 'employee-1' },
-  ): void {
+    actor: { orgId: string; userId: string; employeeId: string; projectId?: string } = { orgId: 'org-a', userId: 'member-1', employeeId: 'employee-1' },
+  ): { set(actor: { orgId: string; userId: string; employeeId: string; projectId?: string } | undefined): void } {
+    const box: { current: { orgId: string; userId: string; employeeId: string; projectId?: string } | undefined } = { current: actor }
     ctx.provide('employeeAccounts' as never, {
-      resolveSessionActor: (asked: string) => (asked === sessionId ? actor : undefined),
+      resolveSessionActor: (asked: string) => (asked === sessionId ? box.current : undefined),
     } as never)
+    return { set: (next: { orgId: string; userId: string; employeeId: string; projectId?: string } | undefined) => { box.current = next } }
+  }
+
+  /** Provide the project governance double that admits any principal to the active project-1
+   * unless `member` is false, reporting the configured lifecycle state. A cordis service cannot
+   * be re-provided, so the returned handle swaps the behavior between calls. */
+  function provideProjectService(
+    ctx: Context,
+    options: { state?: string; member?: boolean } = {},
+  ): { set(options: { state?: string; member?: boolean }): void } {
+    const box = { current: options }
+    ctx.provide('enterpriseProjects' as never, {
+      get: async (projectId: string) => projectId === 'project-1'
+        ? { orgId: 'org-a', name: '项目一', state: box.current.state ?? 'active' }
+        : undefined,
+      requireMember: async (orgId: string, projectId: string, principal: unknown) =>
+        box.current.member === false || orgId !== 'org-a' || projectId !== 'project-1'
+          ? undefined
+          : { projectId, principal },
+    } as never)
+    return { set: (next: { state?: string; member?: boolean }) => { box.current = next } }
   }
 
   /** Execute one memory tool for the standard managed-workspace agent. */
@@ -624,6 +647,105 @@ describe('Agent automatic enterprise memory', () => {
     const blank = await callTool(ctx, 'memory_write', { scope: 'agent', kind: 'preference', summary: '   ' })
     expect(blank.isError).toBe(true)
     expect(resultText(blank)).toMatch(/must not be empty/iu)
+    identity.close()
+  })
+
+  it('writes approved project memory for a member of the anchored project and deduplicates it', async () => {
+    const { ctx, identity } = await setup({ autoApproval: true })
+    provideAnchoredEmployee(ctx, 'memory-agent', {
+      orgId: 'org-a', userId: 'member-1', employeeId: 'employee-1', projectId: 'project-1',
+    })
+    provideProjectService(ctx)
+
+    const first = await callTool(ctx, 'memory_write', { scope: 'project', kind: 'business-fact', summary: '联调环境每晚重置。' })
+    expect(first.isError).toBe(false)
+    expect(resultText(first)).toMatch(/Project memory saved and active: /)
+    const rows = () => identity.listMemories({ orgId: 'org-a', scopes: ['project'], projectId: 'project-1' })
+    expect(rows()).toEqual([expect.objectContaining({
+      scope: 'project', projectId: 'project-1', kind: 'business-fact', status: 'approved', createdBy: 'member-1',
+    })])
+
+    const second = await callTool(ctx, 'memory_write', { scope: 'project', kind: 'business-fact', summary: '联调环境每晚重置。' })
+    expect(second.isError).toBe(false)
+    expect(resultText(second)).toMatch(/Project memory already recorded: /)
+    expect(rows()).toHaveLength(1)
+    identity.close()
+  })
+
+  it('gates project writes on membership, project state, kind, privacy, and anchoring', async () => {
+    const { ctx, identity } = await setup({ autoApproval: true })
+    provideAnchoredEmployee(ctx, 'memory-agent', {
+      orgId: 'org-a', userId: 'member-1', employeeId: 'employee-1', projectId: 'project-1',
+    })
+    const projects = provideProjectService(ctx, { member: false })
+    const foreign = await callTool(ctx, 'memory_write', { scope: 'project', kind: 'business-fact', summary: '非成员写入。' })
+    expect(foreign.isError).toBe(true)
+    expect(resultText(foreign)).toMatch(/requires project membership/iu)
+
+    projects.set({ member: true, state: 'archived' })
+    const archived = await callTool(ctx, 'memory_write', { scope: 'project', kind: 'business-fact', summary: '归档后写入。' })
+    expect(archived.isError).toBe(true)
+    expect(resultText(archived)).toMatch(/archived and accepts no new memory/iu)
+
+    projects.set({})
+    const preference = await callTool(ctx, 'memory_write', { scope: 'project', kind: 'preference', summary: '项目偏好不算项目记忆。' })
+    expect(preference.isError).toBe(true)
+    expect(resultText(preference)).toMatch(/preference is personal/iu)
+
+    const gated = await callTool(ctx, 'memory_write', { scope: 'project', kind: 'business-fact', summary: '联系 alice@example.com 索取报告。' })
+    expect(gated.isError).toBe(true)
+    expect(resultText(gated)).toMatch(/privacy check failed/iu)
+    expect(identity.listMemories({ orgId: 'org-a', scopes: ['project'] })).toEqual([])
+    identity.close()
+  })
+
+  it('keeps project memory unavailable without an anchored project or the project service', async () => {
+    const { ctx, identity } = await setup({ autoApproval: true })
+    const actor = provideAnchoredEmployee(ctx, 'memory-agent')
+    const unanchored = await callTool(ctx, 'memory_write', { scope: 'project', kind: 'business-fact', summary: '无锚定项目。' })
+    expect(unanchored.isError).toBe(true)
+    expect(resultText(unanchored)).toMatch(/anchored to a project/iu)
+
+    actor.set({ orgId: 'org-a', userId: 'member-1', employeeId: 'employee-1', projectId: 'project-1' })
+    const unmounted = await callTool(ctx, 'memory_write', { scope: 'project', kind: 'business-fact', summary: '无项目服务。' })
+    expect(unmounted.isError).toBe(true)
+    expect(resultText(unmounted)).toMatch(/project service, which is not mounted/iu)
+    expect(identity.listMemories({ orgId: 'org-a', scopes: ['project'] })).toEqual([])
+    identity.close()
+  })
+
+  it('searches and reads the project compartment only for project-anchored member sessions', async () => {
+    const { ctx, identity } = await setup({ autoApproval: true })
+    const row = identity.writePrivateMemory({
+      orgId: 'org-a', scope: 'project', kind: 'business-fact', summary: '联调环境每晚重置。',
+      createdBy: 'member-1', projectId: 'project-1',
+    })
+    seedApprovedShared(identity, { id: 'org-note', scope: 'organization', kind: 'business-fact', summary: '公司统一合同编号。' })
+
+    const actor = provideAnchoredEmployee(ctx, 'memory-agent', {
+      orgId: 'org-a', userId: 'member-1', employeeId: 'employee-1', projectId: 'project-1',
+    })
+    const projects = provideProjectService(ctx)
+    const search = await callTool(ctx, 'memory_search', { query: '联调', scopeFilter: 'project' })
+    expect(search.isError).toBe(false)
+    expect(resultText(search)).toContain(`[${row.id}]`)
+    const read = await callTool(ctx, 'memory_read', { ids: [row.id, 'org-note'] })
+    expect(read.isError).toBe(false)
+    expect(resultText(read)).toContain(`[${row.id}]`)
+    expect(resultText(read)).toContain('[org-note]')
+
+    // The same surface's non-member session resolves the project but sees no compartment.
+    projects.set({ member: false })
+    const outsider = await callTool(ctx, 'memory_search', { query: '联调', scopeFilter: 'project' })
+    expect(outsider.isError).toBe(false)
+    expect(resultText(outsider)).toMatch(/No approved enterprise memory matched/iu)
+
+    // A session anchored to no project never queries the compartment either.
+    projects.set({})
+    actor.set({ orgId: 'org-a', userId: 'member-1', employeeId: 'employee-1' })
+    const unanchored = await callTool(ctx, 'memory_search', { query: '联调', scopeFilter: 'project' })
+    expect(unanchored.isError).toBe(false)
+    expect(resultText(unanchored)).toMatch(/No approved enterprise memory matched/iu)
     identity.close()
   })
 

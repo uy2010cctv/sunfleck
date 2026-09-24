@@ -12,10 +12,11 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import type { DatabaseSync } from 'node:sqlite'
-import { ChannelSurfaceRegistry } from './channel.ts'
+import { ChannelSurfaceRegistry, type AnnouncementExtractionOptions } from './channel.ts'
 
 export * from './types.ts'
 export { ChannelSurfaceRegistry, MEMORY_ANNOUNCEMENT_SUMMARY_CHARS } from './channel.ts'
+export type { AnnouncementExtractionOptions } from './channel.ts'
 export { DmSurfaceRegistry } from './dm.ts'
 export { GroupSurfaceRegistry } from './group.ts'
 
@@ -48,6 +49,18 @@ export interface Config {
    * deferred.
    */
   readonly defaultAgentPreset: string
+  /**
+   * Registered provider route for announcement memory extraction on ingest-only
+   * channels. Empty (the default, like the model) keeps intake on the single
+   * truncated-proposal fallback.
+   */
+  readonly announcementExtractionProvider?: string
+  /** Model the announcement extraction call runs on; empty keeps the fallback. */
+  readonly announcementExtractionModel?: string
+  /** Maximum output tokens for one announcement extraction call. */
+  readonly announcementExtractionMaxTokens?: number
+  /** Wall-clock timeout for one announcement extraction call. */
+  readonly announcementExtractionTimeoutMs?: number
 }
 
 /**
@@ -61,5 +74,14 @@ export function apply(ctx: Context, config: Config): void {
   if (config.defaultAgentPreset.trim() === '') {
     throw new TypeError('enterprise surfaces defaultAgentPreset must not be empty')
   }
-  ctx.provide('surfaces', new ChannelSurfaceRegistry(ctx, config.database, config.defaultAgentPreset))
+  const extraction: AnnouncementExtractionOptions = {
+    provider: config.announcementExtractionProvider ?? '',
+    model: config.announcementExtractionModel ?? '',
+    maxTokens: config.announcementExtractionMaxTokens ?? 1_024,
+    timeoutMs: config.announcementExtractionTimeoutMs ?? 60_000,
+  }
+  if ((extraction.provider === '') !== (extraction.model === '')) {
+    throw new TypeError('enterprise surfaces announcement extraction requires both a provider and a model route')
+  }
+  ctx.provide('surfaces', new ChannelSurfaceRegistry(ctx, config.database, config.defaultAgentPreset, extraction))
 }

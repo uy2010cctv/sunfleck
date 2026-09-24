@@ -2424,14 +2424,20 @@ export function apply(ctx: Context): void {
     },
   }), 'enterprise-channel: token-authenticated channel inbound route')
   // The composed project plugin provides `enterpriseProjects`; without it the
-  // project plane is absent and every route fails loud with a 503.
+  // project plane is absent and every route fails loud with a 503. The
+  // memory-consolidation service is resolved per request because it mounts in a
+  // sibling plugin: with it, project distillation rides the project routes
+  // (manual route and post-archive trigger); without it, the manual distill
+  // route answers 503 and the archive trigger skips.
   ctx.effect(() => ctx.webServer.register({
     kind: 'prefix', path: '/enterprise/projects',
     handler: async (req, res) => {
       const plane = resolvePlane(ctx.get('enterpriseProjects'), 'project-plane-unavailable')
       if (plane.service === undefined) { await writeResponse(res, plane.unavailable); return }
       await serveRoute(res, await enterpriseRequest(req), request =>
-        new ProjectHttpHandler(plane.service, ctx.enterpriseSecurity).fetch(request))
+        new ProjectHttpHandler(plane.service, ctx.enterpriseSecurity, {
+          consolidation: ctx.get('memoryConsolidation'),
+        }).fetch(request))
     },
   }), 'enterprise-project: authenticated project routes')
   // The memory-context plugin provides `memoryConsolidation`; without it the

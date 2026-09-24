@@ -658,9 +658,9 @@ export class PgEnterpriseIdentityRepository {
     })
   }
 
-  /** Writes one approved memory straight into a private compartment, bypassing review. The row id
-   * derives deterministically from the write tuple (`private-memory-<digest>`), so repeat and
-   * concurrent duplicate writes converge on one row.
+  /** Writes one approved memory straight into a direct-write compartment (`agent`, `pair`, or the
+   * member-gated `project`), bypassing review. The row id derives deterministically from the write
+   * tuple (`private-memory-<digest>`), so repeat and concurrent duplicate writes converge on one row.
    * @param input - Input value used by this API.
    * @returns The stored memory; the existing row when this exact source was written before.
    */
@@ -668,10 +668,10 @@ export class PgEnterpriseIdentityRepository {
     const { summary, findings, sourceDigest } = validatePrivateMemoryInput(input)
     return this.transaction(async (database) => {
       await this.assertMemoryReferences(database, input.orgId, input.createdBy)
-      // The scope predicate keeps a hypothetical digest collision in a shared compartment from
-      // satisfying a private write.
+      // The scope predicate keeps a hypothetical digest collision in another direct-write
+      // compartment from satisfying this write.
       const existing = await database.query<MemoryRow>(`SELECT * FROM enterprise_memories
-        WHERE org_id = $1 AND source_digest = $2 AND scope_type IN ('agent', 'pair')`,
+        WHERE org_id = $1 AND source_digest = $2 AND scope_type IN ('agent', 'pair', 'project')`,
       [input.orgId, sourceDigest])
       const found = existing.rows[0]
       if (found !== undefined) return this.memoryFromRow(found)
@@ -690,7 +690,7 @@ export class PgEnterpriseIdentityRepository {
       // A concurrent writer committed the same deterministic id between the lookup and the insert;
       // the unique-index wait guarantees its row is committed and visible to the re-select.
       const raced = await database.query<MemoryRow>(`SELECT * FROM enterprise_memories
-        WHERE org_id = $1 AND source_digest = $2 AND scope_type IN ('agent', 'pair')`,
+        WHERE org_id = $1 AND source_digest = $2 AND scope_type IN ('agent', 'pair', 'project')`,
       [input.orgId, sourceDigest])
       const winner = raced.rows[0]
       if (winner === undefined) throw new Error('enterprise private memory write returned no row')

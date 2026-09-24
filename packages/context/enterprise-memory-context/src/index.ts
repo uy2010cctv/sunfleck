@@ -370,8 +370,9 @@ export function rankEnterpriseMemories<T extends EnterpriseMemoryEntry>(
 /** Maximum `memory_search` results returned for one query. */
 const MEMORY_SEARCH_LIMIT = 8
 
-/** Compartments the memory tools expose; `project` stays out until its P2 writers land. */
-const TOOL_MEMORY_SCOPES = ['organization', 'department', 'agent', 'pair'] as const
+/** Compartments the memory tools expose; the member-gated `project` compartment is writable and
+ * readable only through a session whose actor anchors to that project. */
+const TOOL_MEMORY_SCOPES = ['organization', 'department', 'agent', 'pair', 'project'] as const
 
 /** One compartment the memory tools may fetch or filter on. */
 type ToolMemoryScope = (typeof TOOL_MEMORY_SCOPES)[number]
@@ -388,15 +389,21 @@ const MEMORY_RETIRE_REASON = 'memory_retire tool'
 /** Fetch the approved entries of the requested compartments for one resolved scope. The shared
  * listing keeps the recall listener's owner-filter-free visibility — organization plus the
  * workspace's departments — and the private compartments are fetched only for a session anchored
- * to an employee, each with an explicit scope and owner, so foreign private rows never enter.
+ * to an employee, each with an explicit scope and owner, so foreign private rows never enter. The
+ * member-gated project compartment joins after the private ones, fetched only for a session whose
+ * actor anchors to that project and only when the caller asked for it.
+ * @param ctx - hosting context, for the lazily resolved project service.
  * @param identity - enterprise identity store.
  * @param scope - scope resolved by {@link resolveMemoryScope} for the acting surface.
+ * @param actor - surface-anchored session actor, when one resolves.
  * @param wanted - compartments to include.
- * @returns approved entries in fetch order: shared listing first, then pair, then agent.
+ * @returns approved entries in fetch order: shared listing first, then pair, then agent, then project.
  */
 async function actorCompartments(
+  ctx: Context,
   identity: EnterpriseIdentityStore,
   scope: MemoryActorScope,
+  actor: SessionActor | undefined,
   wanted: ReadonlySet<ToolMemoryScope>,
 ): Promise<CompartmentEntry[]> {
   let shared: EnterpriseMemoryEntry[] = []
@@ -421,17 +428,34 @@ async function actorCompartments(
     }
   }
   // The scope filter is what excludes rows outside the tool compartments (e.g. organization rows
-  // fetched along a department-only listing).
-  return [...shared, ...own].filter((entry): entry is CompartmentEntry =>
+  // fetched along a department-only listing); project rows arrive only through the fetch below.
+  const fetched = [...shared, ...own].filter((entry): entry is CompartmentEntry =>
     entry.scope !== 'project' && wanted.has(entry.scope))
+  if (!wanted.has('project')) return fetched
+  return [...fetched, ...await projectCompartment(ctx, identity, scope, actor)]
+}
+
+/** Structural view of the lazily resolved project governance service; compositions without the
+ * project entity do not mount it, so every lookup tolerates absence. */
+interface ProjectServiceView {
+  get(projectId: string): Promise<{ orgId: string; state: string } | undefined>
+  requireMember(
+    orgId: string,
+    projectId: string,
+    principal: { userId?: string; employeeId?: string },
+  ): Promise<{ state: string } | undefined>
+}
+
+/** Resolve the project governance service by name; undefined when the composition mounts none. */
+function projectService(ctx: Context): ProjectServiceView | undefined {
+  return (ctx.get.bind(ctx) as (name: string) => unknown)('enterpriseProjects') as ProjectServiceView | undefined
 }
 
 /** Approved project-compartment memories for one anchored session, member-gated. The surface's
  * project id enters the actor only through the surface row, so the membership check decides
  * visibility: no actor project, no principal identity, an unmounted project service, or a
  * non-member all resolve no compartment instead of an error, so a project never leaks into a
- * session that cannot present its membership. The service is resolved lazily by name because
- * compositions without the project entity do not mount it.
+ * session that cannot present its membership.
  * @param ctx - hosting context.
  * @param identity - enterprise identity store.
  * @param scope - scope resolved by {@link resolveMemoryScope}; its org scopes both the check and the fetch.
@@ -447,15 +471,7 @@ async function projectCompartment(
   const projectId = actor?.projectId
   if (actor === undefined || projectId === undefined) return []
   if (actor.userId === undefined && actor.employeeId === undefined) return []
-  const projects = (ctx.get.bind(ctx) as (name: string) => unknown)('enterpriseProjects') as
-    | {
-      requireMember(
-        orgId: string,
-        projectId: string,
-        principal: { userId?: string; employeeId?: string },
-      ): Promise<unknown>
-    }
-    | undefined
+  const projects = projectService(ctx)
   if (projects === undefined) return []
   const project = await projects.requireMember(scope.orgId, projectId, {
     ...(actor.userId === undefined ? {} : { userId: actor.userId }),
@@ -474,14 +490,18 @@ async function projectCompartment(
  * @param ctx - hosting context.
  * @param toolName - tool whose failure messages name it.
  * @param agent - agent the tool call runs for.
- * @returns the identity store, the resolved actor scope, and the session id.
+ * @returns the identity store, the resolved actor scope, the surface actor, and the session id.
  * @throws When the agent has no workspace cwd, or the cwd resolves to no enterprise workspace grant.
  */
 async function memoryToolScope(
   ctx: Context,
   toolName: string,
   agent: Agent | undefined,
-): Promise<MemoryActorScope & { readonly identity: EnterpriseIdentityStore; readonly sessionId: string }> {
+): Promise<MemoryActorScope & {
+  readonly identity: EnterpriseIdentityStore
+  readonly sessionId: string
+  readonly actor: SessionActor | undefined
+}> {
   const cwd = agent?.session.header.cwd
   if (agent === undefined || cwd === undefined) {
     throw new Error(`${toolName} requires an owning Agent with a Workspace`)
@@ -490,12 +510,87 @@ async function memoryToolScope(
   const grant = await identity.workspaceGrantByRootPath(cwd)
   if (grant === undefined) throw new Error('current Agent Workspace is not enterprise-managed')
   const sessionId = String(agent.id)
+  const actor = sessionActor(ctx, sessionId)
   return {
     identity,
     sessionId,
-    ...await resolveMemoryScope(identity, grant, requestPrincipal(ctx), sessionActor(ctx, sessionId)),
+    actor,
+    ...await resolveMemoryScope(identity, grant, requestPrincipal(ctx), actor),
   }
 }
+
+/** Kinds the member-gated project compartment accepts through the tools: the shared-compartment
+ * kinds. `preference` is personal by definition and `summary` rows belong to consolidation. */
+const PROJECT_MEMORY_KINDS: readonly string[] = MEMORY_KINDS
+
+/** Write one approved project memory for a member of a project-anchored session. The project must
+ * exist in the session's organization and be active, the write attributes to the resolved user
+ * (an employee-only actor has no store-writable author), and that user must present membership;
+ * every failed gate is a structured tool error naming the gate, because unlike the read path a
+ * write must never silently no-op. Content passes the same scope-aware privacy policy as the
+ * other shared compartments — the store runs it, so any finding becomes a tool error instead of
+ * a proposal.
+ * @param ctx - hosting context.
+ * @param scope - scope resolved by {@link memoryToolScope} for the calling session.
+ * @param input - validated tool arguments: kind, and the trimmed summary.
+ * @returns the written memory id and whether the exact note already stood.
+ * @throws When any membership, state, kind, or privacy gate rejects the write.
+ */
+async function writeProjectMemory(
+  ctx: Context,
+  scope: MemoryActorScope & {
+    readonly identity: EnterpriseIdentityStore
+    readonly actor: SessionActor | undefined
+  },
+  input: { kind: string; summary: string },
+): Promise<{ memoryId: string; duplicate: boolean }> {
+  const projectId = scope.actor?.projectId
+  if (scope.actor === undefined || projectId === undefined) {
+    throw new Error('project memory records notes only for a session anchored to a project; this session resolves to no project, so the project compartment is unavailable')
+  }
+  if (!PROJECT_MEMORY_KINDS.includes(input.kind)) {
+    throw new Error(`project memory accepts ${PROJECT_MEMORY_KINDS.join(' | ')} kinds; preference is personal and summary rows belong to consolidation`)
+  }
+  const projects = projectService(ctx)
+  if (projects === undefined) {
+    throw new Error('project memory requires the enterprise project service, which is not mounted in this composition')
+  }
+  const project = await projects.get(projectId)
+  if (project === undefined || project.orgId !== scope.orgId) {
+    throw new Error('the session project does not exist in this organization, so project memory is unavailable')
+  }
+  if (project.state !== 'active') {
+    throw new Error('the session project is archived and accepts no new memory')
+  }
+  if (scope.userId === undefined) {
+    throw new Error('project memory requires an authenticated principal or surface user to attribute and gate the write')
+  }
+  const member = await projects.requireMember(scope.orgId, projectId, {
+    userId: scope.userId,
+    ...(scope.employeeId === undefined ? {} : { employeeId: scope.employeeId }),
+  })
+  if (member === undefined) {
+    throw new Error('project memory requires project membership; this session presents no member identity for the anchored project')
+  }
+  // Mirrors `validatePrivateMemoryInput` so the pre-check addresses the exact row the store
+  // dedupes on: private and project rows share the `private-memory-<digest>` id scheme.
+  const sourceDigest = memorySourceDigest(JSON.stringify([
+    scope.orgId, 'project', null, null, input.kind, input.summary, projectId,
+  ]))
+  const memoryId = `private-memory-${sourceDigest}`
+  const existing = (await scope.identity.listMemories({
+    orgId: scope.orgId, scopes: ['project'], projectId, statuses: ['approved'],
+  })).find(entry => entry.id === memoryId)
+  if (existing !== undefined) return { memoryId, duplicate: true }
+  await scope.identity.writePrivateMemory({
+    orgId: scope.orgId, scope: 'project', kind: input.kind as MemoryKindAlias,
+    summary: input.summary, createdBy: scope.userId, projectId,
+  })
+  return { memoryId, duplicate: false }
+}
+
+/** Memory kind values the write tools accept, as a named alias for the store input cast. */
+type MemoryKindAlias = EnterpriseMemoryEntry['kind']
 
 /** Model-visible projection of one approved memory entry; store bookkeeping columns (source
  * digest, revision, privacy findings, access time) stay internal.
@@ -508,6 +603,7 @@ function memoryEntryView(entry: CompartmentEntry): {
   departmentId?: string
   agentEmployeeId?: string
   pairUserId?: string
+  projectId?: string
   kind: EnterpriseMemoryEntry['kind']
   status: EnterpriseMemoryEntry['status']
   summary: string
@@ -524,6 +620,7 @@ function memoryEntryView(entry: CompartmentEntry): {
     ...(entry.departmentId === undefined ? {} : { departmentId: entry.departmentId }),
     ...(entry.agentEmployeeId === undefined ? {} : { agentEmployeeId: entry.agentEmployeeId }),
     ...(entry.pairUserId === undefined ? {} : { pairUserId: entry.pairUserId }),
+    ...(entry.projectId === undefined ? {} : { projectId: entry.projectId }),
     kind: entry.kind,
     status: entry.status,
     summary: entry.summary,
@@ -705,14 +802,14 @@ export function apply(ctx: Context, config: Config): void {
   }
   ctx.tools.register(defineTool({
     name: 'memory_search',
-    description: 'Search approved enterprise memory the current session may see: organization and department compartments for any enterprise Workspace, plus the anchored employee\'s own agent notes and pair preferences when the session has one. Results rank by keyword hits against the query terms, then importance and recency; returned ids feed memory_read. An unanchored session searches the shared compartments only.',
+    description: 'Search approved enterprise memory the current session may see: organization and department compartments for any enterprise Workspace, plus the anchored employee\'s own agent notes and pair preferences when the session has one, plus the anchored project\'s memory when the session anchors to a project and the actor is its member. Results rank by keyword hits against the query terms, then importance and recency; returned ids feed memory_read. An unanchored session searches the shared compartments only.',
     parameters: {
       query: {
         type: 'string', required: true,
         description: 'Free-text query; each distinct term ranks memory summaries by case-insensitive substring hits.',
       },
       scopeFilter: {
-        type: 'string', enum: ['organization', 'department', 'agent', 'pair'],
+        type: 'string', enum: [...TOOL_MEMORY_SCOPES],
         description: 'Restrict the search to one compartment; omit it to search every compartment this session may see.',
       },
     },
@@ -749,7 +846,7 @@ export function apply(ctx: Context, config: Config): void {
       const wanted: ReadonlySet<ToolMemoryScope> = args.scopeFilter === undefined
         ? TOOL_COMPARTMENTS
         : new Set([args.scopeFilter])
-      const entries = await actorCompartments(scope.identity, scope, wanted)
+      const entries = await actorCompartments(ctx, scope.identity, scope, scope.actor, wanted)
       const queryTerms = args.query.split(/\s+/u)
       const now = Date.now()
       const top = rankEnterpriseMemories(entries, { now, queryTerms }).slice(0, MEMORY_SEARCH_LIMIT)
@@ -769,7 +866,7 @@ export function apply(ctx: Context, config: Config): void {
   }))
   ctx.tools.register(defineTool({
     name: 'memory_read',
-    description: 'Read the full approved entries for memory ids returned by memory_search or cited in the enterprise-memory context block. Ids outside this session\'s compartments are silently omitted rather than rejected, so a failed read never reveals whether a foreign memory exists. Private compartments require an anchored employee session.',
+    description: 'Read the full approved entries for memory ids returned by memory_search or cited in the enterprise-memory context block. Ids outside this session\'s compartments are silently omitted rather than rejected, so a failed read never reveals whether a foreign memory exists. Private compartments require an anchored employee session; the project compartment requires a project-anchored member session.',
     parameters: {
       ids: {
         type: 'array', required: true, items: { type: 'string' },
@@ -792,6 +889,7 @@ export function apply(ctx: Context, config: Config): void {
                 departmentId: { type: 'string' },
                 agentEmployeeId: { type: 'string' },
                 pairUserId: { type: 'string' },
+                projectId: { type: 'string' },
                 kind: { type: 'string', required: true, enum: [...ENTERPRISE_MEMORY_KINDS] },
                 status: { type: 'string', required: true, enum: ['proposed', 'approved', 'rejected', 'retired'] },
                 summary: { type: 'string', required: true },
@@ -815,26 +913,26 @@ export function apply(ctx: Context, config: Config): void {
     },
     execute: async (args, exec) => {
       const scope = await memoryToolScope(ctx, 'memory_read', exec.agent)
-      const entries = await actorCompartments(scope.identity, scope, TOOL_COMPARTMENTS)
+      const entries = await actorCompartments(ctx, scope.identity, scope, scope.actor, TOOL_COMPARTMENTS)
       const wanted = new Set(args.ids)
       return { entries: entries.filter(entry => wanted.has(entry.id)).map(memoryEntryView) }
     },
   }))
   ctx.tools.register(defineTool({
     name: 'memory_write',
-    description: 'Write one private note into the current employee\'s agent compartment. The note activates immediately, stays visible only in this employee\'s own memory context, and never enters shared memory; personal preferences (kind preference) belong here. Requires an anchored employee session. Shared business knowledge goes through remember_business_knowledge or promote_proposal.',
+    description: 'Write one memory note that activates immediately. scope agent writes into the current employee\'s private agent compartment — visible only to this employee, where personal preferences (kind preference) belong; it requires an anchored employee session. scope project writes into the anchored project\'s shared member-gated compartment — it activates directly for the project\'s members, requires a project-anchored session whose user is a project member and an active project, and accepts only business-fact | process | terminology | decision kinds under the same privacy policy as shared memory. Shared organization or department knowledge goes through remember_business_knowledge or promote_proposal.',
     parameters: {
       scope: {
-        type: 'string', required: true, enum: ['agent'],
-        description: 'Only the private agent compartment is writable through this tool.',
+        type: 'string', required: true, enum: ['agent', 'project'],
+        description: 'agent for this employee\'s private notes; project for the anchored project\'s member-gated memory.',
       },
       kind: {
         type: 'string', required: true, enum: [...ENTERPRISE_MEMORY_KINDS],
-        description: 'business-fact | process | terminology | decision | preference.',
+        description: 'business-fact | process | terminology | decision | preference. Project scope accepts only business-fact | process | terminology | decision.',
       },
       summary: {
         type: 'string', required: true,
-        description: 'One concise, durable note for the current employee only. Never include other people\'s personal data, credentials, or raw conversation text.',
+        description: 'One concise, durable note. Never include other people\'s personal data, credentials, or raw conversation text.',
       },
     },
     output: {
@@ -843,7 +941,7 @@ export function apply(ctx: Context, config: Config): void {
         additionalProperties: false,
         properties: {
           memoryId: { type: 'string', required: true },
-          scope: { type: 'string', required: true, enum: ['agent'] },
+          scope: { type: 'string', required: true, enum: ['agent', 'project'] },
           kind: { type: 'string', required: true, enum: [...ENTERPRISE_MEMORY_KINDS] },
           status: { type: 'string', required: true, enum: ['approved'] },
           duplicate: { type: 'boolean', required: true },
@@ -851,24 +949,35 @@ export function apply(ctx: Context, config: Config): void {
       },
       render: (_args, value) => [{
         type: 'text',
-        text: value.duplicate
-          ? `Private note already recorded: ${value.memoryId}`
-          : `Private note saved and active: ${value.memoryId}`,
+        text: value.scope === 'project'
+          ? value.duplicate
+            ? `Project memory already recorded: ${value.memoryId}`
+            : `Project memory saved and active: ${value.memoryId}`
+          : value.duplicate
+            ? `Private note already recorded: ${value.memoryId}`
+            : `Private note saved and active: ${value.memoryId}`,
       }],
     },
     execute: async (args, exec) => {
       const scope = await memoryToolScope(ctx, 'memory_write', exec.agent)
+      const summary = args.summary.trim()
+      if (summary === '') throw new Error('memory_write summary must not be empty')
+      if (args.scope === 'project') {
+        const written = await writeProjectMemory(ctx, scope, { kind: args.kind, summary })
+        return {
+          memoryId: written.memoryId, scope: 'project' as const, kind: args.kind,
+          status: 'approved' as const, duplicate: written.duplicate,
+        }
+      }
       const { employeeId, userId } = scope
       if (employeeId === undefined || userId === undefined) {
         throw new Error('memory_write records private notes only for an anchored employee session; this session resolves to no employee, so private memory is unavailable')
       }
-      const summary = args.summary.trim()
-      if (summary === '') throw new Error('private memory summary must not be empty')
       const sourceDigest = memorySourceDigest(JSON.stringify([
         scope.orgId, 'agent', employeeId, null, args.kind, summary,
       ]))
       const memoryId = `private-memory-${sourceDigest}`
-      const existing = (await actorCompartments(scope.identity, scope, new Set(['agent'])))
+      const existing = (await actorCompartments(ctx, scope.identity, scope, scope.actor, new Set(['agent'])))
         .find(entry => entry.id === memoryId)
       if (existing !== undefined) {
         return { memoryId, scope: 'agent' as const, kind: args.kind, status: 'approved' as const, duplicate: true }
@@ -911,7 +1020,7 @@ export function apply(ctx: Context, config: Config): void {
       if (employeeId === undefined || userId === undefined) {
         return { retiredIds: [], skippedIds: requested }
       }
-      const own = await actorCompartments(scope.identity, scope, new Set(['agent', 'pair']))
+      const own = await actorCompartments(ctx, scope.identity, scope, scope.actor, new Set(['agent', 'pair']))
       const wanted = new Set(requested)
       const retiredIds: string[] = []
       for (const entry of own) {
@@ -1047,10 +1156,7 @@ export function apply(ctx: Context, config: Config): void {
     if (grant === undefined) return result
     const actor = sessionActor(ctx, String(agent.id))
     const scope = await resolveMemoryScope(identity, grant, requestPrincipal(ctx), actor)
-    const candidates = [
-      ...await actorCompartments(identity, scope, TOOL_COMPARTMENTS),
-      ...await projectCompartment(ctx, identity, scope, actor),
-    ]
+    const candidates = await actorCompartments(ctx, identity, scope, actor, TOOL_COMPARTMENTS)
     const ranked = rankEnterpriseMemories(candidates, { now: Date.now() }).slice(0, maxEntries)
     const { kept, text } = boundedMemoryBlock(ranked, maxChars)
     if (text === '') return result
@@ -1073,3 +1179,13 @@ export {
   type ConsolidationCompartment, type ConsolidationDigestOutcome, type ConsolidationReflectionReport,
   type ConsolidationReport, type MemoryConsolidationConfig,
 } from './consolidation-runtime.ts'
+export {
+  ANNOUNCEMENT_CANDIDATE_LIMIT, extractAnnouncementMemories,
+  type AnnouncementCandidate, type AnnouncementExtractionOutcome,
+} from './announcement-extraction.ts'
+export { type ConsolidationLlm, type ConsolidationRefinementOptions } from './consolidation-llm.ts'
+export {
+  distillProjectMemory, PROJECT_DISTILL_LESSON_LIMIT,
+  type ProjectDistillLesson, type ProjectDistillReport,
+  type ProjectDistillationDependencies, type ProjectDistillationProjects,
+} from './distillation.ts'

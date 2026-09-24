@@ -169,8 +169,9 @@ export interface ProposeEnterpriseMemoryInput {
 /** Data used by `WritePrivateMemoryInput`; writes bypass review into the approved state. */
 export interface WritePrivateMemoryInput {
   readonly orgId: string
-  /** Private compartment; `agent` requires `agentEmployeeId` and `pair` requires `pairUserId`. */
-  readonly scope: 'agent' | 'pair'
+  /** Direct-write compartment: `agent` requires `agentEmployeeId`, `pair` requires `pairUserId`,
+   * and the member-gated `project` requires `projectId` and neither owner field. */
+  readonly scope: 'agent' | 'pair' | 'project'
   readonly kind: MemoryKind
   readonly summary: string
   readonly createdBy: string
@@ -178,7 +179,8 @@ export interface WritePrivateMemoryInput {
   readonly agentEmployeeId?: string
   /** User owning a `pair` compartment; its referential check belongs to the service layer. */
   readonly pairUserId?: string
-  /** Optional project tag on the private compartment row. */
+  /** Project owning a `project` compartment, or the optional tag on a private compartment row;
+   * its referential check belongs to the service layer. */
   readonly projectId?: string
 }
 
@@ -189,11 +191,11 @@ export interface ValidatedPrivateMemory {
   readonly sourceDigest: string
 }
 
-/** Validate one private-memory write and derive its source digest; both store implementations run
- * this so gates, pairing rules, and digest identity cannot drift between them. Private compartments
- * bypass review; the scope-aware policy owns the gates, so prompt injection and overlong summaries
- * block every scope while every other finding — including personal preference, which private
- * compartments allow — is recorded on the entry only.
+/** Validate one direct-write memory and derive its source digest; both store implementations run
+ * this so gates, pairing rules, and digest identity cannot drift between them. Direct-write
+ * compartments bypass review; the scope-aware policy owns the gates, so every finding blocks the
+ * shared `project` compartment exactly as it blocks organization and department, while the private
+ * `agent` and `pair` compartments record findings other than the universal ones on the entry only.
  * @param input - Input value used by this API.
  * @returns The values both stores persist for this write.
  * @throws When the summary is empty, the scope-aware policy blocks the write, or the pairing fields do not match the scope.
@@ -205,7 +207,9 @@ export function validatePrivateMemoryInput(input: WritePrivateMemoryInput): Vali
   const decision = classifyPrivacyForScope(inspection.findings, input.scope)
   if (!decision.allowed) throw new Error(`enterprise memory privacy check failed: ${decision.blocked.join(',')}`)
   if ((input.scope === 'agent' && (input.agentEmployeeId === undefined || input.pairUserId !== undefined))
-    || (input.scope === 'pair' && (input.pairUserId === undefined || input.agentEmployeeId !== undefined))) {
+    || (input.scope === 'pair' && (input.pairUserId === undefined || input.agentEmployeeId !== undefined))
+    || (input.scope === 'project'
+      && (input.projectId === undefined || input.agentEmployeeId !== undefined || input.pairUserId !== undefined))) {
     throw new Error('enterprise memory scope and pairing fields do not match')
   }
   return {
@@ -461,6 +465,10 @@ export interface EnterpriseIdentityStore {
   sessionOwnerUserId(sessionId: string): IdentityAwaitable<string | undefined>
   proposeMemory(input: ProposeEnterpriseMemoryInput): IdentityAwaitable<EnterpriseMemoryEntry>
   reviewMemory(input: ReviewEnterpriseMemoryInput): IdentityAwaitable<EnterpriseMemoryEntry>
+  /** Writes one approved memory straight into a direct-write compartment, bypassing review:
+   * the private `agent` and `pair` compartments and the member-gated `project` compartment.
+   * Membership and referential checks belong to the caller; the row id derives from the write
+   * tuple, so repeat and concurrent duplicate writes converge on one row. */
   writePrivateMemory(input: WritePrivateMemoryInput): IdentityAwaitable<EnterpriseMemoryEntry>
   /**
    * Retires one approved memory on behalf of memory consolidation and records which memory
@@ -982,10 +990,10 @@ export class EnterpriseIdentityRepository implements EnterpriseIdentityStore {
     this.database.exec('BEGIN IMMEDIATE')
     try {
       this.assertMemoryReferences(input.orgId, input.createdBy)
-      // The scope predicate keeps a hypothetical digest collision in a shared compartment from
-      // satisfying a private write.
+      // The scope predicate keeps a hypothetical digest collision in another direct-write
+      // compartment from satisfying this write.
       const existing = this.database.prepare(`SELECT * FROM enterprise_memories
-        WHERE org_id = ? AND source_digest = ? AND scope_type IN ('agent', 'pair')`)
+        WHERE org_id = ? AND source_digest = ? AND scope_type IN ('agent', 'pair', 'project')`)
         .get(input.orgId, sourceDigest) as SqliteMemoryRow | undefined
       if (existing !== undefined) {
         this.database.exec('COMMIT')
