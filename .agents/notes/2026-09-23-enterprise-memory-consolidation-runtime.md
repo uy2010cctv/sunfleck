@@ -1,5 +1,7 @@
 # Enterprise memory consolidation runtime
 
+English | [中文](2026-09-23-enterprise-memory-consolidation-runtime.zh.md)
+
 Consolidation planning and LLM refinement landed as pure modules; they had no caller that wrote anything back. The runtime now owns the interval lifecycle, the per-compartment pass order, and the manual trigger, and it is the first consumer that turns the supersede, decay-batch, and reflection primitives into store writes.
 
 The interval runs only for organizations listed in `consolidationOrgIds` (default empty, so the interval is inert by default) every `consolidationIntervalMs` (default 6 hours; `0` disables). The store does expose `listOrganizations`, but defaulting to "every org" would start unconfigured model calls org-wide on first launch, so listing orgs is the honest opt-in; an enabled interval additionally requires the `service:` consolidation actor and a provider/model route, all validated loud at plugin load. The manual endpoint `POST /enterprise/consolidation/run` works per org regardless and answers 409 through the same in-process per-compartment guard the interval skips on, so enabling the interval on more than one host is unsafe by construction.

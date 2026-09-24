@@ -129,8 +129,8 @@ function flakyIdentity(
 ): EnterpriseIdentityStore {
   const attempts: Record<string, number> = {}
   return new Proxy(identity, {
-    get(target, property: string | symbol) {
-      if (typeof property !== 'string') return Reflect.get(target, property)
+    get(target, property: string | symbol): unknown {
+      if (typeof property !== 'string') return Reflect.get(target, property, target) as unknown
       const override = overrides[property]
       if (override !== undefined) {
         return (...args: unknown[]) => {
@@ -138,10 +138,10 @@ function flakyIdentity(
           return override(attempt, args)
         }
       }
-      const value = Reflect.get(target, property, target)
+      const value: unknown = Reflect.get(target, property, target)
       return typeof value === 'function' ? (value as (...args: unknown[]) => unknown).bind(target) : value
     },
-  }) as EnterpriseIdentityStore
+  })
 }
 
 function config(overrides: Partial<MemoryConsolidationConfig> = {}): MemoryConsolidationConfig {
@@ -361,10 +361,11 @@ describe('memory consolidation runtime', () => {
       id: 'org-a-two', scope: 'organization', kind: 'process', summary: '公司统一使用电子合同签署平台！', at: NOW - DAY_MS,
     })
     const flaky = flakyIdentity(identity, {
-      // First supersede call fails; the duplicate stays and the run continues.
+      // First supersede call fails; the duplicate stays and the run continues. The concrete
+      // repository supersede is synchronous, so the pass-through is a plain statement.
       supersedeMemory: (attempt, args) => {
         if (attempt === 1) throw new Error('store busy')
-        return identity.supersedeMemory(args[0] as string, args[1] as string, args[2] as number)
+        identity.supersedeMemory(args[0] as string, args[1] as string, args[2] as number)
       },
     })
     const ctx = new Context()

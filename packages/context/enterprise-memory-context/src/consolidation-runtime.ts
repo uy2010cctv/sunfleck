@@ -177,16 +177,19 @@ export class MemoryConsolidationRuntime {
   }
 
   /** Start the interval timer; an interval of `0` or an empty org list starts nothing. */
-  async start(): Promise<void> {
-    if (this.config.intervalMs === 0 || this.config.orgIds.length === 0) return
+  start(): Promise<void> {
+    if (this.config.intervalMs === 0 || this.config.orgIds.length === 0) return Promise.resolve()
     this.timer = setInterval(() => { this.tick() }, this.config.intervalMs)
     this.timer.unref()
+    return Promise.resolve()
   }
 
   /** Wire the service into the context and tie the timer to the context lifecycle. */
   install(): void {
     this.ctx.provide('memoryConsolidation', this)
-    this.ctx.effect(() => this.start().then(() => () => this.close()), 'enterprise memory consolidation runtime')
+    this.ctx.effect(() => this.start().then(() => () => {
+      this.close()
+    }), 'enterprise memory consolidation runtime')
   }
 
   /** Stop the timer; an in-flight run finishes but no tick fires afterwards. */

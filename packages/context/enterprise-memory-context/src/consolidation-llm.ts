@@ -140,16 +140,37 @@ export async function summarizeCompartment(
   return undefined
 }
 
-/** Strictly parse and validate the reflection list; anything outside the contract throws.
+/** One refined shared-memory candidate shared by the reflection and distillation parsers. */
+export interface RefinedCandidate {
+  /** Proposed shared-memory summary. */
+  readonly summary: string
+  /** Shared compartment the candidate proposes to enter. */
+  readonly targetScope: ReflectionTargetScope
+  /** Why this knowledge belongs beyond its writer; recorded for reviewers. */
+  readonly rationale: string
+}
+
+/** Strictly parse one refined candidate list whose items carry `summary`, `targetScope`, and
+ * `rationale`; anything outside the contract throws. Shared by the reflection and project
+ * distillation parsers, whose callers swallow the throw into a structured skip.
  * @param output - complete visible model output.
- * @param limit - maximum reflections the output may carry.
+ * @param limit - maximum candidates the output may carry.
+ * @param key - JSON field holding the candidate array.
+ * @param label - store-domain label the thrown errors name.
+ * @param maxSummary - maximum characters of one candidate summary.
  * @returns the parsed candidates in model order.
  */
-function parseReflections(output: string, limit: number): ReflectionCandidate[] {
+export function parseRefinedCandidates(
+  output: string,
+  limit: number,
+  key: string,
+  label: string,
+  maxSummary: number,
+): RefinedCandidate[] {
   const parsed: unknown = JSON.parse(unfenceModelJson(output))
-  const items = record(parsed)?.['reflections']
-  if (!Array.isArray(items)) throw new Error('enterprise memory consolidation reflections must be an array')
-  if (items.length > limit) throw new Error('enterprise memory consolidation returned more reflections than the batch limit')
+  const items = record(parsed)?.[key]
+  if (!Array.isArray(items)) throw new Error(`${label} must be an array`)
+  if (items.length > limit) throw new Error(`${label} exceeded the batch limit`)
   return items.map((value, index) => {
     const item = record(value)
     const summary = item?.['summary']
@@ -158,11 +179,20 @@ function parseReflections(output: string, limit: number): ReflectionCandidate[] 
     const text = typeof summary === 'string' ? summary.trim() : ''
     const reason = typeof rationale === 'string' ? rationale.trim() : ''
     if ((targetScope !== 'organization' && targetScope !== 'department')
-      || text.length === 0 || text.length > 2_000 || reason.length === 0) {
-      throw new Error(`enterprise memory consolidation reflection ${String(index)} is invalid`)
+      || text.length === 0 || text.length > maxSummary || reason.length === 0) {
+      throw new Error(`${label} candidate ${String(index)} is invalid`)
     }
     return { summary: text, targetScope, rationale: reason }
   })
+}
+
+/** Strictly validate one reflection list; anything outside the contract throws.
+ * @param output - complete visible model output.
+ * @param limit - maximum reflections the output may carry.
+ * @returns the parsed candidates in model order.
+ */
+function parseReflections(output: string, limit: number): ReflectionCandidate[] {
+  return parseRefinedCandidates(output, limit, 'reflections', 'enterprise memory consolidation reflections', 2_000)
 }
 
 /** Reflect approved private notes into shared-memory proposals: the model distills at most

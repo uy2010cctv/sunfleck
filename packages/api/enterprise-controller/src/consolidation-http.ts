@@ -35,7 +35,7 @@ import {
 } from '@deepseek-ai/dsh-enterprise-memory-context'
 import type { EnterprisePrincipal } from '@deepseek-ai/dsh-enterprise-governance'
 import type { EmployeeHttpSecurity } from './employee-http.ts'
-import { cookiePrincipal, failure, guardResource, jsonObjectBody, methodFailure, stringField } from './http.ts'
+import { authenticatedSegments, failure, guardResource, jsonObjectBody, methodFailure, stringField } from './http.ts'
 
 /** Cordis service keys the consolidation trigger endpoint requires. */
 export const inject: readonly string[] = ['memoryConsolidation']
@@ -90,9 +90,9 @@ export class ConsolidationHttpHandler {
 
   /** Authenticate, authorize, and dispatch one consolidation request. */
   async fetch(request: Request): Promise<Response> {
-    const principal = await cookiePrincipal(this.security, request)
-    if (principal instanceof Response) return principal
-    const segments = new URL(request.url).pathname.split('/').filter(Boolean).slice(2)
+    const resolved = await authenticatedSegments(this.security, request)
+    if (resolved instanceof Response) return resolved
+    const { principal, segments } = resolved
     if (segments.length === 1 && segments[0] === 'run') {
       return request.method === 'POST' ? this.run(request, principal) : methodFailure('POST')
     }

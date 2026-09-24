@@ -113,7 +113,8 @@ describe('consolidation trigger endpoint', () => {
 
     const foreign = await call(fakeRuntime(), new RecordingSecurity(principalOf()), { orgId: 'org-2' })
     expect(foreign.status).toBe(403)
-    expect((await foreign.json())['error']).toBe('forbidden')
+    const body = (await foreign.json()) as { error: string }
+    expect(body.error).toBe('forbidden')
   })
 
   it('rejects an invalid body or compartment with a 400', async () => {

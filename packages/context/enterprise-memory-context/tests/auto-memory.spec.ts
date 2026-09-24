@@ -26,6 +26,8 @@ import SessionStore, { Session, SessionId } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import { apply, inject } from '../src/index.ts'
+import { consolidationTunables } from '../src/consolidation.ts'
+import { MemoryConsolidationRuntime } from '../src/consolidation-runtime.ts'
 import * as LearningPlugin from '../src/learning-plugin.ts'
 import type { LearnEmployeeAssetInput } from '@deepseek-ai/dsh-enterprise-catalog'
 
@@ -238,14 +240,18 @@ describe('Agent automatic enterprise memory', () => {
   }
 
   /** Provide the project governance double that admits any principal to the active project-1
-   * unless `member` is false, reporting the configured lifecycle state. A cordis service cannot
+   * unless `member` is false, reporting the configured lifecycle state. `archive` moves the
+   * project to its terminal archived state like the real service. A cordis service cannot
    * be re-provided, so the returned handle swaps the behavior between calls. */
   function provideProjectService(
     ctx: Context,
     options: { state?: string; member?: boolean } = {},
-  ): { set(options: { state?: string; member?: boolean }): void } {
+  ): {
+    set(options: { state?: string; member?: boolean }): void
+    archive(): Promise<{ orgId: string; name: string; state: string }>
+  } {
     const box = { current: options }
-    ctx.provide('enterpriseProjects' as never, {
+    const projects = {
       get: async (projectId: string) => projectId === 'project-1'
         ? { orgId: 'org-a', name: '项目一', state: box.current.state ?? 'active' }
         : undefined,
@@ -253,8 +259,42 @@ describe('Agent automatic enterprise memory', () => {
         box.current.member === false || orgId !== 'org-a' || projectId !== 'project-1'
           ? undefined
           : { projectId, principal },
-    } as never)
-    return { set: (next: { state?: string; member?: boolean }) => { box.current = next } }
+      archive: async () => {
+        box.current = { ...box.current, state: 'archived' }
+        return { orgId: 'org-a', name: '项目一', state: 'archived' }
+      },
+    }
+    ctx.provide('enterpriseProjects' as never, projects as never)
+    return {
+      set: (next: { state?: string; member?: boolean }) => { box.current = next },
+      archive: () => projects.archive(),
+    }
+  }
+
+  /** One consolidation refinement response split across two deltas like a real stream. */
+  function refinementChunks(text: string): StreamChunk[] {
+    return [
+      { type: 'text-delta', index: 0, text: text.slice(0, 4) },
+      { type: 'text-delta', index: 0, text: text.slice(4) },
+      { type: 'finish', reason: { kind: 'stop' } },
+    ]
+  }
+
+  /** Streaming double for the consolidation and distillation refinement calls; it records every
+   * request and replays one queued response per call. */
+  function refinementLlm(responses: string[]): {
+    requests: GenerateOptions[]
+    stream(options: GenerateOptions): AsyncIterable<StreamChunk>
+  } {
+    const requests: GenerateOptions[] = []
+    return {
+      requests,
+      stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
+        requests.push(options)
+        const response = responses.shift() ?? ''
+        return (async function* (): AsyncGenerator<StreamChunk> { yield* refinementChunks(response) })()
+      },
+    }
   }
 
   /** Execute one memory tool for the standard managed-workspace agent. */
@@ -1064,5 +1104,123 @@ describe('Agent automatic enterprise memory', () => {
 
     identity.close()
     database.close()
+  })
+
+  it('distills archived project lessons through review into organization recall and consolidates them', async () => {
+    const NOW = 1_700_000_000_000
+    const DAY_MS = 86_400_000
+    const ACTOR = 'service:consolidator'
+    const { ctx, identity } = await setup({ autoApproval: true })
+    identity.createUser({ id: ACTOR, orgId: 'org-a', username: 'consolidator', displayName: 'Consolidator', disabled: false })
+    provideAnchoredEmployee(ctx, 'memory-agent', {
+      orgId: 'org-a', userId: 'member-1', employeeId: 'employee-1', projectId: 'project-1',
+    })
+    const projects = provideProjectService(ctx)
+
+    // Project session writes three lessons: the near-duplicate pair both lands (the write dedupe
+    // is exact-digest only) and the email-bearing one is refused, because the project compartment
+    // sits under the same shared-scope privacy policy as organization and department.
+    const lessonA = await callTool(ctx, 'memory_write', { scope: 'project', kind: 'business-fact', summary: '联调环境每晚重置，回归前必须重建测试数据。' })
+    const lessonB = await callTool(ctx, 'memory_write', { scope: 'project', kind: 'business-fact', summary: '联调环境每晚重置，回归前必须重建测试数据集。' })
+    const lessonWithEmail = await callTool(ctx, 'memory_write', { scope: 'project', kind: 'process', summary: '数据导出异常联系 alice@example.com 处理。' })
+    expect(lessonA.isError).toBe(false)
+    expect(lessonB.isError).toBe(false)
+    expect(lessonWithEmail.isError).toBe(true)
+    expect(resultText(lessonWithEmail)).toMatch(/privacy check failed/iu)
+    expect(identity.listMemories({ orgId: 'org-a', scopes: ['project'], projectId: 'project-1', statuses: ['approved'] }))
+      .toHaveLength(2)
+
+    // Archival closes the compartment to writes, then distillation proposes the lessons for
+    // organization review. The refinement model is faked with two near-duplicate lessons so the
+    // later consolidation run has a duplicate group to supersede.
+    await projects.archive()
+    const archivedWrite = await callTool(ctx, 'memory_write', { scope: 'project', kind: 'business-fact', summary: '归档后补写的教训。' })
+    expect(archivedWrite.isError).toBe(true)
+    expect(resultText(archivedWrite)).toMatch(/archived and accepts no new memory/iu)
+
+    const llm = refinementLlm([
+      JSON.stringify({ lessons: [
+        { summary: '联调环境必须可随时重建。', targetScope: 'organization', rationale: '跨项目复用的环境前提。' },
+        { summary: '联调环境必须可随时重建！', targetScope: 'organization', rationale: '每晚重置后的回归前提。' },
+      ] }),
+      JSON.stringify({ summary: '组织流程摘要：环境与结算的关键口径汇总。' }),
+    ])
+    ctx.provide('llm' as never, llm as never)
+    const distill = await ctx.memoryConsolidation.distillProject({ orgId: 'org-a', projectId: 'project-1', actorUserId: ACTOR })
+    expect(distill).toMatchObject({
+      orgId: 'org-a', projectId: 'project-1', distilled: 2,
+      droppedPrivacy: 0, droppedDepartment: 0, skippedDuplicate: 0, failed: 0,
+    })
+    const proposals = identity.listMemories({ orgId: 'org-a', departmentIds: [], statuses: ['proposed'] })
+    expect(proposals).toHaveLength(2)
+    expect(proposals.map(row => row.summary).sort()).toEqual(['联调环境必须可随时重建。', '联调环境必须可随时重建！'])
+    expect(proposals.every(row => row.scope === 'organization' && row.kind === 'business-fact'
+      && row.createdBy === ACTOR && row.id.startsWith('project-distill-'))).toBe(true)
+    const distillAudit = identity.listAudit({ orgId: 'org-a', limit: 50 })
+      .find(row => row.resourceType === 'enterprise-memory-consolidation' && row.details['pass'] === 'distill')
+    expect(distillAudit).toMatchObject({
+      actorUserId: ACTOR, decision: 'allowed', resourceId: 'org-a:project:project-1',
+    })
+
+    // An administrator approves both lessons and the next unanchored session of the same
+    // organization recalls them under the organization label.
+    for (const row of proposals) {
+      identity.reviewMemory({
+        id: row.id, orgId: 'org-a', decision: 'approved', reviewedBy: 'admin-1',
+        reason: '结项教训核实', expectedRevision: row.revision,
+      })
+    }
+    const closing = agentAt('/managed/ops', 'session-closing')
+    const recall = await ctx.systemPrompt.assemble({ agent: closing })
+    const recallMemory = recall.contexts.find(item => item.name === 'enterprise:memory')
+    expect(recallMemory?.text).toContain('[Organization memory]')
+    expect(recallMemory?.text).toContain('联调环境必须可随时重建。')
+    expect(recallMemory?.text).toContain('联调环境必须可随时重建！')
+
+    // Consolidation over the organization compartment: the near-duplicate distilled pair
+    // supersedes onto one survivor, decay rewrites the pinned importance, the stale low-importance
+    // entry retires, and the fresh digest supersedes the previous one.
+    seedApprovedShared(identity, { id: 'org-digest-old', scope: 'organization', kind: 'summary', summary: '上一周期的组织记忆摘要。' })
+    seedApprovedShared(identity, { id: 'org-decay', scope: 'organization', kind: 'decision', summary: '结算周期为 T+N。' })
+    identity.batchUpdateImportance([{ id: 'org-decay', importance: 1, lastAccessAt: NOW - 30 * DAY_MS }])
+    seedApprovedShared(identity, { id: 'org-stale', scope: 'organization', kind: 'decision', summary: '旧版供应商准入口径。' })
+    identity.batchUpdateImportance([{ id: 'org-stale', importance: 0.05, lastAccessAt: NOW - 40 * DAY_MS }])
+    const consolidation = new MemoryConsolidationRuntime(ctx, identity, {
+      intervalMs: 0, orgIds: [], actorUserId: ACTOR,
+      provider: 'deepseek', model: 'v4', maxTokens: 512, timeoutMs: 5_000,
+      tunables: consolidationTunables(),
+    }, { now: () => NOW })
+    const report = await consolidation.runCompartment('org-a', { kind: 'shared', scope: 'organization' })
+    expect(report).toMatchObject({
+      orgId: 'org-a', superseded: 1, retired: 1, importanceUpdates: 3, digest: 'written',
+      reflections: { proposed: 0, droppedPrivacy: 0, failed: 0 },
+    })
+    const rows = () => identity.listMemories({ orgId: 'org-a' })
+    const survivor = rows().find(row => row.status === 'approved' && row.summary.startsWith('联调环境必须可随时重建'))
+    const supersededDuplicate = rows().find(row => row.status === 'retired' && row.id.startsWith('project-distill-'))
+    expect(survivor).toBeDefined()
+    expect(supersededDuplicate).toMatchObject({ invalidatedBy: survivor?.id })
+    expect(rows().find(row => row.id === 'org-decay')).toMatchObject({ status: 'approved' })
+    expect(rows().find(row => row.id === 'org-decay')?.importance).toBeCloseTo(0.5, 6)
+    expect(rows().find(row => row.id === 'org-stale')).toMatchObject({
+      status: 'retired', reviewReason: 'consolidation retired decayed memory',
+    })
+    const digests = identity.listMemories({ orgId: 'org-a', kinds: ['summary'], statuses: ['approved'] })
+    expect(digests).toHaveLength(1)
+    expect(digests[0]).toMatchObject({ kind: 'summary', scope: 'organization', createdBy: ACTOR })
+    expect(digests[0]?.summary).toBe('组织流程摘要：环境与结算的关键口径汇总。')
+    expect(rows().find(row => row.id === 'org-digest-old')).toMatchObject({ status: 'retired', invalidatedBy: digests[0]?.id })
+
+    // The flywheel closes: the superseded duplicate leaves recall while the survivor and the
+    // fresh digest stay, and the reflection pass never called the model without agent notes.
+    const flywheel = await ctx.systemPrompt.assemble({ agent: closing })
+    const flywheelMemory = flywheel.contexts.find(item => item.name === 'enterprise:memory')
+    expect(flywheelMemory?.text).toContain('[Organization memory]')
+    expect(flywheelMemory?.text).toContain(survivor?.summary ?? '')
+    const supersededText = ['联调环境必须可随时重建。', '联调环境必须可随时重建！'].find(text => text !== survivor?.summary)
+    expect(flywheelMemory?.text).not.toContain(supersededText)
+    expect(flywheelMemory?.text).toContain('组织流程摘要：环境与结算的关键口径汇总。')
+    expect(llm.requests).toHaveLength(2)
+    identity.close()
   })
 })

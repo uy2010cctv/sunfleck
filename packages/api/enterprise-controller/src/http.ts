@@ -32,6 +32,20 @@ export async function cookiePrincipal(
   return principal === undefined ? failure(401, 'unauthenticated') : principal
 }
 
+/** Authenticate one cookie-carried request and split its enterprise path below the controller
+ * prefix; a `Response` result is the shared 401 failure. */
+export async function authenticatedSegments(
+  security: EmployeeHttpSecurity,
+  request: Request,
+): Promise<{ principal: EnterprisePrincipal; segments: readonly string[] } | Response> {
+  const principal = await cookiePrincipal(security, request)
+  if (principal instanceof Response) return principal
+  return {
+    principal,
+    segments: new URL(request.url).pathname.split('/').filter(Boolean).slice(2),
+  }
+}
+
 /** Compare one supplied bearer token against the deployment token without early-exit timing. */
 export function timingSafeTokenMatches(supplied: string | null, expected: string | undefined): boolean {
   if (supplied === null || expected === undefined || expected === '') return false

@@ -7,8 +7,7 @@ import {
   classifyPrivacyForScope, inspectEnterpriseMemory, memorySourceDigest,
   type EnterpriseIdentityStore, type EnterpriseMemoryEntry,
 } from '@deepseek-ai/dsh-enterprise-identity'
-import { completeRefinement, type ConsolidationLlm, type ConsolidationRefinementOptions, type ReflectionTargetScope } from './consolidation-llm.ts'
-import { unfenceModelJson } from './writeback-extraction.ts'
+import { completeRefinement, parseRefinedCandidates, type ConsolidationLlm, type ConsolidationRefinementOptions, type ReflectionTargetScope } from './consolidation-llm.ts'
 
 /** Maximum lessons one project distillation may propose. A closing project leaves a handful of
  * durable takeaways, not its full history; every lesson becomes a human-review proposal, so the
@@ -77,39 +76,19 @@ export interface ProjectDistillationDependencies {
   readonly audit: (input: { reason: string; details: Record<string, unknown> }) => Promise<void>
 }
 
-function record(value: unknown): Record<string, unknown> | undefined {
-  return typeof value === 'object' && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : undefined
-}
-
 const DISTILL_SYSTEM_PROMPT = [
   'Distill the durable company-wide lessons of one closing enterprise project from its memory compartment.',
   'Return JSON only: {"lessons":[{"summary":"...","targetScope":"organization|department","rationale":"..."}]} with at most the requested number of lessons.',
   'Propose only knowledge valuable beyond the project. Never propose personal data, credentials, customer records, or raw records.',
 ].join(' ')
 
-/** Strictly parse and validate the lesson list; anything outside the contract throws.
+/** Strictly validate the lesson list; anything outside the contract throws.
  * @param output - complete visible model output.
  * @param limit - maximum lessons the output may carry.
  * @returns the parsed lessons in model order.
  */
 function parseLessons(output: string, limit: number): ProjectDistillLesson[] {
-  const parsed: unknown = JSON.parse(unfenceModelJson(output))
-  const items = record(parsed)?.['lessons']
-  if (!Array.isArray(items)) throw new Error('enterprise project distillation lessons must be an array')
-  if (items.length > limit) throw new Error('enterprise project distillation returned more lessons than the limit')
-  return items.map((value, index) => {
-    const item = record(value)
-    const summary = item?.['summary']
-    const targetScope = item?.['targetScope']
-    const rationale = item?.['rationale']
-    const text = typeof summary === 'string' ? summary.trim() : ''
-    const reason = typeof rationale === 'string' ? rationale.trim() : ''
-    if ((targetScope !== 'organization' && targetScope !== 'department')
-      || text.length === 0 || text.length > DISTILL_SUMMARY_MAX || reason.length === 0) {
-      throw new Error(`enterprise project distillation lesson ${String(index)} is invalid`)
-    }
-    return { summary: text, targetScope, rationale: reason }
-  })
+  return parseRefinedCandidates(output, limit, 'lessons', 'enterprise project distillation lessons', DISTILL_SUMMARY_MAX)
 }
 
 /** Distill one closing project's approved compartment entries into lesson proposals. A stream

@@ -81,8 +81,8 @@ import type {
 } from '@deepseek-ai/dsh-enterprise-governance'
 import type { EmployeeHttpSecurity } from './employee-http.ts'
 import {
-  cookiePrincipal, failure, guardResource, jsonObjectBody, methodFailure, optionalStringArrayField,
-  optionalStringField, stringArrayField, stringField, timingSafeTokenMatches,
+  authenticatedSegments, cookiePrincipal, failure, guardResource, jsonObjectBody, methodFailure,
+  optionalStringArrayField, optionalStringField, stringArrayField, stringField, timingSafeTokenMatches,
 } from './http.ts'
 
 /** Cordis service keys the collaboration surface and project endpoints require. */
@@ -566,9 +566,9 @@ export class ProjectHttpHandler {
    * fold to 404 inside the detail route; every id reaches the store org-scoped.
    */
   async fetch(request: Request): Promise<Response> {
-    const principal = await cookiePrincipal(this.security, request)
-    if (principal instanceof Response) return principal
-    const segments = new URL(request.url).pathname.split('/').filter(Boolean).slice(2)
+    const resolved = await authenticatedSegments(this.security, request)
+    if (resolved instanceof Response) return resolved
+    const { principal, segments } = resolved
     if (segments.length === 0) {
       if (request.method === 'POST') return this.create(request, principal)
       return request.method === 'GET' ? this.list(principal) : methodFailure('GET, POST')
