@@ -12,7 +12,7 @@ Each record carries `owner_org_id` and `owner_user_id`. `push_to_sunfleck.py` re
 
 The gateway keeps a SQLite segment ledger. A retry with the same `segment_id` and audio fingerprint replays the stored result; reusing an id for different audio returns a conflict. Archived JSONL contains segment metadata and the audio digest, not base64 PCM.
 
-`recorder_memory_worker.py` scans owner-partitioned transcript JSONL and posts each new result to the DSH `/recorder-memory/ingest` bridge with a durable local ack table. It retries without acknowledging a failed DSH write. Install `recorder-memory-worker.service` only after the DSH bridge is deployed and `DSH_RECORDER_INGEST_TOKEN` is configured.
+`recorder_memory_worker.py` advances a durable byte cursor through each owner-partitioned transcript JSONL and stores parsed segments in one reusable SQLite connection. It retries failed `/recorder-memory/ingest` writes, marks only ids included in a successful `/recorder-memory/process` request, and processes the oldest backlog in bounded owner windows. The `indexed_v1` and `processed_v2` generations intentionally replay legacy acknowledgements once into the indexed DSH timeline and corrected processing ledger. Install `recorder-memory-worker.service` only after the DSH bridge is deployed and `DSH_RECORDER_INGEST_TOKEN` is configured. `RECORDER_MEMORY_INGEST_BATCH_SIZE`, `RECORDER_MEMORY_CONTEXT_SECONDS`, and `RECORDER_MEMORY_PROCESS_BATCH_SIZE` configure bounded work per poll.
 
 `POST /v1/bind_recorder` forwards a six-digit user challenge, recorder serial number, and Android relay public key to the local DSH recorder-binding endpoint. After DSH resolves the challenge owner, the gateway stores only the returned credential digest and returns the plaintext credential once to the App.
 
@@ -29,5 +29,5 @@ python3 -c 'import getpass,hashlib; print(hashlib.sha256(getpass.getpass("token:
 ## Validation
 
 ```bash
-python3 -m unittest -v test_gateway.py test_push_to_sunfleck.py
+python3 -m unittest -v test_gateway.py test_push_to_sunfleck.py test_recorder_memory_worker.py
 ```

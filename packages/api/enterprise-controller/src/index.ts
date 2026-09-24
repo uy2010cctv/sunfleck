@@ -8,6 +8,7 @@ import type { EnterprisePrincipal } from '@deepseek-ai/dsh-enterprise-governance
 import type {} from '@deepseek-ai/dsh-enterprise-auth-web'
 import type {} from '@deepseek-ai/dsh-enterprise-postgres'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
+import { dshHomePath } from '@deepseek-ai/dsh-home-paths'
 import {
   normalizeDevicePublicKey, PostgresDevicePlaneRepository, validateQueuedDeviceAction,
 } from '@deepseek-ai/dsh-enterprise-device-plane'
@@ -45,6 +46,7 @@ import {
 } from '@deepseek-ai/dsh-enterprise-cordis'
 import type {
   CordisPackageVersion,
+  CordisPluginArchive,
   CordisReviewRequest,
   CordisScopeBinding,
   CordisSessionGeneration,
@@ -65,6 +67,7 @@ import type {
   EnterpriseEmployeeRollbackRequest,
   EnterpriseEmployeeSaveRequest,
 } from './contract/employees.ts'
+import { RecorderMemoryRuntimeStore } from './recorder-memory-runtime.ts'
 import type {
   EnterpriseAsset,
   EnterpriseAssetArchiveRequest,
@@ -153,8 +156,10 @@ import type {
   CordisReviewListRequest,
   CordisReviewPublishRequest,
   CordisReviewSubmitRequest,
+  CordisReviewSubmitSavedRequest,
   CordisReviewTransitionRequest,
   CordisWorkspaceActivateRequest,
+  CordisWorkspaceArchiveRequest,
   CordisWorkspacePinGenerationRequest,
   CordisWorkspaceRollbackRequest,
   CordisWorkspaceStopRequest,
@@ -189,6 +194,11 @@ import type {
   EnterpriseDeviceView,
   EnterpriseRecorderDeviceView,
   EnterpriseRecorderListRequest,
+  EnterpriseRecorderMemoryRuntimeSaveRequest,
+  EnterpriseRecorderMemoryRuntimeView,
+  EnterpriseRecorderRuntimeRequest,
+  EnterpriseRecorderRuntimeSaveRequest,
+  EnterpriseRecorderRuntimeView,
   EnterpriseRecorderPairingChallenge,
   EnterpriseRecorderPairingRequest,
 } from './contract/devices.ts'
@@ -196,6 +206,7 @@ import { DeviceAgentHttpHandler } from './device-agent-http.ts'
 import { EmployeeHttpHandler } from './employee-http.ts'
 import { serveConsolidation } from './consolidation-http.ts'
 import { ProjectHttpHandler, SurfaceHttpHandler } from './surfaces-http.ts'
+import { RecorderRuntimeBridge, validateRecorderRuntimeSave } from './recorder-runtime.ts'
 
 export type * from './contract/index.ts'
 
@@ -501,6 +512,103 @@ export class EnterpriseDeviceController extends TypertRemoteService {
           ...(recorder.lastSeenAt === undefined ? {} : { lastSeenAt: recorder.lastSeenAt }),
         }))
     })
+  }
+
+  /** Read saved recorder model configuration and fresh runtime health.
+   * @param request - Empty authenticated runtime lookup.
+   * @returns Redacted ASR/CAM configuration and verified readiness.
+   */
+  @Remote('getRecorderRuntime') async getRecorderRuntime(
+    request: EnterpriseRecorderRuntimeRequest,
+  ): Promise<EnterpriseRecorderRuntimeView> {
+    return catalogCall(this.ctx, 'enterpriseDevice.getRecorderRuntime', request, 'recorder-runtime', 'singleton', () =>
+      this.recorderRuntime().status())
+  }
+
+  /** Save recorder model configuration after resolving Host-owned Credential references.
+   * @param request - Revision-aware ASR/CAM configuration.
+   * @returns Saved redacted configuration and current readiness.
+   */
+  @Remote('saveRecorderRuntime') async saveRecorderRuntime(
+    request: EnterpriseRecorderRuntimeSaveRequest,
+  ): Promise<EnterpriseRecorderRuntimeView> {
+    return catalogCall(this.ctx, 'enterpriseDevice.saveRecorderRuntime', request, 'recorder-runtime', 'singleton', async () => {
+      const validated = validateRecorderRuntimeSave(request)
+      const credentials: { asrCredential?: string; camCredential?: string } = {}
+      if (validated.asr.mode === 'online') {
+        const reference = validated.asr.credentialRef
+        if (reference === undefined) throw new Error('ASR Credential reference is not configured')
+        const value = (await this.ctx.credentials.resolve(credentialRef(reference)))?.value
+        if (!value) throw new Error('ASR Credential reference is not configured')
+        credentials.asrCredential = value
+      }
+      if (validated.cam.enabled && validated.cam.mode === 'online') {
+        const reference = validated.cam.credentialRef
+        if (reference === undefined) throw new Error('CAM Credential reference is not configured')
+        const value = (await this.ctx.credentials.resolve(credentialRef(reference)))?.value
+        if (!value) throw new Error('CAM Credential reference is not configured')
+        credentials.camCredential = value
+      }
+      return this.recorderRuntime().save(validated, credentials)
+    })
+  }
+
+  /** Start or hot-reload the saved recorder model configuration.
+   * @param request - Empty authenticated start request.
+   * @returns Fresh runtime health after startup settles.
+   */
+  @Remote('startRecorderRuntime') async startRecorderRuntime(
+    request: EnterpriseRecorderRuntimeRequest,
+  ): Promise<EnterpriseRecorderRuntimeView> {
+    return catalogCall(this.ctx, 'enterpriseDevice.startRecorderRuntime', request, 'recorder-runtime', 'singleton', () =>
+      this.recorderRuntime().start())
+  }
+
+  /** Read the recorder-memory model route and the caller's dedicated processing Session id.
+   * @param request - Empty authenticated runtime lookup.
+   * @returns Persisted model route and dedicated Session id.
+   */
+  @Remote('getRecorderMemoryRuntime') async getRecorderMemoryRuntime(
+    request: EnterpriseRecorderRuntimeRequest,
+  ): Promise<EnterpriseRecorderMemoryRuntimeView> {
+    return catalogCall(this.ctx, 'enterpriseDevice.getRecorderRuntime', request, 'recorder-memory-runtime', 'singleton', actor =>
+      this.recorderMemoryRuntime().view(actor.userId))
+  }
+
+  /** Save the recorder-memory model route after verifying it exists in the active model catalog.
+   * @param request - Revision-aware provider, model, and timeout.
+   * @returns Persisted model route and dedicated Session id.
+   */
+  @Remote('saveRecorderMemoryRuntime') async saveRecorderMemoryRuntime(
+    request: EnterpriseRecorderMemoryRuntimeSaveRequest,
+  ): Promise<EnterpriseRecorderMemoryRuntimeView> {
+    return catalogCall(this.ctx, 'enterpriseDevice.saveRecorderRuntime', request, 'recorder-memory-runtime', 'singleton', async (actor) => {
+      const provider = request.provider.trim()
+      const model = request.model.trim()
+      const availableProvider = this.ctx.llm.listProviders().some(candidate => candidate.id === provider)
+      if (!availableProvider) throw new Error(`recorder memory provider ${JSON.stringify(provider)} is not configured`)
+      const availableModel = (await this.ctx.llm.listModels(provider)).some(candidate => candidate.id === model)
+      if (!availableModel) throw new Error(`recorder memory model ${JSON.stringify(model)} is not configured for ${provider}`)
+      return this.recorderMemoryRuntime().save({ ...request, provider, model }, actor.userId)
+    })
+  }
+
+  private recorderRuntime(): RecorderRuntimeBridge {
+    return new RecorderRuntimeBridge({
+      baseUrl: process.env['DSH_RECORDER_ADMIN_URL'] ?? 'http://127.0.0.1:18765',
+      adminToken: process.env['DSH_RECORDER_ADMIN_TOKEN'] ?? '',
+    })
+  }
+
+  private recorderMemoryRuntime(): RecorderMemoryRuntimeStore {
+    return new RecorderMemoryRuntimeStore(
+      process.env['DSH_RECORDER_MEMORY_CONFIG'] ?? dshHomePath('storages', 'recorder-memory-runtime.json'),
+      {
+        provider: process.env['DSH_RECORDER_MEMORY_PROVIDER']?.trim() || 'deepseek-official',
+        model: process.env['DSH_RECORDER_MEMORY_MODEL']?.trim() || 'deepseek-flash',
+        timeoutMs: Number(process.env['DSH_RECORDER_MEMORY_TIMEOUT_MS'] ?? '12000'),
+      },
+    )
   }
 
   /**
@@ -2055,6 +2163,24 @@ export class CordisWorkspaceController extends TypertRemoteService {
       cordis(this.ctx).savePersonal({ principal: actor, ...request }))
   }
 
+  /** Archive one owner-private Plugin while retaining its immutable versions.
+   * @param request - Workspace, Plugin, and idempotency key.
+   * @returns archived Plugin state.
+   */
+  @Remote('archive') async archive(request: CordisWorkspaceArchiveRequest): Promise<CordisPluginArchive> {
+    return catalogCall(this.ctx, 'cordisWorkspace.archive', request, 'cordis-plugin', request.pluginId, actor =>
+      cordis(this.ctx).archivePersonal({ principal: actor, ...request }))
+  }
+
+  /** Restore one archived owner-private Plugin without activating it.
+   * @param request - Workspace, Plugin, and idempotency key.
+   * @returns restored Plugin state.
+   */
+  @Remote('restore') async restore(request: CordisWorkspaceArchiveRequest): Promise<CordisPluginArchive> {
+    return catalogCall(this.ctx, 'cordisWorkspace.restore', request, 'cordis-plugin', request.pluginId, actor =>
+      cordis(this.ctx).restorePersonal({ principal: actor, ...request }))
+  }
+
   /**
    * Activate a personal Workspace Package.
    * @param request - Package, Workspace, and CAS data.
@@ -2123,6 +2249,15 @@ export class CordisReviewController extends TypertRemoteService {
   @Remote('submit') async submit(request: CordisReviewSubmitRequest): Promise<CordisReviewRequest> {
     return catalogCall(this.ctx, 'cordisReview.submit', request, 'cordis-plugin', request.draft.pluginId, actor =>
       cordis(this.ctx).submitDepartment({ principal: actor, ...request }))
+  }
+
+  /** Submit an owned saved version from a department Workspace for review.
+   * @param request - saved Package and Workspace identity.
+   * @returns pending review.
+   */
+  @Remote('submitSaved') async submitSaved(request: CordisReviewSubmitSavedRequest): Promise<CordisReviewRequest> {
+    return catalogCall(this.ctx, 'cordisReview.submitSaved', request, 'cordis-plugin', request.packageId, actor =>
+      cordis(this.ctx).submitSavedDepartment({ principal: actor, ...request }))
   }
 
   /**

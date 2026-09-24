@@ -283,6 +283,9 @@
 
     # Read-only Plugin list tab in the Settings Plugins section; the built-in
     # bundles the sidebar page leaves out are inspected here.
+    - id: ui-settings-recorder
+      name: '@deepseek-ai/dsh-client-ui-settings-recorder'
+
     - id: ui-settings-plugin-inventory
       name: '@deepseek-ai/dsh-client-ui-settings-plugin-inventory'
 

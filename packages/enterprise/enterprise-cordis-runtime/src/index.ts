@@ -16,7 +16,7 @@ import type {} from '@deepseek-ai/dsh-enterprise-auth-web'
 import type {} from '@deepseek-ai/dsh-enterprise-postgres'
 import type { EnterpriseIdentityStore, EnterpriseWorkspaceGrant } from '@deepseek-ai/dsh-enterprise-identity'
 import type { JsonValue } from '@deepseek-ai/dsh-util-values'
-import { defineTool } from '@deepseek-ai/dsh-tools'
+import { defineTool, type ToolExecution } from '@deepseek-ai/dsh-tools'
 
 export const name = 'enterprise-cordis-runtime'
 export const inject = [
@@ -25,9 +25,9 @@ export const inject = [
 
 const POLICY = [
   'Preserve the native DSH Cordis workflow: inspect, define, run, and repair a dynamic Plugin first.',
-  'After a useful Plugin is running, use cordis_save_personal when the user wants it available in their personal Workspace after restart.',
-  'Use cordis_submit_department when a department Workspace extension should enter manager review.',
-  'Do not persist experiments, failed Packages, or capabilities the user did not ask to keep.',
+  'A defined Plugin in a personal Workspace is saved privately; one in a department Workspace enters manager review and is not shared until approved.',
+  'Use cordis_save_personal only for an explicitly private version, and cordis_submit_department to resubmit a changed department version.',
+  'Use a personal Workspace for private experiments.',
 ].join(' ')
 
 /** Data used by `Config`. */
@@ -53,14 +53,19 @@ async function grantForAgent(ctx: Context, agent: Agent): Promise<EnterpriseWork
 async function principalFor(
   ctx: Context,
   grant: EnterpriseWorkspaceGrant,
+  agent?: Agent,
 ): Promise<EnterpriseCordisPrincipal> {
   const current = ctx.enterpriseRequestContext.current()
+  const ownerUserId = agent === undefined ? undefined : await identity(ctx).sessionOwnerUserId(String(agent.id))
   if (current !== undefined) {
     if (current.orgId !== grant.orgId) throw new Error('authenticated principal is outside the Workspace organization')
+    if (ownerUserId !== undefined && current.userId !== ownerUserId) {
+      throw new Error('authenticated principal does not own this Cordis Session')
+    }
     return current
   }
-  if (grant.kind === 'personal' && grant.ownerUserId !== undefined) {
-    const user = (await identity(ctx).listUsers(grant.orgId)).find(row => row.id === grant.ownerUserId)
+  if (ownerUserId !== undefined) {
+    const user = (await identity(ctx).listUsers(grant.orgId)).find(row => row.id === ownerUserId)
     if (user !== undefined && !user.disabled) return { orgId: user.orgId, userId: user.id, roles: user.roles }
   }
   throw new Error('authenticated enterprise principal is required for this Cordis persistence action')
@@ -70,12 +75,26 @@ function jsonValue(value: unknown): JsonValue {
   return JSON.parse(JSON.stringify(value)) as JsonValue
 }
 
+function outputField(value: JsonValue, name: string): string {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new Error('Cordis tool result must be a JSON object')
+  }
+  const field = value[name]
+  if (typeof field !== 'string') throw new Error(`Cordis tool result is missing ${name}`)
+  return field
+}
+
+function requireAgent(exec: ToolExecution): Agent {
+  if (exec.agent === undefined) throw new Error('Cordis Session tools require an owning Agent')
+  return exec.agent
+}
+
 function inspectedDraft(ctx: Context, agent: Agent, pluginId: string, packageId: string) {
   const inspected = ctx.dynamicCordisRunner.inspectPackage(
     agent, CordisDynamicPluginId(pluginId), CordisDynamicPackageId(packageId),
   )
   return {
-    pluginId,
+    pluginId: `${String(agent.id)}:${pluginId}`,
     dynamicPackageId: packageId,
     name: inspected.name,
     purpose: inspected.purpose,
@@ -100,7 +119,7 @@ async function restoreWorkspaceGeneration(
   agent: Agent,
 ): Promise<void> {
   const grant = await grantForAgent(ctx, agent)
-  const principal = await principalFor(ctx, grant)
+  const principal = await principalFor(ctx, grant, agent)
   const generation = await service.pinSessionGeneration({
     principal, workspaceId: grant.workspaceId, sessionId: String(agent.id),
   })
@@ -150,6 +169,158 @@ export function apply(ctx: Context, config: Config = {}): void {
   })
   ctx.provide('enterpriseCordis', service)
   ctx.systemPrompt.section({ name: 'enterprise:cordis-persistence', order: 2550, text: POLICY })
+  ctx.tools.register(defineTool({
+    name: 'cordis_define',
+    description: 'Define an immutable Session-local Cordis Package. Use kind:new with a 3–6 letter idPrefix or kind:existing with an exact pluginId. The Package is not running until cordis_run activates it.',
+    parameters: {
+      plugin: { required: true, oneOf: [
+        { type: 'object', additionalProperties: false, properties: {
+          kind: { type: 'string', const: 'new', required: true },
+          idPrefix: { type: 'string', required: true },
+        } },
+        { type: 'object', additionalProperties: false, properties: {
+          kind: { type: 'string', const: 'existing', required: true },
+          pluginId: { type: 'string', required: true },
+        } },
+      ] },
+      name: { type: 'string', required: true },
+      purpose: { type: 'string', required: true },
+      code: { type: 'object', required: true, additionalProperties: false, properties: {
+        host: { type: 'string' }, client: { type: 'string' },
+      } },
+    },
+    output: {
+      schema: { type: 'json' },
+      render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }],
+      presentationMeta: (_args, value) => ({
+        pluginId: outputField(value, 'pluginId'), packageId: outputField(value, 'packageId'),
+      }),
+    },
+    execute(args, exec) {
+      const plugin = args.plugin.kind === 'new'
+        ? { kind: 'new' as const, idPrefix: args.plugin.idPrefix }
+        : { kind: 'existing' as const, pluginId: CordisDynamicPluginId(args.plugin.pluginId) }
+      const receipt = ctx.dynamicCordisRunner.define({
+        sessionId: requireAgent(exec).id, plugin, name: args.name, purpose: args.purpose,
+        code: {
+          ...(args.code.host === undefined ? {} : { host: args.code.host }),
+          ...(args.code.client === undefined ? {} : { client: args.code.client }),
+        },
+      })
+      return Promise.resolve({ ...receipt, pluginId: String(receipt.pluginId), packageId: String(receipt.packageId) })
+    },
+    presentCall: args => ({ card: 'generic', kind: 'execute', title: `Define Cordis Plugin ${args.name}`, rawInput: args }),
+  }))
+  ctx.tools.register(defineTool({
+    name: 'cordis_run',
+    description: 'Run or update one exact Session-local Cordis Package. The Host reports asynchronous approval or Client activation through the ordinary Cordis lifecycle.',
+    parameters: {
+      pluginId: { type: 'string', required: true },
+      packageId: { type: 'string', required: true },
+      mode: { type: 'string', required: true, enum: ['run', 'update'] },
+    },
+    output: {
+      schema: { type: 'json' },
+      render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }],
+      presentationMeta: (_args, value) => ({
+        pluginId: outputField(value, 'pluginId'), packageId: outputField(value, 'packageId'),
+        pluginRunId: outputField(value, 'pluginRunId'),
+      }),
+    },
+    async execute(args, exec) {
+      const receipt = await ctx.dynamicCordisRunner.run(
+        requireAgent(exec), CordisDynamicPluginId(args.pluginId), CordisDynamicPackageId(args.packageId),
+        args.mode, exec.signal,
+      )
+      if (!receipt.ok) throw new Error(receipt.message)
+      return {
+        status: receipt.status, pluginId: args.pluginId, packageId: args.packageId,
+        pluginRunId: String(receipt.pluginRunId), mode: receipt.mode,
+        ...(receipt.currentPackageId === undefined ? {} : { currentPackageId: String(receipt.currentPackageId) }),
+        ...(receipt.nextPackageId === undefined ? {} : { nextPackageId: String(receipt.nextPackageId) }),
+      }
+    },
+    presentCall: args => ({ card: 'generic', kind: 'execute', title: `Run Cordis Plugin ${args.pluginId}`, rawInput: args }),
+  }))
+  ctx.tools.register(defineTool({
+    name: 'cordis_inspect_self',
+    description: 'Inspect the current Session dynamic Plugins. Supply pluginId and packageId to read one immutable Package source before repair or rollback.',
+    parameters: {
+      pluginId: { type: 'string' },
+      packageId: { type: 'string' },
+    },
+    output: { schema: { type: 'json' }, render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }] },
+    execute(args, exec) {
+      const agent = requireAgent(exec)
+      if (args.packageId !== undefined && args.pluginId === undefined) {
+        throw new Error('cordis_inspect_self packageId requires pluginId')
+      }
+      if (args.pluginId === undefined) {
+        return Promise.resolve({ mode: 'plugins', plugins: ctx.dynamicCordisRunner.listPlugins(agent).map(plugin => ({
+          pluginId: String(plugin.pluginId), name: plugin.name,
+          currentPackageId: plugin.currentPackageId === undefined ? null : String(plugin.currentPackageId),
+        })) })
+      }
+      const pluginId = CordisDynamicPluginId(args.pluginId)
+      if (args.packageId === undefined) {
+        const plugin = ctx.dynamicCordisRunner.inspectPlugin(agent, pluginId)
+        return Promise.resolve({ mode: 'plugin', pluginId: args.pluginId, name: plugin.name,
+          packages: plugin.packages.map(pkg => ({ packageId: String(pkg.packageId), name: pkg.name })),
+        })
+      }
+      const inspected = ctx.dynamicCordisRunner.inspectPackage(agent, pluginId, CordisDynamicPackageId(args.packageId))
+      return Promise.resolve({ mode: 'package', pluginId: args.pluginId, packageId: args.packageId,
+        name: inspected.name, purpose: inspected.purpose, code: inspected.code })
+    },
+    presentCall: args => ({ card: 'generic', kind: 'read', title: `Inspect Cordis Plugin ${args.pluginId ?? 'Session'}`, rawInput: args }),
+  }))
+  ctx.tools.register(defineTool({
+    name: 'cordis_stop',
+    description: 'Stop the current Session-local Plugin Run while retaining its versions and saved enterprise Packages.',
+    parameters: { pluginId: { type: 'string', required: true } },
+    output: { schema: { type: 'json' }, render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }] },
+    async execute(args, exec) {
+      const receipt = await ctx.dynamicCordisRunner.stop(requireAgent(exec), CordisDynamicPluginId(args.pluginId))
+      if (!receipt.ok && receipt.reason !== 'not-running') throw new Error(receipt.message)
+      return { pluginId: args.pluginId }
+    },
+    presentCall: args => ({ card: 'generic', kind: 'execute', title: `Stop Cordis Plugin ${args.pluginId}`, rawInput: args }),
+  }))
+  ctx.tools.register(defineTool({
+    name: 'cordis_undefine',
+    description: 'Remove one Session-local dynamic Plugin and its in-memory versions. Saved enterprise Packages remain available in extension management.',
+    parameters: { pluginId: { type: 'string', required: true } },
+    output: { schema: { type: 'json' }, render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }] },
+    async execute(args, exec) {
+      const receipt = await ctx.dynamicCordisRunner.undefine(requireAgent(exec), CordisDynamicPluginId(args.pluginId))
+      if (!receipt.ok) throw new Error(receipt.message)
+      return { pluginId: args.pluginId, wasRunning: receipt.wasRunning }
+    },
+    presentCall: args => ({ card: 'generic', kind: 'execute', title: `Remove Cordis Plugin ${args.pluginId}`, rawInput: args }),
+  }))
+  ctx.on('tools/post-execute', async (exec, result, next) => {
+    if (exec.name !== 'cordis_define' || result.isError || exec.agent === undefined) return next()
+    const value = result.value
+    if (typeof value !== 'object' || value === null || Array.isArray(value)
+      || typeof value['pluginId'] !== 'string' || typeof value['packageId'] !== 'string') return next()
+    const cwd = exec.agent.session.header.cwd
+    if (cwd === undefined || await identity(ctx).workspaceGrantByRootPath(cwd) === undefined) return next()
+    const grant = await grantForAgent(ctx, exec.agent)
+    const principal = await principalFor(ctx, grant, exec.agent)
+    const draft = inspectedDraft(ctx, exec.agent, value['pluginId'], value['packageId'])
+    if (grant.kind === 'department') {
+      await service.submitDepartment({
+        principal, workspaceId: grant.workspaceId, sourceSessionId: String(exec.agent.id), draft,
+        idempotencyKey: `${String(exec.agent.id)}:${String(exec.rootCallId)}:auto-submit`,
+      })
+    } else {
+      await service.savePersonal({
+        principal, workspaceId: grant.workspaceId, draft,
+        idempotencyKey: `${String(exec.agent.id)}:${String(exec.rootCallId)}:auto-save`,
+      })
+    }
+    return next()
+  })
   const restores = new Map<string, Promise<void>>()
   ctx.on('system-prompt/assemble', async (_assembly, context, next) => {
     const agent = context.agent
@@ -179,14 +350,14 @@ export function apply(ctx: Context, config: Config = {}): void {
     execute: async (args, exec) => {
       if (exec.agent === undefined) throw new Error('cordis_save_personal requires an owning Agent')
       const grant = await grantForAgent(ctx, exec.agent)
-      if (grant.kind !== 'personal') throw new Error('cordis_save_personal requires a personal Workspace')
-      const principal = await principalFor(ctx, grant)
+      const principal = await principalFor(ctx, grant, exec.agent)
       const draft = inspectedDraft(ctx, exec.agent, args.pluginId, args.packageId)
-      const packageVersion = await service.savePersonal({
+      const view = await service.listWorkspace({ principal, workspaceId: grant.workspaceId })
+      const packageVersion = view.packages.find(pkg => pkg.pluginId === draft.pluginId
+        && pkg.dynamicPackageId === draft.dynamicPackageId) ?? await service.savePersonal({
         principal, workspaceId: grant.workspaceId, draft,
         idempotencyKey: `${String(exec.rootCallId)}:save`,
       })
-      const view = await service.listWorkspace({ principal, workspaceId: grant.workspaceId })
       const current = view.bindings.find(binding => binding.pluginId === packageVersion.pluginId)
       const binding = await service.activatePersonal({
         principal, workspaceId: grant.workspaceId, pluginId: packageVersion.pluginId,
@@ -213,7 +384,7 @@ export function apply(ctx: Context, config: Config = {}): void {
       if (exec.agent === undefined) throw new Error('cordis_submit_department requires an owning Agent')
       const grant = await grantForAgent(ctx, exec.agent)
       if (grant.kind !== 'department') throw new Error('cordis_submit_department requires a department Workspace')
-      const principal = await principalFor(ctx, grant)
+      const principal = await principalFor(ctx, grant, exec.agent)
       return jsonValue(await service.submitDepartment({
         principal, workspaceId: grant.workspaceId, sourceSessionId: String(exec.agent.id),
         draft: inspectedDraft(ctx, exec.agent, args.pluginId, args.packageId),

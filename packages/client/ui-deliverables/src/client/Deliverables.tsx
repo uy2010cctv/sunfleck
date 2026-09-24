@@ -11,7 +11,7 @@ import { ChangedFiles } from './ChangedFiles.tsx'
 import { changesForClosing, presentedForClosing, type ChangesTurnData, type PresentedPath } from './turn-deliverables.ts'
 import type { NS } from './locales.ts'
 import { changesSummaryUrl, type ChangesReviewCoordinates } from '../changes.ts'
-import { presentedFileUrl } from '../presented.ts'
+import { presentedDownloadUrl, presentedFileUrl } from '../presented.ts'
 import { PresentedFileCard } from './PresentedFileCard.tsx'
 import css from './Deliverables.module.css'
 
@@ -111,6 +111,7 @@ export function Deliverables({
           onPreview={() => { openFile(file.path) }}
           actions={renderSlot('deliverables.file.actions', {
             actionUrl: presentedFileUrl(sessionId, file.seq, file.index),
+            downloadUrl: presentedDownloadUrl(sessionId, file.seq, file.index),
             available: host !== null && host !== 'error' && host.available,
             pending: states[presentedFileUrl(sessionId, file.seq, file.index)] === 'opening'
               || states[presentedFileUrl(sessionId, file.seq, file.index)] === 'revealing',

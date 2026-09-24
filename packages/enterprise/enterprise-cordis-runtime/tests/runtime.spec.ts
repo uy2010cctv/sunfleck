@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import DynamicCordisRunner from '@deepseek-ai/dsh-cordis-host-runner'
+import * as ToolCordis from '@deepseek-ai/dsh-tool-cordis'
 import {
   InMemoryEnterpriseCordisRepository,
   type EnterpriseCordisPrincipal,
@@ -24,6 +25,7 @@ async function setup() {
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRuntime)
   await ctx.plugin(DynamicCordisRunner)
+  await ctx.plugin(ToolCordis)
   const cordis = new InMemoryEnterpriseCordisRepository()
   const identity = {
     workspaceGrant: async (id: string) => id === 'personal-1'
@@ -37,6 +39,7 @@ async function setup() {
         ? { workspaceId: 'department-1', orgId: 'org-a', kind: 'department', departmentId: 'dept-a', rootPath: root }
         : undefined,
     sessionWorkspaceGrant: async () => undefined,
+    sessionOwnerUserId: async (sessionId: string) => sessionId === 'session-new' ? 'member-1' : undefined,
     listUsers: async () => [{ id: 'member-1', orgId: 'org-a', roles: ['member'], departmentIds: ['dept-a'], disabled: false }],
   }
   const requestContext = new EnterpriseRequestContext()
@@ -56,6 +59,68 @@ function call(ctx: Context, name: string, args: unknown, owner: Agent) {
 const principal: EnterpriseCordisPrincipal = { orgId: 'org-a', userId: 'member-1', roles: ['member'] }
 
 describe('enterprise Cordis runtime tools', () => {
+  it('refuses to persist an unbound Session without an authenticated caller', async () => {
+    const app = await setup()
+    const result = await call(app.ctx, 'cordis_define', {
+      plugin: { kind: 'new', idPrefix: 'test' }, name: 'Unbound', purpose: 'Unowned session.',
+      code: { host: 'return { apply() {} }' },
+    }, agent('orphan-session'))
+    expect(result.isError).toBe(true)
+    expect(await app.cordis.listPackages('org-a')).toEqual([])
+  })
+
+  it('submits a newly defined department plugin for review without activating it', async () => {
+    const app = await setup()
+    const owner = agent('session-new', '/managed/department')
+    const result = await call(app.ctx, 'cordis_define', {
+      plugin: { kind: 'new', idPrefix: 'test' }, name: 'Department helper', purpose: 'Help the department.',
+      code: { host: 'return { apply() {} }' },
+    }, owner)
+    expect(result.isError).toBe(false)
+    const packages = await app.cordis.listPackages('org-a')
+    expect(packages).toHaveLength(1)
+    expect(packages[0]?.pluginId).toContain('session-new:')
+    expect(packages[0]?.name).toBe('Department helper')
+    expect(packages[0]?.scope).toEqual({ type: 'department', departmentId: 'dept-a' })
+    expect(await app.cordis.listBindings('org-a')).toEqual([])
+    expect(await app.cordis.listReviews('org-a')).toEqual([
+      expect.objectContaining({ submittedBy: 'member-1', status: 'pending' }),
+    ])
+  })
+
+  it('keeps Session-local dynamic Package activation available in the enterprise profile', async () => {
+    const app = await setup()
+    const owner = agent('session-runner')
+    const defined = app.ctx.dynamicCordisRunner.define({
+      sessionId: owner.id, plugin: { kind: 'new', idPrefix: 'run' },
+      name: 'Run helper', purpose: 'Exercise the retained Session tool.',
+      code: { host: 'return { apply() {} }' },
+    })
+    const result = await app.requestContext.run(principal, () => call(app.ctx, 'cordis_run', {
+      pluginId: String(defined.pluginId), packageId: String(defined.packageId), mode: 'run',
+    }, owner))
+    expect(result.isError).toBe(false)
+    expect(app.ctx.dynamicCordisRunner.snapshot(owner)[0]?.activeRun?.packageId).toBe(defined.packageId)
+  })
+
+  it('inspects, stops, and removes a Session-local Plugin through enterprise tools', async () => {
+    const app = await setup()
+    const owner = agent('session-lifecycle')
+    const defined = app.ctx.dynamicCordisRunner.define({
+      sessionId: owner.id, plugin: { kind: 'new', idPrefix: 'life' },
+      name: 'Lifecycle helper', purpose: 'Exercise Session control.',
+      code: { host: 'return { apply() {} }' },
+    })
+    const inspected = await call(app.ctx, 'cordis_inspect_self', {
+      pluginId: String(defined.pluginId), packageId: String(defined.packageId),
+    }, owner)
+    expect(inspected.isError).toBe(false)
+    await app.ctx.dynamicCordisRunner.run(owner, defined.pluginId, defined.packageId, 'run')
+    expect((await call(app.ctx, 'cordis_stop', { pluginId: String(defined.pluginId) }, owner)).isError).toBe(false)
+    expect((await call(app.ctx, 'cordis_undefine', { pluginId: String(defined.pluginId) }, owner)).isError).toBe(false)
+    expect(app.ctx.dynamicCordisRunner.listPlugins(owner)).toEqual([])
+  })
+
   it('persists and activates an inspected dynamic Package in the personal Workspace', async () => {
     const app = await setup()
     const owner = agent()
@@ -71,7 +136,7 @@ describe('enterprise Cordis runtime tools', () => {
 
     expect(result.isError).toBe(false)
     expect(await app.cordis.listPackages('org-a')).toEqual([
-      expect.objectContaining({ pluginId: String(defined.pluginId), dynamicPackageId: String(defined.packageId) }),
+      expect.objectContaining({ pluginId: `session-1:${String(defined.pluginId)}`, dynamicPackageId: String(defined.packageId) }),
     ])
     expect(await app.cordis.listBindings('org-a')).toEqual([
       expect.objectContaining({ scope: { type: 'personal-workspace', workspaceId: 'personal-1', ownerUserId: 'member-1' } }),
@@ -92,7 +157,7 @@ describe('enterprise Cordis runtime tools', () => {
 
     expect(result.isError).toBe(false)
     expect(await app.cordis.listReviews('org-a')).toEqual([
-      expect.objectContaining({ pluginId: String(defined.pluginId), submittedBy: 'member-1', status: 'pending' }),
+      expect.objectContaining({ pluginId: `session-dept:${String(defined.pluginId)}`, submittedBy: 'member-1', status: 'pending' }),
     ])
   })
 

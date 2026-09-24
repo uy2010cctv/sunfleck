@@ -26,7 +26,23 @@ Options:
   --sessions-dir PATH  Session root to migrate
   --jobs N             Concurrent Sessions, positive integer (default: CPU count capped at 16)
   --help              Show this help
+
+An archive without Git metadata may supply DSH_MIGRATION_SOURCE_COMMIT as its exact 40-character source commit.
 `
+
+/** Resolve the source revision recorded with a migration report.
+ * @param checkout - source checkout or archive root.
+ * @param environment - process environment, optionally carrying the archive's source revision.
+ * @returns the exact source commit identifier.
+ */
+export function resolveMigrationSourceCommit(checkout: string, environment: NodeJS.ProcessEnv = process.env): string {
+  const explicit = environment.DSH_MIGRATION_SOURCE_COMMIT
+  if (explicit !== undefined) {
+    if (!/^[0-9a-f]{40}$/u.test(explicit)) throw new Error('DSH_MIGRATION_SOURCE_COMMIT must be a lowercase 40-character Git commit')
+    return explicit
+  }
+  return execFileSync('git', ['rev-parse', 'HEAD'], { cwd: checkout, encoding: 'utf8' }).trim()
+}
 
 interface Candidate {
   readonly directory: string
@@ -196,7 +212,7 @@ async function migrate(root: string, jobs: number): Promise<number> {
     write(`Root: ${root}`)
     write(`Session jobs: ${jobs}`)
     write(`Node: ${process.version}; platform: ${process.platform}/${process.arch}`)
-    checkoutCommit = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: resolve(import.meta.dirname, '..'), encoding: 'utf8' }).trim()
+    checkoutCommit = resolveMigrationSourceCommit(resolve(import.meta.dirname, '..'))
     write(`Git HEAD: ${checkoutCommit}`)
     write(`Full log: ${logPath}`)
     assert.equal(SESSION_FORMAT_VERSION, 4, 'this one-time command requires a V4 Session writer')

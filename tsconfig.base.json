@@ -325,6 +325,7 @@
       "@deepseek-ai/dsh-client-ui-settings-general/types": ["./packages/client/ui-settings-general/src/types.ts"],
       "@deepseek-ai/dsh-client-ui-settings-models": ["./packages/client/ui-settings-models/src"],
       "@deepseek-ai/dsh-client-ui-plugin-manager": ["./packages/client/ui-plugin-manager/src"],
+      "@deepseek-ai/dsh-client-ui-settings-recorder": ["./packages/client/ui-settings-recorder/src"],
       "@deepseek-ai/dsh-client-ui-settings-plugin-inventory": ["./packages/client/ui-settings-plugin-inventory/src"],
       "@deepseek-ai/dsh-client-locale": ["./packages/client/locale/src"],
       "@deepseek-ai/dsh-client-web/injections": ["./packages/client/web/src/apply-injections.ts"],

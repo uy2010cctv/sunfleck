@@ -35,6 +35,7 @@ async function setup() {
         : undefined,
     listUsers: async () => [
       { id: 'member-1', departmentIds: ['dept-a'] },
+      { id: 'member-2', departmentIds: ['dept-a'] },
       { id: 'manager-1', departmentIds: ['dept-a'] },
     ],
   }
@@ -65,10 +66,46 @@ async function setup() {
 }
 
 const member = { orgId: 'org-a', userId: 'member-1', roles: ['member'] as const }
+const colleague = { orgId: 'org-a', userId: 'member-2', roles: ['member'] as const }
 const manager = { orgId: 'org-a', userId: 'manager-1', roles: ['member'] as const }
 const admin = { orgId: 'org-a', userId: 'admin-1', roles: ['administrator'] as const }
 
 describe('enterprise Cordis Remote controllers', () => {
+  it('keeps My extensions private between authenticated members and restores archived versions', async () => {
+    const app = await setup()
+    const saved = await app.requestContext.run(member, () => app.workspace.save({
+      workspaceId: 'department-1', draft, idempotencyKey: 'private-save',
+    }))
+    expect((await app.requestContext.run(colleague, () => app.workspace.list({ workspaceId: 'department-1' }))).packages)
+      .toEqual([])
+    await expect(app.requestContext.run(colleague, () => app.workspace.archive({
+      workspaceId: 'department-1', pluginId: saved.pluginId, idempotencyKey: 'other-delete',
+    }))).rejects.toMatchObject({ code: 'enterprise-not-found' })
+    await app.requestContext.run(member, () => app.workspace.archive({
+      workspaceId: 'department-1', pluginId: saved.pluginId, idempotencyKey: 'own-delete',
+    }))
+    const archived = await app.requestContext.run(member, () => app.workspace.list({ workspaceId: 'department-1' }))
+    expect(archived.packages).toEqual([])
+    expect(archived.archivedPackages.map(pkg => pkg.packageId)).toContain(saved.packageId)
+    await app.requestContext.run(member, () => app.workspace.restore({
+      workspaceId: 'department-1', pluginId: saved.pluginId, idempotencyKey: 'own-restore',
+    }))
+    expect((await app.requestContext.run(member, () => app.workspace.list({ workspaceId: 'department-1' }))).packages
+      .map(pkg => pkg.packageId)).toContain(saved.packageId)
+  })
+  it('submits only the current owner saved version for department review', async () => {
+    const app = await setup()
+    const saved = await app.requestContext.run(member, () => app.workspace.save({
+      workspaceId: 'department-1', draft, idempotencyKey: 'saved-for-review',
+    }))
+    await expect(app.requestContext.run(colleague, () => app.review.submitSaved({
+      workspaceId: 'department-1', packageId: saved.packageId, idempotencyKey: 'not-owner',
+    }))).rejects.toMatchObject({ code: 'enterprise-not-found' })
+    const review = await app.requestContext.run(member, () => app.review.submitSaved({
+      workspaceId: 'department-1', packageId: saved.packageId, idempotencyKey: 'submit-own',
+    }))
+    expect(review).toMatchObject({ status: 'pending', submittedBy: 'member-1' })
+  })
   it('saves, activates, and lists personal Workspace extensions through the authenticated principal', async () => {
     const app = await setup()
     const saved = await app.requestContext.run(member, () => app.workspace.save({

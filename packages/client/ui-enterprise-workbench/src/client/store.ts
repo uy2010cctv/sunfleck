@@ -289,6 +289,7 @@ export interface EnterpriseWorkbenchState {
   readonly teamDecisions: EnterprisePageState<EnterpriseTeamDecision>
   readonly teamAutonomy: EnterprisePageState<EnterpriseTeamAutonomyGrant>
   readonly extensions: EnterprisePageState<CordisPackageVersion>
+  readonly archivedExtensions: EnterprisePageState<CordisPackageVersion>
   readonly extensionBindings: readonly CordisScopeBinding[]
   readonly extensionReviews: EnterprisePageState<CordisReviewRequest>
   readonly formalPlugins: EnterprisePageState<PluginInventorySnapshot['entries'][number]>
@@ -517,6 +518,7 @@ const INITIAL_STATE: EnterpriseWorkbenchState = {
   teamDecisions: emptyPage(),
   teamAutonomy: emptyPage(),
   extensions: emptyPage(),
+  archivedExtensions: emptyPage(),
   extensionBindings: [],
   extensionReviews: emptyPage(),
   formalPlugins: emptyPage(),
@@ -617,6 +619,7 @@ export class EnterpriseWorkbenchController {
   private projectsRequestGeneration = 0
   private projectDetailRequestGeneration = 0
   private surfacesRequestGeneration = 0
+  private extensionRequestGeneration = 0
   private readonly pageRequestGeneration = new Map<string, number>()
   private mutationAttemptId = 0
   private editorGeneration = 0
@@ -1431,50 +1434,74 @@ export class EnterpriseWorkbenchController {
     }))
   }
 
-  /** Select the Workspace whose personal or department extensions are projected.
-   * @param workspaceId - Input value used by this API.
+  /** Filter the extension catalog to one Workspace, or show all visible Workspaces.
+   * @param workspaceId - Workspace id, or an empty string for the unified catalog.
    */
   setExtensionWorkspace(workspaceId: string): void {
-    this.store.set({ ...this.store.getSnapshot(), extensionWorkspaceId: workspaceId })
+    const before = this.store.getSnapshot()
+    const { extensionWorkspaceId: _selected, ...state } = before
+    this.store.set({ ...state, ...(workspaceId === '' ? {} : { extensionWorkspaceId: workspaceId }),
+      extensions: { phase: 'loading', items: [], error: null },
+      archivedExtensions: { phase: 'loading', items: [], error: null }, extensionBindings: [] })
     void this.refreshExtensions()
   }
 
-  /** Load visible personal, department, organization, and review projections.
+  /** Load visible extensions across authorized Workspaces and the review queue.
    * @returns Result produced by this API.
    */
   async refreshExtensions(): Promise<boolean> {
     const before = this.store.getSnapshot()
-    const workspaceId = before.extensionWorkspaceId
-      ?? this.currentWorkspaceId()
-    if (workspaceId === undefined) {
-      this.store.set({ ...before, extensions: { phase: 'ready', items: [], error: null },
-        extensionBindings: [], extensionReviews: { phase: 'ready', items: [], error: null } })
-      return true
-    }
-    this.store.set({ ...before, extensionWorkspaceId: workspaceId,
+    const generation = ++this.extensionRequestGeneration
+    const workspaceIds = before.extensionWorkspaceId === undefined
+      ? this.workspaces.list.getSnapshot().items.map(workspace => workspace.workspaceId)
+      : [before.extensionWorkspaceId]
+    this.store.set({ ...before,
       extensions: { ...before.extensions, phase: 'loading', error: null },
+      archivedExtensions: { ...before.archivedExtensions, phase: 'loading', error: null },
       extensionReviews: { ...before.extensionReviews, phase: 'loading', error: null } })
     try {
-      const [projection, reviews] = await Promise.all([
-        this.api.cordisWorkspace.list({ workspaceId }).then(response => valueOf(response)),
-        this.api.cordisReview.list({}).then(response => valueOf(response)),
+      const [workspaceResults, reviewResult] = await Promise.all([
+        Promise.allSettled(workspaceIds.map(workspaceId =>
+          this.api.cordisWorkspace.list({ workspaceId }).then(response => valueOf(response)))),
+        this.api.cordisReview.list({}).then(
+          response => ({ status: 'fulfilled' as const, value: valueOf(response) }),
+          (reason: unknown) => ({ status: 'rejected' as const, reason }),
+        ),
       ])
-      this.store.set({ ...this.store.getSnapshot(), extensionWorkspaceId: workspaceId,
-        extensions: { phase: 'ready', items: projection.packages, error: null },
-        extensionBindings: projection.bindings,
-        extensionReviews: { phase: 'ready', items: reviews, error: null } })
-      return true
+      if (generation !== this.extensionRequestGeneration) return false
+      const projections = workspaceResults.flatMap(result => result.status === 'fulfilled' ? [result.value] : [])
+      const failedWorkspaces = workspaceResults.flatMap((result, index) => {
+        const workspaceId = workspaceIds[index]
+        if (result.status !== 'rejected' || workspaceId === undefined) return []
+        return [this.workspaces.list.getSnapshot().items.find(workspace => workspace.workspaceId === workspaceId)?.title
+          ?? workspaceId]
+      })
+      const packages = new Map(projections.flatMap(projection => projection.packages)
+        .map(pkg => [pkg.packageId, pkg]))
+      const archivedPackages = new Map(projections.flatMap(projection => projection.archivedPackages ?? [])
+        .map(pkg => [pkg.packageId, pkg]))
+      const bindings = new Map(projections.flatMap(projection => projection.bindings)
+        .map(binding => [binding.bindingId, binding]))
+      const current = this.store.getSnapshot()
+      this.store.set({ ...this.store.getSnapshot(),
+        extensions: { phase: failedWorkspaces.length > 0 ? 'error' : 'ready',
+          items: [...packages.values()], error: failedWorkspaces.length > 0 ? failedWorkspaces.join('、') : null },
+        archivedExtensions: { phase: failedWorkspaces.length > 0 ? 'error' : 'ready',
+          items: [...archivedPackages.values()], error: failedWorkspaces.length > 0 ? failedWorkspaces.join('、') : null },
+        extensionBindings: [...bindings.values()],
+        extensionReviews: reviewResult.status === 'fulfilled'
+          ? { phase: 'ready', items: reviewResult.value, error: null }
+          : pageFailure(current.extensionReviews, reviewResult.reason) })
+      return failedWorkspaces.length === 0 && reviewResult.status === 'fulfilled'
     } catch (error) {
+      if (generation !== this.extensionRequestGeneration) return false
       const current = this.store.getSnapshot()
       this.store.set({ ...current,
         extensions: pageFailure(current.extensions, error),
+        archivedExtensions: pageFailure(current.archivedExtensions, error),
         extensionReviews: pageFailure(current.extensionReviews, error) })
       return false
     }
-  }
-
-  private currentWorkspaceId(): string | undefined {
-    return this.currentSessionWorkspaceId() ?? this.workspaces.list.getSnapshot().items[0]?.workspaceId
   }
 
   /** Resolve only the Workspace actually containing the work record this controller last revealed.
@@ -1514,6 +1541,55 @@ export class EnterpriseWorkbenchController {
     await this.runMutation('cordis-stop', async () => valueOf(await this.api.cordisWorkspace.stop({
       bindingId: binding.bindingId, pluginId: binding.pluginId, expectedRevision: binding.revision,
       reason, idempotencyKey: mutationKey('cordis-stop'),
+    })), async () => { await this.refreshExtensions() })
+  }
+
+  /** Activate a saved private Package, including one whose previous binding was stopped.
+   * @param pkg - Immutable private version to activate.
+   * @param binding - Existing scope binding, when present.
+   */
+  async activateExtension(pkg: CordisPackageVersion, binding?: CordisScopeBinding): Promise<void> {
+    if (pkg.scope.type !== 'personal-workspace') throw new Error('Only private Cordis packages can be activated here')
+    const workspaceId = pkg.scope.workspaceId
+    await this.runMutation('cordis-activate', async () => valueOf(await this.api.cordisWorkspace.activate({
+      workspaceId, pluginId: pkg.pluginId, packageId: pkg.packageId,
+      expectedRevision: binding?.revision ?? 0, idempotencyKey: mutationKey('cordis-activate'),
+    })), async () => { await this.refreshExtensions() })
+  }
+
+  /** Submit a saved private version from its department Workspace for manager review.
+   * @param pkg - owned immutable version offered by the Host projection.
+   */
+  async submitExtensionForDepartment(pkg: CordisPackageVersion): Promise<void> {
+    if (pkg.scope.type !== 'personal-workspace' || pkg.canSubmitDepartment !== true) {
+      throw new Error('Only an owned private version in a department Workspace can be submitted')
+    }
+    const workspaceId = pkg.scope.workspaceId
+    await this.runMutation('cordis-submit-saved', async () => valueOf(await this.api.cordisReview.submitSaved({
+      workspaceId,
+      packageId: pkg.packageId, idempotencyKey: mutationKey('cordis-submit-saved'),
+    })), async () => { await this.refreshExtensions() })
+  }
+
+  /** Archive one private Plugin while keeping its versions recoverable.
+   * @param pkg - one version belonging to the private Plugin.
+   */
+  async archiveExtension(pkg: CordisPackageVersion): Promise<void> {
+    if (pkg.scope.type !== 'personal-workspace') throw new Error('Only private Cordis packages can be archived here')
+    await this.runMutation('cordis-archive', async () => valueOf(await this.api.cordisWorkspace.archive({
+      workspaceId: pkg.scope.type === 'personal-workspace' ? pkg.scope.workspaceId : '',
+      pluginId: pkg.pluginId, idempotencyKey: mutationKey('cordis-archive'),
+    })), async () => { await this.refreshExtensions() })
+  }
+
+  /** Restore one private Plugin without reactivating its binding.
+   * @param pkg - one archived immutable version.
+   */
+  async restoreExtension(pkg: CordisPackageVersion): Promise<void> {
+    if (pkg.scope.type !== 'personal-workspace') throw new Error('Only private Cordis packages can be restored here')
+    await this.runMutation('cordis-restore', async () => valueOf(await this.api.cordisWorkspace.restore({
+      workspaceId: pkg.scope.type === 'personal-workspace' ? pkg.scope.workspaceId : '',
+      pluginId: pkg.pluginId, idempotencyKey: mutationKey('cordis-restore'),
     })), async () => { await this.refreshExtensions() })
   }
 

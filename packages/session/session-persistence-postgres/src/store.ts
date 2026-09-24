@@ -15,7 +15,7 @@ interface HeaderRow extends Record<string, unknown> {
   readonly incarnation: string
   readonly revision: string | number
   readonly conversation_started?: boolean
-  readonly title?: string | null
+  readonly title_event_json?: unknown
 }
 
 interface EventRow extends Record<string, unknown> {
@@ -177,7 +177,7 @@ export class PostgresSessionStore {
       for (const event of events) {
         await transaction.query(
           `INSERT INTO dsh_session_events(session_id, seq, event_json, event_type, event_time)
-           VALUES ($1, $2, $3::jsonb, $4, $5)`,
+           VALUES ($1, $2, $3, $4, $5)`,
           [meta.id, event.seq, JSON.stringify(event), event.type, event.time],
         )
       }
@@ -243,7 +243,7 @@ export class PostgresSessionStore {
       for (const event of closers) {
         await transaction.query(
           `INSERT INTO dsh_session_events(session_id, seq, event_json, event_type, event_time)
-           VALUES ($1, $2, $3::jsonb, $4, $5)`,
+           VALUES ($1, $2, $3, $4, $5)`,
           [meta.id, event.seq, JSON.stringify(event), event.type, event.time],
         )
       }
@@ -274,17 +274,20 @@ export class PostgresSessionStore {
       `SELECT header.id, header.header_json, header.incarnation, header.revision,
         EXISTS(SELECT 1 FROM dsh_session_events event
           WHERE event.session_id = header.id AND event.event_type = 'turn/start') AS conversation_started,
-        (SELECT event.event_json->'data'->>'title' FROM dsh_session_events event
+        (SELECT event.event_json FROM dsh_session_events event
           WHERE event.session_id = header.id AND event.event_type = 'session/title'
-          ORDER BY event.seq DESC LIMIT 1) AS title
+          ORDER BY event.seq DESC LIMIT 1) AS title_event_json
        FROM dsh_session_headers header ORDER BY header.created_at DESC, header.id`,
     )
     signal?.throwIfAborted()
-    return result.rows.map(row => ({
-      header: parseHeader(row.header_json), revision: this.revision(row),
-      ...(row.conversation_started === undefined ? {} : { conversationStarted: row.conversation_started }),
-      ...(typeof row.title === 'string' && row.title !== '' ? { title: row.title } : {}),
-    }))
+    return result.rows.map((row) => {
+      const title = sessionTitle(row.title_event_json)
+      return {
+        header: parseHeader(row.header_json), revision: this.revision(row),
+        ...(row.conversation_started === undefined ? {} : { conversationStarted: row.conversation_started }),
+        ...(title === undefined ? {} : { title }),
+      }
+    })
   }
 
   /** Executes `PostgresSessionStore.close` for this instance. */
@@ -323,6 +326,23 @@ function parseEvent(value: unknown): SessionEvent {
   const parsed = parseJson(value, 'session event')
   if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) throw new Error('session event is not an object')
   return structuredClone(parsed) as SessionEvent
+}
+
+function sessionTitle(value: unknown): string | undefined {
+  if (value === undefined || value === null) return undefined
+  const event = parseJson(value, 'latest title event')
+  if (typeof event !== 'object' || event === null || Array.isArray(event)) {
+    throw new Error('stored latest title event is not an object')
+  }
+  const record = event as Record<string, unknown>
+  if (record.type !== 'session/title') throw new Error('stored latest title event has an unexpected type')
+  const data = record.data
+  if (typeof data !== 'object' || data === null || Array.isArray(data)) {
+    throw new Error('stored latest title event data is not an object')
+  }
+  const title = (data as Record<string, unknown>).title
+  if (typeof title !== 'string') throw new Error('stored latest title event title is not a string')
+  return title.length === 0 ? undefined : title
 }
 
 function parseJson(value: unknown, subject: string): unknown {

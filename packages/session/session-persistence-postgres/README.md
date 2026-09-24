@@ -24,7 +24,7 @@ An opt-in PostgreSQL `SessionPersistence` provider for native DSH event logs. It
 
 ## Storage model
 
-`dsh_session_headers` stores the immutable JSON header, a durable incarnation, and a monotonic revision. `dsh_session_events` stores one JSON event per `(session_id, seq)`. The lightweight listing query selects conversation-start evidence and the latest `session/title` through indexed correlated lookups; it does not read message bodies. PostgreSQL locks the header row before reading the tail, inserting a batch, or repairing a final torn row; independent writers therefore cannot both claim the same next sequence. Revisions are source-qualified by a database-local UUID, header incarnation, and revision counter.
+`dsh_session_headers` stores the immutable JSON header, a durable incarnation, and a monotonic revision. `dsh_session_events` stores the exact serialized JSON text for one event per `(session_id, seq)`, including JSON strings that contain U+0000; PostgreSQL `JSONB` cannot represent that valid JSON value. The lightweight listing query selects conversation-start evidence and the latest `session/title` event text through indexed correlated reads, then parses that one event in the application; it does not read message bodies. PostgreSQL locks the header row before reading the tail, inserting a batch, or repairing a final torn row; independent writers therefore cannot both claim the same next sequence. Revisions are source-qualified by a database-local UUID, header incarnation, and revision counter.
 
 The package exposes a driver-neutral `PostgresDatabase` interface. Declarative Cordis composition uses `connectionString`; integration tests and embedded hosts may supply a transactional database object directly. No secret or connection string enters session records.
 
@@ -33,12 +33,16 @@ The package exposes a driver-neutral `PostgresDatabase` interface. Declarative C
 ```ts
 interface Config {
   connectionString?: string
-  preparedSessionCacheSize?: number
-  writeBatchMaxDelayMs?: number
+  database?: PostgresDatabase
+  databaseMode?: 'postgres' | 'standalone'
 }
 ```
 
-Use a dedicated PostgreSQL role with rights only to the package-owned `dsh_session_*` tables. The schema is initialized inside a transaction on service startup. Session data has no per-session raw artifact, so `locate()` returns `undefined` and `readRaw()` is unsupported.
+Use a dedicated PostgreSQL role with rights only to the package-owned `dsh_session_*` tables. The schema is initialized inside a transaction on service startup. `databaseMode: 'postgres'` shares the enterprise PostgreSQL pool; `standalone` uses `connectionString` and can select a separate schema through PostgreSQL connection options. The provider does not migrate released Session event formats: a V4 writer requires V4 rows prepared in an independent schema, while historical tables remain unchanged for rollback. Session data has no per-session raw artifact, so `locate()` returns `undefined` and `readRaw()` is unsupported.
+
+### Live Session durability
+
+The provider routes published `session/event` values to the active write handle, drains them at `session/flush`, and drains remaining events on close/disposal. Failed batches remain buffered for checkpoint retry. Shutdown attempts all handles and aggregates failures. Creating a header alone is not evidence that conversation events are durable.
 
 ## Model Experience
 
@@ -59,7 +63,7 @@ None. The reconstructed logical history and active provider request determine ca
 ## Known Limitations and Deferred Work
 
 - Driver-shape tests cover ordering, conflict rejection, rollback, and tail repair. A live PostgreSQL integration suite is deferred until a deployment-owned test service is available.
-- The initial schema has no SQLite migration command yet; migration must be added as a separately verified operation before a production cutover.
+- The provider does not convert PostgreSQL V0/V3 rows to V4; an operator must verify conversion and import before selecting the V4 schema.
 - This provider owns event durability only. Full-text and vector indexes remain separate read-model concerns and are not implemented by this package.
 
 <a id="dev-note"></a>
@@ -71,7 +75,3 @@ None. The reconstructed logical history and active provider request determine ca
 None.
 
 </details>
-
-## Live Session durability
-
-The provider routes published `session/event` values to the active write handle, drains them at `session/flush`, and drains remaining events on close/disposal. Failed batches remain buffered for checkpoint retry. Shutdown attempts all handles and aggregates failures. Creating a header alone is not evidence that conversation events are durable.

@@ -173,6 +173,10 @@ export function classifyApiEndpoint(endpoint: string, input: unknown): ApiClassi
     return { action: 'memory.manage', resourceType: 'enterprise-memory', ...(resourceId === undefined ? {} : { resourceId }) }
   }
   if (endpoint.startsWith('enterpriseDevice.')) {
+    if (['enterpriseDevice.getRecorderRuntime', 'enterpriseDevice.saveRecorderRuntime',
+      'enterpriseDevice.startRecorderRuntime'].includes(endpoint)) {
+      return { action: 'model.manage', resourceType: 'recorder-runtime' }
+    }
     const resourceId = stringField(payload, 'deviceId')
     const action = endpoint === 'enterpriseDevice.list' || endpoint === 'enterpriseDevice.get'
       || endpoint === 'enterpriseDevice.getAction'
@@ -248,8 +252,9 @@ export function classifyApiEndpoint(endpoint: string, input: unknown): ApiClassi
       ...(cordisPluginId === undefined ? {} : { resourceId: cordisPluginId }),
     }
   }
-  if (['cordisWorkspace.save', 'cordisWorkspace.activate', 'cordisWorkspace.stop', 'cordisWorkspace.rollback',
-    'cordisReview.submit'].includes(endpoint)) {
+  if (['cordisWorkspace.save', 'cordisWorkspace.activate', 'cordisWorkspace.archive', 'cordisWorkspace.restore',
+    'cordisWorkspace.stop', 'cordisWorkspace.rollback',
+    'cordisReview.submit', 'cordisReview.submitSaved'].includes(endpoint)) {
     return {
       action: 'plugin.create', resourceType: 'cordis-plugin',
       ...(cordisPluginId === undefined ? {} : { resourceId: cordisPluginId }),

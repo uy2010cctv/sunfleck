@@ -41,6 +41,11 @@ class GatewayIdentityTests(unittest.TestCase):
         payload = gateway.with_server_identity({"speaker_profile_id": "attacker", "segments": []}, identity)
         self.assertEqual(payload["speaker_profile_id"], gateway.speaker_profile_id(identity))
 
+    def test_recorder_admin_token_requires_an_exact_match(self):
+        self.assertTrue(gateway.admin_token_ok("admin-secret", "admin-secret"))
+        self.assertFalse(gateway.admin_token_ok("admin-secret-extra", "admin-secret"))
+        self.assertFalse(gateway.admin_token_ok(None, "admin-secret"))
+
     def test_transcripts_are_partitioned_by_org_and_user(self):
         with tempfile.TemporaryDirectory() as directory:
             path = gateway.append_transcript(

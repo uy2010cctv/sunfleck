@@ -1,0 +1,35 @@
+# Agent Note: 录音模型运行时设置
+
+Status: implemented
+
+[English](2026-09-21-recorder-runtime-settings.md) | 中文
+
+## Problem
+
+录音 ASR 和说话人识别原先通过进程环境变量选择。普通用户无法看到期望模型，无法区分“已保存”和“已运行”，也无法在不编辑服务文件的情况下切换本地与在线执行。若通过浏览器设置传送厂商密钥，还会让凭据值离开 Credential 服务。
+
+## Decision
+
+Settings 客户端把录音控制贡献到 dsh-knowledge 的“本地模型”区域，不再注册另一项导航入口。ASR 和 CAM 可分别选择本地或在线执行、模型 ID 和在线端点；CAM 还拥有启用开关和本人匹配阈值。浏览器可见状态中的在线配置只保存 Credential 引用。
+
+同一页面还可选择录音记忆加工的 Provider、模型和超时，并显示当前已鉴权用户专用的 `recorder-memory-<userId>` 推理 Session id。Host 使用乐观 revision 把该路由持久保存到仅属主可读的 `$DSH_HOME/storages/recorder-memory-runtime.json`。dsh-knowledge 在每个加工批次前读取该文件；只有文件不存在时才把环境变量作为迁移回退。
+
+已鉴权的 Enterprise controller 校验配置，在 Host 解析 Credential 值，再使用仅服务端可用的管理 token 调用录音网关。网关验证该 token，并使用现有 ASR token 转发到 Mac ASR 进程。Mac 将完整期望配置持久化为权限 0600 的版本化文件，永不返回凭据值。
+
+保存与启动是两个独立操作。保存使用乐观版本匹配，不替换正在运行的模型对象。启动加载已保存的 ASR 和 CAM 适配器，仅在加载成功后原子发布。状态区分已保存配置、进程状态、模型就绪、凭据就绪和运行时错误。
+
+本地 ASR 默认选择 FunASR，模型 ID 包含 Whisper 时选择 Whisper。在线 ASR 使用 OpenAI 兼容的 multipart 音频转写请求。在线 CAM 将 16 kHz PCM16 音频发往 HTTPS JSON embedding 端点。通用在线协议没有定义健康路由，因此启动会先向每个已选在线厂商发送一秒静音推理探针，成功后才发布候选适配器。
+
+## Alternatives considered
+
+**继续使用环境变量。**该方式对用户不可见，需要重启进程，且无法回读保存与启动状态。
+
+**把录音控制继续保留为单独的 Settings 导航项。**ASR、CAM、embedding、重排、OCR、Ollama 和记忆加工都属于本地模型运维；拆分页面会增加理解成本，也让记忆加工配置继续不可见。
+
+**在设置表单中发送 API key。**这会向浏览器状态暴露密钥，并重复 Credential 的所有权，因此页面只接受引用。
+
+**由浏览器直接向 Mac 写配置。**这会绕过企业鉴权，并把私有隧道变成公开控制面，因此所有变更都通过 Host 和网关。
+
+## Consequences
+
+用户可在既有“本地模型”页面中查看、配置、启动和重载录音模型，同时密钥仍只留在服务端。用户还可在不重启 DSH 的情况下更换记忆加工路由，并看到用于隔离该工作的 Session 身份。版本检查防止旧标签页覆盖新选择，模型加载失败会显式保留错误。该设计增加了三跳管理路径、一个含密钥的 ASR 本地文件，以及一个不含密钥的 Host 记忆路由文件。在线端点仍由具体厂商部署，必须配置真实凭据，并通过推理请求后才能确认厂商可用性。

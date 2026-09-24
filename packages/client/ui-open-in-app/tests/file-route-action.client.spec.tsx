@@ -51,3 +51,16 @@ it('does not query without a desktop and honors another pending gesture', async 
   await act(async () => {})
   expect(screen.getByRole('button', { name: 'Open in Music' })).toHaveProperty('disabled', true)
 })
+
+it('offers an authorized Session file download without a desktop', () => {
+  const fetcher = vi.fn(async () => Response.json(apps))
+  vi.stubGlobal('fetch', fetcher)
+  const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+  render(<FileRouteAction {...props()} available={false}
+    downloadUrl="api/present.download?sessionId=s&seq=2&index=0" />)
+
+  fireEvent.click(screen.getByRole('button', { name: 'Download file' }))
+
+  expect(click).toHaveBeenCalledOnce()
+  expect(fetcher).not.toHaveBeenCalled()
+})

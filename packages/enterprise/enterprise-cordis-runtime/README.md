@@ -20,7 +20,7 @@ English | [中文](README.zh.md)
 
 ## Package Details
 
-The runtime resolves the authenticated principal and enterprise Workspace grant, pins the Session generation, restores approved dynamic Packages, and routes personal or department publication through the review service. It never treats a browser request as authority to expand a Package scope.
+The runtime resolves the Session owner and enterprise Workspace grant, pins the Session generation, and restores approved dynamic Packages. It provides `cordis_define`, `cordis_run`, `cordis_inspect_self`, `cordis_stop`, and `cordis_undefine` for Session-local Plugins alongside the governed save and review tools; the upstream `tool-cordis` package keeps its separate read-only API inspection tools. A successful `cordis_define` in a personal Workspace saves a private version; in a department Workspace it submits an immutable version for manager review without activating a shared binding. Removing the Session-local Plugin does not delete its saved or pending version. The Session plugin panel reports the current Session's running Plugins, while the enterprise extensions page reports saved versions, reviews, and governed bindings. Browser requests cannot expand a Package scope.
 
 ## Model Experience
 

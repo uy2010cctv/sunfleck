@@ -6,6 +6,9 @@ import type { ToolCallId } from '@deepseek-ai/dsh-llm/brand'
 /** Authenticated POST route for opening a workspace file on the Host desktop. */
 export const PRESENT_OPEN_PATH = '/api/present.open'
 
+/** Authenticated GET route for downloading a declared workspace file. */
+export const PRESENT_DOWNLOAD_PATH = '/api/present.download'
+
 /** Authenticated desktop availability and destination metadata. */
 export const PRESENT_HOST_PATH = '/api/present.host'
 
@@ -62,6 +65,17 @@ export function isPresentedFile(value: unknown): value is PresentedFile {
  */
 export function presentedFileUrl(sessionId: SessionId, seq: number, index: number): string {
   return `${PRESENT_OPEN_ROUTE}?${new URLSearchParams({ sessionId, seq: String(seq), index: String(index) })}`
+}
+
+/**
+ * Build authenticated coordinates for a declared file download.
+ * @param sessionId - owning Session.
+ * @param seq - deliverables/presented event sequence.
+ * @param index - original index in the event's files array.
+ * @returns same-origin browser download URL.
+ */
+export function presentedDownloadUrl(sessionId: SessionId, seq: number, index: number): string {
+  return `${PRESENT_DOWNLOAD_PATH}?${new URLSearchParams({ sessionId, seq: String(seq), index: String(index) })}`
 }
 
 /**

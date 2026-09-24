@@ -174,7 +174,7 @@ These instructions apply to work under `packages/app`. Use them as guidance when
 
 #### Token effect
 
-Each discovered scope adds bounded history tokens until compaction. Unchanged content is suppressed by visible session state plus version/digest comparison, and PTC mode defers the same message until after the outer `run_code` result and its enclosing durable step.
+Each discovered scope adds bounded history tokens until compaction. The durable candidate identity is a JSON-safe tuple of directory and file name, so instruction metadata remains representable by every Session persistence provider. Unchanged content is suppressed by visible session state plus version/digest comparison, and PTC mode defers the same message until after the outer `run_code` result and its enclosing durable step.
 
 #### KV Cache effect
 

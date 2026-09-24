@@ -50,7 +50,9 @@ allowBuilds:
   electron-winstaller: false
   # Store-index rewriting only needs msgpackr's portable JavaScript codec.
   msgpackr-extract: false
-  agent-browser: set this to true or false
+  # The enterprise Web profile does not mount the optional browser-use provider;
+  # its postinstall downloads an unpinned executable outside the lockfile.
+  agent-browser: false
 
 minimumReleaseAgeExclude:
   # Office engines and their API are qualified and released together by the kit repository.

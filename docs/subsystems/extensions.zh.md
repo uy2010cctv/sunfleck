@@ -130,6 +130,12 @@ Department review, derived modification, and organization publication Remote ser
  */
 @Remote('submit') async submit(request: CordisReviewSubmitRequest): Promise<CordisReviewRequest>
 
+/** Submit an owned saved version from a department Workspace for review.
+ * @param request - saved Package and Workspace identity.
+ * @returns pending review.
+ */
+@Remote('submitSaved') async submitSaved(request: CordisReviewSubmitSavedRequest): Promise<CordisReviewRequest>
+
 /**
  * Derive a manager-edited immutable Package.
  * @param request - Review, draft, and CAS data.
@@ -181,6 +187,18 @@ Personal and department Workspace Cordis extension Remote service.
  * @returns immutable Package version.
  */
 @Remote('save') async save(request: CordisWorkspaceSaveRequest): Promise<CordisPackageVersion>
+
+/** Archive one owner-private Plugin while retaining its immutable versions.
+ * @param request - Workspace, Plugin, and idempotency key.
+ * @returns archived Plugin state.
+ */
+@Remote('archive') async archive(request: CordisWorkspaceArchiveRequest): Promise<CordisPluginArchive>
+
+/** Restore one archived owner-private Plugin without activating it.
+ * @param request - Workspace, Plugin, and idempotency key.
+ * @returns restored Plugin state.
+ */
+@Remote('restore') async restore(request: CordisWorkspaceArchiveRequest): Promise<CordisPluginArchive>
 
 /**
  * Activate a personal Workspace Package.
@@ -442,12 +460,30 @@ async savePersonal(input: { principal: EnterpriseCordisPrincipal workspaceId: st
  */
 async activatePersonal(input: { principal: EnterpriseCordisPrincipal workspaceId: string pluginId: string packageId: string expectedRevision: number idempotencyKey: string }): Promise<CordisScopeBinding>
 
+/** Hide a private Plugin and stop its binding while retaining every immutable version.
+ * @param input - authenticated owner, Workspace, Plugin, and idempotency key.
+ * @returns the archived Plugin state.
+ */
+async archivePersonal(input: { principal: EnterpriseCordisPrincipal workspaceId: string pluginId: string idempotencyKey: string }): Promise<CordisPluginArchive>
+
+/** Restore a previously archived private Plugin without reactivating its binding.
+ * @param input - authenticated owner, Workspace, Plugin, and idempotency key.
+ * @returns restored Plugin state.
+ */
+async restorePersonal(input: { principal: EnterpriseCordisPrincipal workspaceId: string pluginId: string idempotencyKey: string }): Promise<CordisPluginArchive>
+
 /**
  * Submit a department Workspace Package for manager review.
  * @param input - principal, Workspace, source Session, draft, and idempotency data.
  * @returns created review request.
  */
 async submitDepartment(input: { principal: EnterpriseCordisPrincipal workspaceId: string draft: CordisPackageDraft sourceSessionId: string idempotencyKey: string }): Promise<CordisReviewRequest>
+
+/** Submit an existing owner-private version in a department Workspace without activating it for members.
+ * @param input - owner, Workspace, saved version, and idempotency key.
+ * @returns pending department review.
+ */
+async submitSavedDepartment(input: { principal: EnterpriseCordisPrincipal workspaceId: string packageId: string idempotencyKey: string }): Promise<CordisReviewRequest>
 
 /**
  * Create an immutable manager-derived Package for an existing review.
@@ -485,7 +521,7 @@ async emergencyDisable(input: { principal: EnterpriseCordisPrincipal bindingId: 
 async stopBinding(input: { principal: EnterpriseCordisPrincipal bindingId: string expectedRevision: number reason: string idempotencyKey: string }): Promise<CordisScopeBinding>
 
 /**
- * Move a binding pointer to an older immutable Package.
+ * Roll a private binding to an older Package or resume a governed binding's approved Package.
  * @param input - principal, binding, Package, reason, CAS revision, and idempotency data.
  * @returns updated binding.
  */

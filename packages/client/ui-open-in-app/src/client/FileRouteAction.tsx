@@ -3,6 +3,7 @@ import type { PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots
 import type {} from '@deepseek-ai/dsh-client-ui-deliverables/client'
 import { parseNativeFileApplications } from '@deepseek-ai/dsh-native-command/types'
 import type { SessionWorkspacePathApplication } from '@deepseek-ai/dsh-api-session-controller/types'
+import { Button, IconDownloadOutlineRegular, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
 import { useFileApplications } from './file-applications.ts'
 import { OpenTargetButton } from './OpenTargetButton.tsx'
 import type { NS } from './locales.ts'
@@ -24,14 +25,26 @@ async function queryRoute(url: string, signal: AbortSignal): Promise<readonly Se
  * @returns the shared compact control, or null without a desktop.
  */
 export function FileRouteAction(
-  props: Pick<PropsRuntime<'deliverables.file.actions'>, 'actionUrl' | 'available' | 'pending' | 'onAction'> & PropsLocale<typeof NS>,
+  props: Pick<PropsRuntime<'deliverables.file.actions'>, 'actionUrl' | 'downloadUrl' | 'available' | 'pending' | 'onAction'> & PropsLocale<typeof NS>,
 ) {
   const association = useFileApplications(props.actionUrl, queryRoute, props.available)
-  if (!props.available) return null
-  return <OpenTargetButton key={props.actionUrl} kind="file" applications={association.apps}
-    defaultId={association.apps.find(app => app.default)?.id} failed={association.failed}
-    loading={association.loading} busy={props.pending} refresh={association.refresh} t={props.t}
-    execute={async (operation) => {
-      return props.onAction(operation.kind === 'reveal' ? 'reveal' : 'open', operation.kind === 'application' ? operation.id : undefined)
-    }} />
+  if (!props.available && props.downloadUrl === undefined) return null
+  return <>
+    {props.available && <OpenTargetButton key={props.actionUrl} kind="file" applications={association.apps}
+      defaultId={association.apps.find(app => app.default)?.id} failed={association.failed}
+      loading={association.loading} busy={props.pending} refresh={association.refresh} t={props.t}
+      execute={async (operation) => {
+        return props.onAction(operation.kind === 'reveal' ? 'reveal' : 'open', operation.kind === 'application' ? operation.id : undefined)
+      }} />}
+    {props.downloadUrl !== undefined && <Tooltip portal label={props.t('file.download')} side="bottom" delayMs={500}>
+      <Button size="sm" variant="toolbar" aria-label={props.t('file.download')}
+        icon={<IconDownloadOutlineRegular size={16} />}
+        onClick={() => {
+          const link = document.createElement('a')
+          link.href = props.downloadUrl ?? ''
+          link.download = ''
+          link.click()
+        }} />
+    </Tooltip>}
+  </>
 }

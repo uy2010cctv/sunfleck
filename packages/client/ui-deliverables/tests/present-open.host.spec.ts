@@ -13,7 +13,7 @@ import { SessionQueryError } from '@deepseek-ai/dsh-session-query'
 import type { SessionEventReadRequest } from '@deepseek-ai/dsh-session-query'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { registerPresentOpen } from '../src/present-open.ts'
-import { presentedFileUrl, PRESENT_OPEN_PATH } from '../src/presented.ts'
+import { presentedDownloadUrl, presentedFileUrl, PRESENT_DOWNLOAD_PATH, PRESENT_OPEN_PATH } from '../src/presented.ts'
 
 const cleanups: Array<() => Promise<unknown>> = []
 afterEach(async () => {
@@ -55,7 +55,10 @@ async function fixture() {
   const open = (query = '?sessionId=owner&seq=7&index=0', signal?: AbortSignal) => handler.fetch(new Request(
     `http://localhost${PRESENT_OPEN_PATH}${query}`, { method: 'POST', signal: signal ?? null },
   ))
-  return { applications, root, cwd, ctx, fiber, file, session, readEvent, open, opener, handler, resolveAgent }
+  const download = (query = '?sessionId=owner&seq=7&index=0') => handler.fetch(new Request(
+    `http://localhost${PRESENT_DOWNLOAD_PATH}${query}`,
+  ))
+  return { applications, root, cwd, ctx, fiber, file, session, readEvent, open, download, opener, handler, resolveAgent }
 }
 
 describe('Presented workspace file native open route', () => {
@@ -64,7 +67,7 @@ describe('Presented workspace file native open route', () => {
     const source = await realpath(join(cwd, file.path))
     expect(presentedFileUrl(SessionId('owner'), 7, 0)).toBe('api/present.open?sessionId=owner&seq=7&index=0')
     expect((await handler.fetch(new Request(`http://localhost${PRESENT_OPEN_PATH}`))).status).toBe(400)
-    expect((await handler.fetch(new Request('http://localhost/api/present.download?sessionId=owner&seq=7&index=0'))).status).toBe(404)
+    expect(presentedDownloadUrl(SessionId('owner'), 7, 0)).toBe('/api/present.download?sessionId=owner&seq=7&index=0')
     for (const contents of ['current source', 'edited source']) {
       await writeFile(source, contents)
       const response = await open()
@@ -187,6 +190,22 @@ describe('Presented workspace file native open route', () => {
   })
 })
 
+
+describe('Presented workspace file download route', () => {
+  it('streams current bytes with an attachment name without requiring a desktop', async () => {
+    const { ctx, cwd, file, download } = await fixture()
+    vi.spyOn(ctx.sessionController, 'workspaceDesktop').mockReturnValue({ name: 'desktop', available: false, fileManager: null })
+    const contents = Uint8Array.of(80, 75, 0, 255)
+    await writeFile(join(cwd, file.path), contents)
+    const response = await download()
+    expect(response.status).toBe(200)
+    expect(response.headers.get('content-disposition')).toContain("filename*=UTF-8''%E6%97%A5%E8%AE%B0%E6%A8%A1%E6%9D%BF.docx")
+    expect(response.headers.get('cache-control')).toBe('no-store')
+    expect(new Uint8Array(await response.arrayBuffer())).toEqual(contents)
+    expect((await download('?seq=7&index=0')).status).toBe(400)
+    expect((await download('?sessionId=other&seq=7&index=0')).status).toBe(404)
+  })
+})
 
 it('reports the serving desktop and reveals only an authorized declared source', async () => {
   const { cwd, file, open, opener, handler } = await fixture()

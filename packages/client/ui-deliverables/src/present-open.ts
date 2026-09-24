@@ -9,7 +9,12 @@ import type {} from '@deepseek-ai/dsh-client-connection'
 import type {} from '@deepseek-ai/dsh-session-query'
 import type { SessionId, SessionSeq } from '@deepseek-ai/dsh-session'
 import { CHANGES_DIFF_PATH, CHANGES_OPEN_PATH, CHANGED_FILES_PATH, type ChangesSummary } from './changes.ts'
-import { isPresentedData, isPresentedFile, PRESENT_OPEN_PATH, PRESENT_HOST_PATH, type PresentedHost } from './presented.ts'
+import {
+  basename, isPresentedData, isPresentedFile, PRESENT_DOWNLOAD_PATH, PRESENT_OPEN_PATH, PRESENT_HOST_PATH,
+  type PresentedHost,
+} from './presented.ts'
+
+const DOWNLOAD_CHUNK_BYTES = 256 * 1024
 
 /**
  * Register the deliverables routes inside Connection's authentication fence:
@@ -51,12 +56,84 @@ export function registerPresentOpen(ctx: Context): void {
       },
     })
   }
+  ctx.connection.fetch.register({
+    path: PRESENT_DOWNLOAD_PATH, methods: ['GET'], requestBody: 'buffered',
+    fetch: request => handlePresentDownload(ctx, new Request(request, {
+      signal: AbortSignal.any([request.signal, lifetime.signal]),
+    })),
+  })
 }
 
 const NUMERIC = /^\d+$/
 
 function coordinate(value: string | null): number | undefined {
   return value !== null && NUMERIC.test(value) && Number.isSafeInteger(Number(value)) ? Number(value) : undefined
+}
+
+function presentedCoordinates(request: Request): { id: SessionId; seq: SessionSeq; index: number } | undefined {
+  const query = new URL(request.url).searchParams
+  const id = query.get('sessionId')
+  const seq = coordinate(query.get('seq'))
+  const index = coordinate(query.get('index'))
+  return id === null || id === '' || seq === undefined || index === undefined
+    ? undefined : { id: id as SessionId, seq: seq as SessionSeq, index }
+}
+
+async function handlePresentDownload(ctx: Context, request: Request): Promise<Response> {
+  const at = presentedCoordinates(request)
+  if (at === undefined) return new Response('Invalid Presented file coordinates.', { status: 400 })
+  try {
+    request.signal.throwIfAborted()
+    const { target, session } = await ctx.sessionQuery.readEvent({
+      sessionId: at.id, seq: at.seq, before: 0, after: 0,
+    }, request.signal)
+    const file = target.type === 'deliverables/presented' && isPresentedData(target.data)
+      ? target.data.files[at.index] : undefined
+    if (!isPresentedFile(file)) return new Response('Presented file not found in this Session result.', { status: 404 })
+    const scope = { sessionId: at.id, workspaceRoot: session.cwd ?? ctx.sandboxPolicy.workspaceRoot }
+    const initial = await ctx.workspaceFiles.stat(scope, file.path, request.signal)
+    const fsTarget = await ctx.fs.resolve(initial.absolutePath, { signal: request.signal })
+    let offset = 0
+    const body = new ReadableStream<Uint8Array>({
+      async pull(controller) {
+        try {
+          request.signal.throwIfAborted()
+          const info = await ctx.fs.stat(fsTarget, request.signal)
+          if (info === undefined || info.type !== 'file' || info.version !== initial.version) {
+            throw new Error('Presented file changed during download.')
+          }
+          if (initial.bytes !== undefined && offset >= initial.bytes) {
+            controller.close()
+            return
+          }
+          const remaining = initial.bytes === undefined ? DOWNLOAD_CHUNK_BYTES : initial.bytes - offset
+          const bytes = await ctx.fs.readByteRange(fsTarget, {
+            offset, length: Math.min(DOWNLOAD_CHUNK_BYTES, remaining),
+          }, request.signal)
+          if (bytes.length === 0) {
+            controller.close()
+            return
+          }
+          offset += bytes.length
+          controller.enqueue(bytes)
+          if (bytes.length < DOWNLOAD_CHUNK_BYTES || initial.bytes !== undefined && offset >= initial.bytes) controller.close()
+        } catch (error: unknown) {
+          controller.error(error)
+        }
+      },
+    })
+    const filename = encodeURIComponent(basename(file.path)).replace(/'/g, '%27')
+    return new Response(body, { headers: {
+      'cache-control': 'no-store',
+      'content-disposition': `attachment; filename="download"; filename*=UTF-8''${filename}`,
+      'content-type': 'application/octet-stream',
+      'x-content-type-options': 'nosniff',
+      ...(initial.bytes === undefined ? {} : { 'content-length': String(initial.bytes) }),
+    } })
+  } catch (error: unknown) {
+    request.signal.throwIfAborted()
+    return new Response('Presented file unavailable.', { status: failureStatus(error) })
+  }
 }
 
 /** Translate lookup and filesystem failures into the not-found or failure status the browser retries from. */

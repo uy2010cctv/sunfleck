@@ -39,13 +39,20 @@ describe('enterprise workbench Web composition', () => {
       dependencies?: Record<string, string>
     }
     expect(manifest.dependencies?.['@deepseek-ai/dsh-client-ui-enterprise-workbench'])
-      .toBe('workspace:^')
+      .toBe('workspace:*')
     expect(manifest.dependencies?.['@deepseek-ai/dsh-session-persistence-postgres'])
-      .toBe('workspace:^')
+      .toBe('workspace:*')
     expect(manifest.dependencies?.['@deepseek-ai/dsh-enterprise-identity-postgres'])
-      .toBe('workspace:^')
+      .toBe('workspace:*')
     expect(manifest.dependencies?.['@deepseek-ai/dsh-enterprise-catalog'])
-      .toBe('workspace:^')
+      .toBe('workspace:*')
+  })
+
+  it('isolates V4 Session writes from the original enterprise PostgreSQL tables', () => {
+    const inserted = readEnterpriseOverlay().flatMap(row => row.insert ?? [])
+    expect(inserted.find(row => row.id === 'session-persistence-postgres')?.config?.databaseMode)
+      .toBe('standalone')
+    expect(readFileSync(ENTERPRISE_OVERLAY, 'utf8')).toContain('DSH_ENTERPRISE_SESSION_V4_DATABASE_URL')
   })
 
   it('ships an opt-in enterprise security overlay with encrypted credentials, auth, and governance UI', () => {

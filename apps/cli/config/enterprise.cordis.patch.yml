@@ -51,11 +51,13 @@
         connectionTimeoutMs: !!js Number(process.env.DSH_ENTERPRISE_PG_CONNECT_TIMEOUT_MS ?? '10000')
         ssl: !!js process.env.DSH_ENTERPRISE_PG_SSL === 'true'
 
+    # V4 Session rows use a separate schema selected by this URL; public V0/V3
+    # tables remain unchanged for the previous enterprise release.
     - id: session-persistence-postgres
       name: '@deepseek-ai/dsh-session-persistence-postgres'
       config:
-        databaseMode: postgres
-        connectionString: ''
+        databaseMode: standalone
+        connectionString: !!js process.env.DSH_ENTERPRISE_SESSION_V4_DATABASE_URL ?? ''
 
     - id: enterprise-auth-web
       name: '@deepseek-ai/dsh-enterprise-auth-web'

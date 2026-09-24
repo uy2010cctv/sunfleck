@@ -11,6 +11,8 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
       owner: {
         /** Authenticated document-relative action route carrying Session event coordinates. */
         readonly actionUrl: string
+        /** Authenticated download route for a declared file; absent in changed-file review. */
+        readonly downloadUrl?: string
         readonly available: boolean
         readonly pending: boolean
         /** Execute the selected native action and publish status on the owning file surface. */

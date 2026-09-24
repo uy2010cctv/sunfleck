@@ -9,13 +9,19 @@ import { execa } from 'execa'
 import type { SessionFormatJsonObject } from '@deepseek-ai/dsh-session-format'
 import { encodeSegment, generationLogFilename, type JsonlCompression } from '../packages/session/session-persistence-jsonl/src/format.ts'
 import { compressZstdFrame, decompressZstdFrame, scanZstdFrames } from '../packages/session/session-persistence-jsonl/src/zstd.ts'
-import { runMigrationJobs } from './migrate-sessions-to-v4.ts'
+import { resolveMigrationSourceCommit, runMigrationJobs } from './migrate-sessions-to-v4.ts'
 import { removeFixtureSafely } from './test-fixture-cleanup.ts'
 
 const repository = resolve(import.meta.dirname, '..')
 const script = join(repository, 'scripts/migrate-sessions-to-v4.ts')
 const directories = new Set<string>()
 const stopProcesses: Array<() => Promise<void>> = []
+
+it('uses an explicit verified source commit in an archive without Git metadata', () => {
+  const commit = 'a'.repeat(40)
+  expect(resolveMigrationSourceCommit('/missing-checkout', { DSH_MIGRATION_SOURCE_COMMIT: commit })).toBe(commit)
+  expect(() => resolveMigrationSourceCommit('/missing-checkout', { DSH_MIGRATION_SOURCE_COMMIT: 'invalid' })).toThrow('DSH_MIGRATION_SOURCE_COMMIT')
+})
 
 function temporaryRoot(): string {
   const directory = mkdtempSync(join(tmpdir(), 'dsh-migrate-v4-test-'))

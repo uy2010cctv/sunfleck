@@ -33,12 +33,31 @@ describe('enterprise Cordis PostgreSQL adapter', () => {
     for (const table of [
       'dsh_enterprise_cordis_packages', 'dsh_enterprise_cordis_reviews',
       'dsh_enterprise_cordis_bindings', 'dsh_enterprise_cordis_commands',
+      'dsh_enterprise_cordis_archives',
       'dsh_enterprise_cordis_audit', 'dsh_enterprise_cordis_artifacts',
       'dsh_enterprise_cordis_validation_reports', 'dsh_enterprise_department_managers',
       'dsh_enterprise_department_manager_sets', 'dsh_enterprise_cordis_session_generations',
     ]) expect(sql).toContain(table)
     expect(sql).toContain('UNIQUE(org_id, scope_key, plugin_id)')
     expect(sql).toContain('UNIQUE(org_id, plugin_id, version)')
+  })
+
+  it('stores a private archive and binding stop in one PostgreSQL transaction', async () => {
+    const database = new RecordingDatabase()
+    const repository = new PostgresEnterpriseCordisRepository(database)
+    await repository.putArchive({
+      orgId: 'org-a', scope: { type: 'personal-workspace', workspaceId: 'workspace-1', ownerUserId: 'user-1' },
+      pluginId: 'helper-1', archived: true, revision: 1, updatedBy: 'user-1', updatedAt: 10,
+    }, 0, { binding: {
+      bindingId: 'binding-1', orgId: 'org-a', pluginId: 'helper-1', activePackageId: 'package-1',
+      scope: { type: 'personal-workspace', workspaceId: 'workspace-1', ownerUserId: 'user-1' },
+      generation: 1, revision: 2, activatedBy: 'user-1', disabled: true,
+      trustLevel: 'isolated', updatedAt: 10,
+    }, expectedRevision: 1 })
+    expect(database.queries.map(query => query.text)).toEqual([
+      expect.stringContaining('UPDATE dsh_enterprise_cordis_bindings'),
+      expect.stringContaining('INSERT INTO dsh_enterprise_cordis_archives'),
+    ])
   })
 
   it('uses parameterized writes for immutable Cordis source and manifests', async () => {
