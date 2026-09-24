@@ -3,7 +3,7 @@ import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { DatabaseSync } from 'node:sqlite'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
-import { agentPresetProjectionDefinition } from '../../../preset/agent-presets/src/session.ts'
+import { agentPresetProjectionDefinition } from '../../../preset/agent-preset-registry/src/session.ts'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 import Include from '@deepseek-ai/cordis-plugin-include'
 import { tmpdir } from 'node:os'
@@ -83,7 +83,7 @@ class ScriptAdapter extends LlmAdapter {
 
 function agentAt(cwd: string, name = 'memory-agent'): Agent {
   const id = SessionId(name)
-  const session = Session.create(id, [], { version: 3, id, createdAt: 1, cwd, isSeeded: false })
+  const session = Session.create(id, [], { version: 4, id, createdAt: 1, cwd, isSeeded: false })
   return { id, session } as unknown as Agent
 }
 
@@ -343,7 +343,7 @@ describe('Agent automatic enterprise memory', () => {
       getAsset: vi.fn(async () => ({ archived: false })), listAssetVersions: vi.fn(async () => [{ version: 1, content: { learnedBy: 'employee-1', workspaceRoot: await realpath(root), name: 'Checking', content: 'Verify the totals.' } }]) }
     const { ctx, identity } = await setupLearning(catalog)
     await writeFile(join(root, 'check.md'), '# Check totals\nVerify the totals.')
-    const agent = { ...agentAt(root), session: Session.create(SessionId('learning'), [], { version: 3, id: SessionId('learning'), createdAt: 1, cwd: root, isSeeded: false, agentPreset: 'employee-old' }) } as Agent
+    const agent = { ...agentAt(root), session: Session.create(SessionId('learning'), [], { version: 4, id: SessionId('learning'), createdAt: 1, cwd: root, isSeeded: false, agentPreset: 'employee-old' }) } as Agent
     identity.bindSessionWorkspace({ sessionId: String(agent.id), workspaceId: 'workspace-ops', orgId: 'org-a', ownerUserId: 'admin-1' })
     agent.session.append('agent-preset/selected', { agentPreset: 'employee-1' })
     const result = await ctx.tools.execute({ signal, callId: ToolCallId('learn'), rootCallId: ToolCallId('batch'), name: 'learn_employee_capability', arguments: { kind: 'sop', name: 'Checking', sourcePath: 'check.md' }, agent })
@@ -828,7 +828,7 @@ describe('Agent automatic enterprise memory', () => {
 
     const noCwdAgent = {
       id: SessionId('no-cwd'),
-      session: Session.create(SessionId('no-cwd'), [], { version: 3, id: SessionId('no-cwd'), createdAt: 1, isSeeded: false }),
+      session: Session.create(SessionId('no-cwd'), [], { version: 4, id: SessionId('no-cwd'), createdAt: 1, isSeeded: false }),
     } as unknown as Agent
     const noCwd = await callTool(ctx, 'memory_search', { query: 'x' }, noCwdAgent)
     expect(noCwd.isError).toBe(true)

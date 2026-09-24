@@ -372,7 +372,12 @@ export interface EnterpriseSurfaces {
     dutyEmployeeIds: readonly EmployeeId[]
     projectId?: string
   }): Promise<ChannelSurface>
-  /** Resolve the sticky employee for one channel actor. */
+  /**
+   * Resolve the sticky employee for one channel actor.
+   * @param orgId - organization the actor belongs to.
+   * @param actorKey - opaque actor key of the channel participant.
+   * @returns the sticky employee, or undefined while unbound.
+   */
   stickyEmployee(orgId: string, actorKey: string): EmployeeId | undefined
   /**
    * Enqueue one authenticated inbound message and deliver it to the employee's anchored session.

@@ -14,7 +14,7 @@ import type {
   EnterpriseComputerUseRun, EnterpriseDeviceActionView, EnterpriseDeviceListRequest, EnterpriseDevicePairRequest, EnterpriseDeviceView,
   EnterpriseRecorderDeviceView,
 } from '@deepseek-ai/dsh-api-enterprise-controller/types'
-import type { AgentPresetRow } from '@deepseek-ai/dsh-agent-presets/types'
+import type { AgentPresetRow } from '@deepseek-ai/dsh-agent-preset-registry/types'
 import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import { randomUUID } from '@deepseek-ai/dsh-util-crypto'
 import type {
@@ -26,8 +26,9 @@ import { createSnapshotStore, type SnapshotStore } from '@deepseek-ai/dsh-client
 /** Operational state shown for one digital employee. */
 export type EmployeeOperationalState = 'active' | 'attention' | 'ready' | 'unavailable'
 
-/** Operational state shown for one work record. */
-export type WorkRecordState = 'running' | 'attention' | 'completed' | 'ready'
+/** Operational state shown for one work record. The Session summary carries no
+ * durable finished fact, so a stopped, reviewed record reads as `ready`. */
+export type WorkRecordState = 'running' | 'attention' | 'ready'
 
 /** Digital employee projected from one Agent Preset. */
 export interface EnterpriseEmployeeView {
@@ -256,9 +257,8 @@ export interface EnterpriseEmployeeEditorState {
   readonly error: string | null
   readonly conflictServerFields?: EnterpriseEmployeeDraftFields
   readonly conflictServerRevision?: number
-  /** Native Agent Preset copied on the first save of a newly created managed employee. */
-  readonly creatingFromPresetId?: string
-  readonly presetCreated?: boolean
+  /** True while the edited draft has never been saved; false once the Host returned a revision. */
+  readonly creating?: boolean
   readonly optimizingPrompt?: boolean
 }
 
@@ -398,7 +398,6 @@ function needsAttention(_session: SessionSummary): boolean {
 function recordState(session: SessionSummary): WorkRecordState {
   if (needsAttention(session)) return 'attention'
   if (session.running) return 'running'
-  if (session.completed === true) return 'completed'
   return 'ready'
 }
 
@@ -445,7 +444,9 @@ export function deriveEnterpriseView(
       status,
       activeWork,
       recentWork: work.length,
-      custom: preset.trust === 'user',
+      // Managed employees carry the `employee-` id this class mints in
+      // createEmployeeDraft; patch-declared presets keep every other id shape.
+      custom: preset.id.startsWith('employee-'),
       isDefault: preset.isDefault,
       ...preset.broken === undefined ? {} : { unavailableReason: preset.broken },
     }
@@ -620,16 +621,20 @@ export class EnterpriseWorkbenchController {
   private mutationAttemptId = 0
   private editorGeneration = 0
   private readonly employeeStarts = new Map<string, Promise<void>>()
+  /** Work record this controller last revealed; the Session list no longer carries a current-selection fact. */
+  private activeRecordSessionId: SessionId | undefined
 
   /**
    * @param api - existing Host API; only the Agent Preset roster is read.
    * @param sessions - existing Session list and creation service.
    * @param workspaces - existing Workspace list service.
+   * @param navigate - reveals a Session in the conversation surface (`ctx.uiWorkspace.openSession`).
    */
   constructor(
     private readonly api: EnterpriseWorkbenchRemote,
     private readonly sessions: ISessions,
     private readonly workspaces: IWorkspaces,
+    private readonly navigate: (sessionId: SessionId) => void,
   ) {}
 
   /** Open the workbench, loading its roster on first use. */
@@ -1296,7 +1301,7 @@ export class EnterpriseWorkbenchController {
   async testLocalDevice(deviceId: string): Promise<EnterpriseDeviceActionView> {
     const enterpriseDevices = this.api.enterpriseDevices
     if (enterpriseDevices === undefined) throw new Error('Device Plane is unavailable')
-    const sessionId = this.sessions.list.getSnapshot().current
+    const sessionId = this.activeRecordSessionId
     const workspaceId = this.currentSessionWorkspaceId()
     if (sessionId === undefined || workspaceId === undefined) {
       throw new Error('Open a work record before testing this computer')
@@ -1472,21 +1477,21 @@ export class EnterpriseWorkbenchController {
     return this.currentSessionWorkspaceId() ?? this.workspaces.list.getSnapshot().items[0]?.workspaceId
   }
 
-  /** Resolve only the Workspace actually containing the currently open native Session.
+  /** Resolve only the Workspace actually containing the work record this controller last revealed.
    * @returns Result produced by this API.
   */
   private currentSessionWorkspaceId(): string | undefined {
-    const currentSessionId = this.sessions.list.getSnapshot().current
+    const currentSessionId = this.activeRecordSessionId
     if (currentSessionId === undefined) return undefined
     return this.workspaces.list.getSnapshot().items.find(workspace => workspace.sessionIds.includes(currentSessionId))?.workspaceId
   }
 
-  /** Prepare a goal-first work request using the current native Session when one is open.
+  /** Prepare a goal-first work request, attaching the revealed work record when one exists.
    * @param input - Input value used by this API.
    * @returns Result produced by this API.
    */
   async prepareWork(input: Pick<EnterpriseWorkPrepareRequest, 'objective' | 'deadline' | 'workspaceId' | 'preferredEmployeeReleaseId'>): Promise<EnterpriseWorkPreparation> {
-    const currentSessionId = this.sessions.list.getSnapshot().current
+    const currentSessionId = this.activeRecordSessionId
     return valueOf(await this.api.enterpriseWork.prepare({
       ...input,
       ...(currentSessionId === undefined ? {} : { currentSessionId }),
@@ -1583,10 +1588,11 @@ export class EnterpriseWorkbenchController {
     }
   }
 
-  /** Start one unsaved managed employee backed by a copy of the deployment's default Agent Preset. */
+  /** Start one unsaved managed employee. The Host derives its Agent preset
+   * composition from the deployment default at publish time; no client-side
+   * preset write happens before that. */
   createEmployeeDraft(): void {
     this.editorGeneration++
-    const source = this.roster.find(preset => preset.isDefault)?.id ?? this.roster[0]?.id ?? 'standard'
     const fields: EnterpriseEmployeeDraftFields = {
       presetId: `employee-${randomUUID()}`,
       avatarSeed: randomUUID(),
@@ -1595,8 +1601,7 @@ export class EnterpriseWorkbenchController {
     }
     this.store.set({ ...this.store.getSnapshot(), employeeEditor: {
       phase: 'ready', fields, revision: 0, releases: [], dirty: false, saving: false,
-      conflict: false, errors: validateEmployeeDraft(fields), error: null,
-      creatingFromPresetId: source, presetCreated: false,
+      conflict: false, errors: validateEmployeeDraft(fields), error: null, creating: true,
     } })
   }
 
@@ -1664,13 +1669,6 @@ export class EnterpriseWorkbenchController {
     const { presetId, visibility, bindings, name, description, position, department, prompt, modelRef, capabilities } = editor.fields
     const avatarSeed = editor.fields.avatarSeed || presetId
     await this.runMutation('employee-save', async () => {
-      if (editor.creatingFromPresetId !== undefined && editor.presetCreated !== true) {
-        valueOf(await this.api.agentPresets.copy(editor.creatingFromPresetId, presetId, name))
-        const copied = this.store.getSnapshot()
-        if (copied.employeeEditor !== undefined) {
-          this.store.set({ ...copied, employeeEditor: { ...copied.employeeEditor, presetCreated: true } })
-        }
-      }
       return valueOf(await this.api.enterpriseEmployees.saveDraft({
         presetId, expectedRevision, idempotencyKey, visibility,
         profile: { name, avatarSeed, description, position, department, prompt, modelRef, capabilities: [...capabilities] }, bindings,
@@ -1680,7 +1678,7 @@ export class EnterpriseWorkbenchController {
       const currentEditor = current.employeeEditor
       if (generation !== this.saveGeneration || currentEditor === undefined
         || currentEditor.revision !== expectedRevision) return
-      const { creatingFromPresetId: _source, presetCreated: _presetCreated, ...settledEditor } = currentEditor
+      const { creating: _creating, ...settledEditor } = currentEditor
       this.store.set({ ...current, employeeEditor: {
         ...settledEditor, fields: draftFields(saved), revision: saved.revision,
         saving: false, dirty: false, conflict: false, errors: [], error: null,
@@ -2215,7 +2213,7 @@ export class EnterpriseWorkbenchController {
         ...(workspaceId === undefined ? {} : { workspaceId }),
         agentPreset: employeeId,
       })
-      this.sessions.open(sessionId)
+      this.revealRecord(sessionId)
       this.close()
     } catch (error) {
       this.store.set({
@@ -2230,7 +2228,13 @@ export class EnterpriseWorkbenchController {
    * @param sessionId - Input value used by this API.
    */
   openRecord(sessionId: SessionId): void {
-    this.sessions.open(sessionId)
+    this.revealRecord(sessionId)
     this.close()
+  }
+
+  /** Track the record for workspace-scoped follow-ups, then navigate to it. */
+  private revealRecord(sessionId: SessionId): void {
+    this.activeRecordSessionId = sessionId
+    this.navigate(sessionId)
   }
 }

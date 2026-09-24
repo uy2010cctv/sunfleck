@@ -7,7 +7,6 @@ import { Remote, RemoteError, TypertRemoteService } from '@deepseek-ai/dsh-typer
 import type { EnterprisePrincipal } from '@deepseek-ai/dsh-enterprise-governance'
 import type {} from '@deepseek-ai/dsh-enterprise-auth-web'
 import type {} from '@deepseek-ai/dsh-enterprise-postgres'
-import type { EmployeePresetDefinition } from '@deepseek-ai/dsh-agent-presets'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import {
   normalizeDevicePublicKey, PostgresDevicePlaneRepository, validateQueuedDeviceAction,
@@ -165,6 +164,11 @@ import type {
 import {
   EnterpriseWorkStartService,
 } from './work-start.ts'
+import {
+  employeePresetDeclaration,
+  employeePresetDefinition,
+  type EmployeePresetDefinition,
+} from './employee-preset.ts'
 import type {
   EnterpriseWorkPrepareRequest,
   EnterpriseWorkPreparation,
@@ -194,6 +198,17 @@ import { serveConsolidation } from './consolidation-http.ts'
 import { ProjectHttpHandler, SurfaceHttpHandler } from './surfaces-http.ts'
 
 export type * from './contract/index.ts'
+
+/** Source of the user message the employee prompt optimizer submits to the caller-selected model. */
+export interface EmployeePromptOptimizerSource {
+  readonly kind: 'enterprise-employee-prompt-optimizer'
+}
+
+declare module '@deepseek-ai/dsh-llm' {
+  interface MessageSourceMap {
+    'enterprise-employee-prompt-optimizer': EmployeePromptOptimizerSource
+  }
+}
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
@@ -328,51 +343,10 @@ function cordis(ctx: Context): EnterpriseCordisService {
   return ctx.enterpriseCordis
 }
 
-function employeePresetDefinition(release: EnterpriseEmployeeRelease): EmployeePresetDefinition {
-  const profile = release.snapshot.profile
-  const required = (field: string): string => {
-    const value = profile[field]
-    if (typeof value !== 'string' || value.trim() === '') {
-      throw new Error(`employee release ${release.releaseId} has no ${field}`)
-    }
-    return value.trim()
-  }
-  const optional = (field: string): string | undefined => {
-    const value = profile[field]
-    return typeof value === 'string' && value.trim() !== '' ? value.trim() : undefined
-  }
-  const capabilities = Array.isArray(profile['capabilities'])
-    ? profile['capabilities'].filter((value): value is string => typeof value === 'string' && value.trim() !== '')
-    : []
-  const description = optional('description')
-  const position = optional('position')
-  const department = optional('department')
-  return {
-    name: required('name'), prompt: required('prompt'),
-    ...description === undefined ? {} : { description },
-    ...position === undefined ? {} : { position },
-    ...department === undefined ? {} : { department },
-    capabilities,
-  }
-}
-
 class EmployeePresetSyncError extends Error {
   constructor(readonly presetId: string, options: ErrorOptions) {
     super('employee release is published, but its Agent Preset update failed; retry Publish to reconcile it', options)
     this.name = 'EmployeePresetSyncError'
-  }
-}
-
-async function configurePublishedEmployee(ctx: Context, release: EnterpriseEmployeeRelease): Promise<void> {
-  const definition = employeePresetDefinition(release)
-  try {
-    await ctx.agentPresets.configureEmployee(release.presetId, definition)
-  } catch {
-    try {
-      await ctx.agentPresets.configureEmployee(release.presetId, definition)
-    } catch (error) {
-      throw new EmployeePresetSyncError(release.presetId, { cause: error })
-    }
   }
 }
 
@@ -400,7 +374,7 @@ export async function optimizeEmployeePromptWithLlm(
     model: request.model,
     system: 'You improve enterprise digital-employee responsibility prompts. Preserve the input language. Return only the improved prompt, with clear responsibilities, operating rules, boundaries, and expected outputs. Do not use Markdown fences or commentary.',
     messages: [createUserMessage({
-      source: { kind: 'plugin', plugin: 'enterprise-employee-prompt-optimizer' },
+      source: { kind: 'enterprise-employee-prompt-optimizer' },
       content: [{ type: 'text', text: prompt }],
     })],
     temperature: 0.2,
@@ -616,8 +590,49 @@ export class EnterpriseDeviceController extends TypertRemoteService {
 /** Enterprise employee Draft and Release Remote service. */
 export class EnterpriseEmployeeController extends TypertRemoteService {
   static inject = ['enterprisePostgres', 'enterpriseSecurity', 'enterpriseRequestContext', 'agentPresets', 'llm']
+  /** Disposers of the Agent preset declarations this controller registered, keyed by preset id. */
+  private readonly employeePresetDisposers = new Map<string, Promise<() => Promise<void>>>()
   /** @param ctx - authenticated enterprise Host context. */
   constructor(ctx: Context) { super(ctx, 'enterpriseEmployeeController', { namespace: 'enterpriseEmployee' }) }
+
+  /** Install or replace the released employee's Agent preset declaration.
+   *
+   * The declaration is held in the registry this process owns, so a Host restart drops it;
+   * republishing the release reinstates it. A live session keeps the composition it mounted —
+   * the registry retires the replaced revision only once its last reader releases it.
+   * @param release - the immutable Release just published.
+  */
+  private async configurePublishedEmployee(release: EnterpriseEmployeeRelease): Promise<void> {
+    const input = employeePresetDefinition(release)
+    try {
+      await this.registerEmployeePreset(release.presetId, input)
+    } catch {
+      try {
+        await this.registerEmployeePreset(release.presetId, input)
+      } catch (error) {
+        throw new EmployeePresetSyncError(release.presetId, { cause: error })
+      }
+    }
+  }
+
+  /** Register one declaration, replacing this controller's previous registration for the id.
+   * @param presetId - the preset identity the release publishes under.
+   * @param input - the validated employee identity from the release snapshot.
+  */
+  private async registerEmployeePreset(presetId: string, input: EmployeePresetDefinition): Promise<void> {
+    const previous = this.employeePresetDisposers.get(presetId)
+    if (previous !== undefined) {
+      // A rejected registration created no definition, so it also has nothing to dispose.
+      const disposer = await previous.catch(() => undefined)
+      if (disposer !== undefined) await disposer()
+    }
+    const registration = this.ctx.agentPresets.register(
+      await employeePresetDeclaration(this.ctx, presetId, input))
+    this.employeePresetDisposers.set(presetId, registration)
+    await registration
+    const declared = await this.ctx.agentPresets.resolve(presetId)
+    if (declared.broken !== undefined) throw new Error(`agent preset ${presetId} failed to activate: ${declared.broken}`)
+  }
 
   /**
    * Execute one authenticated enterprise operation.
@@ -700,7 +715,7 @@ export class EnterpriseEmployeeController extends TypertRemoteService {
       const release = await this.ctx.enterprisePostgres.catalog.publishDraft({
         ...request, orgId: principal.orgId, publishedBy: principal.userId,
       }) as EnterpriseEmployeeRelease
-      await configurePublishedEmployee(this.ctx, release)
+      await this.configurePublishedEmployee(release)
       return release
     })
   }

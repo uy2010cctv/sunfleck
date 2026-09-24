@@ -8,6 +8,7 @@ import type { EnterpriseChannelConfiguration } from '@deepseek-ai/dsh-api-enterp
 import type {} from '@deepseek-ai/dsh-client-connection/client'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
+import type {} from '@deepseek-ai/dsh-client-ui-workspace/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import { EnterpriseTrigger } from './EnterpriseTrigger.tsx'
@@ -189,7 +190,7 @@ export { CHANNEL_BINDING_BROADCAST_CHANNEL, channelBindingCallbackUri, channelBo
 
 /** Required browser services. */
 export const inject = [
-  'slots', 'locale', 'connection', 'sessions', 'workspaces', 'remote',
+  'slots', 'locale', 'connection', 'sessions', 'workspaces', 'uiWorkspace', 'remote',
   'remote.agentPresets', 'remote.enterpriseEmployee', 'remote.enterpriseAsset',
   'remote.enterpriseTeam', 'remote.enterpriseOperation', 'remote.session',
   'remote.enterpriseWork',
@@ -230,7 +231,7 @@ export function apply(ctx: Context): void {
     cordisWorkspace: ctx.remote.cordisWorkspace,
     cordisReview: ctx.remote.cordisReview,
     cordisGovernance: ctx.remote.cordisGovernance,
-  }, ctx.sessions, ctx.workspaces)
+  }, ctx.sessions, ctx.workspaces, sessionId => ctx.uiWorkspace.openSession(sessionId))
 
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'enterprise-workbench: dictionaries')
 

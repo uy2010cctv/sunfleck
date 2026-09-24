@@ -39,7 +39,7 @@ For a truncated reference, an optional spill backend saves the full captured tex
 
 ### Finding sessions to reference
 
-`listCandidates(agent, query?, limit?)` lists titled sessions other than the agent's own, filters case-insensitively by id, working directory, or the projected title, and ranks same-directory sessions first. Each candidate carries its latest title as the mention label and reports whether its working directory is the requesting agent's so a host can surface a location only when it distinguishes the row. Sessions without a projected title are omitted instead of exposing opaque ids and internal paths. Browser consumers call the same discovery as `ctx.remote.sessionReferenceResolver.candidates`, which attaches each candidate's canonical mention.
+`listCandidates(agent, query?, limit?)` lists sessions other than the agent's own, filters case-insensitively by id, working directory, projected title, or display title, and ranks same-directory sessions first. Each candidate carries its latest title as `label`, falling back to the session id when the title is absent or unreadable. Its display title prefers a subagent's durable creation label over that title. The candidate also reports whether its working directory is the requesting agent's so a host can surface a location only when it distinguishes the row. Browser consumers call the same discovery as `ctx.remote.sessionReferenceResolver.candidates`, which labels the canonical mention with `displayTitle` when present.
 
 ### Configuration
 
@@ -68,7 +68,7 @@ This section explains the design of the service; the observable behavior is cove
 
 Preparation reads each referenced session's current surface exactly once, when the target message reaches `agent/pre-step`. Both preview and spill use that same captured projection: direct-user text, assistant text, and user checkpoints carrying the canonical compaction marker; tools, reasoning, and other injected context are excluded. This prevents recursive reference propagation and prevents a later source mutation from changing the saved transcript. Preview JSON escapes every `<` as `\u003c`, so source text cannot spell the `<referenced-sessions>` framing tag.
 
-The resolver discovers optional storage through `ctx.get("spillStore")` and saves only truncated references. Storage ownership is the target session; provenance identifies the referenced source session and label, without a fabricated tool call. Cancellation is checked after the asynchronous save and prevents publication even if an artifact was written. Artifact expiry remains the backend's existing policy.
+The resolver discovers optional storage through `ctx.get("spillStore")` and saves only truncated references. Storage ownership is the target session; the source descriptor identifies the referenced session and label, without a fabricated tool call. Cancellation is checked after the asynchronous save and prevents publication even if an artifact was written. Artifact expiry remains the backend's existing policy.
 
 The budget uses the provider and model captured after `system-prompt/assemble` completes for the target agent. Direct `prepare` calls before any assembly use agent options; session headers do not select the budget model. Diagnostic assemblies without an agent do not affect captured routes.
 
@@ -131,7 +131,7 @@ The request and snapshot are consecutive append-only target messages and preserv
 These limits define when cross-session references are a poor fit. They are current package constraints.
 
 - **No body discovery** — candidate queries inspect titles but do not search message bodies.
-- **Labels come from projections alone** — an attached session is labeled from its live projection cut and a cold one from its durable checkpoint. A session neither answers for is omitted from discovery. Discovery never reads a log: folding one title costs a whole log, and this runs under every completion keystroke. A session persisted before the projection cache was composed enters discovery after it is opened once, which checkpoints its title.
+- **Labels come from projections alone** — an attached session is labeled from its live projection cut, a cold one from its durable checkpoint, and a session neither answers for is labeled by its id and cannot be found by its title. Discovery never reads a log: folding one title costs a whole log, and this runs under every completion keystroke. A session persisted before the projection cache was composed regains its title the first time it is opened, which checkpoints it.
 - **Trusted caller boundary** — the service assumes its host is authorized to read every session exposed by `ctx.sessionQuery`; it is not a model-facing search tool.
 - **Text projection only** — non-text user and assistant blocks are not propagated across sessions.
 - **No live link** — references are snapshots, not forks, resumes, subscriptions, or source-session mutations.

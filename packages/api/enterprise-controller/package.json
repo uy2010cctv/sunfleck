@@ -9,7 +9,7 @@
     "directory": "packages/api/enterprise-controller"
   },
   "type": "module",
-  "dependencies": { "@larksuiteoapi/node-sdk": "1.73.2", "@deepseek-ai/dsh-enterprise-device-plane": "workspace:^", "zod": "^4.4.3" },
+  "dependencies": { "@larksuiteoapi/node-sdk": "1.73.2", "@deepseek-ai/dsh-enterprise-device-plane": "workspace:^", "js-yaml": "^4.2.0", "zod": "^4.4.3" },
   "main": "lib/index.js",
   "types": "lib/types/index.d.ts",
   "exports": {
@@ -26,6 +26,7 @@
   "license": "MIT",
   "peerDependencies": {
     "@deepseek-ai/cordis": "workspace:^",
+    "@deepseek-ai/cordis-plugin-include": "workspace:~",
     "@deepseek-ai/dsh-host-webserver": "workspace:^",
     "@deepseek-ai/dsh-enterprise-auth-web": "workspace:^",
     "@deepseek-ai/dsh-channel-kernel": "workspace:^",
@@ -40,14 +41,16 @@
     "@deepseek-ai/dsh-employee-account": "workspace:^",
     "@deepseek-ai/dsh-enterprise-surface": "workspace:^",
     "@deepseek-ai/dsh-enterprise-project": "workspace:^",
-    "@deepseek-ai/dsh-agent-presets": "workspace:^",
+    "@deepseek-ai/dsh-agent-preset-registry": "workspace:^",
     "@deepseek-ai/dsh-invariants": "workspace:^",
     "@deepseek-ai/dsh-llm": "workspace:^",
     "@deepseek-ai/dsh-session": "workspace:^",
     "@deepseek-ai/dsh-typert-protocol": "workspace:^"
   },
   "devDependencies": {
+    "@types/js-yaml": "^4.0.9",
     "@deepseek-ai/cordis": "workspace:^",
+    "@deepseek-ai/cordis-plugin-include": "workspace:~",
     "@deepseek-ai/dsh-host-webserver": "workspace:^",
     "@deepseek-ai/dsh-enterprise-auth-web": "workspace:^",
     "@deepseek-ai/dsh-channel-kernel": "workspace:^",
@@ -62,7 +65,7 @@
     "@deepseek-ai/dsh-employee-account": "workspace:^",
     "@deepseek-ai/dsh-enterprise-surface": "workspace:^",
     "@deepseek-ai/dsh-enterprise-project": "workspace:^",
-    "@deepseek-ai/dsh-agent-presets": "workspace:^",
+    "@deepseek-ai/dsh-agent-preset-registry": "workspace:^",
     "@deepseek-ai/dsh-invariants": "workspace:^",
     "@deepseek-ai/dsh-llm": "workspace:^",
     "@deepseek-ai/dsh-session": "workspace:^",

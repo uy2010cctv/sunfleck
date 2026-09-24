@@ -1,4 +1,4 @@
-/** Host-only Team state projected incrementally from committed Session events. */
+/** Team state projected incrementally from committed Session events, with a durable-only client view. */
 
 import { z } from 'zod'
 import { brandString } from '@deepseek-ai/dsh-brand'
@@ -9,12 +9,15 @@ import type {
   TeamDecisionSnapshot,
   TeamHumanMemberSnapshot,
   TeamId,
+  TeamMemberProjection,
   TeamMemberSnapshot,
   TeamMessageId,
   TeamMessageSnapshot,
+  TeamProjection,
   TeamRunSnapshot,
   TeamRuntimeMutationReceipt,
   TeamTaskSnapshot,
+  TeamTaskView,
 } from './types.ts'
 import {
   TeamId as toTeamId,
@@ -22,6 +25,7 @@ import {
   TeamTaskId as toTeamTaskId,
 } from './types.ts'
 import { assertTaskGraphCandidate } from './task-graph.ts'
+import { projectTaskView } from './task-view.ts'
 
 const nonNegativeSafeInteger = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER)
 const positiveSafeInteger = nonNegativeSafeInteger.min(1)
@@ -61,8 +65,8 @@ const imageAttachmentSchema = z.object({
   name: z.string().optional(),
 }).strict()
 
-// ContentBlockMap is merge-extensible. Validate every core variant exactly,
-// while retaining JSON-decoded plugin variants under an unknown type tag.
+// Validate the listed variants; retired tool-result tags cannot enter the
+// merge-extensible fallback for JSON-decoded plugin content.
 const contentBlockSchema: z.ZodType<ContentBlock> = z.lazy(() => z.union([
   z.object({ type: z.literal('text'), text: z.string() }).strict(),
   z.object({ type: z.literal('reasoning'), text: z.string() }).strict(),
@@ -73,16 +77,12 @@ const contentBlockSchema: z.ZodType<ContentBlock> = z.lazy(() => z.union([
     name: z.string(),
     arguments: z.string(),
   }).strict(),
-  z.object({
-    type: z.literal('tool-result'),
-    toolCallId: z.string().min(1),
-    content: z.array(contentBlockSchema),
-    isError: z.boolean().optional(),
-  }).strict(),
-  z.object({ type: z.string().min(1) }).loose().refine(
-    block => !coreContentBlockTypes.has(block.type),
-    { message: 'known content block types must match their declared fields' },
-  ),
+  // Keep unknown JSON objects by reference; loose-object parsing drops their own __proto__ keys.
+  z.custom<ContentBlock>((value) => {
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) return false
+    const type = (value as { type?: unknown }).type
+    return typeof type === 'string' && type.length > 0 && !coreContentBlockTypes.has(type)
+  }),
 ])) as z.ZodType<ContentBlock>
 
 const teamMemberSnapshotSchema = z.object({
@@ -222,34 +222,38 @@ function lookupArray<T>(items: T[], keyOf: (item: T) => string): LookupArray<T> 
   return result
 }
 
-/** Current Team state selected by durable Team identity. */
+/**
+ * Current Team state selected by durable Team identity. Every applied Team
+ * event produces a new state object and replaces only the collection it
+ * touched; untouched collections keep their references.
+ */
 export interface TeamState {
   readonly id: TeamId
-  readonly members: TeamMemberSnapshot[]
+  readonly members: readonly TeamMemberSnapshot[]
   readonly humans: LookupArray<TeamHumanMemberSnapshot>
-  readonly tasks: TeamTaskSnapshot[]
-  readonly messages: TeamMessageSnapshot[]
-  readonly delivered: TeamMessageId[]
+  readonly tasks: readonly TeamTaskSnapshot[]
+  readonly messages: readonly TeamMessageSnapshot[]
+  readonly delivered: readonly TeamMessageId[]
   readonly decisions: LookupArray<TeamDecisionSnapshot>
   readonly operations: LookupArray<TeamRuntimeOperation>
-  run: TeamRunSnapshot | undefined
-  runtimeRevision: number
-  nextTaskNumber: number
+  readonly run: TeamRunSnapshot | undefined
+  readonly runtimeRevision: number
+  readonly nextTaskNumber: number
 }
 
 /**
  * Construct empty state for one Team identity.
  * @param rootId - root Session identity.
- * @returns mutable empty Team state.
+ * @returns empty Team state.
  */
 export function emptyTeamState(rootId: SessionId): TeamProjectionState {
   return {
     id: toTeamId(rootId),
     members: [],
-    humans: lookupArray<TeamHumanMemberSnapshot>([], member => member.userId),
     tasks: [],
     messages: [],
     delivered: [],
+    humans: lookupArray<TeamHumanMemberSnapshot>([], member => member.userId),
     decisions: lookupArray<TeamDecisionSnapshot>([], decision => decision.decisionId),
     operations: lookupArray<TeamRuntimeOperation>([], operation => operation.operationId),
     run: undefined,
@@ -260,7 +264,7 @@ export function emptyTeamState(rootId: SessionId): TeamProjectionState {
 
 /** Checkpoint-safe state for the Team owned by the projected Session. */
 export interface TeamProjectionState extends TeamState {
-  failure?: string
+  readonly failure?: string
 }
 
 declare module '@deepseek-ai/dsh-session-projection/types' {
@@ -354,14 +358,17 @@ function parseCurrentTeamEvent(event: TeamSessionEvent): TeamSessionEvent {
   }
 }
 
-/** Require one enterprise runtime event to advance the root-wide revision exactly once. */
-function advanceRuntime(
+/**
+ * Validate one enterprise runtime operation against the root-wide revision and
+ * derive the operation row the caller folds into the next state.
+ */
+function checkedRuntimeOperation(
   state: TeamState,
   operationId: string,
   intent: string,
   runtimeRevision: number,
   sourceEventSeq: number,
-): void {
+): TeamRuntimeOperation {
   const prior = state.operations.get(operationId)
   if (prior !== undefined && prior.intent !== intent) {
     throw new Error(`team runtime operation "${operationId}" changed intent`)
@@ -369,15 +376,17 @@ function advanceRuntime(
   if (runtimeRevision !== state.runtimeRevision + 1) {
     throw new Error(`team runtime revision is not contiguous: expected ${String(state.runtimeRevision + 1)}, got ${String(runtimeRevision)}`)
   }
-  state.runtimeRevision = runtimeRevision
-  const operation: TeamRuntimeOperation = {
-    operationId,
-    intent,
-    runtimeRevision,
-    sourceEventSeq,
+  return { operationId, intent, runtimeRevision, sourceEventSeq }
+}
+
+/** Fold one validated runtime operation into the next state's revision bookkeeping. */
+function withRuntimeOperation(state: TeamProjectionState, operation: TeamRuntimeOperation): TeamProjectionState {
+  const index = state.operations.findIndex(candidate => candidate.operationId === operation.operationId)
+  return {
+    ...state,
+    operations: lookupArray(replaceAt(state.operations, index, operation), candidate => candidate.operationId),
+    runtimeRevision: operation.runtimeRevision,
   }
-  if (prior === undefined) state.operations.push(operation)
-  else state.operations[state.operations.indexOf(prior)] = operation
 }
 
 const RUN_TRANSITIONS: Readonly<Record<TeamRunSnapshot['state'], ReadonlySet<TeamRunSnapshot['state']>>> = {
@@ -397,29 +406,39 @@ function runOperationIntent(run: TeamRunSnapshot, prior: TeamRunSnapshot | undef
     : `run-${run.state}:${run.runId}`
 }
 
-function applyProjectionEvent(state: TeamProjectionState, event: SessionEvent): void {
-  if (state.failure !== undefined) return
-  if (!isTeamEvent(event)) return
+function applyProjectionEvent(state: TeamProjectionState, event: SessionEvent): TeamProjectionState {
+  if (state.failure !== undefined) return state
+  if (!isTeamEvent(event)) return state
   // Invariants apply candidate events to structured clones, which preserve the
   // checkpoint arrays but not their non-enumerable lookup helpers.
-  lookupArray(state.humans, member => member.userId)
-  lookupArray(state.decisions, decision => decision.decisionId)
-  lookupArray(state.operations, operation => operation.operationId)
+  const current = {
+    ...state,
+    humans: lookupArray(state.humans, member => member.userId),
+    decisions: lookupArray(state.decisions, decision => decision.decisionId),
+    operations: lookupArray(state.operations, operation => operation.operationId),
+  }
   try {
     const selector = parsePersisted(event.type, teamEventSelectorSchema, event.data)
-    if (selector.teamId !== state.id) return
+    if (selector.teamId !== current.id) return state
     const expectedVersion = event.type === 'team/run' || event.type === 'team/human-member' || event.type === 'team/decision' ? 1 : 2
     if (selector.version !== expectedVersion) {
       throw new Error(`unsupported Agent Teams event version ${String(selector.version)}`)
     }
-    applyCurrentTeamEvent(state, parseCurrentTeamEvent(event))
+    return applyCurrentTeamEvent(current, parseCurrentTeamEvent(event))
   } catch (error: unknown) {
     /* v8 ignore next -- the owned Team transition throws Error instances. */
-    state.failure = error instanceof Error ? error.message : String(error)
+    return { ...current, failure: error instanceof Error ? error.message : String(error) }
   }
 }
 
-function applyCurrentTeamEvent(state: TeamState, event: TeamSessionEvent): void {
+function replaceAt<T>(items: readonly T[], index: number, item: T): T[] {
+  const next = [...items]
+  if (index < 0) next.push(item)
+  else next[index] = item
+  return next
+}
+
+function applyCurrentTeamEvent(state: TeamProjectionState, event: TeamSessionEvent): TeamProjectionState {
   switch (event.type) {
     case 'team/member': {
       const member = event.data.member
@@ -441,9 +460,7 @@ function applyCurrentTeamEvent(state: TeamState, event: TeamSessionEvent): void 
           throw new Error(`teammate "${member.name}" has an invalid ${prior.phase} -> ${member.phase} transition`)
         }
       }
-      if (index < 0) state.members.push(member)
-      else state.members[index] = member
-      break
+      return { ...state, members: replaceAt(state.members, index, member) }
     }
     case 'team/human-member': {
       const member = event.data.member
@@ -451,9 +468,9 @@ function applyCurrentTeamEvent(state: TeamState, event: TeamSessionEvent): void 
       if (prior !== undefined && JSON.stringify(prior) !== JSON.stringify(member)) {
         throw new Error(`human Team member "${member.userId}" changed immutable identity fields`)
       }
-      if (prior === undefined) state.humans.push(member)
-      else state.humans[state.humans.indexOf(prior)] = member
-      break
+      if (prior !== undefined) return state
+      const index = state.humans.findIndex(candidate => candidate.userId === member.userId)
+      return { ...state, humans: lookupArray(replaceAt(state.humans, index, member), candidate => candidate.userId) }
     }
     case 'team/task': {
       const task = event.data.task
@@ -466,33 +483,30 @@ function applyCurrentTeamEvent(state: TeamState, event: TeamSessionEvent): void 
         throw new Error(`team task "${task.id}" revision is not contiguous`)
       }
       assertTaskGraphCandidate(state.tasks, task)
+      let nextTaskNumber = state.nextTaskNumber
       const match = numericTaskIdPattern.exec(task.id)
       if (match !== null) {
         const number = Number(match[1])
-        state.nextTaskNumber = Math.max(
-          state.nextTaskNumber,
+        nextTaskNumber = Math.max(
+          nextTaskNumber,
           number === Number.MAX_SAFE_INTEGER ? number : number + 1,
         )
       }
-      if (index < 0) state.tasks.push(task)
-      else state.tasks[index] = task
-      break
+      return { ...state, tasks: replaceAt(state.tasks, index, task), nextTaskNumber }
     }
     case 'team/message/queued': {
       const message = event.data.message
       if (state.messages.some(candidate => candidate.id === message.id)) {
         throw new Error(`team message "${message.id}" was queued twice`)
       }
-      state.messages.push(message)
-      break
+      return { ...state, messages: [...state.messages, message] }
     }
     case 'team/message/delivered': {
       const queued = state.messages.find(message => message.id === event.data.messageId)
       if (queued === undefined) throw new Error(`team message "${event.data.messageId}" was delivered before queueing`)
       if (queued.targetId !== event.data.targetId) throw new Error(`team message "${event.data.messageId}" target changed`)
       if (state.delivered.includes(event.data.messageId)) throw new Error(`team message "${event.data.messageId}" was delivered twice`)
-      state.delivered.push(event.data.messageId)
-      break
+      return { ...state, delivered: [...state.delivered, event.data.messageId] }
     }
     case 'team/run': {
       const run = event.data.run
@@ -510,9 +524,8 @@ function applyCurrentTeamEvent(state: TeamState, event: TeamSessionEvent): void 
       } else if (run.state !== 'starting') {
         throw new Error(`TeamRun "${run.runId}" must begin starting`)
       }
-      advanceRuntime(state, run.operationId, runOperationIntent(run, prior), run.runtimeRevision, event.seq)
-      state.run = run
-      break
+      const operation = checkedRuntimeOperation(state, run.operationId, runOperationIntent(run, prior), run.runtimeRevision, event.seq)
+      return { ...withRuntimeOperation(state, operation), run }
     }
     case 'team/decision': {
       const decision = event.data.decision
@@ -540,25 +553,99 @@ function applyCurrentTeamEvent(state: TeamState, event: TeamSessionEvent): void 
       const intent = prior === undefined
         ? `decision-project:${decision.decisionId}`
         : `decision-${decision.state}:${decision.decisionId}`
-      advanceRuntime(state, decision.operationId, intent, decision.runtimeRevision, event.seq)
-      if (prior === undefined) state.decisions.push(decision)
-      else state.decisions[state.decisions.indexOf(prior)] = decision
-      break
+      const operation = checkedRuntimeOperation(state, decision.operationId, intent, decision.runtimeRevision, event.seq)
+      const index = state.decisions.findIndex(candidate => candidate.decisionId === decision.decisionId)
+      return {
+        ...withRuntimeOperation(state, operation),
+        decisions: lookupArray(replaceAt(state.decisions, index, decision), candidate => candidate.decisionId),
+      }
     }
     /* v8 ignore next 2 -- TeamEventType is closed and every member is handled above. */
     default:
-      return
+      return state
   }
 }
 
-/** Host-only Team projection selected by the projected Session identity. */
+const teamMemberProjectionSchema = z.object({
+  id: sessionIdSchema,
+  name: z.string(),
+  role: z.enum(['lead', 'teammate']),
+  phase: z.enum(['provisioning', 'active', 'failed']),
+  error: z.string().optional(),
+}).strict() as z.ZodType<TeamMemberProjection>
+
+const teamTaskViewSchema = z.object({
+  id: teamTaskIdSchema,
+  revision: positiveSafeInteger,
+  subject: z.string(),
+  description: z.string(),
+  status: z.enum(['pending', 'in_progress', 'completed', 'deleted']),
+  blockedBy: z.array(teamTaskIdSchema),
+  writeScopes: z.array(z.string()),
+  ownerName: z.string().optional(),
+  ready: z.boolean(),
+  writeScopeWarnings: z.array(z.string()),
+}).strict() as z.ZodType<TeamTaskView>
+
+const teamProjectionSchema = z.object({
+  members: z.array(teamMemberProjectionSchema),
+  tasks: z.array(teamTaskViewSchema),
+  failure: z.string().optional(),
+}).strict() as z.ZodType<TeamProjection>
+
+/** Client views keyed by the member and task collections they were derived from. */
+const teamProjectionViews = new WeakMap<readonly TeamMemberSnapshot[], WeakMap<readonly TeamTaskSnapshot[], TeamProjection>>()
+
+function buildTeamProjection(state: TeamProjectionState): TeamProjection {
+  const rootId = brandString<SessionId>(state.id)
+  const members: TeamMemberProjection[] = [{ id: rootId, name: 'lead', role: 'lead', phase: 'active' }]
+  for (const member of state.members) {
+    members.push({
+      id: member.id,
+      name: member.name,
+      role: 'teammate',
+      phase: member.phase,
+      ...member.error === undefined ? {} : { error: member.error },
+    })
+  }
+  return {
+    members,
+    tasks: state.tasks
+      .filter(task => task.status !== 'deleted')
+      .map(task => projectTaskView(state, task)),
+    ...state.failure === undefined ? {} : { failure: state.failure },
+  }
+}
+
+/**
+ * Durable client view of one Team state. Mailbox-only state changes reuse the
+ * previous view reference, so the live drive publishes nothing for them.
+ * A failure is terminal: later events retain the failed state reference and
+ * do not republish its view.
+ * @param state - current Team state.
+ * @returns the roster and non-deleted task board, plus any projection failure.
+ */
+export function teamProjectionView(state: TeamProjectionState): TeamProjection {
+  if (state.failure !== undefined) return buildTeamProjection(state)
+  let byTasks = teamProjectionViews.get(state.members)
+  if (byTasks === undefined) {
+    byTasks = new WeakMap()
+    teamProjectionViews.set(state.members, byTasks)
+  }
+  let view = byTasks.get(state.tasks)
+  if (view === undefined) {
+    view = buildTeamProjection(state)
+    byTasks.set(state.tasks, view)
+  }
+  return view
+}
+
+/** Team projection selected by the projected Session identity; the wire view carries durable roster and task state only. */
 export const teamProjectionDefinition = {
   key: 'agentTeam',
   stateVersion: 4,
   stateSchema: teamProjectionEntrySchema,
   init: header => emptyTeamState(header.id),
-  apply: (state, event) => {
-    applyProjectionEvent(state, event)
-    return state
-  },
+  apply: applyProjectionEvent,
+  wire: { viewSchema: teamProjectionSchema, view: teamProjectionView },
 } satisfies ProjectionDefinition<'agentTeam', TeamProjectionState>

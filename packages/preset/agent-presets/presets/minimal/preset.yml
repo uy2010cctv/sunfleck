@@ -1,9 +1,0 @@
-name: 极简模式
-description: 仅提供持久 shell 的单工具编码 Agent。
-order: 3
-employee:
-  position: 轻量开发员工
-  department: 研发支持
-  capabilities:
-    - 持久终端
-    - 精确文件编辑

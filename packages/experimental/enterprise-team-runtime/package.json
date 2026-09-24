@@ -18,7 +18,7 @@
   "peerDependencies": {
     "@deepseek-ai/cordis": "workspace:^",
     "@deepseek-ai/dsh-agent": "workspace:^",
-    "@deepseek-ai/dsh-agent-presets": "workspace:^",
+    "@deepseek-ai/dsh-agent-preset-registry": "workspace:^",
     "@deepseek-ai/dsh-enterprise-auth-web": "workspace:^",
     "@deepseek-ai/dsh-enterprise-catalog": "workspace:^",
     "@deepseek-ai/dsh-enterprise-operations": "workspace:^",
@@ -37,7 +37,7 @@
     "@deepseek-ai/dsh-agent": "workspace:^",
     "@deepseek-ai/dsh-agent-loop": "workspace:^",
     "@deepseek-ai/dsh-agent-loop-testkit": "workspace:^",
-    "@deepseek-ai/dsh-agent-presets": "workspace:^",
+    "@deepseek-ai/dsh-agent-preset-registry": "workspace:^",
     "@deepseek-ai/dsh-enterprise-auth-web": "workspace:^",
     "@deepseek-ai/dsh-enterprise-catalog": "workspace:^",
     "@deepseek-ai/dsh-enterprise-governance": "workspace:^",

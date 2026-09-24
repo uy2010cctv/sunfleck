@@ -20,6 +20,6 @@
     { "path": "../../runtime-diagnostics/invariants" },
     { "path": "../../catalog/enterprise-catalog" },
     { "path": "../../session/session-projection" },
-    { "path": "../../preset/agent-presets" }
+    { "path": "../../preset/agent-preset-registry" }
   ]
 }

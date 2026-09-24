@@ -1,7 +1,7 @@
 /** Authenticated enterprise identity rendered below the Settings trigger. */
 
 import { useState } from 'react'
-import { IconUserOutline16, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
+import { IconUserOutlineRegular, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { GovernancePrincipal } from './controller.ts'
 import css from './EnterpriseAccountCard.module.css'
 import { defaultGovernanceTranslate, type GovernanceTranslate } from './locales.ts'
@@ -35,14 +35,14 @@ export function EnterpriseAccountCard({ wide, principal, logout, t = defaultGove
     return <Tooltip label={label} delayMs={500}>
       <button type="button" className={css.railButton} aria-label={label} disabled={busy}
         onClick={() => { void submit() }}>
-        <IconUserOutline16 size={18} />
+        <IconUserOutlineRegular size={18} />
       </button>
     </Tooltip>
   }
 
   return <section className={css.card} aria-label={t('account.current')}>
     <div className={css.identity}>
-      <span className={css.avatar} aria-hidden="true"><IconUserOutline16 size={16} /></span>
+      <span className={css.avatar} aria-hidden="true"><IconUserOutlineRegular size={16} /></span>
       <span className={css.copy}>
         <strong title={principal.displayName}>{principal.displayName}</strong>
         <span title={`@${principal.username} · ${role}`}>@{principal.username} · {role}</span>

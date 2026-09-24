@@ -88,7 +88,7 @@ describe('EnterpriseWorkbenchController employee directory slice', () => {
   it('loads the persistent employee directory through the employee dm list endpoint', async () => {
     const fetchMock = vi.fn(async () => jsonResponse([BUYER, ARCHIVIST]))
     vi.stubGlobal('fetch', fetchMock)
-    const controller = new EnterpriseWorkbenchController({} as never, {} as never, {} as never)
+    const controller = new EnterpriseWorkbenchController({} as never, {} as never, {} as never, () => {})
 
     await expect(controller.loadEmployees()).resolves.toBe(true)
 
@@ -103,7 +103,7 @@ describe('EnterpriseWorkbenchController employee directory slice', () => {
 
   it('keeps a failed directory load contained in the slice', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ error: 'forbidden' }, 403)))
-    const controller = new EnterpriseWorkbenchController({} as never, {} as never, {} as never)
+    const controller = new EnterpriseWorkbenchController({} as never, {} as never, {} as never, () => {})
 
     await expect(controller.loadEmployees()).resolves.toBe(false)
 
@@ -114,7 +114,7 @@ describe('EnterpriseWorkbenchController employee directory slice', () => {
 
   it('selects a directory row and clears the selection', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => jsonResponse([BUYER, ARCHIVIST])))
-    const controller = new EnterpriseWorkbenchController({} as never, {} as never, {} as never)
+    const controller = new EnterpriseWorkbenchController({} as never, {} as never, {} as never, () => {})
     await controller.loadEmployees()
 
     controller.selectEmployee('employee-archivist')
@@ -128,7 +128,7 @@ describe('EnterpriseWorkbenchController employee directory slice', () => {
   it('delivers one dm through the employee messages endpoint and settles clean', async () => {
     const fetchMock = vi.fn(async () => jsonResponse({ employeeId: 'employee-buyer', inboxItemId: 'inbox-1' }))
     vi.stubGlobal('fetch', fetchMock)
-    const controller = new EnterpriseWorkbenchController({} as never, {} as never, {} as never)
+    const controller = new EnterpriseWorkbenchController({} as never, {} as never, {} as never, () => {})
 
     await expect(controller.sendMessage('employee-buyer', '请核验本周报价')).resolves.toBe(true)
 
@@ -142,7 +142,7 @@ describe('EnterpriseWorkbenchController employee directory slice', () => {
   })
 
   it('maps inactive employees and failed deliveries to contained dictionary keys', async () => {
-    const controller = new EnterpriseWorkbenchController({} as never, {} as never, {} as never)
+    const controller = new EnterpriseWorkbenchController({} as never, {} as never, {} as never, () => {})
     vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ error: 'employee-inactive' }, 409)))
     await expect(controller.sendMessage('employee-archivist', '在吗')).resolves.toBe(false)
     expect(controller.store.getSnapshot().staff.sendError).toBe('employee-inactive')
@@ -158,7 +158,7 @@ describe('EnterpriseWorkbenchController employee memory slice', () => {
   it('loads one employee memory view through the governance endpoint', async () => {
     const fetchMock = vi.fn(async () => jsonResponse([PROPOSED, APPROVED_AGENT]))
     vi.stubGlobal('fetch', fetchMock)
-    const controller = new EnterpriseWorkbenchController({} as never, {} as never, {} as never)
+    const controller = new EnterpriseWorkbenchController({} as never, {} as never, {} as never, () => {})
 
     await expect(controller.loadEmployeeMemories('employee-buyer')).resolves.toBe(true)
 
@@ -172,7 +172,7 @@ describe('EnterpriseWorkbenchController employee memory slice', () => {
 
   it('keeps a failed memory load contained in the slice', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ error: 'forbidden' }, 403)))
-    const controller = new EnterpriseWorkbenchController({} as never, {} as never, {} as never)
+    const controller = new EnterpriseWorkbenchController({} as never, {} as never, {} as never, () => {})
 
     await expect(controller.loadEmployeeMemories('employee-buyer')).resolves.toBe(false)
 
@@ -185,7 +185,7 @@ describe('EnterpriseWorkbenchController employee memory slice', () => {
     const fetchMock = vi.fn(async (url: string) =>
       url.endsWith('/review') ? jsonResponse(APPROVED_AGENT) : jsonResponse([]))
     vi.stubGlobal('fetch', fetchMock)
-    const controller = new EnterpriseWorkbenchController({} as never, {} as never, {} as never)
+    const controller = new EnterpriseWorkbenchController({} as never, {} as never, {} as never, () => {})
 
     await expect(controller.reviewEmployeeMemory('employee-buyer', PROPOSED.id, 'approved', 1))
       .resolves.toBe(true)
@@ -206,7 +206,7 @@ describe('EnterpriseWorkbenchController employee memory slice', () => {
     const fetchMock = vi.fn(async (url: string) =>
       url.endsWith('/retire') ? jsonResponse(APPROVED_AGENT) : jsonResponse([]))
     vi.stubGlobal('fetch', fetchMock)
-    const controller = new EnterpriseWorkbenchController({} as never, {} as never, {} as never)
+    const controller = new EnterpriseWorkbenchController({} as never, {} as never, {} as never, () => {})
 
     await expect(controller.retireEmployeeMemory('employee-buyer', APPROVED_AGENT.id, 1))
       .resolves.toBe(true)
@@ -223,7 +223,7 @@ describe('EnterpriseWorkbenchController employee memory slice', () => {
 
   it('keeps a failed review contained in the slice', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ error: 'memory-conflict' }, 409)))
-    const controller = new EnterpriseWorkbenchController({} as never, {} as never, {} as never)
+    const controller = new EnterpriseWorkbenchController({} as never, {} as never, {} as never, () => {})
 
     await expect(controller.reviewEmployeeMemory('employee-buyer', PROPOSED.id, 'rejected', 1))
       .resolves.toBe(false)
@@ -235,7 +235,7 @@ describe('EnterpriseWorkbenchController employee memory slice', () => {
 
   it('names the retire in a failed retire error', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ error: 'memory-conflict' }, 409)))
-    const controller = new EnterpriseWorkbenchController({} as never, {} as never, {} as never)
+    const controller = new EnterpriseWorkbenchController({} as never, {} as never, {} as never, () => {})
 
     await expect(controller.retireEmployeeMemory('employee-buyer', APPROVED_AGENT.id, 1))
       .resolves.toBe(false)

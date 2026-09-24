@@ -7,7 +7,7 @@
     { "path": "../../core/agent" },
     { "path": "../../core/session" },
     { "path": "../../llm/llm" },
-    { "path": "../../preset/agent-presets" },
+    { "path": "../../preset/agent-preset-registry" },
     { "path": "../../session/session-persistence" },
     { "path": "../../subagent/subagent" },
     { "path": "../../workspace/workspace" },

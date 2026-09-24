@@ -4,10 +4,10 @@ import { useEffect, useRef, useState, type ReactNode } from 'react'
 import QRCode from 'qrcode/lib/browser.js'
 import { EnterpriseBrand } from './EnterpriseBrand.tsx'
 import {
-  IconApiOutline14, IconCheckOutline16, IconChecklistOutline14, IconCloseOutline16,
-  IconContextInjectionOutline16, IconCordisPluginOutline14, IconEditOutline16, IconPlayOutline16,
-  IconRefreshOutline16, IconPlusOutline16, IconSearchOutline16, IconSkillOutline16, IconSparkle16,
-  IconUserOutline16, IconWarningOutline16, StateDot,
+  IconApiOutlineMedium, IconCheckOutlineRegular, IconChecklistOutlineMedium, IconCloseOutlineRegular,
+  IconContextInjectionOutlineRegular, IconCordisPluginOutlineMedium, IconEditOutlineRegular, IconPlayOutlineRegular,
+  IconRefreshOutlineRegular, IconPlusOutlineRegular, IconSearchOutlineRegular, IconSkillOutlineRegular, IconSparkleRegular,
+  IconUserOutlineRegular, IconWarningOutlineRegular, StateDot,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { InjectFace, PropsLocale, PropsRenderSlots, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { SessionId } from '@deepseek-ai/dsh-api-remotes/client'
@@ -211,11 +211,11 @@ const CAPABILITY_CARD_KEYS = {
 } as const satisfies Record<CapabilityCategory, readonly [EnterpriseWorkbenchKey, EnterpriseWorkbenchKey]>
 
 function CapabilityIcon({ category }: { category: CapabilityCategory }) {
-  if (category === 'sop') return <IconChecklistOutline14 size={18}/>
-  if (category === 'knowledge') return <IconContextInjectionOutline16 size={18}/>
-  if (category === 'skill') return <IconSkillOutline16 size={18}/>
-  if (category === 'tool') return <IconApiOutline14 size={18}/>
-  return <IconCordisPluginOutline14 size={18}/>
+  if (category === 'sop') return <IconChecklistOutlineMedium size={18}/>
+  if (category === 'knowledge') return <IconContextInjectionOutlineRegular size={18}/>
+  if (category === 'skill') return <IconSkillOutlineRegular size={18}/>
+  if (category === 'tool') return <IconApiOutlineMedium size={18}/>
+  return <IconCordisPluginOutlineMedium size={18}/>
 }
 
 function CapabilityTypeCards({ counts, selected, select, openCordis, t }: {
@@ -280,16 +280,15 @@ function recordStatus(status: WorkRecordState, t: Translate) {
   switch (status) {
     case 'running': return { label: t('record.running'), dot: 'ongoing' as const }
     case 'attention': return { label: t('record.attention'), dot: 'warning' as const }
-    case 'completed': return { label: t('record.completed'), dot: 'done' as const }
     case 'ready': return { label: t('record.ready'), dot: 'done' as const }
   }
 }
 
 function PageBoundary<T>({ page, t, children, empty }: { page: EnterprisePageState<T>; t: Translate; children: React.ReactNode; empty?: React.ReactNode }) {
   if (page.phase === 'loading' && page.items.length === 0) return <div className={css.loading} role="status"><span className={css.skeleton} />{t('loading')}</div>
-  if (page.phase === 'permission') return <div className={css.empty} role="status"><IconWarningOutline16 size={20} /><strong>{t('permission.title')}</strong><span>{t('permission.body')}</span></div>
-  if (page.phase === 'error' && page.items.length === 0) return <div className={css.empty} role="alert"><IconWarningOutline16 size={20} /><strong>{t('page.error')}</strong><span>{page.error}</span></div>
-  if (page.items.length === 0) return <>{empty ?? <div className={css.empty}><IconCheckOutline16 size={20} /><span>{t('page.empty')}</span></div>}</>
+  if (page.phase === 'permission') return <div className={css.empty} role="status"><IconWarningOutlineRegular size={20} /><strong>{t('permission.title')}</strong><span>{t('permission.body')}</span></div>
+  if (page.phase === 'error' && page.items.length === 0) return <div className={css.empty} role="alert"><IconWarningOutlineRegular size={20} /><strong>{t('page.error')}</strong><span>{page.error}</span></div>
+  if (page.items.length === 0) return <>{empty ?? <div className={css.empty}><IconCheckOutlineRegular size={20} /><span>{t('page.empty')}</span></div>}</>
   return <>{children}</>
 }
 
@@ -312,7 +311,7 @@ function ActionableEmpty({ title, description, action }: {
   action?: React.ReactNode
 }) {
   return <div className={css.actionableEmpty}>
-    <IconCheckOutline16 size={20}/><strong>{title}</strong><p>{description}</p>{action}
+    <IconCheckOutlineRegular size={20}/><strong>{title}</strong><p>{description}</p>{action}
   </div>
 }
 
@@ -337,8 +336,8 @@ function NativeEmployeeCard({ employee, busy, start, t }: { employee: Enterprise
     <div className={css.employeeHead}><EmployeeAvatar name={employee.name} seed={employee.id} t={t}/><div className={css.employeeIdentity}><div className={css.employeeNameRow}><h3>{employee.name}</h3>{employee.isDefault && <span className={css.badge}>{t('employee.default')}</span>}{employee.custom && <span className={css.badge}>{t('employee.custom')}</span>}</div><div className={css.employeeMeta}><span>{employee.position ?? employee.description ?? employee.employeeCode}</span>{employee.department !== undefined && <span>{employee.department}</span>}</div></div><div className={css.status}><StateDot state={status.dot} /><span>{status.label}</span></div></div>
     {employee.description !== undefined && employee.position !== undefined && <p className={css.description}>{employee.description}</p>}
     <div className={css.capabilities}>{employee.capabilities.map(value => <span key={value}>{value}</span>)}</div>
-    <div className={css.employeeFoot}><span>{t('employee.work', { count: employee.recentWork })}</span><button type="button" className={css.primaryButton} aria-label={unavailable ? t('employee.unavailable', { name: employee.name }) : t('employee.start', { name: employee.name })} disabled={unavailable || busy} onClick={(event) => { event.stopPropagation(); void start(employee.id) }}>{busy ? <IconRefreshOutline16 className={css.spin} size={16} /> : <IconPlayOutline16 size={16} />}{busy ? t('employee.busy') : unavailable ? status.label : t('employee.action')}</button></div>
-    {employee.unavailableReason !== undefined && <p className={css.unavailableReason}><IconWarningOutline16 size={14} />{employee.unavailableReason}</p>}
+    <div className={css.employeeFoot}><span>{t('employee.work', { count: employee.recentWork })}</span><button type="button" className={css.primaryButton} aria-label={unavailable ? t('employee.unavailable', { name: employee.name }) : t('employee.start', { name: employee.name })} disabled={unavailable || busy} onClick={(event) => { event.stopPropagation(); void start(employee.id) }}>{busy ? <IconRefreshOutlineRegular className={css.spin} size={16} /> : <IconPlayOutlineRegular size={16} />}{busy ? t('employee.busy') : unavailable ? status.label : t('employee.action')}</button></div>
+    {employee.unavailableReason !== undefined && <p className={css.unavailableReason}><IconWarningOutlineRegular size={14} />{employee.unavailableReason}</p>}
   </article>
 }
 
@@ -349,7 +348,7 @@ function NativeRecord({ record, open, t }: { record: EnterpriseWorkRecord; open:
 
 function FallbackPage({ state, start, open, t }: { state: EnterpriseWorkbenchState; start: (id: string) => Promise<void>; open: (id: SessionId) => void; t: Translate }) {
   const view = state.view; if (view === undefined) return null
-  return <><div className={css.notice} role="status">{t('mode.fallback')}</div><dl className={css.metrics} aria-label={t('metrics.aria')} aria-live="polite">{([['metrics.employees', view.metrics.employees], ['metrics.active', view.metrics.active], ['metrics.attention', view.metrics.attention], ['metrics.records', view.metrics.workRecords]] as const).map(([label, value]) => <div key={label}><dt>{t(label)}</dt><dd>{value}</dd></div>)}</dl><div className={css.content}><section aria-labelledby="enterprise-employees-title"><div className={css.sectionHead}><h2 id="enterprise-employees-title">{t('employees.title')}</h2><span aria-live="polite">{view.employees.length}</span></div>{view.employees.length === 0 ? <div className={css.empty}><IconUserOutline16 size={20} /><strong>{t('employees.empty.title')}</strong><span>{t('employees.empty.body')}</span></div> : <div className={css.employeeGrid}>{view.employees.map(employee => <NativeEmployeeCard key={employee.id} employee={employee} busy={state.busyEmployee === employee.id} start={start} t={t} />)}</div>}</section><section aria-labelledby="enterprise-records-title"><div className={css.sectionHead}><h2 id="enterprise-records-title">{t('records.title')}</h2><span aria-live="polite">{view.records.length}</span></div>{view.records.length === 0 ? <div className={css.empty}><IconCheckOutline16 size={20} /><span>{t('records.empty')}</span></div> : <div className={css.recordList}>{view.records.map(record => <NativeRecord key={record.sessionId} record={record} open={open} t={t} />)}</div>}</section></div></>
+  return <><div className={css.notice} role="status">{t('mode.fallback')}</div><dl className={css.metrics} aria-label={t('metrics.aria')} aria-live="polite">{([['metrics.employees', view.metrics.employees], ['metrics.active', view.metrics.active], ['metrics.attention', view.metrics.attention], ['metrics.records', view.metrics.workRecords]] as const).map(([label, value]) => <div key={label}><dt>{t(label)}</dt><dd>{value}</dd></div>)}</dl><div className={css.content}><section aria-labelledby="enterprise-employees-title"><div className={css.sectionHead}><h2 id="enterprise-employees-title">{t('employees.title')}</h2><span aria-live="polite">{view.employees.length}</span></div>{view.employees.length === 0 ? <div className={css.empty}><IconUserOutlineRegular size={20} /><strong>{t('employees.empty.title')}</strong><span>{t('employees.empty.body')}</span></div> : <div className={css.employeeGrid}>{view.employees.map(employee => <NativeEmployeeCard key={employee.id} employee={employee} busy={state.busyEmployee === employee.id} start={start} t={t} />)}</div>}</section><section aria-labelledby="enterprise-records-title"><div className={css.sectionHead}><h2 id="enterprise-records-title">{t('records.title')}</h2><span aria-live="polite">{view.records.length}</span></div>{view.records.length === 0 ? <div className={css.empty}><IconCheckOutlineRegular size={20} /><span>{t('records.empty')}</span></div> : <div className={css.recordList}>{view.records.map(record => <NativeRecord key={record.sessionId} record={record} open={open} t={t} />)}</div>}</section></div></>
 }
 
 function EmployeeEditor({ editor, assets, modelOptions, cordisCount, api, back, rollback, openExtensions, renderEmployeeKnowledgeBindings, mutationBusy, t }: {
@@ -434,7 +433,7 @@ function EmployeeEditor({ editor, assets, modelOptions, cordisCount, api, back, 
   const validationText = (error: string): string => error === 'name-required' ? t('editor.nameRequired') : error === 'prompt-required' ? t('editor.promptRequired') : error === 'model-required' ? t('editor.modelRequired') : error
   return <section className={css.editor} aria-labelledby="employee-editor-title">
     <header className={css.editorHeader}>
-      <div><h2 id="employee-editor-title">{editor.creatingFromPresetId === undefined ? t('editor.title') : t('editor.createTitle')}</h2><p>{editor.creatingFromPresetId === undefined ? t('editor.editHint') : t('editor.createHint')}</p></div>
+      <div><h2 id="employee-editor-title">{editor.creating === true ? t('editor.createTitle') : t('editor.title')}</h2><p>{editor.creating === true ? t('editor.createHint') : t('editor.editHint')}</p></div>
       <button type="button" className={css.secondaryButton} onClick={back}>{t('editor.back')}</button>
     </header>
     <div className={css.editorLayout}>
@@ -456,7 +455,7 @@ function EmployeeEditor({ editor, assets, modelOptions, cordisCount, api, back, 
           </div></section>
           <section className={css.formSection} aria-labelledby="employee-runtime-section"><header><h3 id="employee-runtime-section">{t('editor.runtimeSection')}</h3><p>{t('editor.runtimeHelp')}</p></header><div className={css.formGrid}>
             <label className={css.compactField}>{t('editor.model')}<select value={field.modelRef} onChange={(event) => { api.patchEmployeeDraft({ modelRef: event.target.value }) }}><option value="">{t('editor.modelPlaceholder')}</option>{field.modelRef !== '' && !modelOptions.some(option => option.value === field.modelRef) && <option value={field.modelRef}>{field.modelRef}</option>}{modelOptions.map(option => <option key={option.value} value={option.value}>{option.provider} · {option.model}</option>)}</select></label>
-            <div className={`${css.fullField} ${css.promptField}`}><div className={css.promptToolbar}><label htmlFor="employee-responsibility-prompt">{t('editor.prompt')}</label><button type="button" className={css.secondaryButton} disabled={field.prompt.trim() === '' || field.modelRef === '' || editor.optimizingPrompt === true || mutationBusy} onClick={() => { void api.optimizeEmployeePrompt() }}><IconSparkle16 size={16}/>{editor.optimizingPrompt === true ? t('editor.optimizing') : t('editor.optimize')}</button></div><textarea id="employee-responsibility-prompt" rows={8} value={field.prompt} placeholder={t('editor.promptPlaceholder')} onChange={(event) => { api.patchEmployeeDraft({ prompt: event.target.value }) }} /></div>
+            <div className={`${css.fullField} ${css.promptField}`}><div className={css.promptToolbar}><label htmlFor="employee-responsibility-prompt">{t('editor.prompt')}</label><button type="button" className={css.secondaryButton} disabled={field.prompt.trim() === '' || field.modelRef === '' || editor.optimizingPrompt === true || mutationBusy} onClick={() => { void api.optimizeEmployeePrompt() }}><IconSparkleRegular size={16}/>{editor.optimizingPrompt === true ? t('editor.optimizing') : t('editor.optimize')}</button></div><textarea id="employee-responsibility-prompt" rows={8} value={field.prompt} placeholder={t('editor.promptPlaceholder')} onChange={(event) => { api.patchEmployeeDraft({ prompt: event.target.value }) }} /></div>
           </div></section>
           <section className={css.formSection} aria-labelledby="employee-access-section"><header><h3 id="employee-access-section">{t('editor.accessSection')}</h3><p>{t('editor.accessHelp')}</p></header><div className={css.formGrid}>
             <label>{t('editor.visibility')}<select value={field.visibility} onChange={(event) => { api.patchEmployeeDraft({ visibility: event.target.value as EnterpriseVisibility }) }}><option value="organization">{t(VISIBILITY_KEYS.organization)}</option><option value="private">{t(VISIBILITY_KEYS.private)}</option><option value="restricted">{t(VISIBILITY_KEYS.restricted)}</option></select></label>
@@ -533,12 +532,12 @@ function EmployeesPage({ state, api, guardDirty, renderEmployeeKnowledgeBindings
   return <section className={css.employeeGallery} aria-labelledby="employees-page-title">
     <div className={css.galleryIntro}>
       <div><h2 id="employees-page-title">{t('employees.heading')}</h2><p>{t('employees.intro')}</p></div>
-      <div className={css.galleryIntroActions}><span>{t('employees.count', { count: state.employees.items.length })}</span><button type="button" className={css.primaryButton} onClick={api.createEmployeeDraft}><IconPlusOutline16 size={16}/>{t('employees.create')}</button></div>
+      <div className={css.galleryIntroActions}><span>{t('employees.count', { count: state.employees.items.length })}</span><button type="button" className={css.primaryButton} onClick={api.createEmployeeDraft}><IconPlusOutlineRegular size={16}/>{t('employees.create')}</button></div>
     </div>
     <form className={css.galleryControls} onSubmit={(event) => { event.preventDefault(); applyFilters() }}>
       <label className={css.searchField}>
         <span className={css.visuallyHidden}>{t('filters.search')}</span>
-        <IconSearchOutline16 size={16}/>
+        <IconSearchOutlineRegular size={16}/>
         <input value={search} placeholder={t('filters.searchPlaceholder')} onChange={(event) => { setSearch(event.target.value) }}/>
       </label>
       <button type="submit" className={css.secondaryButton}>{t('filters.searchAction')}</button>
@@ -554,7 +553,7 @@ function EmployeesPage({ state, api, guardDirty, renderEmployeeKnowledgeBindings
     <div className={css.employeeTabs} role="tablist" aria-label={t('employees.categories')}>
       {([['', 'employees.all'], ['published', 'enum.employee.published'], ['draft', 'enum.employee.draft']] as const).map(([value, key]) => <button type="button" role="tab" key={value || 'all'} aria-selected={status === value} onClick={() => { setStatus(value); applyFilters(value) }}>{t(key)}</button>)}
     </div>
-    <PageBoundary page={state.employees} t={t} empty={<ActionableEmpty title={t('employees.empty.title')} description={t('employees.empty.body')} action={<button type="button" className={css.primaryButton} onClick={api.createEmployeeDraft}><IconPlusOutline16 size={16}/>{t('employees.create')}</button>}/>}><div className={css.employeeGrid}>{state.employees.items.map((draft) => {
+    <PageBoundary page={state.employees} t={t} empty={<ActionableEmpty title={t('employees.empty.title')} description={t('employees.empty.body')} action={<button type="button" className={css.primaryButton} onClick={api.createEmployeeDraft}><IconPlusOutlineRegular size={16}/>{t('employees.create')}</button>}/>}><div className={css.employeeGrid}>{state.employees.items.map((draft) => {
       const name = profileText(draft, 'name', draft.presetId)
       const position = profileText(draft, 'position', t('employee.positionFallback'))
       const department = profileText(draft, 'department')
@@ -580,8 +579,8 @@ function EmployeesPage({ state, api, guardDirty, renderEmployeeKnowledgeBindings
           <span>{t('employee.stat.sop', { count: count('sop') })}</span>
         </div>
         <div className={css.employeeActions}>
-          <button type="button" className={css.secondaryButton} aria-label={t('employee.edit', { name })} onClick={() => { void api.openEmployeeDraft(draft.presetId) }}><IconEditOutline16 size={16}/>{t('employee.manage')}</button>
-          <button type="button" className={css.startButton} aria-label={t('employee.start', { name })} disabled={state.busyEmployee === draft.presetId} onClick={() => { void api.startEmployee(draft.presetId) }}><IconPlayOutline16 size={16}/>{state.busyEmployee === draft.presetId ? t('employee.busy') : t('employee.action')}</button>
+          <button type="button" className={css.secondaryButton} aria-label={t('employee.edit', { name })} onClick={() => { void api.openEmployeeDraft(draft.presetId) }}><IconEditOutlineRegular size={16}/>{t('employee.manage')}</button>
+          <button type="button" className={css.startButton} aria-label={t('employee.start', { name })} disabled={state.busyEmployee === draft.presetId} onClick={() => { void api.startEmployee(draft.presetId) }}><IconPlayOutlineRegular size={16}/>{state.busyEmployee === draft.presetId ? t('employee.busy') : t('employee.action')}</button>
         </div>
       </article>
     })}</div></PageBoundary>
@@ -705,7 +704,7 @@ function SchedulesPage({ page, releases, api, busy, onDirty, t }: { page: Enterp
   const goEmployees = <button type="button" className={css.primaryButton} onClick={() => { api.setPage('employees') }}>{t('prerequisite.goEmployees')}</button>
   return <section className={css.managementPage} aria-labelledby="schedules-page-title">
     <ManagementHeader id="schedules-page-title" title={t('nav.schedules')} description={t('schedule.description')} count={page.items.length}
-      action={page.items.length === 0 ? undefined : canCreate ? <button type="button" className={css.primaryButton} onClick={() => { setCreating(true) }}><IconPlusOutline16 size={16}/>{t('schedule.create')}</button> : goEmployees}/>
+      action={page.items.length === 0 ? undefined : canCreate ? <button type="button" className={css.primaryButton} onClick={() => { setCreating(true) }}><IconPlusOutlineRegular size={16}/>{t('schedule.create')}</button> : goEmployees}/>
     {!canCreate && <ActionableEmpty title={t('schedule.prerequisiteTitle')} description={t('schedule.prerequisiteBody')} action={goEmployees}/>}
     {canCreate && creating && <form className={css.guidedForm} onSubmit={(event) => {
       event.preventDefault()
@@ -749,7 +748,7 @@ function AssetsPage({ page, cordisCount, api, busy, onDirty, openExtensions, ren
     cordis: cordisCount,
   }
   const filteredPage = { ...page, items: filteredAssets }
-  const createButton = <button type="button" className={css.primaryButton} onClick={() => { setCreating(true) }}><IconPlusOutline16 size={16}/>{t('asset.create')}</button>
+  const createButton = <button type="button" className={css.primaryButton} onClick={() => { setCreating(true) }}><IconPlusOutlineRegular size={16}/>{t('asset.create')}</button>
   const createForm = creating && <form className={css.guidedForm} onSubmit={(event) => {
     event.preventDefault()
     const payload: Readonly<Record<string, JsonValue>> = kind === 'sop'
@@ -836,9 +835,9 @@ function TeamsPage({ page, releases, api, busy, onDirty, t, embedded = false }: 
   const goEmployees = <button type="button" className={css.primaryButton} onClick={() => { api.setPage('employees') }}>{t('prerequisite.goEmployees')}</button>
   return <section className={css.managementPage} aria-label={embedded ? t('team.legacyTitle') : undefined} aria-labelledby={embedded ? undefined : 'teams-page-title'}>
     {!embedded && <ManagementHeader id="teams-page-title" title={t('team.legacyTitle')} description={t('team.legacyDescription')} count={page.items.length}
-      action={page.items.length === 0 ? undefined : canCreate ? <button type="button" className={css.primaryButton} onClick={() => { setCreating(true) }}><IconPlusOutline16 size={16}/>{t('team.create')}</button> : goEmployees}/>
+      action={page.items.length === 0 ? undefined : canCreate ? <button type="button" className={css.primaryButton} onClick={() => { setCreating(true) }}><IconPlusOutlineRegular size={16}/>{t('team.create')}</button> : goEmployees}/>
     }
-    {embedded && page.items.length > 0 && <div className={css.legacyActions}>{canCreate ? <button type="button" className={css.secondaryButton} onClick={() => { setCreating(true) }}><IconPlusOutline16 size={16}/>{t('team.create')}</button> : goEmployees}</div>}
+    {embedded && page.items.length > 0 && <div className={css.legacyActions}>{canCreate ? <button type="button" className={css.secondaryButton} onClick={() => { setCreating(true) }}><IconPlusOutlineRegular size={16}/>{t('team.create')}</button> : goEmployees}</div>}
     {!canCreate && <ActionableEmpty title={t('team.prerequisiteTitle')} description={t('team.prerequisiteBody')} action={goEmployees}/>}
     {canCreate && creating && <form className={css.guidedForm} onSubmit={(event) => {
       event.preventDefault()
@@ -1042,7 +1041,7 @@ function TeamControlPanel({ definitions, runs, decisions, autonomy, workspaces, 
       ? <CharterEditor key={editing === 'new' ? 'new' : `${editing.teamId}:${editing.revision}`} {...(editing === 'new' ? {} : { definition: editing })} {...(newerDefinition === undefined ? {} : { newerDefinition })} releases={releases} api={api} busy={busy} onDirty={onDirty} onClean={onClean} close={() => { setEditing(null); onClean() }} loadNewer={() => { if (newerDefinition !== undefined) setEditing(newerDefinition) }} t={t}/>
       : <div className={css.teamCommandGrid}>
         <section className={css.teamCharters} aria-labelledby="team-charters-title">
-          <div className={css.sectionHead}><div><h3 id="team-charters-title">{t('team.charters')}</h3><p>{t('team.chartersHelp')}</p></div><div className={css.charterListActions}><span>{definitions.items.length}</span><button type="button" className={css.primaryButton} disabled={busy} onClick={() => { setEditing('new') }}><IconPlusOutline16 size={16}/>{t('team.charter.new')}</button></div></div>
+          <div className={css.sectionHead}><div><h3 id="team-charters-title">{t('team.charters')}</h3><p>{t('team.chartersHelp')}</p></div><div className={css.charterListActions}><span>{definitions.items.length}</span><button type="button" className={css.primaryButton} disabled={busy} onClick={() => { setEditing('new') }}><IconPlusOutlineRegular size={16}/>{t('team.charter.new')}</button></div></div>
           {definitions.items.length === 0
             ? <p className={css.quietText}>{t('team.chartersEmpty')}</p>
             : <div className={css.charterList}>{definitions.items.map((item) => {
@@ -1499,7 +1498,7 @@ function NativeChannelsPage({ page, api, busy, t }: {
   }
   return <section className={css.channelPage} aria-labelledby="channel-page-title">
     <ManagementHeader id="channel-page-title" title={t('channel.title')} description={t('channel.description')} count={page.items.length}/>
-    <div className={css.channelPrinciple}><IconApiOutline14 size={16}/><div><strong>{t('channel.truthTitle')}</strong><span>{t('channel.truthBody')}</span></div></div>
+    <div className={css.channelPrinciple}><IconApiOutlineMedium size={16}/><div><strong>{t('channel.truthTitle')}</strong><span>{t('channel.truthBody')}</span></div></div>
     <div className={css.channelProviderStarts} aria-label={t('channel.botInstall.choicesAria')}>{CHANNEL_PROVIDERS.map(provider => <button type="button" className={provider === 'wecom' ? css.primaryButton : css.secondaryButton} key={provider} onClick={() => { void startBotInstall(provider) }}>{t(`channel.botInstall.start.${provider}`)}</button>)}</div>
     {botInstall !== null && <section className={css.channelBotInstall} role={botInstall.phase === 'error' ? 'alert' : 'status'}>
       <div><h3>{t(`channel.botInstall.title.${botInstall.phase}`, { provider: t(`channel.provider.${botInstall.provider}`) })}</h3><p>{t(`channel.botInstall.body.${botInstall.phase}.${botInstall.provider}`)}</p>{botInstall.qrValue !== undefined && <ProviderInstallQr value={botInstall.qrValue} label={t('channel.botInstall.qrAlt', { provider: t(`channel.provider.${botInstall.provider}`) })}/>}</div>
@@ -1507,7 +1506,7 @@ function NativeChannelsPage({ page, api, busy, t }: {
     </section>}
     {attention.length > 0 && <section className={css.channelAttention} aria-label={t('channel.attentionAria')}>
       {attention.map(item => <button type="button" key={item.channel.channelId} aria-label={t('channel.attention.open', { name: item.channel.name, reason: item.reason })} onClick={() => { focusRecoveryAction(item.channel.channelId, item.target) }} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); focusRecoveryAction(item.channel.channelId, item.target) } else if (event.key === ' ') event.preventDefault() }} onKeyUp={(event) => { if (event.key === ' ') { event.preventDefault(); focusRecoveryAction(item.channel.channelId, item.target) } }}>
-        <IconWarningOutline16 size={16}/><strong>{item.channel.name}</strong><span>{item.reason}</span>
+        <IconWarningOutlineRegular size={16}/><strong>{item.channel.name}</strong><span>{item.reason}</span>
       </button>)}
     </section>}
     <PageBoundary page={page} t={t} empty={<ActionableEmpty title={t('channel.emptyTitle')} description={t('channel.emptyBody')}/>}>
@@ -1657,7 +1656,7 @@ function ExtensionsPage({ state, workspaces, api, busy, t }: {
           {workspaces.items.map(workspace => <option key={workspace.workspaceId} value={workspace.workspaceId}>{workspace.title}</option>)}
         </select></label>
         <button type="button" className={css.secondaryButton} disabled={busy}
-          onClick={() => { void api.refreshExtensions() }}><IconRefreshOutline16 size={16} />{t('refresh')}</button>
+          onClick={() => { void api.refreshExtensions() }}><IconRefreshOutlineRegular size={16} />{t('refresh')}</button>
       </div>
     </div>
     <nav className={css.extensionTabs} aria-label={t('extensions.sections')}>
@@ -1799,10 +1798,10 @@ export function EnterpriseWorkbench(props: EnterpriseWorkbenchProps) {
       return success
     },
   }
-  return <section ref={dialogRef} className={css.workbench} role="dialog" aria-modal="true" aria-label={props.t('title')} onKeyDown={onKeyDown}><header className={css.header}><div><h1><EnterpriseBrand heading label={props.t('title')} /></h1><p>{props.t('subtitle')}</p></div><div className={css.headerActions}><button type="button" className={css.iconButton} aria-label={props.t('refresh')} onClick={() => { void props.refresh() }}><IconRefreshOutline16 size={16} /></button><button ref={closeRef} type="button" className={css.iconButton} aria-label={props.t('close')} onClick={requestClose}><IconCloseOutline16 size={16} /></button></div></header>
-    {state.mutationError !== null && <div className={css.mutationError} role="alert" aria-label={props.t('mutation.errorAria')}><IconWarningOutline16 size={18} /><span>{state.mutationPhase === 'conflict' ? props.t('mutation.conflict') : state.mutationError}</span>{state.mutationPhase === 'conflict' ? <button type="button" onClick={() => { void props.resolveMutationConflict() }}>{props.t('mutation.reload')}</button> : <button type="button" onClick={() => { void props.retryMutation() }}>{props.t('mutation.retry')}</button>}<button type="button" onClick={props.dismissMutationError}>{props.t('mutation.dismiss')}</button></div>}
+  return <section ref={dialogRef} className={css.workbench} role="dialog" aria-modal="true" aria-label={props.t('title')} onKeyDown={onKeyDown}><header className={css.header}><div><h1><EnterpriseBrand heading label={props.t('title')} /></h1><p>{props.t('subtitle')}</p></div><div className={css.headerActions}><button type="button" className={css.iconButton} aria-label={props.t('refresh')} onClick={() => { void props.refresh() }}><IconRefreshOutlineRegular size={16} /></button><button ref={closeRef} type="button" className={css.iconButton} aria-label={props.t('close')} onClick={requestClose}><IconCloseOutlineRegular size={16} /></button></div></header>
+    {state.mutationError !== null && <div className={css.mutationError} role="alert" aria-label={props.t('mutation.errorAria')}><IconWarningOutlineRegular size={18} /><span>{state.mutationPhase === 'conflict' ? props.t('mutation.conflict') : state.mutationError}</span>{state.mutationPhase === 'conflict' ? <button type="button" onClick={() => { void props.resolveMutationConflict() }}>{props.t('mutation.reload')}</button> : <button type="button" onClick={() => { void props.retryMutation() }}>{props.t('mutation.retry')}</button>}<button type="button" onClick={props.dismissMutationError}>{props.t('mutation.dismiss')}</button></div>}
     {state.phase === 'loading' && state.mode === null && <div className={css.loading} role="status"><span className={css.skeleton} />{props.t('loading')}</div>}
-    {state.phase === 'error' && <div className={css.error} role="alert"><IconWarningOutline16 size={18} /><span>{state.error}</span><button type="button" onClick={() => { void props.refresh() }}>{props.t('retry')}</button></div>}
+    {state.phase === 'error' && <div className={css.error} role="alert"><IconWarningOutlineRegular size={18} /><span>{state.error}</span><button type="button" onClick={() => { void props.refresh() }}>{props.t('retry')}</button></div>}
     {state.phase !== 'error' && state.mode === 'fallback' && <main className={css.body}><FallbackPage state={state} start={props.startEmployee} open={props.openRecord} t={props.t} /></main>}
     {state.phase !== 'error' && state.mode === 'enterprise' && <div className={css.shell}>
       <nav className={css.nav} aria-label={props.t('nav.aria')}>{NAV_GROUPS.map(group => <div className={css.navGroup} key={group.label}><span>{props.t(group.label)}</span>{group.items.map(([id, key]) => <button type="button" key={id} aria-current={page === id ? 'page' : undefined} onClick={() => { requestPage(id) }}>{props.t(key)}</button>)}</div>)}</nav>

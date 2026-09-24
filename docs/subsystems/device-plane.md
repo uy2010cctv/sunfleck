@@ -85,6 +85,18 @@ Authenticated Device Plane pairing and heartbeat service.
  */
 @Remote('pair') async pair(request: EnterpriseDevicePairRequest): Promise<{ deviceId: string }>
 
+/** Create one ten-minute recorder binding code for the authenticated user.
+ * @param request - Empty recorder-pairing request owned by the authenticated principal.
+ * @returns One plaintext code and its expiry; only the hash remains durable.
+ */
+@Remote('createRecorderPairing') async createRecorderPairing( request: EnterpriseRecorderPairingRequest, ): Promise<EnterpriseRecorderPairingChallenge>
+
+/** List recorder devices owned by the authenticated user.
+ * @param request - Recorder status filter.
+ * @returns Redacted recorder devices for the authenticated principal.
+ */
+@Remote('listRecorders') async listRecorders(request: EnterpriseRecorderListRequest): Promise<EnterpriseRecorderDeviceView[]>
+
 /**
  * Refresh the online status of an owned device.
  * @param request - Owned device identity.

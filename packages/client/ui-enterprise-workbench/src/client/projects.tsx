@@ -1,6 +1,6 @@
 /** Project space: the governed project list, one member-gated project detail, and the surface roster. */
 import { useEffect, useState } from 'react'
-import { IconChecklistOutline14, IconUserOutline16, IconWarningOutline16, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
+import { IconChecklistOutlineMedium, IconUserOutlineRegular, IconWarningOutlineRegular, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { EnterpriseWorkbenchKey } from './locales.ts'
 import type {
   EnterpriseProjectDetailError, EnterpriseProjectLifecycle, EnterpriseProjectMemberView,
@@ -247,14 +247,14 @@ function SurfacesRoster({ surfaces, loadSurfaces, t }: {
       </select>
     </div>
     {surfaces.phase === 'error' ? <div className={css.empty} role="alert">
-      <IconWarningOutline16 size={20}/><strong>{t('projects.rosterLoadError')}</strong><span>{surfaces.error}</span>
+      <IconWarningOutlineRegular size={20}/><strong>{t('projects.rosterLoadError')}</strong><span>{surfaces.error}</span>
       <button type="button" className={css.secondaryButton}
         onClick={() => { void loadSurfaces() }}>{t('retry')}</button>
     </div>
       : surfaces.phase === 'idle' ? null
         : visible.length === 0 ? (surfaces.phase === 'loading'
           ? <div className={css.loading} role="status"><span className={css.skeleton}/>{t('loading')}</div>
-          : <div className={css.empty}><IconChecklistOutline14 size={20}/>
+          : <div className={css.empty}><IconChecklistOutlineMedium size={20}/>
             <span>{t('projects.rosterEmpty')}</span></div>)
           : <div className={css.rows}>{visible.map(surface => <div className={css.row} key={surface.id}>
             <span className={css.surfaceChip} data-kind={surface.kind}>{t(SURFACE_KIND_KEYS[surface.kind])}</span>
@@ -274,7 +274,7 @@ function DetailErrorAlert({ detailError, selectProject, t }: {
   t: Translate
 }) {
   return <div className={css.empty} role="alert">
-    <IconWarningOutline16 size={20}/>
+    <IconWarningOutlineRegular size={20}/>
     <strong>{t(DETAIL_ERROR_KEYS[detailError])}</strong>
     <button type="button" className={css.secondaryButton}
       onClick={() => { void selectProject() }}>{t('projects.back')}</button>
@@ -308,7 +308,7 @@ export function ProjectSpace(props: ProjectSpaceProps) {
       <span aria-live="polite">{projects.list.length}</span>
     </div>
     {projects.phase === 'error' ? <div className={css.empty} role="alert">
-      <IconWarningOutline16 size={20}/><strong>{t('projects.loadError')}</strong><span>{projects.error}</span>
+      <IconWarningOutlineRegular size={20}/><strong>{t('projects.loadError')}</strong><span>{projects.error}</span>
       <button type="button" className={css.secondaryButton}
         onClick={() => { void loadProjects() }}>{t('retry')}</button>
     </div>
@@ -326,7 +326,7 @@ export function ProjectSpace(props: ProjectSpaceProps) {
           : projects.phase === 'idle' ? null
             : projects.list.length === 0 ? (projects.phase === 'loading'
               ? <div className={css.loading} role="status"><span className={css.skeleton}/>{t('loading')}</div>
-              : <div className={css.empty}><IconUserOutline16 size={20}/>
+              : <div className={css.empty}><IconUserOutlineRegular size={20}/>
                 <span>{t('projects.empty')}</span></div>)
               : <ProjectList projects={projects} selectProject={selectProject} t={t}/>}
     {projects.phase !== 'error' && selected === undefined && projects.detailError === null

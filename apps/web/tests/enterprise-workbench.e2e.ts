@@ -1,13 +1,10 @@
 // Web e2e scenario: the enterprise workbench projects the shipped Agent
 // Presets and starts native DSH work under the selected employee.
-import { fileURLToPath } from 'node:url'
 import type { Browser, Page } from 'playwright'
 import { chromium } from 'playwright'
 import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest'
 import { launchWebScaffold, watchConsole, type WebScaffold } from './scaffold.ts'
 import { connectFreshWorkspace, newEnglishPage, saveFailureShot } from './support.ts'
-
-const SHIPPED_PRESETS = fileURLToPath(new URL('../../cli/config/agent-presets', import.meta.url))
 
 async function newestBlankPreset(baseUrl: string): Promise<string | undefined> {
   const response = await fetch(`${baseUrl}/api/session.list`, {
@@ -33,7 +30,7 @@ describe('web e2e: enterprise digital employee workbench', () => {
 
   beforeAll(async () => {
     scaffold = await launchWebScaffold({
-      agentPresets: { roots: [{ path: SHIPPED_PRESETS, trust: 'system' }], default: 'standard' },
+      agentPresets: { default: 'standard' },
     })
     const executablePath = process.env.DSH_CHROMIUM_EXECUTABLE
     browser = await chromium.launch(executablePath === undefined ? {} : { executablePath })

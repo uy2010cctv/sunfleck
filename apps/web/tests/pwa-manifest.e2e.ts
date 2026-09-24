@@ -33,3 +33,11 @@ it('ships the SUNFLECK favicon with both brand colors', async () => {
   expect(favicon).toContain('#FFC550')
   expect(favicon).toContain('#16FF7B')
 })
+
+it('ships a fixed-color dark favicon selected by document media query', async () => {
+  const index = await readFile(join(DIST_ROOT, 'index.html'), 'utf8')
+  expect(index).toContain('<link rel="icon" type="image/svg+xml" href="./favicon-dark.svg" media="(prefers-color-scheme: dark)" />')
+  expect(index).toContain('<link rel="icon" type="image/svg+xml" href="./favicon.svg" media="(prefers-color-scheme: light)" />')
+  const dark = await readFile(join(DIST_ROOT, 'favicon-dark.svg'), 'utf8')
+  expect(dark).toContain('fill="#fff"')
+})

@@ -186,7 +186,7 @@ describe('enterprise Agent Teams runtime driver', () => {
     expect(result).toMatchObject({ runtimeRevision: 2 })
     expect(root.session.header.cwd).toBe(app.storageRoot)
     expect(root.session.header.agentPreset).toBe('lead-preset')
-    expect(root.session.header).toMatchObject({ version: 3, isSeeded: false })
+    expect(root.session.header).toMatchObject({ version: 4, isSeeded: false })
     expect(state.run).toMatchObject({ runId: 'run-a', state: 'active', leader: { release: { releaseId: 'release-lead' } } })
     expect([...state.humans.values()]).toEqual([{ userId: 'reviewer-a', displayName: 'Reviewer A', roleId: 'reviewer' }])
     const teamMembers = [...state.members.values()]

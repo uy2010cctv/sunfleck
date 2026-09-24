@@ -1409,7 +1409,7 @@ describe('EnterpriseWorkbench', () => {
       mode: 'enterprise', page: 'employees', employeeEditor: {
         phase: 'ready', revision: 0, releases: [], dirty: false, saving: false, conflict: false,
         errors: ['name-required', 'prompt-required', 'model-required'], error: null,
-        creatingFromPresetId: 'standard', presetCreated: false,
+        creating: true,
         fields: {
           presetId: 'employee-new', name: '', description: '', position: '', department: '',
           prompt: '', modelRef: '', capabilities: [], visibility: 'organization', bindings: [],

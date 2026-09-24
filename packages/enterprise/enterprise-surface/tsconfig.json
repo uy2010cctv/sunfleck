@@ -39,7 +39,7 @@
       "path": "../../operations/enterprise-operations"
     },
     {
-      "path": "../../preset/agent-presets"
+      "path": "../../preset/agent-preset-registry"
     },
     {
       "path": "../../session/session-title"

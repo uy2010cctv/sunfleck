@@ -510,7 +510,11 @@ export class EnterpriseSecurity {
     return this.issueSessionForOrganizationAsync(identity.organizationId, user.id)
   }
 
-  /** Whether this principal may administer Host-level organization tenancy. */
+  /**
+   * Whether this principal may administer Host-level organization tenancy.
+   * @param principal - authenticated enterprise principal to test.
+   * @returns whether the principal is an administrator of the platform organization.
+   */
   isPlatformAdministrator(principal: EnterprisePrincipal): boolean {
     return principal.orgId === this.config.organizationId && principal.roles.includes('administrator')
   }

@@ -2,7 +2,7 @@
 
 import { createHash } from 'node:crypto'
 import type { Agent, AgentHandle, AgentOptions } from '@deepseek-ai/dsh-agent'
-import type {} from '@deepseek-ai/dsh-agent-presets'
+import type {} from '@deepseek-ai/dsh-agent-preset-registry'
 import type { Context } from '@deepseek-ai/cordis'
 import type { EmployeeReleaseView } from '@deepseek-ai/dsh-enterprise-catalog'
 import type {} from '@deepseek-ai/dsh-enterprise-auth-web'
@@ -45,7 +45,13 @@ export interface TeamRunMessageSource {
 declare module '@deepseek-ai/dsh-llm' {
   interface MessageSourceMap {
     'team-run-message': TeamRunMessageSource
+    'team-runtime-followup': TeamRuntimeFollowupSource
   }
+}
+
+/** Source of a runtime-generated user message the Team runtime submits outside any surface. */
+export interface TeamRuntimeFollowupSource {
+  readonly kind: 'team-runtime-followup'
 }
 
 /** Services required before the runtime driver can admit enterprise work. */
@@ -237,7 +243,7 @@ export class EnterpriseTeamRuntimeAdapter implements EnterpriseTeamRuntimeDriver
       this.ctx.enterpriseRequestContext.withoutPrincipal(() => {
         activeRoot.followup(createUserMessage({
           content: [{ type: 'text', text: input.prompt }],
-          source: { kind: 'plugin', plugin: 'enterprise-team-runtime' },
+          source: { kind: 'team-runtime-followup' },
         }))
       })
       await this.ctx.sessions.flush(root.session)
@@ -323,7 +329,7 @@ export class EnterpriseTeamRuntimeAdapter implements EnterpriseTeamRuntimeDriver
     this.ctx.enterpriseRequestContext.withoutPrincipal(() => {
       root.followup(createUserMessage({
         content: [{ type: 'text', text: `Human decision ${input.decision.decisionId}: ${input.answer}` }],
-        source: { kind: 'plugin', plugin: 'enterprise-team-runtime' },
+        source: { kind: 'team-runtime-followup' },
       }))
     })
     await this.ctx.sessions.flush(root.session)

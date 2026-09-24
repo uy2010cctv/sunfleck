@@ -1,6 +1,6 @@
 /** Persistent employee directory with one direct-message entry, rendered with the workbench row primitives. */
 import { useEffect, useState } from 'react'
-import { IconUserOutline16, IconWarningOutline16, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
+import { IconUserOutlineRegular, IconWarningOutlineRegular, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { StateDotState } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { EnterpriseWorkbenchKey } from './locales.ts'
 import type {
@@ -249,7 +249,7 @@ export function EmployeeDirectory(props: EmployeeDirectoryProps) {
       <span aria-live="polite">{staff.list.length}</span>
     </div>
     {staff.phase === 'error' ? <div className={css.empty} role="alert">
-      <IconWarningOutline16 size={20}/><strong>{t('staff.loadError')}</strong><span>{staff.error}</span>
+      <IconWarningOutlineRegular size={20}/><strong>{t('staff.loadError')}</strong><span>{staff.error}</span>
       <button type="button" className={css.secondaryButton} onClick={() => { void loadEmployees() }}>{t('retry')}</button>
     </div>
       : selected !== undefined ? <EmployeeDetail
@@ -267,7 +267,7 @@ export function EmployeeDirectory(props: EmployeeDirectoryProps) {
         : staff.phase === 'idle' ? null
           : staff.list.length === 0 ? (staff.phase === 'loading'
             ? <div className={css.loading} role="status"><span className={css.skeleton}/>{t('loading')}</div>
-            : <div className={css.empty}><IconUserOutline16 size={20}/><span>{t('staff.empty')}</span></div>)
+            : <div className={css.empty}><IconUserOutlineRegular size={20}/><span>{t('staff.empty')}</span></div>)
             : <div className={css.rows}>{staff.list.map(employee => <button
               type="button"
               key={employee.id}

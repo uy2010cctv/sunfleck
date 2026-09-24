@@ -16,7 +16,7 @@ import type { DatabaseSync } from 'node:sqlite'
 import type {} from '@deepseek-ai/dsh-agent'
 import { installInitialModelSelection } from '@deepseek-ai/dsh-agent-default-model'
 import { pendingInboxMessages } from '@deepseek-ai/dsh-agent-loop/inbox'
-import type {} from '@deepseek-ai/dsh-agent-presets'
+import type {} from '@deepseek-ai/dsh-agent-preset-registry'
 import { brandString } from '@deepseek-ai/dsh-brand'
 import {
   employeeId,
@@ -192,7 +192,7 @@ export class DmSurfaceRegistry {
   ): Promise<SessionId> {
     const selection = this.ctx.agentDefaultModel.currentSelection()
     const preset = await this.ctx.agentPresets.resolve(this.defaultAgentPreset)
-    await this.ctx.agentPresets.standingKeyFor(preset.id)
+    if (preset.broken !== undefined) throw new Error(`agent preset ${preset.id} is unusable: ${preset.broken}`)
     const workspace = await this.ctx.workspaceRegistry.create(account.homeWorkspacePath)
     const sessionId = brandString<SessionId>(`${sessionIdPrefix}-${randomUUID()}`)
     const handle = await this.ctx.agents.create({

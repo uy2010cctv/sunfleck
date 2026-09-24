@@ -94,7 +94,7 @@ describe('EnterpriseWorkbenchController project slice', () => {
   it('loads the project directory through the project list endpoint', async () => {
     const fetchMock = stubFetch(url =>
       url === '/enterprise/projects' ? jsonResponse([RENEWAL, QUOTING]) : undefined)
-    const controller = new EnterpriseWorkbenchController({} as never, {} as never, {} as never)
+    const controller = new EnterpriseWorkbenchController({} as never, {} as never, {} as never, () => {})
 
     await expect(controller.loadProjects()).resolves.toBe(true)
 
@@ -108,7 +108,7 @@ describe('EnterpriseWorkbenchController project slice', () => {
 
   it('keeps a failed project load contained in the slice', async () => {
     stubFetch(() => jsonResponse({ error: 'forbidden' }, 403))
-    const controller = new EnterpriseWorkbenchController({} as never, {} as never, {} as never)
+    const controller = new EnterpriseWorkbenchController({} as never, {} as never, {} as never, () => {})
 
     await expect(controller.loadProjects()).resolves.toBe(false)
 
@@ -122,7 +122,7 @@ describe('EnterpriseWorkbenchController project slice', () => {
       if (url !== '/enterprise/projects') return undefined
       return init?.method === 'POST' ? jsonResponse(RENEWAL, 201) : jsonResponse([RENEWAL])
     })
-    const controller = new EnterpriseWorkbenchController({} as never, {} as never, {} as never)
+    const controller = new EnterpriseWorkbenchController({} as never, {} as never, {} as never, () => {})
 
     await expect(controller.createProject({
       name: RENEWAL.name, goal: RENEWAL.goal, workspacePath: '/managed/projects/renewal',
@@ -141,7 +141,7 @@ describe('EnterpriseWorkbenchController project slice', () => {
   it('maps a failed create to the contained create-failed key', async () => {
     stubFetch((_url, init) =>
       init?.method === 'POST' ? jsonResponse({ error: 'invalid-payload' }, 400) : undefined)
-    const controller = new EnterpriseWorkbenchController({} as never, {} as never, {} as never)
+    const controller = new EnterpriseWorkbenchController({} as never, {} as never, {} as never, () => {})
 
     await expect(controller.createProject({ name: 'x', goal: 'y', workspacePath: 'relative' }))
       .resolves.toBe(false)
@@ -152,7 +152,7 @@ describe('EnterpriseWorkbenchController project slice', () => {
 
   it('reads one project detail behind the member gate and seeds the creator member', async () => {
     stubFetch(url => url === '/enterprise/projects/project-1' ? jsonResponse(RENEWAL) : undefined)
-    const controller = new EnterpriseWorkbenchController({} as never, {} as never, {} as never)
+    const controller = new EnterpriseWorkbenchController({} as never, {} as never, {} as never, () => {})
 
     await controller.selectProject('project-1')
 
@@ -164,7 +164,7 @@ describe('EnterpriseWorkbenchController project slice', () => {
 
   it('answers the member-gate 404 with the contained not-member key', async () => {
     stubFetch(() => jsonResponse({ error: 'project-not-found' }, 404))
-    const controller = new EnterpriseWorkbenchController({} as never, {} as never, {} as never)
+    const controller = new EnterpriseWorkbenchController({} as never, {} as never, {} as never, () => {})
 
     await controller.selectProject('project-1')
 
@@ -175,7 +175,7 @@ describe('EnterpriseWorkbenchController project slice', () => {
 
   it('maps other detail failures to the contained load-failed key', async () => {
     stubFetch(() => jsonResponse({ error: 'boom' }, 500))
-    const controller = new EnterpriseWorkbenchController({} as never, {} as never, {} as never)
+    const controller = new EnterpriseWorkbenchController({} as never, {} as never, {} as never, () => {})
 
     await controller.selectProject('project-1')
 
@@ -184,7 +184,7 @@ describe('EnterpriseWorkbenchController project slice', () => {
 
   it('clears the selection and the detail error', async () => {
     stubFetch(() => jsonResponse({ error: 'project-not-found' }, 404))
-    const controller = new EnterpriseWorkbenchController({} as never, {} as never, {} as never)
+    const controller = new EnterpriseWorkbenchController({} as never, {} as never, {} as never, () => {})
     await controller.selectProject('project-1')
 
     await controller.selectProject()
@@ -202,7 +202,7 @@ describe('EnterpriseWorkbenchController project slice', () => {
       }
       return undefined
     })
-    const controller = new EnterpriseWorkbenchController({} as never, {} as never, {} as never)
+    const controller = new EnterpriseWorkbenchController({} as never, {} as never, {} as never, () => {})
     await controller.selectProject('project-1')
 
     await expect(controller.addProjectMember('project-1', {
@@ -225,7 +225,7 @@ describe('EnterpriseWorkbenchController project slice', () => {
       }
       return undefined
     })
-    const controller = new EnterpriseWorkbenchController({} as never, {} as never, {} as never)
+    const controller = new EnterpriseWorkbenchController({} as never, {} as never, {} as never, () => {})
     await controller.selectProject('project-1')
 
     await expect(controller.addProjectMember('project-1', {
@@ -245,7 +245,7 @@ describe('EnterpriseWorkbenchController project slice', () => {
       if (url === '/enterprise/projects') return jsonResponse([archived])
       return undefined
     })
-    const controller = new EnterpriseWorkbenchController({} as never, {} as never, {} as never)
+    const controller = new EnterpriseWorkbenchController({} as never, {} as never, {} as never, () => {})
     await controller.loadProjects()
     await controller.selectProject('project-1')
 
@@ -264,7 +264,7 @@ describe('EnterpriseWorkbenchController project slice', () => {
       }
       return undefined
     })
-    const controller = new EnterpriseWorkbenchController({} as never, {} as never, {} as never)
+    const controller = new EnterpriseWorkbenchController({} as never, {} as never, {} as never, () => {})
     await controller.selectProject('project-1')
 
     await expect(controller.archiveProject('project-1')).resolves.toBe(false)
@@ -278,7 +278,7 @@ describe('EnterpriseWorkbenchController surface slice', () => {
   it('loads the surface roster through the surfaces list endpoint', async () => {
     stubFetch(url =>
       url === '/enterprise/surfaces' ? jsonResponse([GROUP_SURFACE, CHANNEL_SURFACE, DM_SURFACE]) : undefined)
-    const controller = new EnterpriseWorkbenchController({} as never, {} as never, {} as never)
+    const controller = new EnterpriseWorkbenchController({} as never, {} as never, {} as never, () => {})
 
     await expect(controller.loadSurfaces()).resolves.toBe(true)
 
@@ -289,7 +289,7 @@ describe('EnterpriseWorkbenchController surface slice', () => {
 
   it('keeps a failed surface load contained in the slice', async () => {
     stubFetch(() => jsonResponse({ error: 'forbidden' }, 403))
-    const controller = new EnterpriseWorkbenchController({} as never, {} as never, {} as never)
+    const controller = new EnterpriseWorkbenchController({} as never, {} as never, {} as never, () => {})
 
     await expect(controller.loadSurfaces()).resolves.toBe(false)
 

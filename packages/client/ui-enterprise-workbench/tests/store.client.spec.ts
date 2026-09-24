@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { SessionId, WorkspaceId } from '@deepseek-ai/dsh-api-remotes/client'
-import type { AgentPresetRow } from '@deepseek-ai/dsh-agent-presets/types'
+import type { AgentPresetRow } from '@deepseek-ai/dsh-agent-preset-registry/types'
 import type {
   SessionListState, SessionSummary,
 } from '@deepseek-ai/dsh-api-session-controller/client'
@@ -9,7 +9,6 @@ import { deriveEnterpriseView, EnterpriseWorkbenchController } from '../src/clie
 
 const STANDARD: AgentPresetRow = {
   id: 'standard',
-  trust: 'system',
   isDefault: true,
   name: '标准模式',
   description: '完整编码员工。',
@@ -42,11 +41,8 @@ function sessions(
   return {
     ids: rows.map(row => row.id as SessionId),
     byId,
-    current: undefined,
     phase: 'ready',
-    subagentsByParent: {},
-    jobsBySession: {},
-    currentAddress: undefined,
+    projectionsBySession: {},
   }
 }
 
@@ -61,6 +57,7 @@ function workspaces(): WorkspaceListState {
       updatedAt: '2026-08-26T00:00:01.000Z',
     }],
     archivedSessionIds: [],
+    pinnedSessionIds: [],
     state: 'idle',
     phase: 'ready',
     error: null,
@@ -71,7 +68,7 @@ describe('deriveEnterpriseView employees', () => {
   it('projects a healthy preset as an active employee from real Session state', () => {
     const view = deriveEnterpriseView([STANDARD], sessions([
       { id: 'session-1', agentPreset: 'standard', running: true },
-      { id: 'session-2', agentPreset: 'standard', completed: true },
+      { id: 'session-2', agentPreset: 'standard' },
       { id: 'blank', agentPreset: 'standard', blank: true },
     ]), workspaces())
 
@@ -91,7 +88,7 @@ describe('deriveEnterpriseView employees', () => {
 
   it('gives attention and unavailable states precedence over ordinary activity', () => {
     const broken: AgentPresetRow = {
-      id: 'broken', trust: 'user', isDefault: false, broken: 'composition missing',
+      id: 'employee-broken', isDefault: false, broken: 'composition missing',
     }
     const view = deriveEnterpriseView([STANDARD, broken], sessions([
       {
@@ -102,7 +99,7 @@ describe('deriveEnterpriseView employees', () => {
 
     expect(view.employees.map(employee => [employee.id, employee.status])).toEqual([
       ['standard', 'attention'],
-      ['broken', 'unavailable'],
+      ['employee-broken', 'unavailable'],
     ])
     expect(view.employees[1]?.custom).toBe(true)
   })
@@ -116,7 +113,7 @@ describe('deriveEnterpriseView records and metrics', () => {
         displayTitle: '供应商核验',
       },
       {
-        id: 'session-2', agentPreset: 'standard', completed: true, updatedAt: 30,
+        id: 'session-2', agentPreset: 'standard', updatedAt: 30,
         displayTitle: '合同复核',
       },
       { id: 'blank', agentPreset: 'standard', blank: true, updatedAt: 40 },
@@ -128,7 +125,7 @@ describe('deriveEnterpriseView records and metrics', () => {
       employeeId: 'standard',
       employeeName: '标准模式',
       workspaceTitle: '采购部',
-      state: 'completed',
+      state: 'ready',
     })
     expect(view.metrics).toEqual({
       employees: 1,
@@ -228,7 +225,7 @@ function controllerServices() {
   return {
     sessions: {
       list: { getSnapshot: () => sessions([]), subscribe: () => () => {} },
-      create: () => Promise.resolve('session-new' as SessionId), open: () => {},
+      create: () => Promise.resolve('session-new' as SessionId),
     },
     workspaces: { list: { getSnapshot: workspaces, subscribe: () => () => {} } },
   }
@@ -246,7 +243,7 @@ describe('EnterpriseWorkbenchController enterprise read models', () => {
     const services = controllerServices()
     const controller = new EnterpriseWorkbenchController(controllerApi({
       enterpriseDevices: { pair, list },
-    }) as never, services.sessions as never, services.workspaces as never)
+    }) as never, services.sessions as never, services.workspaces as never, () => {})
 
     await expect(controller.pairLocalDevice('http://dsh.example', 'http://127.0.0.1:47631', fetcher)).resolves.toBe(true)
     expect(pair).toHaveBeenCalledWith({ publicKey: 'public-key', deviceName: 'Kris Mac', platform: 'macos' })
@@ -263,7 +260,7 @@ describe('EnterpriseWorkbenchController enterprise read models', () => {
     const services = controllerServices()
     const controller = new EnterpriseWorkbenchController(controllerApi({
       enterpriseDevices: { createRecorderPairing },
-    }) as never, services.sessions as never, services.workspaces as never)
+    }) as never, services.sessions as never, services.workspaces as never, () => {})
     await expect(controller.createRecorderPairing()).resolves.toEqual({ pairingId: 'pair-1', code: '482913', expiresAt: 620_000 })
     expect(createRecorderPairing).toHaveBeenCalledWith({})
   })
@@ -276,24 +273,25 @@ describe('EnterpriseWorkbenchController enterprise read models', () => {
       workspaces: { list: { getSnapshot: () => workspaces(), subscribe: () => () => {} } },
     }
     const controller = new EnterpriseWorkbenchController(
-      controllerApi({ enterpriseWork }) as never, services.sessions as never, services.workspaces as never,
+      controllerApi({ enterpriseWork }) as never, services.sessions as never, services.workspaces as never, () => {},
     )
 
     await expect(controller.prepareWork({ objective: 'Prepare weekly report' })).resolves.toMatchObject({ kind: 'needs-workspace-selection' })
     expect(enterpriseWork.prepare).toHaveBeenCalledWith({ objective: 'Prepare weekly report' })
   })
 
-  it('prepares goal-first work with the actually open native Session', async () => {
+  it('prepares goal-first work with the record the workbench last opened', async () => {
     const enterpriseWork = {
       prepare: vi.fn(() => ok({ kind: 'needs-workspace-selection', availableWorkspaceIds: [] })), start: vi.fn(),
     }
     const services = {
-      sessions: { list: { getSnapshot: () => ({ ...sessions([{ id: 'current-session' }]), current: 'current-session' as SessionId }), subscribe: () => () => {} } },
+      sessions: { list: { getSnapshot: () => sessions([{ id: 'current-session' }]), subscribe: () => () => {} } },
       workspaces: { list: { getSnapshot: () => workspaces(), subscribe: () => () => {} } },
     }
     const controller = new EnterpriseWorkbenchController(
-      controllerApi({ enterpriseWork }) as never, services.sessions as never, services.workspaces as never,
+      controllerApi({ enterpriseWork }) as never, services.sessions as never, services.workspaces as never, () => {},
     )
+    controller.openRecord('current-session' as SessionId)
 
     await controller.prepareWork({ objective: 'Prepare weekly report' })
     expect(enterpriseWork.prepare).toHaveBeenCalledWith({ objective: 'Prepare weekly report', currentSessionId: 'current-session' })
@@ -317,7 +315,7 @@ describe('EnterpriseWorkbenchController enterprise read models', () => {
     const stop = vi.fn(() => ok({ ...binding, disabled: true, revision: 2 }))
     const controller = new EnterpriseWorkbenchController(controllerApi({
       cordisWorkspace: { ...base.cordisWorkspace, list, stop },
-    }) as never, controllerServices().sessions as never, controllerServices().workspaces as never)
+    }) as never, controllerServices().sessions as never, controllerServices().workspaces as never, () => {})
 
     await controller.refreshExtensions()
     await controller.stopExtension(binding as never, 'Pause.')
@@ -331,7 +329,7 @@ describe('EnterpriseWorkbenchController enterprise read models', () => {
     })
   })
 
-  it('defaults extensions to the current Session Workspace instead of list order', async () => {
+  it('defaults extensions to the Workspace holding the opened record instead of list order', async () => {
     const base = controllerServices()
     const list = vi.fn(() => ok({ packages: [], bindings: [] }))
     const currentSessions = sessions([{ id: 'current-session' }])
@@ -339,13 +337,14 @@ describe('EnterpriseWorkbenchController enterprise read models', () => {
       cordisWorkspace: { ...controllerApi().cordisWorkspace, list },
     }) as never, {
       ...base.sessions,
-      list: { getSnapshot: () => ({ ...currentSessions, current: 'current-session' as SessionId }), subscribe: () => () => {} },
+      list: { getSnapshot: () => currentSessions, subscribe: () => () => {} },
     } as never, {
       list: { getSnapshot: () => ({ ...workspaces(), items: [
         { ...workspaces().items[0]!, workspaceId: 'department-first' as WorkspaceId, sessionIds: [] },
         { ...workspaces().items[0]!, workspaceId: 'personal-current' as WorkspaceId, sessionIds: ['current-session' as SessionId] },
       ] }), subscribe: () => () => {} },
-    } as never)
+    } as never, () => {})
+    controller.openRecord('current-session' as SessionId)
 
     await controller.refreshExtensions()
 
@@ -357,7 +356,7 @@ describe('EnterpriseWorkbenchController enterprise read models', () => {
     const list = vi.fn(controllerApi().enterpriseEmployees.list)
     const api = controllerApi({ enterpriseEmployees: { ...controllerApi().enterpriseEmployees, list } })
     const services = controllerServices()
-    const controller = new EnterpriseWorkbenchController(api as never, services.sessions as never, services.workspaces as never)
+    const controller = new EnterpriseWorkbenchController(api as never, services.sessions as never, services.workspaces as never, () => {})
 
     controller.setEmployeeFilters({ search: '采购', status: 'published', visibility: 'restricted', ownerUserId: 'owner-1' })
     await controller.refresh()
@@ -382,7 +381,7 @@ describe('EnterpriseWorkbenchController enterprise read models', () => {
       enterpriseEmployees: { ...controllerApi().enterpriseEmployees, list: unavailable },
     })
     const services = controllerServices()
-    const controller = new EnterpriseWorkbenchController(api as never, services.sessions as never, services.workspaces as never)
+    const controller = new EnterpriseWorkbenchController(api as never, services.sessions as never, services.workspaces as never, () => {})
 
     await controller.refresh()
 
@@ -402,7 +401,7 @@ describe('EnterpriseWorkbenchController edits, mutations, and events', () => {
     const base = controllerApi(); const services = controllerServices()
     const controller = new EnterpriseWorkbenchController(controllerApi({
       enterpriseChannels: { ...base.enterpriseChannels, beginBinding },
-    }) as never, services.sessions as never, services.workspaces as never)
+    }) as never, services.sessions as never, services.workspaces as never, () => {})
     const channel = {
       channelId: 'finance-wecom', revision: 7,
     } as never
@@ -422,7 +421,7 @@ describe('EnterpriseWorkbenchController edits, mutations, and events', () => {
     const base = controllerApi(); const services = controllerServices()
     const controller = new EnterpriseWorkbenchController(controllerApi({
       enterpriseChannels: { ...base.enterpriseChannels, pollBotInstall },
-    }) as never, services.sessions as never, services.workspaces as never)
+    }) as never, services.sessions as never, services.workspaces as never, () => {})
 
     await expect(controller.pollChannelBotInstall('signed-install-id')).resolves.toEqual({
       status: 'pending', provider: 'feishu',
@@ -451,7 +450,7 @@ describe('EnterpriseWorkbenchController edits, mutations, and events', () => {
     const services = controllerServices()
     const controller = new EnterpriseWorkbenchController(controllerApi({
       enterpriseEmployees: { ...base.enterpriseEmployees, list },
-    }) as never, services.sessions as never, services.workspaces as never)
+    }) as never, services.sessions as never, services.workspaces as never, () => {})
 
     controller.setEmployeeFilters({ search: 'old' })
     const oldRequest = controller.refreshEmployees()
@@ -470,7 +469,7 @@ describe('EnterpriseWorkbenchController edits, mutations, and events', () => {
     const base = controllerApi(); const services = controllerServices()
     const controller = new EnterpriseWorkbenchController(controllerApi({ enterpriseOperations: {
       ...base.enterpriseOperations, transitionApproval, saveSchedule,
-    } }) as never, services.sessions as never, services.workspaces as never)
+    } }) as never, services.sessions as never, services.workspaces as never, () => {})
     const approval = { approvalId: 'a', orgId: 'o', kind: 'business', subjectType: 'order', subjectId: '1', requestedBy: 'u', state: 'pending', revision: 1, createdAt: 1, updatedAt: 1 } as const
 
     const first = controller.transitionApproval(approval, 'approved')
@@ -489,7 +488,7 @@ describe('EnterpriseWorkbenchController edits, mutations, and events', () => {
       enterpriseOperations: { ...base.enterpriseOperations, saveSchedule: () => ok({}) },
       enterpriseAssets: { ...base.enterpriseAssets, saveVersion: () => Promise.reject(new Error('asset failed')) },
       enterpriseTeams: { ...base.enterpriseTeams, save: () => ok({}) },
-    }) as never, services.sessions as never, services.workspaces as never)
+    }) as never, services.sessions as never, services.workspaces as never, () => {})
 
     await expect(controller.saveSchedule({
       scheduleId: 's', target: { kind: 'employee', employeeReleaseId: 'r' }, timezone: 'UTC',
@@ -510,7 +509,7 @@ describe('EnterpriseWorkbenchController edits, mutations, and events', () => {
     const base = controllerApi(); const services = controllerServices()
     const controller = new EnterpriseWorkbenchController(controllerApi({
       enterpriseTeamDefinitions: { ...base.enterpriseTeamDefinitions, save, list },
-    }) as never, services.sessions as never, services.workspaces as never)
+    }) as never, services.sessions as never, services.workspaces as never, () => {})
 
     await expect(controller.saveTeamDefinition({
       teamId: 'team-charter', name: '采购协同组', northStar: '让采购交付可验证',
@@ -539,7 +538,7 @@ describe('EnterpriseWorkbenchController edits, mutations, and events', () => {
     const create = vi.fn(() => new Promise<SessionId>((resolve) => { resolveCreate = resolve }))
     const services = controllerServices()
     services.sessions.create = create
-    const controller = new EnterpriseWorkbenchController(controllerApi() as never, services.sessions as never, services.workspaces as never)
+    const controller = new EnterpriseWorkbenchController(controllerApi() as never, services.sessions as never, services.workspaces as never, () => {})
 
     const first = controller.startEmployee('buyer')
     const second = controller.startEmployee('buyer')
@@ -556,7 +555,7 @@ describe('EnterpriseWorkbenchController edits, mutations, and events', () => {
     }))
     const api = controllerApi({ enterpriseEmployees: { ...controllerApi().enterpriseEmployees, saveDraft } })
     const services = controllerServices()
-    const controller = new EnterpriseWorkbenchController(api as never, services.sessions as never, services.workspaces as never)
+    const controller = new EnterpriseWorkbenchController(api as never, services.sessions as never, services.workspaces as never, () => {})
     await controller.openEmployeeDraft('buyer')
     controller.patchEmployeeDraft({ name: '采购员', visibility: 'private' })
 
@@ -570,8 +569,7 @@ describe('EnterpriseWorkbenchController edits, mutations, and events', () => {
     expect(controller.store.getSnapshot().employeeEditor).toMatchObject({ dirty: false, conflict: false })
   })
 
-  it('copies the default Agent Preset before saving a new managed employee draft', async () => {
-    const copy = vi.fn(() => ok(undefined))
+  it('saves a new managed employee draft without any client-side preset write', async () => {
     const saveDraft = vi.fn((payload: Record<string, unknown>) => ok({
       presetId: payload.presetId as string, orgId: 'server-org', ownerUserId: 'owner-1',
       visibility: 'organization' as const, profile: payload.profile as Record<string, never>,
@@ -579,11 +577,11 @@ describe('EnterpriseWorkbenchController edits, mutations, and events', () => {
     }))
     const base = controllerApi()
     const api = controllerApi({
-      agentPresets: { ...base.agentPresets, copy },
+      agentPresets: { ...base.agentPresets },
       enterpriseEmployees: { ...base.enterpriseEmployees, saveDraft },
     })
     const services = controllerServices()
-    const controller = new EnterpriseWorkbenchController(api as never, services.sessions as never, services.workspaces as never)
+    const controller = new EnterpriseWorkbenchController(api as never, services.sessions as never, services.workspaces as never, () => {})
 
     controller.createEmployeeDraft()
     const assignedSeed = controller.store.getSnapshot().employeeEditor?.fields?.avatarSeed
@@ -596,7 +594,6 @@ describe('EnterpriseWorkbenchController edits, mutations, and events', () => {
     const savedProfile = saveDraft.mock.calls[0]?.[0].profile as { avatarSeed?: unknown }
     expect(presetId).toMatch(/^employee-[a-z0-9-]+$/u)
     expect(assignedSeed).toMatch(/^[a-f0-9-]{36}$/u)
-    expect(copy).toHaveBeenCalledWith('standard', presetId, '采购专员')
     expect(saveDraft).toHaveBeenCalledWith(expect.objectContaining({
       presetId, expectedRevision: 0, visibility: 'organization',
     }))
@@ -604,6 +601,7 @@ describe('EnterpriseWorkbenchController edits, mutations, and events', () => {
     expect(controller.store.getSnapshot().employeeEditor).toMatchObject({
       dirty: false, revision: 1, fields: { presetId, name: '采购专员' },
     })
+    expect(controller.store.getSnapshot().employeeEditor?.creating).toBeUndefined()
   })
 
   it('keeps dirty input and exposes revision conflict when a save loses the revision race', async () => {
@@ -613,7 +611,7 @@ describe('EnterpriseWorkbenchController edits, mutations, and events', () => {
     } })
     const api = controllerApi({ enterpriseEmployees: { ...controllerApi().enterpriseEmployees, saveDraft } })
     const services = controllerServices()
-    const controller = new EnterpriseWorkbenchController(api as never, services.sessions as never, services.workspaces as never)
+    const controller = new EnterpriseWorkbenchController(api as never, services.sessions as never, services.workspaces as never, () => {})
     await controller.openEmployeeDraft('buyer')
     controller.patchEmployeeDraft({ prompt: '新职责' })
 
@@ -631,7 +629,7 @@ describe('EnterpriseWorkbenchController edits, mutations, and events', () => {
       enterpriseEmployees: { ...base.enterpriseEmployees, optimizePrompt },
     })
     const services = controllerServices()
-    const controller = new EnterpriseWorkbenchController(api as never, services.sessions as never, services.workspaces as never)
+    const controller = new EnterpriseWorkbenchController(api as never, services.sessions as never, services.workspaces as never, () => {})
     await controller.refresh()
     await controller.openEmployeeDraft('buyer')
     controller.patchEmployeeDraft({ modelRef: 'deepseek/deepseek-chat' })
@@ -657,7 +655,7 @@ describe('EnterpriseWorkbenchController edits, mutations, and events', () => {
       enterpriseAssets: { ...controllerApi().enterpriseAssets, list: listAssets },
     })
     const services = controllerServices()
-    const controller = new EnterpriseWorkbenchController(api as never, services.sessions as never, services.workspaces as never)
+    const controller = new EnterpriseWorkbenchController(api as never, services.sessions as never, services.workspaces as never, () => {})
     await controller.refresh()
     const frame = {
       type: 'enterprise/event', event: 'enterprise/asset-updated', eventId: 'event-1',
@@ -679,7 +677,7 @@ describe('EnterpriseWorkbenchController edits, mutations, and events', () => {
       ...controllerApi().enterpriseOperations, listWorkRecords, listApprovals, listSchedules,
     } })
     const services = controllerServices()
-    const controller = new EnterpriseWorkbenchController(api as never, services.sessions as never, services.workspaces as never)
+    const controller = new EnterpriseWorkbenchController(api as never, services.sessions as never, services.workspaces as never, () => {})
     await controller.refresh()
 
     await controller.handleHostFrame({
@@ -707,7 +705,7 @@ describe('EnterpriseWorkbenchController edits, mutations, and events', () => {
     const base = controllerApi(); const services = controllerServices()
     const controller = new EnterpriseWorkbenchController(controllerApi({
       enterpriseAssets: { ...base.enterpriseAssets, list: listAssets },
-    }) as never, services.sessions as never, services.workspaces as never)
+    }) as never, services.sessions as never, services.workspaces as never, () => {})
     const frame = { type: 'enterprise/event', event: 'enterprise/asset-updated', eventId: 'replay-event', orgId: 'o', resourceId: 'asset-1', resourceType: 'asset' } as const
 
     await controller.handleHostFrame(frame)
@@ -725,7 +723,7 @@ describe('EnterpriseWorkbenchController edits, mutations, and events', () => {
       ...controllerApi().enterpriseOperations, transitionApproval,
     } })
     const services = controllerServices()
-    const controller = new EnterpriseWorkbenchController(api as never, services.sessions as never, services.workspaces as never)
+    const controller = new EnterpriseWorkbenchController(api as never, services.sessions as never, services.workspaces as never, () => {})
     const approval = {
       approvalId: 'approval-1', orgId: 'server-org', kind: 'business', subjectType: 'order',
       subjectId: 'order-1', requestedBy: 'owner-1', state: 'pending', revision: 2,
@@ -748,7 +746,7 @@ describe('EnterpriseWorkbenchController edits, mutations, and events', () => {
     const saveDraft = vi.fn((_payload: unknown) => new Promise<Awaited<ReturnType<typeof ok>>>((resolve) => { resolveSave = resolve }))
     const api = controllerApi({ enterpriseEmployees: { ...controllerApi().enterpriseEmployees, saveDraft } })
     const services = controllerServices()
-    const controller = new EnterpriseWorkbenchController(api as never, services.sessions as never, services.workspaces as never)
+    const controller = new EnterpriseWorkbenchController(api as never, services.sessions as never, services.workspaces as never, () => {})
     await controller.openEmployeeDraft('buyer')
     controller.patchEmployeeDraft({ name: '保存中的名称' })
 
@@ -789,7 +787,7 @@ describe('EnterpriseWorkbenchController edits, mutations, and events', () => {
       enterpriseOperations: { ...base.enterpriseOperations, saveSchedule },
     })
     const services = controllerServices()
-    const controller = new EnterpriseWorkbenchController(api as never, services.sessions as never, services.workspaces as never)
+    const controller = new EnterpriseWorkbenchController(api as never, services.sessions as never, services.workspaces as never, () => {})
 
     await controller.saveSchedule({
       scheduleId: 'schedule-1', target: { kind: 'employee', employeeReleaseId: 'release-1' },
@@ -830,7 +828,7 @@ describe('EnterpriseWorkbenchController edits, mutations, and events', () => {
       ...base.enterpriseOperations, transitionSchedule, listSchedules,
     } })
     const services = controllerServices()
-    const controller = new EnterpriseWorkbenchController(api as never, services.sessions as never, services.workspaces as never)
+    const controller = new EnterpriseWorkbenchController(api as never, services.sessions as never, services.workspaces as never, () => {})
     const schedule = {
       scheduleId: 'schedule-1', orgId: 'server-org', target: { kind: 'employee', employeeReleaseId: 'release-1' },
       timezone: 'Asia/Shanghai', rule: '0 9 * * *', input: {}, state: 'active', nextRunAt: null,
@@ -866,7 +864,7 @@ describe('EnterpriseWorkbenchController edits, mutations, and events', () => {
     const base = controllerApi()
     const api = controllerApi({ enterpriseEmployees: { ...base.enterpriseEmployees, getDraft, saveDraft } })
     const services = controllerServices()
-    const controller = new EnterpriseWorkbenchController(api as never, services.sessions as never, services.workspaces as never)
+    const controller = new EnterpriseWorkbenchController(api as never, services.sessions as never, services.workspaces as never, () => {})
     await controller.openEmployeeDraft('buyer')
     controller.patchEmployeeDraft({ name: '本地未保存名称', prompt: '本地未保存职责' })
 
@@ -889,7 +887,7 @@ describe('EnterpriseWorkbenchController edits, mutations, and events', () => {
 
   it('adopts the server employee conflict as a clean editable draft', async () => {
     const services = controllerServices()
-    const controller = new EnterpriseWorkbenchController(controllerApi() as never, services.sessions as never, services.workspaces as never)
+    const controller = new EnterpriseWorkbenchController(controllerApi() as never, services.sessions as never, services.workspaces as never, () => {})
     controller.store.set({ ...controller.store.getSnapshot(), employeeEditor: {
       phase: 'ready', dirty: true, saving: false, conflict: true, errors: [], error: null,
       revision: 4, releases: [],
@@ -917,7 +915,7 @@ describe('EnterpriseWorkbenchController edits, mutations, and events', () => {
     const services = controllerServices()
     const controller = new EnterpriseWorkbenchController(
       controllerApi({ enterpriseEmployees: { ...base.enterpriseEmployees, saveDraft } }) as never,
-      services.sessions as never, services.workspaces as never,
+      services.sessions as never, services.workspaces as never, () => {},
     )
     controller.store.set({ ...controller.store.getSnapshot(), employeeEditor: {
       phase: 'ready', dirty: true, saving: false, conflict: true, errors: [], error: null,
@@ -948,7 +946,7 @@ describe('EnterpriseWorkbenchController edits, mutations, and events', () => {
     const services = controllerServices()
     const controller = new EnterpriseWorkbenchController(controllerApi({ enterpriseOperations: {
       ...base.enterpriseOperations, transitionSchedule, listSchedules,
-    } }) as never, services.sessions as never, services.workspaces as never)
+    } }) as never, services.sessions as never, services.workspaces as never, () => {})
     const schedule = {
       scheduleId: 'schedule-1', orgId: 'server-org', target: { kind: 'employee', employeeReleaseId: 'release-1' },
       timezone: 'Asia/Shanghai', rule: '0 9 * * *', input: {}, state: 'active', nextRunAt: null,

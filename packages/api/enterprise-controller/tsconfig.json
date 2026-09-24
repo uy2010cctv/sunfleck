@@ -4,6 +4,7 @@
   "include": ["src"],
   "references": [
     { "path": "../../../vendor/cordis" },
+    { "path": "../../../vendor/include" },
     { "path": "../../typert/protocol" },
     { "path": "../../identity/enterprise-auth-web" },
     { "path": "../../identity/enterprise-identity" },
@@ -19,7 +20,7 @@
     { "path": "../../enterprise/employee-account" },
     { "path": "../../enterprise/enterprise-project" },
     { "path": "../../enterprise/enterprise-surface" },
-    { "path": "../../preset/agent-presets" },
+    { "path": "../../preset/agent-preset-registry" },
     { "path": "../../core/session" },
     { "path": "../../runtime-diagnostics/invariants" }
   ]

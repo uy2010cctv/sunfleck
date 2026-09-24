@@ -189,9 +189,9 @@ function record(value: unknown): value is Record<string, unknown> {
 function descriptors(): InvocationDescriptor[] {
   const request = (schema: z.ZodType) => [{
     name: 'request', wire: 'request', source: 'json' as const,
-    codec: { mode: 'strict' as const, typeSymbol: '@fixture/enterprise-workspace#Request', schema },
+    codec: { mode: 'strict' as const, typeSymbol: '@fixture/enterprise-workspace#Request', create: () => schema },
   }]
-  const result = { mode: 'strict' as const, typeSymbol: '@fixture/enterprise-workspace#Result', schema: z.unknown() }
+  const result = { mode: 'strict' as const, typeSymbol: '@fixture/enterprise-workspace#Result', create: () => z.unknown() }
   return [
     {
       id: '@fixture/enterprise-workspace#workspace/create', service: 'workspaceFixture', namespace: 'workspace',

@@ -28,18 +28,16 @@ async function bench(declareSlots = true) {
   ctx.provide('locale', new LocaleRuntime(ctx))
   ctx.provide('sessions', {
     list: createSnapshotStore({
-      ids: [], byId: {}, current: undefined, phase: 'ready',
-      subagentsByParent: {}, jobsBySession: {}, currentAddress: undefined,
+      ids: [], byId: {}, phase: 'ready', projectionsBySession: {},
     }),
     create: () => Promise.resolve('session-1'),
-    open: () => {},
   } as never)
   ctx.provide('workspaces', {
     list: createSnapshotStore({
-      items: [], archivedSessionIds: [], state: 'idle', phase: 'ready', error: null,
-      baselinesReady: true, recentWorkspaceId: undefined,
+      items: [], archivedSessionIds: [], pinnedSessionIds: [], state: 'idle', phase: 'ready', error: null,
     }),
   } as never)
+  ctx.provide('uiWorkspace', { openSession: () => {} } as never)
   ctx.provide('connection', {} as never)
   const agentPresets = { list: () => Promise.resolve({ ok: true, value: { presets: [], authorable: false } }) }
   const enterpriseEmployee = {}
@@ -337,7 +335,7 @@ describe('enterprise workbench browser plugin', () => {
 
   it('declares its runtime dependencies', () => {
     expect(inject).toEqual([
-      'slots', 'locale', 'connection', 'sessions', 'workspaces', 'remote',
+      'slots', 'locale', 'connection', 'sessions', 'workspaces', 'uiWorkspace', 'remote',
       'remote.agentPresets', 'remote.enterpriseEmployee', 'remote.enterpriseAsset',
       'remote.enterpriseTeam', 'remote.enterpriseOperation', 'remote.session',
       'remote.enterpriseWork',

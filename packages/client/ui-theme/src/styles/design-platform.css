@@ -52,7 +52,8 @@ body {
   --dsw-static-deepseek-100: rgb(228, 237, 253);
   --dsw-static-deepseek-200: rgb(211, 226, 255);
   --dsw-static-deepseek-300: rgb(183, 200, 254);
-  --dsw-static-deepseek-400: rgb(103, 158, 254);
+  /* Brightened from the platform rgb(103, 158, 254) at the designer's request: legibility on the dark toast surface. */
+  --dsw-static-deepseek-400: rgb(122, 170, 255);
   --dsw-static-deepseek-450: rgb(86, 134, 254);
   --dsw-static-deepseek-500: rgb(65, 118, 230);
   --dsw-static-deepseek-50: rgb(237, 243, 254);
@@ -63,6 +64,8 @@ body {
   --dsw-static-green-100: rgb(230, 250, 237);
   --dsw-static-green-400: rgb(78, 209, 126);
   --dsw-static-green-500: rgb(34, 197, 94);
+  --dsw-static-green-500-a08: rgb(34 197 94 / 8%);
+  --dsw-static-green-500-a12: rgb(34 197 94 / 12%);
   --dsw-static-green-900: rgb(35, 60, 44);
   --dsw-static-neutral-00: rgb(255, 255, 255);
   --dsw-static-neutral-1000: rgb(0, 0, 0);
@@ -101,9 +104,11 @@ body {
   --dsw-static-neutral-bluish-950: rgb(21, 21, 23);
   --dsw-static-red-100: rgb(254, 226, 226);
   --dsw-static-red-400: rgb(242, 90, 90);
+  --dsw-static-red-400-a12: rgb(242 90 90 / 12%);
   --dsw-static-red-500: rgb(239, 68, 68);
   --dsw-static-red-50: rgb(254, 242, 242);
   --dsw-static-red-600: rgb(236, 19, 19);
+  --dsw-static-red-600-a08: rgb(236 19 19 / 8%);
   --dsw-static-red-900: rgb(87, 12, 12);
 }
 
@@ -128,7 +133,8 @@ body[data-ds-dark-theme] {
   --dsw-static-deepseek-100: rgb(228, 237, 253);
   --dsw-static-deepseek-200: rgb(211, 226, 255);
   --dsw-static-deepseek-300: rgb(183, 200, 254);
-  --dsw-static-deepseek-400: rgb(103, 158, 254);
+  /* Brightened from the platform rgb(103, 158, 254) at the designer's request: legibility on the dark toast surface. */
+  --dsw-static-deepseek-400: rgb(122, 170, 255);
   --dsw-static-deepseek-450: rgb(86, 134, 254);
   --dsw-static-deepseek-500: rgb(65, 118, 230);
   --dsw-static-deepseek-50: rgb(237, 243, 254);
@@ -139,6 +145,8 @@ body[data-ds-dark-theme] {
   --dsw-static-green-100: rgb(230, 250, 237);
   --dsw-static-green-400: rgb(78, 209, 126);
   --dsw-static-green-500: rgb(34, 197, 94);
+  --dsw-static-green-500-a08: rgb(34 197 94 / 8%);
+  --dsw-static-green-500-a12: rgb(34 197 94 / 12%);
   --dsw-static-green-900: rgb(35, 60, 44);
   --dsw-static-neutral-00: rgb(255, 255, 255);
   --dsw-static-neutral-1000: rgb(0, 0, 0);
@@ -177,14 +185,18 @@ body[data-ds-dark-theme] {
   --dsw-static-neutral-bluish-950: rgb(21, 21, 23);
   --dsw-static-red-100: rgb(254, 226, 226);
   --dsw-static-red-400: rgb(242, 90, 90);
+  --dsw-static-red-400-a12: rgb(242 90 90 / 12%);
   --dsw-static-red-500: rgb(239, 68, 68);
   --dsw-static-red-50: rgb(254, 242, 242);
   --dsw-static-red-600: rgb(236, 19, 19);
+  --dsw-static-red-600-a08: rgb(236 19 19 / 8%);
   --dsw-static-red-900: rgb(87, 12, 12);
 }
 
 body {
   --dsw-alias-bg-base: var(--dsw-static-sunfleck-paper);
+  --dsw-alias-bg-document-preview: var(--dsw-static-neutral-bluish-750);
+  --dsw-alias-label-document-preview: var(--dsw-static-neutral-bluish-200);
   --dsw-alias-bg-layer-1: var(--dsw-static-sunfleck-paper);
   --dsw-alias-bg-layer-2: var(--dsw-static-sunfleck-paper);
   --dsw-alias-bg-layer-3: var(--dsw-static-sunfleck-paper);
@@ -252,8 +264,17 @@ body {
   --dsw-alias-scrollbar-hover-l2: var(--dsw-static-sunfleck-paper-muted);
   --dsw-alias-state-business-primary: var(--dsw-static-sunfleck-acid-ink);
   --dsw-alias-state-business-tertiary: var(--dsw-static-sunfleck-paper-subtle);
+  --dsw-alias-code-diff-added: var(--dsw-static-green-500-a08);
+  --dsw-alias-code-diff-deleted: var(--dsw-static-red-600-a08);
+  --dsw-alias-file-diff-added-bg: rgb(230, 244, 231);
+  --dsw-alias-file-diff-added-gutter: rgb(237, 247, 237);
+  --dsw-alias-file-diff-added-marker: rgb(1, 162, 65);
+  --dsw-alias-file-diff-deleted-bg: rgb(252, 230, 226);
+  --dsw-alias-file-diff-deleted-gutter: rgb(253, 236, 233);
+  --dsw-alias-file-diff-deleted-marker: rgb(186, 39, 35);
   --dsw-alias-state-error-primary: var(--dsw-static-sunfleck-coral-ink);
   --dsw-alias-state-error-secondary: var(--dsw-static-sunfleck-coral-ink);
+  --dsw-alias-state-idle-primary: var(--dsw-static-neutral-300);
   --dsw-alias-state-success-primary: var(--dsw-static-sunfleck-success-ink);
   --dsw-alias-state-success-secondary: var(--dsw-static-sunfleck-success-ink);
   --dsw-alias-state-success-tertiary: var(--dsw-static-green-100);
@@ -267,17 +288,21 @@ body {
   --dsw-specific-bubble: var(--dsw-static-sunfleck-paper-subtle);
   --dsw-specific-input-major: var(--dsw-static-sunfleck-paper);
   --dsw-specific-login-input: var(--dsw-static-sunfleck-paper-subtle);
-  --dsw-specific-menu: var(--dsw-alias-bg-layer-3);
+  --dsw-specific-menu: rgba(248, 249, 250, 0.58);
   --dsw-specific-selector: var(--dsw-static-sunfleck-paper-subtle);
   --dsw-specific-sidebar-fill: var(--dsw-static-sunfleck-paper);
   --dsw-specific-sidebar-nav-item-active-accent: var(--dsw-static-sunfleck-paper-subtle);
   --dsw-specific-sidebar-nav-item-active: var(--dsw-static-sunfleck-paper-subtle);
   --dsw-specific-sidebar-nav-item-hover: var(--dsw-static-sunfleck-paper-subtle);
   --dsw-specific-tip: var(--dsw-static-neutral-bluish-60);
+
+  background-color: var(--dsw-alias-bg-base);
 }
 
 body[data-ds-dark-theme] {
   --dsw-alias-bg-base: var(--dsw-static-sunfleck-ink);
+  --dsw-alias-bg-document-preview: var(--dsw-static-neutral-bluish-950);
+  --dsw-alias-label-document-preview: var(--dsw-static-neutral-bluish-300);
   --dsw-alias-bg-layer-1: var(--dsw-static-sunfleck-ink-surface);
   --dsw-alias-bg-layer-2: var(--dsw-static-sunfleck-ink-subtle);
   --dsw-alias-bg-layer-3: var(--dsw-static-sunfleck-ink-subtle);
@@ -345,8 +370,17 @@ body[data-ds-dark-theme] {
   --dsw-alias-scrollbar-hover-l2: var(--dsw-static-sunfleck-ink-muted);
   --dsw-alias-state-business-primary: var(--dsw-static-sunfleck-citron);
   --dsw-alias-state-business-tertiary: var(--dsw-static-sunfleck-ink-subtle);
+  --dsw-alias-code-diff-added: var(--dsw-static-green-500-a12);
+  --dsw-alias-code-diff-deleted: var(--dsw-static-red-400-a12);
+  --dsw-alias-file-diff-added-bg: rgb(31, 49, 36);
+  --dsw-alias-file-diff-added-gutter: rgb(19, 32, 22);
+  --dsw-alias-file-diff-added-marker: rgb(65, 201, 119);
+  --dsw-alias-file-diff-deleted-bg: rgb(60, 31, 27);
+  --dsw-alias-file-diff-deleted-gutter: rgb(40, 19, 14);
+  --dsw-alias-file-diff-deleted-marker: rgb(250, 66, 62);
   --dsw-alias-state-error-primary: var(--dsw-static-sunfleck-coral-soft);
   --dsw-alias-state-error-secondary: var(--dsw-static-sunfleck-coral-soft);
+  --dsw-alias-state-idle-primary: var(--dsw-static-neutral-600);
   --dsw-alias-state-success-primary: var(--dsw-static-sunfleck-citron);
   --dsw-alias-state-success-secondary: var(--dsw-static-sunfleck-citron);
   --dsw-alias-state-success-tertiary: var(--dsw-static-green-900);
@@ -360,7 +394,7 @@ body[data-ds-dark-theme] {
   --dsw-specific-bubble: var(--dsw-static-sunfleck-ink-subtle);
   --dsw-specific-input-major: var(--dsw-static-sunfleck-ink-subtle);
   --dsw-specific-login-input: var(--dsw-static-sunfleck-ink-subtle);
-  --dsw-specific-menu: var(--dsw-alias-bg-layer-3);
+  --dsw-specific-menu: rgba(48, 49, 54, 0.5);
   --dsw-specific-selector: var(--dsw-static-sunfleck-ink-subtle);
   --dsw-specific-sidebar-fill: var(--dsw-static-sunfleck-ink);
   --dsw-specific-sidebar-nav-item-active-accent: var(--dsw-static-sunfleck-ink-subtle);

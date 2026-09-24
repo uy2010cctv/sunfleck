@@ -1,6 +1,6 @@
 /** Login gate and administrator governance ledger. */
 import { useEffect, useId, useMemo, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from 'react'
-import { FishLogo, IconChevronDownOutline14, IconChevronRightOutline14, IconEditOutline16, IconFolderClose16, IconFolderOpen16, IconPlusOutline16, IconUserOutline16, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
+import { FishLogo, IconChevronDownOutlineMedium, IconChevronRightOutlineMedium, IconEditOutlineRegular, IconFolderCloseRegular, IconFolderOpenRegular, IconPlusOutlineRegular, IconUserOutlineRegular, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
 import { randomUUID } from '@deepseek-ai/dsh-util-crypto'
 import type { CreateGovernanceOrganizationInput, EnterpriseGovernanceState, GovernanceDepartment, GovernanceMemory, GovernancePolicy, GovernanceUser, GovernanceWorkspace } from './controller.ts'
 import css from './governance.module.css'
@@ -104,12 +104,12 @@ function DepartmentBranch({ departments, users, parentId, selectedId, expanded, 
         <div className={`${css.treeRow} ${selectedId === department.id ? css.treeRowSelected : ''}`}>
           {hasChildren
             ? <button className={css.treeToggle} type="button" aria-label={`${open ? '收起' : '展开'}${department.name}`} onClick={() => { toggle(department.id) }}>
-              {open ? <IconChevronDownOutline14 size={12}/> : <IconChevronRightOutline14 size={12}/>}
+              {open ? <IconChevronDownOutlineMedium size={12}/> : <IconChevronRightOutlineMedium size={12}/>}
             </button>
             : <span className={css.treeToggleSpacer}/>}
           <button className={css.departmentButton} type="button" aria-label={department.name} aria-pressed={selectedId === department.id} onClick={() => { select(department) }}>
             <span className={css.folderIcon} aria-hidden="true">
-              {open ? <IconFolderOpen16 size={18}/> : <IconFolderClose16 size={18}/>}
+              {open ? <IconFolderOpenRegular size={18}/> : <IconFolderCloseRegular size={18}/>}
             </span>
             <span className={css.treeLabel}>{department.name}</span>
             <small>{departmentUsers.length + childCount}</small>
@@ -118,7 +118,7 @@ function DepartmentBranch({ departments, users, parentId, selectedId, expanded, 
         {open && hasChildren && <>
           {departmentUsers.length > 0 && <ul role="group">
             {departmentUsers.map(user => <li key={user.id} role="treeitem" aria-level={depth + 3} className={css.memberRow}>
-              <span className={css.memberAvatar} aria-hidden="true"><IconUserOutline16 size={14}/></span>
+              <span className={css.memberAvatar} aria-hidden="true"><IconUserOutlineRegular size={14}/></span>
               <span className={css.memberIdentity}>
                 <strong>{user.displayName}</strong>
                 <small>@{user.username} · {user.roles.join(' / ')}{user.disabled ? t('common.disabledSuffix') : ''}</small>
@@ -600,7 +600,7 @@ function UsersSection({ state, createUser, updateUser, t }: Pick<EnterpriseGover
     <div className={css.userToolbar}>
       <input aria-label={t('\u641C\u7D22\u7528\u6237')} placeholder={t('\u641C\u7D22\u59D3\u540D\u6216\u7528\u6237\u540D')} value={query} onChange={(event) => { setQuery(event.target.value) }}/>
       <button type="button" onClick={() => { setDialog({ mode: 'create' }) }}>
-        <IconPlusOutline16 size={14}/>{t('\u65B0\u589E\u7528\u6237')}</button>
+        <IconPlusOutlineRegular size={14}/>{t('\u65B0\u589E\u7528\u6237')}</button>
     </div>
     {actionError !== null && <div className={css.error} role="alert">{actionError}</div>}
     {users.length === 0
@@ -612,7 +612,7 @@ function UsersSection({ state, createUser, updateUser, t }: Pick<EnterpriseGover
             const secondary = (user.departmentIds ?? []).filter(id => id !== primary)
             return <tr key={user.id}>
               <td><div className={css.userIdentity}>
-                <span className={css.userAvatar} aria-hidden="true"><IconUserOutline16 size={16}/></span>
+                <span className={css.userAvatar} aria-hidden="true"><IconUserOutlineRegular size={16}/></span>
                 <span><strong>{user.displayName}</strong><small>@{user.username}</small></span>
               </div></td>
               <td><div className={css.departmentSummary}>
@@ -626,7 +626,7 @@ function UsersSection({ state, createUser, updateUser, t }: Pick<EnterpriseGover
                 <i aria-hidden="true"/>{user.disabled ? t('\u5DF2\u505C\u7528') : t('\u6B63\u5E38')}
               </span></td>
               <td><div className={css.rowActions}>
-                <button type="button" aria-label={t('user.editAria', { name: user.displayName })} onClick={() => { setDialog({ mode: 'edit', user }) }}><IconEditOutline16 size={14}/>{t('\u7F16\u8F91')}</button>
+                <button type="button" aria-label={t('user.editAria', { name: user.displayName })} onClick={() => { setDialog({ mode: 'edit', user }) }}><IconEditOutlineRegular size={14}/>{t('\u7F16\u8F91')}</button>
                 <button type="button" disabled={busyUserId === user.id} onClick={() => {
                   const change = async (): Promise<void> => {
                     setBusyUserId(user.id)
@@ -990,7 +990,7 @@ function PoliciesSection({ state, savePolicy, t }: Pick<EnterpriseGovernanceSurf
     </div>
     {resources.length === 0
       ? <div className={css.permissionEmpty}>
-        <IconFolderOpen16 size={20}/>
+        <IconFolderOpenRegular size={20}/>
         <strong>{t('\u6682\u65E0\u53EF\u6388\u6743\u8D44\u6E90')}</strong>
         <span>{t('\u8BF7\u5148\u5728\u6570\u5B57\u5458\u5DE5\u3001\u6A21\u578B\u6216\u6E20\u9053\u7BA1\u7406\u4E2D\u5B8C\u6210\u914D\u7F6E\uFF0C\u8D44\u6E90\u4F1A\u81EA\u52A8\u51FA\u73B0\u5728\u8FD9\u91CC\u3002')}</span>
       </div>

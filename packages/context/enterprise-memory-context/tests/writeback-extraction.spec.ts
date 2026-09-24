@@ -6,7 +6,7 @@ import { captureMemoryTurn, EXTRACTION_SYSTEM_PROMPT, parseExtractionOutput, unf
 function completedTurn(): Session {
   const id = SessionId('memory-turn')
   const session = Session.create(id, [], {
-    version: 3, id, createdAt: 1, cwd: '/managed/finance', isSeeded: false,
+    version: 4, id, createdAt: 1, cwd: '/managed/finance', isSeeded: false,
   })
   session.append('turn/start', { turn: 1 })
   session.append('user/message', {
@@ -14,7 +14,7 @@ function completedTurn(): Session {
     content: [{ type: 'text', text: '公司报表每月 5 日前完成。' }],
   }, { surfaceOp: 'append' })
   session.append('user/message', {
-    id: MessageId('plugin-1'), role: 'user', source: { kind: 'plugin', plugin: 'context' },
+    id: MessageId('plugin-1'), role: 'user', source: { kind: 'model-selection' },
     content: [{ type: 'text', text: 'secret tool output' }],
   }, { surfaceOp: 'append' })
   session.append('assistant/message', {
@@ -38,7 +38,7 @@ describe('enterprise memory turn extraction', () => {
 
   it('skips turns without both direct user text and a final assistant answer', () => {
     const id = SessionId('empty-turn')
-    const session = Session.create(id, [], { version: 3, id, createdAt: 1, cwd: '/managed', isSeeded: false })
+    const session = Session.create(id, [], { version: 4, id, createdAt: 1, cwd: '/managed', isSeeded: false })
     session.append('turn/start', { turn: 1 })
     expect(captureMemoryTurn(session, 1, 2_000)).toBeUndefined()
   })

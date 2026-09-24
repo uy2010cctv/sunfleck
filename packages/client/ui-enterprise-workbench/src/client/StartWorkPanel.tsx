@@ -5,7 +5,7 @@ import type {
   EnterpriseWorkStartValue,
 } from '@deepseek-ai/dsh-api-enterprise-controller/types'
 import type { WorkspaceSnapshot } from '@deepseek-ai/dsh-api-workspace-controller/client'
-import { IconCheckOutline16, IconWarningOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
+import { IconCheckOutlineRegular, IconWarningOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
 import { randomUUID } from '@deepseek-ai/dsh-util-crypto'
 import type { EnterpriseWorkbenchKey } from './locales.ts'
 import css from './EnterpriseWorkbench.module.css'
@@ -100,10 +100,10 @@ export function StartWorkPanel({ workspaces, releases, prepareWork, startPrepare
     </form>
     <div className={css.startWorkFeedback} aria-live="polite">
       {phase === 'starting' && <p role="status">{t('startWork.starting')}</p>}
-      {preparation?.kind === 'ready' && phase !== 'starting' && <p role="status"><IconCheckOutline16 size={16}/>{t('startWork.ready')}</p>}
+      {preparation?.kind === 'ready' && phase !== 'starting' && <p role="status"><IconCheckOutlineRegular size={16}/>{t('startWork.ready')}</p>}
       {preparation?.kind === 'needs-workspace-selection' && <div><p>{t('startWork.workspacePrompt')}</p>{workspaceChoices.length > 0 ? <div className={css.startWorkChoices}>{workspaceChoices.map(workspace => <button type="button" className={css.secondaryButton} key={workspace.workspaceId} disabled={busy} onClick={() => { setSelectedWorkspaceId(workspace.workspaceId); setSelectedReleaseId(undefined); void prepare(workspace.workspaceId) }}>{workspace.title}</button>)}</div> : <p role="alert">{t('startWork.workspaceUnavailable')}</p>}</div>}
       {preparation?.kind === 'needs-selection' && <div><p>{t('startWork.employeePrompt')}</p>{releaseChoices.length > 0 ? <div className={css.startWorkChoices}>{releaseChoices.map(release => <button type="button" className={css.secondaryButton} key={release.releaseId} disabled={busy} onClick={() => { setSelectedReleaseId(release.releaseId); void prepare(selectedWorkspaceId, release.releaseId) }}>{releaseLabel(release, t)}</button>)}</div> : <p role="alert">{t('startWork.employeeUnavailable')}</p>}</div>}
-      {error !== undefined && <div className={css.startWorkError} role="alert"><IconWarningOutline16 size={16}/><span>{error}</span><button type="button" className={css.secondaryButton} disabled={busy} onClick={() => { void prepare() }}>{t('retry')}</button></div>}
+      {error !== undefined && <div className={css.startWorkError} role="alert"><IconWarningOutlineRegular size={16}/><span>{error}</span><button type="button" className={css.secondaryButton} disabled={busy} onClick={() => { void prepare() }}>{t('retry')}</button></div>}
     </div>
   </section>
 }

@@ -17,6 +17,17 @@ declare module '@deepseek-ai/cordis' {
   interface Context { enterpriseMemoryWriteback: EnterpriseMemoryWritebackRuntime }
 }
 
+/** Source of the user message the writeback extractor submits to its model. */
+export interface MemoryWritebackSource {
+  readonly kind: 'enterprise-memory-writeback'
+}
+
+declare module '@deepseek-ai/dsh-llm' {
+  interface MessageSourceMap {
+    'enterprise-memory-writeback': MemoryWritebackSource
+  }
+}
+
 interface RuntimeConfig {
   readonly maxInputChars: number
   readonly maxTokens: number
@@ -147,7 +158,7 @@ export class EnterpriseMemoryWritebackRuntime {
     existing: readonly { id: string; summary: string; status: string }[],
   ): Promise<readonly MemoryExtractionCandidate[]> {
     const request = createUserMessage({
-      source: { kind: 'plugin', plugin: 'enterprise-memory-writeback' },
+      source: { kind: 'enterprise-memory-writeback' },
       content: [{ type: 'text', text: JSON.stringify({
         conversation: { user: job.userText, assistant: job.assistantText },
         existing: existing.map(memory => ({ id: memory.id, summary: memory.summary, status: memory.status })),

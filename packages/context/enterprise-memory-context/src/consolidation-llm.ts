@@ -29,6 +29,19 @@ export interface ConsolidationRefinementOptions {
   readonly plugin?: string
 }
 
+/** Source of the user message one consolidation refinement submits to its model. */
+export interface ConsolidationRefinementSource {
+  readonly kind: 'enterprise-memory-consolidation'
+  /** Cross-feature caller the refinement runs for; absent when the consolidation runtime owns the call. */
+  readonly plugin?: string
+}
+
+declare module '@deepseek-ai/dsh-llm' {
+  interface MessageSourceMap {
+    'enterprise-memory-consolidation': ConsolidationRefinementSource
+  }
+}
+
 /** Shared compartment a reflection may propose. */
 export type ReflectionTargetScope = 'organization' | 'department'
 
@@ -84,7 +97,10 @@ export async function completeRefinement(
   user: Record<string, unknown>,
 ): Promise<string> {
   const request = createUserMessage({
-    source: { kind: 'plugin', plugin: options.plugin ?? 'enterprise-memory-consolidation' },
+    source: {
+      kind: 'enterprise-memory-consolidation',
+      ...options.plugin === undefined ? {} : { plugin: options.plugin },
+    },
     content: [{ type: 'text', text: JSON.stringify(user) }],
   })
   const chunks: ModelStreamChunkView[] = []

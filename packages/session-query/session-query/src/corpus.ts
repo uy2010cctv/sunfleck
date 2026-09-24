@@ -249,6 +249,7 @@ function projectSource<Value>(
 }
 
 function sourceLive(session: Session): LogicalSessionSource {
+  // oxlint-disable-next-line typescript/no-deprecated -- Existing Session history read; migration deferred.
   return { header: session.header, events: session.snapshotEvents() }
 }
 
@@ -320,6 +321,7 @@ function snapshotLive(session: Session): LogicalSession {
   return {
     header: structuredClone(session.header),
     inheritedEventCount: session.inheritedEventCount,
+    // oxlint-disable-next-line typescript/no-deprecated -- Existing Session history read; migration deferred.
     events: session.snapshotEvents().map(event => structuredClone(event)),
   }
 }
