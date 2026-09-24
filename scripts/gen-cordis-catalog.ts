@@ -301,6 +301,7 @@ export const LINK_MAP: Readonly<Record<string, string>> = {
   CordisReviewPublishRequest: 'extensions.md',
   CordisReviewRequest: 'extensions.md',
   CordisReviewSubmitRequest: 'extensions.md',
+  CordisReviewSubmitSavedRequest: 'extensions.md',
   CordisReviewTransitionRequest: 'extensions.md',
   CordisScopeBinding: 'extensions.md',
   CordisSessionGeneration: 'extensions.md',

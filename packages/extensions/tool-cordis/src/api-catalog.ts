@@ -825,6 +825,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'created review.',
       },
       {
+        signature: '@Remote(\'submitSaved\') async submitSaved(request: CordisReviewSubmitSavedRequest): Promise<CordisReviewRequest>',
+        description: 'Submit an owned saved version from a department Workspace for review.',
+        parameters: [{ name: 'request', description: 'saved Package and Workspace identity.' }],
+        returns: 'pending review.',
+      },
+      {
         signature: '@Remote(\'derive\') async derive(request: CordisReviewDeriveRequest): Promise<DerivedCordisPackage>',
         description: 'Derive a manager-edited immutable Package.',
         parameters: [{ name: 'request', description: 'Review, draft, and CAS data.' }],
@@ -1227,6 +1233,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         description: 'Submit a department Workspace Package for manager review.',
         parameters: [{ name: 'input', description: 'principal, Workspace, source Session, draft, and idempotency data.' }],
         returns: 'created review request.',
+      },
+      {
+        signature: 'async submitSavedDepartment(input: { principal: EnterpriseCordisPrincipal workspaceId: string packageId: string idempotencyKey: string }): Promise<CordisReviewRequest>',
+        description: 'Submit an existing owner-private version in a department Workspace without activating it for members.',
+        parameters: [{ name: 'input', description: 'owner, Workspace, saved version, and idempotency key.' }],
+        returns: 'pending department review.',
       },
       {
         signature: 'async deriveReview(input: { principal: EnterpriseCordisPrincipal reviewId: string expectedRevision: number draft: CordisPackageDraft idempotencyKey: string }): Promise<DerivedCordisPackage>',
@@ -5072,7 +5084,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'CordisPackageVersion',
-    declaration: 'export interface CordisPackageVersion extends CordisPackageDraft {\n    readonly packageId: string;\n    readonly orgId: string;\n    readonly version: number;\n    readonly scope: CordisPluginScope;\n    readonly derivedFromPackageId?: string;\n    readonly authoredBy: string;\n    readonly modifiedBy?: string;\n    readonly sourceDigest: string;\n    readonly createdAt: number;\n}',
+    declaration: 'export interface CordisPackageVersion extends CordisPackageDraft {\n    readonly packageId: string;\n    readonly orgId: string;\n    readonly version: number;\n    readonly scope: CordisPluginScope;\n    readonly derivedFromPackageId?: string;\n    readonly authoredBy: string;\n    readonly modifiedBy?: string;\n    readonly sourceDigest: string;\n    readonly createdAt: number;\n    readonly canSubmitDepartment?: boolean;\n}',
   },
   {
     name: 'CordisPluginArchive',
@@ -5105,6 +5117,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'CordisReviewSubmitRequest',
     declaration: 'export interface CordisReviewSubmitRequest {\n    readonly workspaceId: string;\n    readonly sourceSessionId: string;\n    readonly draft: CordisPackageDraft;\n    readonly idempotencyKey: string;\n}',
+  },
+  {
+    name: 'CordisReviewSubmitSavedRequest',
+    declaration: 'export interface CordisReviewSubmitSavedRequest {\n    readonly workspaceId: string;\n    readonly packageId: string;\n    readonly idempotencyKey: string;\n}',
   },
   {
     name: 'CordisReviewTransitionRequest',

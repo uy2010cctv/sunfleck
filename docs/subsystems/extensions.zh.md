@@ -130,6 +130,12 @@ Department review, derived modification, and organization publication Remote ser
  */
 @Remote('submit') async submit(request: CordisReviewSubmitRequest): Promise<CordisReviewRequest>
 
+/** Submit an owned saved version from a department Workspace for review.
+ * @param request - saved Package and Workspace identity.
+ * @returns pending review.
+ */
+@Remote('submitSaved') async submitSaved(request: CordisReviewSubmitSavedRequest): Promise<CordisReviewRequest>
+
 /**
  * Derive a manager-edited immutable Package.
  * @param request - Review, draft, and CAS data.
@@ -472,6 +478,12 @@ async restorePersonal(input: { principal: EnterpriseCordisPrincipal workspaceId:
  * @returns created review request.
  */
 async submitDepartment(input: { principal: EnterpriseCordisPrincipal workspaceId: string draft: CordisPackageDraft sourceSessionId: string idempotencyKey: string }): Promise<CordisReviewRequest>
+
+/** Submit an existing owner-private version in a department Workspace without activating it for members.
+ * @param input - owner, Workspace, saved version, and idempotency key.
+ * @returns pending department review.
+ */
+async submitSavedDepartment(input: { principal: EnterpriseCordisPrincipal workspaceId: string packageId: string idempotencyKey: string }): Promise<CordisReviewRequest>
 
 /**
  * Create an immutable manager-derived Package for an existing review.
