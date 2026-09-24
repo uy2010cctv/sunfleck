@@ -31,7 +31,11 @@
  * - `GET /projects` lists the projects visible to the caller.
  * - `GET /projects/:id` reads one project behind the member gate.
  * - `POST /projects/:id/members` adds one member.
- * - `POST /projects/:id/archive` archives one project.
+ * - `POST /projects/:id/archive` archives one project and fires the memory
+ *   distillation hook without awaiting it — the archive response never waits
+ *   on or fails with distillation.
+ * - `POST /projects/:id/distill` runs project-archival distillation now and
+ *   returns its report; requires the memory-consolidation plane.
  *
  * Authorization reuses the existing `EnterpriseAction` values — the union has
  * no surface- or project-specific members. Surfaces are conversation
@@ -56,7 +60,6 @@
  * @module @deepseek-ai/dsh-api-enterprise-controller/surfaces-http
  */
 
-import { randomUUID } from 'node:crypto'
 import { isAbsolute } from 'node:path'
 import { employeeId, surfaceId } from '@deepseek-ai/dsh-employee-account'
 import type { EmployeeId, InboxItemId, SurfaceId } from '@deepseek-ai/dsh-employee-account'
@@ -68,17 +71,18 @@ import type {
   Surface,
   SurfaceListEntry,
 } from '@deepseek-ai/dsh-enterprise-surface'
+import type { ProjectDistillReport } from '@deepseek-ai/dsh-enterprise-memory-context'
 import { EnterpriseProjectError, projectId } from '@deepseek-ai/dsh-enterprise-project'
 import type {
   EnterpriseProjects, Project, ProjectId, ProjectVisibility,
 } from '@deepseek-ai/dsh-enterprise-project'
 import type {
-  EnterpriseAction, EnterpriseAuthorizationDecision, EnterprisePrincipal, EnterpriseResource,
+  EnterpriseAction, EnterprisePrincipal,
 } from '@deepseek-ai/dsh-enterprise-governance'
 import type { EmployeeHttpSecurity } from './employee-http.ts'
 import {
-  cookiePrincipal, failure, jsonObjectBody, methodFailure, optionalStringArrayField, optionalStringField,
-  stringArrayField, stringField, timingSafeTokenMatches,
+  authenticatedSegments, cookiePrincipal, failure, guardResource, jsonObjectBody, methodFailure,
+  optionalStringArrayField, optionalStringField, stringArrayField, stringField, timingSafeTokenMatches,
 } from './http.ts'
 
 /** Cordis service keys the collaboration surface and project endpoints require. */
@@ -135,7 +139,12 @@ export type SurfaceDeliveryView =
     readonly employeeIds: readonly EmployeeId[]
   }
   | { readonly delivered: true; readonly mode: 'settled'; readonly topicId: string }
-  | { readonly delivered: true; readonly mode: 'ingested'; readonly proposedMemoryId: string }
+  | {
+    readonly delivered: true
+    readonly mode: 'ingested'
+    readonly proposedMemoryIds: readonly string[]
+    readonly droppedPrivacy: number
+  }
   | {
     readonly delivered: false
     readonly reason:
@@ -216,30 +225,10 @@ function presentChannelDelivery(result: ChannelDeliveryResult): SurfaceDeliveryV
     }
   }
   if (result.mode === 'settled') return { delivered: true, mode: 'settled', topicId: result.topicId }
-  return { delivered: true, mode: 'ingested', proposedMemoryId: result.proposedMemoryId }
-}
-
-/** Authorize one surface- or project-plane operation through the shared policy and audit the decision.
- *
- * Actions reuse the existing `EnterpriseAction` values — the union has no surface- or
- * project-specific members; the module JSDoc records the reuse choices per plane.
- * `input` mirrors the security seam's audit signature; today it carries nothing beyond what
- * `resourceId` already holds.
- */
-async function guardResource(
-  security: EmployeeHttpSecurity,
-  principal: EnterprisePrincipal,
-  action: EnterpriseAction,
-  endpoint: string,
-  resourceType: string,
-  resourceId: string,
-): Promise<EnterpriseAuthorizationDecision> {
-  const resource: EnterpriseResource = { orgId: principal.orgId, visibility: 'organization' }
-  const decision = await security.authorizeResourceAsync(principal, action, resource)
-  await security.auditApiResourceAsync(
-    principal, endpoint, { id: resourceId }, decision, randomUUID(), { type: resourceType, id: resourceId },
-  )
-  return decision
+  return {
+    delivered: true, mode: 'ingested',
+    proposedMemoryIds: result.proposedMemoryIds, droppedPrivacy: result.droppedPrivacy,
+  }
 }
 
 /** Outcome of one guarded write route: the parsed body, or the denial response to return. */
@@ -546,15 +535,30 @@ export class SurfaceHttpHandler {
   }
 }
 
+/** Distillation seam of the project routes, supplied by the composition. Absent means the
+ * memory-consolidation plane is unmounted: the manual distill route answers 503 and the
+ * post-archive hook skips. */
+export interface ProjectDistillationSeam {
+  /** Run one project distillation and resolve its report; the implementation owns the audit. */
+  distillProject(input: { orgId: string; projectId: string; actorUserId: string }): Promise<ProjectDistillReport>
+}
+
+export interface ProjectHttpOptions {
+  /** Distillation seam; the mounted memory-consolidation runtime satisfies it structurally. */
+  readonly consolidation?: ProjectDistillationSeam | undefined
+}
+
 /** Project governance HTTP boundary owned by the enterprise controller. */
 export class ProjectHttpHandler {
   /**
    * @param projects - Enterprise project governance service.
    * @param security - Existing enterprise authentication and authorization seam.
+   * @param options - distillation seam; optional.
    */
   constructor(
     private readonly projects: EnterpriseProjects,
     private readonly security: EmployeeHttpSecurity,
+    private readonly options: ProjectHttpOptions = {},
   ) {}
 
   /**
@@ -562,9 +566,9 @@ export class ProjectHttpHandler {
    * fold to 404 inside the detail route; every id reaches the store org-scoped.
    */
   async fetch(request: Request): Promise<Response> {
-    const principal = await cookiePrincipal(this.security, request)
-    if (principal instanceof Response) return principal
-    const segments = new URL(request.url).pathname.split('/').filter(Boolean).slice(2)
+    const resolved = await authenticatedSegments(this.security, request)
+    if (resolved instanceof Response) return resolved
+    const { principal, segments } = resolved
     if (segments.length === 0) {
       if (request.method === 'POST') return this.create(request, principal)
       return request.method === 'GET' ? this.list(principal) : methodFailure('GET, POST')
@@ -579,6 +583,9 @@ export class ProjectHttpHandler {
     }
     if (second === 'archive') {
       return request.method === 'POST' ? this.archive(principal, projectId(head)) : methodFailure('POST')
+    }
+    if (second === 'distill') {
+      return request.method === 'POST' ? this.distill(principal, projectId(head)) : methodFailure('POST')
     }
     return failure(404, 'not-found')
   }
@@ -661,7 +668,7 @@ export class ProjectHttpHandler {
     }
   }
 
-  /** Move one active project to its terminal archived state. */
+  /** Move one active project to its terminal archived state, then fire distillation without awaiting it. */
   private async archive(principal: EnterprisePrincipal, id: ProjectId): Promise<Response> {
     const decision = await guardResource(
       this.security, principal, 'team.manage', 'enterpriseProject.archive', 'enterprise-project', id,
@@ -669,9 +676,40 @@ export class ProjectHttpHandler {
     if (!decision.allowed) return failure(403, 'forbidden')
     try {
       const project = await this.projects.archive(principal.orgId, id, principal.userId)
+      this.options.consolidation?.distillProject({
+        orgId: principal.orgId, projectId: id, actorUserId: principal.userId,
+      }).catch(() => {
+        // Swallows the fire-and-forget rejection: the archive is already committed, so
+        // distillation must never block or fail the response, and the runtime audits the
+        // run either way — nothing else can reach this failure.
+      })
       return Response.json({ id: project.projectId, state: project.state })
     } catch (error: unknown) {
       return this.projectFailure(error)
+    }
+  }
+
+  /**
+   * Run one project distillation behind the detail route's member gate and return its report.
+   * Repeated runs are safe: a lesson whose deterministic id already stands is skipped and
+   * counted, so distilling an already-distilled project re-reports instead of conflicting.
+   */
+  private async distill(principal: EnterprisePrincipal, id: ProjectId): Promise<Response> {
+    const decision = await guardResource(
+      this.security, principal, 'team.manage', 'enterpriseProject.distill', 'enterprise-project', id,
+    )
+    if (!decision.allowed) return failure(403, 'forbidden')
+    if (this.options.consolidation === undefined) return failure(503, 'consolidation-plane-unavailable')
+    const project = await this.projects.requireMember(principal.orgId, id, { userId: principal.userId })
+    if (project === undefined) return failure(404, 'project-not-found')
+    try {
+      const report = await this.options.consolidation.distillProject({
+        orgId: principal.orgId, projectId: id, actorUserId: principal.userId,
+      })
+      return Response.json(report)
+    } catch {
+      // The distillation runtime audits its own failure; the response only reports the status.
+      return failure(500, 'internal-error')
     }
   }
 

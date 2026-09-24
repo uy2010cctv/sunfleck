@@ -32,6 +32,35 @@ function text(content: readonly { type: string; text?: string }[]): string {
   return content.flatMap(block => block.type === 'text' && typeof block.text === 'string' ? [block.text] : []).join('\n')
 }
 
+/** Structural view of the raw chunks one strict-JSON one-shot model call consumed; every field
+ * the assembly needs is optional so both adapter and normalized chunk unions fit. */
+export interface ModelStreamChunkView {
+  readonly type: string
+  readonly text?: string
+  readonly block?: { readonly type: string; readonly text?: string }
+  readonly reason?: { readonly kind: string }
+}
+
+/** Assemble the visible text of one completed strict-JSON model call: text deltas when the
+ * adapter emitted any, otherwise the completed text blocks in stream order.
+ * @param chunks - chunks collected from one completed model stream.
+ * @returns the concatenated visible text.
+ */
+export function textFromModelStream(chunks: readonly ModelStreamChunkView[]): string {
+  const deltas = chunks.flatMap(chunk => chunk.type === 'text-delta' && typeof chunk.text === 'string' ? [chunk.text] : [])
+  if (deltas.length > 0) return deltas.join('')
+  return chunks.flatMap(chunk => chunk.type === 'block-end' && chunk.block?.type === 'text'
+    && typeof chunk.block.text === 'string' ? [chunk.block.text] : []).join('\n')
+}
+
+/** Strip the optional code fence a model may wrap its strict-JSON output in.
+ * @param output - complete visible model output.
+ * @returns the trimmed payload with a leading and trailing fence removed.
+ */
+export function unfenceModelJson(output: string): string {
+  return output.trim().replace(/^```(?:json)?\s*/iu, '').replace(/\s*```$/u, '')
+}
+
 /** Capture only direct user messages and the last visible assistant answer from one turn. */
 export function captureMemoryTurn(session: Session, turn: number, maxChars: number): MemoryTurnSnapshot | undefined {
   const events = session.snapshotEvents()
@@ -70,7 +99,7 @@ function record(value: unknown): Record<string, unknown> | undefined {
  * @returns Result produced by this API.
  */
 export function parseExtractionOutput(output: string): MemoryExtractionCandidate[] {
-  const unfenced = output.trim().replace(/^```(?:json)?\s*/iu, '').replace(/\s*```$/u, '')
+  const unfenced = unfenceModelJson(output)
   let parsed: unknown
   try { parsed = JSON.parse(unfenced) } catch { throw new Error('enterprise memory extraction output is not JSON') }
   const items = record(parsed)?.['candidates']

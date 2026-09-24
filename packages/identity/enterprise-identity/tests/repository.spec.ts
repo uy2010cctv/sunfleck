@@ -7,6 +7,7 @@ import {
   EnterpriseIdentityRepository,
   sessionTokenHash,
   type EnterpriseAuditRecord,
+  type EnterpriseMemoryEntry,
 } from '../src/index.ts'
 
 describe('EnterpriseIdentityRepository', () => {
@@ -320,6 +321,36 @@ describe('EnterpriseIdentityRepository', () => {
     })).toThrow(/pairing/)
   })
 
+  it('writes approved project memory gated by the shared privacy policy and project pairing', () => {
+    const input = {
+      orgId: 'org-a', scope: 'project' as const, kind: 'process' as const,
+      summary: '项目联调环境每晚重置。', createdBy: 'user-1', projectId: 'project-1',
+    }
+    const entry = repository.writePrivateMemory(input)
+    expect(entry).toMatchObject({
+      scope: 'project', projectId: 'project-1', status: 'approved', revision: 1,
+    })
+    // The repeat converges on the committed row like the private compartments do.
+    expect(repository.writePrivateMemory(input)).toEqual(entry)
+    expect(repository.listMemories({ orgId: 'org-a', scopes: ['project'], projectId: 'project-1' })
+      .map(memory => memory.id)).toEqual([entry.id])
+
+    expect(() => repository.writePrivateMemory({
+      orgId: 'org-a', scope: 'project', kind: 'process', summary: '缺少项目。',
+      createdBy: 'user-1',
+    })).toThrow(/pairing/)
+    expect(() => repository.writePrivateMemory({
+      orgId: 'org-a', scope: 'project', kind: 'process', summary: '带归属人。',
+      createdBy: 'user-1', projectId: 'project-1', agentEmployeeId: 'employee-1',
+    })).toThrow(/pairing/)
+    // The project compartment is shared, so personal data blocks the direct write
+    // instead of being recorded the way private compartments record it.
+    expect(() => repository.writePrivateMemory({
+      orgId: 'org-a', scope: 'project', kind: 'process', summary: '客户邮箱 alice@example.com。',
+      createdBy: 'user-1', projectId: 'project-1',
+    })).toThrow(/privacy/)
+  })
+
   it('filters memory lists by scope and owner columns alongside the existing predicates', () => {
     repository.writePrivateMemory({
       orgId: 'org-a', scope: 'agent', kind: 'preference', summary: '回复保持正式书面语。',
@@ -406,6 +437,126 @@ describe('EnterpriseIdentityRepository', () => {
     expect(repository.listMemories({ orgId: 'org-a', scopes: ['agent'] })).toHaveLength(2)
     // Repeating the tagged write converges on its committed row.
     expect(repository.writePrivateMemory({ ...input, projectId: 'project-alpha' })).toEqual(tagged)
+  })
+
+  /** Propose and approve one organization memory as a supersede or staleness fixture. */
+  function approveMemory(id: string, summary: string, digest: string): EnterpriseMemoryEntry {
+    const proposed = repository.proposeMemory({
+      id, orgId: 'org-a', scope: 'organization', kind: 'process',
+      summary, sourceDigest: digest, createdBy: 'user-1',
+    })
+    return repository.reviewMemory({
+      id, orgId: 'org-a', decision: 'approved', reviewedBy: 'user-1',
+      reason: '已核对', expectedRevision: proposed.revision,
+    })
+  }
+
+  it('inserts summary-kind memory and filters lists by kind', () => {
+    repository.proposeMemory({
+      id: 'memory-summary', orgId: 'org-a', scope: 'organization', kind: 'summary',
+      summary: '本周业务纪要汇总。', sourceDigest: '1'.repeat(64), createdBy: 'user-1',
+    })
+    repository.proposeMemory({
+      id: 'memory-fact', orgId: 'org-a', scope: 'organization', kind: 'business-fact',
+      summary: '公司使用统一合同编号。', sourceDigest: '2'.repeat(64), createdBy: 'user-1',
+    })
+
+    expect(repository.listMemories({ orgId: 'org-a', kinds: ['summary'] }).map(memory => memory.id))
+      .toEqual(['memory-summary'])
+    expect(repository.listMemories({ orgId: 'org-a', kinds: ['business-fact', 'summary'] })).toHaveLength(2)
+    // An empty kind set matches no row, and no kind filter keeps every kind visible.
+    expect(repository.listMemories({ orgId: 'org-a', kinds: [] })).toEqual([])
+    expect(repository.listMemories({ orgId: 'org-a' })).toHaveLength(2)
+  })
+
+  it('batch updates memory importance and access clocks, skipping unknown ids', () => {
+    const first = repository.writePrivateMemory({
+      orgId: 'org-a', scope: 'agent', kind: 'preference', summary: '回复保持正式书面语。',
+      createdBy: 'user-1', agentEmployeeId: 'employee-1',
+    })
+    const second = repository.writePrivateMemory({
+      orgId: 'org-a', scope: 'agent', kind: 'preference', summary: '用户偏好表格汇总。',
+      createdBy: 'user-1', agentEmployeeId: 'employee-2',
+    })
+
+    expect(repository.batchUpdateImportance([
+      { id: first.id, importance: 2.5, lastAccessAt: 5_000 },
+      { id: second.id, importance: 0.5 },
+      { id: 'memory-missing', importance: 9 },
+    ])).toBe(2)
+    expect(repository.batchUpdateImportance([])).toBe(0)
+
+    const listed = repository.listMemories({ orgId: 'org-a', scopes: ['agent'] })
+    expect(listed.find(entry => entry.id === first.id)).toMatchObject({ importance: 2.5, lastAccessAt: 5_000 })
+    // Omitting lastAccessAt leaves the stored access clock untouched.
+    const secondEntry = listed.find(entry => entry.id === second.id)
+    expect(secondEntry).toMatchObject({ importance: 0.5 })
+    expect(secondEntry?.lastAccessAt).toBeUndefined()
+
+    expect(() => repository.batchUpdateImportance([{ id: first.id, importance: -1 }]))
+      .toThrow(/non-negative/)
+    expect(() => repository.batchUpdateImportance([{ id: first.id, importance: Number.NaN }]))
+      .toThrow(/non-negative/)
+    // The rejected batch wrote nothing.
+    expect(repository.listMemories({ orgId: 'org-a', scopes: ['agent'] })
+      .find(entry => entry.id === first.id)).toMatchObject({ importance: 2.5 })
+  })
+
+  it('supersedes an approved memory and records the consolidation lineage', () => {
+    approveMemory('memory-old', '旧流程：邮件审批。', '1'.repeat(64))
+    const replacement = approveMemory('memory-new', '新流程：系统内审批。', '2'.repeat(64))
+    repository.proposeMemory({
+      id: 'memory-pending', orgId: 'org-a', scope: 'organization', kind: 'process',
+      summary: '待审流程。', sourceDigest: '3'.repeat(64), createdBy: 'user-1',
+    })
+    const at = now + 1_000
+
+    repository.supersedeMemory('memory-old', 'memory-new', at)
+    const [retired] = repository.listMemories({ orgId: 'org-a', statuses: ['retired'] })
+    expect(retired).toMatchObject({
+      id: 'memory-old', status: 'retired', invalidatedBy: 'memory-new', updatedAt: at,
+    })
+    // Consolidation owns this write: the revision stays untouched and the prior approval's review
+    // fields survive unchanged.
+    expect(retired?.revision).toBe(replacement.revision)
+    expect(retired).toMatchObject({ reviewedBy: 'user-1', reviewReason: '已核对' })
+
+    // Only the service layer writes valid_from today, so seed it through raw SQL and confirm the
+    // lineage columns flow back through the entry mapping.
+    const raw = new DatabaseSync(path)
+    raw.prepare('UPDATE enterprise_memories SET valid_from = ? WHERE id = ?').run(at - 5_000, 'memory-old')
+    raw.close()
+    expect(repository.listMemories({ orgId: 'org-a', statuses: ['retired'] })[0]).toMatchObject({
+      validFrom: at - 5_000, invalidatedBy: 'memory-new',
+    })
+
+    expect(() => { repository.supersedeMemory('memory-old', 'memory-old', at) }).toThrow(/itself/)
+    // A retired old row fails the approved gate, so double supersede never rewrites it.
+    expect(() => { repository.supersedeMemory('memory-old', 'memory-new', at) }).toThrow(/approved/)
+    expect(() => { repository.supersedeMemory('memory-pending', 'memory-new', at) }).toThrow(/approved/)
+    expect(() => { repository.supersedeMemory('memory-new', 'memory-missing', at) }).toThrow(/superseding/)
+    expect(() => { repository.supersedeMemory('memory-missing', 'memory-new', at) }).toThrow(/missing/)
+  })
+
+  it('lists stale approved memories on their last-access or update clock', () => {
+    now -= 20_000
+    repository.proposeMemory({
+      id: 'memory-stale-proposed', orgId: 'org-a', scope: 'organization', kind: 'process',
+      summary: '待审流程。', sourceDigest: '1'.repeat(64), createdBy: 'user-1',
+    })
+    now -= 10_000
+    approveMemory('memory-old', '旧流程：邮件审批。', '2'.repeat(64))
+    now += 30_000
+    approveMemory('memory-fresh', '新流程：系统内审批。', '3'.repeat(64))
+
+    // COALESCE lets the never-touched approved row age on updated_at, the proposed row is excluded
+    // because the staleness clock only applies to approved rows, and the fresh row is younger.
+    expect(repository.listMemories({ orgId: 'org-a', staleBefore: now - 5_000 }).map(memory => memory.id))
+      .toEqual(['memory-old'])
+    // A clock older than every row matches nothing.
+    expect(repository.listMemories({ orgId: 'org-a', staleBefore: now - 35_000 })).toEqual([])
+    repository.touchMemoryAccess('memory-old', now)
+    expect(repository.listMemories({ orgId: 'org-a', staleBefore: now - 5_000 })).toEqual([])
   })
 
   it('records the last access time on a memory and fails loud for unknown ids', () => {

@@ -1,13 +1,16 @@
 /**
  * Helpers shared by the enterprise controller's HTTP boundaries: bounded JSON
  * request bodies, transport failure responses, the cookie authentication
- * preamble, and constant-time deployment-token comparison.
+ * preamble, constant-time deployment-token comparison, and the shared
+ * authorize-and-audit resource guard.
  *
  * @module @deepseek-ai/dsh-api-enterprise-controller/http
  */
 
-import { timingSafeEqual } from 'node:crypto'
-import type { EnterprisePrincipal } from '@deepseek-ai/dsh-enterprise-governance'
+import { randomUUID, timingSafeEqual } from 'node:crypto'
+import type {
+  EnterpriseAction, EnterpriseAuthorizationDecision, EnterprisePrincipal, EnterpriseResource,
+} from '@deepseek-ai/dsh-enterprise-governance'
 import type { EmployeeHttpSecurity } from './employee-http.ts'
 
 /** Build one JSON failure response carrying the machine-readable error code. */
@@ -27,6 +30,20 @@ export async function cookiePrincipal(
 ): Promise<EnterprisePrincipal | Response> {
   const principal = await security.authenticateCookieAsync(request.headers.get('cookie') ?? '')
   return principal === undefined ? failure(401, 'unauthenticated') : principal
+}
+
+/** Authenticate one cookie-carried request and split its enterprise path below the controller
+ * prefix; a `Response` result is the shared 401 failure. */
+export async function authenticatedSegments(
+  security: EmployeeHttpSecurity,
+  request: Request,
+): Promise<{ principal: EnterprisePrincipal; segments: readonly string[] } | Response> {
+  const principal = await cookiePrincipal(security, request)
+  if (principal instanceof Response) return principal
+  return {
+    principal,
+    segments: new URL(request.url).pathname.split('/').filter(Boolean).slice(2),
+  }
 }
 
 /** Compare one supplied bearer token against the deployment token without early-exit timing. */
@@ -88,4 +105,27 @@ export async function jsonObjectBody(request: Request): Promise<Record<string, u
     // Invalid JSON and body-stream failures both mean one unreadable request payload.
     return undefined
   }
+}
+
+/** Authorize one enterprise operation through the shared policy and audit the decision.
+ *
+ * Actions reuse the existing `EnterpriseAction` values — the union has no member per HTTP
+ * plane; the handler module JSDoc records the reuse choice per plane. `input` mirrors the
+ * security seam's audit signature; today it carries nothing beyond what `resourceId` already
+ * holds.
+ */
+export async function guardResource(
+  security: EmployeeHttpSecurity,
+  principal: EnterprisePrincipal,
+  action: EnterpriseAction,
+  endpoint: string,
+  resourceType: string,
+  resourceId: string,
+): Promise<EnterpriseAuthorizationDecision> {
+  const resource: EnterpriseResource = { orgId: principal.orgId, visibility: 'organization' }
+  const decision = await security.authorizeResourceAsync(principal, action, resource)
+  await security.auditApiResourceAsync(
+    principal, endpoint, { id: resourceId }, decision, randomUUID(), { type: resourceType, id: resourceId },
+  )
+  return decision
 }

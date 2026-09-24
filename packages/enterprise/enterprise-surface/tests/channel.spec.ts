@@ -149,7 +149,7 @@ interface Setup {
 }
 
 /** Open one migrated identity database, mount the fake host, and apply the plugin. */
-function makeCtx(): Setup {
+function makeCtx(config: Record<string, unknown> = {}): Setup {
   const ctx = new Context()
   const host = new FakeAgentHost(ctx)
   host.mount()
@@ -160,7 +160,7 @@ function makeCtx(): Setup {
   database.prepare('INSERT INTO users(id, org_id, username, display_name, disabled) VALUES (?, ?, ?, ?, ?)')
     .run('user-1', 'org-1', 'alice', 'Alice', 0)
   ctx.provide('employeeAccounts' as never, new EmployeeAccountService(database) as never)
-  apply(ctx, { database, defaultAgentPreset: PRESET })
+  apply(ctx, { database, defaultAgentPreset: PRESET, ...config })
   return { ctx, host, database, accounts: ctx.employeeAccounts }
 }
 
@@ -211,6 +211,8 @@ function mountMemory(ctx: Context, options: { failPropose?: boolean } = {}): { p
   const proposed: ProposedMemory[] = []
   ctx.provide('enterprisePostgres' as never, {
     identity: {
+      // The extraction path checks its deterministic ids against this listing.
+      listMemories: async () => [],
       proposeMemory: async (input: ProposedMemory) => {
         if (options.failPropose) throw new Error('injected propose failure')
         proposed.push(input)
@@ -592,7 +594,7 @@ describe('deliverToChannel announcement intake', () => {
     const result = await ctx.surfaces.deliverToChannel(surface, { originUserId: 'user-1', text: `公告：${'A'.repeat(600)}` })
     const command = await ctx.surfaces.deliverToChannel(surface, { originUserId: 'user-1', text: '/topic 需求' })
 
-    expect(result).toEqual({ delivered: true, mode: 'ingested', proposedMemoryId: 'memory-1' })
+    expect(result).toEqual({ delivered: true, mode: 'ingested', proposedMemoryIds: ['memory-1'], droppedPrivacy: 0 })
     expect(memory.proposed).toHaveLength(2)
     expect(memory.proposed[0]).toMatchObject({
       orgId: 'org-1', scope: 'organization', kind: 'business-fact', createdBy: 'user-1',
@@ -662,5 +664,91 @@ describe('deliverToChannel announcement intake', () => {
 
     expect(result).toMatchObject({ delivered: false, reason: 'intake-failed' })
     if (!result.delivered && result.reason === 'intake-failed') expect(result.error).toContain('injected propose failure')
+  })
+})
+
+/** One scripted announcement-extraction model response. */
+function extractionChunks(text: string): AsyncGenerator<import('@deepseek-ai/dsh-llm').StreamChunk> {
+  return (async function* (): AsyncGenerator<import('@deepseek-ai/dsh-llm').StreamChunk> {
+    yield { type: 'text-delta', index: 0, text }
+    yield { type: 'finish', reason: { kind: 'stop' } }
+  })()
+}
+
+describe('deliverToChannel announcement extraction', () => {
+  const EXTRACTION_CONFIG = {
+    announcementExtractionProvider: 'mock', announcementExtractionModel: 'mock-model',
+  }
+
+  function mountLlm(ctx: Context, responses: string[]): void {
+    ctx.provide('llm' as never, {
+      stream: (request: unknown): AsyncGenerator<import('@deepseek-ai/dsh-llm').StreamChunk> => {
+        const response = responses.shift() ?? ''
+        void request
+        return extractionChunks(response)
+      },
+    } as never)
+  }
+
+  it('extracts durable candidates into proposals and drops privacy-blocked ones', async () => {
+    const { ctx, accounts } = makeCtx(EXTRACTION_CONFIG)
+    const support = createEmployee(accounts, 'support', 'Support')
+    const surface = await ctx.surfaces.ensureChannelSurface(channelInput({
+      respondPolicy: 'ingest_only', memberEmployeeIds: [support.id],
+    }))
+    const memory = mountMemory(ctx)
+    mountLlm(ctx, [JSON.stringify({ candidates: [
+      { kind: 'process', summary: '下季度起报销审批在新流程平台办理。' },
+      { kind: 'business-fact', summary: '模板领取邮箱 alice@example.com。' },
+    ] })])
+
+    const result = await ctx.surfaces.deliverToChannel(surface, { originUserId: 'user-1', text: '公司公告：流程迁移' })
+
+    expect(result).toEqual({ delivered: true, mode: 'ingested', proposedMemoryIds: ['memory-1'], droppedPrivacy: 1 })
+    expect(memory.proposed).toHaveLength(1)
+    expect(memory.proposed[0]).toMatchObject({
+      orgId: 'org-1', scope: 'organization', kind: 'process',
+      summary: '下季度起报销审批在新流程平台办理。', createdBy: 'user-1',
+    })
+    expect(memory.proposed[0]?.id).toMatch(/^announcement-memory-[0-9a-f]{64}$/u)
+  })
+
+  it('falls back to the truncated single proposal when the extraction fails', async () => {
+    const { ctx, accounts } = makeCtx(EXTRACTION_CONFIG)
+    const support = createEmployee(accounts, 'support', 'Support')
+    const surface = await ctx.surfaces.ensureChannelSurface(channelInput({
+      respondPolicy: 'ingest_only', memberEmployeeIds: [support.id],
+    }))
+    const memory = mountMemory(ctx)
+    mountLlm(ctx, ['not json'])
+
+    const text = `公告：${'A'.repeat(600)}`
+    const failed = await ctx.surfaces.deliverToChannel(surface, { originUserId: 'user-1', text })
+    expect(failed).toEqual({ delivered: true, mode: 'ingested', proposedMemoryIds: ['memory-1'], droppedPrivacy: 0 })
+    expect(memory.proposed[0]?.summary).toHaveLength(500)
+
+    // A later announcement whose scripted responses are exhausted fails the same way.
+    const exhausted = await ctx.surfaces.deliverToChannel(surface, { originUserId: 'user-2', text: '第二条公告' })
+    expect(exhausted).toEqual({ delivered: true, mode: 'ingested', proposedMemoryIds: ['memory-2'], droppedPrivacy: 0 })
+    expect(memory.proposed[1]?.summary).toBe('第二条公告')
+  })
+
+  it('falls back without a model call when the llm service is not mounted', async () => {
+    // The extraction route is configured, but this composition mounts no `llm` service.
+    const { ctx, accounts } = makeCtx(EXTRACTION_CONFIG)
+    const support = createEmployee(accounts, 'support', 'Support')
+    const surface = await ctx.surfaces.ensureChannelSurface(channelInput({
+      respondPolicy: 'ingest_only', memberEmployeeIds: [support.id],
+    }))
+    const memory = mountMemory(ctx)
+
+    const result = await ctx.surfaces.deliverToChannel(surface, { originUserId: 'user-1', text: '第三条公告' })
+
+    expect(result).toEqual({ delivered: true, mode: 'ingested', proposedMemoryIds: ['memory-1'], droppedPrivacy: 0 })
+    expect(memory.proposed[0]?.summary).toBe('第三条公告')
+  })
+
+  it('rejects a half-configured extraction route at load', () => {
+    expect(() => makeCtx({ announcementExtractionProvider: 'mock' })).toThrow(/provider and a model/u)
   })
 })

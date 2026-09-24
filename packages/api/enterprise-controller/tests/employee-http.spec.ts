@@ -18,11 +18,11 @@ import type {
   ProjectPrincipalType,
 } from '@deepseek-ai/dsh-enterprise-project'
 import type { UserMessage } from '@deepseek-ai/dsh-llm'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { EmployeeHttpHandler, inject } from '../src/employee-http.ts'
 import type { EmployeeHttpSecurity } from '../src/employee-http.ts'
 import { inject as surfaceInject, ProjectHttpHandler, SurfaceHttpHandler } from '../src/surfaces-http.ts'
-import type { SurfaceHttpOptions } from '../src/surfaces-http.ts'
+import type { ProjectHttpOptions, SurfaceHttpOptions } from '../src/surfaces-http.ts'
 
 const PRESET = 'employee-preset'
 const ACCOUNT_FIELDS = ['displayName', 'id', 'roleCard', 'state']
@@ -340,8 +340,9 @@ function makeSurfaceHandler(
 function makeProjectHandler(
   projects: EnterpriseProjects,
   principal: EnterprisePrincipal | undefined = principalOf(),
+  options: ProjectHttpOptions = {},
 ): ProjectHttpHandler {
-  return new ProjectHttpHandler(projects, new RecordingSecurity(principal))
+  return new ProjectHttpHandler(projects, new RecordingSecurity(principal), options)
 }
 
 /** Send one request to the surface routes. */
@@ -1028,7 +1029,10 @@ describe('collaboration surface endpoints', () => {
     const body = await response.json() as Record<string, unknown>
     expect(body['delivered']).toBe(true)
     expect(body['mode']).toBe('ingested')
-    expect(typeof body['proposedMemoryId']).toBe('string')
+    expect(body['droppedPrivacy']).toBe(0)
+    const proposedIds = body['proposedMemoryIds'] as string[]
+    expect(proposedIds).toHaveLength(1)
+    expect(typeof proposedIds[0]).toBe('string')
     expect(env.host.created).toEqual([])
   })
 
@@ -1287,6 +1291,104 @@ describe('project endpoints', () => {
     expect((await callProject(handler, 'GET', '/project-1/members')).status).toBe(405)
     expect((await callProject(handler, 'POST', '/project-1/unknown')).status).toBe(404)
   })
+
+  it('distills an archived project behind the member gate and fires the archive trigger', async () => {
+    const projects = makeProjects()
+    const created = await callProject(makeProjectHandler(projects, principalOf(['creator'])), 'POST', '', CREATE)
+    const id = (await created.json() as Record<string, unknown>)['id'] as string
+    const distilled: Array<{ orgId: string; projectId: string; actorUserId: string }> = []
+    const consolidation = {
+      distillProject: async (input: { orgId: string; projectId: string; actorUserId: string }) => {
+        distilled.push(input)
+        return {
+          orgId: input.orgId, projectId: input.projectId, distilled: 2, droppedPrivacy: 1,
+          droppedDepartment: 0, skippedDuplicate: 0, failed: 0, at: 1_700_000_000_000,
+        }
+      },
+    }
+    const creator = makeProjectHandler(projects, principalOf(['creator']), { consolidation })
+
+    // The manual route answers 200 with the report; repeated runs stay safe by contract.
+    const report = await callProject(creator, 'POST', `/${id}/distill`)
+    expect(report.status).toBe(200)
+    await expect(report.json()).resolves.toEqual({
+      orgId: 'org-1', projectId: id, distilled: 2, droppedPrivacy: 1,
+      droppedDepartment: 0, skippedDuplicate: 0, failed: 0, at: 1_700_000_000_000,
+    })
+    expect(distilled).toEqual([{ orgId: 'org-1', projectId: id, actorUserId: 'user-1' }])
+
+    // Distillation still runs after the project archives, fired without awaiting it.
+    const archive = await callProject(creator, 'POST', `/${id}/archive`)
+    expect(archive.status).toBe(200)
+    expect(await archive.json()).toEqual({ id, state: 'archived' })
+    await vi.waitFor(() => { expect(distilled).toHaveLength(2) })
+    expect(distilled[1]).toEqual({ orgId: 'org-1', projectId: id, actorUserId: 'user-1' })
+    const afterArchive = await callProject(creator, 'POST', `/${id}/distill`)
+    expect(afterArchive.status).toBe(200)
+  })
+
+  it('keeps the archive response intact when the fired distillation rejects', async () => {
+    const projects = makeProjects()
+    const created = await callProject(makeProjectHandler(projects, principalOf(['creator'])), 'POST', '', CREATE)
+    const id = (await created.json() as Record<string, unknown>)['id'] as string
+    const consolidation = {
+      distillProject: async (): Promise<never> => { throw new Error('store busy') },
+    }
+    const creator = makeProjectHandler(projects, principalOf(['creator']), { consolidation })
+
+    const archive = await callProject(creator, 'POST', `/${id}/archive`)
+    expect(archive.status).toBe(200)
+    expect(await archive.json()).toEqual({ id, state: 'archived' })
+    // The rejection lands in the fire-and-forget catch; give the microtask a turn.
+    await new Promise((resolve) => { setTimeout(resolve, 0) })
+
+    // The manual route surfaces the same failure as a 500 after the runtime audited it.
+    const manual = await callProject(creator, 'POST', `/${id}/distill`)
+    expect(manual.status).toBe(500)
+  })
+
+  it('folds non-member and unknown distill requests behind 404 without calling the plane', async () => {
+    const projects = makeProjects()
+    const created = await callProject(makeProjectHandler(projects, principalOf(['creator'])), 'POST', '', CREATE)
+    const id = (await created.json() as Record<string, unknown>)['id'] as string
+    let called = 0
+    const consolidation = {
+      distillProject: async (input: { orgId: string; projectId: string; actorUserId: string }) => {
+        called += 1
+        return {
+          orgId: input.orgId, projectId: input.projectId, distilled: 0, droppedPrivacy: 0,
+          droppedDepartment: 0, skippedDuplicate: 0, failed: 0, at: 1_700_000_000_000,
+        }
+      },
+    }
+
+    // Even an administrator without membership sees no existence, and the plane never runs.
+    const outsider = makeProjectHandler(projects, principalOf(['administrator'], 'user-2'), { consolidation })
+    expect((await callProject(outsider, 'POST', `/${id}/distill`)).status).toBe(404)
+    expect((await callProject(
+      makeProjectHandler(projects, principalOf(['creator']), { consolidation }),
+      'POST', '/project-missing/distill',
+    )).status).toBe(404)
+    expect(called).toBe(0)
+  })
+
+  it('answers 503 without the distillation plane and 500 on a distill failure', async () => {
+    const projects = makeProjects()
+    const created = await callProject(makeProjectHandler(projects, principalOf(['creator'])), 'POST', '', CREATE)
+    const id = (await created.json() as Record<string, unknown>)['id'] as string
+
+    const unmounted = makeProjectHandler(projects, principalOf(['creator']))
+    const response = await callProject(unmounted, 'POST', `/${id}/distill`)
+    expect(response.status).toBe(503)
+    expect(await response.json()).toEqual({ error: 'consolidation-plane-unavailable' })
+
+    const failing = makeProjectHandler(projects, principalOf(['creator']), {
+      consolidation: { distillProject: async () => { throw new Error('store busy') } },
+    })
+    const failed = await callProject(failing, 'POST', `/${id}/distill`)
+    expect(failed.status).toBe(500)
+    expect(await failed.json()).toEqual({ error: 'internal-error' })
+  })
 })
 
 /** One chartered team run the fake control starts idempotently by key, like the real service. */
@@ -1496,7 +1598,8 @@ describe('collaboration surface acceptance (P2)', () => {
     expect(response.status).toBe(200)
     const body = await response.json() as Record<string, unknown>
     expect(body).toMatchObject({ delivered: true, mode: 'ingested' })
-    const proposedId = body['proposedMemoryId'] as string
+    const proposedIds = body['proposedMemoryIds'] as string[]
+    const proposedId = proposedIds[0] as string
 
     // The announcement became one proposed organization row attributed to the envelope actor;
     // no session was created and nothing was activated without review.

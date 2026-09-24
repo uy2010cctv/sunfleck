@@ -901,6 +901,9 @@ importers:
       '@deepseek-ai/dsh-enterprise-identity':
         specifier: workspace:^
         version: link:../../identity/enterprise-identity
+      '@deepseek-ai/dsh-enterprise-memory-context':
+        specifier: workspace:^
+        version: link:../../context/enterprise-memory-context
       '@deepseek-ai/dsh-enterprise-operations':
         specifier: workspace:^
         version: link:../../operations/enterprise-operations
@@ -6000,6 +6003,9 @@ importers:
       '@deepseek-ai/dsh-enterprise-identity':
         specifier: workspace:^
         version: link:../../identity/enterprise-identity
+      '@deepseek-ai/dsh-enterprise-memory-context':
+        specifier: workspace:^
+        version: link:../../context/enterprise-memory-context
       '@deepseek-ai/dsh-enterprise-operations':
         specifier: workspace:^
         version: link:../../operations/enterprise-operations

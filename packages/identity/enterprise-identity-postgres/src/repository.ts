@@ -18,6 +18,8 @@ import type {
   EnterpriseWorkspaceGrant,
   ExternalIdentityBinding,
   MemoryScope,
+  MemoryKind,
+  MemoryImportanceUpdate,
   RepositoryOptions,
   ProposeEnterpriseMemoryInput,
   ReviewEnterpriseMemoryInput,
@@ -33,6 +35,7 @@ import {
   MEMORY_SCOPES,
   planMemoryListFilters,
   sessionTokenHash,
+  validateMemoryImportanceUpdates,
   validatePrivateMemoryInput,
 } from '@deepseek-ai/dsh-enterprise-identity'
 import type { EnterpriseRole } from '@deepseek-ai/dsh-enterprise-governance'
@@ -117,6 +120,8 @@ interface MemoryRow extends Record<string, unknown> {
   readonly privacy_findings: unknown
   readonly importance: number | string | null
   readonly last_access_at: number | string | null
+  readonly valid_from: number | string | null
+  readonly invalidated_by: string | null
   readonly created_by: string
   readonly reviewed_by: string | null
   readonly review_reason: string | null
@@ -653,9 +658,9 @@ export class PgEnterpriseIdentityRepository {
     })
   }
 
-  /** Writes one approved memory straight into a private compartment, bypassing review. The row id
-   * derives deterministically from the write tuple (`private-memory-<digest>`), so repeat and
-   * concurrent duplicate writes converge on one row.
+  /** Writes one approved memory straight into a direct-write compartment (`agent`, `pair`, or the
+   * member-gated `project`), bypassing review. The row id derives deterministically from the write
+   * tuple (`private-memory-<digest>`), so repeat and concurrent duplicate writes converge on one row.
    * @param input - Input value used by this API.
    * @returns The stored memory; the existing row when this exact source was written before.
    */
@@ -663,10 +668,10 @@ export class PgEnterpriseIdentityRepository {
     const { summary, findings, sourceDigest } = validatePrivateMemoryInput(input)
     return this.transaction(async (database) => {
       await this.assertMemoryReferences(database, input.orgId, input.createdBy)
-      // The scope predicate keeps a hypothetical digest collision in a shared compartment from
-      // satisfying a private write.
+      // The scope predicate keeps a hypothetical digest collision in another direct-write
+      // compartment from satisfying this write.
       const existing = await database.query<MemoryRow>(`SELECT * FROM enterprise_memories
-        WHERE org_id = $1 AND source_digest = $2 AND scope_type IN ('agent', 'pair')`,
+        WHERE org_id = $1 AND source_digest = $2 AND scope_type IN ('agent', 'pair', 'project')`,
       [input.orgId, sourceDigest])
       const found = existing.rows[0]
       if (found !== undefined) return this.memoryFromRow(found)
@@ -685,7 +690,7 @@ export class PgEnterpriseIdentityRepository {
       // A concurrent writer committed the same deterministic id between the lookup and the insert;
       // the unique-index wait guarantees its row is committed and visible to the re-select.
       const raced = await database.query<MemoryRow>(`SELECT * FROM enterprise_memories
-        WHERE org_id = $1 AND source_digest = $2 AND scope_type IN ('agent', 'pair')`,
+        WHERE org_id = $1 AND source_digest = $2 AND scope_type IN ('agent', 'pair', 'project')`,
       [input.orgId, sourceDigest])
       const winner = raced.rows[0]
       if (winner === undefined) throw new Error('enterprise private memory write returned no row')
@@ -727,6 +732,40 @@ export class PgEnterpriseIdentityRepository {
     })
   }
 
+  /** Retires one approved memory for consolidation; see `EnterpriseIdentityStore.supersedeMemory`. */
+  async supersedeMemory(oldId: string, newId: string, at: number): Promise<void> {
+    if (oldId === newId) throw new Error('enterprise memory cannot supersede itself')
+    await this.transaction(async (database) => {
+      const current = await database.query<{ status: EnterpriseMemoryEntry['status'] }>(
+        'SELECT status FROM enterprise_memories WHERE id = $1 FOR UPDATE', [oldId],
+      )
+      const row = current.rows[0]
+      if (row === undefined) throw new Error('enterprise memory is missing')
+      // A retired old row fails here too, so a second supersede of the same chain never rewrites it.
+      if (row.status !== 'approved') throw new Error('enterprise memory supersede requires the approved status')
+      const replacement = await database.query('SELECT id FROM enterprise_memories WHERE id = $1', [newId])
+      if (replacement.rows[0] === undefined) throw new Error('superseding enterprise memory is missing')
+      await database.query(`UPDATE enterprise_memories SET status = 'retired', invalidated_by = $1, updated_at = $2
+        WHERE id = $3`, [newId, at, oldId])
+    })
+  }
+
+  /** Applies one consolidation importance batch; see `EnterpriseIdentityStore.batchUpdateImportance`. */
+  async batchUpdateImportance(updates: readonly MemoryImportanceUpdate[]): Promise<number> {
+    validateMemoryImportanceUpdates(updates)
+    if (updates.length === 0) return 0
+    return this.transaction(async (database) => {
+      let changed = 0
+      for (const update of updates) {
+        const result = await database.query(`UPDATE enterprise_memories
+          SET importance = $1, last_access_at = COALESCE($2, last_access_at) WHERE id = $3`,
+        [update.importance, update.lastAccessAt ?? null, update.id])
+        changed += result.rowCount ?? 0
+      }
+      return changed
+    })
+  }
+
   /** Executes `PgEnterpriseIdentityRepository.listMemories` for this instance.
    * @param input - Input value used by this API.
    * @returns Result produced by this API.
@@ -735,10 +774,12 @@ export class PgEnterpriseIdentityRepository {
     orgId: string
     departmentIds?: readonly string[]
     statuses?: readonly EnterpriseMemoryEntry['status'][]
+    kinds?: readonly MemoryKind[]
     scopes?: readonly MemoryScope[]
     agentEmployeeId?: string
     pairUserId?: string
     projectId?: string
+    staleBefore?: number
   }): Promise<EnterpriseMemoryEntry[]> {
     const plan = planMemoryListFilters(input)
     if (plan === undefined) return []
@@ -779,9 +820,21 @@ export class PgEnterpriseIdentityRepository {
     }
     const statusIndex = index
     values.push([...plan.statuses])
+    index += 1
+    const kindClause = plan.kinds === undefined ? '' : ` AND kind = ANY($${index}::text[])`
+    if (plan.kinds !== undefined) {
+      values.push([...plan.kinds])
+      index += 1
+    }
+    // staleBefore keeps its own approved predicate: the consolidation clock only ever applies to
+    // approved rows, and COALESCE lets a never-touched row age on its updated_at instead.
+    const staleClause = input.staleBefore === undefined
+      ? ''
+      : ` AND status = 'approved' AND COALESCE(last_access_at, updated_at) < $${index}`
+    if (input.staleBefore !== undefined) values.push(input.staleBefore)
     const result = await this.database.query<MemoryRow>(`SELECT * FROM enterprise_memories
       WHERE org_id = $1 AND ${scopeClause}
-        AND status = ANY($${statusIndex}::text[])${ownerClauses.length === 0 ? '' : ` AND ${ownerClauses.join(' AND ')}`}
+        AND status = ANY($${statusIndex}::text[])${kindClause}${ownerClauses.length === 0 ? '' : ` AND ${ownerClauses.join(' AND ')}`}${staleClause}
       ORDER BY updated_at DESC, id`, values)
     return result.rows.map(row => this.memoryFromRow(row))
   }
@@ -830,6 +883,8 @@ export class PgEnterpriseIdentityRepository {
       privacyFindings: safeStringArray(row.privacy_findings) as EnterpriseMemoryPrivacyFinding[],
       importance: row.importance === null ? 0 : Number(row.importance),
       ...(row.last_access_at === null ? {} : { lastAccessAt: Number(row.last_access_at) }),
+      ...(row.valid_from === null ? {} : { validFrom: Number(row.valid_from) }),
+      ...(row.invalidated_by === null ? {} : { invalidatedBy: row.invalidated_by }),
       createdBy: row.created_by,
       ...(row.reviewed_by === null ? {} : { reviewedBy: row.reviewed_by }),
       ...(row.review_reason === null ? {} : { reviewReason: row.review_reason }),

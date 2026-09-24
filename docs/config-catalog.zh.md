@@ -580,6 +580,26 @@ export interface Config {
 
 Source: [`packages/e2b/e2b/src/index.ts:45`](../packages/e2b/e2b/src/index.ts)
 
+<a id="deepseek-aidsh-employee-account"></a>
+
+## `@deepseek-ai/dsh-employee-account`
+
+```ts config-catalog
+/** Data used by `Config`. */
+export interface Config {
+  /**
+   * Migrated enterprise identity database backing the service. A live
+   * `DatabaseSync` handle cannot be expressed in cordis.yml, so the composing
+   * plugin passes it programmatically and owns the database lifecycle.
+   */
+  readonly database: DatabaseSync
+}
+```
+
+Depends on: `DatabaseSync` (`node:sqlite`)
+
+Source: [`packages/enterprise/employee-account/src/index.ts:24`](../packages/enterprise/employee-account/src/index.ts)
+
 <a id="deepseek-aidsh-enterprise-cordis-runtime"></a>
 
 ## `@deepseek-ai/dsh-enterprise-cordis-runtime`
@@ -600,7 +620,7 @@ Source: [`packages/enterprise/enterprise-cordis-runtime/src/index.ts:34`](../pac
 
 ## `@deepseek-ai/dsh-enterprise-memory-context`
 
-Requires: `enterprisePostgres` · `enterpriseRequestContext` · `systemPrompt` · `tools`
+Requires: `enterprisePostgres` · `enterpriseRequestContext` · `llm` · `systemPrompt` · `tools`
 
 ```ts config-catalog
 /** Data used by `Config`. */
@@ -609,14 +629,58 @@ export interface Config {
   readonly maxEntries?: number
   /** Maximum total characters injected from approved and proposed enterprise memory. */
   readonly maxChars?: number
-  /** Allow the model to propose evaluated business knowledge. Activation still requires a validated organization policy. */
+  /** Allow the model to activate confirmed business knowledge; uncertain or conflicting statements wait for confirmation. */
   readonly autoSave?: boolean
   /** Explicit non-human enterprise identity for unbound background automation, e.g. `service:memory-bot`. */
   readonly backgroundServiceUserId?: string
+  /** Whether completed turns are independently extracted into enterprise memory. */
+  readonly writebackEnabled?: boolean
+  /** Combined direct-user and final-answer character bound for one extraction. */
+  readonly writebackMaxInputChars?: number
+  /** Maximum output tokens for the independent extractor. */
+  readonly writebackMaxTokens?: number
+  /** Timeout for one independent extraction model call. */
+  readonly writebackTimeoutMs?: number
+  /** Interval between automatic memory-consolidation ticks in epoch milliseconds; `0` disables
+   * the interval while the manual trigger endpoint keeps working. */
+  readonly consolidationIntervalMs?: number
+  /** Organizations the automatic interval consolidates; empty keeps the interval inert — the
+   * manual trigger endpoint still consolidates any org per request. */
+  readonly consolidationOrgIds?: string[]
+  /** Explicit `service:` identity consolidation attributes its writes, reviews, and audits to;
+   * required for the interval path and for any consolidation run that writes. */
+  readonly consolidationActorUserId?: string
+  /** Registered provider route for the consolidation digest and reflection model calls. */
+  readonly consolidationProvider?: string
+  /** Model the consolidation digest and reflection model calls run on. */
+  readonly consolidationModel?: string
+  /** Maximum output tokens for one consolidation refinement model call. */
+  readonly consolidationMaxTokens?: number
+  /** Wall-clock timeout for one consolidation refinement model call. */
+  readonly consolidationTimeoutMs?: number
+  /** Overrides for the consolidation thresholds; every omitted field keeps its documented default. */
+  readonly consolidationTunables?: Partial<ConsolidationTunables>
+}
+
+/** Deployment-varying consolidation thresholds, resolved once per consolidation run through
+ * {@link consolidationTunables}. */
+export interface ConsolidationTunables {
+  /** Token-set Jaccard similarity at or above which two summaries share one duplicate group. */
+  readonly duplicateJaccardThreshold: number
+  /** Importance half-life in days: aging `halfLifeDays` without access halves the decayed weight. */
+  readonly halfLifeDays: number
+  /** Decayed importance strictly below which an entry may retire. */
+  readonly retireBelowImportance: number
+  /** Days of no access after which retirement becomes eligible. */
+  readonly retireGraceDays: number
+  /** Decayed importance at or above which an approved agent note becomes a reflection candidate. */
+  readonly reflectionMinImportance: number
+  /** Maximum reflection candidates one consolidation run selects. */
+  readonly reflectionBatchLimit: number
 }
 ```
 
-Source: [`packages/context/enterprise-memory-context/src/index.ts:18`](../packages/context/enterprise-memory-context/src/index.ts)
+Source: [`packages/context/enterprise-memory-context/src/index.ts:23`](../packages/context/enterprise-memory-context/src/index.ts)
 
 <a id="deepseek-aidsh-enterprise-postgres"></a>
 
@@ -641,6 +705,80 @@ export interface EnterprisePostgresConfig {
 ```
 
 Source: [`packages/enterprise/enterprise-postgres/src/index.ts:82`](../packages/enterprise/enterprise-postgres/src/index.ts)
+
+<a id="deepseek-aidsh-enterprise-project"></a>
+
+## `@deepseek-ai/dsh-enterprise-project`
+
+```ts config-catalog
+/** Data used by `Config`. */
+export interface Config {
+  /**
+   * PostgreSQL handle backing the project tables. A live database handle
+   * cannot be expressed in cordis.yml, so the composing plugin passes it
+   * programmatically and owns the database lifecycle; the `organizations` FK
+   * target must already exist in that database.
+   */
+  readonly database: PostgresDatabase
+}
+
+/** Minimal driver-neutral PostgreSQL surface used by the project repository. */
+export interface PostgresDatabase {
+  query<Row extends Record<string, unknown>>(text: string, values?: readonly unknown[]): Promise<PostgresQueryResult<Row>>
+  transaction<T>(operation: (database: PostgresDatabase) => Promise<T>): Promise<T>
+}
+
+/** Data used by `PostgresQueryResult`. */
+export interface PostgresQueryResult<Row extends Record<string, unknown> = Record<string, unknown>> {
+  /** Result rows of one executed statement, in driver return order. */
+  readonly rows: readonly Row[]
+  /** Number of rows the statement affected, or `null` when the driver reports no count. */
+  readonly rowCount: number | null
+}
+```
+
+Source: [`packages/enterprise/enterprise-project/src/index.ts:29`](../packages/enterprise/enterprise-project/src/index.ts)
+
+<a id="deepseek-aidsh-enterprise-surface"></a>
+
+## `@deepseek-ai/dsh-enterprise-surface`
+
+Requires: `agentDefaultModel` · `agentPresets` · `agents` · `employeeAccounts` · `sessionTitle` · `sessions` · `workspaceRegistry`
+
+```ts config-catalog
+/** Data used by `Config`. */
+export interface Config {
+  /**
+   * Migrated enterprise identity database backing surface and inbox rows. A
+   * live `DatabaseSync` handle cannot be expressed in cordis.yml, so the
+   * composing plugin passes it programmatically and owns the database
+   * lifecycle.
+   */
+  readonly database: DatabaseSync
+  /**
+   * Agent preset composed into every anchored employee session. P0 resolves
+   * the preset directly from this field; release-driven resolution is
+   * deferred.
+   */
+  readonly defaultAgentPreset: string
+  /**
+   * Registered provider route for announcement memory extraction on ingest-only
+   * channels. Empty (the default, like the model) keeps intake on the single
+   * truncated-proposal fallback.
+   */
+  readonly announcementExtractionProvider?: string
+  /** Model the announcement extraction call runs on; empty keeps the fallback. */
+  readonly announcementExtractionModel?: string
+  /** Maximum output tokens for one announcement extraction call. */
+  readonly announcementExtractionMaxTokens?: number
+  /** Wall-clock timeout for one announcement extraction call. */
+  readonly announcementExtractionTimeoutMs?: number
+}
+```
+
+Depends on: `DatabaseSync` (`node:sqlite`)
+
+Source: [`packages/enterprise/enterprise-surface/src/index.ts:38`](../packages/enterprise/enterprise-surface/src/index.ts)
 
 <a id="deepseek-aidsh-experimental-agent-team"></a>
 
@@ -3609,7 +3747,7 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 
 - `@deepseek-ai/dsh-acp-app` — requires `cmdlineArgs` ([`packages/bundle/acp-app/src/index.ts`](../packages/bundle/acp-app/src/index.ts))
 - `@deepseek-ai/dsh-agent` ([`packages/core/agent/src/index.ts`](../packages/core/agent/src/index.ts))
-- `@deepseek-ai/dsh-api-enterprise-controller` — requires `enterprisePostgres` · `enterpriseSecurity` · `enterpriseRequestContext` · `enterpriseCordis` · `credentials` · `llm` · `sessionController` · `webServer` ([`packages/api/enterprise-controller/src/index.ts`](../packages/api/enterprise-controller/src/index.ts))
+- `@deepseek-ai/dsh-api-enterprise-controller` — requires `enterprisePostgres` · `enterpriseSecurity` · `enterpriseRequestContext` · `enterpriseCordis` · `agentPresets` · `credentials` · `llm` · `sessionController` · `webServer` ([`packages/api/enterprise-controller/src/index.ts`](../packages/api/enterprise-controller/src/index.ts))
 - `@deepseek-ai/dsh-api-remotes` — requires `typertGateway` ([`packages/api/remotes/src/index.ts`](../packages/api/remotes/src/index.ts))
 - `@deepseek-ai/dsh-api-workspace-controller` — requires `typert` · `workspaceRegistry` ([`packages/api/workspace-controller/src/index.ts`](../packages/api/workspace-controller/src/index.ts))
 - `@deepseek-ai/dsh-authorization` — requires `credentials` ([`packages/credentials/authorization/src/index.ts`](../packages/credentials/authorization/src/index.ts))
@@ -3660,6 +3798,7 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 - `@deepseek-ai/dsh-client-ui-user-questions` ([`packages/client/ui-user-questions/src/index.ts`](../packages/client/ui-user-questions/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-workflow-run` ([`packages/client/ui-workflow-run/src/index.ts`](../packages/client/ui-workflow-run/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-workspace` ([`packages/client/ui-workspace/src/index.ts`](../packages/client/ui-workspace/src/index.ts))
+- `@deepseek-ai/dsh-client-ui-workspace-files` ([`packages/client/ui-workspace-files/src/index.ts`](../packages/client/ui-workspace-files/src/index.ts))
 - `@deepseek-ai/dsh-command-compact` — requires `commands` · `compaction` ([`packages/compaction/command-compact/src/index.ts`](../packages/compaction/command-compact/src/index.ts))
 - `@deepseek-ai/dsh-command-feedback` — requires `commands` ([`packages/feedback/command-feedback/src/index.ts`](../packages/feedback/command-feedback/src/index.ts))
 - `@deepseek-ai/dsh-command-goal` — requires `commands` · `goals` ([`packages/goal/command-goal/src/index.ts`](../packages/goal/command-goal/src/index.ts))

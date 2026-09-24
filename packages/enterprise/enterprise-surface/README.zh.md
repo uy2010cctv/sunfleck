@@ -54,7 +54,7 @@ kind: "package-reference"
 
 群投递加入第二种模式。`ensureGroupSurface` 以外部键或 id 为键，校验每个成员员工的组织归属，并经 store 的整体替换成员 API 存储成员集——ensure 阶段不创建会话。联邦式群把消息路由到显式提及的成员，或显示名以 @ 词元出现（大小写不敏感）的成员，并直接注入各成员自己的按员工绑定的群会话（`surface_sessions` 绑定，首次被提及时惰性创建）：群投递从不写员工收件行，收件保持 dm 专属。单个成员的失败记录在其目标上，批次其余部分照常落地。有章程的群（存在 `teamDefinitionId`）经运行时驱动的 `submitRunInput` 把文本提交进团队活跃 run，无活跃 run 时以 `source: 'channel'` 与稳定幂等键 `<surface id>:<origin user>` 启动一个 run。
 
-频道投递加入第三种模式。`ensureChannelSurface` 以与群相同的方式为 surface 作键，校验成员与当值员工的组织归属，并存储两项策略、去重后的当值名册与成员集。在交互式（`mention_duty`）频道上，`deliverToChannel` 按策略解析消息的话题——`/topic 标题` 创建指令话题，`thread` 在传输方未固定话题时以消息前 40 字为标题自动创建，`lane` 路由进唯一的频道级话题——路由到被提及成员或当值名册首位，并注入该话题的唯一会话：会话锚定到首个被路由员工的 home workspace，经按话题的串行尾至多创建一次（store 行携带 `session_id`，`topicBySession` 据此解析），后续参与者经其消息的 `originActor` 归属。`/done` 收束被寻址的开放话题，并向其活跃会话注入收束标记，store 行与会话日志因此都记录这次收束；终态话题回答 `already-settled`。在仅接入频道上不存在任何会话：经隐私门、截断后的公告成为一条组织范围的记忆提案，`invalid-text` 丢弃、`privacy-gated` 丢弃与 `intake-failed` 失败都以结构化结果返回。
+频道投递加入第三种模式。`ensureChannelSurface` 以与群相同的方式为 surface 作键，校验成员与当值员工的组织归属，并存储两项策略、去重后的当值名册与成员集。在交互式（`mention_duty`）频道上，`deliverToChannel` 按策略解析消息的话题——`/topic 标题` 创建指令话题，`thread` 在传输方未固定话题时以消息前 40 字为标题自动创建，`lane` 路由进唯一的频道级话题——路由到被提及成员或当值名册首位，并注入该话题的唯一会话：会话锚定到首个被路由员工的 home workspace，经按话题的串行尾至多创建一次（store 行携带 `session_id`，`topicBySession` 据此解析），后续参与者经其消息的 `originActor` 归属。`/done` 收束被寻址的开放话题，并向其活跃会话注入收束标记，store 行与会话日志因此都记录这次收束；终态话题回答 `already-settled`。在仅接入频道上不存在任何会话：配置抽取路由（`announcementExtractionProvider` 与 `announcementExtractionModel`）且 `llm` 服务已挂载时，公告会被提炼为至多三条组织范围的记忆提案，其确定性编号使重复公告收敛；被隐私门拦截的候选在投递结果中计数而不作提案。其余情况一律回退到抽取前行为——经隐私门、截断后的公告成为一条组织范围的记忆提案——`invalid-text` 丢弃、`privacy-gated` 丢弃与 `intake-failed` 失败都以结构化结果返回。
 
 ### 源码地图
 

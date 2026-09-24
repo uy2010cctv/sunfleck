@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/context/enterprise-memory-context/README.md
-README.md: 2928311612457b7248b567330df4a4d91f46a9a5
-README.zh.md: 7a1646e23b9a9d621e9ca2de11155b1ab9d2e8bc
+README.md: 98cc6261eebc01ec9b84d957fa1b60f63f87e216
+README.zh.md: b6779f349a702bdbb890b016167a8ee58e232d6b

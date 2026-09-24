@@ -84,7 +84,7 @@ describe('PgEnterpriseIdentityRepository', () => {
     expect(database.queries.at(-1)?.values).toEqual([String(ENTERPRISE_IDENTITY_POSTGRES_SCHEMA_VERSION)])
   })
 
-  it('upgrades v6 memories with the purely additive project compartment column', async () => {
+  it('upgrades v6 memories with the lineage columns and the widened kind CHECK', async () => {
     class VersionSixDatabase extends RecordingDatabase {
       override async query<Row extends Record<string, unknown> = Record<string, unknown>>(
         text: string, values: readonly unknown[] = [],
@@ -101,11 +101,40 @@ describe('PgEnterpriseIdentityRepository', () => {
     await migrateEnterpriseIdentityPostgres(database)
 
     const statements = database.queries.map(query => query.text)
-    // Only the additive column statement runs; no CHECK needs dropping for this version.
-    expect(statements.filter(text => text.includes('ALTER TABLE'))).toEqual([
-      expect.stringContaining('ADD COLUMN IF NOT EXISTS project_id TEXT'),
-    ])
-    expect(statements.some(statement => statement.includes('DROP CONSTRAINT'))).toBe(false)
+    // v8 changes the kind CHECK, so even this version takes the widen path: the lineage columns
+    // are appended and the CHECK set is dropped and re-added with the summary kind.
+    expect(statements).toEqual(expect.arrayContaining([
+      expect.stringContaining('ADD COLUMN IF NOT EXISTS valid_from BIGINT'),
+      expect.stringContaining('ADD COLUMN IF NOT EXISTS invalidated_by TEXT'),
+      expect.stringContaining("'business-fact', 'process', 'terminology', 'decision', 'preference', 'summary'"),
+    ]))
+    expect(statements.some(statement => statement.includes('DROP CONSTRAINT'))).toBe(true)
+    expect(database.queries.at(-1)?.values).toEqual([String(ENTERPRISE_IDENTITY_POSTGRES_SCHEMA_VERSION)])
+  })
+
+  it('upgrades v7 memories with the lineage columns and the widened kind CHECK', async () => {
+    class VersionSevenDatabase extends RecordingDatabase {
+      override async query<Row extends Record<string, unknown> = Record<string, unknown>>(
+        text: string, values: readonly unknown[] = [],
+      ): Promise<PostgresQueryResult<Row>> {
+        if (text.includes("SELECT value FROM enterprise_meta WHERE key = 'schema-version'")) {
+          this.queries.push({ text, values })
+          return { rows: [{ value: '7' }] as Row[], rowCount: 1 }
+        }
+        return super.query(text, values)
+      }
+    }
+    const database = new VersionSevenDatabase()
+
+    await migrateEnterpriseIdentityPostgres(database)
+
+    const statements = database.queries.map(query => query.text)
+    expect(statements).toEqual(expect.arrayContaining([
+      expect.stringContaining('ADD COLUMN IF NOT EXISTS valid_from BIGINT'),
+      expect.stringContaining('ADD COLUMN IF NOT EXISTS invalidated_by TEXT'),
+      expect.stringContaining("'business-fact', 'process', 'terminology', 'decision', 'preference', 'summary'"),
+    ]))
+    expect(statements.some(statement => statement.includes('DROP CONSTRAINT'))).toBe(true)
     expect(database.queries.at(-1)?.values).toEqual([String(ENTERPRISE_IDENTITY_POSTGRES_SCHEMA_VERSION)])
   })
 
@@ -371,6 +400,131 @@ describe('PgEnterpriseIdentityRepository private memory', () => {
     ]])
   })
 
+  it('narrows consolidation listings with kind and staleness predicates', async () => {
+    const database = new RecordingDatabase()
+    const repository = new PgEnterpriseIdentityRepository(database)
+
+    await repository.listMemories({ orgId: 'org-a', kinds: ['summary'] })
+    await repository.listMemories({ orgId: 'org-a', staleBefore: 1_700_000_000_000 })
+    await repository.listMemories({ orgId: 'org-a', kinds: ['business-fact', 'summary'], staleBefore: 5 })
+
+    const [kinds, stale, both] = database.queries
+    expect(kinds?.text).toContain('kind = ANY($3::text[])')
+    expect(kinds?.values).toEqual(['org-a', ['proposed', 'approved', 'rejected', 'retired'], ['summary']])
+    // The staleness clock carries its own approved predicate and compares the coalesced columns.
+    expect(stale?.text).toContain("AND status = 'approved' AND COALESCE(last_access_at, updated_at) < $3")
+    expect(stale?.values).toEqual(['org-a', ['proposed', 'approved', 'rejected', 'retired'], 1_700_000_000_000])
+    expect(both?.text).toContain('kind = ANY($3::text[])')
+    expect(both?.text).toContain('COALESCE(last_access_at, updated_at) < $4')
+    expect(both?.values).toEqual(['org-a', ['proposed', 'approved', 'rejected', 'retired'],
+      ['business-fact', 'summary'], 5])
+  })
+
+  it('propagates consolidation lineage fields from stored rows', async () => {
+    class LineageDatabase extends RecordingDatabase {
+      override async query<Row extends Record<string, unknown> = Record<string, unknown>>(
+        text: string, values: readonly unknown[] = [],
+      ): Promise<PostgresQueryResult<Row>> {
+        if (text.includes('SELECT * FROM enterprise_memories')) {
+          return {
+            rows: [{ ...privateMemoryRow, valid_from: 1_700_000_000_800, invalidated_by: 'memory-new' }] as Row[],
+            rowCount: 1,
+          }
+        }
+        return super.query(text, values)
+      }
+    }
+
+    const listed = await new PgEnterpriseIdentityRepository(new LineageDatabase())
+      .listMemories({ orgId: 'org-a' })
+    expect(listed[0]).toMatchObject({ validFrom: 1_700_000_000_800, invalidatedBy: 'memory-new' })
+  })
+
+  /** Serves one supersede gate outcome: the old row's status and whether the replacement exists. */
+  class SupersedeDatabase extends RecordingDatabase {
+    constructor(private readonly status: string, private readonly replacementExists: boolean) { super() }
+
+    override async query<Row extends Record<string, unknown> = Record<string, unknown>>(
+      text: string, values: readonly unknown[] = [],
+    ): Promise<PostgresQueryResult<Row>> {
+      if (text.includes('FOR UPDATE')) {
+        this.queries.push({ text, values })
+        return { rows: [{ status: this.status }] as Row[], rowCount: 1 }
+      }
+      if (text.includes('SELECT id FROM enterprise_memories')) {
+        this.queries.push({ text, values })
+        return {
+          rows: this.replacementExists ? [{ id: 'memory-new' }] as Row[] : [],
+          rowCount: this.replacementExists ? 1 : 0,
+        }
+      }
+      return super.query(text, values)
+    }
+  }
+
+  it('supersedes approved memory with parameterized lineage writes and state gates', async () => {
+    const happy = new SupersedeDatabase('approved', true)
+    await new PgEnterpriseIdentityRepository(happy).supersedeMemory('memory-old', 'memory-new', 1_700_000_000_500)
+
+    expect(happy.queries.map(query => query.text.trim())).toEqual([
+      'BEGIN',
+      'SELECT status FROM enterprise_memories WHERE id = $1 FOR UPDATE',
+      'SELECT id FROM enterprise_memories WHERE id = $1',
+      expect.stringContaining("UPDATE enterprise_memories SET status = 'retired', invalidated_by = $1"),
+      'COMMIT',
+    ])
+    expect(happy.queries[3]?.values).toEqual(['memory-new', 1_700_000_000_500, 'memory-old'])
+
+    // Consolidation is the authority: no revision or reviewer columns take part in the write.
+    expect(happy.queries[3]?.text).not.toContain('revision')
+
+    await expect(new PgEnterpriseIdentityRepository(new SupersedeDatabase('approved', false))
+      .supersedeMemory('memory-old', 'memory-new', 1)).rejects.toThrow(/superseding/)
+    await expect(new PgEnterpriseIdentityRepository(new SupersedeDatabase('retired', true))
+      .supersedeMemory('memory-old', 'memory-new', 1)).rejects.toThrow(/approved/)
+    await expect(new PgEnterpriseIdentityRepository(new SupersedeDatabase('proposed', true))
+      .supersedeMemory('memory-old', 'memory-new', 1)).rejects.toThrow(/approved/)
+    await expect(new PgEnterpriseIdentityRepository(new RecordingDatabase())
+      .supersedeMemory('memory-old', 'memory-new', 1)).rejects.toThrow(/missing/)
+    await expect(new PgEnterpriseIdentityRepository(new RecordingDatabase())
+      .supersedeMemory('memory-old', 'memory-old', 1)).rejects.toThrow(/itself/)
+  })
+
+  it('batch updates importance with parameterized rows and validates before writing', async () => {
+    const database = new RecordingDatabase()
+    const repository = new PgEnterpriseIdentityRepository(database)
+
+    await expect(repository.batchUpdateImportance([
+      { id: 'memory-a', importance: 2.5, lastAccessAt: 500 },
+      { id: 'memory-b', importance: 0 },
+    ])).resolves.toBe(2)
+    const updates = database.queries.filter(query => query.text.includes('UPDATE enterprise_memories'))
+    expect(updates.map(query => query.values)).toEqual([
+      [2.5, 500, 'memory-a'],
+      [0, null, 'memory-b'],
+    ])
+
+    // Omitted access clocks bind NULL so COALESCE keeps the stored column.
+    expect(updates[1]?.text).toContain('COALESCE($2, last_access_at)')
+
+    await expect(repository.batchUpdateImportance([{ id: 'memory-a', importance: -1 }]))
+      .rejects.toThrow(/non-negative/)
+    await expect(repository.batchUpdateImportance([{ id: 'memory-a', importance: Number.NaN }]))
+      .rejects.toThrow(/non-negative/)
+    await expect(repository.batchUpdateImportance([])).resolves.toBe(0)
+
+    class MissingRowDatabase extends RecordingDatabase {
+      override async query<Row extends Record<string, unknown> = Record<string, unknown>>(
+        text: string, values: readonly unknown[] = [],
+      ): Promise<PostgresQueryResult<Row>> {
+        const result = await super.query<Row>(text, values)
+        return { rows: result.rows, rowCount: 0 }
+      }
+    }
+    await expect(new PgEnterpriseIdentityRepository(new MissingRowDatabase())
+      .batchUpdateImportance([{ id: 'memory-a', importance: 1 }])).resolves.toBe(0)
+  })
+
   it('returns the committed winner when a concurrent write claims the deterministic id first', async () => {
     class ContendedDatabase extends MemoryDatabase {
       digestSelects = 0
@@ -466,11 +620,22 @@ describe('migrateSqliteEnterpriseIdentityToPostgres', () => {
       id: 'memory-project', orgId: 'org-a', scope: 'project', projectId: 'project-alpha', kind: 'process',
       summary: '项目按周同步进度。', sourceDigest: 'e'.repeat(64), createdBy: 'user-1',
     })
-    // No repository API raises importance yet, so seed non-default values through raw SQL: a
-    // dropped importance column must not hide behind the 0 default.
+    // Consolidation lineage comes from the supersede API; the summary kind only exists since v9.
+    const superseding = source.proposeMemory({
+      id: 'memory-org-v2', orgId: 'org-a', scope: 'organization', kind: 'summary',
+      summary: '公司合同编号纪要汇总。', sourceDigest: '6'.repeat(64), createdBy: 'user-1',
+    })
+    source.reviewMemory({
+      id: 'memory-org-v2', orgId: 'org-a', decision: 'approved', reviewedBy: 'user-1',
+      reason: '已核对', expectedRevision: superseding.revision,
+    })
+    source.supersedeMemory('memory-org', 'memory-org-v2', 1_700_000_000_600)
+    // No repository API raises importance or writes valid_from on these rows yet, so seed
+    // non-default values through raw SQL: a dropped column must not hide behind its default.
     const raw = new DatabaseSync(sqlitePath)
     raw.prepare('UPDATE enterprise_memories SET importance = ? WHERE id = ?').run(1.25, 'memory-org')
     raw.prepare('UPDATE enterprise_memories SET importance = ? WHERE id = ?').run(3.5, agent.id)
+    raw.prepare('UPDATE enterprise_memories SET valid_from = ? WHERE id = ?').run(1_700_000_000_500, 'memory-org-v2')
     raw.close()
   })
 
@@ -492,7 +657,7 @@ describe('migrateSqliteEnterpriseIdentityToPostgres', () => {
     expect(report.source.organizations.count).toBe(1)
     expect(report.source.users.count).toBe(1)
     expect(report.source.authSessions.count).toBe(1)
-    expect(report.source.memories.count).toBe(3)
+    expect(report.source.memories.count).toBe(4)
     expect(report.source.authSessions.checksum).toMatch(/^[a-f0-9]{64}$/)
     expect(target.queries).toEqual([])
   })
@@ -523,10 +688,20 @@ describe('migrateSqliteEnterpriseIdentityToPostgres', () => {
                     {
                       id: 'memory-org', org_id: 'org-a', scope_type: 'organization', department_id: null,
                       agent_employee_id: null, pair_user_id: null, project_id: null, kind: 'business-fact',
-                      status: 'approved', summary: '公司使用统一合同编号。', source_digest: 'f'.repeat(64),
+                      status: 'retired', summary: '公司使用统一合同编号。', source_digest: 'f'.repeat(64),
                       privacy_findings: [], importance: 1.25, last_access_at: '1700000000400', created_by: 'user-1',
                       reviewed_by: 'user-1', review_reason: '已核对', revision: '2',
+                      created_at: '1700000000000', updated_at: '1700000000600',
+                      valid_from: null, invalidated_by: 'memory-org-v2',
+                    },
+                    {
+                      id: 'memory-org-v2', org_id: 'org-a', scope_type: 'organization', department_id: null,
+                      agent_employee_id: null, pair_user_id: null, project_id: null, kind: 'summary',
+                      status: 'approved', summary: '公司合同编号纪要汇总。', source_digest: '6'.repeat(64),
+                      privacy_findings: [], importance: 0, last_access_at: null, created_by: 'user-1',
+                      reviewed_by: 'user-1', review_reason: '已核对', revision: '2',
                       created_at: '1700000000000', updated_at: '1700000000000',
+                      valid_from: '1700000000500', invalidated_by: null,
                     },
                     {
                       id: 'memory-project', org_id: 'org-a', scope_type: 'project', department_id: null,
@@ -535,6 +710,7 @@ describe('migrateSqliteEnterpriseIdentityToPostgres', () => {
                       privacy_findings: [], importance: 0, last_access_at: null, created_by: 'user-1',
                       reviewed_by: null, review_reason: null, revision: '1',
                       created_at: '1700000000000', updated_at: '1700000000000',
+                      valid_from: null, invalidated_by: null,
                     },
                     {
                       id: agentMemory.id, org_id: 'org-a', scope_type: 'agent', department_id: null,
@@ -543,6 +719,7 @@ describe('migrateSqliteEnterpriseIdentityToPostgres', () => {
                       privacy_findings: [], importance: 3.5, last_access_at: '1700000000500', created_by: 'user-1',
                       reviewed_by: null, review_reason: null, revision: '1',
                       created_at: '1700000000000', updated_at: '1700000000000',
+                      valid_from: null, invalidated_by: null,
                     },
                   ]
                     : undefined
@@ -558,7 +735,7 @@ describe('migrateSqliteEnterpriseIdentityToPostgres', () => {
 
     expect(report.dryRun).toBe(false)
     expect(report.destination).toEqual(report.source)
-    expect(report.source.memories.count).toBe(3)
+    expect(report.source.memories.count).toBe(4)
     expect(target.queries.map(query => query.text)).toContain('BEGIN')
     expect(target.queries.map(query => query.text)).toContain('COMMIT')
     const sessionWrite = target.queries.find(query => query.text.includes('INSERT INTO auth_sessions'))
@@ -566,23 +743,29 @@ describe('migrateSqliteEnterpriseIdentityToPostgres', () => {
     expect(JSON.stringify(sessionWrite)).not.toContain('never-store-this-token')
     expect(sessionWrite?.values[0]).toMatch(/^[a-f0-9]{64}$/)
     const memoryWrites = target.queries.filter(query => query.text.includes('INSERT INTO enterprise_memories'))
-    expect(memoryWrites).toHaveLength(3)
+    expect(memoryWrites).toHaveLength(4)
     expect(memoryWrites[0]?.text).toContain('agent_employee_id, pair_user_id, project_id,')
     expect(memoryWrites[0]?.text).toContain('last_access_at, created_by')
+    expect(memoryWrites[0]?.text).toContain('valid_from, invalidated_by')
     expect(memoryWrites[0]?.values).toEqual([
-      'memory-org', 'org-a', 'organization', null, null, null, null, 'business-fact', 'approved',
+      'memory-org', 'org-a', 'organization', null, null, null, null, 'business-fact', 'retired',
       '公司使用统一合同编号。', 'f'.repeat(64), '[]', 1.25, 1700000000400, 'user-1', 'user-1', '已核对',
-      2, 1700000000000, 1700000000000,
+      2, 1700000000000, 1700000000600, null, 'memory-org-v2',
     ])
     expect(memoryWrites[1]?.values).toEqual([
-      'memory-project', 'org-a', 'project', null, null, null, 'project-alpha', 'process', 'proposed',
-      '项目按周同步进度。', 'e'.repeat(64), '[]', 0, null, 'user-1', null, null,
-      1, 1700000000000, 1700000000000,
+      'memory-org-v2', 'org-a', 'organization', null, null, null, null, 'summary', 'approved',
+      '公司合同编号纪要汇总。', '6'.repeat(64), '[]', 0, null, 'user-1', 'user-1', '已核对',
+      2, 1700000000000, 1700000000000, 1700000000500, null,
     ])
     expect(memoryWrites[2]?.values).toEqual([
+      'memory-project', 'org-a', 'project', null, null, null, 'project-alpha', 'process', 'proposed',
+      '项目按周同步进度。', 'e'.repeat(64), '[]', 0, null, 'user-1', null, null,
+      1, 1700000000000, 1700000000000, null, null,
+    ])
+    expect(memoryWrites[3]?.values).toEqual([
       agentMemory.id, 'org-a', 'agent', null, 'employee-1', null, null, 'preference', 'approved',
       '回复保持正式书面语。', agentMemory.sourceDigest, '[]', 3.5, 1700000000500, 'user-1', null, null,
-      1, 1700000000000, 1700000000000,
+      1, 1700000000000, 1700000000000, null, null,
     ])
   })
 
