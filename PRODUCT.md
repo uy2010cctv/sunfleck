@@ -16,7 +16,7 @@ SUNFLECK turns the existing DSH agent runtime into an enterprise digital-employe
 
 ## Positioning
 
-The enterprise layer is a projection and control plane over the real DSH runtime, not a second employee engine. Agent Presets remain the employee definition, Workspaces remain business spaces, Sessions remain work records, Session Events remain the audit source of truth, and DSH tools and runtime services remain the execution boundary. This preserves replay, resume, fork, approval, sandbox, subagent, and workflow semantics while adding enterprise operating language and navigation.
+The enterprise layer is a projection and control plane over the real DSH runtime. Agent Presets remain the employee definition, Workspaces remain business spaces, and Sessions remain work records. Session Events record employee execution and every model-visible input; signed room events record the shared conversation among humans and digital employees. Source event ids connect both histories. DSH tools and runtime services remain the execution boundary, preserving replay, resume, fork, approval, sandbox, subagent, and workflow semantics.
 
 ## Operating Context
 
@@ -33,7 +33,7 @@ The enterprise layer is a projection and control plane over the real DSH runtime
 - `Employee Release` is the immutable published employee reference selected for enterprise execution.
 - `Workspace` is the canonical business-space boundary.
 - `Session` is the canonical work-record identity.
-- `SessionEvent` is the canonical audit and replay record.
+- `SessionEvent` is the canonical employee execution and replay record; signed room events are the canonical shared-conversation record.
 - `Goal`, background Jobs, Schedule, Subagent, and Workflow remain their existing DSH capabilities and are projected into enterprise operations.
 - The first enterprise foundation adds employee metadata, employee discovery, an operations workbench, and role-aware UI/API seams.
 - The target is single-enterprise intranet multi-user, not public anonymous access or cloud multi-tenancy.

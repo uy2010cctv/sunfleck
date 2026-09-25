@@ -115,6 +115,7 @@ External packages installed for runtime use or distributed inside the prebuilt b
 | [`negotiator`](https://github.com/jshttp/negotiator) | MIT |
 | [`node-addon-require-builtin`](https://www.npmjs.com/package/node-addon-require-builtin) | MIT |
 | [`node-pty`](https://github.com/microsoft/node-pty) | MIT |
+| [`nostr-tools`](https://github.com/nbd-wtf/nostr-tools) | Unlicense |
 | [`open`](https://github.com/sindresorhus/open) | MIT |
 | [`openid-client`](https://github.com/panva/openid-client) | MIT |
 | [`papaparse`](https://github.com/mholt/PapaParse) | MIT |

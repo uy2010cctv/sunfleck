@@ -1,0 +1,20 @@
+.root { min-width: 0; }
+.root h3 { margin: 0 0 8px; font-size: 12px; font-weight: 500; color: var(--dsw-alias-label-secondary); }
+.root p { margin: 7px 0; line-height: 1.5; }
+.help, .revision { color: var(--dsw-alias-label-secondary); font-size: 12px; }
+.field { display: grid; gap: 5px; margin-block: 9px; font-size: 12px; }
+.field select, .field input, .field textarea { box-sizing: border-box; width: 100%; min-height: 32px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 7px; padding: 6px 8px; background: var(--dsw-alias-bg-layer-1); color: var(--dsw-alias-label-primary); font: inherit; font-size: 12px; }
+.field textarea { min-height: 160px; resize: vertical; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; line-height: 1.5; }
+.create { display: flex; align-items: end; gap: 6px; }
+.create .field { flex: 1; min-width: 0; }
+.create button, .actions button, .error button, .root > p button { min-height: 30px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 7px; padding: 5px 8px; background: var(--dsw-alias-bg-layer-1); color: var(--dsw-alias-label-primary); font: inherit; font-size: 12px; cursor: pointer; }
+.actions { display: flex; justify-content: flex-end; }
+.actions button { border-color: transparent; background: var(--dsw-alias-button-primary-fill); color: var(--dsw-alias-label-primary-foreground); }
+.root button:disabled { opacity: .5; cursor: not-allowed; }
+.error { color: var(--dsw-alias-state-error-primary); font-size: 12px; }
+.error button { color: inherit; }
+.readOnly { white-space: pre-wrap; overflow-wrap: anywhere; border: 1px solid var(--dsw-alias-border-l1); border-radius: 7px; padding: 8px; background: var(--dsw-alias-bg-layer-1); font-size: 11px; line-height: 1.5; }
+.syntax { margin-top: 12px; color: var(--dsw-alias-label-secondary); font-size: 12px; }
+.syntax summary { cursor: pointer; }
+.syntax p { margin-top: 5px; }
+.root :is(button, input, select, textarea, summary):focus-visible { outline: 2px solid var(--dsw-alias-state-business-primary); outline-offset: 2px; }

@@ -6,6 +6,7 @@ import type { SnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-locale/client'
 import type { CollaborationController, CollaborationState, CreateCollaboration } from './collaboration-store.ts'
 import type {} from './collaboration-locales.ts'
+import { CollaborationRoom } from './CollaborationRoom.tsx'
 import css from './CollaborationNavigation.module.css'
 
 /** Visible choices sourced from the same authenticated employee and Workspace catalogs as the workbench. */
@@ -100,31 +101,11 @@ function CreateForm({ kind, state, controller, loadChoices, t }: { kind: 'group'
   </form>
 }
 
-/** First-message and topic/member selection, before navigating into the original composer. */
+/** Main-panel room; creation keeps the same native shell slot. */
 export function CollaborationSetup({ useCollaboration, controller, loadChoices, t }: InjectFace<CollaborationInjected> & PropsLocale<'enterprise.collaboration'>) {
   const state = useCollaboration(value => value)
-  const [draft, setDraft] = useState('')
-  const [submitted, setSubmitted] = useState(false)
-  const selected = state.selection
-  useEffect(() => { setDraft(''); setSubmitted(false) }, [selected?.detail.id])
   if (state.creation !== null) return <main className={css.setup}>
     <CreateForm key={state.creation} kind={state.creation} state={state} controller={controller} loadChoices={loadChoices} t={t}/>
   </main>
-  if (selected === null) return <main className={css.setup}><p>{t('noSelection')}</p></main>
-  const detail = selected.detail
-  const topicDestinations = detail.topics.find(topic => topic.id === selected.topicId)?.destinations ?? []
-  const members = detail.kind === 'channel'
-    ? detail.members.filter(member => topicDestinations.some(destination => destination.employeeId === member.employeeId))
-    : detail.members
-  const chooseMember = detail.kind === 'group' && detail.team === undefined || selected.reason === 'select-employee'
-  return <main className={css.setup}>
-    <header><h1>{detail.name}</h1><p>{t(selected.reason === 'team-not-started' ? 'startTeam' : selected.reason === 'ingest-only' ? 'announcement' : chooseMember ? 'chooseEmployee' : 'chooseTopic')}</p></header>
-    <div className={css.destinations}>{chooseMember ? members.map(member => <button type="button" className={css.memberDestination} disabled={state.busy} key={member.employeeId} onClick={() => { void controller.select(detail.id, { employeeId: member.employeeId, ...(selected.topicId === undefined ? {} : { topicId: selected.topicId }) }) }}><IconUsersOutlineRegular size={16}/><span>{member.displayName}</span></button>) : detail.topics.map(topic => <button type="button" disabled={state.busy} key={topic.id} onClick={() => { void controller.select(detail.id, { topicId: topic.id }) }}><span>{topic.title}</span><small>{t(topic.state === 'settled' ? 'settled' : 'open')}</small></button>)}</div>
-    {state.error !== null && <p className={css.queryError} role="alert">{collaborationError(state.error, t)}</p>}
-    {submitted && <p role="status">{t('submitted')}</p>}
-    <form className={css.firstMessage} onSubmit={(event) => { event.preventDefault(); void controller.send(draft).then((ok) => { if (ok) { setDraft(''); setSubmitted(detail.respondPolicy === 'ingest_only') } }) }}>
-      <textarea aria-label={t('message')} value={draft} placeholder={t('placeholder')} disabled={state.busy} onChange={(e) => { setDraft(e.target.value) }}/>
-      <div><span>{detail.kind === 'group' && detail.team === undefined ? t('senderPolicy') : t('nativeHint')}</span><button className={css.primary} disabled={state.busy || draft.trim() === ''} type="submit">{t('send')}</button></div>
-    </form>
-  </main>
+  return <CollaborationRoom state={state} controller={controller} t={t}/>
 }

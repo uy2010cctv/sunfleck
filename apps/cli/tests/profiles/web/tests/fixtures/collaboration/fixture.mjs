@@ -10,12 +10,31 @@ export const inject = ['llm', 'loader']
  * @param config - Private per-test Workspace directory.
  */
 export function apply(ctx, config) {
+  ctx.logger.exporter({ export(message) {
+    if (message.args.some(value => String(value).includes('room event idempotency conflict'))) process.stderr.write('room-event-idempotency-conflict\n')
+    if (message.type === 'error') process.stderr.write(message.args.map(value => value instanceof Error ? value.stack : String(value)).join(' ') + '\n')
+  } })
   class FixtureAdapter extends LlmAdapter {
     providerInfo(provider) { return { id: provider, name: 'Collaboration fixture' } }
     listModels(provider) { return Promise.resolve([{ provider, id: 'deepseek-v4-flash', name: 'Fixture' }]) }
     resolveModel(provider, id) { return Promise.resolve({ provider, id, name: 'Fixture', contextWindow: 128000 }) }
-    async *stream() {
-      const text = 'Collaboration fixture completed the request.'
+    async *stream(options) {
+      const userIndex = options.messages.findLastIndex(message => message.role === 'user' && message.source?.kind === 'user')
+      const user = options.messages[userIndex]
+      const textInput = user?.content.filter(block => block.type === 'text').map(block => block.text).join('') ?? ''
+      if (textInput.endsWith('Fixture handoff request.') && !options.messages.slice(userIndex).some(message => message.role === 'tool')) {
+        const sourceEventId = user.source.rpcId
+        const callId = `fixture-handoff-${sourceEventId}`
+        const args = JSON.stringify({ sourceEventId, content: 'Reviewer, finish the shared task.',
+          taskId: 'fixture-shared-task', targetEmployeeId: 'fixture-reviewer', idempotencyKey: sourceEventId })
+        yield { type: 'block-start', index: 0, blockType: 'tool-call' }
+        yield { type: 'tool-call-delta', index: 0, id: callId, name: 'room_handoff', argumentsDelta: args }
+        yield { type: 'block-end', index: 0, block: { type: 'tool-call', id: callId, name: 'room_handoff', arguments: args } }
+        yield { type: 'finish', reason: { kind: 'tool-calls' } }
+        return
+      }
+      const text = textInput.endsWith('Draft fixture release notes for v1.2.3.')
+        ? 'Fixture release notes draft for v1.2.3.' : 'Collaboration fixture completed the request.'
       yield { type: 'block-start', index: 0, blockType: 'text' }
       yield { type: 'text-delta', index: 0, text }
       yield { type: 'block-end', index: 0, block: { type: 'text', text } }

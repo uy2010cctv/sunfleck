@@ -1,9 +1,8 @@
-/** Register collaboration navigation beside Workspaces and keep native Session context current. */
+/** Register shared room navigation beside native Workspace Sessions. */
 import type { Context } from '@deepseek-ai/cordis'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { MainPanelId } from '@deepseek-ai/dsh-client-ui-layout/client'
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
-import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-workspace/client'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
@@ -62,20 +61,8 @@ export function applyCollaboration(ctx: Context): void {
     scope.slots.inject('sidebar.sections', () => scope.slots.register({ name: 'sidebar.sections', id: 'enterprise-collaboration', order: 100, locale: COLLABORATION_NS, inject }, CollaborationSidebar))
     applyCollaborationDetails(scope, controller)
     scope.effect(() => {
-      let current: string | undefined
-      const synchronize = (): void => {
-        const selected = Object.values(scope.sessions.list.getSnapshot().byId).find(row => (row.retainedBy.mainView ?? 0) > 0)?.id
-        if (selected === current) return
-        current = selected
-        void controller.restore(selected)
-      }
-      const routed = scope.on('conversation/prompt-routed', ({ sourceSessionId, sessionIds }) => {
-        if (current === sourceSessionId) void controller.openRouted(sourceSessionId, sessionIds)
-      })
-      const off = scope.sessions.list.subscribe(synchronize)
-      const reset = scope.on('connection/reset', () => { current = undefined; controller.clearSelection(); void controller.refresh(); synchronize() })
-      synchronize()
-      return () => { routed(); off(); reset() }
-    }, 'enterprise collaboration Session context')
+      const reset = scope.on('connection/reset', () => { controller.clearSelection(); void controller.refresh() })
+      return () => { reset() }
+    }, 'enterprise collaboration room context')
   })
 }

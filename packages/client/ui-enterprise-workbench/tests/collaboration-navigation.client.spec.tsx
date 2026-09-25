@@ -53,21 +53,21 @@ describe('native collaboration navigation', () => {
     fireEvent.click(screen.getByLabelText('分析师'))
     fireEvent.click(screen.getByLabelText('陈经理'))
     fireEvent.click(screen.getByRole('button', { name: '创建' }))
-    await waitFor(() => expect(create).toHaveBeenCalledWith({ kind: 'group', name: '续约协作', workspaceId: 'w', memberEmployeeIds: ['analyst'], memberUserIds: ['u'] }))
+    await waitFor(() =>{  expect(create).toHaveBeenCalledWith({ kind: 'group', name: '续约协作', workspaceId: 'w', memberEmployeeIds: ['analyst'], memberUserIds: ['u'] }) })
   })
-  it('opens an exact employee destination when a channel topic has multiple replies', () => {
+  it('shows one room for a channel with multiple employees', () => {
     const { controller, props } = setup()
     controller.state.set({ ...controller.state.getSnapshot(), phase: 'ready', selection: {
-      topicId: 'topic', reason: 'select-employee', detail: {
+      detail: {
         id: 'c', kind: 'channel', name: 'IT', memberCount: 2, workspaceId: 'w', memberUserIds: [], dutyEmployeeIds: [],
         members: [{ employeeId: 'a', displayName: '分析师' }, { employeeId: 'b', displayName: '李清' }],
         topics: [{ id: 'topic', title: '复核', state: 'open', destinations: [{ employeeId: 'a', sessionId: 'sa' }, { employeeId: 'b', sessionId: 'sb' }] }],
       },
     } })
-    const select = vi.spyOn(controller, 'select').mockResolvedValue()
     render(<CollaborationSetup {...props}/>)
-    fireEvent.click(screen.getByRole('button', { name: '李清' }))
-    expect(select).toHaveBeenCalledWith('c', { topicId: 'topic', employeeId: 'b' })
+    expect(screen.getByRole('heading', { name: 'IT' })).toBeTruthy()
+    expect(screen.getByRole('textbox', { name: '消息' })).toBeTruthy()
+    expect(screen.queryByText('选择员工会话')).toBeNull()
   })
 
 })

@@ -38,6 +38,16 @@ The PostgreSQL collaboration routes under `/enterprise/surfaces` list explicit m
 
 The employee dm routes under `/enterprise/employees` and token-authenticated inbound route under `/enterprise/channels` require their separately composed surface runtime. Project routes under `/enterprise/projects` retain explicit membership checks, archival, and optional memory distillation.
 
+Shared-room event signing uses a separate server-custodied NIP-01 key for each organization human, employee, or service actor. Secrets live in `ctx.credentials` records; PostgreSQL binds each actor to its first public key, and a missing or changed secret stops signing. Current room access and employee Session binding are checked before signing. Human signatures remain custodial until users can sign with their own keys. The signed event format does not imply support for external Nostr relay clients.
+
+Groups and channels read one signed room timeline from `GET /enterprise/surfaces/:id/events` and `.../search`. Authenticated posts and reactions commit before Bot dispatch; native execution Sessions retain logged room source ids and bounded model-visible room history. Bot replies, handoffs, TeamRun facts, and human decisions return to the room under verified authors. Channel managers save versioned declarative YAML through `/enterprise/channel-workflows`. Message and reaction triggers consume committed room events; scheduled runs use leased PostgreSQL receipts. The exact `/enterprise/channel-workflows/github` route requires a configured GitHub secret reference, verifies provider signatures, and persists matching tag, review, merge, or webhook-source events before returning 202. Workflow steps produce signed room facts and existing Enterprise approvals; later actions wait for the human decision.
+
+Employee `tool/call` and `tool/result` events from room-triggered turns also produce signed room activity facts. These facts carry a bounded tool name, success or failure, and a native Session source cursor. Raw arguments, result content, and tool metadata remain only in the authorized native Session.
+
+Signed room routes carry their destinations into a PostgreSQL outbox in the same transaction as the event. Immediate delivery and restart recovery claim fenced leases, recheck current membership and Workspace access, and acknowledge only after the native Session has accepted the request. Workflow message triggers have a separate durable inbox; an unfinished trigger or committed approval is retried after restart. The channel detail view reads pending approval summaries and uses the approval's own CAS revision for Approve or Reject.
+
+The workflow trigger inbox captures the exact workflow revision when its signed room event commits, so replay never substitutes a later YAML edit. Workflow action and decision claims use fencing tokens. The dedicated GitHub route verifies the raw request and awaits the signed channel receipt before 202; a failed receipt returns 503 for provider retry. The saved approval verdict can resume under a currently authorized reviewer or, after reviewer revocation, under an authorized channel manager with a signed service attestation of the recorded decision.
+
 <a id="model-experience"></a>
 ## Model Experience
 

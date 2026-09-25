@@ -3,12 +3,12 @@ import type { EmployeeHttpSecurity } from './employee-http.ts'
 import { CollaborationError, type CollaborationService } from './collaboration-service.ts'
 import { authenticatedSegments, failure, guardResource, jsonObjectBody, optionalStringArrayField, optionalStringField,
   stringArrayField, stringField } from './http.ts'
-export type { CollaborationDetail, CollaborationOpenResult, CollaborationDelivery } from './collaboration-service.ts'
+export type { CollaborationDetail, CollaborationOpenResult, CollaborationDelivery, CollaborationRoomEvent } from './collaboration-service.ts'
 
 /** HTTP transport for the PostgreSQL collaboration service. */
 export class CollaborationHttpHandler {
   /** @param service - Conversation coordinator. @param security - Shared cookie and policy services. */
-  constructor(private readonly service: CollaborationService, private readonly security: EmployeeHttpSecurity) {}
+  constructor(readonly service: CollaborationService, private readonly security: EmployeeHttpSecurity) {}
 
   /** Serve an authenticated conversation request.
    * @param request - Request under /enterprise/surfaces.
@@ -37,6 +37,27 @@ export class CollaborationHttpHandler {
           return value === undefined ? failure(404, 'not-found') : Response.json(value)
         }
         if (operation === undefined) return Response.json(await this.service.detail(principal, id))
+        if (target === undefined && operation === 'events') {
+          const params = new URL(request.url).searchParams
+          const after = params.get('after'), before = params.get('before')
+          const limitText = params.get('limit'), threadRoot = params.get('threadRoot')
+          const limit = limitText === null ? 50 : Number(limitText)
+          if ((after !== null && !/^(0|[1-9][0-9]*)$/u.test(after))
+            || (before !== null && !/^[1-9][0-9]*$/u.test(before)) || (after !== null && before !== null)
+            || !Number.isSafeInteger(limit)
+            || limit < 1 || limit > 100 || (threadRoot !== null && (threadRoot.trim() === '' || threadRoot.length > 200))) {
+            return failure(400, 'invalid-room-page')
+          }
+          return Response.json(await this.service.events(principal, id, {
+            ...(after === null ? {} : { after }), ...(before === null ? {} : { before }), limit,
+            ...(threadRoot === null ? {} : { threadRoot }),
+          }))
+        }
+        if (target === undefined && operation === 'search') {
+          const query = new URL(request.url).searchParams.get('q')
+          if (query === null) return failure(400, 'invalid-search')
+          return Response.json(await this.service.search(principal, id, query))
+        }
         return failure(404, 'not-found')
       }
       if (request.method !== 'POST') return failure(405, 'method-not-allowed')
@@ -78,10 +99,17 @@ export class CollaborationHttpHandler {
       if (operation === 'messages') {
         const text = stringField(body, 'text'), mentionedEmployeeIds = optionalStringArrayField(body,
             'mentionedEmployeeIds'), messageId = optionalStringField(body, 'messageId')
-        if (text === undefined || mentionedEmployeeIds === null || messageId === null) return failure(400, 'invalid-body')
+        const threadRoot = optionalStringField(body, 'threadRoot')
+        if (text === undefined || mentionedEmployeeIds === null || messageId === null || threadRoot === null) return failure(400, 'invalid-body')
         return Response.json(await this.service.message(principal, id, { text,
           ...(topicId === undefined ? {} : { topicId }), ...(messageId === undefined ? {} : { messageId }),
+          ...(threadRoot === undefined ? {} : { threadRoot }),
           ...(mentionedEmployeeIds === undefined ? {} : { mentionedEmployeeIds }) }))
+      }
+      if (operation === 'reactions') {
+        const eventId = stringField(body, 'eventId'), emoji = stringField(body, 'emoji'), requestId = stringField(body, 'requestId')
+        if (eventId === undefined || emoji === undefined || requestId === undefined) return failure(400, 'invalid-body')
+        return Response.json(await this.service.react(principal, id, { eventId, emoji, requestId }))
       }
       return failure(404, 'not-found')
     } catch (error) {

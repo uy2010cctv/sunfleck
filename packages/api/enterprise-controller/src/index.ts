@@ -1,6 +1,7 @@
 /** Authenticated enterprise Typert Remote controllers. */
 import { createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto'
 import type { IncomingMessage, ServerResponse } from 'node:http'
+import { Readable } from 'node:stream'
 import { Context } from '@deepseek-ai/cordis'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/cordis-plugin-loader'
@@ -9,6 +10,7 @@ import { Remote, RemoteError, TypertRemoteService } from '@deepseek-ai/dsh-typer
 import type { EnterprisePrincipal } from '@deepseek-ai/dsh-enterprise-governance'
 import type {} from '@deepseek-ai/dsh-enterprise-auth-web'
 import type {} from '@deepseek-ai/dsh-enterprise-postgres'
+import { PostgresChannelWorkflowLedger } from '@deepseek-ai/dsh-enterprise-postgres'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import { dshHomePath } from '@deepseek-ai/dsh-home-paths'
 import {
@@ -70,6 +72,15 @@ import type {
   EnterpriseEmployeeSaveRequest,
 } from './contract/employees.ts'
 import { composeCollaboration } from './collaboration-runtime.ts'
+import { CollaborationError } from './collaboration-service.ts'
+import { CollaborationIdentity } from './collaboration-identity.ts'
+import { ChannelWorkflowEventService } from './collaboration-workflow-events.ts'
+import { ChannelWorkflowHttpHandler } from './collaboration-workflow-http.ts'
+import { ChannelWorkflowScheduler } from './collaboration-workflow-scheduler.ts'
+import { ChannelGitWorkflowBridge } from './collaboration-git-workflow.ts'
+import { ChannelGitHubIngress } from './collaboration-github-ingress.ts'
+import { recoverCommittedWorkflowDecision } from './collaboration-workflow-recovery.ts'
+import z from '@deepseek-ai/schemastery'
 import { composeSessionContext } from './session-context-http.ts'
 import { WorkspaceEmployeeDefaultService } from './workspace-employee-default.ts'
 import type {
@@ -2704,10 +2715,170 @@ async function serveRoute(
 }
 
 /** Install all enterprise Remote namespace owners.
- * @param ctx - Input value used by this API.
+ * @param ctx - Enterprise Host context.
+ * @param config - Validated room context and handoff limits.
 */
-export function apply(ctx: Context): void {
-  const collaboration = composeCollaboration(ctx, { operations: () => operations(ctx), teams: () => teamControl(ctx) })
+export function apply(ctx: Context, config: Config): void {
+  const workflowIdentity = new CollaborationIdentity(ctx.credentials, ctx.enterprisePostgres.roomEvents, {
+    human: async (actor, roomId) => {
+      try { await collaboration.service.detail(actor, roomId); return true }
+      catch { return false }
+    },
+    employee: () => Promise.resolve(false),
+    service: async (orgId, serviceId, roomId) => {
+      if (serviceId !== 'channel-workflow') return false
+      return (await ctx.enterprisePostgres.collaboration.get(orgId, roomId))?.kind === 'channel'
+    },
+  })
+  const workflowEvents = new ChannelWorkflowEventService({
+    workflowLeaseMs: config.workflowLeaseMs,
+    ledger: orgId => new PostgresChannelWorkflowLedger(ctx.enterprisePostgres.database, orgId),
+    sign: (actor, row, content, stepId, sourceEventId, targetEmployeeIds) => workflowIdentity.signService({
+      orgId: actor.orgId, serviceId: 'channel-workflow',
+    }, row.id, { type: 'workflow', content, stepId,
+      ...(sourceEventId === undefined || !/^[0-9a-f]{64}$/u.test(sourceEventId) ? {} : { sourceEventId }),
+      ...(targetEmployeeIds === undefined ? {} : { targetEmployeeIds }) }),
+    append: (actor, row, event, requestId) => ctx.enterprisePostgres.roomEvents.append({
+      orgId: row.orgId, surfaceId: row.id, event, authorKind: 'service',
+      authorId: 'channel-workflow', requestId, requestedByUserId: actor.userId,
+    }),
+    dispatchBot: async (actor, row, event, employeeId) => {
+      if (!row.memberEmployeeIds.includes(employeeId)) throw new Error('workflow employee left the room')
+      await collaboration.service.dispatchSignedEvent(actor, row.id, event.event.id)
+    },
+    createApproval: async (actor, row, summary, idempotencyKey) => {
+      if (summary.trim() === '') throw new Error('workflow approval summary is empty')
+      const digest = createHash('sha256').update(idempotencyKey).digest('hex')
+      const approval = await ctx.enterprisePostgres.operations.createApprovalRequest({
+        orgId: row.orgId, approvalId: `channel-workflow-${digest}`, kind: 'business',
+        subjectType: 'channel-workflow', subjectId: row.id, requestedBy: actor.userId,
+        idempotencyKey: `channel-workflow-${digest}`,
+      })
+      return { decisionId: approval.approvalId }
+    },
+  })
+  const dispatchWorkflowTrigger = async (actor: EnterprisePrincipal,
+    row: NonNullable<Awaited<ReturnType<typeof ctx.enterprisePostgres.collaboration.get>>>,
+    event: Awaited<ReturnType<typeof ctx.enterprisePostgres.roomEvents.append>>): Promise<void> => {
+    const database = ctx.enterprisePostgres.database
+    const claim = await PostgresChannelWorkflowLedger.claimRoomTriggerForEvent(database,
+      row.orgId, row.id, event.event.id, Date.now(), config.roomDispatchLeaseMs)
+    if (claim === undefined) return
+    try {
+      const complete = await workflowEvents.onRoomEvent(actor, row, event, claim.revisions)
+      if (complete) await PostgresChannelWorkflowLedger.completeRoomTrigger(database, claim)
+      else await PostgresChannelWorkflowLedger.releaseRoomTrigger(database, claim)
+    } catch (error) {
+      await PostgresChannelWorkflowLedger.releaseRoomTrigger(database, claim)
+      throw error
+    }
+  }
+  const collaboration = composeCollaboration(ctx, {
+    operations: () => operations(ctx), teams: () => teamControl(ctx),
+    limits: { roomContextCharacters: config.roomContextCharacters,
+      roomContextEvents: config.roomContextEvents, maxBotHops: config.maxBotHops,
+      roomDispatchPollMs: config.roomDispatchPollMs, roomDispatchLeaseMs: config.roomDispatchLeaseMs },
+    roomEventCommitted: dispatchWorkflowTrigger,
+  })
+  const requireWorkflowManager = async (orgId: string, channelId: string, userId: string): Promise<{
+    actor: EnterprisePrincipal
+    room: NonNullable<Awaited<ReturnType<typeof ctx.enterprisePostgres.collaboration.get>>>
+  }> => {
+    const user = (await ctx.enterprisePostgres.identity.listUsers(orgId))
+      .find(value => value.id === userId && !value.disabled)
+    const room = await ctx.enterprisePostgres.collaboration.get(orgId, channelId)
+    if (user === undefined || room?.kind !== 'channel') throw new Error('channel workflow manager unavailable')
+    const actor: EnterprisePrincipal = { orgId, userId: user.id, roles: user.roles }
+    await collaboration.service.detail(actor, room.id)
+    const allowed = await ctx.enterpriseSecurity.authorizeResourceAsync(actor, 'employee.create',
+      { orgId, visibility: 'organization' })
+    if (!allowed.allowed) throw new Error('channel workflow manager permission revoked')
+    return { actor, room }
+  }
+  const gitBridge = new ChannelGitWorkflowBridge({
+    subscriptions: () => PostgresChannelWorkflowLedger.gitSubscriptions(ctx.enterprisePostgres.database),
+    publish: async (subscription, delivery) => {
+      const { actor, room } = await requireWorkflowManager(subscription.orgId,
+        subscription.channelId, subscription.createdBy)
+      const content = delivery.tag !== undefined
+        ? `Git tag ${delivery.tag} pushed to ${delivery.repository}`
+        : delivery.gitEvent === 'review_submitted' ? `Git review submitted in ${delivery.repository}`
+          : delivery.gitEvent === 'patch_merged' ? `Git patch merged in ${delivery.repository}`
+            : `Verified GitHub ${delivery.eventName} webhook from ${delivery.source}`
+      const event = await workflowIdentity.signService({ orgId: actor.orgId, serviceId: 'channel-workflow' },
+        room.id, { type: 'workflow', content, stepId: `git:${delivery.deliveryKey}` })
+      const saved = await ctx.enterprisePostgres.roomEvents.append({ orgId: actor.orgId,
+        surfaceId: room.id, event, authorKind: 'service', authorId: 'channel-workflow',
+        requestId: `git:${delivery.deliveryKey}` })
+      return saved.event.id
+    },
+    run: async (subscription, trigger, signedSourceEventId) => {
+      const { actor, room } = await requireWorkflowManager(subscription.orgId,
+        subscription.channelId, subscription.createdBy)
+      await workflowEvents.onExternal(actor, room, trigger, signedSourceEventId)
+    },
+  })
+  if (config.channelGitHubSecretRef !== '') {
+    const secretRef = credentialRef(config.channelGitHubSecretRef)
+    if (config.channelGitHubSource.trim() !== config.channelGitHubSource
+      || config.channelGitHubSource === '') throw new Error('channel GitHub source must be non-empty and trimmed')
+    const githubIngress = new ChannelGitHubIngress({
+      source: config.channelGitHubSource, maxBodyBytes: config.channelGitHubMaxBodyBytes,
+      resolveSecret: async () => (await ctx.credentials.resolve(secretRef))?.value,
+      handle: delivery => gitBridge.onVerifiedDelivery(delivery),
+    })
+    ctx.effect(() => ctx.webServer.register({
+      kind: 'exact', path: '/enterprise/channel-workflows/github',
+      handler: async (req, res) => {
+        const headers = new Headers()
+        for (const [name, value] of Object.entries(req.headers)) {
+          if (typeof value === 'string') headers.set(name, value)
+          else if (Array.isArray(value)) for (const part of value) headers.append(name, part)
+        }
+        const url = `http://localhost${req.url ?? '/enterprise/channel-workflows/github'}`
+        const request = new Request(url, { method: req.method ?? 'GET', headers,
+          body: Readable.toWeb(req) as ReadableStream<Uint8Array>, duplex: 'half' } as RequestInit & { duplex: 'half' })
+        await writeResponse(res, await githubIngress.fetch(request))
+      },
+    }), 'enterprise-channel-workflow: verified durable GitHub ingress')
+  }
+  const workflowHttp = new ChannelWorkflowHttpHandler({
+    security: ctx.enterpriseSecurity,
+    detail: (actor, id) => collaboration.service.detail(actor, id),
+    ledger: orgId => new PostgresChannelWorkflowLedger(ctx.enterprisePostgres.database, orgId),
+    resolveDecision: async (actor, channelId, decisionId, input) => {
+      const before = await operations(ctx).getApproval(actor, { approvalId: decisionId })
+      if (before?.subjectType !== 'channel-workflow' || before.subjectId !== channelId) {
+        throw new CollaborationError('approval-not-found', 404)
+      }
+      const updated = await operations(ctx).transitionApproval(actor, {
+        approvalId: decisionId, state: input.approved ? 'approved' : 'rejected',
+        reviewerUserId: actor.userId, expectedRevision: input.expectedRevision,
+        idempotencyKey: input.idempotencyKey,
+      })
+      const room = await ctx.enterprisePostgres.collaboration.get(actor.orgId, channelId)
+      if (room === undefined) throw new CollaborationError('not-found', 404)
+      await commitWorkflowDecision(actor, room, decisionId, input.approved)
+      return updated
+    },
+  })
+  async function commitWorkflowDecision(actor: EnterprisePrincipal,
+    room: NonNullable<Awaited<ReturnType<typeof ctx.enterprisePostgres.collaboration.get>>>,
+    decisionId: string, approved: boolean): Promise<void> {
+    await recordHumanWorkflowDecision(actor, room, decisionId, approved)
+    await workflowEvents.onDecision(actor, room, decisionId, approved)
+  }
+  async function recordHumanWorkflowDecision(actor: EnterprisePrincipal,
+    room: NonNullable<Awaited<ReturnType<typeof ctx.enterprisePostgres.collaboration.get>>>,
+    decisionId: string, approved: boolean): Promise<void> {
+    const signed = await workflowIdentity.signHuman(actor, room.id, {
+      type: 'workflow', content: `${approved ? 'Approved' : 'Rejected'} workflow decision ${decisionId}`,
+      stepId: `decision:${decisionId}`,
+    })
+    await ctx.enterprisePostgres.roomEvents.append({ orgId: actor.orgId, surfaceId: room.id,
+      event: signed, authorKind: 'human', authorId: actor.userId,
+      requestId: `decision:${decisionId}` })
+  }
   const deviceAgent = new DeviceAgentHttpHandler(ctx.enterprisePostgres.devicePlane)
   ctx.effect(() => ctx.webServer.register({
     kind: 'prefix', path: '/device-agent/v1',
@@ -2747,6 +2918,137 @@ export function apply(ctx: Context): void {
       await serveRoute(res, await enterpriseRequest(req), request => collaboration.fetch(request))
     },
   }), 'enterprise-surface: authenticated collaboration surface routes')
+  ctx.effect(() => ctx.webServer.register({
+    kind: 'prefix', path: '/enterprise/channel-workflows',
+    handler: async (req, res) => {
+      await serveRoute(res, await enterpriseRequest(req), request => workflowHttp.fetch(request))
+    },
+  }), 'enterprise-channel-workflow: authenticated YAML and decision routes')
+  const workflowScheduler = new ChannelWorkflowScheduler({
+    dueOrganizations: now => PostgresChannelWorkflowLedger.dueOrganizations(ctx.enterprisePostgres.database, now),
+    ledger: orgId => new PostgresChannelWorkflowLedger(ctx.enterprisePostgres.database, orgId),
+    deliver: async (orgId, due) => {
+      const ledger = new PostgresChannelWorkflowLedger(ctx.enterprisePostgres.database, orgId)
+      const current = (await ledger.list(due.channelId)).find(value => value.id === due.workflowId)
+      if (current?.revision !== due.revision) return
+      const user = (await ctx.enterprisePostgres.identity.listUsers(orgId))
+        .find(value => value.id === due.createdBy && !value.disabled)
+      if (user === undefined) throw new Error('workflow manager unavailable')
+      const actor: EnterprisePrincipal = { orgId, userId: user.id, roles: user.roles }
+      const room = await ctx.enterprisePostgres.collaboration.get(orgId, due.channelId)
+      if (room?.kind !== 'channel') return
+      await collaboration.service.detail(actor, room.id)
+      const permission = await ctx.enterpriseSecurity.authorizeResourceAsync(actor, 'employee.create',
+        { orgId, visibility: 'organization' })
+      if (!permission.allowed) throw new Error('workflow manager permission revoked')
+      const signed = await workflowIdentity.signService({ orgId, serviceId: 'channel-workflow' }, room.id,
+        { type: 'workflow', content: `Scheduled workflow ${due.scheduleId}`,
+          stepId: `schedule:${due.sourceEventId}` })
+      const event = await ctx.enterprisePostgres.roomEvents.append({ orgId, surfaceId: room.id,
+        event: signed, authorKind: 'service', authorId: 'channel-workflow',
+        requestId: `schedule:${due.sourceEventId}` })
+      if (!await workflowEvents.onExternal(actor, room,
+        { type: 'schedule', scheduleId: due.scheduleId }, event.event.id)) {
+        throw new Error('channel workflow trigger remains active in another worker')
+      }
+    },
+    onError: (error, orgId, due) => {
+      ctx.logger.warn(`channel workflow schedule failed: org=${orgId} room=${due.channelId} source=${due.sourceEventId}: ${String(error)}`)
+    },
+  })
+  ctx.effect(() => {
+    let active = true
+    let pending: Promise<void> | undefined
+    const tick = (): void => {
+      if (!active || pending !== undefined) return
+      pending = workflowScheduler.tick(Date.now(), config.workflowBatchLimit).then(async () => {
+        for (const claim of await PostgresChannelWorkflowLedger.claimRoomTriggers(
+          ctx.enterprisePostgres.database, Date.now(), config.workflowBatchLimit,
+          config.roomDispatchLeaseMs)) {
+          try {
+            const room = await ctx.enterprisePostgres.collaboration.get(claim.orgId, claim.channelId)
+            const event = await ctx.enterprisePostgres.roomEvents.getByEventId(
+              claim.orgId, claim.channelId, claim.eventId)
+            const user = (await ctx.enterprisePostgres.identity.listUsers(claim.orgId))
+              .find(value => value.id === claim.authorId && !value.disabled)
+            if (room?.kind !== 'channel' || event === undefined || user === undefined) {
+              await PostgresChannelWorkflowLedger.completeRoomTrigger(ctx.enterprisePostgres.database, claim)
+              continue
+            }
+            const actor: EnterprisePrincipal = { orgId: claim.orgId, userId: user.id, roles: user.roles }
+            try { await collaboration.service.detail(actor, room.id) }
+            catch {
+              await PostgresChannelWorkflowLedger.completeRoomTrigger(ctx.enterprisePostgres.database, claim)
+              continue
+            }
+            const complete = await workflowEvents.onRoomEvent(actor, room, event, claim.revisions)
+            if (complete) await PostgresChannelWorkflowLedger.completeRoomTrigger(ctx.enterprisePostgres.database, claim)
+            else await PostgresChannelWorkflowLedger.releaseRoomTrigger(ctx.enterprisePostgres.database, claim)
+          } catch (error) {
+            await PostgresChannelWorkflowLedger.releaseRoomTrigger(ctx.enterprisePostgres.database, claim)
+            ctx.logger.warn(`channel workflow trigger recovery failed: ${claim.eventId}: ${String(error)}`)
+          }
+        }
+        for (const decision of await PostgresChannelWorkflowLedger.decisionsReady(
+          ctx.enterprisePostgres.database, config.workflowBatchLimit)) {
+          try {
+            await recoverCommittedWorkflowDecision(decision, {
+              reviewer: async (value) => {
+                const room = await ctx.enterprisePostgres.collaboration.get(value.orgId, value.channelId)
+                const reviewer = (await ctx.enterprisePostgres.identity.listUsers(value.orgId))
+                  .find(user => user.id === value.reviewerUserId && !user.disabled)
+                if (room?.kind !== 'channel' || reviewer === undefined) return undefined
+                const actor: EnterprisePrincipal = { orgId: value.orgId, userId: reviewer.id, roles: reviewer.roles }
+                try { await collaboration.service.detail(actor, room.id) }
+                catch { return undefined }
+                return { actor, room }
+              },
+              manager: async (value) => {
+                const room = await ctx.enterprisePostgres.collaboration.get(value.orgId, value.channelId)
+                if (room?.kind !== 'channel') return undefined
+                const users = await ctx.enterprisePostgres.identity.listUsers(value.orgId)
+                for (const user of users.filter(entry => !entry.disabled && room.memberUserIds.includes(entry.id))) {
+                  const actor: EnterprisePrincipal = { orgId: value.orgId, userId: user.id, roles: user.roles }
+                  const allowed = await ctx.enterpriseSecurity.authorizeResourceAsync(actor, 'employee.create',
+                    { orgId: value.orgId, visibility: 'organization' })
+                  if (!allowed.allowed) continue
+                  try { await collaboration.service.detail(actor, room.id) }
+                  catch { continue }
+                  return { actor, room }
+                }
+                return undefined
+              },
+              hasHumanRecord: async value => (await ctx.enterprisePostgres.roomEvents.findByRequest(
+                value.orgId, value.channelId, 'human', value.reviewerUserId,
+                `decision:${value.approvalId}`)) !== undefined,
+              recordHuman: ({ actor, room }, value) => recordHumanWorkflowDecision(actor, room,
+                value.approvalId, value.state === 'approved'),
+              recordService: async ({ actor, room }, value) => {
+                const signed = await workflowIdentity.signService({ orgId: value.orgId,
+                  serviceId: 'channel-workflow' }, room.id, {
+                  type: 'workflow', stepId: `decision-recovery:${value.approvalId}`,
+                  content: `${value.state} workflow decision ${value.approvalId} recorded by ${value.reviewerUserId}`,
+                })
+                await ctx.enterprisePostgres.roomEvents.append({ orgId: value.orgId, surfaceId: room.id,
+                  event: signed, authorKind: 'service', authorId: 'channel-workflow',
+                  requestedByUserId: actor.userId, requestId: `decision-recovery:${value.approvalId}` })
+              },
+              resume: ({ actor, room }, value) => workflowEvents.onDecision(actor, room,
+                value.approvalId, value.state === 'approved'),
+            })
+          } catch (error) {
+            if (error instanceof Error && error.message === 'workflow decision not found') continue
+            ctx.logger.warn(`channel workflow decision recovery failed: ${decision.approvalId}: ${String(error)}`)
+          }
+        }
+      })
+        .catch((error: unknown) => { ctx.logger.error(`channel workflow poll failed: ${String(error)}`) })
+        .finally(() => { pending = undefined })
+    }
+    const timer = setInterval(tick, config.workflowPollIntervalMs)
+    tick()
+    return async () => { active = false; clearInterval(timer); await pending }
+  }, 'enterprise-channel-workflow: durable schedule polling')
   ctx.effect(() => ctx.webServer.register({
     kind: 'prefix', path: '/enterprise/channels',
     handler: async (req, res) => {
@@ -2803,4 +3105,32 @@ export const inject = [
   'agentPresets', 'agents', 'sessions', 'sessionPersistence', 'sessionProjections',
   'loader', 'credentials', 'llm', 'sessionController', 'webServer',
 ]
+/** Deployment limits for shared-room model context and Bot handoffs. */
+export interface Config {
+  readonly roomContextCharacters: number
+  readonly roomContextEvents: number
+  readonly maxBotHops: number
+  readonly roomDispatchPollMs: number
+  readonly roomDispatchLeaseMs: number
+  readonly workflowPollIntervalMs: number
+  readonly workflowBatchLimit: number
+  readonly workflowLeaseMs: number
+  readonly channelGitHubSecretRef: string
+  readonly channelGitHubSource: string
+  readonly channelGitHubMaxBodyBytes: number
+}
+/** Validated deployment options with explicit default limits. */
+export const Config: z<Config> = z.object({
+  roomContextCharacters: z.natural().min(500).max(32_000).default(6_000),
+  roomContextEvents: z.natural().min(1).max(99).default(24),
+  maxBotHops: z.natural().min(1).max(8).default(2),
+  roomDispatchPollMs: z.natural().min(100).max(60_000).default(5_000),
+  roomDispatchLeaseMs: z.natural().min(1000).max(300_000).default(30_000),
+  workflowPollIntervalMs: z.natural().min(1000).max(3_600_000).default(30_000),
+  workflowBatchLimit: z.natural().min(1).max(100).default(20),
+  workflowLeaseMs: z.natural().min(1000).max(600_000).default(120_000),
+  channelGitHubSecretRef: z.string().default(''),
+  channelGitHubSource: z.string().default('primary-github'),
+  channelGitHubMaxBodyBytes: z.natural().min(1).max(10_485_760).default(1_048_576),
+})
 export { name } from './invariant.ts'

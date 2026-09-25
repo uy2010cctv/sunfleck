@@ -195,7 +195,7 @@ Production tokens live in `packages/client/ui-enterprise-workbench/src/client/to
 
 ## Collaborative conversations
 
-The native left sidebar keeps Workspace browsing and adds group-chat and channel sections above the existing footer. A collaboration destination opens the original Session transcript and composer. Before a destination exists, the center asks for a member or topic and accepts the first message. Employee, project, memory, member and topic metadata use the existing right Sidebar tab. A topic with several responding employees exposes each native destination explicitly; changing a recipient never silently changes a Session preset. Loading, unavailable access and empty lists are distinct, and no example records appear in the product.
+The native left sidebar keeps Workspace browsing and adds group and channel sections above the existing footer. Selecting a room opens one shared conversation: human and digital-employee posts appear in signed event order with distinct authors, and the composer addresses a room or thread rather than a private execution Session. Bot mentions and charter actions run existing native Sessions; those Sessions remain inspectable from their room posts. Channel threads, reactions, work steps and decisions belong to the same room history. The room context pane holds members, project facts, workflow definitions and thread details; on narrow screens it opens on demand. Loading, unavailable access and empty lists are distinct, and no example records appear in the product.
 
 ## Conversation brand tagline
 

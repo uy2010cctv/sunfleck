@@ -68,6 +68,25 @@ export function parseCollaborationConfig(value: unknown): CollaborationConfig {
   }
 }
 
+const taskOwnersTable = `CREATE TABLE IF NOT EXISTS dsh_enterprise_collaboration_task_owners (
+  org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  surface_id TEXT NOT NULL REFERENCES dsh_enterprise_surface_directory(surface_id) ON DELETE CASCADE,
+  task_id TEXT NOT NULL, owner_id TEXT NOT NULL, last_event_id TEXT NOT NULL,
+  PRIMARY KEY(org_id,surface_id,task_id))`
+
+const dispatchTable = `CREATE TABLE dsh_enterprise_collaboration_dispatch (
+  org_id TEXT NOT NULL, surface_id TEXT NOT NULL, event_id TEXT NOT NULL,
+  target_kind TEXT NOT NULL CHECK(target_kind IN ('employee','team','ingest')),
+  target_id TEXT NOT NULL, requested_by_user_id TEXT,
+  state TEXT NOT NULL CHECK(state IN ('pending','processing','completed')),
+  lease_token TEXT, lease_until BIGINT,
+  PRIMARY KEY(org_id,surface_id,event_id,target_kind,target_id),
+  FOREIGN KEY(org_id,surface_id,event_id)
+    REFERENCES dsh_enterprise_collaboration_events(org_id,surface_id,event_id) ON DELETE CASCADE,
+  CONSTRAINT dsh_enterprise_collaboration_dispatch_lease CHECK
+    ((state='processing' AND lease_token IS NOT NULL AND lease_until IS NOT NULL)
+      OR (state<>'processing' AND lease_token IS NULL AND lease_until IS NULL)))`
+
 /** Add collaboration tables under a monotonic, transaction-locked schema version.
  * @param database - Shared enterprise database.
  * @returns When schema initialization commits.
@@ -77,23 +96,64 @@ export async function migrateCollaboration(database: EnterprisePostgresDatabase)
     await tx.query('SELECT pg_advisory_xact_lock($1)', [0x4453434f])
     await tx.query('CREATE TABLE IF NOT EXISTS dsh_enterprise_collaboration_meta (version INTEGER NOT NULL)')
     const version = (await tx.query<{ version: number }>('SELECT version FROM dsh_enterprise_collaboration_meta')).rows[0]?.version
-    if (version !== undefined && version !== 1) throw new Error(`unsupported collaboration schema version ${version}`)
-    if (version === 1) return
-    await tx.query(`CREATE TABLE dsh_enterprise_collaboration_config (
+    if (version !== undefined && version !== 1 && version !== 2 && version !== 3) {
+      throw new Error(`unsupported collaboration schema version ${version}`)
+    }
+    if (version === 3) return
+    if (version === undefined) {
+      await tx.query(`CREATE TABLE dsh_enterprise_collaboration_config (
       surface_id TEXT PRIMARY KEY REFERENCES dsh_enterprise_surface_directory(surface_id) ON DELETE CASCADE,
       workspace_id TEXT NOT NULL REFERENCES enterprise_workspace_grants(workspace_id), config_json JSONB NOT NULL)`)
-    await tx.query(`CREATE TABLE dsh_enterprise_collaboration_members (
+      await tx.query(`CREATE TABLE dsh_enterprise_collaboration_members (
       surface_id TEXT NOT NULL REFERENCES dsh_enterprise_collaboration_config(surface_id) ON DELETE CASCADE,
       user_id TEXT NOT NULL REFERENCES users(id), PRIMARY KEY(surface_id,user_id))`)
-    await tx.query(`CREATE TABLE dsh_enterprise_collaboration_topics (
+      await tx.query(`CREATE TABLE dsh_enterprise_collaboration_topics (
       surface_id TEXT NOT NULL REFERENCES dsh_enterprise_collaboration_config(surface_id) ON DELETE CASCADE,
       topic_id TEXT NOT NULL, title TEXT NOT NULL, state TEXT NOT NULL CHECK(state IN ('open','settled')),
       created_at BIGINT NOT NULL, PRIMARY KEY(surface_id,topic_id))`)
-    await tx.query(`CREATE TABLE dsh_enterprise_collaboration_sessions (
+      await tx.query(`CREATE TABLE dsh_enterprise_collaboration_sessions (
       surface_id TEXT NOT NULL REFERENCES dsh_enterprise_collaboration_config(surface_id) ON DELETE CASCADE,
       topic_id TEXT NOT NULL DEFAULT '', employee_id TEXT NOT NULL DEFAULT '', session_id TEXT NOT NULL UNIQUE,
       PRIMARY KEY(surface_id,topic_id,employee_id))`)
-    await tx.query('INSERT INTO dsh_enterprise_collaboration_meta(version) VALUES (1)')
+      await tx.query('INSERT INTO dsh_enterprise_collaboration_meta(version) VALUES (1)')
+    }
+    if (version === undefined || version === 1) {
+      await tx.query(`CREATE TABLE dsh_enterprise_collaboration_actor_keys (
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      actor_kind TEXT NOT NULL CHECK(actor_kind IN ('human','employee','service')),
+      actor_id TEXT NOT NULL, pubkey TEXT NOT NULL UNIQUE CHECK(pubkey ~ '^[0-9a-f]{64}$'),
+      PRIMARY KEY(org_id,actor_kind,actor_id))`)
+      await tx.query(`CREATE TABLE dsh_enterprise_collaboration_events (
+      sequence BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      surface_id TEXT NOT NULL REFERENCES dsh_enterprise_surface_directory(surface_id) ON DELETE CASCADE,
+      event_id TEXT NOT NULL, event_json JSONB NOT NULL,
+      author_kind TEXT NOT NULL CHECK(author_kind IN ('human','employee','service')),
+      author_id TEXT NOT NULL, thread_root TEXT, request_id TEXT,
+      source_session_id TEXT, source_event_cursor TEXT,
+      search_vector TSVECTOR GENERATED ALWAYS AS (to_tsvector('simple',coalesce(event_json->>'content',''))) STORED,
+      CONSTRAINT dsh_enterprise_collaboration_event_source_pair CHECK
+        ((source_session_id IS NULL) = (source_event_cursor IS NULL)),
+      UNIQUE(org_id,surface_id,event_id))`)
+      await tx.query(`CREATE INDEX dsh_enterprise_collaboration_events_order
+      ON dsh_enterprise_collaboration_events(org_id,surface_id,sequence)`)
+      await tx.query(`CREATE UNIQUE INDEX dsh_enterprise_collaboration_events_request
+      ON dsh_enterprise_collaboration_events(org_id,surface_id,author_kind,author_id,request_id)
+      WHERE request_id IS NOT NULL`)
+      await tx.query(`CREATE UNIQUE INDEX dsh_enterprise_collaboration_events_source
+      ON dsh_enterprise_collaboration_events(org_id,source_session_id,source_event_cursor)
+      WHERE source_session_id IS NOT NULL`)
+      await tx.query(`CREATE INDEX dsh_enterprise_collaboration_events_search
+      ON dsh_enterprise_collaboration_events USING GIN(search_vector)`)
+      await tx.query(taskOwnersTable)
+      await tx.query('UPDATE dsh_enterprise_collaboration_meta SET version=2 WHERE version=1')
+    }
+    await tx.query(taskOwnersTable)
+    await tx.query('ALTER TABLE dsh_enterprise_collaboration_events ADD COLUMN requested_by_user_id TEXT')
+    await tx.query(dispatchTable)
+    await tx.query(`CREATE INDEX dsh_enterprise_collaboration_dispatch_poll
+      ON dsh_enterprise_collaboration_dispatch(state,lease_until,org_id,surface_id,event_id)`)
+    await tx.query('UPDATE dsh_enterprise_collaboration_meta SET version=3 WHERE version=2')
   })
 }
 
@@ -116,7 +176,6 @@ export class PostgresCollaborationRepository {
   /** @param database - Shared enterprise database. */
   constructor(private readonly database: EnterprisePostgresDatabase) {}
 
-  // oxlint-disable-next-line typescript/no-unnecessary-type-parameters -- PostgreSQL callers select their validated row type.
   private async query<Row extends Record<string, unknown>>(text: string,
     values: readonly unknown[]): Promise<{ rows: Row[]; rowCount: number | null }> {
     return this.database.query<Row>(text, values)

@@ -15,11 +15,11 @@ const selection: CollaborationSelection = {
 }
 function setup(value: CollaborationSelection | null = selection) {
   const controller = new CollaborationController(vi.fn(), vi.fn(), vi.fn())
-  controller.state.set({ phase: 'ready', surfaces: [], creation: null, selection: value, busy: false, error: null })
+  controller.state.set({ ...controller.state.getSnapshot(), phase: 'ready', surfaces: [], creation: null, selection: value, busy: false, error: null })
   return { controller, sessionId: 'session-a', t: (key: keyof typeof zh) => zh[key] }
 }
 describe('collaboration details', () => {
-  it('shows authorized names and routes topic selection without exposing identifiers', () => {
+  it('shows authorized room names without exposing identifiers', () => {
     const props = setup()
     const select = vi.spyOn(props.controller, 'select').mockResolvedValue()
     const view = render(<CollaborationDetails {...props} />)
@@ -27,8 +27,8 @@ describe('collaboration details', () => {
     expect(screen.getByText('采购团队')).toBeTruthy()
     expect(screen.getByText('按时备货')).toBeTruthy()
     expect(view.container.textContent).not.toContain('secret')
-    fireEvent.click(screen.getByRole('button', { name: /九月采购/ }))
-    expect(select).toHaveBeenCalledWith('surface-a', { topicId: 'topic-a' })
+    expect(screen.getByText('九月采购')).toBeTruthy()
+    expect(select).not.toHaveBeenCalled()
   })
   it('hides stale selection details and the header action after changing Session', () => {
     const props = { ...setup(), sessionId: 'session-b', openDetails: vi.fn() }
@@ -46,19 +46,19 @@ describe('collaboration details', () => {
     expect(screen.getByRole('alert').textContent).toBe(zh.error)
     expect(screen.queryByText('team-secret')).toBeNull()
   })
-  it('opens the selected group employee conversation', () => {
+  it('lists group employees without opening separate conversations', () => {
     const props = setup({ ...selection, detail: { ...selection.detail, kind: 'group' } })
     const select = vi.spyOn(props.controller, 'select').mockResolvedValue()
     render(<CollaborationDetails {...props} />)
-    fireEvent.click(screen.getByRole('button', { name: '采购员' }))
-    expect(select).toHaveBeenCalledWith('surface-a', { employeeId: 'employee-secret' })
+    expect(screen.getAllByText('采购员')).toHaveLength(2)
+    expect(select).not.toHaveBeenCalled()
   })
   it('opens a channel topic at its responding employee destination', () => {
     const props = setup({ ...selection, detail: { ...selection.detail, topics: [{ id: 'topic-a', title: '九月采购', state: 'open', destinations: [{ employeeId: 'employee-secret', sessionId: 'session-response' }] }] } })
-    const select = vi.spyOn(props.controller, 'select').mockResolvedValue()
+    const inspect = vi.spyOn(props.controller, 'inspect').mockResolvedValue()
     render(<CollaborationDetails {...props} />)
     fireEvent.click(screen.getByRole('button', { name: '九月采购 · 采购员' }))
-    expect(select).toHaveBeenCalledWith('surface-a', { topicId: 'topic-a', employeeId: 'employee-secret' })
+    expect(inspect).toHaveBeenCalledWith('session-response')
   })
   it('does not offer details for private or preflight sessions', () => {
     const { sessionId: _sessionId, ...preflight } = selection

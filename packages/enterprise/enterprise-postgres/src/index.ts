@@ -27,8 +27,16 @@ import type {
 import type { PostgresDatabase as ProjectDatabase, PostgresQueryResult as ProjectResult } from '@deepseek-ai/dsh-enterprise-project'
 import { migrateSurfaceDirectory, PostgresSurfaceDirectory } from './surface-directory.ts'
 import { migrateCollaboration, PostgresCollaborationRepository } from './collaboration.ts'
+import { PostgresRoomEventRepository } from './collaboration-events.ts'
+import { migrateChannelWorkflows } from './collaboration-workflows.ts'
 export { PostgresCollaborationRepository, CollaborationCreationConflictError } from './collaboration.ts'
 export type { CollaborationConfig, CollaborationRecord, CollaborationTopic, CollaborationSession } from './collaboration.ts'
+export { PostgresRoomEventRepository, RoomEventConflictError, RoomActorKeyConflictError, parseRoomNostrEvent } from './collaboration-events.ts'
+export type { RoomActorKind, RoomActorKeyBinding, RoomNostrEvent, RoomEventAppend, RoomEvent,
+  RoomEventPageOptions, RoomDispatchClaim } from './collaboration-events.ts'
+export { migrateChannelWorkflows, PostgresChannelWorkflowLedger } from './collaboration-workflows.ts'
+export type { StoredChannelWorkflow, ChannelWorkflowRun, ChannelWorkflowResult, ChannelWorkflowDue,
+  ChannelWorkflowSchedule, ReadyChannelWorkflowDecision } from './collaboration-workflows.ts'
 
 export { PostgresSurfaceDirectory, migrateSurfaceDirectory } from './surface-directory.ts'
 export type { SurfaceDirectoryEntry, SurfaceDirectoryKind } from './surface-directory.ts'
@@ -58,14 +66,12 @@ export class EnterprisePostgresDatabase implements
 
   constructor(readonly pool: Pool, readonly client?: PoolClient) {}
 
-  /* oxlint-disable typescript/no-unnecessary-type-parameters -- each caller selects its PostgreSQL row type. */
   async query<Row extends Record<string, unknown> = Record<string, unknown>>(
     text: string, values: readonly unknown[] = [],
   ): Promise<AnyResult & { rows: Row[] }> {
     const result = await (this.client ?? this.pool).query<Row & QueryResultRow>(text, [...values])
     return { rows: result.rows, rowCount: result.rowCount }
   }
-  /* oxlint-enable typescript/no-unnecessary-type-parameters */
 
   async connect(): Promise<EnterprisePostgresDatabase> {
     return new EnterprisePostgresDatabase(this.pool, await this.pool.connect())
@@ -148,6 +154,7 @@ export interface EnterprisePostgresComposition {
   readonly projects: EnterpriseProjectService
   readonly surfaceDirectory: PostgresSurfaceDirectory
   readonly collaboration: PostgresCollaborationRepository
+  readonly roomEvents: PostgresRoomEventRepository
   readonly close: () => Promise<void>
 }
 
@@ -184,6 +191,7 @@ export async function createEnterprisePostgresComposition(config: EnterprisePost
     await migrateEnterpriseProject(database)
     await migrateSurfaceDirectory(database)
     await migrateCollaboration(database)
+    await migrateChannelWorkflows(database)
     const session = new PostgresSessionStore(database)
     await session.initialize()
     await migrateEnterpriseCatalog(database)
@@ -225,8 +233,9 @@ export async function createEnterprisePostgresComposition(config: EnterprisePost
     const projects = new EnterpriseProjectService(new EnterpriseProjectRepository(database))
     const surfaceDirectory = new PostgresSurfaceDirectory(database)
     const collaboration = new PostgresCollaborationRepository(database)
+    const roomEvents = new PostgresRoomEventRepository(database)
     return { database, identity, session, catalog, operations, teamControl, knowledge, cordis, devicePlane, projects,
-      surfaceDirectory, collaboration,
+      surfaceDirectory, collaboration, roomEvents,
       close: () => database.end() }
   } catch (error) {
     await database.end()

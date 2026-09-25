@@ -98,6 +98,15 @@ describe('sessionFormatVersionRefusal', () => {
 })
 
 describe('validateStoredEvents', () => {
+  it('reads persisted employee selection and clearing without treating them as unknown events', () => {
+    const events = [
+      { type: 'enterprise-employee/selected', seq: 0, time: 1, data: { employeeId: 'research',
+        releaseId: 'release-1', releaseVersion: 1, orgId: 'org', ownerUserId: 'alice' } },
+      { type: 'enterprise-employee/cleared', seq: 1, time: 2, data: {} },
+    ] as SessionEvent[]
+    expect(validateStoredEvents(meta('employee-release'), events)).toBe(events)
+  })
+
   it('adopts and freezes the events in place, returning the same array', () => {
     const m = meta('adopted')
     const events = [

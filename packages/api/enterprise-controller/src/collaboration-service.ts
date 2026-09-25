@@ -2,7 +2,7 @@
 import { createHash, randomUUID } from 'node:crypto'
 import type { EnterprisePrincipal } from '@deepseek-ai/dsh-enterprise-governance'
 import { CollaborationCreationConflictError } from '@deepseek-ai/dsh-enterprise-postgres'
-import type { CollaborationRecord, CollaborationTopic, CollaborationSession,
+import type { CollaborationRecord, CollaborationTopic, CollaborationSession, RoomEvent,
   PostgresCollaborationRepository } from '@deepseek-ai/dsh-enterprise-postgres'
 
 /** Published employee projection used for routing and the detail panel. */
@@ -44,6 +44,7 @@ export type CollaborationOpenResult =
 export interface CollaborationMessageInput {
   readonly text: string
   readonly topicId?: string
+  readonly threadRoot?: string
   readonly mentionedEmployeeIds?: readonly string[]
   readonly messageId?: string
   /** Native composer source, set only by the Host. */
@@ -54,11 +55,47 @@ export type CollaborationDelivery =
   | { readonly delivered: true
     readonly targets: readonly { readonly sessionId: string
       readonly employeeId?: string }[]
+    readonly event?: CollaborationRoomEvent
     readonly topicId?: string }
   | { readonly delivered: false
     readonly reason: string }
+/** Signed NIP-01 event plus authorization-scoped room presentation. */
+export type CollaborationRoomEvent = RoomEvent['event'] & {
+  readonly sequence: string
+  readonly author: { readonly kind: RoomEvent['authorKind']; readonly id: string; readonly displayName: string }
+  readonly threadRoot?: string
+  readonly sourceSessionId?: string
+}
+/** Room persistence and signing; the service performs current membership checks first. */
+export interface CollaborationRoomRuntime {
+  appendHuman(actor: EnterprisePrincipal, row: CollaborationRecord,
+    input: CollaborationMessageInput, dispatch: { readonly targets: readonly string[]
+      readonly route?: 'team' | 'ingest' }): Promise<RoomEvent>
+  react(actor: EnterprisePrincipal, row: CollaborationRecord,
+    input: { readonly eventId: string
+      readonly emoji: string
+      readonly requestId: string }): Promise<RoomEvent>
+  list(row: CollaborationRecord, options: { readonly after?: string
+    readonly before?: string
+    readonly limit?: number
+    readonly threadRoot?: string }): Promise<readonly RoomEvent[]>
+  get(row: CollaborationRecord, eventId: string): Promise<RoomEvent | undefined>
+  search(row: CollaborationRecord, query: string, limit: number): Promise<readonly RoomEvent[]>
+  present(actor: EnterprisePrincipal, row: CollaborationRecord, event: RoomEvent): Promise<CollaborationRoomEvent>
+  prompt(row: CollaborationRecord, current: RoomEvent): Promise<string>
+  dispatchCommitted?(actor: EnterprisePrincipal, row: CollaborationRecord,
+    event: RoomEvent): Promise<CollaborationDelivery>
+  replayedTargets?(row: CollaborationRecord, event: RoomEvent,
+    dispatch: { readonly targets: readonly string[]; readonly route?: 'team' | 'ingest' }): Promise<readonly {
+    readonly sessionId: string
+    readonly employeeId?: string }[]>
+  committed?(actor: EnterprisePrincipal, row: CollaborationRecord, event: RoomEvent): Promise<void>
+  reconcile?(row: CollaborationRecord): Promise<void>
+}
 /** Existing native services supplied by the controller composition. */
 export interface CollaborationRuntime {
+  readonly room?: CollaborationRoomRuntime | undefined
+  attachRoomTools?(sessionId: string): Promise<void>
   /** Notify the Workspace projection owner after all destination grants have committed.
    * @param workspaceId - Workspace whose native destination became visible.
    */
@@ -88,6 +125,189 @@ export class CollaborationService {
   /** @param store - PostgreSQL persistence. @param runtime - Native authorized execution services. */
   constructor(readonly store: PostgresCollaborationRepository, private readonly runtime: CollaborationRuntime) {}
 
+  /** Read one membership-scoped room page.
+   * @param actor - Authenticated human.
+   * @param id - Room identity.
+   * @param options - Bounded cursor and thread selection.
+   * @returns Signed room events and the next incremental cursor.
+   */
+  async events(actor: EnterprisePrincipal, id: string, options: { readonly after?: string
+    readonly before?: string
+    readonly limit?: number
+    readonly threadRoot?: string }): Promise<{ items: readonly CollaborationRoomEvent[]
+    nextCursor: string | null
+    prevCursor: string | null }> {
+    const row = await this.authorized(actor, id)
+    const room = this.requireRoom()
+    await room.reconcile?.(row)
+    const events = await room.list(row, options)
+    return { items: await Promise.all(events.map(event => room.present(actor, row, event))),
+      nextCursor: events.at(-1)?.sequence ?? null, prevCursor: events[0]?.sequence ?? null }
+  }
+
+  /** Search signed room history after current membership validation.
+   * @param actor - Authenticated human.
+   * @param id - Room identity.
+   * @param query - Search text.
+   * @returns Bounded signed matches.
+   */
+  async search(actor: EnterprisePrincipal, id: string, query: string): Promise<{ items: readonly CollaborationRoomEvent[] }> {
+    const row = await this.authorized(actor, id)
+    if (query.trim() === '' || query.length > 200) throw new CollaborationError('invalid-search')
+    const room = this.requireRoom()
+    return { items: await Promise.all((await room.search(row, query, 50)).map(event => room.present(actor, row, event))) }
+  }
+
+  /** Add one authenticated reaction to an event in the same room.
+   * @param actor - Authenticated human.
+   * @param id - Room identity.
+   * @param input - Target and stable request id.
+   * @returns The signed reaction event.
+   */
+  async react(actor: EnterprisePrincipal, id: string, input: { readonly eventId: string
+    readonly emoji: string
+    readonly requestId: string }): Promise<{ event: CollaborationRoomEvent }> {
+    const row = await this.authorized(actor, id)
+    if (input.emoji.length > 32 || input.requestId.length > 200) throw new CollaborationError('invalid-reaction')
+    const room = this.requireRoom()
+    const event = await room.react(actor, row, input)
+    await room.committed?.(actor, row, event)
+    return { event: await room.present(actor, row, event) }
+  }
+
+  private requireRoom(): CollaborationRoomRuntime {
+    if (this.runtime.room === undefined) throw new CollaborationError('room-unavailable', 503)
+    return this.runtime.room
+  }
+
+  /** Claim native delivery for a committed signed event, including workflow Bot requests.
+   * @param actor - Authenticated current room member.
+   * @param id - Room identity.
+   * @param eventId - Signed event identity.
+   * @returns Native targets claimed by this request.
+   */
+  async dispatchSignedEvent(actor: EnterprisePrincipal, id: string, eventId: string): Promise<CollaborationDelivery> {
+    const row = await this.authorized(actor, id)
+    const room = this.requireRoom()
+    const event = await room.get(row, eventId)
+    if (event === undefined || room.dispatchCommitted === undefined) throw new CollaborationError('room-event-not-found', 404)
+    return room.dispatchCommitted(actor, row, event)
+  }
+
+  /** Dispatch an already signed and committed employee post to addressed room members.
+   * @param actor - Current owner of the source employee Session.
+   * @param row - Room containing the signed post.
+   * @param event - Persisted employee post.
+   * @param employeeIds - Explicit destination members.
+   * @returns Native execution targets.
+   */
+  async dispatchEmployeePost(actor: EnterprisePrincipal, row: CollaborationRecord, event: RoomEvent,
+    employeeIds: readonly string[]): Promise<readonly { sessionId: string; employeeId: string }[]> {
+    const current = await this.authorized(actor, row.id)
+    if (event.orgId !== current.orgId || event.surfaceId !== current.id || event.authorKind !== 'employee'
+      || event.sourceSessionId === undefined) throw new CollaborationError('room-event-forbidden', 403)
+    const source = await this.store.bySession(event.sourceSessionId)
+    if (source?.surfaceId !== current.id || source.employeeId !== event.authorId) {
+      throw new CollaborationError('room-event-forbidden', 403)
+    }
+    const room = this.requireRoom()
+    const prompt = await room.prompt(current, event)
+    const destinations: { sessionId: string; employeeId: string }[] = []
+    for (const employeeId of new Set(employeeIds)) {
+      if (!current.memberEmployeeIds.includes(employeeId) || employeeId === event.authorId) {
+        throw new CollaborationError('employee-not-member', 404)
+      }
+      const topicId = current.kind === 'channel' ? event.threadRoot ?? event.event.id : ''
+      if (topicId !== '') await this.store.ensureTopic(current.id, topicId, event.event.content.slice(0, 40))
+      const target = await this.destination(actor, current, employeeId, topicId)
+      await this.runtime.prompt(actor, target.sessionId, current, { text: prompt, messageId: event.event.id,
+        ...(topicId === '' ? {} : { topicId }) })
+      destinations.push({ sessionId: target.sessionId, employeeId })
+    }
+    return destinations
+  }
+
+  /** Deliver one already signed human event to one current room Bot member.
+   * @param actor - Authenticated original human author.
+   * @param row - Current room.
+   * @param event - Committed human room event.
+   * @param employeeId - Claimed outbox target.
+   * @returns Native target after its request id lands.
+   */
+  async dispatchHumanPost(actor: EnterprisePrincipal, row: CollaborationRecord, event: RoomEvent,
+    employeeId: string): Promise<{ sessionId: string; employeeId: string }> {
+    const current = await this.authorized(actor, row.id)
+    if (event.orgId !== current.orgId || event.surfaceId !== current.id || event.authorKind !== 'human'
+      || event.authorId !== actor.userId || event.event.kind !== 9 || !current.memberEmployeeIds.includes(employeeId)) {
+      throw new CollaborationError('room-event-forbidden', 403)
+    }
+    const topicId = current.kind === 'channel' ? event.threadRoot ?? event.event.id : ''
+    if (topicId !== '') await this.store.ensureTopic(current.id, topicId, event.event.content.slice(0, 40))
+    const target = await this.destination(actor, current, employeeId, topicId)
+    await this.runtime.prompt(actor, target.sessionId, current, {
+      text: await this.requireRoom().prompt(current, event), messageId: event.event.id,
+      ...(topicId === '' ? {} : { topicId }),
+    })
+    return { sessionId: target.sessionId, employeeId }
+  }
+
+  /** Deliver a committed charter route through the existing TeamRun runtime.
+   * @param actor - Current human author.
+   * @param row - Charter group.
+   * @param event - Signed room input.
+   * @returns Native TeamRun receipt.
+   */
+  async dispatchTeamPost(actor: EnterprisePrincipal, row: CollaborationRecord,
+    event: RoomEvent): Promise<CollaborationDelivery> {
+    const current = await this.authorized(actor, row.id)
+    if (current.teamDefinitionId === undefined || event.orgId !== current.orgId
+      || event.surfaceId !== current.id || event.authorKind !== 'human' || event.authorId !== actor.userId) {
+      throw new CollaborationError('room-event-forbidden', 403)
+    }
+    return this.runtime.teamMessage(actor, current, {
+      text: await this.requireRoom().prompt(current, event), messageId: event.event.id,
+    })
+  }
+
+  /** Intake a signed announcement after current authorization is rechecked.
+   * @param actor - Current human author.
+   * @param row - Ingest-only channel.
+   * @param event - Signed announcement.
+   * @returns Proposal receipt or privacy rejection.
+   */
+  async dispatchIngestPost(actor: EnterprisePrincipal, row: CollaborationRecord,
+    event: RoomEvent): Promise<CollaborationDelivery> {
+    const current = await this.authorized(actor, row.id)
+    if (current.respondPolicy !== 'ingest_only' || event.orgId !== current.orgId
+      || event.surfaceId !== current.id || event.authorKind !== 'human' || event.authorId !== actor.userId) {
+      throw new CollaborationError('room-event-forbidden', 403)
+    }
+    return this.runtime.ingest(actor, current, { text: event.event.content, messageId: event.event.id })
+  }
+
+  /** Send an already committed workflow event to one authorized member Bot.
+   * @param actor - Authenticated workflow initiator with current room access.
+   * @param row - Workflow room.
+   * @param event - Signed service event in this room.
+   * @param employeeId - Explicit receiving member.
+   * @returns Native execution target.
+   */
+  async dispatchServicePost(actor: EnterprisePrincipal, row: CollaborationRecord, event: RoomEvent,
+    employeeId: string): Promise<{ sessionId: string; employeeId: string }> {
+    const current = await this.authorized(actor, row.id)
+    if (event.orgId !== current.orgId || event.surfaceId !== current.id || event.authorKind !== 'service'
+      || event.event.kind !== 41000 || !current.memberEmployeeIds.includes(employeeId)) {
+      throw new CollaborationError('room-event-forbidden', 403)
+    }
+    const prompt = await this.requireRoom().prompt(current, event)
+    const topicId = current.kind === 'channel' ? event.event.id : ''
+    if (topicId !== '') await this.store.ensureTopic(current.id, topicId, event.event.content.slice(0, 40))
+    const target = await this.destination(actor, current, employeeId, topicId)
+    await this.runtime.prompt(actor, target.sessionId, current, { text: prompt, messageId: event.event.id,
+      ...(topicId === '' ? {} : { topicId }) })
+    return { sessionId: target.sessionId, employeeId }
+  }
+
   /** List conversations whose membership and workspace remain accessible.
    * @param actor - Authenticated human.
    * @returns Sidebar entries.
@@ -97,7 +317,7 @@ export class CollaborationService {
     const visible = await Promise.all(rows.map(async row => await this.runtime.workspaceVisible(actor,
       row.workspaceId) ? row : undefined))
     return visible.filter((row): row is CollaborationRecord => row !== undefined).map(row => ({ id: row.id, kind: row.kind,
-      name: row.name, memberCount: row.memberEmployeeIds.length }))
+      name: row.name, memberCount: row.memberEmployeeIds.length + row.memberUserIds.length }))
   }
 
   /** Resolve an authorized native composer to its conversation.
@@ -133,7 +353,7 @@ export class CollaborationService {
     })
     return {
       id, kind: row.kind, name: row.name, workspaceId: row.workspaceId, memberUserIds: row.memberUserIds,
-      memberCount: row.memberEmployeeIds.length,
+      memberCount: row.memberEmployeeIds.length + row.memberUserIds.length,
       members: employees.filter((value): value is CollaborationEmployee => value !== undefined),
       topics, dutyEmployeeIds: row.dutyEmployeeIds,
       ...(row.topicPolicy === undefined ? {} : { topicPolicy: row.topicPolicy }),
@@ -217,6 +437,7 @@ export class CollaborationService {
    */
   async message(actor: EnterprisePrincipal, id: string, input: CollaborationMessageInput): Promise<CollaborationDelivery> {
     const row = await this.authorized(actor, id)
+    if (this.runtime.room !== undefined) return this.roomMessage(actor, row, input, this.runtime.room)
     if (row.teamDefinitionId !== undefined) return this.runtime.teamMessage(actor, row, input)
     if (row.respondPolicy === 'ingest_only') return this.runtime.ingest(actor, row, input)
     if (input.text.trim() === '') throw new CollaborationError('text-required')
@@ -271,6 +492,68 @@ export class CollaborationService {
     return { delivered: true, targets: deliveries, ...(topicId === '' ? {} : { topicId }) }
   }
 
+  private async roomMessage(actor: EnterprisePrincipal, row: CollaborationRecord, input: CollaborationMessageInput,
+    room: CollaborationRoomRuntime): Promise<CollaborationDelivery> {
+    if (input.text.trim() === '' || input.text.length > 20_000) throw new CollaborationError('invalid-text')
+    if (input.mentionedEmployeeIds?.some(id => !row.memberEmployeeIds.includes(id))) {
+      throw new CollaborationError('employee-not-member', 404)
+    }
+    if (input.sourceSessionId !== undefined) {
+      const binding = await this.store.bySession(input.sourceSessionId)
+      if (binding?.surfaceId !== row.id) throw new CollaborationError('session-not-found', 404)
+    }
+    let targets: string[] = []
+    if (row.teamDefinitionId === undefined && row.respondPolicy !== 'ingest_only') {
+      const employees = (await Promise.all(row.memberEmployeeIds.map(employeeId => this.runtime.employee(actor, employeeId))))
+        .filter((value): value is CollaborationEmployee => value !== undefined)
+      targets = input.mentionedEmployeeIds === undefined
+        ? mentionedEmployees(input.text, employees)
+        : [...new Set(input.mentionedEmployeeIds)]
+      if (row.kind === 'channel' && targets.length === 0) targets = [...row.dutyEmployeeIds]
+    }
+    const dispatch: { targets: string[]; route?: 'team' | 'ingest' } = { targets,
+      ...(row.teamDefinitionId === undefined ? row.respondPolicy === 'ingest_only' ? { route: 'ingest' as const } : {}
+        : { route: 'team' as const }) }
+    const committed = await room.appendHuman(actor, row, input, dispatch)
+    await room.committed?.(actor, row, committed)
+    const event = await room.present(actor, row, committed)
+    if (room.dispatchCommitted !== undefined) {
+      const delivery = await room.dispatchCommitted(actor, row, committed)
+      const replayed = dispatch.targets.length > 0 || dispatch.route === 'team'
+        ? await room.replayedTargets?.(row, committed, dispatch) ?? [] : []
+      const targets = [...new Map([...(delivery.delivered ? delivery.targets : []), ...replayed]
+        .map(target => [target.sessionId, target])).values()]
+      return { delivered: true, event, targets,
+        ...(row.kind === 'channel' && row.respondPolicy !== 'ingest_only'
+          ? { topicId: input.threadRoot ?? committed.event.id } : {}) }
+    }
+    const execution = async (): Promise<CollaborationMessageInput> => ({
+      text: await room.prompt(row, committed), messageId: committed.event.id,
+      ...(input.sourceSessionId === undefined ? {} : { sourceSessionId: input.sourceSessionId }),
+      ...(input.threadRoot === undefined ? {} : { threadRoot: input.threadRoot }),
+    })
+    if (row.teamDefinitionId !== undefined) {
+      const result = await this.runtime.teamMessage(actor, row, await execution())
+      return result.delivered ? { ...result, event } : { delivered: true, targets: [], event }
+    }
+    if (row.respondPolicy === 'ingest_only') {
+      await this.runtime.ingest(actor, row, { ...input, messageId: committed.event.id })
+      return { delivered: true, targets: [], event }
+    }
+    if (targets.length === 0) return { delivered: true, targets: [], event }
+    const promptInput = await execution()
+    const topicId = row.kind === 'channel' ? input.threadRoot ?? committed.event.id : ''
+    if (topicId !== '') await this.store.ensureTopic(row.id, topicId, input.text.slice(0, 40))
+    const deliveries: { sessionId: string; employeeId: string }[] = []
+    for (const employeeId of targets) {
+      const target = await this.destination(actor, row, employeeId, topicId)
+      await this.runtime.prompt(actor, target.sessionId, row, { ...promptInput,
+        ...(topicId === '' ? {} : { topicId }) })
+      deliveries.push({ sessionId: target.sessionId, employeeId })
+    }
+    return { delivered: true, event, targets: deliveries, ...(topicId === '' ? {} : { topicId }) }
+  }
+
   private async authorized(actor: EnterprisePrincipal, id: string): Promise<CollaborationRecord> {
     const row = await this.store.get(actor.orgId, id)
     if (row === undefined || !row.memberUserIds.includes(actor.userId) || !await this.runtime.workspaceVisible(actor,
@@ -285,13 +568,17 @@ export class CollaborationService {
     if (active !== undefined) return active
     const create = async (): Promise<CollaborationSession> => {
       const existing = (await this.store.sessions(row.id)).find(value => value.topicId === topicId && value.employeeId === employeeId)
-      if (existing !== undefined) return existing
+      if (existing !== undefined) {
+        await this.runtime.attachRoomTools?.(existing.sessionId)
+        return existing
+      }
       const employee = await this.runtime.employee(actor, employeeId)
       if (employee === undefined) throw new CollaborationError('employee-unavailable', 404)
       const sessionId = await this.runtime.createSession(actor, { sessionId: `session-collaboration-${hash(key)}`,
         workspaceId: row.workspaceId, employee, objective: `${row.name} · ${employee.displayName}` })
       const binding = { surfaceId: row.id, topicId, employeeId, sessionId }
       await this.store.bind(binding)
+      await this.runtime.attachRoomTools?.(sessionId)
       this.runtime.refreshWorkspace(row.workspaceId)
       return binding
     }

@@ -40,7 +40,8 @@ function setup(state: 'completed' | 'waiting-human') {
   } as never)
   ctx.provide('enterpriseRequestContext' as never, { requirePrincipal: () => actor } as never)
   ctx.provide('enterpriseTeamRuntimeDriver' as never, {} as never)
-  return { ctx, handler: composeCollaboration(ctx, { operations, teams }), operations, teams, close }
+  return { ctx, handler: composeCollaboration(ctx, { operations, teams,
+    limits: { roomContextCharacters: 6000, roomContextEvents: 24, maxBotHops: 2 } }), operations, teams, close }
 }
 
 describe('collaboration native runtime receipts', () => {
@@ -106,6 +107,7 @@ function employeeSetup() {
   const handler = composeCollaboration(ctx, {
     operations: () => ({ upsertWorkRecord: async () => {} }) as never,
     teams: () => { throw new Error('not a charter') },
+    limits: { roomContextCharacters: 6000, roomContextEvents: 24, maxBotHops: 2 },
   })
   const post = (operation: string, body: unknown) => handler.fetch(new Request(`https://dsh/enterprise/surfaces/group/${operation}`, {
     method: 'POST', body: JSON.stringify(body),

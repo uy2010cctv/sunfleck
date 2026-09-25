@@ -33,6 +33,9 @@
       "path": "../../credentials/credentials"
     },
     {
+      "path": "../../core/tools"
+    },
+    {
       "path": "../../catalog/enterprise-catalog"
     },
     {
@@ -40,6 +43,9 @@
     },
     {
       "path": "../../operations/enterprise-operations"
+    },
+    {
+      "path": "../../experimental/agent-team"
     },
     {
       "path": "../../enterprise/enterprise-cordis"

@@ -7,3 +7,9 @@
   disabled: true
 - id: enterprise-memory-context
   disabled: true
+- id: enterprise-controller
+  config:
+    workflowPollIntervalMs: 1000
+    channelGitHubSecretRef: DSH_COLLABORATION_GITHUB_SECRET
+    channelGitHubSource: primary-github
+    channelGitHubMaxBodyBytes: 8192

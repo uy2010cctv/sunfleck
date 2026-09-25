@@ -23,7 +23,8 @@
     "@deepseek-ai/dsh-enterprise-project": "workspace:^",
     "@deepseek-ai/dsh-enterprise-cordis": "workspace:^",
     "@deepseek-ai/dsh-knowledge-pgvector": "workspace:^",
-    "pg": "^8.16.3"
+    "pg": "^8.16.3",
+    "nostr-tools": "2.25.2"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "workspace:^",
