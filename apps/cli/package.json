@@ -102,6 +102,8 @@
     "@deepseek-ai/dsh-experimental-voice-input-bundle": "workspace:*"
   },
   "devDependencies": {
+    "pg": "^8.16.3",
+    "@types/pg": "^8.15.5",
     "@agentclientprotocol/sdk": "1.4.0",
     "@deepseek-ai/dsh-acp": "workspace:*",
     "@deepseek-ai/dsh-agent": "workspace:*",

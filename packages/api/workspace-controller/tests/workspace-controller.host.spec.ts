@@ -302,6 +302,27 @@ describe('WorkspaceController commands', () => {
 })
 
 describe('WorkspaceController follow', () => {
+  it('republishes the authoritative workspace after access grants commit without mutating metadata', async () => {
+    const { controller, ctx, root } = await harness()
+    const workspace = await ctx.workspaceRegistry.create(stageDir(root, 'shared'))
+    const session = ctx.sessions.create(SessionId('new-shared-session'), { meta: { cwd: workspace.path } })
+    await workspace.attachSession(session.id)
+    const abort = new AbortController()
+    const iterator = controller.follow(abort.signal)[Symbol.asyncIterator]()
+    try {
+      await nextFrame(iterator)
+      const changed = vi.fn()
+      ctx.on('domain/changed', changed)
+      const before = { title: workspace.title, updatedAt: workspace.updatedAt, sessionIds: [...workspace.sessionIds] }
+      ctx.emit('workspace/visibility-changed', workspace.id)
+      await expect(nextFrame(iterator)).resolves.toMatchObject({
+        type: 'upsert', workspace: { workspaceId: workspace.id, sessionIds: [session.id] },
+      })
+      expect(changed).not.toHaveBeenCalled()
+      expect({ title: workspace.title, updatedAt: workspace.updatedAt, sessionIds: [...workspace.sessionIds] }).toEqual(before)
+    } finally { abort.abort(); await iterator.return?.() }
+  })
+
   it('seeds a new feed from existing rows and rejects an inconsistent registry commit', async () => {
     const { ctx, root } = await harness()
     const existing = await ctx.workspaceRegistry.create(stageDir(root, 'existing'))

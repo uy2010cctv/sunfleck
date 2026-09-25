@@ -28,7 +28,12 @@ The employee binding contribution stays mounted while another capability categor
 Roster cards and the capability overview request provider counts through the existing knowledge slots with `summaryOnly`. Providers read saved bindings or base metadata without mounting editors; `refreshKey` reloads that summary when the page refreshes. A null count is loading or unavailable and appears as a dash, while a confirmed empty result appears as zero.
 
 <a id="package-details"></a>
+
 ## Package Details
+
+Group chats and channels appear below Workspaces in the native sidebar. Creation uses visible employee releases, explicit people and an accessible Workspace. Selecting an employee or topic opens its authorized native Session; its existing composer routes messages through the stored mention, duty, topic or charter policy. First-message setup preserves rejected drafts and reuses its request identity after uncertain delivery. Loading and authorization failures never create sample conversations.
+
+Native Session details use the existing right Sidebar tab. Authorized members and topic destinations open their actual employee Sessions. Employee/project context and approved memory load from the Session-scoped endpoint and clear on navigation or reconnect; scope filters show only authorized returned summaries. This view exposes no memory review or mutation controls.
 
 Enterprise digital-employee operations surface for the DSH Web client. The enterprise profile reads authenticated PostgreSQL catalog and operations projections through the typed Host API, while an ordinary profile retains the native runtime projection when those enterprise domains explicitly report unavailable:
 

@@ -25,6 +25,8 @@ dsh Web 客户端的侧边栏让用户识别当前构建、启动新会话、将
 <a id="use-this-package"></a>
 ## 使用本包
 
+功能插件通过工作区下方根级 `sidebar.sections` 列表加入群聊或频道导航。每个条目接收现有侧栏的宽度模式和展开动作；扩展区域可独立滚动，并为工作区列表与底部操作保留空间。
+
 侧边栏是导航外壳：用户看到品牌、启动新会话、折叠轨道并到达 Settings。功能插件填充它的席位——ui-workspace 填充 `sidebar.workspaces`，ui-settings 在 `sidebar.settings` 注册触发行与设置面板。
 
 ### 品牌与 New Session
@@ -94,7 +96,6 @@ dsh Web 客户端的侧边栏让用户识别当前构建、启动新会话、将
 ## 已知限制与延期工作
 
 <a id="known-limitations-and-deferred-work"></a>
-
 
 这些限制定义外壳拥有什么、其占位方拥有什么；它们是当前包约束。
 

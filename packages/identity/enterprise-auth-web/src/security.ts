@@ -71,6 +71,18 @@ function stringField(payload: Record<string, unknown>, ...fields: string[]): str
   return undefined
 }
 
+function sessionAuthorizationId(input: unknown): string | undefined {
+  const payload = payloadOf(input)
+  const address = payload['address']
+  if (address !== undefined) {
+    if (!record(address)) return undefined
+    if (address['kind'] === 'session') return stringField(address, 'sessionId')
+    if (address['kind'] === 'subagent') return stringField(address, 'parentSessionId')
+    return undefined
+  }
+  return stringField(payload, 'sessionId', 'parentSessionId', 'childSessionId')
+}
+
 function record(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
@@ -97,6 +109,11 @@ const SESSION_READ = new Set([
   // singular names above.
   'sessions.list', 'sessions.search', 'sessions.history', 'sessions.models', 'sessions.attachment',
   'skills.list', 'subagents.list', 'subagents.history',
+])
+const SHARED_SESSION_ENDPOINTS = new Set([
+  'session.history', 'session.page', 'session.follow', 'session.control', 'session.models',
+  'session.modelCatalog', 'session.attachment', 'downloads.sessionLog', 'session.prompt',
+  'sessions.history', 'sessions.models', 'sessions.attachment', 'sessions.prompt',
 ])
 const SESSION_WRITE = new Set([
   'session.create', 'session.selectModel', 'session.rename', 'session.fork', 'session.prompt',
@@ -145,7 +162,8 @@ export function classifyApiEndpoint(endpoint: string, input: unknown): ApiClassi
   if (endpoint === 'session.create' && workspaceId !== undefined) {
     return { action: 'session.create', resourceType: 'workspace', resourceId: workspaceId }
   }
-  const sessionId = stringField(payload, 'sessionId', 'parentSessionId', 'childSessionId')
+  const sessionId = sessionAuthorizationId(payload)
+  if (payload['address'] !== undefined && sessionId === undefined) return undefined
   if (SESSION_READ.has(endpoint)) return { action: 'session.read', resourceType: 'session', ...sessionId === undefined ? {} : { resourceId: sessionId } }
   if (SESSION_WRITE.has(endpoint)) return { action: 'session.create', resourceType: 'session', ...sessionId === undefined ? {} : { resourceId: sessionId } }
   if (endpoint === 'settings.describe') return { action: 'model.manage', resourceType: 'model-settings' }
@@ -551,6 +569,14 @@ export class EnterpriseSecurity {
     if (token !== undefined) await this.repository.revokeSession(token)
   }
 
+  /** Resolve the authorization owner of a native Session address.
+   * @param input - Session request containing an ordinary or direct-child address, or legacy root ids.
+   * @returns Ordinary Session id or child parent id; native history verifies the parent-child relation.
+   */
+  sessionAuthorizationId(input: unknown): string | undefined {
+    return sessionAuthorizationId(input)
+  }
+
   /**
    * Resolve resource scope and authorize one asynchronous Host API operation.
    * @param principal - Authenticated caller.
@@ -566,6 +592,19 @@ export class EnterpriseSecurity {
     }
     const classification = classifyApiEndpoint(endpoint, input)
     if (classification === undefined) return { allowed: false, reason: 'insufficient-role' }
+    const sessionId = sessionAuthorizationId(input)
+    if (sessionId !== undefined && (classification.resourceType === 'session' || endpoint.startsWith('workspace.'))) {
+      if (SHARED_SESSION_ENDPOINTS.has(endpoint) && !await this.sessionAccessibleBy(principal, sessionId)) {
+        return { allowed: false, reason: 'resource-hidden' }
+      }
+      if (!await this.sessionOwnedBy(principal, sessionId)) {
+        const sharedOperation = SHARED_SESSION_ENDPOINTS.has(endpoint)
+        if (!sharedOperation || !await this.sessionAccessibleBy(principal, sessionId)) {
+          return { allowed: false, reason: 'resource-hidden' }
+        }
+        return this.authorizeResourceAsync(principal, classification.action, { orgId: principal.orgId, visibility: 'organization' })
+      }
+    }
     if (HOST_GLOBAL_ACTIONS.has(classification.action) && principal.orgId !== this.config.organizationId) {
       return { allowed: false, reason: 'organization-mismatch' }
     }
@@ -706,10 +745,10 @@ export class EnterpriseSecurity {
   }
 
   /**
-   * Project a Session list to rows created by the authenticated user.
-   * @param principal - authenticated user whose Session ownership is enforced.
+   * Project a Session list to owned and explicitly shared collaboration rows.
+   * @param principal - authenticated user whose Session access is enforced.
    * @param value - untrusted Session-list projection returned by the Host.
-   * @returns the projection with non-owned Session rows removed.
+   * @returns the projection with inaccessible Session rows removed.
    */
   async filterSessionList(principal: EnterprisePrincipal, value: unknown): Promise<unknown> {
     if (!record(value)) return { items: [] }
@@ -717,16 +756,16 @@ export class EnterpriseSecurity {
     const visible: unknown[] = []
     for (const item of items) {
       if (!record(item) || typeof item['sessionId'] !== 'string') continue
-      if (await this.sessionOwnedBy(principal, item['sessionId'])) visible.push(item)
+      if (await this.sessionAccessibleBy(principal, item['sessionId'])) visible.push(item)
     }
     return { ...value, items: visible }
   }
 
   /**
-   * Project Host-wide queue, job, and projection frames to the current user's Sessions.
-   * @param principal - authenticated user whose Session ownership is enforced.
+   * Project Host-wide queue, job, and projection frames to accessible Sessions.
+   * @param principal - authenticated user whose Session access is enforced.
    * @param frames - unfiltered Host control-frame stream.
-   * @returns a stream containing only frames and Session slices the user owns.
+   * @returns a stream containing only accessible frames and Session slices.
    */
   async *filterSessionControl(
     principal: EnterprisePrincipal,
@@ -742,7 +781,7 @@ export class EnterpriseSecurity {
         const sessionIds = new Set([...Object.keys(queues), ...Object.keys(jobs), ...Object.keys(projections)])
         const visible = new Set<string>()
         for (const sessionId of sessionIds) {
-          if (await this.sessionOwnedBy(principal, sessionId)) visible.add(sessionId)
+          if (await this.sessionAccessibleBy(principal, sessionId)) visible.add(sessionId)
         }
         const project = (source: Record<string, unknown>): Record<string, unknown> => Object.fromEntries(
           Object.entries(source).filter(([sessionId]) => visible.has(sessionId)),
@@ -754,7 +793,24 @@ export class EnterpriseSecurity {
         continue
       }
       const sessionId = frame['sessionId']
-      if (typeof sessionId === 'string' && await this.sessionOwnedBy(principal, sessionId)) yield frame
+      if (typeof sessionId === 'string' && await this.sessionAccessibleBy(principal, sessionId)) yield frame
+    }
+  }
+
+  /** Stops a Session stream when the reader loses access.
+   * @param principal - Authenticated reader.
+   * @param sessionId - Session whose events are being delivered.
+   * @param frames - Native Session event stream.
+   * @returns Events delivered while ownership or current collaboration access permits them.
+   */
+  async *filterSessionFollow(
+    principal: EnterprisePrincipal,
+    sessionId: string,
+    frames: AsyncIterable<unknown>,
+  ): AsyncIterable<unknown> {
+    for await (const frame of frames) {
+      if (!await this.sessionAccessibleBy(principal, sessionId)) return
+      yield frame
     }
   }
 
@@ -766,6 +822,23 @@ export class EnterpriseSecurity {
    */
   async sessionOwnedBy(principal: EnterprisePrincipal, sessionId: string): Promise<boolean> {
     return await this.repository.sessionOwnerUserId(sessionId) === principal.userId
+  }
+
+  /** Allows owned Sessions and recorded collaboration Sessions with current surface and Workspace membership.
+   * @param principal - Authenticated reader.
+   * @param sessionId - Canonical Session identity.
+   * @returns Whether the reader can access the Session without acquiring ownership.
+   */
+  async sessionAccessibleBy(principal: EnterprisePrincipal, sessionId: string): Promise<boolean> {
+    const collaboration = await this.repository.collaborationSessionAccess?.({
+      orgId: principal.orgId, userId: principal.userId, sessionId,
+    })
+    if (collaboration === undefined) return this.sessionOwnedBy(principal, sessionId)
+    if (principal.actorType === 'employee' || !collaboration.member || collaboration.orgId !== principal.orgId) return false
+    const binding = await this.repository.sessionWorkspaceGrant(sessionId)
+    if (binding?.orgId !== principal.orgId || binding.workspaceId !== collaboration.workspaceId) return false
+    return (await this.repository.listWorkspaceGrants({ orgId: principal.orgId, userId: principal.userId }))
+      .some(grant => grant.workspaceId === collaboration.workspaceId && grant.orgId === principal.orgId)
   }
 
   /**
@@ -818,7 +891,7 @@ export class EnterpriseSecurity {
       if (typeof sessionId !== 'string') continue
       const grant = await this.repository.sessionWorkspaceGrant(sessionId)
       if (grant !== undefined && visibleWorkspaces.has(grant.workspaceId)
-        && await this.sessionOwnedBy(principal, sessionId)) {
+        && await this.sessionAccessibleBy(principal, sessionId)) {
         visible.push(sessionId)
       }
     }

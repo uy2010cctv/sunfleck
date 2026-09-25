@@ -41,6 +41,8 @@ dsh-enterprise-identity-migrate --sqlite /path/identity.sqlite --backup /safe/id
 
 `--backup` 为可选项；默认路径为 `<sqlite>.pre-postgres-migration.bak`。写入模式前必须停止所有会写入源数据库的进程，然后通过 `--source-quiesced` 确认该状态。命令会在该静止源契约下检查 SQLite 完整性并复制数据库及 WAL 边车文件，随后取得迁移咨询锁并拒绝非空目标；导入后目标行数或校验和不一致会回滚。输出只包含行数和校验和；绝不打印密码、原始 Bearer Token、备份内容或连接字符串。
 
+协作查询关联已记录会话、明确成员、目录组织和配置工作区。协作表不存在时不返回授权，已有仅身份部署不会获得共享访问权限。工作区授权仍由消费方负责。
+
 ## Model Experience
 
 ### 身份持久化

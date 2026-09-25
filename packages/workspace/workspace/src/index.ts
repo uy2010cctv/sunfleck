@@ -117,6 +117,14 @@ declare module '@deepseek-ai/cordis' {
 
   interface Events {
     /**
+     * Republish the current Workspace projection after external access grants commit.
+     * Consumers reapply their authorization policy; this event does not mutate Workspace metadata.
+     * @param workspaceId - Existing Workspace whose visible Sessions may have changed.
+     * @mode emit
+     */
+    'workspace/visibility-changed'(workspaceId: WorkspaceId): void
+
+    /**
      * Ask the composed providers what still runs for a session before it is
      * archived. A listener prepends its own {@link SessionActivity} entries to
      * the result of `next()`; the registry's innermost callback returns an

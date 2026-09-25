@@ -42,6 +42,10 @@ Plugins that register raw `WebRoute` handlers must authenticate their browser re
 
 The configured organization remains the platform organization. Its administrators may manage Host-global model settings, Credentials, and developer inspection; administrators authenticated to another organization receive `organization-mismatch` for those operations. Organization-local employees, capability assets, teams, memory, channels, Workspaces, Sessions, and audit use the authenticated principal's `orgId`.
 
+Native history addresses authorize an ordinary Session directly or a subagent through its parent; the native history reader verifies the child belongs to that parent.
+
+Recorded collaboration Sessions require current membership even for their creator and allow explicit human members to read history and submit prompts while their organization and Workspace access remain valid. Session lists, Workspace streams, and control events apply the same membership checks. Renaming, cancellation, forking, archiving, and employee selection retain ownership requirements. Ordinary Sessions remain private to their creator.
+
 ## Model Experience
 
 ### Host security boundary

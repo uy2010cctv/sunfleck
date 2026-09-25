@@ -20,7 +20,7 @@ PostgreSQL composition and lifecycle provider for DSH Enterprise.
 <a id="package-details"></a>
 ## Package Details
 
-Production PostgreSQL composition for DSH Enterprise. It owns one bounded `pg.Pool`, verifies connectivity, initializes the identity, Session, catalog, operations, project, surface-directory, and pgvector schemas, and exposes the adapters over a shared transaction-aware database wrapper. The project service supports its complete member-gated lifecycle; the surface directory reads stored organization-scoped roster rows.
+Production PostgreSQL composition for DSH Enterprise. It owns one bounded `pg.Pool`, verifies connectivity, initializes the identity, Session, catalog, operations, project, surface-directory, and pgvector schemas, and exposes the adapters over a shared transaction-aware database wrapper. The project service supports its complete member-gated lifecycle; collaboration creation retries use a creator-scoped deterministic identity and transactional stored-value comparison; collaboration persistence stores explicit human memberships, published employee references, channel topics, and native Session bindings under a transaction-locked schema version.
 
 Operations confirms a work record's Session through the organization-scoped `enterprise_session_workspaces` binding written by the authenticated gateway. This reference remains valid when the Session log runs in the separate V4 PostgreSQL database; the old main-database `dsh_session_headers` table is not used to authorize new work records.
 
@@ -45,7 +45,7 @@ None; provider request caching is outside the database composition.
 ## Known Limitations and Deferred Work
 
 - The browser Host API still needs an application-specific composition to expose catalog and operations methods; this package only provides the durable services.
-- The PostgreSQL surface directory is read-only. Surface creation, delivery, and employee inbox handling require a separately composed surface runtime; absent that runtime, their routes retain the `surface-plane-unavailable` response.
+- The legacy surface directory remains available for roster reads. The collaboration repository adds member-scoped group/channel persistence; the enterprise controller owns authorized native Session routing. Employee inbox and token inbound delivery still require their separately composed runtime.
 - SQLite-to-PostgreSQL data migration for legacy Session logs remains a separate controlled operation.
 
 <a id="dev-note"></a>

@@ -677,6 +677,35 @@ export class PgEnterpriseIdentityRepository {
     return result.rows[0]?.owner_user_id ?? undefined
   }
 
+  /** Reads a recorded collaboration Session and the caller's explicit membership.
+   * @param input - Organization, human user, and Session to match.
+   * @returns The binding and membership, or undefined when the Session has no collaboration binding.
+   */
+  async collaborationSessionAccess(input: {
+    orgId: string
+    userId: string
+    sessionId: string
+  }): Promise<{
+    orgId: string
+    workspaceId: string
+    member: boolean
+  } | undefined> {
+    const installed = await this.database.query<{ table_name: string | null }>(
+      "SELECT to_regclass('dsh_enterprise_collaboration_sessions') AS table_name",
+    )
+    if (installed.rows[0]?.table_name == null) return undefined
+    const result = await this.database.query<{ workspace_id: string; org_id: string; member: boolean }>(`SELECT config.workspace_id, directory.org_id, member.user_id IS NOT NULL AS member
+      FROM dsh_enterprise_collaboration_sessions session
+      JOIN dsh_enterprise_surface_directory directory ON directory.surface_id = session.surface_id
+      JOIN dsh_enterprise_collaboration_config config ON config.surface_id = session.surface_id
+      LEFT JOIN dsh_enterprise_collaboration_members member ON member.surface_id = session.surface_id
+        AND directory.org_id = $1 AND member.user_id = $2
+      WHERE session.session_id = $3`,
+    [input.orgId, input.userId, input.sessionId])
+    const row = result.rows[0]
+    return row === undefined ? undefined : { orgId: row.org_id, workspaceId: row.workspace_id, member: row.member }
+  }
+
   /** Executes `PgEnterpriseIdentityRepository.proposeMemory` for this instance.
    * @param input - Input value used by this API.
    * @returns Result produced by this API.

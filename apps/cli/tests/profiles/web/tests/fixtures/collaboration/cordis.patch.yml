@@ -1,0 +1,9 @@
+# Only the external model is replaced; enterprise authorization, Sessions, and persistence remain real.
+- id: llm-deepseek
+  disabled: true
+- id: llm-pi-ai
+  disabled: true
+- id: session-title-llm
+  disabled: true
+- id: enterprise-memory-context
+  disabled: true

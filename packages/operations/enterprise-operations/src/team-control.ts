@@ -62,6 +62,7 @@ export interface EnterpriseTeamRuntimeDriver {
     readonly definition: EnterpriseTeamDefinition
     readonly workspaceId: string
     readonly prompt: string
+    readonly surfaceMessage?: { readonly requestId: string; readonly originSurfaceId: string }
     readonly actor: EnterprisePrincipal
   }): Promise<EnterpriseTeamRuntimeStart>
   /** @param input - run and stable operation identity. @returns authoritative cancellation event position. */
@@ -96,6 +97,8 @@ export interface EnterpriseTeamRuntimeDriver {
       readonly actorUserId: string
       readonly text: string
       readonly originSurfaceId: string
+      /** Native prompt identity for durable retries and optimistic echo. */
+      readonly requestId?: string
     },
   ): Promise<EnterpriseTeamRunSubmission>
 }
@@ -250,6 +253,8 @@ export interface EnterpriseTeamRunStartInput {
   readonly expectedTeamRevision: number
   readonly workspaceId: string
   readonly prompt: string
+  /** Native first-message attribution, supplied only by the collaboration Host. */
+  readonly surfaceMessage?: { readonly requestId: string; readonly originSurfaceId: string }
   readonly source: EnterpriseTeamRun['source']
   readonly idempotencyKey: string
 }
@@ -393,7 +398,7 @@ export class EnterpriseTeamControlService {
     }
     const idempotencyFingerprint = createHash('sha256').update(JSON.stringify({
       teamId: input.teamId, expectedTeamRevision: input.expectedTeamRevision, workspaceId: input.workspaceId,
-      prompt: input.prompt, source: input.source,
+      prompt: input.prompt, source: input.source, surfaceMessage: input.surfaceMessage,
     })).digest('hex')
     let reservation: EnterpriseTeamRunStartReservation | undefined
     try {
@@ -503,6 +508,7 @@ export class EnterpriseTeamControlService {
         operationId: `team-run:start:${reserved.run.runId}`, runId: reserved.run.runId,
         orgId: principal.orgId, definition: reserved.definitionSnapshot,
         workspaceId: reserved.run.workspaceId, prompt: input.prompt, actor: principal,
+        ...(input.surfaceMessage === undefined ? {} : { surfaceMessage: input.surfaceMessage }),
       })
       const active = await this.projections.projectTeamRun({ orgId: principal.orgId, runId: reserved.run.runId,
         expectedRevision: reserved.run.revision, state: 'active', rootSessionId: result.rootSessionId,

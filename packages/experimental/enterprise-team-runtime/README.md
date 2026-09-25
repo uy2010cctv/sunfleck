@@ -38,7 +38,7 @@ The adapter currently accepts Releases with no capability-asset bindings. A conf
 - Start, state, cancellation, projected decisions, and Human answers use stable operation ids and monotonic runtime revisions.
 - Cancellation records the authoritative event before interrupting the live root and children; persisted state remains available for replay.
 - Reconciliation folds the stored root Session and does not require a live Agent.
-- Surface-originated input arrives through `submitRunInput`, which appends one `team-run-message` user message to the run root and fails loud for an unknown run.
+- Surface-originated input arrives through `submitRunInput`, which records run, surface, and actor attribution and fails loud for an unknown run. Optional native `requestId` produces a `user` source with `rpcId` for native echo and durable retry detection; transports without it retain `team-run-message`.
 
 -----
 

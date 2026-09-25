@@ -2,6 +2,7 @@
 
 import { randomUUID } from 'node:crypto'
 import type { Context } from '@deepseek-ai/cordis'
+import { inboxProjectionDefinition } from '@deepseek-ai/dsh-agent-loop/inbox'
 import { brandString } from '@deepseek-ai/dsh-brand'
 import type { Agent, ModelSelection as AgentModelSelection } from '@deepseek-ai/dsh-agent'
 import { AttachmentError } from '@deepseek-ai/dsh-attachment'
@@ -52,6 +53,23 @@ import type {
   SessionUpdateQueueValue,
   SessionRequestId,
 } from './types.ts'
+
+declare module '@deepseek-ai/cordis' {
+  interface Events {
+    /**
+     * Route an authorized prompt before native Agent admission. A provider that
+     * does not own the Session delegates to `next()`; an owner must durably
+     * admit the input or reject before acknowledging it.
+     * @param request - Validated prompt with its Session and idempotency identity.
+     * @param next - Delegate to the remaining routes and native prompt admission.
+     * @mode waterfall
+     */
+    'api/session-prompt'(
+      request: SessionPromptRequest,
+      next: () => Promise<SessionPromptValue>,
+    ): Promise<SessionPromptValue>
+  }
+}
 
 interface SessionReadState {
   readonly id: SessionId
@@ -326,8 +344,12 @@ export class SessionCommandController {
         { value: request.clientTimeZone },
       )
     }
+    return this.ctx.waterfall('api/session-prompt', request, () => this.promptNative(request, clientTimeZone))
+  }
+
+  private async promptNative(request: SessionPromptRequest, clientTimeZone: string | undefined): Promise<SessionPromptValue> {
     const agent = await this.resolveAgent(request.sessionId)
-    if (hasPromptRequest(agent, request.requestId)) return { accepted: true }
+    if (hasSessionPromptRequest(agent, request.requestId)) return { accepted: true }
     const selection = this.agents.selectionFor(agent).current
     if (!routeServed(this.ctx, selection.provider)) {
       throw new RemoteError(
@@ -600,18 +622,30 @@ function resolvePromptFileReceipts(
   return { content: resolved, receiptIds: [...receiptIds] }
 }
 
-function hasPromptRequest(agent: Agent, requestId: SessionRequestId): boolean {
+/** Check the native pending inbox and durable user receipts for an accepted request.
+ * @param agent - Resumed native Agent.
+ * @param requestId - Client request identity.
+ * @returns Whether the request is durably queued, claimed, or recorded as a user message.
+ */
+export function hasSessionPromptRequest(agent: Agent, requestId: SessionRequestId): boolean {
   const matches = (message: UserMessage): boolean => {
     const source = message.source
     return source.kind === 'user' && 'rpcId' in source && source.rpcId === requestId
   }
   if (agent.inbox.nextTurn.some(matches) || agent.inbox.nextStep.some(matches)) return true
   // oxlint-disable-next-line typescript/no-deprecated -- Existing Session history read; migration deferred.
-  return agent.session.snapshotEvents().some((event) => {
-    if (event.type !== 'user/message') return false
-    const source = event.data.source
-    return source.kind === 'user' && 'rpcId' in source && source.rpcId === requestId
-  })
+  const events = agent.session.snapshotEvents()
+  let pending = inboxProjectionDefinition.init()
+  for (const event of events) {
+    if (event.type === 'user/message' && matches(event.data)) return true
+    if (event.type !== 'agent/inbox/spliced') continue
+    const splice = event.data
+    const removed = pending[splice.target].slice(splice.start, splice.start + (splice.removedCount ?? 0))
+    // Claimed input is admitted before pre-step work appends user/message; cancellation is not a claim.
+    if (splice.outcome !== 'canceled' && removed.some(matches)) return true
+    pending = inboxProjectionDefinition.apply(pending, event)
+  }
+  return pending['next-turn'].some(matches) || pending['next-step'].some(matches)
 }
 function imageBlockIn(
   content: unknown,

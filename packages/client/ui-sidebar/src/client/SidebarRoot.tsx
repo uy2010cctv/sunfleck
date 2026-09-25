@@ -292,6 +292,12 @@ export function SidebarRoot({
         })}
       </div>
 
+      <div className={css.extraSections}>
+        {renderSlot('sidebar.sections', {
+          wide, expandSidebar: () => { if (collapsed) toggleSidebar() },
+        })}
+      </div>
+
       {/* Footer actions stack above Settings in both sidebar widths. */}
       <div className={css.footArea}>
         <div className={css.settingsArea}>

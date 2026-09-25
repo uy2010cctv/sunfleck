@@ -551,6 +551,9 @@ importers:
       '@types/js-yaml':
         specifier: ^4.0.9
         version: 4.0.9
+      '@types/pg':
+        specifier: ^8.15.5
+        version: 8.23.1
       '@types/ws':
         specifier: 8.18.1
         version: 8.18.1
@@ -560,6 +563,9 @@ importers:
       execa:
         specifier: ^10.0.0
         version: 10.0.0
+      pg:
+        specifier: ^8.16.3
+        version: 8.23.0
       ws:
         specifier: 8.21.0
         version: 8.21.0
@@ -1064,9 +1070,18 @@ importers:
       '@deepseek-ai/cordis-plugin-loader':
         specifier: workspace:~
         version: link:../../../vendor/loader
+      '@deepseek-ai/dsh-agent':
+        specifier: workspace:*
+        version: link:../../core/agent
       '@deepseek-ai/dsh-agent-preset-registry':
         specifier: workspace:^
         version: link:../../preset/agent-preset-registry
+      '@deepseek-ai/dsh-api-session-controller':
+        specifier: workspace:*
+        version: link:../session-controller
+      '@deepseek-ai/dsh-brand':
+        specifier: workspace:*
+        version: link:../../util/brand
       '@deepseek-ai/dsh-channel-kernel':
         specifier: workspace:^
         version: link:../../channel/channel-kernel
@@ -1124,15 +1139,24 @@ importers:
       '@deepseek-ai/dsh-session':
         specifier: workspace:^
         version: link:../../core/session
+      '@deepseek-ai/dsh-session-persistence':
+        specifier: workspace:*
+        version: link:../../session/session-persistence
       '@deepseek-ai/dsh-session-projection':
         specifier: workspace:^
         version: link:../../session/session-projection
+      '@deepseek-ai/dsh-session-query':
+        specifier: workspace:*
+        version: link:../../session-query/session-query
       '@deepseek-ai/dsh-system-prompt':
         specifier: workspace:^
         version: link:../../core/system-prompt
       '@deepseek-ai/dsh-typert-protocol':
         specifier: workspace:^
         version: link:../../typert/protocol
+      '@deepseek-ai/dsh-workspace':
+        specifier: workspace:*
+        version: link:../../workspace/workspace
       '@types/js-yaml':
         specifier: ^4.0.9
         version: 4.0.9
@@ -3919,6 +3943,9 @@ importers:
       '@deepseek-ai/dsh-client-test-runtime':
         specifier: workspace:^
         version: link:../../test-support/client-runtime
+      '@deepseek-ai/dsh-client-ui-conversation':
+        specifier: workspace:*
+        version: link:../ui-conversation
       '@deepseek-ai/dsh-client-ui-layout':
         specifier: workspace:^
         version: link:../ui-layout
@@ -3928,9 +3955,15 @@ importers:
       '@deepseek-ai/dsh-client-ui-renderer':
         specifier: workspace:^
         version: link:../ui-renderer
+      '@deepseek-ai/dsh-client-ui-session':
+        specifier: workspace:*
+        version: link:../ui-session
       '@deepseek-ai/dsh-client-ui-sidebar':
         specifier: workspace:^
         version: link:../ui-sidebar
+      '@deepseek-ai/dsh-client-ui-sidebar-right':
+        specifier: workspace:*
+        version: link:../ui-sidebar-right
       '@deepseek-ai/dsh-client-ui-slots':
         specifier: workspace:^
         version: link:../ui-slots
@@ -8162,6 +8195,12 @@ importers:
       '@deepseek-ai/dsh-agent-preset-registry':
         specifier: workspace:^
         version: link:../../preset/agent-preset-registry
+      '@deepseek-ai/dsh-api-session-controller':
+        specifier: workspace:*
+        version: link:../../api/session-controller
+      '@deepseek-ai/dsh-brand':
+        specifier: workspace:*
+        version: link:../../util/brand
       '@deepseek-ai/dsh-enterprise-auth-web':
         specifier: workspace:^
         version: link:../../identity/enterprise-auth-web

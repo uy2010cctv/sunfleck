@@ -298,6 +298,7 @@ export class TypertGatewayService extends Service implements TypertGateway {
       )
     })
     ctx.inject(['connection', 'webServer'], (webCtx) => {
+      // oxlint-disable-next-line typescript/no-this-alias -- The effect generator has its own this; callbacks retain this Gateway.
       const gateway = this
       const listen = (): void => {
         const mux = new RemoteStreamMuxServer(
@@ -531,6 +532,11 @@ export class TypertGatewayService extends Service implements TypertGateway {
     if (enterprise?.endpoint === 'workspace.follow') {
       return enterprise.security.filterWorkspaceFollow(enterprise.principal, stream)
     }
+    if (enterprise?.endpoint === 'session.follow') {
+      const sessionId = enterprise.security.sessionAuthorizationId(enterpriseWorkspaceInput(payload))
+      if (sessionId === undefined) throw new Error('enterprise Session stream requires a Session identity')
+      return enterprise.security.filterSessionFollow(enterprise.principal, sessionId, stream)
+    }
     if (enterprise?.endpoint === 'session.control') {
       return enterprise.security.filterSessionControl(enterprise.principal, stream)
     }
@@ -651,7 +657,7 @@ export class TypertGatewayService extends Service implements TypertGateway {
     const sessionId = frame.event === 'api-session/removed'
       ? typeof first === 'string' ? first : undefined
       : stringProperty(first, 'sessionId')
-    return sessionId !== undefined && await enterprise.security.sessionOwnedBy(enterprise.principal, sessionId)
+    return sessionId !== undefined && await enterprise.security.sessionAccessibleBy(enterprise.principal, sessionId)
   }
 
   private startRemoteEvent(source: TypertRemoteEventInvocation): void {

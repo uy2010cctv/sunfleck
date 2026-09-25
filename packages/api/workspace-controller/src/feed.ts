@@ -59,6 +59,11 @@ export class WorkspaceFeed {
     this.archived = ctx.workspaceRegistry.archivedSessionIds.map(String)
     this.pinned = ctx.workspaceRegistry.pinnedSessionIds.map(String)
     ctx.on('domain/changed', (change: DomainChanged) => { this.changed(change) })
+    ctx.on('workspace/visibility-changed', (workspaceId) => {
+      const workspace = ctx.workspaceRegistry.get(workspaceId)
+      if (workspace === undefined) throw new Error(`cannot republish missing Workspace ${workspaceId}`)
+      this.publish({ type: 'upsert', workspace: workspaceView(workspace) })
+    })
     ctx.effect(() => () => {
       for (const follower of this.followers) follower.close()
       this.followers.clear()

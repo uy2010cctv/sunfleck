@@ -26,6 +26,8 @@ Persistent enterprise organizations, users, sessions, resource policies, and aud
 
 认证主体投影包含当前部门归属和主部门。授权服务从组织目录补充负责部门；调用方不能从显示名称或 Workspace 路径推断这些关系。
 
+可选的 `collaborationSessionAccess` 查询返回已记录协作会话的配置工作区和调用者是否为明确成员，权限撤销后也返回否定的成员结果。不支持协作的提供方省略该方法；消费方仍须验证当前工作区访问权限，并在管理操作中保留会话所有权检查。
+
 ## Model Experience
 
 ### 身份持久化

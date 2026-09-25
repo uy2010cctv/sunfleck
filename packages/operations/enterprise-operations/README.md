@@ -10,6 +10,8 @@ English | [中文](README.zh.md)
 
 Durable DSH enterprise work records, approvals, schedules, team definitions, TeamRun query projections, explicit autonomy grants, outbox, and fixed teams.
 
+Native collaboration starts may carry `surfaceMessage` attribution; it participates in the start fingerprint and reaches the original root user message. `submitRunInput.requestId` lets the runtime reuse that same durable receipt after retries.
+
 ## Table of Contents
 
 - [Package Details](#package-details)

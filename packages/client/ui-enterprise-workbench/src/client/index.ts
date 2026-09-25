@@ -25,6 +25,7 @@ import {
   CHANNEL_BOT_INSTALL_CALLBACK_PARAM, channelBindingCallbackUri, channelBotInstallCallbackUri,
   isOfficialChannelBindingState,
 } from './channelBindingProfiles.ts'
+import { applyCollaboration } from './collaboration.ts'
 import './tokens.css'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
@@ -33,8 +34,6 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
     'enterprise.workbench': EnterpriseWorkbenchKey
   }
   interface SlotMap {
-    /** Separate published employee picker beside the generic work-mode control. */
-    'conversation.hero.employee': { kind: 'single'; scope: 'session-maybe' }
     /** Employee-scoped channel adapters rendered inside the enterprise workbench. */
     'enterprise.employee-channels': {
       kind: 'list'
@@ -210,6 +209,7 @@ export const inject = [
  * @param ctx - Input value used by this API.
 */
 export function apply(ctx: Context): void {
+  applyCollaboration(ctx)
   if (typeof window !== 'undefined') {
     void completeChannelBindingCallback(ctx.remote.enterpriseChannel, window)
     void completeChannelBotInstallCallback(ctx.remote.enterpriseChannel, window)

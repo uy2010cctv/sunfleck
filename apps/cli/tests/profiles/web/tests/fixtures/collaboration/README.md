@@ -1,0 +1,7 @@
+# Collaboration source-profile fixture
+
+This keyless fixture boots the supported `dsh web --patch` source-checkout profile through Loader. Only the external model adapter is deterministic; PostgreSQL, enterprise authentication, employee publication, Workspace grants, collaboration routing, the Agent loop, and native Session streams are real. It verifies the source composition used by the private enterprise overlay, not a packaged CLI installation.
+
+After building the Host dependencies, Client bundles, and Web frontend, run `DSH_TEST_POSTGRES_URL=postgresql://localhost/postgres pnpm exec vitest run apps/cli/tests/profiles/web/tests/collaboration-composition.integration.spec.ts`. Without that variable the test skips. The PostgreSQL role must create and drop databases and install the available `vector` extension; missing privileges fail the opted-in test.
+
+Each run generates credentials, a unique database with a separate Session schema, a private temporary home and Workspace, and an OS-assigned loopback port. Teardown awaits WebSocket and process closure before dropping only that generated database and removing its temporary directory. Concurrent runs never share fixture state. No browser automation or external model account is required.

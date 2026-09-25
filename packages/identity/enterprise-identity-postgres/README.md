@@ -41,6 +41,8 @@ dsh-enterprise-identity-migrate --sqlite /path/identity.sqlite --backup /safe/id
 
 `--backup` is optional; its default is `<sqlite>.pre-postgres-migration.bak`. Before write mode, stop every process that can write the source database, then acknowledge that state with `--source-quiesced`. The command checks SQLite integrity, copies its database and WAL sidecars under that quiescent-source contract before target writes, obtains an advisory migration lock, rejects a non-empty target, and rolls back if imported destination counts or checksums differ. Output contains only row counts and checksums; it never prints passwords, raw bearer tokens, backup contents, or connection strings.
 
+The collaboration lookup joins recorded Sessions, explicit members, directory organization, and configured Workspace. An absent collaboration schema returns no grant; existing identity-only deployments do not acquire shared access. Workspace authorization remains the consumer’s responsibility.
+
 ## Model Experience
 
 ### Identity persistence

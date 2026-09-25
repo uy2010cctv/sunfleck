@@ -25,6 +25,8 @@ Use this package to keep an ordered, persistent list of project directories and 
 <a id="use-this-package"></a>
 ## Use this package
 
+Authorization providers emit `workspace/visibility-changed` after committing access grants for an existing Workspace. The event requests projection refresh and never changes the Workspace record itself.
+
 Use this package to give the product a project list: named directories the user works in, the sessions that ran in each, a stable order, and a way to hide sessions without losing them or bring them back. The API contracts behind each action live in the implementation section.
 
 ### When to use it
@@ -164,7 +166,6 @@ Independent of live requests: the package never touches a request prefix, so it 
 ## Known Limitations and Deferred Work
 
 <a id="known-limitations-and-deferred-work"></a>
-
 
 These limits define when the project list is a poor fit or needs special operational care. They are current package constraints, not a task backlog.
 

@@ -4,25 +4,72 @@
     "rootDir": "src",
     "outDir": "lib/types"
   },
-  "include": ["src"],
+  "include": [
+    "src"
+  ],
   "references": [
-    { "path": "../../../vendor/cordis" },
-    { "path": "../../api/enterprise-controller" },
-    { "path": "../../api/remotes/tsconfig.client.json" },
-    { "path": "../../api/session-controller/tsconfig.client.json" },
-    { "path": "../../api/workspace-controller/tsconfig.client.json" },
-    { "path": "../../preset/agent-preset-registry" },
-    { "path": "../connection/tsconfig.client.json" },
-    { "path": "../store" },
-    { "path": "../locale/tsconfig.client.json" },
-    { "path": "../ui-layout" },
-    { "path": "../ui-primitives" },
-    { "path": "../ui-renderer" },
-    { "path": "../ui-sidebar" },
-    { "path": "../ui-workspace" },
-    { "path": "../ui-slots" },
-    { "path": "../../runtime-diagnostics/invariants" }
-    ,{ "path": "../../core/session" }
-    ,{ "path": "../../util/crypto" }
+    {
+      "path": "../../../vendor/cordis"
+    },
+    {
+      "path": "../../api/enterprise-controller"
+    },
+    {
+      "path": "../../api/remotes/tsconfig.client.json"
+    },
+    {
+      "path": "../../api/session-controller/tsconfig.client.json"
+    },
+    {
+      "path": "../../api/workspace-controller/tsconfig.client.json"
+    },
+    {
+      "path": "../../preset/agent-preset-registry"
+    },
+    {
+      "path": "../connection/tsconfig.client.json"
+    },
+    {
+      "path": "../store"
+    },
+    {
+      "path": "../locale/tsconfig.client.json"
+    },
+    {
+      "path": "../ui-layout"
+    },
+    {
+      "path": "../ui-primitives"
+    },
+    {
+      "path": "../ui-renderer"
+    },
+    {
+      "path": "../ui-sidebar"
+    },
+    {
+      "path": "../ui-workspace"
+    },
+    {
+      "path": "../ui-slots"
+    },
+    {
+      "path": "../../runtime-diagnostics/invariants"
+    },
+    {
+      "path": "../../core/session"
+    },
+    {
+      "path": "../../util/crypto"
+    },
+    {
+      "path": "../ui-sidebar-right"
+    },
+    {
+      "path": "../ui-conversation/tsconfig.client.json"
+    },
+    {
+      "path": "../ui-session"
+    }
   ]
 }

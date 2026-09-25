@@ -369,6 +369,115 @@ describe('EnterpriseSecurity', () => {
     ])
   })
 
+  it('shares recorded collaboration reads and prompts only with current workspace members', async () => {
+    repository.saveDepartment({ id: 'collab-dept', orgId: 'org-a', parentId: null, name: 'Collaboration', sortOrder: 0, expectedRevision: 0 })
+    repository.setUserDepartments({ orgId: 'org-a', userId: 'member-1', departmentIds: ['collab-dept'], primaryDepartmentId: 'collab-dept', expectedRevision: 0 })
+    repository.saveWorkspaceGrant({ workspaceId: 'collab-workspace', orgId: 'org-a', name: 'Collaboration', kind: 'department', departmentId: 'collab-dept', rootPath: '/collab', sandboxMode: 'read-only', expectedRevision: 0 })
+    repository.bindSessionWorkspace({ sessionId: 'shared-session', workspaceId: 'collab-workspace', orgId: 'org-a', ownerUserId: 'admin-1' })
+    repository.bindSessionWorkspace({ sessionId: 'private-session', workspaceId: 'collab-workspace', orgId: 'org-a', ownerUserId: 'admin-1' })
+    let membership = true
+    Object.assign(repository, { collaborationSessionAccess: async (input: { orgId: string; userId: string; sessionId: string }) =>
+      input.sessionId === 'shared-session' ? { orgId: 'org-a', workspaceId: 'collab-workspace', member: membership && input.orgId === 'org-a' && input.userId === 'member-1' } : undefined })
+    const member = security.loginLocal('org-a', 'member', 'enterprise-password')!.principal
+    for (const endpoint of ['session.history', 'session.page', 'session.follow', 'session.prompt']) {
+      expect(await security.authorizeApiAsync(member, endpoint, { sessionId: 'shared-session' })).toMatchObject({ allowed: true })
+      expect(await security.authorizeApiAsync(member, endpoint, { sessionId: 'private-session' })).toMatchObject({ allowed: false })
+      expect(await security.authorizeApiAsync({ ...member, orgId: 'org-b' }, endpoint, { sessionId: 'shared-session' })).toMatchObject({ allowed: false })
+    }
+    for (const endpoint of ['session.rename', 'session.cancel', 'session.fork', 'agentPreset.select', 'workspace.archiveSession']) {
+      expect(await security.authorizeApiAsync(member, endpoint, { sessionId: 'shared-session', workspaceId: 'collab-workspace' })).toMatchObject({ allowed: false })
+    }
+    for (const address of [{ kind: 'session', sessionId: 'shared-session' }, { kind: 'subagent', parentSessionId: 'shared-session', childSessionId: 'child', mode: 'continuable' }]) {
+      expect(await security.authorizeApiAsync(member, 'session.follow', { address })).toMatchObject({ allowed: true })
+      expect(security.sessionAuthorizationId({ address })).toBe('shared-session')
+    }
+    expect(await security.sessionOwnedBy(member, 'shared-session')).toBe(false)
+    expect(await security.filterSessionList(member, { items: [{ sessionId: 'shared-session' }, { sessionId: 'private-session' }] })).toEqual({ items: [{ sessionId: 'shared-session' }] })
+    const workspaceFrames: unknown[] = []
+    for await (const frame of security.filterWorkspaceFollow(member, (async function* () {
+      yield { type: 'baseline', value: { items: [{ workspaceId: 'collab-workspace', sessionIds: ['shared-session', 'private-session'] }], archivedSessionIds: [] } }
+    })())) workspaceFrames.push(frame)
+    expect(workspaceFrames).toMatchObject([{ type: 'baseline', value: { items: [{ sessionIds: ['shared-session'] }] } }])
+    const controlFrames: unknown[] = []
+    for await (const frame of security.filterSessionControl(member, (async function* () {
+      yield { type: 'queue', sessionId: 'shared-session', items: [] }
+      membership = false
+      yield { type: 'queue', sessionId: 'shared-session', items: [] }
+    })())) controlFrames.push(frame)
+    expect(controlFrames).toEqual([{ type: 'queue', sessionId: 'shared-session', items: [] }])
+    membership = true
+    const followFrames: unknown[] = []
+    for await (const frame of security.filterSessionFollow(member, 'shared-session', (async function* () {
+      yield { type: 'event', seq: 1 }
+      membership = false
+      yield { type: 'event', seq: 2 }
+    })())) followFrames.push(frame)
+    expect(followFrames).toEqual([{ type: 'event', seq: 1 }])
+    membership = true
+    const owner = security.loginLocal('org-a', 'admin', 'enterprise-password')!.principal
+    expect(await security.authorizeApiAsync(owner, 'session.rename', { sessionId: 'shared-session' })).toMatchObject({ allowed: true })
+    membership = false
+    expect(await security.authorizeApiAsync(member, 'session.prompt', { sessionId: 'shared-session' })).toMatchObject({ allowed: false })
+    membership = true
+    repository.setUserDepartments({ orgId: 'org-a', userId: 'member-1', departmentIds: [], expectedRevision: 1 })
+    expect(await security.authorizeApiAsync(member, 'session.history', { sessionId: 'shared-session' })).toMatchObject({ allowed: false })
+    expect(await security.filterSessionList(member, { items: [{ sessionId: 'shared-session' }] })).toEqual({ items: [] })
+  })
+
+  it('projects a shared Session only after its committed binding is republished to workspace followers', async () => {
+    repository.createUser({ id: 'outsider-1', orgId: 'org-a', username: 'outsider', displayName: 'Outsider', disabled: false })
+    repository.saveDepartment({ id: 'publish-dept', orgId: 'org-a', parentId: null, name: 'Department', sortOrder: 0, expectedRevision: 0 })
+    for (const userId of ['member-1', 'outsider-1']) {
+      repository.setUserDepartments({ orgId: 'org-a', userId, departmentIds: ['publish-dept'], primaryDepartmentId: 'publish-dept', expectedRevision: 0 })
+    }
+    repository.saveWorkspaceGrant({ workspaceId: 'publish-workspace', orgId: 'org-a', name: 'Workspace', kind: 'department', departmentId: 'publish-dept', rootPath: '/publish-workspace', sandboxMode: 'read-only', expectedRevision: 0 })
+    let committed = false
+    Object.assign(repository, { collaborationSessionAccess: async (input: { orgId: string; userId: string; sessionId: string }) =>
+      committed && input.sessionId === 'new-topic-session' ? { orgId: 'org-a', workspaceId: 'publish-workspace', member: input.userId === 'member-1' } : undefined })
+    const member = security.loginLocal('org-a', 'member', 'enterprise-password')!.principal
+    const outsider = { ...member, userId: 'outsider-1' }
+    const upsert = { type: 'upsert', workspace: { workspaceId: 'publish-workspace', sessionIds: ['new-topic-session'] } }
+    const frames = async function* () { yield upsert; yield upsert }
+    const memberStream = security.filterWorkspaceFollow(member, frames())[Symbol.asyncIterator]()
+    const outsiderStream = security.filterWorkspaceFollow(outsider, frames())[Symbol.asyncIterator]()
+    expect((await memberStream.next()).value).toMatchObject({ workspace: { sessionIds: [] } })
+    expect((await outsiderStream.next()).value).toMatchObject({ workspace: { sessionIds: [] } })
+    repository.bindSessionWorkspace({ sessionId: 'new-topic-session', workspaceId: 'publish-workspace', orgId: 'org-a', ownerUserId: 'admin-1' })
+    committed = true
+    expect((await memberStream.next()).value).toMatchObject({ workspace: { sessionIds: ['new-topic-session'] } })
+    expect((await outsiderStream.next()).value).toMatchObject({ workspace: { sessionIds: [] } })
+    expect((await memberStream.next()).done).toBe(true)
+    expect((await outsiderStream.next()).done).toBe(true)
+  })
+
+  it('authorizes native history addresses against the session or validated child parent', async () => {
+    const member = security.loginLocal('org-a', 'member', 'enterprise-password')!.principal
+    for (const address of [{ kind: 'session', sessionId: 'foreign' }, { kind: 'subagent', parentSessionId: 'foreign', childSessionId: 'child', mode: 'continuable' }]) {
+      expect(classifyApiEndpoint('session.follow', { address })).toMatchObject({ resourceId: 'foreign' })
+      expect(await security.authorizeApiAsync(member, 'session.follow', { address })).toMatchObject({ allowed: false })
+    }
+  })
+
+  it('revokes collaboration owner reads when membership or workspace access is removed', async () => {
+    repository.saveDepartment({ id: 'owner-dept', orgId: 'org-a', parentId: null, name: 'Department', sortOrder: 0, expectedRevision: 0 })
+    repository.setUserDepartments({ orgId: 'org-a', userId: 'member-1', departmentIds: ['owner-dept'], primaryDepartmentId: 'owner-dept', expectedRevision: 0 })
+    repository.saveWorkspaceGrant({ workspaceId: 'owner-workspace', orgId: 'org-a', name: 'Collaboration', kind: 'department', departmentId: 'owner-dept', rootPath: '/owner-collab', sandboxMode: 'read-only', expectedRevision: 0 })
+    repository.bindSessionWorkspace({ sessionId: 'owner-session', workspaceId: 'owner-workspace', orgId: 'org-a', ownerUserId: 'member-1' })
+    let membership = true
+    Object.assign(repository, { collaborationSessionAccess: async () => ({ orgId: 'org-a', workspaceId: 'owner-workspace', member: membership }) })
+    const owner = security.loginLocal('org-a', 'member', 'enterprise-password')!.principal
+    expect(await security.sessionAccessibleBy(owner, 'owner-session')).toBe(true)
+    membership = false
+    expect(await security.sessionAccessibleBy(owner, 'owner-session')).toBe(false)
+    expect(await security.authorizeApiAsync(owner, 'session.history', { sessionId: 'owner-session' })).toMatchObject({ allowed: false })
+    expect(await security.authorizeApiAsync(owner, 'session.prompt', { sessionId: 'owner-session' })).toMatchObject({ allowed: false })
+    expect(await security.sessionOwnedBy(owner, 'owner-session')).toBe(true)
+    membership = true
+    repository.setUserDepartments({ orgId: 'org-a', userId: 'member-1', departmentIds: [], expectedRevision: 1 })
+    expect(await security.sessionAccessibleBy(owner, 'owner-session')).toBe(false)
+    expect(await security.filterSessionList(owner, { items: [{ sessionId: 'owner-session' }] })).toEqual({ items: [] })
+  })
+
   it('keeps department Workspace Sessions private to their creating user', async () => {
     repository.saveDepartment({
       id: 'dept-ops', orgId: 'org-a', parentId: null, name: 'Operations', sortOrder: 0, expectedRevision: 0,

@@ -26,6 +26,9 @@ import type {
 } from '@deepseek-ai/dsh-enterprise-cordis'
 import type { PostgresDatabase as ProjectDatabase, PostgresQueryResult as ProjectResult } from '@deepseek-ai/dsh-enterprise-project'
 import { migrateSurfaceDirectory, PostgresSurfaceDirectory } from './surface-directory.ts'
+import { migrateCollaboration, PostgresCollaborationRepository } from './collaboration.ts'
+export { PostgresCollaborationRepository, CollaborationCreationConflictError } from './collaboration.ts'
+export type { CollaborationConfig, CollaborationRecord, CollaborationTopic, CollaborationSession } from './collaboration.ts'
 
 export { PostgresSurfaceDirectory, migrateSurfaceDirectory } from './surface-directory.ts'
 export type { SurfaceDirectoryEntry, SurfaceDirectoryKind } from './surface-directory.ts'
@@ -144,6 +147,7 @@ export interface EnterprisePostgresComposition {
   readonly devicePlane: PostgresDevicePlaneRepository
   readonly projects: EnterpriseProjectService
   readonly surfaceDirectory: PostgresSurfaceDirectory
+  readonly collaboration: PostgresCollaborationRepository
   readonly close: () => Promise<void>
 }
 
@@ -179,6 +183,7 @@ export async function createEnterprisePostgresComposition(config: EnterprisePost
     await database.transaction(transaction => migrateEnterpriseIdentityPostgres(transaction))
     await migrateEnterpriseProject(database)
     await migrateSurfaceDirectory(database)
+    await migrateCollaboration(database)
     const session = new PostgresSessionStore(database)
     await session.initialize()
     await migrateEnterpriseCatalog(database)
@@ -219,7 +224,9 @@ export async function createEnterprisePostgresComposition(config: EnterprisePost
     const devicePlane = new PostgresDevicePlaneRepository(database)
     const projects = new EnterpriseProjectService(new EnterpriseProjectRepository(database))
     const surfaceDirectory = new PostgresSurfaceDirectory(database)
-    return { database, identity, session, catalog, operations, teamControl, knowledge, cordis, devicePlane, projects, surfaceDirectory,
+    const collaboration = new PostgresCollaborationRepository(database)
+    return { database, identity, session, catalog, operations, teamControl, knowledge, cordis, devicePlane, projects,
+      surfaceDirectory, collaboration,
       close: () => database.end() }
   } catch (error) {
     await database.end()

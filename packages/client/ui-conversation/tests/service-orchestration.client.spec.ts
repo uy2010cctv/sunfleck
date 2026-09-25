@@ -54,6 +54,17 @@ async function bench(maxConcurrentFileUploads = 2) {
 }
 
 describe('ConversationController', () => {
+  it('announces durable routed destinations after native prompt acceptance', async () => {
+    const b = await bench()
+    const routed = vi.fn()
+    b.runtime.ctx.on('conversation/prompt-routed', routed)
+    const response = { ok: true as const, value: { accepted: true as const, routedSessionIds: ['s2' as SessionId] } }
+    b.prompt.mockResolvedValueOnce(response)
+    await b.scoped.send('@Analyst follow up')
+    expect(routed).toHaveBeenCalledWith({ sourceSessionId: 's1', sessionIds: ['s2'] })
+    await b.runtime.dispose()
+  })
+
   it('does not revive a withdrawn generation when an old input submits before scoped cleanup', async () => {
     const b = await bench()
     try {

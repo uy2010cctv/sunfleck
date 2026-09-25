@@ -1,30 +1,90 @@
 {
   "extends": "../../../tsconfig.base.json",
-  "compilerOptions": { "rootDir": "src", "outDir": "lib/types" },
-  "include": ["src"],
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "lib/types"
+  },
+  "include": [
+    "src"
+  ],
   "references": [
-    { "path": "../../../vendor/cordis" },
-    { "path": "../../../vendor/include" },
-    { "path": "../../../vendor/loader" },
-    { "path": "../../typert/protocol" },
-    { "path": "../../identity/enterprise-auth-web" },
-    { "path": "../../identity/enterprise-identity" },
-    { "path": "../../channel/channel-kernel" },
-    { "path": "../../credentials/credentials" },
-    { "path": "../../catalog/enterprise-catalog" },
-    { "path": "../../governance/enterprise-governance" },
-    { "path": "../../operations/enterprise-operations" },
-    { "path": "../../enterprise/enterprise-cordis" },
-    { "path": "../../enterprise/device-plane" },
-    { "path": "../../enterprise/enterprise-postgres" },
-    { "path": "../../context/enterprise-memory-context" },
-    { "path": "../../enterprise/employee-account" },
-    { "path": "../../enterprise/enterprise-project" },
-    { "path": "../../enterprise/enterprise-surface" },
-    { "path": "../../preset/agent-preset-registry" },
-    { "path": "../../core/session" },
-    { "path": "../../session/session-projection" },
-    { "path": "../../preset/persona" },
-    { "path": "../../runtime-diagnostics/invariants" }
+    {
+      "path": "../../../vendor/cordis"
+    },
+    {
+      "path": "../../../vendor/include"
+    },
+    {
+      "path": "../../../vendor/loader"
+    },
+    {
+      "path": "../../typert/protocol"
+    },
+    {
+      "path": "../../identity/enterprise-auth-web"
+    },
+    {
+      "path": "../../identity/enterprise-identity"
+    },
+    {
+      "path": "../../channel/channel-kernel"
+    },
+    {
+      "path": "../../credentials/credentials"
+    },
+    {
+      "path": "../../catalog/enterprise-catalog"
+    },
+    {
+      "path": "../../governance/enterprise-governance"
+    },
+    {
+      "path": "../../operations/enterprise-operations"
+    },
+    {
+      "path": "../../enterprise/enterprise-cordis"
+    },
+    {
+      "path": "../../enterprise/device-plane"
+    },
+    {
+      "path": "../../enterprise/enterprise-postgres"
+    },
+    {
+      "path": "../../context/enterprise-memory-context"
+    },
+    {
+      "path": "../../enterprise/employee-account"
+    },
+    {
+      "path": "../../enterprise/enterprise-project"
+    },
+    {
+      "path": "../../enterprise/enterprise-surface"
+    },
+    {
+      "path": "../../preset/agent-preset-registry"
+    },
+    {
+      "path": "../../core/session"
+    },
+    {
+      "path": "../../session/session-projection"
+    },
+    {
+      "path": "../../preset/persona"
+    },
+    {
+      "path": "../../runtime-diagnostics/invariants"
+    },
+    {
+      "path": "../../session-query/session-query"
+    },
+    {
+      "path": "../session-controller/tsconfig.host.json"
+    },
+    {
+      "path": "../../session/session-persistence"
+    }
   ]
 }

@@ -463,6 +463,19 @@ export interface EnterpriseIdentityStore {
   }): IdentityAwaitable<void>
   sessionWorkspaceGrant(sessionId: string): IdentityAwaitable<EnterpriseWorkspaceGrant | undefined>
   sessionOwnerUserId(sessionId: string): IdentityAwaitable<string | undefined>
+  /** Resolves collaboration binding and current explicit membership, including revoked members.
+   * @param input - Organization, human user, and Session to match.
+   * @returns The recorded binding and membership, or undefined for an ordinary Session or absent provider.
+   */
+  collaborationSessionAccess?(input: {
+    orgId: string
+    userId: string
+    sessionId: string
+  }): IdentityAwaitable<{
+    orgId: string
+    workspaceId: string
+    member: boolean
+  } | undefined>
   proposeMemory(input: ProposeEnterpriseMemoryInput): IdentityAwaitable<EnterpriseMemoryEntry>
   reviewMemory(input: ReviewEnterpriseMemoryInput): IdentityAwaitable<EnterpriseMemoryEntry>
   /** Writes one approved memory straight into a direct-write compartment, bypassing review:

@@ -33,6 +33,26 @@ class RecordingDatabase implements PostgresDatabase {
 }
 
 describe('PgEnterpriseIdentityRepository', () => {
+  it('resolves collaboration membership with organization, user, and recorded session predicates', async () => {
+    class CollaborationDatabase extends RecordingDatabase {
+      override async query<Row extends Record<string, unknown> = Record<string, unknown>>(
+        text: string, values: readonly unknown[] = [],
+      ): Promise<PostgresQueryResult<Row>> {
+        this.queries.push({ text, values })
+        if (text.includes('to_regclass')) return { rows: [{ table_name: 'dsh_enterprise_collaboration_sessions' }] as Row[], rowCount: 1 }
+        return { rows: [{ workspace_id: 'shared-workspace', org_id: 'org-a', member: true }] as Row[], rowCount: 1 }
+      }
+    }
+    const database = new CollaborationDatabase()
+    const repository = new PgEnterpriseIdentityRepository(database)
+    expect(await repository.collaborationSessionAccess({ orgId: 'org-a', userId: 'member-1', sessionId: 'shared-session' })).toEqual({ orgId: 'org-a', workspaceId: 'shared-workspace', member: true })
+    expect(database.queries.at(-1)).toMatchObject({ values: ['org-a', 'member-1', 'shared-session'] })
+    expect(database.queries.at(-1)?.text).toContain('directory.org_id = $1')
+    expect(database.queries.at(-1)?.text).toContain('member.user_id = $2')
+    expect(database.queries.at(-1)?.text).toContain('session.session_id = $3')
+    expect(await new PgEnterpriseIdentityRepository(new RecordingDatabase()).collaborationSessionAccess({ orgId: 'org-a', userId: 'member-1', sessionId: 'shared-session' })).toBeUndefined()
+  })
+
   it('adds the workspace employee table without breaking a v8 identity rollback', async () => {
     class VersionEightDatabase extends RecordingDatabase {
       override async query<Row extends Record<string, unknown> = Record<string, unknown>>(

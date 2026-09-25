@@ -352,6 +352,37 @@ describe('enterprise Agent Teams runtime driver', () => {
       .toEqual([{ type: 'text', text: '来自支持群的新指令' }])
   })
 
+  it('deduplicates a retry of the native message that started a TeamRun', async () => {
+    const app = await setup()
+    const driver = app.driver!
+    const started = await driver.startRun({ ...startInput(), surfaceMessage: { requestId: 'first-native', originSurfaceId: 'surface-a' } })
+    const root = app.ctx.agents.get(started.rootSessionId as never)!
+    await driver.submitRunInput('run-a', { actorUserId: actor.userId, text: startInput().prompt, originSurfaceId: 'surface-a', requestId: 'first-native' })
+    const messages = root.session.snapshotEvents().filter(event => event.type === 'user/message'
+      && event.data.source.kind === 'user' && 'rpcId' in event.data.source && event.data.source.rpcId === 'first-native')
+    expect(messages).toHaveLength(1)
+    const promptCopies = root.session.snapshotEvents().filter(event => event.type === 'user/message'
+      && event.data.content.some(part => part.type === 'text' && part.text === startInput().prompt))
+    expect(promptCopies).toHaveLength(1)
+  })
+
+  it('echoes native request identity once while retaining team attribution', async () => {
+    const app = await setup()
+    const driver = app.driver!
+    const started = await driver.startRun(startInput())
+    const root = app.ctx.agents.get(started.rootSessionId as never)!
+    const input = { actorUserId: 'reviewer-a', text: 'Review this', originSurfaceId: 'surface-group-1', requestId: 'native-request-1' }
+    const first = await driver.submitRunInput('run-a', input)
+    const repeated = await driver.submitRunInput('run-a', input)
+    expect(repeated).toEqual(first)
+    const messages = root.session.snapshotEvents().filter(event => event.type === 'user/message'
+      && event.data.source.kind === 'user' && 'rpcId' in event.data.source && event.data.source.rpcId === input.requestId)
+    expect(messages).toHaveLength(1)
+    expect(messages[0]?.data).toMatchObject({ source: {
+      kind: 'user', rpcId: input.requestId, runId: 'run-a', originSurfaceId: input.originSurfaceId, actorUserId: input.actorUserId,
+    } })
+  })
+
   it('rejects a submission for an unknown run with the coded team-run-not-found error', async () => {
     const app = await setup()
     await expect(app.driver!.submitRunInput('run-missing', {

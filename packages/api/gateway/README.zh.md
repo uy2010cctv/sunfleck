@@ -65,6 +65,8 @@ Client waterfall 的 Context 解析保持同步。解析器可以返回借用的
 
 生成的声明合并通过共享的 `TypertClientRemote` 约定提供 TypeScript API。Client 入口不包含 Host 服务或 Host Cordis 接口合并；方法查找和调用使用普通对象与函数，而不使用 JavaScript Proxy。
 
+启用企业认证时，会话列表和通知使用[企业会话访问策略](../../identity/enterprise-auth-web/README.zh.md)。会话跟随流在交付每一帧之前重新检查访问权限，并在权限撤销时结束。
+
 <a id="model-experience"></a>
 ## 模型体验
 

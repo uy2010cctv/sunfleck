@@ -22,6 +22,8 @@ kind: "package-reference"
 <a id="use-this-package"></a>
 ## 使用本包
 
+`GET /enterprise/session-context/:sessionId` 返回可见已发布员工资料、明确成员所属项目和已授权批准摘要，不启动运行时。员工私有记忆要求持久化账号锚定，其发布版本须匹配原生预设。双边记忆同时要求员工和用户编号；缺少员工归属的旧双边条目不返回。
+
 仅在企业 Profile 中，并在 `enterprisePostgres`、`enterpriseSecurity`、`enterpriseRequestContext` 和 `sessionController` 之后挂载本 Controller。Client 通过 API Gateway 使用生成的 `enterpriseEmployee`、`enterpriseAsset`、`enterpriseTeam`、`enterpriseTeamDefinition`、`enterpriseTeamRun`、`enterpriseTeamDecision`、`enterpriseTeamAutonomy`、`enterpriseOperation`、`enterpriseWork` 和 `enterpriseDevice` namespace。TeamRun start 和 cancel namespace 使用可选 `enterpriseTeamRuntimeDriver`；没有 provider 时，start 返回稳定 runtime-unavailable 失败。设备配对和 Computer Use 请求同时绑定已认证用户、Workspace、Session、短期操作 Permit 和设备签名。Host 注入组织与 actor 身份，browser 请求不能写 runtime revision 或 event position。本包不替代 DSH 的 Workspace、Session、Workflow、Sandbox、Subagent 或 Agent Loop 身份。
 
 `enterpriseTeamDefinition` 将章程编辑与可执行历史分开：`draft` 追加不可变修订，`getDraft` 只向负责人可见地返回当前草稿而不替换 active 章程，`publish` 为后续 Run 提升一份已校验草稿，`discardDraft` 只归档该草稿。每个端点都使用既有 `team.read` 或 `team.manage` 策略与审计链路；调用者不能提供组织或 actor 身份。
@@ -32,7 +34,7 @@ kind: "package-reference"
 
 `enterpriseWork.workspaceDefault` 返回调用者可安全读取的工作区默认员工和 CAS revision。`saveWorkspaceDefault` 在校验工作区与已发布员工权限后，允许个人所有者、部门经理或组织管理员设置或清除默认值。员工不可见或不可用时，返回 `employeeId: null` 和 `unavailable: true`；有权访问工作区的成员仍可读取存储的 revision。新 Session 先选择通用 Agent Preset 作为工作方式；`selectEmployee` 再校验 Session 所有权、工作区授权、员工可见性和空白会话状态，独立记录员工身份与不可变发布版本。员工提示词在该 Agent 中覆盖工作方式的身份提示词，工作方式的其他插件继续运行。回放恢复同一发布版本，员工自学习与私有记忆读取独立员工绑定。目标优先的启动路径使用配置的默认工作方式，另行绑定选定员工版本。仅选择员工不会创建工作记录或启动任务。
 
-三个 HTTP 边界与 Remote namespace 并列挂载：`/enterprise/employees` 下的员工 dm 与记忆治理路由（`employee-http`），`/enterprise/surfaces` 与 `/enterprise/projects` 下的协作面与项目路由（`surfaces-http`），以及令牌认证的入站路由 `POST /enterprise/channels/:channelId/inbound`——它把 `x-dsh-channel-token` header 与部署侧令牌比对，令牌未配置时一律返回 503。协作面与项目路由复用既有 cookie 认证、`channel.read` / `employee.create` / `employee.execute` 与 `team.read` / `team.manage` 动作，以及 `enterpriseSurface.*` / `enterpriseProject.*` 审计名；项目读对非成员折叠为 404，结构化未投递结果以 200 返回。未挂载完整协作面运行时时，已认证的 `GET /enterprise/surfaces` 通过相同的 `channel.read` 审计和类型校验读取 PostgreSQL 目录；协作面写入与入站投递仍返回 503。项目路由承载项目蒸馏：`POST /enterprise/projects/:id/distill` 在成员门禁后运行蒸馏（记忆整理面未挂载时返回 503），`POST /enterprise/projects/:id/archive` 触发同一蒸馏但不等待其完成，项目结项从不因记忆工作而阻塞或失败。响应只承载治理字段——anchored session id、投递错误链、workspace 路径与成员允许列表都不会离开本包。
+`/enterprise/surfaces` 的 PostgreSQL 协作路由支持显式成员列表、群聊与频道创建、详情、`/by-session/:sessionId` 恢复、原生目标会话打开和文本投递。创建支持按认证组织及创建者隔离的可选 `idempotencyKey`：解析值相同则复用已保存会话，不同则返回 409 且不写入。创建要求已有可访问工作区、可访问该工作区的显式人员成员，以及可见的已发布员工。详情与打开操作均先验证成员和工作区权限。原生 `session.prompt` 在重新加载后仍使用同一路由，并返回授权的响应 Session 标识供导航。团队重试先检查持久化请求回执，再按生命周期路由，因此运行完成或等待人工时仍复用原回执；群聊中的 @ 投递到员工会话，已有原生会话中的未提及消息只记录而不启动员工。频道按话题和值班策略路由，每个话题与员工组合保留独立原生会话，`/done` 结束话题。公告频道通过隐私检查后写入组织记忆提案，不启动 Agent。附件明确拒绝。消息保留原生请求标识、协作标识和认证发送者。员工私聊及令牌入站路由仍需单独装配服务；项目路由保留成员校验、归档和可选记忆提炼。
 
 <a id="model-experience"></a>
 ## 模型体验
@@ -41,11 +43,11 @@ kind: "package-reference"
 
 #### What the model sees
 
-无。这些 API 管理控制平面元数据，不会直接组装模型 Prompt 或执行 Agent turn。
+协作投递把认证用户消息作为 `user/message` 记录到选定的原生 Session。员工提及和值班路由使用与普通工作相同的 Agent 预设和会话历史。
 
 #### Token effect
 
-零 Token。`enterpriseTeamDefinition` Remote 调用不进入模型历史。
+元数据操作不增加模型 Token。每条协作投递消息进入原生会话历史，使用常规员工提示词与历史的 Token 预算。公告摄取采用确定性的记忆提案路径。
 
 #### KV Cache 影响
 

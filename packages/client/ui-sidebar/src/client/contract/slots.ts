@@ -38,6 +38,8 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
      * registers the browser.
      */
     'sidebar.workspaces': { kind: 'single'; scope: 'root'; owner: SidebarSectionOwnerProps }
+    /** Additional browsing sections below Workspaces, sharing the column fold state. */
+    'sidebar.sections': { kind: 'list'; scope: 'root'; owner: SidebarSectionOwnerProps }
     /**
      * The settings seat at the sidebar foot. Declared by this package's
      * 'sidebar' entry; ui-settings registers its trigger row + modal panel.
@@ -148,6 +150,7 @@ export type SidebarRootComponentProps =
     | 'sidebar.toggle.badge'
     | 'sidebar.panellist'
     | 'sidebar.workspaces'
+    | 'sidebar.sections'
     | 'sidebar.settings'
     | 'sidebar.footer.action'
     | 'sidebar.account'

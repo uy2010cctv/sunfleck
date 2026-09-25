@@ -1,0 +1,41 @@
+.root {
+  padding: var(--dse-space-sm);
+  color: var(--dsw-alias-label-primary);
+  font-size: 13px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.header, .root section { padding-block: var(--dse-space-xs); }
+.root section + section { border-top: 1px solid var(--dsw-alias-border-l1); }
+.root h2, .root h3, .root p { margin: 0; }
+.root h2, .root h3 { font-size: inherit; font-weight: 500; }
+.root h3 { margin-bottom: var(--dse-space-2xs); }
+.root ul { list-style: none; padding: 0; margin: 0; }
+.root li { display: flex; align-items: center; gap: var(--dse-space-2xs); min-height: 28px; }
+.muted, .empty { color: var(--dsw-alias-label-secondary); }
+.empty { padding: var(--dse-space-sm); font-size: 13px; }
+.topic, .action, .notice button {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--dse-space-2xs);
+  border: 0;
+  border-radius: var(--dse-radius-control);
+  color: inherit;
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
+}
+.topic { justify-content: space-between; width: 100%; padding: var(--dse-space-2xs); text-align: start; }
+.topic:hover, .topic[aria-current='true'], .action:hover, .notice button:hover { background: var(--dsw-alias-interactive-bg-hover); }
+.topic:focus-visible, .action:focus-visible, .notice button:focus-visible { outline: 2px solid var(--dse-color-focus); outline-offset: 2px; }
+.action { min-height: 28px; font-size: 13px; color: var(--dsw-alias-label-secondary); }
+.action svg, .root li svg { flex: none; }
+.notice { padding-block: var(--dse-space-xs); }
+.loading { display: flex; justify-content: center; padding-block: var(--dse-space-xs); }
+.topic:disabled, .notice button:disabled { cursor: wait; opacity: 0.6; }
+
+.filter { display: flex; align-items: center; justify-content: space-between; gap: var(--dse-space-xs); margin-block: var(--dse-space-xs); }
+.filter select { min-width: 0; padding: var(--dse-space-2xs); color: inherit; background: var(--dsw-alias-interactive-bg-hover); border: 1px solid var(--dsw-alias-border-l1); border-radius: var(--dse-radius-control); font: inherit; }
+.root .memories li { display: block; padding-block: var(--dse-space-xs); }
+
+.root .topicGroup { display: block; }

@@ -1,5 +1,7 @@
 /** Enterprise TeamRun driver over the existing Agent Teams Session domain. */
 
+import type {} from '@deepseek-ai/dsh-api-session-controller/types'
+import { brandString, type Branded } from '@deepseek-ai/dsh-brand'
 import { createHash } from 'node:crypto'
 import type { Agent, AgentHandle, AgentOptions } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-agent-preset-registry'
@@ -46,6 +48,17 @@ declare module '@deepseek-ai/dsh-llm' {
   interface MessageSourceMap {
     'team-run-message': TeamRunMessageSource
     'team-runtime-followup': TeamRuntimeFollowupSource
+  }
+}
+
+declare module '@deepseek-ai/dsh-api-session-controller/types' {
+  interface UserRpcMessageSource {
+    /** Chartered TeamRun receiving this native input. */
+    readonly runId?: string
+    /** Collaboration conversation that delivered this native input. */
+    readonly originSurfaceId?: string
+    /** Authenticated sender that delivered this native input. */
+    readonly actorUserId?: string
   }
 }
 
@@ -243,7 +256,9 @@ export class EnterpriseTeamRuntimeAdapter implements EnterpriseTeamRuntimeDriver
       this.ctx.enterpriseRequestContext.withoutPrincipal(() => {
         activeRoot.followup(createUserMessage({
           content: [{ type: 'text', text: input.prompt }],
-          source: { kind: 'team-runtime-followup' },
+          source: input.surfaceMessage === undefined ? { kind: 'team-runtime-followup' }
+            : { kind: 'user', rpcId: brandString<Branded<'session-request-id'>>(input.surfaceMessage.requestId),
+              runId: input.runId, originSurfaceId: input.surfaceMessage.originSurfaceId, actorUserId: input.actor.userId },
         }))
       })
       await this.ctx.sessions.flush(root.session)
@@ -384,18 +399,21 @@ export class EnterpriseTeamRuntimeAdapter implements EnterpriseTeamRuntimeDriver
       )
     }
     const matchesSubmission = (message: UserMessage): boolean =>
-      message.source.kind === 'team-run-message' && message.source.runId === runId
-    const submittedBefore = root.session.snapshotEvents()
-      .filter(event => event.type === 'user/message' && matchesSubmission(event.data)).length
+      (message.source.kind === 'team-run-message' || (message.source.kind === 'user' && 'runId' in message.source))
+      && message.source.runId === runId
+    const priorEvents = root.session.snapshotEvents()
+    const repeated = input.requestId === undefined ? undefined : priorEvents.find(event =>
+      event.type === 'user/message' && event.data.source.kind === 'user' && 'rpcId' in event.data.source
+      && event.data.source.rpcId === input.requestId)
+    if (repeated !== undefined) return { runtimeRevision: state.run.runtimeRevision, sourceEventSeq: repeated.seq }
+    const submittedBefore = priorEvents.filter(event => event.type === 'user/message' && matchesSubmission(event.data)).length
     this.ctx.enterpriseRequestContext.withoutPrincipal(() => {
       root.followup(createUserMessage({
         content: [{ type: 'text', text: input.text }],
-        source: {
-          kind: 'team-run-message',
-          runId,
-          originSurfaceId: input.originSurfaceId,
-          actorUserId: input.actorUserId,
-        },
+        source: input.requestId === undefined
+          ? { kind: 'team-run-message', runId, originSurfaceId: input.originSurfaceId, actorUserId: input.actorUserId }
+          : { kind: 'user', rpcId: brandString<Branded<'session-request-id'>>(input.requestId),
+            runId, originSurfaceId: input.originSurfaceId, actorUserId: input.actorUserId },
       }))
     })
     await this.ctx.sessions.flush(root.session)

@@ -60,6 +60,7 @@ function mountShell({ collapsed = false, width = 300 }: { collapsed?: boolean; w
         if (key === 'sidebar.brand.mark') return brandMark
         if (key === 'sidebar.brand.name') return brandName
         if (key === 'sidebar.toggle.badge') return null
+        if (key === 'sidebar.sections') return <div data-testid="sections-seat" data-wide={owner.wide} />
         if (key === 'sidebar.settings') {
           settingsOwner = owner
           return <div data-testid="settings-seat" data-wide={owner.wide} />
@@ -105,6 +106,16 @@ function mountShell({ collapsed = false, width = 300 }: { collapsed?: boolean; w
 }
 
 describe('SidebarRoot shell', () => {
+  it('places contributed browsing sections between Workspaces and footer controls', () => {
+    mountShell()
+    const region = screen.getByTestId('region')
+    const sections = screen.getByTestId('sections-seat')
+    const footer = screen.getByTestId('footer-action-seat')
+    expect(sections.dataset.wide).toBe('true')
+    expect(region.compareDocumentPosition(sections) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0)
+    expect(sections.compareDocumentPosition(footer) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0)
+  })
+
   it('routes New Session (capsule + wordmark) and the column toggle', () => {
     const b = mountShell()
     expect(screen.getByTestId('custom-brand-mark')).toBeTruthy()

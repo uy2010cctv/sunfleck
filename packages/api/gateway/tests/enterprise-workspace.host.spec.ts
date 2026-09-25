@@ -49,6 +49,8 @@ class SessionFixture extends Service {
     return { items: [{ sessionId: 'session-member' }, { sessionId: 'session-other' }] }
   }
 
+  @Remote({ mode: 'stream' }) async *follow(_request: unknown): AsyncIterable<unknown> { yield { type: 'event' } }
+
   @Remote({ mode: 'stream' }) async *control(): AsyncIterable<unknown> {
     yield { type: 'baseline', value: { queues: {}, jobs: {}, projections: {} } }
   }
@@ -83,7 +85,7 @@ describe('enterprise Workspace gateway enforcement', () => {
     )
 
     const stream = await harness.gateway.openWireStream(
-      'workspace/follow', { args: {} }, new AbortController().signal,
+      'workspace/follow', { args: {} }, emptyUplink(), undefined, new AbortController().signal, new AbortController(),
     )
     const frames: unknown[] = []
     for await (const frame of stream) frames.push(frame)
@@ -116,6 +118,19 @@ describe('enterprise Workspace gateway enforcement', () => {
     )
   })
 
+  it.each([
+    { kind: 'session', sessionId: 'session-member' },
+    { kind: 'subagent', parentSessionId: 'session-member', childSessionId: 'child-session', mode: 'continuable' },
+  ])('filters native follow addresses through the owning session: $kind', async (address) => {
+    const harness = await setup({ allowed: true })
+    const stream = await harness.gateway.openWireStream('session/follow', { args: { request: { address, assistantStream: true } } },
+      emptyUplink(), undefined, new AbortController().signal, new AbortController())
+    const frames = []
+    for await (const frame of stream) frames.push(frame)
+    expect(frames).toEqual([{ type: 'projected-follow' }])
+    expect(harness.security.filterSessionFollow).toHaveBeenCalledWith(harness.principal, 'session-member', expect.anything())
+  })
+
   it('projects Session list and control results through the authenticated user boundary', async () => {
     const harness = await setup({ allowed: true })
     const listed = await harness.gateway.dispatchRpc(
@@ -127,7 +142,7 @@ describe('enterprise Workspace gateway enforcement', () => {
     )
 
     const stream = await harness.gateway.openWireStream(
-      'session/control', { args: {} }, new AbortController().signal,
+      'session/control', { args: {} }, emptyUplink(), undefined, new AbortController().signal, new AbortController(),
     )
     const frames: unknown[] = []
     for await (const frame of stream) frames.push(frame)
@@ -152,6 +167,12 @@ async function setup(decision: { allowed: boolean }) {
     filterSessionList: vi.fn(async (_principal, value: unknown) => ({
       ...(record(value) ? value : {}), items: [{ sessionId: 'session-member' }],
     })),
+    sessionAuthorizationId: (input: unknown) => {
+      if (!record(input) || !record(input['address'])) return undefined
+      const address = input['address']
+      return address['kind'] === 'session' ? address['sessionId'] : address['parentSessionId']
+    },
+    filterSessionFollow: vi.fn(async function* () { yield { type: 'projected-follow' } }),
     filterSessionControl: vi.fn(async function* () { yield { type: 'projected-control' } }),
   }
   ctx.provide('enterpriseSecurity' as never, security as never)
@@ -172,7 +193,10 @@ async function setup(decision: { allowed: boolean }) {
   const sessionReceiver = ctx.get('sessionFixture') as SessionFixture & { [symbols.original]?: SessionFixture }
   const gateway = ctx.typertGateway as unknown as {
     dispatchRpc(endpoint: string, payload: unknown, signal: AbortSignal): Promise<unknown>
-    openWireStream(endpoint: string, payload: unknown, signal: AbortSignal): Promise<AsyncIterable<unknown>>
+    openWireStream(
+      endpoint: string, payload: unknown, uplink: AsyncIterable<unknown>, peer: undefined,
+      signal: AbortSignal, control: AbortController,
+    ): Promise<AsyncIterable<unknown>>
   }
   return {
     ctx, principal, security,
@@ -222,8 +246,14 @@ function descriptors(): InvocationDescriptor[] {
       method: 'list', invocation: { kind: 'direct' }, parameters: [], result,
     },
     {
+      id: '@fixture/enterprise-workspace#session/follow', service: 'sessionFixture', namespace: 'session',
+      method: 'follow', mode: 'stream', invocation: { kind: 'direct' }, parameters: request(z.unknown()), result,
+    },
+    {
       id: '@fixture/enterprise-workspace#session/control', service: 'sessionFixture', namespace: 'session',
       method: 'control', mode: 'stream', invocation: { kind: 'direct' }, parameters: [], result,
     },
   ]
 }
+
+async function* emptyUplink(): AsyncIterable<unknown> {}

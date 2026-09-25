@@ -590,3 +590,15 @@
     animation: none;
   }
 }
+
+/* Contributed rows share the native column and leave room for its Workspace browser. */
+.extraSections {
+  flex: 0 1 auto;
+  min-height: 0;
+  max-height: 42%;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--dsw-alias-border-l2) transparent;
+}
+
+.extraSections:empty { display: none; }

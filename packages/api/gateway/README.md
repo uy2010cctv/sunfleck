@@ -65,6 +65,8 @@ Client waterfall Context resolution stays synchronous. A resolver can return a b
 
 Generated declaration merges provide the TypeScript API through the shared `TypertClientRemote` contract. The Client entry contains no Host Service or Host Cordis interface merge, and method lookup and invocation use ordinary objects and functions rather than a JavaScript Proxy.
 
+With enterprise authentication, Session listings and notifications use the [enterprise Session access policy](../../identity/enterprise-auth-web/README.md). Session follow streams recheck access before each delivered frame and end when access is revoked.
+
 <a id="model-experience"></a>
 ## Model Experience
 

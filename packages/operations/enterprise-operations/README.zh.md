@@ -10,6 +10,8 @@ kind: "package-reference"
 
 持久化 DSH 企业工作记录、审批、调度、团队定义、TeamRun 查询投影、显式自主权授权、Outbox 和固定团队。
 
+原生协作启动可携带 `surfaceMessage` 归属信息；该信息参与启动请求指纹，并写入首条根用户消息。`submitRunInput.requestId` 使运行时在重试后复用同一持久化回执。
+
 ## 目录
 
 - [包详情](#package-details)

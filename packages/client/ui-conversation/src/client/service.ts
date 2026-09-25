@@ -32,6 +32,18 @@ import type {
 } from './contract/input.ts'
 import type { InputSubmitMode } from './contract/composer-submission.ts'
 
+declare module '@deepseek-ai/cordis' {
+  interface Events {
+    /**
+     * Announce the authorized destinations after a routed prompt is accepted.
+     * Navigation consumers must ignore receipts for a Session the user left.
+     * @param receipt - Source Session and the native response destinations.
+     * @mode emit
+     */
+    'conversation/prompt-routed'(receipt: { readonly sourceSessionId: SessionId; readonly sessionIds: readonly SessionId[] }): void
+  }
+}
+
 /**
  * The outward conversation face (`ctx.conversation`): the scope-addressed
  * verbs and the input registry other plugins may reach — and exactly what a
@@ -210,6 +222,7 @@ export class ConversationController extends Service implements IConversation {
     const session = this.scopedSession('send')
     const result = await session.prompt([{ type: 'text', text }], 'queue')
     if (!result.ok) throw new Error(`conversation.send failed: ${result.error.code}: ${result.error.message}`)
+    if (result.value.routedSessionIds !== undefined) this.ctx.emit('conversation/prompt-routed', { sourceSessionId: session.sessionId, sessionIds: result.value.routedSessionIds })
   }
 
   /**
@@ -293,6 +306,7 @@ export class ConversationController extends Service implements IConversation {
     const result = await session.prompt(content, mode, signal, submission.requestId)
     if (!result.ok) return { kind: 'error' }
     if (retirement !== undefined && (await retirement).reason !== 'observed') return { kind: 'error' }
+    if (result.value.routedSessionIds !== undefined) this.ctx.emit('conversation/prompt-routed', { sourceSessionId: session.sessionId, sessionIds: result.value.routedSessionIds })
     return { kind: 'success' }
   }
 

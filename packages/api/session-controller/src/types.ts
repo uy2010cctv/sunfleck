@@ -343,6 +343,8 @@ export interface SessionPromptRequest {
 /** Receipt after one prompt enters the target Agent inbox. */
 export interface SessionPromptValue {
   readonly accepted: true
+  /** Authorized native response destinations selected by a Host prompt router. */
+  readonly routedSessionIds?: readonly SessionId[]
 }
 
 /** Durable image read request. */
@@ -397,10 +399,17 @@ export interface SessionOpenWorkspacePathValue {
 /** Client-minted prompt identity used to reconcile optimistic and durable messages. */
 export type SessionRequestId = Branded<'session-request-id'>
 
+/** Native user prompt correlation; Host producers may add optional durable attribution. */
+export interface UserRpcMessageSource {
+  readonly kind: 'user'
+  readonly rpcId: SessionRequestId
+  readonly clientTimeZone?: string
+}
+
 declare module '@deepseek-ai/dsh-llm' {
   interface MessageSourceMap {
     /** Browser prompt correlation and optional Host-validated time zone. */
-    'user-rpc': { kind: 'user'; rpcId: SessionRequestId; clientTimeZone?: string }
+    'user-rpc': UserRpcMessageSource
   }
 }
 

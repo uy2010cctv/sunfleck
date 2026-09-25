@@ -25,6 +25,8 @@ kind: "package-reference"
 <a id="use-this-package"></a>
 ## 使用本包
 
+授权提供方在提交已有 Workspace 的访问授权后发出 `workspace/visibility-changed`。该事件请求刷新视图投影，不修改 Workspace 记录本身。
+
 使用此包为产品提供项目列表：用户工作的命名目录、每个目录中运行的会话、稳定顺序，以及在不丢失会话的前提下将其隐藏或重新取回的能力。每项操作背后的 API 约定放在实现章节中。
 
 ### 何时使用
@@ -165,7 +167,6 @@ ctx.workspaceRegistry.list() // shows the project, newest first
 ## 已知限制与延期工作
 
 <a id="known-limitations-and-deferred-work"></a>
-
 
 这些限制说明项目列表何时不合适，或何时需要特别的运维注意。它们是当前包约束，不是任务积压。
 

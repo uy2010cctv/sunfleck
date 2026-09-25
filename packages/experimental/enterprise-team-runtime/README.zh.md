@@ -38,7 +38,7 @@ adapter 当前只接受不含能力资产绑定的 Release。已配置的 `model
 - 启动、状态、取消、决策投影与 Human 回答使用稳定 operation id 和单调 runtime revision。
 - 取消先记录权威事件，再中断 live root 与 child；持久状态继续可供回放。
 - 对账折叠已存储根 Session，不要求 Agent 仍在线。
-- 来自 Surface 的输入经 `submitRunInput` 进入，向运行根追加一条 `team-run-message` 用户消息；run 不存在时响亮失败。
+- `submitRunInput` 记录运行、协作面和发送者信息。可选原生 `requestId` 写入带 `rpcId` 的 `user` 来源，供原生乐观回显与持久化重试去重使用；未提供该标识的传输继续使用 `team-run-message` 来源。 运行不存在时明确失败。
 
 -----
 

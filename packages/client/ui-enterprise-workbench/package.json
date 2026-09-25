@@ -39,9 +39,9 @@
         "@deepseek-ai/dsh-api-workspace-controller",
         "@deepseek-ai/dsh-client-ui-layout",
         "@deepseek-ai/dsh-client-ui-sidebar",
-        "@deepseek-ai/dsh-client-ui-primitives"
-        ,"@deepseek-ai/dsh-client-ui-renderer"
-        ,"@deepseek-ai/dsh-client-ui-workspace"
+        "@deepseek-ai/dsh-client-ui-primitives",
+        "@deepseek-ai/dsh-client-ui-renderer",
+        "@deepseek-ai/dsh-client-ui-workspace"
       ],
       "platform": "web"
     }
@@ -66,7 +66,10 @@
     "@deepseek-ai/dsh-client-ui-workspace": "workspace:^",
     "@deepseek-ai/dsh-invariants": "workspace:^",
     "@deepseek-ai/dsh-session": "workspace:^",
-    "@deepseek-ai/dsh-util-crypto": "workspace:^"
+    "@deepseek-ai/dsh-util-crypto": "workspace:^",
+    "@deepseek-ai/dsh-client-ui-sidebar-right": "workspace:*",
+    "@deepseek-ai/dsh-client-ui-conversation": "workspace:*",
+    "@deepseek-ai/dsh-client-ui-session": "workspace:*"
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "workspace:^",
@@ -92,7 +95,10 @@
     "@types/qrcode": "1.5.6",
     "@types/react": "~18.3.1",
     "react": "^18.3.1",
-    "vitest": "^4.1.8"
+    "vitest": "^4.1.8",
+    "@deepseek-ai/dsh-client-ui-sidebar-right": "workspace:*",
+    "@deepseek-ai/dsh-client-ui-conversation": "workspace:*",
+    "@deepseek-ai/dsh-client-ui-session": "workspace:*"
   },
   "files": [
     "LICENSES",

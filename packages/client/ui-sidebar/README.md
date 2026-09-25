@@ -25,6 +25,8 @@ The dsh web client sidebar lets users recognize the active build, start a new se
 <a id="use-this-package"></a>
 ## Use this package
 
+Feature plugins contribute group or channel browsing through the root `sidebar.sections` list below Workspaces. Each entry receives the existing column width mode and expansion action; the contributed region is scrollable and leaves space for the Workspace browser and footer.
+
 The sidebar is the navigation shell: users see the brand, start new sessions, collapse the rail, and reach Settings. Feature plugins fill its seats — ui-workspace fills `sidebar.workspaces`, ui-settings registers the trigger row and settings panel at `sidebar.settings`.
 
 ### Brand and New Session
@@ -94,7 +96,6 @@ None; this package neither assembles nor sends a provider request.
 ## Known Limitations and Deferred Work
 
 <a id="known-limitations-and-deferred-work"></a>
-
 
 These limits define what the shell owns versus what its occupants own; they are current package constraints.
 

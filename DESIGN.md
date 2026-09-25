@@ -193,6 +193,10 @@ The Team surface makes Human authority and Agent execution visible without creat
 
 Production tokens live in `packages/client/ui-enterprise-workbench/src/client/tokens.css`. The file defines enterprise semantic aliases over the existing DSH theme variables so light/dark theme ownership remains centralized.
 
+## Collaborative conversations
+
+The native left sidebar keeps Workspace browsing and adds group-chat and channel sections above the existing footer. A collaboration destination opens the original Session transcript and composer. Before a destination exists, the center asks for a member or topic and accepts the first message. Employee, project, memory, member and topic metadata use the existing right Sidebar tab. A topic with several responding employees exposes each native destination explicitly; changing a recipient never silently changes a Session preset. Loading, unavailable access and empty lists are distinct, and no example records appear in the product.
+
 ## Conversation brand tagline
 
 The empty conversation displays “Intelligence, in symbiosis.” above “让智能，自然生长。” without a preview badge. Both lines share the same left edge.

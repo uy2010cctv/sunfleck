@@ -1,0 +1,246 @@
+/** PostgreSQL routing, membership, topics, and native Session bindings for shared conversations. */
+import { createHash, randomUUID } from 'node:crypto'
+import type { EnterprisePostgresDatabase } from './index.ts'
+
+/** Immutable routing choices for one conversation; employee ids reference published presets. */
+export interface CollaborationConfig {
+  readonly workspaceId: string
+  readonly memberEmployeeIds: readonly string[]
+  readonly dutyEmployeeIds: readonly string[]
+  readonly teamDefinitionId?: string
+  readonly projectId?: string
+  readonly topicPolicy?: 'thread' | 'command' | 'lane'
+  readonly respondPolicy?: 'mention_duty' | 'ingest_only'
+}
+/** Persisted organization-scoped conversation. */
+export interface CollaborationRecord extends CollaborationConfig {
+  readonly id: string
+  readonly orgId: string
+  readonly kind: 'group' | 'channel'
+  readonly name: string
+  readonly memberUserIds: readonly string[]
+}
+/** Topic lifecycle and the native Session it addresses. */
+export interface CollaborationTopic {
+  readonly id: string
+  readonly title: string
+  readonly state: 'open' | 'settled'
+  readonly sessionId?: string
+  readonly destinations?: readonly { readonly sessionId: string
+    readonly employeeId: string }[]
+}
+/** Durable native Session destination. */
+export interface CollaborationSession {
+  readonly surfaceId: string
+  readonly topicId: string
+  readonly employeeId: string
+  readonly sessionId: string
+}
+
+/** Validate durable JSON before using it for routing.
+ * @param value - PostgreSQL JSON value.
+ * @returns Validated routing choices.
+ */
+export function parseCollaborationConfig(value: unknown): CollaborationConfig {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) throw new Error('invalid collaboration configuration')
+  const row = value as Record<string, unknown>
+  const strings = (field: string): string[] => {
+    const items = row[field]
+    if (!Array.isArray(items) || items.some(item => typeof item !== 'string' || item.trim() === '')) {
+      throw new Error(`invalid collaboration ${field}`)
+    }
+    return items as string[]
+  }
+  const workspaceId = row['workspaceId']
+  if (typeof workspaceId !== 'string' || workspaceId.trim() === '') throw new Error('invalid collaboration workspace')
+  for (const field of ['teamDefinitionId', 'projectId']) {
+    if (row[field] !== undefined && (typeof row[field] !== 'string' || row[field].trim() === '')) throw new Error(`invalid collaboration ${field}`)
+  }
+  const topicPolicy = row['topicPolicy']
+  const respondPolicy = row['respondPolicy']
+  if (topicPolicy !== undefined && topicPolicy !== 'thread' && topicPolicy !== 'command' && topicPolicy !== 'lane') throw new Error('invalid collaboration topic policy')
+  if (respondPolicy !== undefined && respondPolicy !== 'mention_duty' && respondPolicy !== 'ingest_only') throw new Error('invalid collaboration respond policy')
+  return {
+    workspaceId, memberEmployeeIds: strings('memberEmployeeIds'), dutyEmployeeIds: strings('dutyEmployeeIds'),
+    ...(typeof row['teamDefinitionId'] === 'string' ? { teamDefinitionId: row['teamDefinitionId'] } : {}),
+    ...(typeof row['projectId'] === 'string' ? { projectId: row['projectId'] } : {}),
+    ...(topicPolicy === undefined ? {} : { topicPolicy }), ...(respondPolicy === undefined ? {} : { respondPolicy }),
+  }
+}
+
+/** Add collaboration tables under a monotonic, transaction-locked schema version.
+ * @param database - Shared enterprise database.
+ * @returns When schema initialization commits.
+ */
+export async function migrateCollaboration(database: EnterprisePostgresDatabase): Promise<void> {
+  await database.transaction(async (tx) => {
+    await tx.query('SELECT pg_advisory_xact_lock($1)', [0x4453434f])
+    await tx.query('CREATE TABLE IF NOT EXISTS dsh_enterprise_collaboration_meta (version INTEGER NOT NULL)')
+    const version = (await tx.query<{ version: number }>('SELECT version FROM dsh_enterprise_collaboration_meta')).rows[0]?.version
+    if (version !== undefined && version !== 1) throw new Error(`unsupported collaboration schema version ${version}`)
+    if (version === 1) return
+    await tx.query(`CREATE TABLE dsh_enterprise_collaboration_config (
+      surface_id TEXT PRIMARY KEY REFERENCES dsh_enterprise_surface_directory(surface_id) ON DELETE CASCADE,
+      workspace_id TEXT NOT NULL REFERENCES enterprise_workspace_grants(workspace_id), config_json JSONB NOT NULL)`)
+    await tx.query(`CREATE TABLE dsh_enterprise_collaboration_members (
+      surface_id TEXT NOT NULL REFERENCES dsh_enterprise_collaboration_config(surface_id) ON DELETE CASCADE,
+      user_id TEXT NOT NULL REFERENCES users(id), PRIMARY KEY(surface_id,user_id))`)
+    await tx.query(`CREATE TABLE dsh_enterprise_collaboration_topics (
+      surface_id TEXT NOT NULL REFERENCES dsh_enterprise_collaboration_config(surface_id) ON DELETE CASCADE,
+      topic_id TEXT NOT NULL, title TEXT NOT NULL, state TEXT NOT NULL CHECK(state IN ('open','settled')),
+      created_at BIGINT NOT NULL, PRIMARY KEY(surface_id,topic_id))`)
+    await tx.query(`CREATE TABLE dsh_enterprise_collaboration_sessions (
+      surface_id TEXT NOT NULL REFERENCES dsh_enterprise_collaboration_config(surface_id) ON DELETE CASCADE,
+      topic_id TEXT NOT NULL DEFAULT '', employee_id TEXT NOT NULL DEFAULT '', session_id TEXT NOT NULL UNIQUE,
+      PRIMARY KEY(surface_id,topic_id,employee_id))`)
+    await tx.query('INSERT INTO dsh_enterprise_collaboration_meta(version) VALUES (1)')
+  })
+}
+
+/** A creation retry reused its key for different resolved conversation values. */
+export class CollaborationCreationConflictError extends Error {
+  constructor() { super('collaboration creation idempotency conflict') }
+}
+
+function creationFingerprint(input: Omit<CollaborationRecord, 'id'>): string {
+  return JSON.stringify({
+    orgId: input.orgId, kind: input.kind, name: input.name, workspaceId: input.workspaceId,
+    memberEmployeeIds: input.memberEmployeeIds, memberUserIds: [...new Set(input.memberUserIds)].sort(),
+    dutyEmployeeIds: input.dutyEmployeeIds, teamDefinitionId: input.teamDefinitionId, projectId: input.projectId,
+    topicPolicy: input.topicPolicy, respondPolicy: input.respondPolicy,
+  })
+}
+
+/** Durable collaboration repository. Caller authorization is enforced by the HTTP and native Session policies. */
+export class PostgresCollaborationRepository {
+  /** @param database - Shared enterprise database. */
+  constructor(private readonly database: EnterprisePostgresDatabase) {}
+
+  // oxlint-disable-next-line typescript/no-unnecessary-type-parameters -- PostgreSQL callers select their validated row type.
+  private async query<Row extends Record<string, unknown>>(text: string,
+    values: readonly unknown[]): Promise<{ rows: Row[]; rowCount: number | null }> {
+    return this.database.query<Row>(text, values)
+  }
+
+  /** Store one conversation and its explicit human membership atomically.
+   * @param input - Validated organization, workspace, and routing choices.
+   * @param retry - Optional authenticated creator and retry key; changed values conflict without mutation.
+   * @returns The persisted conversation, reusing the original for a matching retry.
+   */
+  async create(input: Omit<CollaborationRecord, 'id'>,
+    retry?: { readonly creatorUserId: string; readonly idempotencyKey: string }): Promise<CollaborationRecord> {
+    const id = retry === undefined ? randomUUID()
+      : `surface-${createHash('sha256').update(JSON.stringify([input.orgId, retry.creatorUserId, retry.idempotencyKey])).digest('hex')}`
+    const { orgId, kind, name, memberUserIds, ...config } = input
+    return this.database.transaction(async (tx) => {
+      const inserted = await tx.query(`INSERT INTO dsh_enterprise_surface_directory(surface_id,org_id,kind,name,member_count,created_at)
+        VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(surface_id) DO NOTHING`,
+      [id, orgId, kind, name, config.memberEmployeeIds.length, Date.now()])
+      if (inserted.rowCount === 0) {
+        const existing = await new PostgresCollaborationRepository(tx).get(orgId, id)
+        if (existing === undefined || creationFingerprint(existing) !== creationFingerprint(input)) {
+          throw new CollaborationCreationConflictError()
+        }
+        return existing
+      }
+      await tx.query('INSERT INTO dsh_enterprise_collaboration_config(surface_id,workspace_id,config_json) VALUES($1,$2,$3::jsonb)',
+        [id, config.workspaceId, JSON.stringify(config)])
+      for (const userId of new Set(memberUserIds)) {
+        await tx.query('INSERT INTO dsh_enterprise_collaboration_members(surface_id,user_id) VALUES($1,$2)', [id, userId])
+      }
+      return { id, ...input, memberUserIds: [...new Set(memberUserIds)].sort() }
+    })
+  }
+
+  /** Read only conversations naming this human as a member.
+   * @param orgId - Authenticated organization.
+   * @param userId - Authenticated human.
+   * @returns Membership-scoped conversations.
+   */
+  async list(orgId: string, userId: string): Promise<readonly CollaborationRecord[]> {
+    const result = await this.query<{ surface_id: string }>(`SELECT d.surface_id FROM dsh_enterprise_surface_directory d
+      JOIN dsh_enterprise_collaboration_members m USING(surface_id) WHERE d.org_id=$1 AND m.user_id=$2 ORDER BY d.created_at,d.surface_id`, [orgId, userId])
+    const rows = await Promise.all(result.rows.map(row => this.get(orgId, row.surface_id)))
+    return rows.filter((row): row is CollaborationRecord => row !== undefined)
+  }
+
+  /** Read one conversation within its organization.
+   * @param orgId - Organization scope.
+   * @param id - Conversation identity.
+   * @returns Stored conversation, or undefined for foreign or absent ids.
+   */
+  async get(orgId: string, id: string): Promise<CollaborationRecord | undefined> {
+    const row = (await this.query<{ kind: string; name: string; config_json: unknown }>(`SELECT d.kind,d.name,c.config_json FROM dsh_enterprise_surface_directory d
+      JOIN dsh_enterprise_collaboration_config c USING(surface_id) WHERE d.org_id=$1 AND d.surface_id=$2`, [orgId, id])).rows[0]
+    if (row === undefined) return undefined
+    if (row.kind !== 'group' && row.kind !== 'channel') throw new Error('invalid collaboration kind')
+    const members = await this.query<{ user_id: string }>('SELECT user_id FROM dsh_enterprise_collaboration_members WHERE surface_id=$1 ORDER BY user_id', [id])
+    return { id, orgId, kind: row.kind, name: row.name, ...parseCollaborationConfig(row.config_json),
+      memberUserIds: members.rows.map(member => member.user_id) }
+  }
+
+  /** List topic state with its native transcript binding.
+   * @param id - Authorized conversation.
+   * @returns Stored topics in creation order.
+   */
+  async topics(id: string): Promise<readonly CollaborationTopic[]> {
+    const result = await this.query<{ topic_id: string; title: string; state: 'open' | 'settled' }>(
+      'SELECT topic_id,title,state FROM dsh_enterprise_collaboration_topics WHERE surface_id=$1 ORDER BY created_at,topic_id', [id])
+    const sessions = await this.sessions(id)
+    return result.rows.map((row) => {
+      const destinations = sessions.filter(value => value.topicId === row.topic_id)
+        .map(value => ({ sessionId: value.sessionId, employeeId: value.employeeId }))
+      return { id: row.topic_id, title: row.title, state: row.state, destinations,
+        ...(destinations.length === 1 && destinations[0] !== undefined ? { sessionId: destinations[0].sessionId } : {}) }
+    })
+  }
+
+  /** Idempotently create an open topic, preserving an existing lifecycle state.
+   * @param surfaceId - Authorized conversation.
+   * @param id - Stable topic identity.
+   * @param title - Topic title.
+   */
+  async ensureTopic(surfaceId: string, id: string, title: string): Promise<void> {
+    await this.database.query(`INSERT INTO dsh_enterprise_collaboration_topics(surface_id,topic_id,title,state,created_at)
+      VALUES($1,$2,$3,'open',$4) ON CONFLICT(surface_id,topic_id) DO NOTHING`, [surfaceId, id, title, Date.now()])
+  }
+
+  /** Settle an existing open topic.
+   * @param surfaceId - Authorized conversation.
+   * @param id - Topic identity.
+   * @returns Whether this call performed the transition.
+   */
+  async settle(surfaceId: string, id: string): Promise<boolean> {
+    return (await this.database.query("UPDATE dsh_enterprise_collaboration_topics SET state='settled' WHERE surface_id=$1 AND topic_id=$2 AND state='open'", [surfaceId, id])).rowCount === 1
+  }
+
+  /** Read all durable native destinations for one conversation.
+   * @param surfaceId - Authorized conversation.
+   * @returns Native destination bindings.
+   */
+  async sessions(surfaceId: string): Promise<readonly CollaborationSession[]> {
+    const result = await this.query<{ surface_id: string; topic_id: string; employee_id: string; session_id: string }>('SELECT * FROM dsh_enterprise_collaboration_sessions WHERE surface_id=$1', [surfaceId])
+    return result.rows.map(row => ({ surfaceId: row.surface_id, topicId: row.topic_id, employeeId: row.employee_id,
+      sessionId: row.session_id }))
+  }
+
+  /** Resolve a native composer back to its durable routing owner.
+   * @param sessionId - Native Session identity.
+   * @returns Destination binding if the Session belongs to a collaboration conversation.
+   */
+  async bySession(sessionId: string): Promise<CollaborationSession | undefined> {
+    const row = (await this.query<{ surface_id: string; topic_id: string; employee_id: string; session_id: string }>('SELECT * FROM dsh_enterprise_collaboration_sessions WHERE session_id=$1', [sessionId])).rows[0]
+    return row === undefined ? undefined : { surfaceId: row.surface_id, topicId: row.topic_id, employeeId: row.employee_id,
+      sessionId: row.session_id }
+  }
+
+  /** Persist a native destination; races may only agree on the same deterministic Session.
+   * @param value - Created and authorized native Session binding.
+   */
+  async bind(value: CollaborationSession): Promise<void> {
+    const result = await this.database.query(`INSERT INTO dsh_enterprise_collaboration_sessions(surface_id,topic_id,employee_id,session_id)
+      VALUES($1,$2,$3,$4) ON CONFLICT(surface_id,topic_id,employee_id) DO UPDATE SET session_id=EXCLUDED.session_id
+      WHERE dsh_enterprise_collaboration_sessions.session_id=EXCLUDED.session_id`, [value.surfaceId, value.topicId, value.employeeId, value.sessionId])
+    if (result.rowCount !== 1) throw new Error('collaboration destination is already bound to another Session')
+  }
+}

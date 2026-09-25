@@ -69,6 +69,8 @@ import type {
   EnterpriseEmployeeRollbackRequest,
   EnterpriseEmployeeSaveRequest,
 } from './contract/employees.ts'
+import { composeCollaboration } from './collaboration-runtime.ts'
+import { composeSessionContext } from './session-context-http.ts'
 import { WorkspaceEmployeeDefaultService } from './workspace-employee-default.ts'
 import type {
   WorkspaceEmployeeDefaultRequest, WorkspaceEmployeeDefaultSaveRequest, WorkspaceEmployeeDefaultView,
@@ -214,7 +216,7 @@ import type {
 import { DeviceAgentHttpHandler } from './device-agent-http.ts'
 import { EmployeeHttpHandler } from './employee-http.ts'
 import { serveConsolidation } from './consolidation-http.ts'
-import { ProjectHttpHandler, SurfaceDirectoryHttpHandler, SurfaceHttpHandler } from './surfaces-http.ts'
+import { ProjectHttpHandler, SurfaceHttpHandler } from './surfaces-http.ts'
 import { RecorderRuntimeBridge, validateRecorderRuntimeSave } from './recorder-runtime.ts'
 
 export type * from './contract/index.ts'
@@ -2705,6 +2707,7 @@ async function serveRoute(
  * @param ctx - Input value used by this API.
 */
 export function apply(ctx: Context): void {
+  const collaboration = composeCollaboration(ctx, { operations: () => operations(ctx), teams: () => teamControl(ctx) })
   const deviceAgent = new DeviceAgentHttpHandler(ctx.enterprisePostgres.devicePlane)
   ctx.effect(() => ctx.webServer.register({
     kind: 'prefix', path: '/device-agent/v1',
@@ -2732,16 +2735,16 @@ export function apply(ctx: Context): void {
       catch { await writeResponse(res, Response.json({ error: 'invalid-request' }, { status: 400 })) }
     },
   }), 'enterprise-employee: authenticated employee dm routes')
-  // The composed surface runtime owns mutations. Without it, the PostgreSQL
-  // directory serves the authenticated list while mutations still fail loud.
+  ctx.effect(() => ctx.webServer.register({
+    kind: 'prefix', path: '/enterprise/session-context',
+    handler: async (req, res) => {
+      await serveRoute(res, await enterpriseRequest(req), request => composeSessionContext(ctx).fetch(request))
+    },
+  }), 'enterprise: authorized native Session details')
   ctx.effect(() => ctx.webServer.register({
     kind: 'prefix', path: '/enterprise/surfaces',
     handler: async (req, res) => {
-      const surfaces = ctx.get('surfaces')
-      await serveRoute(res, await enterpriseRequest(req), request =>
-        surfaces === undefined
-          ? new SurfaceDirectoryHttpHandler(ctx.enterprisePostgres.surfaceDirectory, ctx.enterpriseSecurity).fetch(request)
-          : new SurfaceHttpHandler(surfaces, ctx.enterpriseSecurity).fetch(request))
+      await serveRoute(res, await enterpriseRequest(req), request => collaboration.fetch(request))
     },
   }), 'enterprise-surface: authenticated collaboration surface routes')
   ctx.effect(() => ctx.webServer.register({
@@ -2797,6 +2800,6 @@ export function apply(ctx: Context): void {
 
 export const inject = [
   'enterprisePostgres', 'enterpriseSecurity', 'enterpriseRequestContext', 'enterpriseCordis',
-  'agentPresets', 'loader', 'credentials', 'llm', 'sessionController', 'webServer',
+  'agentPresets', 'agents', 'sessions', 'sessionPersistence', 'loader', 'credentials', 'llm', 'sessionController', 'webServer',
 ]
 export { name } from './invariant.ts'
