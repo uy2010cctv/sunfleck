@@ -33,6 +33,7 @@ interface Generation {
   mount: PresetMount
   users: number
   retired: boolean
+  employeeRelease?: { readonly releaseId: string; readonly releaseVersion: number }
 }
 interface Definition {
   config: PresetDefinition
@@ -94,7 +95,11 @@ export class AgentPresetRegistry extends TypertRemoteService {
 
   private policy(): { enabled: boolean; defaultId: string } {
     const enabled = this.config.modeSelectionEnabled.get()
-    return { enabled, defaultId: enabled ? this.config.selectedDefault.get() ?? this.config.default : this.config.default }
+    const selected = enabled ? this.config.selectedDefault.get() : undefined
+    const defaultId = selected !== undefined && this.definitions.has(selected)
+      && this.definitions.get(selected)?.config.kind !== 'employee'
+      ? selected : this.config.default
+    return { enabled, defaultId }
   }
 
   /** Register and eagerly load a definition; activation failure remains visible in the roster.
@@ -131,7 +136,12 @@ export class AgentPresetRegistry extends TypertRemoteService {
       if (problem !== undefined) throw new Error(problem)
       const context = scope.ctx.extend({ baseUrl: record.context.baseUrl })
       const mount = await mountPreset(context, record.config.id, record.config.plugins)
-      const generation: Generation = { scope, key, mount, users: 0, retired: false }
+      const employee = record.config.employee
+      const generation: Generation = {
+        scope, key, mount, users: 0, retired: false,
+        ...(employee?.releaseId === undefined || employee.releaseVersion === undefined
+          ? {} : { employeeRelease: { releaseId: employee.releaseId, releaseVersion: employee.releaseVersion } }),
+      }
       this.generations.set(key, generation)
       record.generation = generation
     } catch (error) {
@@ -179,6 +189,8 @@ export class AgentPresetRegistry extends TypertRemoteService {
       const broken = await this.diagnostic(record)
       return {
         id: record.config.id,
+        kind: record.config.kind === 'employee' ? 'employee' as const : 'mode' as const,
+        ...(record.config.employee === undefined ? {} : { employee: record.config.employee }),
         ...(record.config.name === undefined ? {} : { name: record.config.name }),
         ...(record.config.description === undefined ? {} : { description: record.config.description }),
         ...(record.config.order === undefined ? {} : { order: record.config.order }),
@@ -196,7 +208,7 @@ export class AgentPresetRegistry extends TypertRemoteService {
     const policy = this.policy()
     const visible = await Promise.all((await this.list()).map(async row => await this.allowed(row.id) ? row : undefined))
     return { presets: visible.filter((row): row is AgentPreset => row !== undefined)
-      .map(row => ({ ...row, isDefault: row.id === policy.defaultId })),
+      .map(row => ({ ...row, kind: row.kind ?? 'mode', isDefault: row.id === policy.defaultId })),
     modeSelectionEnabled: policy.enabled }
   }
 
@@ -321,6 +333,15 @@ export class AgentPresetRegistry extends TypertRemoteService {
    */
   serviceFor<K extends string & keyof Context>(agent: { ctx: Context }, name: K): Context[K] | undefined {
     return serviceForAgent(this.owner, agent, name)
+  }
+
+  /** Immutable employee release mounted in this Agent's retained preset generation, if any.
+   * @param ctx - Scoped Agent context.
+   * @returns the mounted release identity and version, or undefined for a work mode.
+   */
+  employeeReleaseFor(ctx: Context): { readonly releaseId: string; readonly releaseVersion: number } | undefined {
+    const key = scopeOf(ctx)
+    return key === undefined ? undefined : this.bindings.get(key)?.generation.employeeRelease
   }
 
   /** Rebind a blank Agent; the caller owns the blank-session check.

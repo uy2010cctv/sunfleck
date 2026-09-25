@@ -2,6 +2,7 @@
 import { createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { Context } from '@deepseek-ai/cordis'
+import { SessionId } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/cordis-plugin-loader'
 import { registerApp as officialRegisterLarkApp } from '@larksuiteoapi/node-sdk'
 import { Remote, RemoteError, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
@@ -68,6 +69,11 @@ import type {
   EnterpriseEmployeeRollbackRequest,
   EnterpriseEmployeeSaveRequest,
 } from './contract/employees.ts'
+import { WorkspaceEmployeeDefaultService } from './workspace-employee-default.ts'
+import type {
+  WorkspaceEmployeeDefaultRequest, WorkspaceEmployeeDefaultSaveRequest, WorkspaceEmployeeDefaultView,
+  EnterpriseEmployeeSessionRequest, EnterpriseEmployeeSessionValue,
+} from './contract/work.ts'
 import { RecorderMemoryRuntimeStore } from './recorder-memory-runtime.ts'
 import type {
   EnterpriseAsset,
@@ -708,7 +714,7 @@ export class EnterpriseEmployeeController extends TypertRemoteService {
     super(ctx, 'enterpriseEmployeeController', { namespace: 'enterpriseEmployee' })
     ctx.effect(() => ctx.agentPresets.registerAccessPolicy(id => this.canUsePreset(id)), 'enterprise employee preset access')
     this.restoration = ctx.loader.await().then(() => this.restorePublishedPresets())
-    void this.restoration.catch((error) => { ctx.logger.error(`employee preset restoration failed: ${String(error)}`) })
+    void this.restoration.catch((error: unknown) => { ctx.logger.error(`employee preset restoration failed: ${String(error)}`) })
     ctx.effect(() => async () => {
       await this.restoration.catch(() => undefined)
       for (const pending of this.employeePresetDisposers.values()) {
@@ -2404,8 +2410,9 @@ export class CordisGovernanceController extends TypertRemoteService {
 
 /** Goal-first enterprise work entry point. This slice deliberately does not route models, teams, tools, or budgets. */
 export class EnterpriseWorkController extends TypertRemoteService {
-  static inject = ['enterprisePostgres', 'enterpriseSecurity', 'enterpriseRequestContext', 'sessionController']
+  static inject = ['enterprisePostgres', 'enterpriseSecurity', 'enterpriseRequestContext', 'sessionController', 'agentPresets', 'agents']
   private readonly work: EnterpriseWorkStartService
+  private readonly workspaceDefaults: WorkspaceEmployeeDefaultService
   constructor(ctx: Context) {
     super(ctx, 'enterpriseWorkController', { namespace: 'enterpriseWork' })
     const session = ctx.get('sessionController') as {
@@ -2439,6 +2446,7 @@ export class EnterpriseWorkController extends TypertRemoteService {
         } while (cursor !== undefined)
         return (await Promise.all(drafts.filter(item => item.status === 'published').map(item => ctx.enterprisePostgres.catalog.listReleases(item.presetId, actor.orgId)))).flat() as EnterpriseEmployeeRelease[]
       },
+      workspaceEmployeeDefault: async id => (await ctx.enterprisePostgres.identity.workspaceEmployeeDefault(id))?.employeeId ?? null,
       createSession: async ({ sessionId, workspaceId, agentPresetId }) =>
         session.create({ sessionId, workspaceId, agentPreset: agentPresetId }),
       bindSession: (actor, sessionId, workspaceId) => ctx.enterpriseSecurity.bindSessionWorkspaceAsync(actor, sessionId, workspaceId),
@@ -2449,6 +2457,86 @@ export class EnterpriseWorkController extends TypertRemoteService {
       reserveWorkStart: ({ principal: actor, ...input }) => operations(ctx).reserveWorkStart(actor, input),
       getWorkStart: ({ principal: actor, ...input }) => operations(ctx).getWorkStart(actor, input),
       completeWorkStart: ({ principal: actor, ...input }) => operations(ctx).completeWorkStart(actor, input),
+    })
+    this.workspaceDefaults = new WorkspaceEmployeeDefaultService({
+      grant: id => ctx.enterprisePostgres.identity.workspaceGrant(id),
+      mayUseWorkspace: async (actor, id) => (await ctx.enterpriseSecurity.authorizeApiAsync(actor, 'session.create', { workspaceId: id })).allowed,
+      departmentManagers: async (orgId, departmentId) =>
+        (await ctx.enterprisePostgres.cordis.departmentManagers(orgId, departmentId))?.managerUserIds ?? [],
+      publishedEmployee: async (id, orgId) => {
+        const draft = await ctx.enterprisePostgres.catalog.getDraft(id, orgId)
+        if (draft?.status !== 'published') return undefined
+        const releases = await ctx.enterprisePostgres.catalog.listReleases(id, orgId)
+        return releases.length === 0 ? undefined : { presetId: id, orgId }
+      },
+      mayUseEmployee: async (actor, id) => (await ctx.enterpriseSecurity.authorizeApiAsync(
+        actor, 'enterpriseEmployee.getDraft', { presetId: id },
+      )).allowed,
+      read: id => ctx.enterprisePostgres.identity.workspaceEmployeeDefault(id),
+      save: input => ctx.enterprisePostgres.identity.saveWorkspaceEmployeeDefault(input),
+    })
+  }
+  /** Read the caller-visible default employee for one authorized Workspace.
+   * @param request - Workspace identity.
+   * @returns the visible employee choice and revision.
+   */
+  @Remote('workspaceDefault') async workspaceDefault(request: WorkspaceEmployeeDefaultRequest): Promise<WorkspaceEmployeeDefaultView> {
+    return catalogCall(this.ctx, 'enterpriseWork.workspaceDefault', request, 'workspace', request.workspaceId,
+      actor => this.workspaceDefaults.read(actor, request.workspaceId))
+  }
+  /** Set or clear a Workspace default under its manager policy and CAS revision.
+   * @param request - Workspace, employee choice, and expected revision.
+   * @returns the new caller-visible choice.
+   */
+  @Remote('saveWorkspaceDefault') async saveWorkspaceDefault(request: WorkspaceEmployeeDefaultSaveRequest): Promise<WorkspaceEmployeeDefaultView> {
+    return catalogCall(this.ctx, 'enterpriseWork.saveWorkspaceDefault', request, 'workspace', request.workspaceId,
+      actor => this.workspaceDefaults.save(actor, request))
+  }
+  /** Select a published employee for one owned blank Session and record the release used.
+   * @param request - Owned Session and employee identity.
+   * @returns the Workspace and immutable release mounted in that Session.
+   */
+  @Remote('selectEmployee') async selectEmployee(request: EnterpriseEmployeeSessionRequest): Promise<EnterpriseEmployeeSessionValue> {
+    return catalogCall(this.ctx, 'enterpriseWork.selectEmployee', request, 'employee', request.employeeId, async (actor) => {
+      if (!await this.ctx.enterpriseSecurity.sessionOwnedBy(actor, request.sessionId)) throw new Error('session is not available')
+      const grant = await this.ctx.enterprisePostgres.identity.sessionWorkspaceGrant(request.sessionId)
+      if (grant === undefined || grant.orgId !== actor.orgId ||
+        !(await this.ctx.enterpriseSecurity.authorizeApiAsync(actor, 'session.create', { workspaceId: grant.workspaceId })).allowed) {
+        throw new Error('workspace is not available')
+      }
+      if (!(await this.ctx.enterpriseSecurity.authorizeApiAsync(actor, 'enterpriseEmployee.getDraft', { presetId: request.employeeId })).allowed) {
+        throw new Error('employee is not available')
+      }
+      const draft = await this.ctx.enterprisePostgres.catalog.getDraft(request.employeeId, actor.orgId)
+      if (draft?.status !== 'published') throw new Error('employee is not published')
+      const release = (await this.ctx.enterprisePostgres.catalog.listReleases(request.employeeId, actor.orgId))
+        .sort((a, b) => b.version - a.version)[0]
+      if (release === undefined) throw new Error('employee has no published release')
+      const agent = this.ctx.agents.get(SessionId(request.sessionId))
+      if (agent === undefined) throw new Error('blank session is not active')
+      const previousPreset = this.ctx.agentPresets.composedPreset(agent.ctx)
+      await this.ctx.agentPresets.select(agent, request.employeeId)
+      const mounted = this.ctx.agentPresets.employeeReleaseFor(agent.ctx)
+      if (mounted === undefined || mounted.releaseVersion < release.version) throw new Error('latest employee release is not active')
+      const actualRelease = await this.ctx.enterprisePostgres.catalog.getRelease(mounted.releaseId, actor.orgId)
+      if (actualRelease?.presetId !== request.employeeId) throw new Error('employee release is not available')
+      try {
+        await operations(this.ctx).upsertWorkRecord(actor, {
+          sessionId: request.sessionId, employeeReleaseId: mounted.releaseId, source: 'console',
+          businessState: 'active', sourceReferences: { employeeId: request.employeeId, releaseVersion: mounted.releaseVersion },
+          expectedRevision: 0, idempotencyKey: `employee-session:${request.sessionId}:${mounted.releaseId}`,
+        })
+      } catch (error) {
+        if (previousPreset !== undefined && previousPreset !== request.employeeId) {
+          try { await this.ctx.agentPresets.select(agent, previousPreset) }
+          catch (rollbackError) { this.ctx.logger.error(`employee selection rollback failed: ${String(rollbackError)}`) }
+        }
+        throw error
+      }
+      return {
+        sessionId: request.sessionId, employeeId: request.employeeId, workspaceId: grant.workspaceId,
+        employeeReleaseId: mounted.releaseId, releaseVersion: mounted.releaseVersion,
+      }
     })
   }
   /**

@@ -146,6 +146,7 @@ export function ConversationContent(props: ConversationContentProps) {
         </span>
       )}
       {renderSlot('conversation.hero.agentPreset', {})}
+      {renderSlot('conversation.hero.employee', {})}
     </div>
   )
 

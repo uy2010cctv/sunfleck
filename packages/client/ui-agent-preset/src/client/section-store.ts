@@ -33,6 +33,7 @@ export class AgentPresetSectionController {
   readonly store: SnapshotStore<AgentPresetSectionState> = createSnapshotStore(INITIAL)
   private loading: Promise<void> | undefined
   private viewRequest = 0
+  private employeeIds = new Set<string>()
   constructor(private readonly ctx: Context) {}
 
   private set(patch: Partial<AgentPresetSectionState>): void { this.store.set({ ...this.store.getSnapshot(), ...patch }) }
@@ -47,7 +48,8 @@ export class AgentPresetSectionController {
     try {
       const result = await this.ctx.remote.agentPresets.list()
       if (!result.ok) throw new Error(result.error.message)
-      this.set({ status: 'ready', error: null, rows: result.value.presets, showPicker: result.value.modeSelectionEnabled })
+      this.employeeIds = new Set(result.value.presets.filter(row => row.kind === 'employee').map(row => row.id))
+      this.set({ status: 'ready', error: null, rows: result.value.presets.filter(row => row.kind !== 'employee'), showPicker: result.value.modeSelectionEnabled })
     } catch (error) { this.set({ status: 'error', error: message(error) }) }
   }
 
@@ -76,6 +78,7 @@ export class AgentPresetSectionController {
    */
   async makeDefault(id: string, sync?: (id: string) => Promise<string | undefined>): Promise<void> {
     if (!this.store.getSnapshot().showPicker) return
+    if (this.employeeIds.has(id)) return
     await this.policy(() => writeDefaultPreset(this.ctx, id), sync)
   }
   /** Change chooser visibility.

@@ -7,6 +7,9 @@ import type { SessionId } from '@deepseek-ai/dsh-session/types'
  * upstream declarations leave it unset.
  */
 export interface EmployeeMetadata {
+  /** Immutable release selected by new sessions using this declaration. */
+  readonly releaseId?: string
+  readonly releaseVersion?: number
   /** Human-facing position in the enterprise roster. */
   readonly position?: string
   /** Human-facing department in the enterprise roster. */
@@ -21,6 +24,8 @@ export interface EmployeeMetadata {
 export interface AgentPresetRow {
   /** Stable identifier; also the label's fallback. */
   readonly id: string
+  /** Employee declarations are separately governed by the enterprise catalog. */
+  readonly kind?: 'mode' | 'employee'
   /** Whether a session naming no preset composes this one. */
   readonly isDefault: boolean
   /** Display name the preset published. */

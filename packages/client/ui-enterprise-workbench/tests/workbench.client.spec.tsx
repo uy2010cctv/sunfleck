@@ -126,6 +126,8 @@ function workbenchProps(overrides: Partial<EnterpriseWorkbenchProps> & {
     close: vi.fn(),
     refresh: vi.fn(() => Promise.resolve()),
     startEmployee: vi.fn(() => Promise.resolve()),
+    readWorkspaceDefault: vi.fn(() => Promise.resolve({ workspaceId: 'workspace-1', employeeId: null, revision: 0, unavailable: false, manageable: false })),
+    saveWorkspaceDefault: vi.fn(() => Promise.resolve({ workspaceId: 'workspace-1', employeeId: null, revision: 1, unavailable: false, manageable: true })),
     loadEmployees: vi.fn(() => Promise.resolve(true)),
     sendMessage: vi.fn(() => Promise.resolve(true)),
     selectEmployee: vi.fn(),
@@ -1678,7 +1680,7 @@ describe('EnterpriseWorkbench', () => {
       }] } }, startEmployee, openEmployeeDraft,
     } as never)} />)
     fireEvent.click(screen.getByRole('button', { name: '与采购专员发起对话' }))
-    expect(startEmployee).toHaveBeenCalledWith('buyer')
+    expect(startEmployee).toHaveBeenCalledWith('buyer', 'workspace-1')
     expect(openEmployeeDraft).not.toHaveBeenCalled()
     fireEvent.click(screen.getByRole('button', { name: '编辑采购专员' }))
     expect(openEmployeeDraft).toHaveBeenCalledWith('buyer')
@@ -2135,7 +2137,7 @@ describe('EnterpriseWorkbench', () => {
     const startEmployee = vi.fn(() => Promise.resolve())
     render(<EnterpriseWorkbench {...workbenchProps({ startEmployee })} />)
     fireEvent.click(screen.getByLabelText('开始工作目标：标准模式'))
-    expect(startEmployee).toHaveBeenCalledWith('standard')
+    expect(startEmployee).toHaveBeenCalledWith('standard', 'workspace-1')
   })
 
   it('renders one-page employee fields, validation summary, explicit save, and dirty leave guard', () => {
@@ -2379,7 +2381,7 @@ describe('EnterpriseWorkbench', () => {
     render(<EnterpriseWorkbench {...workbenchProps({ startEmployee, openRecord })} />)
 
     fireEvent.click(screen.getByRole('button', { name: '与标准模式发起对话' }))
-    expect(startEmployee).toHaveBeenCalledWith('standard')
+    expect(startEmployee).toHaveBeenCalledWith('standard', 'workspace-1')
     expect(screen.getByRole('button', { name: '损坏员工不可用' }).hasAttribute('disabled')).toBe(true)
 
     fireEvent.click(screen.getByRole('button', { name: '打开工作记录：供应商核验' }))

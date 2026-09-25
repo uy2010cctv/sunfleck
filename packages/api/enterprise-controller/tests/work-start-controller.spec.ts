@@ -23,6 +23,16 @@ describe('enterprise work start', () => {
   it('returns every authorized personal workspace when implicit selection is ambiguous', async () => { const { service, calls } = setup({ personalWorkspaces: async () => ['personal-z', 'personal-a'] }); await expect(service.prepare(principal, { objective: 'Close books' })).resolves.toEqual({ kind: 'needs-workspace-selection', availableWorkspaceIds: ['personal-z', 'personal-a'] }); await expect(service.start(principal, { objective: 'Close books', idempotencyKey: 'ambiguous-workspace' })).rejects.toThrow('workspace selection is required'); expect(calls.create).toBe(0) })
   it('returns a typed workspace selection when no caller-owned personal workspace is authorized', async () => { const { service, calls } = setup({ personalWorkspaces: async () => [] }); await expect(service.prepare(principal, { objective: 'Close books' })).resolves.toEqual({ kind: 'needs-workspace-selection', availableWorkspaceIds: [] }); await expect(service.start(principal, { objective: 'Close books', idempotencyKey: 'missing-workspace' })).rejects.toThrow('workspace selection is required'); expect(calls.create).toBe(0) })
   it('requires explicit employee selection when visible published presets are ambiguous', async () => { const { service } = setup({ releases: async () => [release('release-a'), release('release-b', 'preset-b')] }); await expect(service.prepare(principal, { objective: 'Close books' })).resolves.toMatchObject({ kind: 'needs-selection' }) })
+  it('uses the latest visible release of the Workspace default employee', async () => {
+    const { service } = setup({
+      releases: async () => [release('release-a'), release('release-b-v1', 'preset-b', 1), release('release-b-v2', 'preset-b', 2)],
+      workspaceEmployeeDefault: async () => 'preset-b',
+    })
+    await expect(service.prepare(principal, { objective: 'Close books' }))
+      .resolves.toMatchObject({ kind: 'ready', employeeReleaseId: 'release-b-v2' })
+    await expect(service.prepare(principal, { objective: 'Close books', preferredEmployeeReleaseId: 'release-a' }))
+      .resolves.toMatchObject({ kind: 'ready', employeeReleaseId: 'release-a' })
+  })
   it('automatically chooses only the latest published release for one preset', async () => { const { service } = setup({ releases: async () => [release('release-v1', 'preset-a', 1), release('release-v2', 'preset-a', 2)] }); await expect(service.prepare(principal, { objective: 'Close books' })).resolves.toMatchObject({ kind: 'ready', employeeReleaseId: 'release-v2' }) })
   it('allows an explicitly preferred historical published release', async () => { const { service } = setup({ releases: async () => [release('release-v1', 'preset-a', 1), release('release-v2', 'preset-a', 2)] }); await expect(service.prepare(principal, { objective: 'Close books', preferredEmployeeReleaseId: 'release-v1' })).resolves.toMatchObject({ kind: 'ready', employeeReleaseId: 'release-v1' }) })
   it('rejects an unauthorized explicit workspace', async () => { const { service } = setup(); await expect(service.prepare(principal, { objective: 'Close books', workspaceId: 'denied' })).rejects.toThrow('workspace is not authorized') })
@@ -139,6 +149,40 @@ describe('enterprise work start', () => {
 })
 
 describe('enterprise work Remote controller', () => {
+  it('rechecks employee and workspace access before binding a blank Session', async () => {
+    const requestContext = new EnterpriseRequestContext()
+    const select = vi.fn(async () => 'preset-a')
+    const upsertWorkRecord = vi.fn(async () => ({}))
+    let employeeAllowed = false
+    const ctx = new Context()
+    ctx.provide('enterprisePostgres' as never, {
+      identity: {
+        workspaceGrant: async () => ({ workspaceId: 'workspace-a', orgId: 'org-a', kind: 'personal', ownerUserId: 'user-a' }),
+        sessionWorkspaceGrant: async () => ({ workspaceId: 'workspace-a', orgId: 'org-a' }),
+        workspaceEmployeeDefault: async () => undefined,
+      },
+      catalog: { getDraft: async () => ({ presetId: 'preset-a', status: 'published' }), getRelease: async () => release('release-a'), listReleases: async () => [release('release-a')] },
+      operations: operationDriver(upsertWorkRecord),
+    } as never)
+    ctx.provide('enterpriseSecurity' as never, {
+      authorizeApiAsync: async (_actor: unknown, endpoint: string) => ({ allowed: endpoint !== 'enterpriseEmployee.getDraft' || employeeAllowed, reason: 'test' }),
+      auditApiAsync: async () => undefined, sessionOwnedBy: async () => true,
+    } as never)
+    ctx.provide('enterpriseRequestContext' as never, requestContext as never)
+    ctx.provide('sessionController' as never, { create: async () => ({ sessionId: 'session-a' }) } as never)
+    ctx.provide('agentPresets' as never, { composedPreset: () => 'standard', employeeReleaseFor: () => ({ releaseId: 'release-a', releaseVersion: 1 }), select } as never)
+    ctx.provide('agents' as never, { get: () => ({ ctx: {}, session: {} }) } as never)
+    ctx.provide('sessionProjections' as never, { stateOf: () => ({ openTurnStartSeq: null, lastTurn: 0 }) } as never)
+    const controller = new EnterpriseWorkController(ctx)
+    await expect(requestContext.run(principal, () => controller.selectEmployee({ sessionId: 'session-a', employeeId: 'preset-a' })))
+      .rejects.toThrow()
+    expect(select).not.toHaveBeenCalled()
+    employeeAllowed = true
+    await expect(requestContext.run(principal, () => controller.selectEmployee({ sessionId: 'session-a', employeeId: 'preset-a' })))
+      .resolves.toMatchObject({ workspaceId: 'workspace-a', employeeReleaseId: 'release-a' })
+    expect(select).toHaveBeenCalledOnce()
+    expect(upsertWorkRecord).toHaveBeenCalledWith(expect.objectContaining({ employeeReleaseId: 'release-a', sessionId: 'session-a' }))
+  })
   it('requires workspace selection instead of choosing the first caller-owned personal workspace', async () => {
     const requestContext = new EnterpriseRequestContext()
     const create = vi.fn(async (input: { sessionId: string }) => ({ sessionId: input.sessionId }))
@@ -146,6 +190,7 @@ describe('enterprise work Remote controller', () => {
     ctx.provide('enterprisePostgres' as never, {
       identity: {
         workspaceGrant: async (workspaceId: string) => ({ workspaceId, orgId: 'org-a' }),
+        workspaceEmployeeDefault: async () => undefined,
         listWorkspaceGrants: async () => [
           { workspaceId: 'personal-z', kind: 'personal', ownerUserId: 'user-a', orgId: 'org-a' },
           { workspaceId: 'personal-a', kind: 'personal', ownerUserId: 'user-a', orgId: 'org-a' },
@@ -176,7 +221,7 @@ describe('enterprise work Remote controller', () => {
       : { items: [{ presetId: 'preset-later', status: 'published' as const }] })
     const ctx = new Context()
     ctx.provide('enterprisePostgres' as never, {
-      identity: { workspaceGrant: async (workspaceId: string) => ({ workspaceId, orgId: 'org-a' }), listWorkspaceGrants: async () => [{ workspaceId: 'personal-a', kind: 'personal', ownerUserId: 'user-a', orgId: 'org-a' }], sessionWorkspaceGrant: async () => undefined },
+      identity: { workspaceGrant: async (workspaceId: string) => ({ workspaceId, orgId: 'org-a' }), workspaceEmployeeDefault: async () => undefined, listWorkspaceGrants: async () => [{ workspaceId: 'personal-a', kind: 'personal', ownerUserId: 'user-a', orgId: 'org-a' }], sessionWorkspaceGrant: async () => undefined },
       catalog: { listDrafts, listReleases: async (presetId: string) => [release('release-later', presetId)] },
       operations: operationDriver(),
     } as never)
@@ -199,7 +244,7 @@ describe('enterprise work Remote controller', () => {
       : { items: [{ presetId: 'preset-other-owner', status: 'published' as const }] })
     const ctx = new Context()
     ctx.provide('enterprisePostgres' as never, {
-      identity: { workspaceGrant: async (workspaceId: string) => ({ workspaceId, orgId: 'org-a' }), listWorkspaceGrants: async () => [{ workspaceId: 'personal-a', kind: 'personal', ownerUserId: 'admin-a', orgId: 'org-a' }], sessionWorkspaceGrant: async () => undefined },
+      identity: { workspaceGrant: async (workspaceId: string) => ({ workspaceId, orgId: 'org-a' }), workspaceEmployeeDefault: async () => undefined, listWorkspaceGrants: async () => [{ workspaceId: 'personal-a', kind: 'personal', ownerUserId: 'admin-a', orgId: 'org-a' }], sessionWorkspaceGrant: async () => undefined },
       catalog: { listDrafts, listReleases: async (presetId: string) => [release(`release-${presetId}`, presetId)] },
       operations: operationDriver(),
     } as never)
@@ -229,6 +274,7 @@ describe('enterprise work Remote controller', () => {
     ctx.provide('enterprisePostgres' as never, {
       identity: {
         workspaceGrant: async (workspaceId: string) => ({ workspaceId, orgId: 'org-a' }),
+        workspaceEmployeeDefault: async () => undefined,
         listWorkspaceGrants: async () => [], sessionWorkspaceGrant: async () => undefined,
       },
       catalog: { listDrafts: async () => ({ items: [{ presetId: 'preset-a', status: 'published' }] }), listReleases: async () => [release('release-a')] },
@@ -281,6 +327,7 @@ describe('enterprise work Remote controller', () => {
     ctx.provide('enterprisePostgres' as never, {
       identity: {
         workspaceGrant: async (workspaceId: string) => ({ workspaceId, orgId: 'org-a' }),
+        workspaceEmployeeDefault: async () => undefined,
         listWorkspaceGrants: async () => [], sessionWorkspaceGrant: async () => undefined,
       },
       catalog: { listDrafts: async () => ({ items: [{ presetId: 'preset-a', status: 'published' }] }), listReleases: async () => [release('release-a')] },

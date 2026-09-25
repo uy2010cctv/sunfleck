@@ -10,13 +10,13 @@ DSH 把 Agent Preset、Workspace、Session 和 Session Event 作为独立的开�
 
 ## 决策
 
-企业运营层是 DSH 原生投影。Agent Preset 是员工定义，Workspace 是业务空间，Session 是工作记录，Session Event 继续作为审计事实来源。
+企业运营层是 DSH 原生投影。已发布员工 Release 投影为可执行的 Agent Preset，Workspace 是业务空间，Session 是工作记录，Session Event 继续作为运行时审计事实来源。[员工与工作方式的归属](../architecture/2026-09-25-digital-employee-and-agent-mode-ownership.zh.md) 负责独立的浏览器入口和工作区默认值。
 
 浏览器界面只做增量组合：一个 Sidebar 底部动作和一个框架级 overlay。开始工作委托给 `SessionRuntime.create({ agentPreset })`；选择既有工作时打开原 Session。企业包不重复存储工作生命周期。
 
 ## Preset 元数据
 
-`preset.yml` 有一个可选的 `employee` 展示块，包含职位、部门和能力标签。这些字段明确不具有权威性：Preset id 仍是身份，已挂载的 composition 仍是能力和权限的权威来源。复制 Preset 时保留可复用的展示元数据，但仍丢弃源名称和 roster 顺序。
+已发布目录 Release 提供员工展示和运行时 Persona 字段。稳定的 preset id 保持身份；能力标签不授予工具或权限。普通 Agent Preset 声明仍是工作方式。
 
 ## 受管员工创建
 

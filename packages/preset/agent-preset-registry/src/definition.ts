@@ -1,9 +1,13 @@
 /** Declarative preset configuration and YAML validation. */
 import type { EntryOptions, JsExpr } from '@deepseek-ai/cordis-plugin-loader'
+import type { EmployeeMetadata } from './types.ts'
 
 /** Identity, display fields and child Cordis plugins of one preset. */
 export interface PresetDefinition {
   readonly id: string
+  /** Employee declarations are runtime projections, not user-authored work modes. */
+  readonly kind?: 'employee'
+  readonly employee?: EmployeeMetadata
   readonly name?: string
   readonly description?: string
   readonly order?: number

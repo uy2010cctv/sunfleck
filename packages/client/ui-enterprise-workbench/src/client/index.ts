@@ -13,6 +13,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import { EnterpriseTrigger } from './EnterpriseTrigger.tsx'
 import { EnterpriseWorkbench } from './EnterpriseWorkbench.tsx'
+import { EmployeeSeat } from './EmployeeSeat.tsx'
 import type { EnterpriseWorkbenchInjected } from './EnterpriseWorkbench.tsx'
 import { en, NS, zh, type EnterpriseWorkbenchKey } from './locales.ts'
 import {
@@ -31,6 +32,8 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
     'enterprise.workbench': EnterpriseWorkbenchKey
   }
   interface SlotMap {
+    /** Separate published employee picker beside the generic work-mode control. */
+    'conversation.hero.employee': { kind: 'single'; scope: 'session-maybe' }
     /** Employee-scoped channel adapters rendered inside the enterprise workbench. */
     'enterprise.employee-channels': {
       kind: 'list'
@@ -231,7 +234,51 @@ export function apply(ctx: Context): void {
     cordisWorkspace: ctx.remote.cordisWorkspace,
     cordisReview: ctx.remote.cordisReview,
     cordisGovernance: ctx.remote.cordisGovernance,
-  }, ctx.sessions, ctx.workspaces, sessionId => ctx.uiWorkspace.openSession(sessionId))
+  }, ctx.sessions, ctx.workspaces, (sessionId) => { ctx.uiWorkspace.openSession(sessionId) })
+
+  const attemptedDefaults = new Set<string>()
+  ctx.inject(['conversation'], (scope) => {
+    scope.effect(() => scope.slots.register({
+      name: 'conversation.hero.employee', locale: NS,
+      inject: (): import('./EmployeeSeat.tsx').EmployeeSeatInjected => ({
+        load: async (sessionId) => {
+          const roster = await ctx.remote.agentPresets.list()
+          if (!roster.ok) throw new Error(roster.error.message)
+          const employees = roster.value.presets.filter(row => row.kind === 'employee' && row.broken === undefined)
+          const workspaceId = ctx.workspaces.list.getSnapshot().items.find(row => row.sessionIds.includes(sessionId as never))?.workspaceId
+          const summary = ctx.sessions.list.getSnapshot().byId[sessionId as never]
+          let selectedId = employees.find(row => row.id === summary?.projectionValues?.agentPreset)?.id
+          if (workspaceId === undefined) return { employees, ...(selectedId === undefined ? {} : { selectedId }), unavailable: false }
+          const response = await ctx.remote.enterpriseWork.workspaceDefault({ workspaceId })
+          if (!response.ok) throw new Error(response.error.message)
+          const configured = response.value.employeeId
+          let unavailable = response.value.unavailable || (configured !== null && !employees.some(row => row.id === configured))
+          if (summary?.blank && selectedId === undefined && configured !== null && !unavailable
+            && !attemptedDefaults.has(sessionId)) {
+            attemptedDefaults.add(sessionId)
+            try {
+              const chosen = await ctx.remote.enterpriseWork.selectEmployee({ sessionId, employeeId: configured })
+              if (!chosen.ok) throw new Error(chosen.error.message)
+              selectedId = configured
+            } catch {
+              attemptedDefaults.delete(sessionId)
+              unavailable = true
+            }
+          }
+          return { employees, ...(selectedId === undefined ? {} : { selectedId }), unavailable }
+        },
+        select: async (sessionId, employeeId) => {
+          const selected = await ctx.remote.enterpriseWork.selectEmployee({ sessionId, employeeId })
+          if (!selected.ok) throw new Error(selected.error.message)
+        },
+        currentPreset: (sessionId) => {
+          const preset = ctx.sessions.list.getSnapshot().byId[sessionId as never]?.projectionValues?.agentPreset
+          return typeof preset === 'string' ? preset : undefined
+        },
+        subscribe: listener => ctx.sessions.list.subscribe(listener),
+      }),
+    }, EmployeeSeat), 'enterprise-workbench: digital employee hero picker')
+  })
 
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'enterprise-workbench: dictionaries')
 
@@ -266,7 +313,17 @@ export function apply(ctx: Context): void {
     publishEmployee: () => controller.publishEmployee(),
     rollbackEmployee: releaseId => controller.rollbackEmployee(releaseId),
     closeEmployeeEditor: () => { controller.closeEmployeeEditor() },
-    startEmployee: id => controller.startEmployee(id),
+    startEmployee: (id, workspaceId) => controller.startEmployee(id, workspaceId),
+    readWorkspaceDefault: async (workspaceId) => {
+      const result = await ctx.remote.enterpriseWork.workspaceDefault({ workspaceId })
+      if (!result.ok) throw new Error(result.error.message)
+      return result.value
+    },
+    saveWorkspaceDefault: async (input) => {
+      const result = await ctx.remote.enterpriseWork.saveWorkspaceDefault(input)
+      if (!result.ok) throw new Error(result.error.message)
+      return result.value
+    },
     loadEmployees: () => controller.loadEmployees(),
     sendMessage: (employeeId, text) => controller.sendMessage(employeeId, text),
     selectEmployee: (employeeId) => { controller.selectEmployee(employeeId) },

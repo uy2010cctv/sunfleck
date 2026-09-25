@@ -30,6 +30,7 @@ export interface EnterpriseWorkStartDependencies {
   readonly sessionWorkspace: (sessionId: string) => Promise<string | undefined>
   readonly personalWorkspaces: (principal: EnterprisePrincipal) => Promise<readonly string[]>
   readonly releases: (principal: EnterprisePrincipal) => Promise<readonly EnterpriseEmployeeRelease[]>
+  readonly workspaceEmployeeDefault?: (workspaceId: string) => Promise<string | null>
   readonly createSession: (input: {
     sessionId: string
     workspaceId: string
@@ -91,6 +92,9 @@ export class EnterpriseWorkStartService {
     if (request.preferredEmployeeReleaseId !== undefined && preferred === undefined) throw new Error('employee release is not visible or published')
     if (preferred !== undefined) return { kind: 'ready', workspaceId, employeeReleaseId: preferred.releaseId }
     const current = currentReleases(releases)
+    const defaultEmployeeId = await this.deps.workspaceEmployeeDefault?.(workspaceId)
+    const workspaceDefault = current.find(item => item.presetId === defaultEmployeeId)
+    if (workspaceDefault !== undefined) return { kind: 'ready', workspaceId, employeeReleaseId: workspaceDefault.releaseId }
     const [only] = current
     if (only !== undefined && current.length === 1) return { kind: 'ready', workspaceId, employeeReleaseId: only.releaseId }
     return { kind: 'needs-selection', workspaceId, availableEmployeeReleaseIds: current.map(item => item.releaseId) }

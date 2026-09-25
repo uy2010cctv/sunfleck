@@ -10,13 +10,13 @@ DSH exposes Agent Presets, Workspaces, Sessions, and Session Events as separate 
 
 ## Decision
 
-The enterprise operations layer is a DSH-native projection. Agent Presets are employee definitions, Workspaces are business spaces, Sessions are work records, and Session Events remain the audit source of truth.
+The enterprise operations layer is a DSH-native projection. Published employee Releases project into executable Agent Presets, Workspaces are business spaces, Sessions are work records, and Session Events remain the runtime audit source of truth. [Employee and mode ownership](../architecture/2026-09-25-digital-employee-and-agent-mode-ownership.md) governs their separate browser entries and Workspace defaults.
 
 The browser surface is additive: one Sidebar footer action and one frame overlay. Starting work delegates to `SessionRuntime.create({ agentPreset })`; selecting existing work opens the original Session. The enterprise package stores no duplicate work lifecycle.
 
 ## Preset metadata
 
-`preset.yml` has an optional `employee` presentation block with position, department, and capability labels. The fields are deliberately non-authoritative: the Preset id stays the identity, and the mounted composition stays the capability and permission authority. Copying a Preset retains reusable presentation while continuing to drop the source name and roster order.
+The published catalog Release supplies employee presentation and runtime persona fields. Its stable preset id remains the identity; capability labels do not grant tools or permissions. Ordinary Agent Preset declarations remain work modes.
 
 ## Managed employee creation
 

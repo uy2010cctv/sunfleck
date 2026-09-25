@@ -32,7 +32,7 @@ Roster cards and the capability overview request provider counts through the exi
 
 Enterprise digital-employee operations surface for the DSH Web client. The enterprise profile reads authenticated PostgreSQL catalog and operations projections through the typed Host API, while an ordinary profile retains the native runtime projection when those enterprise domains explicitly report unavailable:
 
-- Agent Presets are digital employees.
+- Published digital employees use Agent Presets as runtime projections; generic presets remain work modes.
 - Workspaces are business spaces.
 - Sessions are work records.
 - Pending interactions, running state, completion hints, Jobs, and Session projections remain owned by their existing packages.
@@ -45,24 +45,15 @@ The Workspace extensions page opens on “My extensions” across all Workspaces
 
 The employee page starts with a goal-first work panel. It sends the objective, optional deadline, and an open native Session only when one exists to `enterpriseWork.prepare`; it never guesses a workspace from list order. A ready result starts work with one browser-generated idempotency key, opens the returned native Session, and closes the overlay. Ambiguous results expose only matching Workspace titles or employee name and release version from loaded browser snapshots; identifiers, model routes, and team settings remain absent. The panel keeps preparation and start failures visible with retry and clear actions.
 
+The employee page also lets the operator choose a Workspace before starting a roster card. A department manager or organization administrator may set that Workspace's default employee; a personal Workspace owner may set its default. Other members see only authorized employees. The new-session employee control applies an available Workspace default to a blank Session without sending a prompt, and members may switch to another employee or work mode. The old employee direct-message directory is hidden while its complete PostgreSQL runtime is unavailable; its stored data and endpoints remain intact.
+
 Enterprise Host frames are forwarded by the runtime's single stream owner. Each enterprise frame carries a `resourceType`; the workbench deduplicates `eventId` values and refreshes the owning read model even when its page is in the background. Mutations share a contained error/retry state and reuse the originally generated idempotency key on retry. Revision conflicts never retry a stale revision: the recovery action reloads the server version, while employee edits retain the unsaved local copy and show a comparison. The operator then explicitly adopts the server draft or keeps local fields on the new server revision. If reload fails, retry repeats only that reload. Independent page failures remain local: loading, empty, error, forbidden, and partial-success states do not erase read models that loaded successfully.
 
-Optional employee presentation comes from the Preset's `preset.yml`:
-
-```yaml
-employee:
-  position: 通用执行员工
-  department: 数字化运营
-  capabilities:
-    - 文件与命令执行
-    - 信息检索
-```
-
-These fields are display metadata only. The Preset id remains the stable runtime and employee identity; capability labels never grant tools or permissions.
+Employee presentation comes from the published catalog release: name, position, department, capability labels, and immutable release version. These fields describe the employee; capability labels never grant tools or permissions. The employee's preset id remains its stable runtime identity.
 
 ## Ordinary-profile fallback
 
-Fallback activates only when `enterpriseEmployee.list` returns the explicit enterprise-unavailable response. Other transport, authorization, cursor, and server failures stay visible as failures; they do not silently downgrade to the broader native projection. In fallback mode, selecting a work record opens its source Session and starting an employee creates a native Session with the corresponding Agent Preset.
+Fallback activates only when `enterpriseEmployee.list` returns the explicit enterprise-unavailable response. Other transport, authorization, cursor, and server failures stay visible as failures. The fallback roster includes only declarations marked as employees; generic work modes stay in the mode picker. Starting a fallback employee requires an explicit Workspace choice.
 
 ## Security boundary
 

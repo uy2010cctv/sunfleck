@@ -156,6 +156,13 @@ const STATEMENTS = [
   )`,
   `CREATE INDEX IF NOT EXISTS enterprise_workspace_grants_org_kind
     ON enterprise_workspace_grants(org_id, kind, name, workspace_id)`,
+  `CREATE TABLE IF NOT EXISTS enterprise_workspace_employee_defaults (
+    workspace_id TEXT PRIMARY KEY REFERENCES enterprise_workspace_grants(workspace_id) ON DELETE CASCADE,
+    org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+    employee_id TEXT,
+    revision BIGINT NOT NULL CHECK (revision > 0),
+    updated_at BIGINT NOT NULL
+  )`,
   `CREATE TABLE IF NOT EXISTS enterprise_memories (${ENTERPRISE_MEMORIES_COLUMNS}
   )`,
   `CREATE INDEX IF NOT EXISTS enterprise_memories_scope_status

@@ -72,6 +72,25 @@ describe.skipIf(url === undefined)('enterprise identity PostgreSQL directory int
     await expect(repository.sessionOwnerUserId('session-pg')).resolves.toBe('user-1')
   })
 
+  it('keeps a workspace employee default across reads and rejects stale revisions', async () => {
+    await repository.saveWorkspaceGrant({
+      workspaceId: 'workspace-default-test', orgId: 'org-a', name: 'Default test', kind: 'personal',
+      ownerUserId: 'user-1', rootPath: '/managed/users/default-test', sandboxMode: 'workspace-write', expectedRevision: 0,
+    })
+    await expect(repository.workspaceEmployeeDefault('workspace-default-test')).resolves.toBeUndefined()
+    const first = await repository.saveWorkspaceEmployeeDefault({
+      workspaceId: 'workspace-default-test', orgId: 'org-a', employeeId: 'employee-a', revision: 1, expectedRevision: 0,
+    })
+    expect(first).toMatchObject({ employeeId: 'employee-a', revision: 1 })
+    await expect(repository.saveWorkspaceEmployeeDefault({
+      workspaceId: 'workspace-default-test', orgId: 'org-a', employeeId: 'employee-b', revision: 1, expectedRevision: 0,
+    })).rejects.toThrow('revision conflict')
+    await expect(repository.saveWorkspaceEmployeeDefault({
+      workspaceId: 'workspace-default-test', orgId: 'org-a', employeeId: null, revision: 2, expectedRevision: 1,
+    })).resolves.toMatchObject({ employeeId: null, revision: 2 })
+    await expect(repository.workspaceEmployeeDefault('workspace-default-test')).resolves.toMatchObject({ revision: 2, employeeId: null })
+  })
+
   it('renames an organization without changing its durable id', async () => {
     await repository.updateOrganization('org-a', 'Renamed Org A')
 

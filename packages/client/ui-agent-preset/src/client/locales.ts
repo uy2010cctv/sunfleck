@@ -7,6 +7,7 @@ export type AgentPresetSettingsKey =
   | PresetGuideKey
   | 'builtInGroup'
   | 'customGroup'
+  | 'modeGroup'
   | 'seatHint'
   | 'headerHint'
   | 'nav'
@@ -38,6 +39,7 @@ export type AgentPresetSettingsKey =
 export const en: Record<AgentPresetSettingsKey, string> = {
   ...guideEn,
   builtInGroup: 'Built-in', customGroup: 'Custom',
+  modeGroup: 'Work mode',
   sectionIntro: 'Choose the agent’s tools and how it works. Use Standard mode for everyday tasks, or Creator mode to add capabilities to DSH.',
 
   seatHint: 'Choose the agent preset for your new task',
@@ -84,6 +86,7 @@ export const en: Record<AgentPresetSettingsKey, string> = {
 export const zh: Record<AgentPresetSettingsKey, string> = {
   ...guideZh,
   builtInGroup: '内置', customGroup: '自定义',
+  modeGroup: '工作方式',
   sectionIntro: '选择 Agent 的工具和工作方式。日常任务用「标准模式」，扩展 DSH 的能力用「创造模式」。',
 
   seatHint: '选择新任务使用的 Agent 预设',

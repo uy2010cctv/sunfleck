@@ -78,6 +78,29 @@ describe('declarative preset revisions', () => {
     expect(roster.presets.find(row => row.id === 'standard')?.isDefault).toBe(true)
   })
 
+  it('keeps employee declarations separate from mode defaults in the roster', async () => {
+    const ctx = await harness({ live: true }); contexts.push(ctx)
+    await declare(ctx, contribution('standard'))
+    await declare(ctx, { ...contribution('employee-one'), kind: 'employee' })
+    await liveRegistries.get(ctx)!.update({ selectedDefault: 'employee-one' })
+    const roster = await ctx.agentPresets.remoteExportList()
+    expect(roster.presets).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'standard', kind: 'mode', isDefault: true }),
+      expect.objectContaining({ id: 'employee-one', kind: 'employee', isDefault: false }),
+    ]))
+    expect(ctx.agentPresets.defaultId).toBe('standard')
+    await expect(ctx.agentPresets.resolve('employee-one')).resolves.toMatchObject({ id: 'employee-one' })
+  })
+  it('reports the immutable employee release mounted in an Agent scope', async () => {
+    const ctx = await setup()
+    await declare(ctx, contribution('standard'))
+    await declare(ctx, { ...contribution('employee-one'), kind: 'employee', employee: { releaseId: 'release-v3', releaseVersion: 3 } })
+    const scope = createScope(ctx, {})
+    await ctx.agentPresets.mount(scope.ctx, 'employee-one')
+    expect(ctx.agentPresets.employeeReleaseFor(scope.ctx)).toEqual({ releaseId: 'release-v3', releaseVersion: 3 })
+    await scope.dispose()
+  })
+
   it('filters a request roster and refuses a hidden preset while retaining Host access', async () => {
     const ctx = await setup()
     await declare(ctx, contribution('standard'))
@@ -237,6 +260,8 @@ it('allows an isolated service and resolves it through the Agent composition', a
 it('keeps policy preferences while hiding and restoring the chooser', async () => {
   const ctx = await harness({ live: true })
   contexts.push(ctx)
+  await declare(ctx, contribution('standard'))
+  await declare(ctx, contribution('minimal'))
   const live = liveRegistries.get(ctx)!
   await live.update({ selectedDefault: 'minimal', modeSelectionEnabled: true })
   expect(ctx.agentPresets.defaultId).toBe('minimal')

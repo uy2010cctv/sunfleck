@@ -41,6 +41,14 @@ import {
 import type { EnterpriseRole } from '@deepseek-ai/dsh-enterprise-governance'
 import type { PostgresDatabase } from './types.ts'
 
+/** Durable workspace default; null retains a revision after clearing. */
+export interface WorkspaceEmployeeDefaultRow {
+  readonly workspaceId: string
+  readonly orgId: string
+  readonly employeeId: string | null
+  readonly revision: number
+}
+
 function safeStringArray(value: unknown): string[] {
   const parsed: unknown = typeof value === 'string' ? JSON.parse(value) : value
   if (!Array.isArray(parsed) || parsed.some(item => typeof item !== 'string')) {
@@ -513,6 +521,53 @@ export class PgEnterpriseIdentityRepository {
   async workspaceGrant(workspaceId: string): Promise<EnterpriseWorkspaceGrant | undefined> {
     const result = await this.database.query<WorkspaceGrantRow>('SELECT * FROM enterprise_workspace_grants WHERE workspace_id = $1', [workspaceId])
     return result.rows[0] === undefined ? undefined : this.workspaceGrantFromRow(result.rows[0])
+  }
+
+  /** Read the current employee selection for a workspace.
+   * @param workspaceId - Durable Workspace identity.
+   * @returns the stored choice or undefined before the first write.
+   */
+  async workspaceEmployeeDefault(workspaceId: string): Promise<WorkspaceEmployeeDefaultRow | undefined> {
+    const result = await this.database.query<{
+      workspace_id: string
+      org_id: string
+      employee_id: string | null
+      revision: number | string
+    }>('SELECT workspace_id, org_id, employee_id, revision FROM enterprise_workspace_employee_defaults WHERE workspace_id = $1', [workspaceId])
+    const row = result.rows[0]
+    return row === undefined ? undefined : {
+      workspaceId: row.workspace_id, orgId: row.org_id, employeeId: row.employee_id, revision: Number(row.revision),
+    }
+  }
+
+  /** Compare and swap one default after the caller has checked workspace and employee permissions.
+   * @param input - Authorized choice and expected revision.
+   * @returns the new durable choice.
+   */
+  async saveWorkspaceEmployeeDefault(
+    input: WorkspaceEmployeeDefaultRow & { expectedRevision: number },
+  ): Promise<WorkspaceEmployeeDefaultRow> {
+    if (!Number.isSafeInteger(input.expectedRevision) || input.expectedRevision < 0) throw new Error('invalid workspace default revision')
+    const result = await this.database.query<{
+      workspace_id: string
+      org_id: string
+      employee_id: string | null
+      revision: number | string
+    }>(`INSERT INTO enterprise_workspace_employee_defaults(workspace_id, org_id, employee_id, revision, updated_at)
+      SELECT workspace_id, org_id, $3, 1, $5 FROM enterprise_workspace_grants
+      WHERE workspace_id = $1 AND org_id = $2
+        AND ($4 = 0 OR EXISTS (SELECT 1 FROM enterprise_workspace_employee_defaults WHERE workspace_id = $1))
+      ON CONFLICT (workspace_id) DO UPDATE SET
+        employee_id = EXCLUDED.employee_id, revision = enterprise_workspace_employee_defaults.revision + 1,
+        updated_at = EXCLUDED.updated_at
+      WHERE enterprise_workspace_employee_defaults.org_id = EXCLUDED.org_id
+        AND enterprise_workspace_employee_defaults.revision = $4
+      RETURNING workspace_id, org_id, employee_id, revision`, [
+      input.workspaceId, input.orgId, input.employeeId, input.expectedRevision, this.now(),
+    ])
+    const row = result.rows[0]
+    if (row === undefined) throw new Error('workspace default revision conflict or workspace unavailable')
+    return { workspaceId: row.workspace_id, orgId: row.org_id, employeeId: row.employee_id, revision: Number(row.revision) }
   }
 
   /** Executes `PgEnterpriseIdentityRepository.workspaceGrantByRootPath` for this instance.

@@ -77,6 +77,8 @@ describe('minimal agent preset', () => {
   })
 
   it('sends the exact RL prompt and shell schema, then executes the persistent shell', async () => {
+    expect((await scaffold.ctx.agentPresets.remoteExportList()).presets.find(row => row.id === 'minimal'))
+      .toMatchObject({ kind: 'mode', isDefault: false })
     const requestHeader = agentHandle.agent.session.requestHeader()
     if (requestHeader === undefined) throw new Error('the minimal agent issued no model request')
     const systemPrompt = systemPromptText(agentHandle.agent.session)

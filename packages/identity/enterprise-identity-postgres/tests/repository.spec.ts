@@ -33,6 +33,23 @@ class RecordingDatabase implements PostgresDatabase {
 }
 
 describe('PgEnterpriseIdentityRepository', () => {
+  it('adds the workspace employee table without breaking a v8 identity rollback', async () => {
+    class VersionEightDatabase extends RecordingDatabase {
+      override async query<Row extends Record<string, unknown> = Record<string, unknown>>(
+        text: string, values: readonly unknown[] = [],
+      ): Promise<PostgresQueryResult<Row>> {
+        if (text.includes("SELECT value FROM enterprise_meta WHERE key = 'schema-version'")) {
+          this.queries.push({ text, values })
+          return { rows: [{ value: '8' }] as Row[], rowCount: 1 }
+        }
+        return super.query(text, values)
+      }
+    }
+    const database = new VersionEightDatabase()
+    await migrateEnterpriseIdentityPostgres(database)
+    expect(database.queries.map(query => query.text)).toContainEqual(expect.stringContaining('CREATE TABLE IF NOT EXISTS enterprise_workspace_employee_defaults'))
+    expect(database.queries.some(query => query.text.startsWith('UPDATE enterprise_meta'))).toBe(false)
+  })
   it('upgrades v4 Session bindings with an explicit owner column', async () => {
     class VersionFourDatabase extends RecordingDatabase {
       override async query<Row extends Record<string, unknown> = Record<string, unknown>>(

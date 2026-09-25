@@ -22,6 +22,8 @@ PostgreSQL persistence and safe SQLite migration for DSH enterprise identity。
 
 为 DSH 企业组织、用户、角色、外部身份、哈希会话、部门树、Workspace 授权、Session 绑定、已审核记忆、免审核直写的私有 agent 与 pair 记忆分区以及按项目 ID 标注的项目分区、资源策略、受管资产和可归因审计记录提供 PostgreSQL 持久化。SQLite 迁移命令会保留 ID，并在一个事务内导入所有控制面记录。
 
+`enterprise_workspace_employee_defaults` 表为每个工作区保存一个可为空的员工身份和单调递增 revision。比较交换写入在清除默认值后仍保留 revision，并拒绝不存在的工作区或过期 revision；管理员和员工可见性校验由认证控制器负责。
+
 ## 迁移
 
 先运行只读预检：

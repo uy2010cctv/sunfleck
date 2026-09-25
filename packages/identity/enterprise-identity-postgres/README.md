@@ -22,6 +22,8 @@ PostgreSQL persistence and safe SQLite migration for DSH enterprise identity.
 
 PostgreSQL persistence for DSH enterprise organizations, users, roles, external identities, hashed sessions, department trees, Workspace grants, Session bindings, reviewed memory plus private agent and pair compartments written without review and project compartments tagged by project id, resource policies, managed assets, and attributable audit records. Its SQLite migration command preserves IDs and imports all control-plane rows in one transaction.
 
+The `enterprise_workspace_employee_defaults` table stores one nullable employee identity and monotonically increasing revision per Workspace. Compare-and-swap writes preserve the revision after clearing a default and refuse a missing Workspace or stale revision; the authenticated controller owns the manager and employee-visibility checks.
+
 ## Migration
 
 Run a read-only preflight first:

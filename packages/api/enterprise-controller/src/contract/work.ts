@@ -1,4 +1,30 @@
 /** Goal-first enterprise work Remote contracts. */
+export interface WorkspaceEmployeeDefaultRequest { readonly workspaceId: string }
+/** Revision-checked workspace selection. Null clears the employee. */
+export interface WorkspaceEmployeeDefaultSaveRequest extends WorkspaceEmployeeDefaultRequest {
+  readonly employeeId: string | null
+  readonly expectedRevision: number
+}
+/** Caller-safe configuration; hidden or retired employees are not exposed. */
+export interface WorkspaceEmployeeDefaultView extends WorkspaceEmployeeDefaultRequest {
+  readonly employeeId: string | null
+  readonly revision: number
+  readonly unavailable: boolean
+  readonly manageable: boolean
+}
+
+/** Bind a published employee to an authorized blank Session in its current Workspace. */
+export interface EnterpriseEmployeeSessionRequest {
+  readonly sessionId: string
+  readonly employeeId: string
+}
+/** Employee release actually selected for the blank Session. */
+export interface EnterpriseEmployeeSessionValue extends EnterpriseEmployeeSessionRequest {
+  readonly workspaceId: string
+  readonly employeeReleaseId: string
+  readonly releaseVersion: number
+}
+
 export interface EnterpriseWorkPrepareRequest {
   readonly objective: string
   readonly deadline?: string

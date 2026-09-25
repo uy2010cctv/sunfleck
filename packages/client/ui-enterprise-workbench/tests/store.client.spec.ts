@@ -9,6 +9,7 @@ import { deriveEnterpriseView, EnterpriseWorkbenchController } from '../src/clie
 
 const STANDARD: AgentPresetRow = {
   id: 'standard',
+  kind: 'employee',
   isDefault: true,
   name: '标准模式',
   description: '完整编码员工。',
@@ -65,6 +66,10 @@ function workspaces(): WorkspaceListState {
 }
 
 describe('deriveEnterpriseView employees', () => {
+  it('does not present a generic work mode as a digital employee', () => {
+    const view = deriveEnterpriseView([{ id: 'ptc', kind: 'mode', isDefault: true, name: 'PTC' }], sessions([]), workspaces())
+    expect(view.employees).toEqual([])
+  })
   it('projects a healthy preset as an active employee from real Session state', () => {
     const view = deriveEnterpriseView([STANDARD], sessions([
       { id: 'session-1', agentPreset: 'standard', running: true },
@@ -88,7 +93,7 @@ describe('deriveEnterpriseView employees', () => {
 
   it('gives attention and unavailable states precedence over ordinary activity', () => {
     const broken: AgentPresetRow = {
-      id: 'employee-broken', isDefault: false, broken: 'composition missing',
+      id: 'employee-broken', kind: 'employee', isDefault: false, broken: 'composition missing',
     }
     const view = deriveEnterpriseView([STANDARD, broken], sessions([
       {
@@ -689,16 +694,19 @@ describe('EnterpriseWorkbenchController edits, mutations, and events', () => {
     const create = vi.fn(() => new Promise<SessionId>((resolve) => { resolveCreate = resolve }))
     const services = controllerServices()
     services.sessions.create = create
+    const selectEmployee = vi.fn(() => ok({ employeeReleaseId: 'release-2' }))
     const controller = new EnterpriseWorkbenchController(
-      controllerApi() as never, services.sessions as never, services.workspaces as never, () => {},
+      controllerApi({ enterpriseWork: { selectEmployee } }) as never, services.sessions as never, services.workspaces as never, () => {},
     )
 
-    const first = controller.startEmployee('buyer')
-    const second = controller.startEmployee('buyer')
+    const first = controller.startEmployee('buyer', 'workspace-1')
+    const second = controller.startEmployee('buyer', 'workspace-1')
     expect(create).toHaveBeenCalledTimes(1)
     resolveCreate('session-new' as SessionId)
     await Promise.all([first, second])
     expect(create).toHaveBeenCalledTimes(1)
+    expect(create).toHaveBeenCalledWith({ workspaceId: 'workspace-1' })
+    expect(selectEmployee).toHaveBeenCalledWith({ sessionId: 'session-new', employeeId: 'buyer' })
   })
 
   it('saves the explicit employee draft without sending principal or organization fields', async () => {

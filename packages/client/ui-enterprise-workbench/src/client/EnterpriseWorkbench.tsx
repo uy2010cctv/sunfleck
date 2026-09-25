@@ -32,7 +32,6 @@ import type {
 } from './store.ts'
 import css from './EnterpriseWorkbench.module.css'
 import { StartWorkPanel } from './StartWorkPanel.tsx'
-import { EmployeeDirectory } from './employees.tsx'
 import { ProjectSpace } from './projects.tsx'
 import {
   CHANNEL_BINDING_BROADCAST_CHANNEL, CHANNEL_BINDING_PROFILES,
@@ -54,7 +53,9 @@ export interface EnterpriseWorkbenchInjected {
   publishEmployee: () => Promise<void>
   rollbackEmployee: (releaseId: string) => Promise<void>
   closeEmployeeEditor: () => void
-  startEmployee: (employeeId: string) => Promise<void>
+  startEmployee: (employeeId: string, workspaceId: string) => Promise<void>
+  readWorkspaceDefault: (workspaceId: string) => Promise<import('@deepseek-ai/dsh-api-enterprise-controller/types').WorkspaceEmployeeDefaultView>
+  saveWorkspaceDefault: (input: import('@deepseek-ai/dsh-api-enterprise-controller/types').WorkspaceEmployeeDefaultSaveRequest) => Promise<import('@deepseek-ai/dsh-api-enterprise-controller/types').WorkspaceEmployeeDefaultView>
   loadEmployees: () => Promise<boolean>
   sendMessage: (employeeId: string, text: string) => Promise<boolean>
   selectEmployee: (employeeId?: string) => void
@@ -334,13 +335,13 @@ function scheduleTargetLabel(target: EnterpriseScheduleTarget, releases: readonl
   return release === undefined ? target.employeeReleaseId : releaseName(release)
 }
 
-function NativeEmployeeCard({ employee, busy, start, t }: { employee: EnterpriseEmployeeView; busy: boolean; start: (id: string) => Promise<void>; t: Translate }) {
+function NativeEmployeeCard({ employee, busy, disabled, start, t }: { employee: EnterpriseEmployeeView; busy: boolean; disabled: boolean; start: (id: string) => Promise<void>; t: Translate }) {
   const status = employeeStatus(employee.status, t); const unavailable = employee.status === 'unavailable'
-  return <article className={css.employeeCard} data-status={employee.status} tabIndex={unavailable ? -1 : 0} aria-label={t('employee.destination', { name: employee.name })} onClick={() => { if (!unavailable) void start(employee.id) }} onKeyDown={(event) => { if (!unavailable && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); void start(employee.id) } }}>
+  return <article className={css.employeeCard} data-status={employee.status} tabIndex={unavailable || disabled ? -1 : 0} aria-label={t('employee.destination', { name: employee.name })} onClick={() => { if (!unavailable && !disabled) void start(employee.id) }} onKeyDown={(event) => { if (!unavailable && !disabled && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); void start(employee.id) } }}>
     <div className={css.employeeHead}><EmployeeAvatar name={employee.name} seed={employee.id} t={t}/><div className={css.employeeIdentity}><div className={css.employeeNameRow}><h3>{employee.name}</h3>{employee.isDefault && <span className={css.badge}>{t('employee.default')}</span>}{employee.custom && <span className={css.badge}>{t('employee.custom')}</span>}</div><div className={css.employeeMeta}><span>{employee.position ?? employee.description ?? employee.employeeCode}</span>{employee.department !== undefined && <span>{employee.department}</span>}</div></div><div className={css.status}><StateDot state={status.dot} /><span>{status.label}</span></div></div>
     {employee.description !== undefined && employee.position !== undefined && <p className={css.description}>{employee.description}</p>}
     <div className={css.capabilities}>{employee.capabilities.map(value => <span key={value}>{value}</span>)}</div>
-    <div className={css.employeeFoot}><span>{t('employee.work', { count: employee.recentWork })}</span><button type="button" className={css.primaryButton} aria-label={unavailable ? t('employee.unavailable', { name: employee.name }) : t('employee.start', { name: employee.name })} disabled={unavailable || busy} onClick={(event) => { event.stopPropagation(); void start(employee.id) }}>{busy ? <IconRefreshOutlineRegular className={css.spin} size={16} /> : <IconPlayOutlineRegular size={16} />}{busy ? t('employee.busy') : unavailable ? status.label : t('employee.action')}</button></div>
+    <div className={css.employeeFoot}><span>{t('employee.work', { count: employee.recentWork })}</span><button type="button" className={css.primaryButton} aria-label={unavailable ? t('employee.unavailable', { name: employee.name }) : t('employee.start', { name: employee.name })} disabled={unavailable || disabled || busy} onClick={(event) => { event.stopPropagation(); void start(employee.id) }}>{busy ? <IconRefreshOutlineRegular className={css.spin} size={16} /> : <IconPlayOutlineRegular size={16} />}{busy ? t('employee.busy') : unavailable ? status.label : t('employee.action')}</button></div>
     {employee.unavailableReason !== undefined && <p className={css.unavailableReason}><IconWarningOutlineRegular size={14} />{employee.unavailableReason}</p>}
   </article>
 }
@@ -350,9 +351,10 @@ function NativeRecord({ record, open, t }: { record: EnterpriseWorkRecord; open:
   return <button type="button" className={css.record} aria-label={t('record.open', { title: record.title })} onClick={() => { open(record.sessionId) }}><span className={css.recordStatus}><StateDot state={status.dot} />{status.label}</span><span className={css.recordMain}><strong>{record.title}</strong><span>{record.employeeName ?? t('record.unassigned')}{record.workspaceTitle === undefined ? '' : ` · ${record.workspaceTitle}`}</span></span><time className={css.recordTime}>{formatDate(record.updatedAt)}</time></button>
 }
 
-function FallbackPage({ state, start, open, t }: { state: EnterpriseWorkbenchState; start: (id: string) => Promise<void>; open: (id: SessionId) => void; t: Translate }) {
+function FallbackPage({ state, workspaces, start, open, t }: { state: EnterpriseWorkbenchState; workspaces: WorkspaceSnapshot; start: (id: string, workspaceId: string) => Promise<void>; open: (id: SessionId) => void; t: Translate }) {
+  const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string>(workspaces.items.length === 1 ? workspaces.items[0]?.workspaceId ?? '' : '')
   const view = state.view; if (view === undefined) return null
-  return <><div className={css.notice} role="status">{t('mode.fallback')}</div><dl className={css.metrics} aria-label={t('metrics.aria')} aria-live="polite">{([['metrics.employees', view.metrics.employees], ['metrics.active', view.metrics.active], ['metrics.attention', view.metrics.attention], ['metrics.records', view.metrics.workRecords]] as const).map(([label, value]) => <div key={label}><dt>{t(label)}</dt><dd>{value}</dd></div>)}</dl><div className={css.content}><section aria-labelledby="enterprise-employees-title"><div className={css.sectionHead}><h2 id="enterprise-employees-title">{t('employees.title')}</h2><span aria-live="polite">{view.employees.length}</span></div>{view.employees.length === 0 ? <div className={css.empty}><IconUserOutlineRegular size={20} /><strong>{t('employees.empty.title')}</strong><span>{t('employees.empty.body')}</span></div> : <div className={css.employeeGrid}>{view.employees.map(employee => <NativeEmployeeCard key={employee.id} employee={employee} busy={state.busyEmployee === employee.id} start={start} t={t} />)}</div>}</section><section aria-labelledby="enterprise-records-title"><div className={css.sectionHead}><h2 id="enterprise-records-title">{t('records.title')}</h2><span aria-live="polite">{view.records.length}</span></div>{view.records.length === 0 ? <div className={css.empty}><IconCheckOutlineRegular size={20} /><span>{t('records.empty')}</span></div> : <div className={css.recordList}>{view.records.map(record => <NativeRecord key={record.sessionId} record={record} open={open} t={t} />)}</div>}</section></div></>
+  return <><div className={css.notice} role="status">{t('mode.fallback')}</div><label>{t('workspaceDefault.workspace')}<select value={selectedWorkspaceId} onChange={(event) => { setSelectedWorkspaceId(event.target.value) }}><option value="">{t('workspaceDefault.chooseWorkspace')}</option>{workspaces.items.map(workspace => <option key={workspace.workspaceId} value={workspace.workspaceId}>{workspace.title}</option>)}</select></label><dl className={css.metrics} aria-label={t('metrics.aria')} aria-live="polite">{([['metrics.employees', view.metrics.employees], ['metrics.active', view.metrics.active], ['metrics.attention', view.metrics.attention], ['metrics.records', view.metrics.workRecords]] as const).map(([label, value]) => <div key={label}><dt>{t(label)}</dt><dd>{value}</dd></div>)}</dl><div className={css.content}><section aria-labelledby="enterprise-employees-title"><div className={css.sectionHead}><h2 id="enterprise-employees-title">{t('employees.title')}</h2><span aria-live="polite">{view.employees.length}</span></div>{view.employees.length === 0 ? <div className={css.empty}><IconUserOutlineRegular size={20} /><strong>{t('employees.empty.title')}</strong><span>{t('employees.empty.body')}</span></div> : <div className={css.employeeGrid}>{view.employees.map(employee => <NativeEmployeeCard key={employee.id} employee={employee} busy={state.busyEmployee === employee.id} disabled={selectedWorkspaceId === ''} start={id => start(id, selectedWorkspaceId)} t={t} />)}</div>}</section><section aria-labelledby="enterprise-records-title"><div className={css.sectionHead}><h2 id="enterprise-records-title">{t('records.title')}</h2><span aria-live="polite">{view.records.length}</span></div>{view.records.length === 0 ? <div className={css.empty}><IconCheckOutlineRegular size={20} /><span>{t('records.empty')}</span></div> : <div className={css.recordList}>{view.records.map(record => <NativeRecord key={record.sessionId} record={record} open={open} t={t} />)}</div>}</section></div></>
 }
 
 function EmployeeEditor({ editor, assets, modelOptions, cordisCount, api, back, rollback, openExtensions, renderEmployeeKnowledgeBindings, mutationBusy, t }: {
@@ -499,8 +501,9 @@ function EmployeeKnowledgeCount({ presetId, nativeCount, refreshKey, renderSlot,
   </span>
 }
 
-function EmployeesPage({ state, api, guardDirty, renderEmployeeKnowledgeBindings, t }: {
+function EmployeesPage({ state, workspaces, api, guardDirty, renderEmployeeKnowledgeBindings, t }: {
   state: EnterpriseWorkbenchState
+  workspaces: WorkspaceSnapshot
   api: EnterpriseWorkbenchInjected
   guardDirty: (action: () => void) => void
   renderEmployeeKnowledgeBindings: EnterpriseWorkbenchProps['renderSlot']
@@ -511,6 +514,19 @@ function EmployeesPage({ state, api, guardDirty, renderEmployeeKnowledgeBindings
   const [status, setStatus] = useState<EnterpriseEmployeeDraft['status'] | ''>(filters.status ?? '')
   const [visibility, setVisibility] = useState<EnterpriseVisibility | ''>(filters.visibility ?? '')
   const [owner, setOwner] = useState(filters.ownerUserId ?? '')
+  const [startWorkspaceId, setStartWorkspaceId] = useState<string>(workspaces.items.length === 1 ? workspaces.items[0]?.workspaceId ?? '' : '')
+  const [workspaceDefault, setWorkspaceDefault] = useState<import('@deepseek-ai/dsh-api-enterprise-controller/types').WorkspaceEmployeeDefaultView>()
+  const [chosenDefault, setChosenDefault] = useState('')
+  const [defaultError, setDefaultError] = useState<string>()
+  useEffect(() => {
+    if (startWorkspaceId === '') { setWorkspaceDefault(undefined); return }
+    let active = true
+    void api.readWorkspaceDefault(startWorkspaceId).then((value) => {
+      if (!active) return
+      setWorkspaceDefault(value); setChosenDefault(value.employeeId ?? ''); setDefaultError(undefined)
+    }).catch(() => { if (active) setDefaultError(t('workspaceDefault.loadFailed')) })
+    return () => { active = false }
+  }, [startWorkspaceId, api.readWorkspaceDefault, t])
   const applyFilters = (nextStatus = status): void => {
     api.setEmployeeFilters({
       ...(search.trim() === '' ? {} : { search: search.trim() }),
@@ -537,6 +553,23 @@ function EmployeesPage({ state, api, guardDirty, renderEmployeeKnowledgeBindings
     <div className={css.galleryIntro}>
       <div><h2 id="employees-page-title">{t('employees.heading')}</h2><p>{t('employees.intro')}</p></div>
       <div className={css.galleryIntroActions}><span>{t('employees.count', { count: state.employees.items.length })}</span><button type="button" className={css.primaryButton} onClick={api.createEmployeeDraft}><IconPlusOutlineRegular size={16}/>{t('employees.create')}</button></div>
+    </div>
+    <div className={css.galleryControls}>
+      <label>{t('workspaceDefault.workspace')}<select value={startWorkspaceId} onChange={(event) => { setStartWorkspaceId(event.target.value) }}>
+        <option value="">{t('workspaceDefault.chooseWorkspace')}</option>
+        {workspaces.items.map(workspace => <option key={workspace.workspaceId} value={workspace.workspaceId}>{workspace.title}</option>)}
+      </select></label>
+      {workspaceDefault?.manageable && <label>{t('workspaceDefault.employee')}<select value={chosenDefault} onChange={(event) => { setChosenDefault(event.target.value) }}>
+        <option value="">{t('workspaceDefault.none')}</option>
+        {latestEmployeeReleases(state.releases).map(release => <option key={release.presetId} value={release.presetId}>{releaseName(release)}</option>)}
+      </select></label>}
+      {workspaceDefault?.manageable && <button type="button" className={css.secondaryButton} onClick={() => {
+        void api.saveWorkspaceDefault({ workspaceId: startWorkspaceId, employeeId: chosenDefault || null, expectedRevision: workspaceDefault.revision })
+          .then((value) => { setWorkspaceDefault(value); setDefaultError(undefined) })
+          .catch(() => { setDefaultError(t('workspaceDefault.saveFailed')) })
+      }}>{t('workspaceDefault.save')}</button>}
+      {workspaceDefault?.unavailable && <span role="status">{t('workspaceDefault.unavailable')}</span>}
+      {defaultError !== undefined && <span role="alert">{defaultError}</span>}
     </div>
     <form className={css.galleryControls} onSubmit={(event) => { event.preventDefault(); applyFilters() }}>
       <label className={css.searchField}>
@@ -584,7 +617,7 @@ function EmployeesPage({ state, api, guardDirty, renderEmployeeKnowledgeBindings
         </div>
         <div className={css.employeeActions}>
           <button type="button" className={css.secondaryButton} aria-label={t('employee.edit', { name })} onClick={() => { void api.openEmployeeDraft(draft.presetId) }}><IconEditOutlineRegular size={16}/>{t('employee.manage')}</button>
-          <button type="button" className={css.startButton} aria-label={t('employee.start', { name })} disabled={state.busyEmployee === draft.presetId} onClick={() => { void api.startEmployee(draft.presetId) }}><IconPlayOutlineRegular size={16}/>{state.busyEmployee === draft.presetId ? t('employee.busy') : t('employee.action')}</button>
+          <button type="button" className={css.startButton} aria-label={t('employee.start', { name })} disabled={draft.status !== 'published' || startWorkspaceId === '' || state.busyEmployee === draft.presetId} onClick={() => { void api.startEmployee(draft.presetId, startWorkspaceId) }}><IconPlayOutlineRegular size={16}/>{state.busyEmployee === draft.presetId ? t('employee.busy') : t('employee.action')}</button>
         </div>
       </article>
     })}</div></PageBoundary>
@@ -1860,12 +1893,12 @@ export function EnterpriseWorkbench(props: EnterpriseWorkbenchProps) {
     {state.mutationError !== null && <div className={css.mutationError} role="alert" aria-label={props.t('mutation.errorAria')}><IconWarningOutlineRegular size={18} /><span>{state.mutationPhase === 'conflict' ? props.t('mutation.conflict') : state.mutationError}</span>{state.mutationPhase === 'conflict' ? <button type="button" onClick={() => { void props.resolveMutationConflict() }}>{props.t('mutation.reload')}</button> : <button type="button" onClick={() => { void props.retryMutation() }}>{props.t('mutation.retry')}</button>}<button type="button" onClick={props.dismissMutationError}>{props.t('mutation.dismiss')}</button></div>}
     {state.phase === 'loading' && state.mode === null && <div className={css.loading} role="status"><span className={css.skeleton} />{props.t('loading')}</div>}
     {state.phase === 'error' && <div className={css.error} role="alert"><IconWarningOutlineRegular size={18} /><span>{state.error}</span><button type="button" onClick={() => { void props.refresh() }}>{props.t('retry')}</button></div>}
-    {state.phase !== 'error' && state.mode === 'fallback' && <main className={css.body}><FallbackPage state={state} start={props.startEmployee} open={props.openRecord} t={props.t} /></main>}
+    {state.phase !== 'error' && state.mode === 'fallback' && <main className={css.body}><FallbackPage state={state} workspaces={workspaces} start={props.startEmployee} open={props.openRecord} t={props.t} /></main>}
     {state.phase !== 'error' && state.mode === 'enterprise' && <div className={css.shell}>
       <nav className={css.nav} aria-label={props.t('nav.aria')}>{NAV_GROUPS.map(group => <div className={css.navGroup} key={group.label}><span>{props.t(group.label)}</span>{group.items.map(([id, key]) => <button type="button" key={id} aria-current={page === id ? 'page' : undefined} onClick={() => { requestPage(id) }}>{props.t(key)}</button>)}</div>)}</nav>
       <main className={css.main}>
         {partial && <div className={css.notice} role="status">{props.t('partial')}</div>}
-        {page === 'employees' && <><StartWorkPanel workspaces={workspaces} releases={state.releases} prepareWork={props.prepareWork} startPreparedWork={props.startPreparedWork} onStarted={(sessionId) => { props.openRecord(sessionId as SessionId); props.close() }} t={props.t}/><EmployeesPage state={state} api={api} guardDirty={guardDirty} renderEmployeeKnowledgeBindings={props.renderSlot} t={props.t} /><EmployeeDirectory staff={state.staff} memories={state.staffMemories} loadEmployees={props.loadEmployees} loadEmployeeMemories={props.loadEmployeeMemories} reviewEmployeeMemory={props.reviewEmployeeMemory} retireEmployeeMemory={props.retireEmployeeMemory} sendMessage={props.sendMessage} selectEmployee={props.selectEmployee} t={props.t}/></>}
+        {page === 'employees' && <><StartWorkPanel workspaces={workspaces} releases={state.releases} prepareWork={props.prepareWork} startPreparedWork={props.startPreparedWork} onStarted={(sessionId) => { props.openRecord(sessionId as SessionId); props.close() }} t={props.t}/><EmployeesPage state={state} workspaces={workspaces} api={api} guardDirty={guardDirty} renderEmployeeKnowledgeBindings={props.renderSlot} t={props.t} /></>}
         {page === 'projects' && <ProjectSpace projects={state.projects} surfaces={state.surfaces} loadProjects={props.loadProjects} loadSurfaces={props.loadSurfaces} createProject={props.createProject} selectProject={props.selectProject} addProjectMember={props.addProjectMember} archiveProject={props.archiveProject} t={props.t}/>}
         {page === 'devices' && <DevicesPage page={devices} api={api} busy={mutationBusy} t={props.t}/>}
         {page === 'work-records' && <WorkRecordsPage page={state.workRecords} update={props.updateWorkRecord} busy={mutationBusy} t={props.t} />}

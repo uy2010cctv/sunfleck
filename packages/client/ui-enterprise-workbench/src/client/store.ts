@@ -427,7 +427,7 @@ export function deriveEnterpriseView(
     workByPreset.set(agentPreset, rows)
   }
 
-  const employees = roster.map((preset): EnterpriseEmployeeView => {
+  const employees = roster.filter(preset => preset.kind === 'employee').map((preset): EnterpriseEmployeeView => {
     const work = workByPreset.get(preset.id) ?? []
     const activeWork = work.filter(session => session.running).length
     const attention = work.some(needsAttention)
@@ -2267,11 +2267,12 @@ export class EnterpriseWorkbenchController {
 
   /** Create and open work under one Agent Preset.
    * @param employeeId - Input value used by this API.
+   * @param workspaceId - Explicit Workspace selected by the operator.
    */
-  async startEmployee(employeeId: string): Promise<void> {
+  async startEmployee(employeeId: string, workspaceId: string): Promise<void> {
     const existing = this.employeeStarts.get(employeeId)
     if (existing !== undefined) return existing
-    const start = this.startEmployeeOnce(employeeId)
+    const start = this.startEmployeeOnce(employeeId, workspaceId)
     this.employeeStarts.set(employeeId, start)
     try {
       await start
@@ -2280,15 +2281,16 @@ export class EnterpriseWorkbenchController {
     }
   }
 
-  private async startEmployeeOnce(employeeId: string): Promise<void> {
+  private async startEmployeeOnce(employeeId: string, workspaceId: string): Promise<void> {
     const state = this.store.getSnapshot()
     this.store.set({ ...state, busyEmployee: employeeId, error: null })
     try {
-      const workspaceId = this.workspaces.list.getSnapshot().items[0]?.workspaceId
+      const workspace = this.workspaces.list.getSnapshot().items.find(item => item.workspaceId === workspaceId)
+      if (workspace === undefined) throw new Error('workspace selection is required')
       const sessionId = await this.sessions.create({
-        ...(workspaceId === undefined ? {} : { workspaceId }),
-        agentPreset: employeeId,
+        workspaceId: workspace.workspaceId,
       })
+      valueOf(await this.api.enterpriseWork.selectEmployee({ sessionId, employeeId }))
       this.revealRecord(sessionId)
       this.close()
     } catch (error) {

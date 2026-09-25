@@ -105,9 +105,10 @@ export function AgentPresetSeat({
   }, [visible])
 
   const chosen = state.options.find(option => option.id === state.current)
+  const modeOptions = state.options.filter(option => option.kind !== 'employee')
   const chosenText = chosen === undefined ? undefined : presetDisplayText(chosen, t)
   const label = chosenText?.name ?? state.current
-  const ready = state.options.length > 0 && state.current !== ''
+  const ready = modeOptions.length > 0 && state.current !== ''
 
   // The introduce cue: the pick was staged from another screen (the settings
   // creator entry), so the chip announces it — the icon eases in and each
@@ -158,7 +159,7 @@ export function AgentPresetSeat({
       <Menu
         open={open}
         onClose={() => { setOpen(false) }}
-        items={state.options.map((option) => {
+        items={modeOptions.map((option) => {
           const text = presetDisplayText(option, t)
           return {
             id: option.id,
@@ -172,7 +173,7 @@ export function AgentPresetSeat({
             ),
           }
         })}
-        selectedId={state.current}
+        selectedId={chosen?.kind === 'employee' ? undefined : state.current}
         onSelect={(id) => {
           setOpen(false)
           const picked = state.options.find(option => option.id === id)
@@ -203,7 +204,7 @@ export function AgentPresetSeat({
             onClick={() => { setOpen(value => !value) }}
           >
             <IconAgentPresetOutlineRegular className={introducing ? `${css.seatIcon} ${css.introIcon}` : css.seatIcon} />
-            <span className={css.seatLabel}>{shownLabel}</span>
+            <span className={css.seatLabel}>{chosen?.kind === 'employee' ? t('modeGroup') : shownLabel}</span>
             <IconChevronDownOutlineRegular className={css.chevron} />
           </button>
         )}

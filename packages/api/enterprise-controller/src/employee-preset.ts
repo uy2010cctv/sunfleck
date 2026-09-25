@@ -7,6 +7,8 @@ import type { EnterpriseEmployeeRelease } from './contract/employees.ts'
 
 /** Identity and presentation fields one published employee release installs into its Agent preset. */
 export interface EmployeePresetDefinition {
+  readonly releaseId: string
+  readonly releaseVersion: number
   readonly name: string
   readonly description?: string
   readonly position?: string
@@ -20,7 +22,7 @@ export interface EmployeePresetDefinition {
  * @returns the validated definition.
  * @throws when the snapshot profile omits the employee name or responsibility prompt.
 */
-export function employeePresetDefinition(release: Pick<EnterpriseEmployeeRelease, 'releaseId'> & {
+export function employeePresetDefinition(release: Pick<EnterpriseEmployeeRelease, 'releaseId' | 'version'> & {
   readonly snapshot: { readonly profile: Readonly<Record<string, unknown>> }
 }): EmployeePresetDefinition {
   const profile = release.snapshot.profile
@@ -42,6 +44,7 @@ export function employeePresetDefinition(release: Pick<EnterpriseEmployeeRelease
   const position = optional('position')
   const department = optional('department')
   return {
+    releaseId: release.releaseId, releaseVersion: release.version,
     name: required('name'), prompt: required('prompt'),
     ...description === undefined ? {} : { description },
     ...position === undefined ? {} : { position },
@@ -101,11 +104,19 @@ export async function employeePresetDeclaration(
     throw new Error(`agent preset ${document.agentPreset} has no editable persona row, so it cannot carry an employee identity`)
   }
   persona.config = {
-    ...(typeof persona.config === 'object' && persona.config !== null ? persona.config : {}),
+    ...(typeof persona.config === 'object' && persona.config !== null
+      ? persona.config as Record<string, unknown> : {}),
     prefix: employeePersona(input),
   }
   return {
     id: presetId,
+    kind: 'employee',
+    employee: {
+      releaseId: input.releaseId, releaseVersion: input.releaseVersion,
+      ...(input.position === undefined ? {} : { position: input.position }),
+      ...(input.department === undefined ? {} : { department: input.department }),
+      ...(input.capabilities === undefined ? {} : { capabilities: input.capabilities }),
+    },
     name: input.name,
     ...input.description === undefined ? {} : { description: input.description },
     plugins,

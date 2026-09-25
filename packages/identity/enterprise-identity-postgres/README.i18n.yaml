@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/identity/enterprise-identity-postgres/README.md
-README.md: 9646b475e776d6576b3bc351f3c0debe65c3c4ba
-README.zh.md: a0b61123f0863983bc21e1b9904a56fc8d4dc4bd
+README.md: 8d6087459aae3de552602ed12b2ac772f9c83229
+README.zh.md: 1753658b4ab3929c2dfe99ecb6e44a7b1452720e

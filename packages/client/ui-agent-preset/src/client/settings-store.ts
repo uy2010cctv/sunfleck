@@ -58,6 +58,10 @@ export function writeModeSelectionEnabled(
 export interface AgentPresetOption {
   /** Preset id, written to Settings and the label's fallback. */
   id: string
+  /** Separates released employees from reusable work modes. */
+  kind?: 'mode' | 'employee'
+  /** Human-facing published employee release. */
+  employee?: { releaseVersion?: number; position?: string; department?: string }
   /** Display name the preset published, absent when it published none. */
   name?: string
   /** One sentence on what the preset is for. */
@@ -127,10 +131,12 @@ export async function beginRosterRead<S extends { status: string; error: string 
  * @returns one option per selectable preset, in roster order.
  */
 export function presetOptions(
-  presets: readonly { id: string; name?: string; description?: string; broken?: string }[],
+  presets: readonly { id: string; kind?: 'mode' | 'employee'; employee?: AgentPresetOption['employee']; name?: string; description?: string; broken?: string }[],
 ): AgentPresetOption[] {
   return presets.filter(preset => preset.broken === undefined).map(preset => ({
     id: preset.id,
+    ...preset.kind === undefined ? {} : { kind: preset.kind },
+    ...preset.employee === undefined ? {} : { employee: preset.employee },
     ...preset.name === undefined ? {} : { name: preset.name },
     ...preset.description === undefined ? {} : { description: preset.description },
   }))

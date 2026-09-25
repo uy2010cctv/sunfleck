@@ -7,6 +7,19 @@ export type EnterpriseWorkbenchKey = keyof typeof en
 
 /** Value exported as `en`. */
 export const en = {
+  'employeeSeat.choose': 'Digital employee',
+  'employeeSeat.version': 'Version {version}',
+  'employeeSeat.unavailable': 'The Workspace default employee is unavailable. Standard mode is selected.',
+  'employeeSeat.loadFailed': 'Could not load digital employees.',
+  'employeeSeat.selectFailed': 'Could not select this digital employee.',
+  'workspaceDefault.workspace': 'Workspace',
+  'workspaceDefault.chooseWorkspace': 'Choose a Workspace to start work',
+  'workspaceDefault.employee': 'Default employee',
+  'workspaceDefault.none': 'Standard mode',
+  'workspaceDefault.save': 'Save default',
+  'workspaceDefault.unavailable': 'The configured employee is unavailable to you. Standard mode will be used.',
+  'workspaceDefault.loadFailed': 'Could not load the Workspace default.',
+  'workspaceDefault.saveFailed': 'Could not save the Workspace default. Refresh and retry.',
   'knowledge.countUnavailable': 'Knowledge count is loading or unavailable. Refresh to retry.',
   'trigger.label': 'Lichen Agent',
   'trigger.open': 'Open digital employee workbench',
@@ -836,6 +849,19 @@ export const en = {
 
 /** Value exported as `zh`. */
 export const zh: Record<EnterpriseWorkbenchKey, string> = {
+  'employeeSeat.choose': '数字员工',
+  'employeeSeat.version': '版本 {version}',
+  'employeeSeat.unavailable': '工作区默认员工不可用，已选用标准模式。',
+  'employeeSeat.loadFailed': '数字员工加载失败。',
+  'employeeSeat.selectFailed': '无法选择该数字员工。',
+  'workspaceDefault.workspace': '工作区',
+  'workspaceDefault.chooseWorkspace': '选择工作区后启动任务',
+  'workspaceDefault.employee': '默认数字员工',
+  'workspaceDefault.none': '标准模式',
+  'workspaceDefault.save': '保存默认值',
+  'workspaceDefault.unavailable': '配置的数字员工对你不可用，将使用标准模式。',
+  'workspaceDefault.loadFailed': '无法读取工作区默认员工。',
+  'workspaceDefault.saveFailed': '无法保存工作区默认员工，请刷新后重试。',
   'knowledge.countUnavailable': '知识数量正在加载或暂不可用，请刷新重试。',
   'trigger.label': 'Lichen Agent',
   'trigger.open': '打开数字员工工作台',

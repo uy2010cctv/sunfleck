@@ -45,6 +45,8 @@ Choose an Agent’s tools, prompt sections and skills through declarative preset
 
 The Web definitions come from the `dsh-web-app` bundle. Definitions are ordinary plugin rows; the registry neither scans directories nor accepts preset paths. The `selectedDefault` and `modeSelectionEnabled` volatile fields of the `agent-preset-registry` entry retain the user default and the chooser visibility; hiding the chooser uses the deployment `default`.
 
+The roster marks a catalog-published employee declaration as `kind: employee` and carries its immutable release metadata. Such declarations remain executable presets, but cannot become the generic new-task default; a previously saved employee default resolves to the deployment's mode default. The retained Agent generation reports the release it actually mounted, so the enterprise controller records that release after selecting a blank Session.
+
 The registry writes no declarations. The `read` Remote renders one declaration’s child list back as entry-list YAML (`!!js` conditions included) so a client can show what a preset composes; nothing accepts YAML back. A new preset or an override of a shipped one is a bundle patch: an `insert` of a `@deepseek-ai/dsh-agent-preset` row, or a patch keyed by that row’s id, installed into the profile with `plugin_manager`; Creator mode authors such bundles in conversation.
 
 <a id="understand-the-implementation"></a>

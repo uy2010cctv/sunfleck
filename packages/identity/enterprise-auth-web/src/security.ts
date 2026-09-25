@@ -190,6 +190,14 @@ export function classifyApiEndpoint(endpoint: string, input: unknown): ApiClassi
   if (endpoint === 'enterpriseAudit.list') return { action: 'audit.read', resourceType: 'audit' }
   if (endpoint === 'enterpriseWork.prepare') return { action: 'operation.read', resourceType: 'work-record' }
   if (endpoint === 'enterpriseWork.start') return { action: 'operation.manage', resourceType: 'work-record' }
+  if (endpoint === 'enterpriseWork.selectEmployee') {
+    const resourceId = stringField(payload, 'employeeId')
+    return { action: 'employee.execute', resourceType: 'employee', ...(resourceId === undefined ? {} : { resourceId }) }
+  }
+  if (endpoint === 'enterpriseWork.workspaceDefault' || endpoint === 'enterpriseWork.saveWorkspaceDefault') {
+    const resourceId = stringField(payload, 'workspaceId')
+    return { action: 'session.create', resourceType: 'workspace', ...(resourceId === undefined ? {} : { resourceId }) }
+  }
   if (['enterpriseEmployee.list', 'enterpriseEmployee.getDraft', 'enterpriseEmployee.saveDraft', 'enterpriseEmployee.publish', 'enterpriseEmployee.listReleases', 'enterpriseEmployee.rollback', 'enterpriseEmployee.optimizePrompt'].includes(endpoint)) {
     const resourceId = stringField(payload, 'presetId', 'releaseId')
     const read = endpoint === 'enterpriseEmployee.list' || endpoint === 'enterpriseEmployee.getDraft' || endpoint === 'enterpriseEmployee.listReleases'
