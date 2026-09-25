@@ -22,6 +22,8 @@ PostgreSQL composition and lifecycle provider for DSH Enterprise.
 
 Production PostgreSQL composition for DSH Enterprise. It owns one bounded `pg.Pool`, verifies connectivity, initializes the identity, Session, catalog, operations, project, surface-directory, and pgvector schemas, and exposes the adapters over a shared transaction-aware database wrapper. The project service supports its complete member-gated lifecycle; the surface directory reads stored organization-scoped roster rows.
 
+Operations confirms a work record's Session through the organization-scoped `enterprise_session_workspaces` binding written by the authenticated gateway. This reference remains valid when the Session log runs in the separate V4 PostgreSQL database; the old main-database `dsh_session_headers` table is not used to authorize new work records.
+
 The provider does not store credentials, connection strings, or cursor keys in PostgreSQL or DSH Session events. The deployment supplies `connectionString` and a stable `cursorSigningKey` of at least 32 bytes and eight distinct byte values from its secret manager and owns pool sizing, TLS, backup, and database role permissions. The enterprise CLI overlay derives the cursor key from `DSH_ENTERPRISE_MASTER_KEY` with HMAC-SHA256 and the domain label `dsh-enterprise-catalog/cursor-signing/v1`; it never passes the credential-encryption key bytes directly to the catalog.
 
 ## Model Experience

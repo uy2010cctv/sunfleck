@@ -30,6 +30,20 @@ import { migrateSurfaceDirectory, PostgresSurfaceDirectory } from './surface-dir
 export { PostgresSurfaceDirectory, migrateSurfaceDirectory } from './surface-directory.ts'
 export type { SurfaceDirectoryEntry, SurfaceDirectoryKind } from './surface-directory.ts'
 
+/** Confirm that the enterprise gateway bound a native Session to this organization.
+ * @param database - Identity PostgreSQL transaction.
+ * @param orgId - Organization owning the work record.
+ * @param sessionId - Native Session identity.
+ * @returns whether the Session's authorized Workspace binding exists.
+ */
+export async function enterpriseSessionBound(database: IdentityDatabase, orgId: string, sessionId: string): Promise<boolean> {
+  const result = await database.query<{ present: number }>(
+    'SELECT 1 AS present FROM enterprise_session_workspaces WHERE session_id = $1 AND org_id = $2',
+    [sessionId, orgId],
+  )
+  return result.rows[0] !== undefined
+}
+
 type AnyResult = IdentityResult & SessionResult & CatalogResult & OperationsResult & KnowledgeResult & CordisResult & ProjectResult
 
 /** One transaction-aware wrapper shared by all enterprise PG adapters.
@@ -41,12 +55,14 @@ export class EnterprisePostgresDatabase implements
 
   constructor(readonly pool: Pool, readonly client?: PoolClient) {}
 
+  /* oxlint-disable typescript/no-unnecessary-type-parameters -- each caller selects its PostgreSQL row type. */
   async query<Row extends Record<string, unknown> = Record<string, unknown>>(
     text: string, values: readonly unknown[] = [],
   ): Promise<AnyResult & { rows: Row[] }> {
     const result = await (this.client ?? this.pool).query<Row & QueryResultRow>(text, [...values])
     return { rows: result.rows, rowCount: result.rowCount }
   }
+  /* oxlint-enable typescript/no-unnecessary-type-parameters */
 
   async connect(): Promise<EnterprisePostgresDatabase> {
     return new EnterprisePostgresDatabase(this.pool, await this.pool.connect())
@@ -168,7 +184,7 @@ export async function createEnterprisePostgresComposition(config: EnterprisePost
     await migrateEnterpriseCatalog(database)
     await migrateEnterpriseOperations(database)
     await migrateKnowledge(database)
-    await migrateEnterpriseCordis(database as CordisDatabase)
+    await migrateEnterpriseCordis(database)
     const identity = new PgEnterpriseIdentityRepository(database)
     const catalog = new EnterpriseCatalogRepository(database, {
       cursorSigningKey: deriveCursorKey('dsh-enterprise-catalog-cursor-v1'),
@@ -193,15 +209,7 @@ export async function createEnterprisePostgresComposition(config: EnterprisePost
         )
         return result.rows[0] !== undefined
       },
-      resolveSession: async (transaction, orgId, sessionId) => {
-        const result = await transaction.query(
-          `SELECT 1 FROM dsh_session_headers AS session
-           JOIN resource_policies AS policy
-             ON policy.resource_type = 'session' AND policy.resource_id = session.id
-           WHERE session.id = $1 AND policy.org_id = $2`, [sessionId, orgId],
-        )
-        return result.rows[0] !== undefined
-      },
+      resolveSession: (transaction, orgId, sessionId) => enterpriseSessionBound(transaction, orgId, sessionId),
     })
     const teamControl = new EnterpriseTeamControlRepository(database, {
       cursorSigningKey: deriveCursorKey('dsh-enterprise-team-control-cursor-v1'),

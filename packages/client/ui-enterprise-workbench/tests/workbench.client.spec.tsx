@@ -2388,6 +2388,14 @@ describe('EnterpriseWorkbench', () => {
     expect(openRecord).toHaveBeenCalledWith('session-1')
   })
 
+  it('shows a failed employee start without hiding the usable roster', () => {
+    render(<EnterpriseWorkbench {...workbenchProps({
+      state: { error: 'Employee selection failed' },
+    })} />)
+    expect(screen.getByRole('alert').textContent).toContain('Employee selection failed')
+    expect(screen.getByRole('button', { name: '与标准模式发起对话' })).toBeDefined()
+  })
+
   it('starts prepared goal-first work, opens the native Session, and never exposes internal identifiers', async () => {
     const prepareWork = vi.fn(() => Promise.resolve({ kind: 'ready', workspaceId: 'workspace-1', employeeReleaseId: 'release-buyer' }))
     const startPreparedWork = vi.fn(() => Promise.resolve({ sessionId: 'session-created', workspaceId: 'workspace-1', employeeReleaseId: 'release-buyer', executionSummary: 'Work is ready.' }))

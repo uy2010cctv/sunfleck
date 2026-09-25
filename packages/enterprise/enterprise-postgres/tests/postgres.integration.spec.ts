@@ -70,6 +70,15 @@ describe.skipIf(url === undefined)('enterprise PostgreSQL production composition
       await composition.database.query(
         "INSERT INTO organizations(id,name) VALUES ('resolver-org','Resolver Org'),('other-org','Other Org') ON CONFLICT (id) DO NOTHING",
       )
+      await composition.database.query(
+        `INSERT INTO users(id,org_id,username,display_name,disabled)
+         VALUES ('resolver-owner','resolver-org','resolver-owner','Resolver Owner',false) ON CONFLICT (id) DO NOTHING`,
+      )
+      await composition.database.query(
+        `INSERT INTO enterprise_workspace_grants(workspace_id,org_id,name,kind,owner_user_id,root_path,sandbox_mode,revision,created_at,updated_at)
+         VALUES ('resolver-workspace','resolver-org','Resolver','personal','resolver-owner','/managed/resolver','workspace-write',1,1,1)
+         ON CONFLICT (workspace_id) DO NOTHING`,
+      )
       const createdProject = await composition.projects.create({
         orgId: 'resolver-org', name: 'Resolver Project', goal: 'Verify persistence',
         workspacePath: '/managed/resolver-project', createdBy: 'resolver-owner',
@@ -83,15 +92,15 @@ describe.skipIf(url === undefined)('enterprise PostgreSQL production composition
         source: 'console', businessState: 'active', sourceReferences: {}, expectedRevision: 0, idempotencyKey: 'resolver-no-policy',
       })).rejects.toThrow(/was not found/)
       await composition.database.query(
-        `INSERT INTO resource_policies(resource_type,resource_id,org_id,creator_user_id,visibility,allowed_user_ids)
-         VALUES ('session',$1,'other-org',NULL,'organization','[]'::jsonb)`, ['resolver-session'],
+        `INSERT INTO enterprise_session_workspaces(session_id,workspace_id,org_id,owner_user_id)
+         VALUES ($1,'resolver-workspace','other-org','resolver-owner')`, ['resolver-session'],
       )
       await expect(composition.operations.upsertWorkRecord({
         orgId: 'resolver-org', sessionId: 'resolver-session', employeeReleaseId: 'resolver-release',
         source: 'console', businessState: 'active', sourceReferences: {}, expectedRevision: 0, idempotencyKey: 'resolver-cross-org',
       })).rejects.toThrow(/was not found/)
       await composition.database.query(
-        "UPDATE resource_policies SET org_id = 'resolver-org' WHERE resource_type = 'session' AND resource_id = $1", ['resolver-session'],
+        "UPDATE enterprise_session_workspaces SET org_id = 'resolver-org' WHERE session_id = $1", ['resolver-session'],
       )
       await expect(composition.operations.upsertWorkRecord({
         orgId: 'resolver-org', sessionId: 'resolver-session', employeeReleaseId: 'resolver-release',
@@ -110,8 +119,8 @@ describe.skipIf(url === undefined)('enterprise PostgreSQL production composition
           [`resolver-release-${suffix}`, `resolver-preset-${suffix}`],
         )
         await composition.database.query(
-          `INSERT INTO resource_policies(resource_type,resource_id,org_id,creator_user_id,visibility,allowed_user_ids)
-           VALUES ('session',$1,'resolver-org',NULL,'organization','[]'::jsonb) ON CONFLICT (resource_type,resource_id) DO NOTHING`,
+          `INSERT INTO enterprise_session_workspaces(session_id,workspace_id,org_id,owner_user_id)
+           VALUES ($1,'resolver-workspace','resolver-org','resolver-owner') ON CONFLICT (session_id) DO NOTHING`,
           [`resolver-session-${suffix}`],
         )
       }
@@ -128,8 +137,10 @@ describe.skipIf(url === undefined)('enterprise PostgreSQL production composition
       await composition.database.query("DELETE FROM dsh_enterprise_operations_idempotency WHERE org_id = 'resolver-org'")
       await composition.database.query("DELETE FROM dsh_enterprise_work_records WHERE org_id = 'resolver-org'")
       await composition.database.query("DELETE FROM dsh_enterprise_employee_releases WHERE release_id IN ('resolver-release','resolver-release-a','resolver-release-b')")
-      await composition.database.query("DELETE FROM resource_policies WHERE resource_type = 'session' AND resource_id IN ('resolver-session','resolver-session-a','resolver-session-b')")
+      await composition.database.query("DELETE FROM enterprise_session_workspaces WHERE session_id IN ('resolver-session','resolver-session-a','resolver-session-b')")
       await composition.database.query("DELETE FROM dsh_session_headers WHERE id IN ('resolver-session','resolver-session-a','resolver-session-b')")
+      await composition.database.query("DELETE FROM enterprise_workspace_grants WHERE workspace_id = 'resolver-workspace'")
+      await composition.database.query("DELETE FROM users WHERE id = 'resolver-owner'")
       await composition.database.query("DELETE FROM organizations WHERE id IN ('resolver-org','other-org')")
       await composition.close()
     }

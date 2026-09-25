@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { EnterprisePostgresDatabase, createEnterprisePostgresComposition } from '../src/index.ts'
+import { EnterprisePostgresDatabase, createEnterprisePostgresComposition, enterpriseSessionBound } from '../src/index.ts'
 
 function fakePool() {
   const calls: string[] = []
@@ -16,6 +16,20 @@ function fakePool() {
 }
 
 describe('enterprise PostgreSQL composition', () => {
+  it('resolves an employee work record through the authorized Session Workspace binding', async () => {
+    const queries: Array<{ text: string; values: readonly unknown[] }> = []
+    const database = {
+      query: async (text: string, values: readonly unknown[]) => {
+        queries.push({ text, values })
+        return { rows: [{ present: 1 }], rowCount: 1 }
+      },
+    }
+    await expect(enterpriseSessionBound(database as never, 'org-a', 'session-v4')).resolves.toBe(true)
+    expect(queries).toHaveLength(1)
+    expect(queries[0]?.text).toContain('enterprise_session_workspaces')
+    expect(queries[0]?.values).toEqual(['session-v4', 'org-a'])
+    expect(queries[0]?.text).not.toContain('dsh_session_headers')
+  })
   it('requires a stable catalog cursor signing key', async () => {
     await expect(createEnterprisePostgresComposition({
       connectionString: 'postgresql:///unused', cursorSigningKey: '',

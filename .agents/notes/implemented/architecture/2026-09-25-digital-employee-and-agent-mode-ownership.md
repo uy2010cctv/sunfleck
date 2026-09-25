@@ -14,6 +14,8 @@ The catalog Draft and immutable Release own the employee identity, permissions, 
 
 A Workspace may store one employee identity as its default. Its owner or authorized manager edits the value with a revision check. A member sees the choice only while the employee remains published and visible; otherwise the new-session view uses Standard mode and explains the fallback. The choice is overridable and sends no task message. Employee selection is reauthorized against the Session owner, Workspace grant, and employee catalog before the Host changes a blank Session and records its mounted release.
 
+The Operations work record verifies a Session through the organization-scoped Session–Workspace binding in the identity database. Session logs can live in a separate V4 database, so checking legacy headers in the main database would reject a valid newly created Session.
+
 The older employee direct-message directory stays in source and storage but is hidden from the workbench until its PostgreSQL runtime can serve the complete workflow. Existing Session ids and history are not rewritten.
 
 ## Alternatives considered
