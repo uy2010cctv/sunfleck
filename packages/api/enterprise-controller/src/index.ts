@@ -2800,6 +2800,7 @@ export function apply(ctx: Context): void {
 
 export const inject = [
   'enterprisePostgres', 'enterpriseSecurity', 'enterpriseRequestContext', 'enterpriseCordis',
-  'agentPresets', 'agents', 'sessions', 'sessionPersistence', 'loader', 'credentials', 'llm', 'sessionController', 'webServer',
+  'agentPresets', 'agents', 'sessions', 'sessionPersistence', 'sessionProjections',
+  'loader', 'credentials', 'llm', 'sessionController', 'webServer',
 ]
 export { name } from './invariant.ts'

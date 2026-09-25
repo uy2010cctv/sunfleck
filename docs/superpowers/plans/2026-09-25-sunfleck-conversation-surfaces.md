@@ -31,3 +31,7 @@ The implementation lives on `codex/sunfleck-conversation-surfaces`, based on the
 - Native browser verification before the final compatibility changes covered group creation, stored transcript reopening, cross-employee mentions, channel topic creation, `/done`, and right-sidebar details. The Mac was locked during the final browser pass; the latest rendered state still needs that pass after unlock.
 - Repository-wide documentation and persistence-acknowledgement gates have unrelated baseline failures. The built-profile runtime smoke is not established; source-profile runtime evidence must be reported separately from compilation and bundle results.
 - PostgreSQL collaboration supports explicit employee memory tools. Automatic completed-turn private writeback still depends on the existing account-anchoring path and is outside this navigation change.
+
+### Final source-profile verification
+
+The affected Host graph, full Client graph, Host and Client bundles, and Web Vite build passed. The real PostgreSQL source-profile regression passed with a deterministic external model: group/channel creation, idempotent sending, authorized persisted WebSocket replies, work mode `standard`, and employee release pinning. Publishing version 2 preserves version 1 in an existing group Session and its details; a new channel Session selects version 2. This run also verified the controller's `sessionProjections` dependency declaration through actual profile startup. It does not establish production deployment or a real external-model response.
