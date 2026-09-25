@@ -165,7 +165,12 @@ function sessionActor(ctx: Context, sessionId: string): SessionActor | undefined
   const accounts = (ctx.get.bind(ctx) as (name: string) => unknown)('employeeAccounts') as
     | { resolveSessionActor(sessionId: string): SessionActor | undefined }
     | undefined
-  return accounts?.resolveSessionActor(sessionId)
+  const anchored = accounts?.resolveSessionActor(sessionId)
+  if (anchored !== undefined) return anchored
+  const work = (ctx.get.bind(ctx) as (name: string) => unknown)('enterpriseWorkController') as
+    | { employeeActor(sessionId: string): SessionActor | undefined }
+    | undefined
+  return work?.employeeActor(sessionId)
 }
 
 /** Org, department, and private-compartment inputs one memory surface resolves for its actor. */

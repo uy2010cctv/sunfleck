@@ -23,6 +23,8 @@
     { "path": "../../enterprise/enterprise-surface" },
     { "path": "../../preset/agent-preset-registry" },
     { "path": "../../core/session" },
+    { "path": "../../session/session-projection" },
+    { "path": "../../preset/persona" },
     { "path": "../../runtime-diagnostics/invariants" }
   ]
 }

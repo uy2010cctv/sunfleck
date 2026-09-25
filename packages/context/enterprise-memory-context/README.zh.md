@@ -20,7 +20,7 @@ Reviewed organization and department memory context for DSH Enterprise。
 <a id="package-details"></a>
 ## 包详情
 
-面向企业 Profile 的已审核企业记忆上下文。插件通过企业工作区授权解析 Session cwd，注入共享组织/部门隔间、锚定会话私有的 agent 与 pair 隔间，以及项目服务确认会话行为人成员资格后的项目隔间的已批准摘要；不会加载原始对话正文、待审核/已驳回条目或这些隔间之外的记忆。
+面向企业 Profile 的已审核企业记忆上下文。插件通过企业工作区授权解析 Session cwd，注入共享组织/部门隔间、锚定会话私有的 agent 与 pair 隔间，以及项目服务确认会话行为人成员资格后的项目隔间的已批准摘要。数字员工身份是独立于 Agent Preset 工作方式的 Session 绑定；员工私有记忆按该身份读取，已学习能力文本按记录的发布版本读取。插件不会加载原始对话正文、待审核/已驳回条目或这些隔间之外的记忆。
 
 启用自动业务记忆采集时，写入者依次取已认证请求主体和持久化的企业 Session 所有者。未绑定的后台运行必须配置已存在、且以 `service:` 开头的 `backgroundServiceUserId`；绝不会回退为 bootstrap 管理员。已确认的常规知识直接启用，不确定或冲突内容保持待确认。个人工作区偏好不会被提升为共享记忆。
 
@@ -68,7 +68,7 @@ Reviewed organization and department memory context for DSH Enterprise。
 
 #### What the model sees
 
-企业配置默认挂载独立的 `./learning` 插件。员工完成可复用工作后调用 `learn_employee_capability`，传入类型、名称及工作区内的 Markdown 源文件路径，即可自动登记、绑定自身并发布能力版本，无需管理员确认。归属取当前会话员工身份；保留已有能力和未发布的人工草稿。当前及后续会话只加载本员工在该工作区学到的能力，不新增工具权限或数据访问权限。`maxLearningBytes` 限制每个源文件（默认 64000 个 UTF-8 字节）；`maxChars` 限制学习内容上下文，较长规程通过源文件按需读取。
+企业配置默认挂载独立的 `./learning` 插件。员工完成可复用工作后调用 `learn_employee_capability`，传入类型、名称及工作区内的 Markdown 源文件路径，即可自动登记、绑定自身并发布能力版本，无需管理员确认。归属取独立的 Session 员工绑定；历史会话仍可从员工 preset 读取。原有能力和未发布的人工草稿会保留。新会话只加载所选员工在该工作区学到的能力；已打开的会话固定到记录的发布版本。学习指令仅对已发布员工进入提示词，不新增工具权限或数据访问权限。`maxLearningBytes` 限制每个源文件（默认 64000 个 UTF-8 字节）；`maxChars` 限制学习内容上下文，较长规程通过源文件按需读取。
 
 #### Token effect
 

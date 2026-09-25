@@ -4,6 +4,7 @@ import { pathToFileURL } from 'node:url'
 import { DatabaseSync } from 'node:sqlite'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import { agentPresetProjectionDefinition } from '../../../preset/agent-preset-registry/src/session.ts'
+import { employeeReleaseProjectionDefinition } from '../../../api/enterprise-controller/src/employee-session.ts'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 import Include from '@deepseek-ai/cordis-plugin-include'
 import { tmpdir } from 'node:os'
@@ -200,6 +201,7 @@ describe('Agent automatic enterprise memory', () => {
       { id: 'tools', name: 'test-tools' },
       { id: 'projections', name: 'test-projections' },
       { id: 'preset-projection', name: 'test-preset-projection' },
+      { id: 'employee-projection', name: 'test-employee-projection' },
       { id: 'self-learning', name: 'employee-self-learning' },
     ]))
     ctx.baseUrl = pathToFileURL(root).href + '/'
@@ -208,6 +210,7 @@ describe('Agent automatic enterprise memory', () => {
     const modules = new Map<string, unknown>([
       ['test-projections', { default: SessionProjectionRegistry }],
       ['test-preset-projection', { inject: ['sessionProjections'], apply(ctx: Context) { ctx.sessionProjections.register(agentPresetProjectionDefinition) } }],
+      ['test-employee-projection', { inject: ['sessionProjections'], apply(ctx: Context) { ctx.sessionProjections.register(employeeReleaseProjectionDefinition) } }],
       ['test-system-prompt', { default: SystemPrompt }], ['test-tools', { default: ToolRuntime }], ['employee-self-learning', LearningPlugin],
     ])
     ctx.loader.internal = { version: 'v2', async import(specifier: string) {
@@ -339,13 +342,16 @@ describe('Agent automatic enterprise memory', () => {
 
   it('registers learned source files for the session employee and injects its learned content', async () => {
     const learnEmployeeAsset = vi.fn(async (input: LearnEmployeeAssetInput) => ({ asset: { assetId: input.assetId, version: 1 }, release: { releaseId: 'learned-release', version: 2 } }))
-    const catalog = { learnEmployeeAsset, listReleases: vi.fn(async () => [{ snapshot: { bindings: [{ kind: 'sop', assetId: 'learned', version: 1 }] } }]),
+    const pinnedRelease = { presetId: 'employee-1', snapshot: { bindings: [{ kind: 'sop', assetId: 'learned', version: 1 }] } }
+    const catalog = { learnEmployeeAsset, getDraft: vi.fn(async (id: string) => id === 'employee-1' ? { status: 'published' } : undefined), getRelease: vi.fn(async () => pinnedRelease), listReleases: vi.fn(async () => [pinnedRelease]),
       getAsset: vi.fn(async () => ({ archived: false })), listAssetVersions: vi.fn(async () => [{ version: 1, content: { learnedBy: 'employee-1', workspaceRoot: await realpath(root), name: 'Checking', content: 'Verify the totals.' } }]) }
     const { ctx, identity } = await setupLearning(catalog)
     await writeFile(join(root, 'check.md'), '# Check totals\nVerify the totals.')
-    const agent = { ...agentAt(root), session: Session.create(SessionId('learning'), [], { version: 4, id: SessionId('learning'), createdAt: 1, cwd: root, isSeeded: false, agentPreset: 'employee-old' }) } as Agent
+    const agent = { ...agentAt(root), session: Session.create(SessionId('learning'), [], { version: 4, id: SessionId('learning'), createdAt: 1, cwd: root, isSeeded: false, agentPreset: 'standard' }) } as Agent
     identity.bindSessionWorkspace({ sessionId: String(agent.id), workspaceId: 'workspace-ops', orgId: 'org-a', ownerUserId: 'admin-1' })
-    agent.session.append('agent-preset/selected', { agentPreset: 'employee-1' })
+    agent.session.append('enterprise-employee/selected', {
+      employeeId: 'employee-1', releaseId: 'release-1', orgId: 'org-a', ownerUserId: 'admin-1',
+    })
     const result = await ctx.tools.execute({ signal, callId: ToolCallId('learn'), rootCallId: ToolCallId('batch'), name: 'learn_employee_capability', arguments: { kind: 'sop', name: 'Checking', sourcePath: 'check.md' }, agent })
     expect(result.isError).toBe(false)
     expect(learnEmployeeAsset).toHaveBeenCalledWith(expect.objectContaining({ presetId: 'employee-1', orgId: 'org-a', kind: 'sop', content: expect.objectContaining({ sourcePath: 'check.md', learnedBy: 'employee-1', content: '# Check totals\nVerify the totals.' }) as unknown }))
@@ -359,6 +365,7 @@ describe('Agent automatic enterprise memory', () => {
     expect(learnEmployeeAsset.mock.calls[0]?.[0].idempotencyKey).not.toBe(learnEmployeeAsset.mock.calls[1]?.[0].idempotencyKey)
     const other = await ctx.systemPrompt.assemble({ agent: agentAt(root) })
     expect(other.contexts.find(item => item.name === 'enterprise:learned-capabilities')).toBeUndefined()
+    expect(other.contexts.find(item => item.name === 'enterprise:self-learning')).toBeUndefined()
     identity.close()
   })
 

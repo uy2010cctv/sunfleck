@@ -7,6 +7,7 @@ import type {} from '@deepseek-ai/dsh-agent-preset-registry/types'
 import type { Context } from '@deepseek-ai/cordis'
 import type { EnterpriseCatalogRepository } from '@deepseek-ai/dsh-enterprise-catalog'
 import type { EnterpriseIdentityStore } from '@deepseek-ai/dsh-enterprise-identity'
+import type { Session } from '@deepseek-ai/dsh-session'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 
 /** Enterprise repositories required by the employee-learning entrypoint. */
@@ -15,7 +16,28 @@ export interface LearningRepositories {
   readonly catalog: EnterpriseCatalogRepository
 }
 
-const POLICY = 'After successfully learning a reusable SOP or skill, write its Markdown source in the current workspace, then call learn_employee_capability. It automatically registers, binds and publishes the capability for you, the current digital employee; no administrator confirmation is needed. Do not save guesses, credentials, raw transactions or customer records. Learning does not grant new tools or data access. Report success only from the tool result.'
+/** Instruction shown only in Sessions bound to a published employee. */
+export const EMPLOYEE_LEARNING_POLICY = 'After successfully learning a reusable SOP or skill, write its Markdown source in the current workspace, then call learn_employee_capability. It automatically registers, binds and publishes the capability for you, the current digital employee; no administrator confirmation is needed. Do not save guesses, credentials, raw transactions or customer records. Learning does not grant new tools or data access. Report success only from the tool result.'
+
+/** Resolve the employee release without confusing it with the Agent work mode.
+ * @param ctx - Host context with Session projections.
+ * @param session - Session whose employee selection is read.
+ * @returns selected employee identity and release, if present.
+ */
+export function selectedEmployee(ctx: Context, session: Session): {
+  employeeId: string
+  releaseId: string
+} | undefined {
+  const projections = ctx.get('sessionProjections') as unknown as {
+    stateOf(session: Session, key: string): unknown
+  } | undefined
+  const selected = projections?.stateOf(session, 'enterpriseEmployeeRelease')
+  if (selected !== null && typeof selected === 'object' && 'employeeId' in selected && 'releaseId' in selected &&
+    typeof selected.employeeId === 'string' && typeof selected.releaseId === 'string') {
+    return { employeeId: selected.employeeId, releaseId: selected.releaseId }
+  }
+  return undefined
+}
 
 /** Register automatic learning within the existing enterprise context composition.
  * @param ctx - Active Cordis context that owns the model tool and prompt section.
@@ -23,9 +45,8 @@ const POLICY = 'After successfully learning a reusable SOP or skill, write its M
  * @param maxChars - Maximum UTF-8 bytes read from one workspace source file.
  */
 export function registerEmployeeLearning(ctx: Context, repositories: LearningRepositories, maxChars: number): void {
-  ctx.effect(() => ctx.systemPrompt.section({ name: 'enterprise:self-learning', order: 701, text: POLICY }))
   ctx.tools.register(defineTool({
-    name: 'learn_employee_capability', description: POLICY,
+    name: 'learn_employee_capability', description: EMPLOYEE_LEARNING_POLICY,
     parameters: {
       kind: { type: 'string', required: true, enum: ['sop', 'skill'], description: 'Reusable procedure or skill learned from completed work.' },
       name: { type: 'string', required: true, description: 'Short business-facing capability name.' },
@@ -41,11 +62,14 @@ export function registerEmployeeLearning(ctx: Context, repositories: LearningRep
     execute: async (args, exec) => {
       const agent = exec.agent
       const cwd = agent?.session.header.cwd
-      const presetId = agent === undefined ? undefined : ctx.get('sessionProjections')?.stateOf(agent.session, 'agentPreset') ?? undefined
+      const presetId = agent === undefined ? undefined : selectedEmployee(ctx, agent.session)?.employeeId
+        ?? ctx.get('sessionProjections')?.stateOf(agent.session, 'agentPreset') ?? undefined
       if (agent === undefined || cwd === undefined || presetId === undefined) throw new Error('Learning requires a digital employee session with a workspace')
       const { identity, catalog } = repositories
       const grant = await identity.workspaceGrantByRootPath(cwd)
       if (grant === undefined) throw new Error('Current workspace is not enterprise-managed')
+      const draft = await catalog.getDraft(presetId, grant.orgId)
+      if (draft?.status !== 'published') throw new Error('Learning requires a published digital employee')
       const actorUserId = await identity.sessionOwnerUserId(String(agent.id))
       const actor = (await identity.listUsers(grant.orgId)).find(user => user.id === actorUserId)
       if (actorUserId === undefined || actor === undefined || actor.disabled) {
@@ -99,12 +123,14 @@ export function registerEmployeeLearning(ctx: Context, repositories: LearningRep
  * @returns bounded learned context, or undefined when no eligible binding exists.
  */
 export async function learnedEmployeeContext(
-  repositories: LearningRepositories, presetId: string, cwd: string, maxChars: number,
+  repositories: LearningRepositories, presetId: string, cwd: string, maxChars: number, releaseId?: string,
 ): Promise<string | undefined> {
   const grant = await repositories.identity.workspaceGrantByRootPath(cwd)
   if (grant === undefined) return undefined
-  const release = (await repositories.catalog.listReleases(presetId, grant.orgId)).at(-1)
-  if (release === undefined) return undefined
+  const release = releaseId === undefined
+    ? (await repositories.catalog.listReleases(presetId, grant.orgId)).at(-1)
+    : await repositories.catalog.getRelease(releaseId, grant.orgId)
+  if (release === undefined || release.presetId !== presetId) return undefined
   const root = await realpath(cwd)
   const blocks: string[] = []
   let remaining = maxChars

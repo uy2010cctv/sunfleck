@@ -179,8 +179,10 @@ import {
 import {
   employeePresetDeclaration,
   employeePresetDefinition,
+  employeePersona,
   type EmployeePresetDefinition,
 } from './employee-preset.ts'
+import { employeeReleaseProjectionDefinition, installEmployeePersona } from './employee-session.ts'
 import type {
   EnterpriseWorkPrepareRequest,
   EnterpriseWorkPreparation,
@@ -2410,11 +2412,33 @@ export class CordisGovernanceController extends TypertRemoteService {
 
 /** Goal-first enterprise work entry point. This slice deliberately does not route models, teams, tools, or budgets. */
 export class EnterpriseWorkController extends TypertRemoteService {
-  static inject = ['enterprisePostgres', 'enterpriseSecurity', 'enterpriseRequestContext', 'sessionController', 'agentPresets']
+  static inject = ['enterprisePostgres', 'enterpriseSecurity', 'enterpriseRequestContext', 'sessionController', 'agentPresets', 'sessionProjections']
   private readonly work: EnterpriseWorkStartService
   private readonly workspaceDefaults: WorkspaceEmployeeDefaultService
+  private readonly employeePersonas = new Map<string, () => Promise<void>>()
+  private readonly employeeActors = new Map<string, { orgId: string; userId: string; employeeId: string }>()
   constructor(ctx: Context) {
     super(ctx, 'enterpriseWorkController', { namespace: 'enterpriseWork' })
+    ctx.sessionProjections.register(employeeReleaseProjectionDefinition)
+    ctx.on('agent/created', async ({ agent }) => {
+      const selected = ctx.sessionProjections.stateOf(agent.session, 'enterpriseEmployeeRelease')
+      if (selected === null || selected === undefined) return
+      const ownerUserId = await ctx.enterprisePostgres.identity.sessionOwnerUserId(String(agent.id))
+      if (ownerUserId !== selected.ownerUserId) throw new Error('selected employee Session owner mismatch')
+      const workspace = await ctx.enterprisePostgres.identity.sessionWorkspaceGrant(String(agent.id))
+      if (workspace?.orgId !== selected.orgId) throw new Error('selected employee Workspace mismatch')
+      const release = await ctx.enterprisePostgres.catalog.getRelease(selected.releaseId, selected.orgId)
+      if (release?.presetId !== selected.employeeId) throw new Error('selected employee release is unavailable')
+      await this.mountEmployee(agent, release)
+      this.employeeActors.set(String(agent.id), {
+        orgId: selected.orgId, userId: selected.ownerUserId, employeeId: selected.employeeId,
+      })
+    })
+    ctx.on('agent/disposed', ({ agent }) => {
+      void this.removeEmployee(agent.id).catch((error: unknown) => {
+        ctx.logger.error(`employee scope disposal failed: ${String(error)}`)
+      })
+    })
     const session = ctx.get('sessionController') as {
       create(input: { sessionId: string; workspaceId: string; agentPreset?: string }): Promise<{ sessionId: string }>
     } | undefined
@@ -2447,9 +2471,10 @@ export class EnterpriseWorkController extends TypertRemoteService {
         return (await Promise.all(drafts.filter(item => item.status === 'published').map(item => ctx.enterprisePostgres.catalog.listReleases(item.presetId, actor.orgId)))).flat() as EnterpriseEmployeeRelease[]
       },
       workspaceEmployeeDefault: async id => (await ctx.enterprisePostgres.identity.workspaceEmployeeDefault(id))?.employeeId ?? null,
-      createSession: async ({ sessionId, workspaceId, agentPresetId }) =>
-        session.create({ sessionId, workspaceId, agentPreset: agentPresetId }),
+      createSession: async ({ sessionId, workspaceId }) =>
+        session.create({ sessionId, workspaceId, agentPreset: ctx.agentPresets.defaultId }),
       bindSession: (actor, sessionId, workspaceId) => ctx.enterpriseSecurity.bindSessionWorkspaceAsync(actor, sessionId, workspaceId),
+      bindEmployee: (actor, sessionId, releaseId) => this.bindReleasedEmployee(actor, sessionId, releaseId),
       upsertRecord: async (input) => { await operations(ctx).upsertWorkRecord(input.principal, {
         sessionId: input.sessionId, employeeReleaseId: input.employeeReleaseId, source: 'console', businessState: 'active',
         sourceReferences: input.sourceReferences, expectedRevision: 0, idempotencyKey: input.idempotencyKey,
@@ -2475,6 +2500,55 @@ export class EnterpriseWorkController extends TypertRemoteService {
       read: id => ctx.enterprisePostgres.identity.workspaceEmployeeDefault(id),
       save: input => ctx.enterprisePostgres.identity.saveWorkspaceEmployeeDefault(input),
     })
+  }
+  private async removeEmployee(sessionId: string): Promise<void> {
+    this.employeeActors.delete(sessionId)
+    const dispose = this.employeePersonas.get(sessionId)
+    this.employeePersonas.delete(sessionId)
+    if (dispose !== undefined) await dispose()
+  }
+  /** Actor used by employee-private memory for a live, release-bound Session.
+   * @param sessionId - Session identity.
+   * @returns the selected employee and Session owner, if active.
+   */
+  employeeActor(sessionId: string): { orgId: string; userId: string; employeeId: string } | undefined {
+    return this.employeeActors.get(sessionId)
+  }
+  private async bindReleasedEmployee(actor: EnterprisePrincipal, sessionId: string, releaseId: string): Promise<void> {
+    const release = await this.ctx.enterprisePostgres.catalog.getRelease(releaseId, actor.orgId)
+    if (release === undefined) throw new Error('employee release is not available')
+    if (!(await this.ctx.enterpriseSecurity.authorizeApiAsync(actor, 'enterpriseEmployee.getDraft', { presetId: release.presetId })).allowed) {
+      throw new Error('employee is not available')
+    }
+    const sessionController = this.ctx.get('sessionController') as {
+      resolveAgent(sessionId: SessionId): Promise<
+        { agent: Parameters<Context['agentPresets']['select']>[0] } | { error: Error }
+      >
+    } | undefined
+    if (sessionController === undefined) throw new Error('session controller is unavailable')
+    const resolved = await sessionController.resolveAgent(SessionId(sessionId))
+    if ('error' in resolved) throw resolved.error
+    const agent = resolved.agent
+    const boundary = this.ctx.sessionProjections.stateOf(agent.session, 'turnBoundary')
+    if (boundary !== undefined && (boundary.openTurnStartSeq !== null || boundary.lastTurn > 0)) {
+      throw new Error('employee selection is locked after the first turn')
+    }
+    await this.mountEmployee(agent, release)
+    agent.session.append('enterprise-employee/selected', {
+      employeeId: release.presetId, releaseId: release.releaseId,
+      orgId: actor.orgId, ownerUserId: actor.userId,
+    })
+    this.employeeActors.set(sessionId, {
+      orgId: actor.orgId, userId: actor.userId, employeeId: release.presetId,
+    })
+  }
+  private async mountEmployee(agent: { id: string; ctx: Context }, release: Pick<EnterpriseEmployeeRelease, 'releaseId' | 'version'> & {
+    readonly snapshot: { readonly profile: Readonly<Record<string, unknown>> }
+  }): Promise<void> {
+    await this.removeEmployee(agent.id)
+    this.employeePersonas.set(agent.id, await installEmployeePersona(
+      agent.ctx, employeePersona(employeePresetDefinition(release)),
+    ))
   }
   /** Read the caller-visible default employee for one authorized Workspace.
    * @param request - Workspace identity.
@@ -2512,37 +2586,10 @@ export class EnterpriseWorkController extends TypertRemoteService {
       const release = (await this.ctx.enterprisePostgres.catalog.listReleases(request.employeeId, actor.orgId))
         .sort((a, b) => b.version - a.version)[0]
       if (release === undefined) throw new Error('employee has no published release')
-      const sessionController = this.ctx.get('sessionController') as {
-        resolveAgent(sessionId: SessionId): Promise<
-          { agent: Parameters<Context['agentPresets']['select']>[0] } | { error: Error }
-        >
-      } | undefined
-      if (sessionController === undefined) throw new Error('session controller is unavailable')
-      const resolved = await sessionController.resolveAgent(SessionId(request.sessionId))
-      if ('error' in resolved) throw resolved.error
-      const agent = resolved.agent
-      const previousPreset = this.ctx.agentPresets.composedPreset(agent.ctx)
-      await this.ctx.agentPresets.select(agent, request.employeeId)
-      const mounted = this.ctx.agentPresets.employeeReleaseFor(agent.ctx)
-      if (mounted === undefined || mounted.releaseVersion < release.version) throw new Error('latest employee release is not active')
-      const actualRelease = await this.ctx.enterprisePostgres.catalog.getRelease(mounted.releaseId, actor.orgId)
-      if (actualRelease?.presetId !== request.employeeId) throw new Error('employee release is not available')
-      try {
-        await operations(this.ctx).upsertWorkRecord(actor, {
-          sessionId: request.sessionId, employeeReleaseId: mounted.releaseId, source: 'console',
-          businessState: 'active', sourceReferences: { employeeId: request.employeeId, releaseVersion: mounted.releaseVersion },
-          expectedRevision: 0, idempotencyKey: `employee-session:${request.sessionId}:${mounted.releaseId}`,
-        })
-      } catch (error) {
-        if (previousPreset !== undefined && previousPreset !== request.employeeId) {
-          try { await this.ctx.agentPresets.select(agent, previousPreset) }
-          catch (rollbackError) { this.ctx.logger.error(`employee selection rollback failed: ${String(rollbackError)}`) }
-        }
-        throw error
-      }
+      await this.bindReleasedEmployee(actor, request.sessionId, release.releaseId)
       return {
         sessionId: request.sessionId, employeeId: request.employeeId, workspaceId: grant.workspaceId,
-        employeeReleaseId: mounted.releaseId, releaseVersion: mounted.releaseVersion,
+        employeeReleaseId: release.releaseId, releaseVersion: release.version,
       }
     })
   }

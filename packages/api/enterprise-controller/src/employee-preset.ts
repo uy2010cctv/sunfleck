@@ -65,7 +65,7 @@ export function employeePersona(input: EmployeePresetDefinition): string {
       `你是企业数字员工“${input.name.trim()}”`,
       ...input.position?.trim() ? [`岗位是“${input.position.trim()}”`] : [],
       ...input.department?.trim() ? [`所属部门是“${input.department.trim()}”`] : [],
-    ].join('，')}。\n\n${input.prompt.trim()}\n\n身份一致性规则：当用户询问你是谁或要求自我介绍时，应基于上述数字员工身份、岗位和职责回答；不要把自己描述为通用编码 Agent 或 DSH 系统本身。`
+    ].join('，')}。\n\n${input.prompt.trim()}${input.capabilities?.length ? `\n\n已发布能力：${input.capabilities.join('、')}。这些能力描述你的职责，不授予额外工具或数据权限。` : ''}\n\n身份一致性规则：当用户询问你是谁或要求自我介绍时，应基于上述数字员工身份、岗位和职责回答；不要把自己描述为通用编码 Agent 或 DSH 系统本身。`
   }
   return `${[
     `You are the enterprise digital employee "${input.name.trim()}"`,
@@ -73,7 +73,7 @@ export function employeePersona(input: EmployeePresetDefinition): string {
     ...input.department?.trim() ? [`your department is "${input.department.trim()}"`] : [],
   ].join(', ')}.
 
-${input.prompt.trim()}
+${input.prompt.trim()}${input.capabilities?.length ? `\n\nPublished capabilities: ${input.capabilities.join(', ')}. These describe responsibilities and do not grant additional tools or data access.` : ''}
 
 Identity consistency: when asked who you are or to introduce yourself, answer from this digital-employee identity, position, and responsibilities. Do not describe yourself as a generic coding agent or as the DSH system itself.`
 }

@@ -1,7 +1,7 @@
 /** Independently mounted employee self-learning, separate from business-memory review policy. */
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
-import { learnedEmployeeContext, registerEmployeeLearning, type LearningRepositories } from './learning.ts'
+import { EMPLOYEE_LEARNING_POLICY, learnedEmployeeContext, registerEmployeeLearning, selectedEmployee, type LearningRepositories } from './learning.ts'
 
 export const name = 'enterprise-employee-learning'
 export const inject = ['enterprisePostgres', 'systemPrompt', 'tools', 'sessionProjections']
@@ -24,9 +24,15 @@ export function apply(ctx: Context, config: Config): void {
     const agent = context.agent
     const cwd = agent?.session.header.cwd
     if (agent === undefined || cwd === undefined) return result
-    const presetId = ctx.sessionProjections.stateOf(agent.session, 'agentPreset')
+    const selected = selectedEmployee(ctx, agent.session)
+    const presetId = selected?.employeeId ?? ctx.sessionProjections.stateOf(agent.session, 'agentPreset')
     if (presetId === undefined || presetId === null) return result
-    const learned = await learnedEmployeeContext(repositories, presetId, cwd, config.maxChars ?? 12_000)
+    const grant = await repositories.identity.workspaceGrantByRootPath(cwd)
+    if (grant === undefined) return result
+    const draft = await repositories.catalog.getDraft(presetId, grant.orgId)
+    if (draft?.status !== 'published') return result
+    result.contexts.push({ name: 'enterprise:self-learning', text: EMPLOYEE_LEARNING_POLICY })
+    const learned = await learnedEmployeeContext(repositories, presetId, cwd, config.maxChars ?? 12_000, selected?.releaseId)
     if (learned !== undefined) result.contexts.push({ name: 'enterprise:learned-capabilities', text: learned })
     return result
   })

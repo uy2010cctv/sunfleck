@@ -9,12 +9,12 @@ import css from './EmployeeSeat.module.css'
 export interface EmployeeSeatInjected {
   load: (sessionId: string) => Promise<{ employees: readonly AgentPresetRow[]; selectedId?: string; unavailable: boolean }>
   select: (sessionId: string, employeeId: string) => Promise<void>
-  currentPreset: (sessionId: string) => string | undefined
+  currentEmployee: (sessionId: string) => string | undefined
   subscribe: (listener: () => void) => () => void
 }
 
 /** Render an authorized employee choice beside the work-mode picker. */
-export function EmployeeSeat({ sessionId, load, select, currentPreset, subscribe, t }: PropsRuntime<'conversation.hero.employee'>
+export function EmployeeSeat({ sessionId, load, select, currentEmployee, subscribe, t }: PropsRuntime<'conversation.hero.employee'>
   & PropsLocale<'enterprise.workbench'> & InjectFace<EmployeeSeatInjected>) {
   const [rows, setRows] = useState<readonly AgentPresetRow[]>([])
   const [selected, setSelected] = useState<string>()
@@ -24,11 +24,11 @@ export function EmployeeSeat({ sessionId, load, select, currentPreset, subscribe
   useEffect(() => {
     if (sessionId === undefined) return
     const refresh = () => {
-      const preset = currentPreset(sessionId)
-      setSelected(rows.some(row => row.id === preset) ? preset : undefined)
+      const employee = currentEmployee(sessionId)
+      setSelected(rows.some(row => row.id === employee) ? employee : undefined)
     }
     return subscribe(refresh)
-  }, [sessionId, rows, currentPreset, subscribe])
+  }, [sessionId, rows, currentEmployee, subscribe])
   useEffect(() => {
     if (sessionId === undefined) return
     let live = true

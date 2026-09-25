@@ -32,7 +32,7 @@ Enterprise digital-employee roster and operations workbench over DSH runtime fac
 
 DSH Web 的企业数字员工运营界面。企业 Profile 通过强类型 Host API 读取经过身份校验的 PostgreSQL catalog 与 operations 投影；普通 Profile 只在企业域明确返回 unavailable 时保留原生运行时投影：
 
-- 已发布数字员工以 Agent Preset 作为运行时投影；通用 preset 仍是工作方式。
+- 新 Session 将 Agent Preset 工作方式与一份已发布数字员工版本组合使用；旧员工 preset 声明保留供历史 Session 回放。
 - Workspace 是业务空间。
 - Session 是工作记录。
 - 待处理交互、运行状态、完成提示、Jobs 和 Session 投影继续由原有包负责。
@@ -45,7 +45,7 @@ Workspace 扩展页默认在“我的扩展”汇总调用者可见的所有工�
 
 员工页顶部提供目标优先的工作面板。它把目标、可选截止时间，以及仅在确有打开的原生 Session 时才存在的该 Session 发送给 `enterpriseWork.prepare`；不会按列表顺序猜测工作区。就绪结果以一次浏览器生成的幂等键启动工作，打开返回的原生 Session 并关闭 Overlay。存在歧义时只从已加载的浏览器快照中展示匹配的 Workspace 名称，或数字员工姓名与发布版本；标识符、模型路由与团队设置不会出现。准备或启动失败保持可见，并提供重试和清除操作。
 
-员工页还要求在员工卡片启动前选定工作区。部门经理或组织管理员可设置该工作区的默认员工；个人工作区由所有者设置。其他成员只看到有权使用的员工。新会话员工选择器会将可用的工作区默认员工绑定到空白会话，但不会发送任务消息；成员仍可切换员工或工作方式。旧员工私聊目录在完整的 PostgreSQL 运行时可用前从界面隐藏，其存储数据和接口保留。
+员工页还要求在员工卡片启动前选定工作区。部门经理或组织管理员可设置该工作区的默认员工；个人工作区由所有者设置。其他成员只看到有权使用的员工。新会话先展示工作方式选择器，再展示员工选择器；可用的工作区默认员工只会预选员工，不会发送任务消息。成员在首轮对话前可分别切换工作方式与员工。旧员工私聊目录在完整的 PostgreSQL 运行时可用前从界面隐藏，其存储数据和接口保留。
 
 企业 Host frame 由 runtime 的唯一流消费者转发。每个企业 frame 都携带 `resourceType`；工作台按 `eventId` 去重，即使归属页在后台也会刷新对应 read model。所有 mutation 共用可控的错误/重试状态，重试复用首次生成的 idempotency key。Revision conflict 绝不使用旧 revision 重试：恢复操作只重新加载服务器版本，员工编辑保留本地未保存副本并显示差异。运营人员随后明确采用服务器草稿，或在新服务器 revision 上保留本地字段。如果重载失败，重试只重复该重载。各页失败保持独立：loading、empty、error、forbidden 和部分成功不会清除已成功读取的模型。
 

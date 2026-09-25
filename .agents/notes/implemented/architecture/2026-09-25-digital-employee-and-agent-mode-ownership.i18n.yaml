@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-09-25-digital-employee-and-agent-mode-ownership.md
-2026-09-25-digital-employee-and-agent-mode-ownership.md: 5a915497ed07b28a92101136c0a034fdda1a3895
-2026-09-25-digital-employee-and-agent-mode-ownership.zh.md: 4cac693658aeaf5e5b4ec5841c684ca586b438c4
+2026-09-25-digital-employee-and-agent-mode-ownership.md: 0a9c884e6f7fa9bf31dd795ef3a3f1cf4cdfc4de
+2026-09-25-digital-employee-and-agent-mode-ownership.zh.md: e2d0fb5c3958091257969ec1423ca2514c1b675c

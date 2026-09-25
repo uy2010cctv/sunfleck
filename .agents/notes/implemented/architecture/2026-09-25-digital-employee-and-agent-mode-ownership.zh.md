@@ -6,6 +6,8 @@ Status: implemented
 
 ## 问题
 
+后续的[工作方式与员工组合决策](2026-09-25-agent-mode-and-employee-composition.zh.md)改变了新 Session 绑定员工的方式，并保留本文确定的目录归属和历史回放路径。
+
 企业目录把员工身份发布为 Agent Preset 声明，以便 Session 运行。若把这些声明当作普通自定义模式展示，同一员工会出现两个管理入口，还可能被设成对无权使用该员工的用户生效的全局新任务默认值。
 
 ## 决策

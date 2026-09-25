@@ -8,6 +8,8 @@ English | [中文](2026-09-25-digital-employee-and-agent-mode-ownership.zh.md)
 
 The enterprise catalog publishes employee identities as Agent Preset declarations so Sessions can run them. Showing those declarations as ordinary custom modes makes one employee appear to have two management homes and permits an employee to become the global new-task default for users who cannot use it.
 
+The later [mode and employee composition decision](2026-09-25-agent-mode-and-employee-composition.md) changes how new Sessions bind employees while retaining this catalog ownership and historical replay path.
+
 ## Decision
 
 The catalog Draft and immutable Release own the employee identity, permissions, responsibilities, and version. The Agent Preset registry owns the executable composition and marks a catalog projection as `kind: employee`; ordinary declarations are work modes. Settings offers only work modes as global defaults. The enterprise picker lists only authorized published employees and reports the release mounted in the Agent's retained generation.

@@ -35,9 +35,9 @@ export interface EnterpriseWorkStartDependencies {
     sessionId: string
     workspaceId: string
     employeeReleaseId: string
-    agentPresetId: string
   }) => Promise<{ sessionId: string }>
   readonly bindSession: (principal: EnterprisePrincipal, sessionId: string, workspaceId: string) => Promise<void>
+  readonly bindEmployee: (principal: EnterprisePrincipal, sessionId: string, releaseId: string) => Promise<void>
   readonly upsertRecord: (input: {
     principal: EnterprisePrincipal
     sessionId: string
@@ -145,9 +145,9 @@ export class EnterpriseWorkStartService {
       sessionId: reservation.sessionId,
       workspaceId: reservation.workspaceId,
       employeeReleaseId: reservation.employeeReleaseId,
-      agentPresetId: reservation.presetId,
     })
     await this.deps.bindSession(principal, created.sessionId, reservation.workspaceId)
+    await this.deps.bindEmployee(principal, created.sessionId, reservation.employeeReleaseId)
     await this.deps.upsertRecord({
       principal,
       sessionId: created.sessionId,

@@ -13,7 +13,14 @@ function operationDriver(upsertWorkRecord: (input: Record<string, unknown>) => P
     completeWorkStart: async () => ({}),
   }
 }
-function setup(overrides: Partial<ConstructorParameters<typeof EnterpriseWorkStartService>[0]> = {}) { const calls = { create: 0, records: 0, sessionIds: [] as string[] }; const service = new EnterpriseWorkStartService({ workspaceGrant: async id => ({ workspaceId: id, orgId: 'org-a' }), visibleWorkspace: async (_p, id) => id !== 'denied', sessionOwnedBy: async (_p, id) => id === 'owned-session', sessionWorkspace: async id => id === 'owned-session' ? 'session-workspace' : undefined, personalWorkspaces: async () => ['personal-workspace'], releases: async () => [release('release-a')], createSession: async (input) => { calls.create++; calls.sessionIds.push(input.sessionId); return { sessionId: input.sessionId } }, bindSession: async () => undefined, upsertRecord: async () => { calls.records++ }, reserveWorkStart: async input => ({ ...input, state: 'starting' as const }), getWorkStart: async () => undefined, completeWorkStart: async () => undefined, ...overrides }); return { service, calls } }
+function workController(ctx: Context): EnterpriseWorkController {
+  ctx.provide('sessionProjections' as never, { register: () => undefined, stateOf: () => ({ openTurnStartSeq: null, lastTurn: 0 }) } as never)
+  ctx.provide('agentPresets' as never, { defaultId: 'standard' } as never)
+  const controller = new EnterpriseWorkController(ctx)
+  Object.assign(controller, { bindReleasedEmployee: vi.fn(async () => undefined) })
+  return controller
+}
+function setup(overrides: Partial<ConstructorParameters<typeof EnterpriseWorkStartService>[0]> = {}) { const calls = { create: 0, records: 0, sessionIds: [] as string[] }; const service = new EnterpriseWorkStartService({ workspaceGrant: async id => ({ workspaceId: id, orgId: 'org-a' }), visibleWorkspace: async (_p, id) => id !== 'denied', sessionOwnedBy: async (_p, id) => id === 'owned-session', sessionWorkspace: async id => id === 'owned-session' ? 'session-workspace' : undefined, personalWorkspaces: async () => ['personal-workspace'], releases: async () => [release('release-a')], createSession: async (input) => { calls.create++; calls.sessionIds.push(input.sessionId); return { sessionId: input.sessionId } }, bindSession: async () => undefined, bindEmployee: async () => undefined, upsertRecord: async () => { calls.records++ }, reserveWorkStart: async input => ({ ...input, state: 'starting' as const }), getWorkStart: async () => undefined, completeWorkStart: async () => undefined, ...overrides }); return { service, calls } }
 describe('enterprise work start', () => {
   it('declares the native Session controller as a plugin dependency before enterprise work starts', () => {
     expect(inject).toContain('sessionController')
@@ -37,7 +44,18 @@ describe('enterprise work start', () => {
   it('allows an explicitly preferred historical published release', async () => { const { service } = setup({ releases: async () => [release('release-v1', 'preset-a', 1), release('release-v2', 'preset-a', 2)] }); await expect(service.prepare(principal, { objective: 'Close books', preferredEmployeeReleaseId: 'release-v1' })).resolves.toMatchObject({ kind: 'ready', employeeReleaseId: 'release-v1' }) })
   it('rejects an unauthorized explicit workspace', async () => { const { service } = setup(); await expect(service.prepare(principal, { objective: 'Close books', workspaceId: 'denied' })).rejects.toThrow('workspace is not authorized') })
   it('adopts the same native session and records each idempotent retry', async () => { const { service, calls } = setup(); const input = { objective: 'Close books', idempotencyKey: 'same-key' }; expect(await service.start(principal, input)).toEqual(await service.start(principal, input)); expect(calls.create).toBe(2); expect(calls.records).toBe(2); expect(calls.sessionIds).toEqual([expect.stringMatching(/^session-work-/), calls.sessionIds[0]]) })
-  it('uses the release preset when creating the native session', async () => { let created: { agentPresetId: string; sessionId: string } | undefined; const { service } = setup({ createSession: async (input) => { created = input; return { sessionId: input.sessionId } } }); await service.start(principal, { objective: 'Close books', idempotencyKey: 'mapping' }); expect(created).toMatchObject({ agentPresetId: 'preset-a', sessionId: expect.stringMatching(/^session-work-/) }) })
+  it('binds the employee release separately from the native work mode', async () => {
+    let created: { sessionId: string; employeeReleaseId: string } | undefined
+    const bound = vi.fn(async () => undefined)
+    const { service } = setup({
+      createSession: async (input) => { created = input; return { sessionId: input.sessionId } },
+      bindEmployee: bound,
+    })
+    await service.start(principal, { objective: 'Close books', idempotencyKey: 'mapping' })
+    expect(created?.employeeReleaseId).toBe('release-a')
+    expect(created?.sessionId).toMatch(/^session-work-/)
+    expect(bound).toHaveBeenCalledWith(principal, created?.sessionId, 'release-a')
+  })
   it('uses one opaque deterministic native session id across independently constructed services', async () => {
     const first = setup(); const second = setup()
     const input = { objective: 'Close books', deadline: '2026-09-08T10:00:00.000Z', workspaceId: 'explicit', idempotencyKey: 'restart-safe' }
@@ -171,19 +189,17 @@ describe('enterprise work Remote controller', () => {
     ctx.provide('enterpriseRequestContext' as never, requestContext as never)
     const resolveAgent = vi.fn(async () => ({ agent: { ctx: {}, session: {} } }))
     ctx.provide('sessionController' as never, { create: async () => ({ sessionId: 'session-a' }), resolveAgent } as never)
-    ctx.provide('agentPresets' as never, { composedPreset: () => 'standard', employeeReleaseFor: () => ({ releaseId: 'release-a', releaseVersion: 1 }), select } as never)
     ctx.provide('agents' as never, { get: () => undefined } as never)
-    ctx.provide('sessionProjections' as never, { stateOf: () => ({ openTurnStartSeq: null, lastTurn: 0 }) } as never)
-    const controller = new EnterpriseWorkController(ctx)
+    const controller = workController(ctx)
     await expect(requestContext.run(principal, () => controller.selectEmployee({ sessionId: 'session-a', employeeId: 'preset-a' })))
       .rejects.toThrow()
     expect(select).not.toHaveBeenCalled()
     employeeAllowed = true
     await expect(requestContext.run(principal, () => controller.selectEmployee({ sessionId: 'session-a', employeeId: 'preset-a' })))
       .resolves.toMatchObject({ workspaceId: 'workspace-a', employeeReleaseId: 'release-a' })
-    expect(select).toHaveBeenCalledOnce()
-    expect(resolveAgent).toHaveBeenCalledWith('session-a')
-    expect(upsertWorkRecord).toHaveBeenCalledWith(expect.objectContaining({ employeeReleaseId: 'release-a', sessionId: 'session-a' }))
+    expect(select).not.toHaveBeenCalled()
+    expect((controller as unknown as { bindReleasedEmployee: ReturnType<typeof vi.fn> }).bindReleasedEmployee)
+      .toHaveBeenCalledWith(principal, 'session-a', 'release-a')
   })
   it('requires workspace selection instead of choosing the first caller-owned personal workspace', async () => {
     const requestContext = new EnterpriseRequestContext()
@@ -208,7 +224,7 @@ describe('enterprise work Remote controller', () => {
     } as never)
     ctx.provide('enterpriseRequestContext' as never, requestContext as never)
     ctx.provide('sessionController' as never, { create } as never)
-    const controller = new EnterpriseWorkController(ctx)
+    const controller = workController(ctx)
 
     await expect(requestContext.run(principal, () => controller.prepare({ objective: 'Close books' }))).resolves.toEqual({
       kind: 'needs-workspace-selection', availableWorkspaceIds: ['personal-z', 'personal-a'],
@@ -230,7 +246,7 @@ describe('enterprise work Remote controller', () => {
     ctx.provide('enterpriseSecurity' as never, { authorizeApiAsync: async () => ({ allowed: true, reason: 'role' }), auditApiAsync: async () => undefined, sessionOwnedBy: async () => false, bindSessionWorkspaceAsync: async () => undefined } as never)
     ctx.provide('enterpriseRequestContext' as never, requestContext as never)
     ctx.provide('sessionController' as never, { create } as never)
-    const controller = new EnterpriseWorkController(ctx)
+    const controller = workController(ctx)
 
     await expect(requestContext.run(principal, () => controller.start({ objective: 'Close books', idempotencyKey: 'later-page' }))).resolves.toMatchObject({ employeeReleaseId: 'release-later' })
     expect(listDrafts).toHaveBeenCalledTimes(4)
@@ -253,7 +269,7 @@ describe('enterprise work Remote controller', () => {
     ctx.provide('enterpriseSecurity' as never, { authorizeApiAsync: async () => ({ allowed: true, reason: 'role' }), auditApiAsync: async () => undefined, sessionOwnedBy: async () => false, bindSessionWorkspaceAsync: async () => undefined } as never)
     ctx.provide('enterpriseRequestContext' as never, requestContext as never)
     ctx.provide('sessionController' as never, { create } as never)
-    const controller = new EnterpriseWorkController(ctx)
+    const controller = workController(ctx)
 
     await expect(requestContext.run(administrator, () => controller.prepare({ objective: 'Close books' }))).resolves.toEqual({
       kind: 'needs-selection', workspaceId: 'personal-a', availableEmployeeReleaseIds: ['release-preset-admin', 'release-preset-other-owner'],
@@ -288,21 +304,23 @@ describe('enterprise work Remote controller', () => {
     } as never)
     ctx.provide('enterpriseRequestContext' as never, requestContext as never)
     ctx.provide('sessionController' as never, { create } as never)
-    const controller = new EnterpriseWorkController(ctx)
+    const controller = workController(ctx)
     const result = await requestContext.run(principal, () => controller.start({
       objective: 'Close books', workspaceId: 'workspace-a', preferredEmployeeReleaseId: 'release-a', idempotencyKey: 'remote-start',
     }))
-    expect(create).toHaveBeenCalledWith({ sessionId: result.sessionId, workspaceId: 'workspace-a', agentPreset: 'preset-a' })
+    expect(create).toHaveBeenCalledWith({ sessionId: result.sessionId, workspaceId: 'workspace-a', agentPreset: 'standard' })
     expect(reserveWorkStart.mock.invocationCallOrder[0]).toBeLessThan(create.mock.invocationCallOrder[0] as number)
     expect(reserveWorkStart).toHaveBeenCalledWith(expect.objectContaining({
       orgId: 'org-a', idempotencyKey: 'remote-start', sessionId: result.sessionId,
       workspaceId: 'workspace-a', employeeReleaseId: 'release-a', presetId: 'preset-a',
     }))
     expect(bindSessionWorkspaceAsync).toHaveBeenCalledWith(principal, result.sessionId, 'workspace-a')
-    expect(upsertWorkRecord).toHaveBeenCalledWith(expect.objectContaining({
-      orgId: 'org-a', sessionId: result.sessionId, employeeReleaseId: 'release-a', idempotencyKey: 'remote-start',
-      sourceReferences: expect.objectContaining({ employeeReleaseId: 'release-a', releasePresetId: 'preset-a' }),
-    }))
+    const recorded = upsertWorkRecord.mock.calls[0]?.[0]
+    expect(recorded?.orgId).toBe('org-a')
+    expect(recorded?.sessionId).toBe(result.sessionId)
+    expect(recorded?.employeeReleaseId).toBe('release-a')
+    expect(recorded?.idempotencyKey).toBe('remote-start')
+    expect(recorded?.sourceReferences).toMatchObject({ employeeReleaseId: 'release-a', releasePresetId: 'preset-a' })
     expect(completeWorkStart).toHaveBeenCalledWith(expect.objectContaining({ orgId: 'org-a', idempotencyKey: 'remote-start' }))
     expect(authorizeApiAsync).toHaveBeenCalledWith(principal, 'enterpriseWork.start', expect.objectContaining({ idempotencyKey: 'remote-start' }))
     expect(auditApiAsync).toHaveBeenCalledWith(principal, 'enterpriseWork.start', expect.objectContaining({ idempotencyKey: 'remote-start' }), { allowed: true, reason: 'role' }, expect.any(String))
@@ -338,7 +356,7 @@ describe('enterprise work Remote controller', () => {
     ctx.provide('enterpriseSecurity' as never, security)
     ctx.provide('enterpriseRequestContext' as never, requestContext as never)
     ctx.provide('sessionController' as never, { create } as never)
-    const controller = new EnterpriseWorkController(ctx)
+    const controller = workController(ctx)
     const operator = { orgId: 'org-a', userId: 'operator-a', roles: ['operator'] as const }
 
     await expect(security.authorizeApiAsync(operator, 'enterpriseWork.start', { idempotencyKey: 'authorized-start' }))
@@ -370,7 +388,7 @@ describe('enterprise work Remote controller', () => {
     ctx.provide('enterpriseSecurity' as never, security)
     ctx.provide('enterpriseRequestContext' as never, requestContext as never)
     ctx.provide('sessionController' as never, { create } as never)
-    const controller = new EnterpriseWorkController(ctx)
+    const controller = workController(ctx)
     const member = { orgId: 'org-a', userId: 'member-a', roles: ['member'] as const }
 
     await expect(requestContext.run(member, () => controller.start({
@@ -389,7 +407,7 @@ describe('enterprise work Remote controller', () => {
     } as never)
     ctx.provide('enterpriseRequestContext' as never, requestContext as never)
     ctx.provide('sessionController' as never, { create } as never)
-    const controller = new EnterpriseWorkController(ctx)
+    const controller = workController(ctx)
     await expect(requestContext.run(principal, () => controller.start({ objective: 'Close books', idempotencyKey: 'denied-start' }))).rejects.toMatchObject({ code: 'enterprise-forbidden' })
     expect(create).not.toHaveBeenCalled()
     expect(auditApiAsync).toHaveBeenCalledWith(principal, 'enterpriseWork.start', expect.objectContaining({ idempotencyKey: 'denied-start' }), { allowed: false, reason: 'insufficient-role' }, expect.any(String))

@@ -5,6 +5,7 @@ import type { SnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type { EnterpriseEmployeeChannelOwner, EnterpriseEmployeeKnowledgeBindingsOwner, EnterpriseKnowledgeAssetsOwner } from './EnterpriseWorkbench.tsx'
 import type { ClientRemote } from '@deepseek-ai/dsh-api-remotes/client'
 import type { EnterpriseChannelConfiguration } from '@deepseek-ai/dsh-api-enterprise-controller/types'
+import type {} from '@deepseek-ai/dsh-api-enterprise-controller/types'
 import type {} from '@deepseek-ai/dsh-client-connection/client'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
@@ -247,7 +248,9 @@ export function apply(ctx: Context): void {
           const employees = roster.value.presets.filter(row => row.kind === 'employee' && row.broken === undefined)
           const workspaceId = ctx.workspaces.list.getSnapshot().items.find(row => row.sessionIds.includes(sessionId as never))?.workspaceId
           const summary = ctx.sessions.list.getSnapshot().byId[sessionId as never]
-          let selectedId = employees.find(row => row.id === summary?.projectionValues?.agentPreset)?.id
+          const selectedEmployee = (summary?.projectionValues as
+            { enterpriseEmployeeRelease?: { employeeId: string } | null } | undefined)?.enterpriseEmployeeRelease
+          let selectedId = employees.find(row => row.id === selectedEmployee?.employeeId)?.id
           if (workspaceId === undefined) return { employees, ...(selectedId === undefined ? {} : { selectedId }), unavailable: false }
           const response = await ctx.remote.enterpriseWork.workspaceDefault({ workspaceId })
           if (!response.ok) throw new Error(response.error.message)
@@ -271,9 +274,10 @@ export function apply(ctx: Context): void {
           const selected = await ctx.remote.enterpriseWork.selectEmployee({ sessionId, employeeId })
           if (!selected.ok) throw new Error(selected.error.message)
         },
-        currentPreset: (sessionId) => {
-          const preset = ctx.sessions.list.getSnapshot().byId[sessionId as never]?.projectionValues?.agentPreset
-          return typeof preset === 'string' ? preset : undefined
+        currentEmployee: (sessionId) => {
+          const employee = (ctx.sessions.list.getSnapshot().byId[sessionId as never]?.projectionValues as
+            { enterpriseEmployeeRelease?: { employeeId: string } | null } | undefined)?.enterpriseEmployeeRelease
+          return typeof employee?.employeeId === 'string' ? employee.employeeId : undefined
         },
         subscribe: listener => ctx.sessions.list.subscribe(listener),
       }),

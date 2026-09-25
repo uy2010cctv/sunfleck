@@ -1,4 +1,30 @@
 /** Goal-first enterprise work Remote contracts. */
+/** Employee identity and immutable release selected for a Session's base work mode. */
+export interface EmployeeReleaseSelection {
+  readonly employeeId: string
+  readonly releaseId: string
+  readonly orgId: string
+  readonly ownerUserId: string
+}
+
+declare module '@deepseek-ai/dsh-session/types' {
+  interface SessionEventMap {
+    /** Required replay fact for the employee prompt, capabilities, and private memory. */
+    'enterprise-employee/selected': EmployeeReleaseSelection
+    /** Return a still-blank Session to its base Agent preset alone. */
+    'enterprise-employee/cleared': Record<string, never>
+  }
+}
+
+declare module '@deepseek-ai/dsh-session-projection/types' {
+  interface SessionProjectionStateMap {
+    enterpriseEmployeeRelease: EmployeeReleaseSelection | null
+  }
+  interface SessionProjectionMap {
+    enterpriseEmployeeRelease: Pick<EmployeeReleaseSelection, 'employeeId' | 'releaseId'> | null
+  }
+}
+
 export interface WorkspaceEmployeeDefaultRequest { readonly workspaceId: string }
 /** Revision-checked workspace selection. Null clears the employee. */
 export interface WorkspaceEmployeeDefaultSaveRequest extends WorkspaceEmployeeDefaultRequest {
