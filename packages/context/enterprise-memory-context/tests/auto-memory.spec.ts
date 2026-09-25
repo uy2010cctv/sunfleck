@@ -169,14 +169,15 @@ describe('Agent automatic enterprise memory', () => {
     context = ctx
     await ctx.plugin(SystemPrompt, { includeHarnessIdentity: false, includeRuntimeContext: true })
     await ctx.plugin(ToolRuntime)
-    ctx.provide('enterprisePostgres' as never, { identity } as never)
+    const postgres = { identity }
+    ctx.provide('enterprisePostgres' as never, postgres as never)
     const requestContext = new EnterpriseRequestContext()
     ctx.provide('enterpriseRequestContext' as never, requestContext as never)
     apply(ctx, {
       maxEntries: 20, maxChars: 8_000, autoSave: true,
       ...(options.backgroundServiceUserId === undefined ? {} : { backgroundServiceUserId: options.backgroundServiceUserId }),
     })
-    return { ctx, identity, requestContext }
+    return { ctx, identity, requestContext, postgres }
   }
 
   async function setupLearning(catalog: unknown) {
@@ -672,6 +673,50 @@ describe('Agent automatic enterprise memory', () => {
     expect(organizations.isError).toBe(false)
     expect(resultText(organizations)).toContain('合同审批需要部门复核。')
     expect(resultText(organizations)).not.toContain(`[${agentNote.id}]`)
+    identity.close()
+  })
+
+  it.each(['group', 'channel'])('excludes creator and requesting-user pair memories from a shared %s Session', async (kind) => {
+    const { ctx, identity, requestContext, postgres } = await setup()
+    ctx.provide('enterpriseWorkController' as never, {
+      employeeActor: () => ({ orgId: 'org-a', userId: 'member-1', employeeId: 'employee-1', projectId: 'unrelated' }),
+    } as never)
+    Object.assign(postgres, { collaboration: {
+      bySession: async () => ({ surfaceId: 'shared', employeeId: 'employee-1', topicId: 'topic', sessionId: 'memory-agent' }),
+      get: async () => ({ orgId: 'org-a', kind, projectId: 'project-1' }),
+    } })
+    const note = seedAgentNote(identity, '员工自己的检查流程。')
+    const pairs = ['member-1', 'admin-1'].map(pairUserId => identity.writePrivateMemory({
+      orgId: 'org-a', scope: 'pair', pairUserId, kind: 'preference', summary: `双边保密偏好 ${pairUserId}`, createdBy: pairUserId,
+    }))
+    const requireMember = vi.fn(async () => ({ state: 'active' }))
+    ctx.provide('enterpriseProjects' as never, {
+      get: async () => ({ orgId: 'org-a', state: 'active' }), requireMember,
+    } as never)
+    const backgroundPrompt = await ctx.systemPrompt.assemble({ agent: agentAt('/managed/ops') })
+    for (const pair of pairs) expect(backgroundPrompt.contexts.map(item => item.text).join('\n')).not.toContain(pair.summary)
+    await requestContext.run({ orgId: 'org-a', userId: 'admin-1', roles: ['administrator'] }, async () => {
+      const prompt = await ctx.systemPrompt.assemble({ agent: agentAt('/managed/ops') })
+      const text = prompt.contexts.map(item => item.text).join('\n')
+      expect(text).toContain(note.summary)
+      for (const pair of pairs) expect(text).not.toContain(pair.summary)
+      const search = await callTool(ctx, 'memory_search', { query: '偏好', scopeFilter: 'pair' })
+      for (const pair of pairs) expect(resultText(search)).not.toContain(pair.id)
+      const read = await callTool(ctx, 'memory_read', { ids: pairs.map(pair => pair.id) })
+      for (const pair of pairs) expect(resultText(read)).not.toContain(pair.summary)
+      const retired = await callTool(ctx, 'memory_retire', { ids: pairs.map(pair => pair.id), reason: '过期' })
+      expect(retired.isError).toBe(false)
+      for (const pair of pairs) {
+        if (pair.pairUserId === undefined) throw new Error('pair fixture requires its owner')
+        expect(identity.listMemories({ orgId: 'org-a', scopes: ['pair'], pairUserId: pair.pairUserId })
+          .find(item => item.id === pair.id)?.status).toBe('approved')
+      }
+      const write = await callTool(ctx, 'memory_write', { scope: 'agent', kind: 'process', summary: '先验证总额再确认。' })
+      expect(write.isError).toBe(false)
+      const pairWrite = await callTool(ctx, 'memory_write', { scope: 'pair', kind: 'preference', summary: '不应写入双边。' })
+      expect(pairWrite.isError).toBe(true)
+      expect(requireMember).toHaveBeenCalledWith('org-a', 'project-1', { employeeId: 'employee-1' })
+    })
     identity.close()
   })
 

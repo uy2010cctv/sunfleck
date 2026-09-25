@@ -15,7 +15,7 @@ import type { SessionId } from '@deepseek-ai/dsh-session'
 import type { EnterprisePrincipal } from '@deepseek-ai/dsh-enterprise-governance'
 import type { EnterpriseOperationsService, EnterpriseTeamControlService } from '@deepseek-ai/dsh-enterprise-operations'
 import { projectId } from '@deepseek-ai/dsh-enterprise-project'
-import type { CollaborationRecord } from '@deepseek-ai/dsh-enterprise-postgres'
+import type { CollaborationRecord, CollaborationSession } from '@deepseek-ai/dsh-enterprise-postgres'
 import { CollaborationService, CollaborationError, type CollaborationMessageInput } from './collaboration-service.ts'
 import { findCollaborationRequest } from './collaboration-receipt.ts'
 import { CollaborationHttpHandler } from './collaboration-http.ts'
@@ -59,7 +59,7 @@ export function composeCollaboration(ctx: Context, services: {
     if (binding === undefined) throw new CollaborationError('session-unavailable', 409)
     if (!await security.sessionAccessibleBy(actor, id)) throw new CollaborationError('session-forbidden', 403)
     await scoped(actor, () => ctx.sessionController.create({ sessionId: brandString<SessionId>(id),
-      workspaceId: brandString<WorkspaceId>(row.workspaceId), ...(binding.employeeId === '' ? {} : { agentPreset: binding.employeeId }) }))
+      workspaceId: brandString<WorkspaceId>(row.workspaceId) }))
     const agent = ctx.agents.get(brandString<SessionId>(id))
     if (agent === undefined) throw new CollaborationError('session-unavailable', 503)
     return agent
@@ -79,6 +79,14 @@ export function composeCollaboration(ctx: Context, services: {
     await ctx.sessions.flush(agent.session)
     if (!landed()) throw new CollaborationError('delivery-not-landed', 502)
   }
+  const boundTeamRuns = async (actor: EnterprisePrincipal, row: CollaborationRecord, bindings: readonly CollaborationSession[]) => {
+    const control = services.teams()
+    const runs = await Promise.all(bindings.filter(binding => binding.employeeId === '')
+      .map(binding => control.getRun(actor, binding.topicId)))
+    return runs.filter(run => run.teamId === row.teamDefinitionId && run.workspaceId === row.workspaceId
+      && bindings.some(binding => binding.sessionId === run.rootSessionId))
+      .toSorted((a, b) => b.createdAt - a.createdAt || b.runId.localeCompare(a.runId))
+  }
   const service = new CollaborationService(store, {
     refreshWorkspace: (workspaceId) => { ctx.emit('workspace/visibility-changed', brandString<WorkspaceId>(workspaceId)) },
     workspaceVisible: async (actor, id) => (await security.authorizeApiAsync(actor, 'session.create', { workspaceId: id })).allowed,
@@ -95,13 +103,9 @@ export function composeCollaboration(ctx: Context, services: {
       return team === undefined ? undefined : { id, name: team.name }
     },
     createSession: async (actor, input) => scoped(actor, async () => {
-      const value = await ctx.sessionController.create({ sessionId: brandString<SessionId>(input.sessionId),
-        workspaceId: brandString<WorkspaceId>(input.workspaceId), agentPreset: input.employee.employeeId })
-      await security.bindSessionWorkspaceAsync(actor, value.sessionId, input.workspaceId)
-      await services.operations().upsertWorkRecord(actor, {
-        sessionId: value.sessionId, employeeReleaseId: input.employee.releaseId, source: 'console', businessState: 'active',
-        sourceReferences: { employeeReleaseId: input.employee.releaseId, releasePresetId: input.employee.employeeId },
-        expectedRevision: 0, idempotencyKey: input.sessionId,
+      const value = await ctx.enterpriseWorkController.start({
+        objective: input.objective, workspaceId: input.workspaceId,
+        preferredEmployeeReleaseId: input.employee.releaseId, idempotencyKey: input.sessionId,
       })
       return value.sessionId
     }),
@@ -133,9 +137,7 @@ export function composeCollaboration(ctx: Context, services: {
     teamSession: async (actor, row, runId) => {
       if (row.teamDefinitionId === undefined || ctx.get('enterpriseTeamRuntimeDriver') === undefined) return undefined
       const bound = await store.sessions(row.id)
-      const runs = (await services.teams().listRuns(actor, { teamId: row.teamDefinitionId })).items
-        .filter(run => bound.some(value => value.sessionId === run.rootSessionId))
-        .toSorted((a, b) => b.createdAt - a.createdAt || b.runId.localeCompare(a.runId))
+      const runs = await boundTeamRuns(actor, row, bound)
       const selected = runId === undefined
         ? runs.find(run => run.state === 'active' || run.state === 'starting' || run.state === 'waiting-human' || run.state === 'verifying') ?? runs[0]
         : runs.find(run => run.runId === runId)
@@ -169,9 +171,8 @@ export function composeCollaboration(ctx: Context, services: {
       const definition = await services.operations().getTeamDefinition(actor, { teamId: row.teamDefinitionId })
       if (definition === undefined || definition.state !== 'active') return { delivered: false, reason: 'team-inactive' }
       const control = services.teams()
-      const prior = (await control.listRuns(actor, { teamId: row.teamDefinitionId })).items.find(run =>
-        run.workspaceId === row.workspaceId && bound.some(value => value.sessionId === run.rootSessionId)
-        && run.state !== 'completed' && run.state !== 'failed' && run.state !== 'cancelled')
+      const prior = (await boundTeamRuns(actor, row, bound)).find(run =>
+        run.state !== 'completed' && run.state !== 'failed' && run.state !== 'cancelled')
       if (prior !== undefined && prior.state !== 'active') return { delivered: false, reason: 'team-run-not-active' }
       const active = prior
       const run = active ?? await control.startRun(actor, { teamId: row.teamDefinitionId,

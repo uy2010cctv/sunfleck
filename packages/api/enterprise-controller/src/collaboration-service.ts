@@ -69,7 +69,7 @@ export interface CollaborationRuntime {
   project(actor: EnterprisePrincipal, id: string): Promise<CollaborationDetail['project']>
   team(actor: EnterprisePrincipal, id: string): Promise<CollaborationDetail['team']>
   createSession(actor: EnterprisePrincipal,
-    input: { sessionId: string; workspaceId: string; employee: CollaborationEmployee }): Promise<string>
+    input: { sessionId: string; workspaceId: string; employee: CollaborationEmployee; objective: string }): Promise<string>
   prompt(actor: EnterprisePrincipal, sessionId: string, record: CollaborationRecord, input: CollaborationMessageInput): Promise<void>
   record(actor: EnterprisePrincipal, sessionId: string, record: CollaborationRecord, input: CollaborationMessageInput): Promise<void>
   ingest(actor: EnterprisePrincipal, record: CollaborationRecord, input: CollaborationMessageInput): Promise<CollaborationDelivery>
@@ -244,9 +244,8 @@ export class CollaborationService {
     }
     const employees = (await Promise.all(row.memberEmployeeIds.map(employee => this.runtime.employee(actor,
       employee)))).filter((value): value is CollaborationEmployee => value !== undefined)
-    const mentions = new Set([...input.text.matchAll(/@([^\s@]+)/gu)].map(match => (match[1] ?? '').replace(/[^\p{L}\p{N}]+$/u, '').toLowerCase()))
     let targets = input.mentionedEmployeeIds === undefined
-      ? employees.filter(employee => mentions.has(employee.displayName.toLowerCase())).map(employee => employee.employeeId)
+      ? mentionedEmployees(input.text, employees)
       : [...new Set(input.mentionedEmployeeIds)].filter(employee => employees.some(value => value.employeeId === employee))
     if (row.kind === 'channel' && targets.length === 0) targets = row.dutyEmployeeIds.slice(0, 1)
     if (targets.length === 0) {
@@ -290,7 +289,7 @@ export class CollaborationService {
       const employee = await this.runtime.employee(actor, employeeId)
       if (employee === undefined) throw new CollaborationError('employee-unavailable', 404)
       const sessionId = await this.runtime.createSession(actor, { sessionId: `session-collaboration-${hash(key)}`,
-        workspaceId: row.workspaceId, employee })
+        workspaceId: row.workspaceId, employee, objective: `${row.name} · ${employee.displayName}` })
       const binding = { surfaceId: row.id, topicId, employeeId, sessionId }
       await this.store.bind(binding)
       this.runtime.refreshWorkspace(row.workspaceId)
@@ -300,6 +299,23 @@ export class CollaborationService {
     this.creations.set(key, pending)
     try { return await pending } finally { if (this.creations.get(key) === pending) this.creations.delete(key) }
   }
+}
+
+/** Match complete roster names; longer names own an ambiguous shared prefix. */
+function mentionedEmployees(text: string, employees: readonly CollaborationEmployee[]): string[] {
+  const names = employees.map(employee => ({ employee, name: employee.displayName.toLowerCase() }))
+    .filter(value => value.name.length > 0).sort((a, b) => b.name.length - a.name.length)
+  const mentioned = new Set<string>()
+  for (const token of text.matchAll(/@/gu)) {
+    const suffix = text.slice(token.index + 1).toLowerCase()
+    const candidates = names.filter(({ name }) => suffix.startsWith(name)
+      && (suffix.length === name.length || /^[\s@\p{P}\p{S}]/u.test(suffix.slice(name.length))))
+    const longest = candidates[0]?.name.length
+    for (const candidate of candidates) {
+      if (candidate.name.length === longest) mentioned.add(candidate.employee.employeeId)
+    }
+  }
+  return employees.filter(employee => mentioned.has(employee.employeeId)).map(employee => employee.employeeId)
 }
 
 function hash(value: string): string { return createHash('sha256').update(value).digest('hex') }

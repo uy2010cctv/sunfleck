@@ -1,8 +1,11 @@
 import { Context } from '@deepseek-ai/cordis'
 import { describe, expect, it, vi } from 'vitest'
+import type { EnterpriseWorkStartRequest } from '../src/contract/work.ts'
 import { composeCollaboration } from '../src/collaboration-runtime.ts'
 import { brandString } from '@deepseek-ai/dsh-brand'
-import { SessionId } from '@deepseek-ai/dsh-session'
+import type { EnterpriseOperationsService, EnterpriseTeamControlService } from '@deepseek-ai/dsh-enterprise-operations'
+import type { UserMessage } from '@deepseek-ai/dsh-llm'
+import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionRequestId } from '@deepseek-ai/dsh-api-session-controller'
 import type { SessionPromptRequest } from '@deepseek-ai/dsh-api-session-controller'
 
@@ -10,15 +13,15 @@ const actor = { orgId: 'org', userId: 'alice', roles: ['administrator'] as const
 
 function setup(state: 'completed' | 'waiting-human') {
   const ctx = new Context()
-  const operations = vi.fn(() => { throw new Error('receipt replay must precede charter lookup') })
-  const teams = vi.fn(() => { throw new Error('receipt replay must precede lifecycle routing') })
+  const operations = vi.fn<() => EnterpriseOperationsService>(() => { throw new Error('receipt replay must precede charter lookup') })
+  const teams = vi.fn<() => EnterpriseTeamControlService>(() => { throw new Error('receipt replay must precede lifecycle routing') })
   const binding = { surfaceId: 'group', topicId: 'run-old', employeeId: '', sessionId: 'original-root' }
   const close = vi.fn(async () => {})
   ctx.provide('enterprisePostgres' as never, {
     collaboration: {
       get: async () => ({ id: 'group', orgId: 'org', name: 'Team', kind: 'group', workspaceId: 'shared',
         memberUserIds: ['alice'], memberEmployeeIds: [], dutyEmployeeIds: [], teamDefinitionId: 'team-a' }),
-      sessions: async () => [binding], bySession: async () => binding,
+      sessions: async () => [binding], bySession: async () => binding, topics: async () => [], bind: async () => {},
     },
 
   } as never)
@@ -62,6 +65,101 @@ describe('collaboration native runtime receipts', () => {
       const result = await app.ctx.waterfall('api/session-prompt', request, async () => { throw new Error('must route collaboration') })
       expect(result).toEqual({ accepted: true, routedSessionIds: ['original-root'] })
       expect(app.teams).not.toHaveBeenCalled()
+    } finally { await app.ctx.fiber.dispose() }
+  })
+})
+
+function employeeSetup() {
+  const ctx = new Context()
+  const bindings: Array<{ surfaceId: string; topicId: string; employeeId: string; sessionId: string }> = []
+  const nativeCreate = vi.fn(async () => ({ sessionId: 'native-session' }))
+  const workStart = vi.fn(async (_request: EnterpriseWorkStartRequest) => ({ sessionId: 'work-session' }))
+  const nativeSession = Session.create(SessionId('work-session'))
+  const nativeAgent = {
+    session: nativeSession, inbox: { nextTurn: [], nextStep: [] },
+    steer: (message: UserMessage) => { nativeSession.append('user/message', message, { surfaceOp: 'append' }) },
+  }
+  ctx.provide('enterprisePostgres' as never, {
+    collaboration: {
+      get: async () => ({ id: 'group', orgId: 'org', name: 'Group', kind: 'group', workspaceId: 'shared',
+        memberUserIds: ['alice'], memberEmployeeIds: ['employee-a'], dutyEmployeeIds: [] }),
+      sessions: async () => bindings,
+      bind: async (binding: typeof bindings[number]) => { bindings.push(binding) },
+    },
+    catalog: {
+      getDraft: async () => ({ status: 'published', profile: { name: 'Analyst' } }),
+      listReleases: async () => [{ releaseId: 'release-exact', version: 7 }],
+    },
+  } as never)
+  ctx.provide('enterpriseSecurity' as never, {
+    authenticateCookieAsync: async () => actor,
+    authorizeResourceAsync: async () => ({ allowed: true, reason: 'role' }),
+    authorizeApiAsync: async () => ({ allowed: true, reason: 'role' }),
+    auditApiResourceAsync: async () => {}, sessionAccessibleBy: async () => true,
+    bindSessionWorkspaceAsync: async () => {},
+  } as never)
+  ctx.provide('enterpriseRequestContext' as never, { run: (_actor: unknown, callback: () => unknown) => callback() } as never)
+  ctx.provide('enterpriseWorkController' as never, { start: workStart } as never)
+  ctx.provide('sessionController' as never, { create: nativeCreate } as never)
+  ctx.provide('agents' as never, { get: () => nativeAgent } as never)
+  ctx.provide('sessions' as never, { flush: async () => {} } as never)
+  const handler = composeCollaboration(ctx, {
+    operations: () => ({ upsertWorkRecord: async () => {} }) as never,
+    teams: () => { throw new Error('not a charter') },
+  })
+  const post = (operation: string, body: unknown) => handler.fetch(new Request(`https://dsh/enterprise/surfaces/group/${operation}`, {
+    method: 'POST', body: JSON.stringify(body),
+  }))
+  return { ctx, bindings, nativeCreate, workStart, post }
+}
+
+describe('collaboration employee selection compatibility', () => {
+  it('creates through enterprise work with an exact release and stable destination key', async () => {
+    const app = employeeSetup()
+    try {
+      const response = await app.post('open', { employeeId: 'employee-a' })
+      expect(await response.json()).toMatchObject({ opened: true, sessionId: 'work-session' })
+      expect(app.workStart.mock.calls[0]?.[0]).toMatchObject({
+        objective: 'Group · Analyst', workspaceId: 'shared', preferredEmployeeReleaseId: 'release-exact',
+      })
+      expect(app.workStart.mock.calls[0]?.[0].idempotencyKey).toMatch(/^session-collaboration-/u)
+      expect(app.nativeCreate).not.toHaveBeenCalled()
+      await app.post('open', { employeeId: 'employee-a' })
+      expect(app.workStart).toHaveBeenCalledOnce()
+    } finally { await app.ctx.fiber.dispose() }
+  })
+  it('cold-resumes a recorded destination without replacing its work-mode preset', async () => {
+    const app = employeeSetup()
+    app.bindings.push({ surfaceId: 'group', topicId: '', employeeId: 'employee-a', sessionId: 'work-session' })
+    try {
+      const response = await app.post('messages', { text: '@Analyst continue', messageId: 'resume-1' })
+      expect(await response.json()).toMatchObject({ delivered: true })
+      expect(app.nativeCreate).toHaveBeenCalledWith({ sessionId: 'work-session', workspaceId: 'shared' })
+      expect(app.workStart).not.toHaveBeenCalled()
+    } finally { await app.ctx.fiber.dispose() }
+  })
+})
+
+
+describe('collaboration persisted TeamRun lookup', () => {
+  it.each(['open', 'messages'] as const)('finds an older bound run for %s without relying on the first team catalog page', async (operation) => {
+    const app = setup('completed')
+    const run = { runId: 'run-old', teamId: 'team-a', workspaceId: 'shared', rootSessionId: 'original-root', state: 'active', createdAt: 1 }
+    const getRun = vi.fn(async () => run)
+    const listRuns = vi.fn(async () => ({ items: [], nextCursor: 'older-page' }))
+    const startRun = vi.fn(async () => ({ ...run, runId: 'duplicate-run', rootSessionId: 'duplicate-root' }))
+    app.operations.mockImplementation(() => ({ getTeamDefinition: async () => ({ teamId: 'team-a', name: 'Team', state: 'active', revision: 1 }) }) as never)
+    app.teams.mockImplementation(() => ({ getRun, listRuns, startRun }) as never)
+    Object.assign(app.ctx.enterpriseTeamRuntimeDriver, { submitRunInput: async () => ({}) })
+    try {
+      const response = await app.handler.fetch(new Request(`https://dsh/enterprise/surfaces/group/${operation}`, {
+        method: 'POST', body: JSON.stringify(operation === 'open' ? {} : { text: 'Continue the existing run' }),
+      }))
+      expect(await response.json()).toMatchObject(operation === 'open'
+        ? { opened: true, sessionId: 'original-root' }
+        : { delivered: true, targets: [{ sessionId: 'original-root' }] })
+      expect(getRun).toHaveBeenCalledWith(actor, 'run-old')
+      expect(startRun).not.toHaveBeenCalled()
     } finally { await app.ctx.fiber.dispose() }
   })
 })

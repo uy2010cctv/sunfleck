@@ -31,6 +31,16 @@ function string(value: unknown): string {
   return value
 }
 
+function projections(stream: string): Record<string, unknown> {
+  const frames: unknown = JSON.parse(stream)
+  if (!Array.isArray(frames)) throw new Error('expected native stream frames')
+  for (const frame of frames) {
+    const value = record(record(frame)['value'])
+    if (value['type'] === 'snapshot') return record(record(value['projections'])['values'])
+  }
+  throw new Error('native Session stream omitted its opening snapshot')
+}
+
 function cookies(response: Response): string[] {
   return response.headers.getSetCookie().map(value => value.split(';')[0]!)
 }
@@ -190,6 +200,22 @@ describe.skipIf(databaseUrl === undefined)('enterprise collaboration source Web 
           expect(response.ok, JSON.stringify(value)).toBe(true)
           return record(value)
         }
+        const rpc = async (method: string, input: object): Promise<Record<string, unknown>> => {
+          const response = await fetch(`${origin}/api/${method}`, { method: 'POST', signal: test.signal,
+            headers: { cookie, origin, 'content-type': 'application/json' },
+            body: JSON.stringify({ type: 'client-request', rpcId: randomUUID(), method, payload: { args: { request: input } } }),
+          })
+          const result = record(record(await response.json())['result'])
+          expect(result['ok'], JSON.stringify(result)).toBe(true)
+          return record(result['value'])
+        }
+        const context = async (sessionId: string): Promise<Record<string, unknown>> => {
+          const response = await fetch(`${origin}/enterprise/session-context/${sessionId}`, {
+            headers: { cookie }, signal: test.signal,
+          })
+          expect(response.status).toBe(200)
+          return record(await response.json())
+        }
         for (const kind of ['groups', 'channels']) {
           const creation = { name: `Fixture ${kind}`, workspaceId: app.ready.workspaceId, idempotencyKey: randomUUID(),
             memberEmployeeIds: app.ready.employees, memberUserIds: [],
@@ -219,6 +245,29 @@ describe.skipIf(databaseUrl === undefined)('enterprise collaboration source Web 
           expect(unauthorized.status).toBe(401)
           const stream = await follow(origin, cookie, sessionId, test.signal)
           expect(stream).toContain(message.text)
+          const values = projections(stream)
+          expect(values['agentPreset']).toBe('standard')
+          const pinned = record(values['enterpriseEmployeeRelease'])
+          expect(pinned).toMatchObject({ employeeId: 'fixture-assistant', releaseVersion: kind === 'groups' ? 1 : 2 })
+          expect(record((await context(sessionId))['employee'])).toMatchObject({
+            id: 'fixture-assistant', displayName: kind === 'groups' ? 'Assistant' : 'Updated assistant',
+            releaseVersion: kind === 'groups' ? 1 : 2,
+          })
+          if (kind === 'groups') {
+            const draft = await rpc('enterpriseEmployee/getDraft', { presetId: 'fixture-assistant' })
+            const saved = await rpc('enterpriseEmployee/saveDraft', { presetId: 'fixture-assistant',
+              expectedRevision: draft['revision'], idempotencyKey: randomUUID(), visibility: 'organization',
+              profile: { name: 'Updated assistant', prompt: 'Use the newly published employee responsibility.' }, bindings: [],
+            })
+            const released = await rpc('enterpriseEmployee/publish', { presetId: 'fixture-assistant',
+              expectedRevision: saved['revision'], idempotencyKey: randomUUID(),
+            })
+            expect(released['version']).toBe(2)
+            expect(released['releaseId']).not.toBe(pinned['releaseId'])
+            expect(await request(`/${id}/open`, { employeeId: 'fixture-assistant' })).toMatchObject({ sessionId })
+            expect(projections(await follow(origin, cookie, sessionId, test.signal))['enterpriseEmployeeRelease']).toEqual(pinned)
+            expect(record((await context(sessionId))['employee'])).toMatchObject({ displayName: 'Assistant', releaseVersion: 1 })
+          }
           const store = database
           await expect.poll(async () => {
             const persisted = await store.query<{ event_type: string; event_json: string }>(

@@ -22,7 +22,7 @@ kind: "package-reference"
 <a id="use-this-package"></a>
 ## 使用本包
 
-`GET /enterprise/session-context/:sessionId` 返回可见已发布员工资料、明确成员所属项目和已授权批准摘要，不启动运行时。员工私有记忆要求持久化账号锚定，其发布版本须匹配原生预设。双边记忆同时要求员工和用户编号；缺少员工归属的旧双边条目不返回。
+`GET /enterprise/session-context/:sessionId` 返回 Session 固定的员工发布版本、明确成员所属项目和已授权批准摘要，不启动运行时。员工选择独立于工作方式预设，并校验持久化所有者与组织。私有摘要要求仅所有者可访问的普通 Session，且员工选择或账号锚定匹配；协作 Session 不返回员工私有及双边摘要。双边记忆同时要求员工和用户编号；缺少员工归属的旧双边条目不返回。
 
 仅在企业 Profile 中，并在 `enterprisePostgres`、`enterpriseSecurity`、`enterpriseRequestContext` 和 `sessionController` 之后挂载本 Controller。Client 通过 API Gateway 使用生成的 `enterpriseEmployee`、`enterpriseAsset`、`enterpriseTeam`、`enterpriseTeamDefinition`、`enterpriseTeamRun`、`enterpriseTeamDecision`、`enterpriseTeamAutonomy`、`enterpriseOperation`、`enterpriseWork` 和 `enterpriseDevice` namespace。TeamRun start 和 cancel namespace 使用可选 `enterpriseTeamRuntimeDriver`；没有 provider 时，start 返回稳定 runtime-unavailable 失败。设备配对和 Computer Use 请求同时绑定已认证用户、Workspace、Session、短期操作 Permit 和设备签名。Host 注入组织与 actor 身份，browser 请求不能写 runtime revision 或 event position。本包不替代 DSH 的 Workspace、Session、Workflow、Sandbox、Subagent 或 Agent Loop 身份。
 
@@ -34,7 +34,7 @@ kind: "package-reference"
 
 `enterpriseWork.workspaceDefault` 返回调用者可安全读取的工作区默认员工和 CAS revision。`saveWorkspaceDefault` 在校验工作区与已发布员工权限后，允许个人所有者、部门经理或组织管理员设置或清除默认值。员工不可见或不可用时，返回 `employeeId: null` 和 `unavailable: true`；有权访问工作区的成员仍可读取存储的 revision。新 Session 先选择通用 Agent Preset 作为工作方式；`selectEmployee` 再校验 Session 所有权、工作区授权、员工可见性和空白会话状态，独立记录员工身份与不可变发布版本。员工提示词在该 Agent 中覆盖工作方式的身份提示词，工作方式的其他插件继续运行。回放恢复同一发布版本，员工自学习与私有记忆读取独立员工绑定。目标优先的启动路径使用配置的默认工作方式，另行绑定选定员工版本。仅选择员工不会创建工作记录或启动任务。
 
-`/enterprise/surfaces` 的 PostgreSQL 协作路由支持显式成员列表、群聊与频道创建、详情、`/by-session/:sessionId` 恢复、原生目标会话打开和文本投递。创建支持按认证组织及创建者隔离的可选 `idempotencyKey`：解析值相同则复用已保存会话，不同则返回 409 且不写入。创建要求已有可访问工作区、可访问该工作区的显式人员成员，以及可见的已发布员工。详情与打开操作均先验证成员和工作区权限。原生 `session.prompt` 在重新加载后仍使用同一路由，并返回授权的响应 Session 标识供导航。团队重试先检查持久化请求回执，再按生命周期路由，因此运行完成或等待人工时仍复用原回执；群聊中的 @ 投递到员工会话，已有原生会话中的未提及消息只记录而不启动员工。频道按话题和值班策略路由，每个话题与员工组合保留独立原生会话，`/done` 结束话题。公告频道通过隐私检查后写入组织记忆提案，不启动 Agent。附件明确拒绝。消息保留原生请求标识、协作标识和认证发送者。员工私聊及令牌入站路由仍需单独装配服务；项目路由保留成员校验、归档和可选记忆提炼。
+`/enterprise/surfaces` 的 PostgreSQL 协作路由支持显式成员列表、群聊与频道创建、详情、`/by-session/:sessionId` 恢复、原生目标会话打开和文本投递。创建支持按认证组织及创建者隔离的可选 `idempotencyKey`：解析值相同则复用已保存会话，不同则返回 409 且不写入。创建要求已有可访问工作区、可访问该工作区的显式人员成员，以及可见的已发布员工。详情与打开操作均先验证成员和工作区权限。原生 `session.prompt` 在重新加载后仍使用同一路由，并返回授权的响应 Session 标识供导航。团队重试先检查持久化请求回执，再按生命周期路由，因此运行完成或等待人工时仍复用原回执；员工目标通过 `enterpriseWork.start` 绑定准确的已发布版本，恢复时保留独立的基础工作模式预设。群聊中的 @ 匹配包括空格在内的完整成员名称，并优先采用最长有效名称投递到员工会话，已有原生会话中的未提及消息只记录而不启动员工。频道按话题和值班策略路由，每个话题与员工组合保留独立原生会话，`/done` 结束话题。公告频道通过隐私检查后写入组织记忆提案，不启动 Agent。附件明确拒绝。消息保留原生请求标识、协作标识和认证发送者。员工私聊及令牌入站路由仍需单独装配服务；项目路由保留成员校验、归档和可选记忆提炼。
 
 <a id="model-experience"></a>
 ## 模型体验

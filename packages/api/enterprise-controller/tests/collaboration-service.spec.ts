@@ -21,7 +21,7 @@ function setup(overrides: Partial<CollaborationRecord> = {}) {
   const service = new CollaborationService(store as never, {
     refreshWorkspace: () => { publications.push(sessions.map(value => value.sessionId)) },
     workspaceVisible: async () => true,
-    employee: async (_actor: unknown, id: string) => ({ employeeId: id, displayName: id === 'a' ? 'Alpha' : 'Beta', releaseId: `release-${id}` }),
+    employee: async (_actor: unknown, id: string) => ({ employeeId: id, displayName: id === 'a' ? 'Alpha' : id === 'sales' ? 'Sales' : id === 'analyst' ? 'Sales Analyst' : 'Beta', releaseId: `release-${id}` }),
     createSession: async (_actor: unknown, input: { sessionId: string }) => { creates++; return input.sessionId },
     record: async (_actor: unknown, sessionId: string) => { recorded.push(sessionId) },
     ingest: async () => ({ delivered: true, targets: [] }),
@@ -101,6 +101,13 @@ describe('collaboration routing through native Sessions', () => {
     expect(next).toMatchObject({ delivered: true })
     if (!next.delivered) throw new Error('expected new topic')
     expect(next.topicId).not.toBe(first.topicId)
+  })
+
+  it('matches a full employee name with spaces and prefers the longest roster name', async () => {
+    const fixture = setup({ memberEmployeeIds: ['sales', 'analyst'] })
+    const result = await fixture.service.message(actor, 'surface', { text: '@Sales Analyst, review this' })
+    expect(result).toMatchObject({ delivered: true, targets: [{ employeeId: 'analyst' }] })
+    expect(await fixture.service.message(actor, 'surface', { text: '@Salesperson review this' })).toEqual({ delivered: false, reason: 'no-target' })
   })
 
 })

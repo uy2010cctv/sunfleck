@@ -4,7 +4,6 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { EnterpriseIdentityRepository, memorySourceDigest } from '@deepseek-ai/dsh-enterprise-identity'
 import { Context } from '@deepseek-ai/cordis'
-import { employeeId } from '@deepseek-ai/dsh-employee-account'
 import { projectId } from '@deepseek-ai/dsh-enterprise-project'
 import { SessionContextHttpHandler, composeSessionContext, type SessionContextDependencies } from '../src/session-context-http.ts'
 
@@ -28,7 +27,7 @@ describe('authorized native session context', () => {
         authorizeApiAsync: async () => ({ allowed: true, reason: 'creator-owner' }),
         authorizeResourceAsync: async () => ({ allowed: true, reason: 'creator-owner' }),
       },
-      sessionPreset: vi.fn(async () => 'preset'),
+      sessionEmployee: vi.fn(async () => ({ employeeId: 'preset', releaseId: 'release', releaseVersion: 2, orgId: 'org', ownerUserId: 'user' })),
       employee: async () => ({ id: 'preset', displayName: 'Employee', role: 'Research', releaseVersion: 2, capabilities: ['search'] }),
       privateActor: async () => ({ employeeId: 'employee', userId: 'user' }),
     }
@@ -43,12 +42,12 @@ describe('authorized native session context', () => {
   it('denies an outsider before resolving the preset or memory', async () => {
     deps.security.sessionAccessibleBy = async () => false
     expect((await new SessionContextHttpHandler(deps).fetch(request())).status).toBe(403)
-    expect(deps.sessionPreset).not.toHaveBeenCalled()
+    expect(deps.sessionEmployee).not.toHaveBeenCalled()
   })
   it('denies revoked workspace access even when the session remains owned', async () => {
     deps.security.authorizeApiAsync = async () => ({ allowed: false, reason: 'resource-hidden' })
     expect((await new SessionContextHttpHandler(deps).fetch(request())).status).toBe(403)
-    expect(deps.sessionPreset).not.toHaveBeenCalled()
+    expect(deps.sessionEmployee).not.toHaveBeenCalled()
   })
   it('returns employee memory and excludes legacy pair rows without employee identity', async () => {
     memory('agent', 'Employee fact')
@@ -94,28 +93,45 @@ describe('authorized native session context', () => {
     expect(await (await new SessionContextHttpHandler(deps).fetch(request())).json())
       .toMatchObject({ memories: [] })
   })
-  it('validates the durable account release against the current native preset without starting an agent', async () => {
-    memory('agent', 'Employee fact')
+  it('uses the exact pinned release independently of the current work mode and excludes shared private memory', async () => {
+    memory('agent', 'Selected employee private fact', 'preset')
     const ctx = new Context()
     const disposed = vi.fn()
-    let boundPreset = 'different-preset'
+    let collaboration = false
+    let cleared = false
     const release = { releaseId: 'release', presetId: 'preset', orgId: 'org', version: 2,
-      snapshot: { profile: { name: 'Employee', prompt: 'Research responsibly', position: 'Researcher', description: 'Find facts', capabilities: ['search'] }, bindings: [] } }
-    ctx.provide('enterprisePostgres' as never, { identity, collaboration: { bySession: async () => undefined }, catalog: {
-      getDraft: async () => ({ status: 'published' }), listReleases: async () => [release],
-      getRelease: async () => ({ ...release, presetId: boundPreset }),
-    } } as never)
+      snapshot: { profile: { name: 'Pinned Employee', prompt: 'Research responsibly', position: 'Researcher', description: 'Find facts', capabilities: ['search'] }, bindings: [] } }
+    const getRelease = vi.fn(async () => release)
+    const listReleases = vi.fn(async () => [{ ...release, releaseId: 'new-release', version: 3 }])
+    ctx.provide('enterprisePostgres' as never, { identity, collaboration: {
+      bySession: async () => collaboration ? { surfaceId: 'group' } : undefined,
+      get: async () => ({ id: 'group' }),
+    }, catalog: { getRelease, listReleases } } as never)
     ctx.provide('enterpriseSecurity' as never, deps.security as never)
-    ctx.provide('sessionQuery' as never, { observeSession: async () => ({ projections: { values: { agentPreset: 'preset' } }, [Symbol.dispose]: disposed }) } as never)
-    ctx.provide('employeeAccounts' as never, { resolveSessionActor: () => ({ orgId: 'org', employeeId: 'employee', userId: 'user' }),
-      get: () => ({ id: employeeId('employee'), orgId: 'org', state: 'active', activeReleaseId: 'release' }),
-    } as never)
+    ctx.provide('sessionQuery' as never, { observeSession: async () => ({
+      events: [{ type: 'enterprise-employee/selected', data: { employeeId: 'preset', releaseId: 'release', releaseVersion: 2, orgId: 'org', ownerUserId: 'user' } }, ...(cleared ? [{ type: 'enterprise-employee/cleared', data: {} }] : [])],
+      projections: { values: { agentPreset: 'unrelated-work-mode' } }, [Symbol.dispose]: disposed,
+    }) } as never)
     try {
-      expect(await (await composeSessionContext(ctx).fetch(request())).json()).toMatchObject({ employee: { id: 'preset', displayName: 'Employee', role: 'Researcher\nFind facts', releaseVersion: 2, capabilities: ['search'] }, memories: [] })
-      boundPreset = 'preset'
-      expect(await (await composeSessionContext(ctx).fetch(request())).json()).toMatchObject({ memories: [{ summary: 'Employee fact' }] })
-      expect(disposed).toHaveBeenCalledTimes(2)
+      expect(await (await composeSessionContext(ctx).fetch(request())).json()).toMatchObject({ employee: { id: 'preset', displayName: 'Pinned Employee', role: 'Researcher\nFind facts', releaseVersion: 2, capabilities: ['search'] }, memories: [{ summary: 'Selected employee private fact' }] })
+      expect(getRelease).toHaveBeenCalledWith('release', 'org')
+      expect(listReleases).not.toHaveBeenCalled()
+      collaboration = true
+      expect(await (await composeSessionContext(ctx).fetch(request())).json()).toMatchObject({
+        employee: { releaseVersion: 2 }, memories: [],
+      })
+      cleared = true
+      collaboration = false
+      const clearedContext = await (await composeSessionContext(ctx).fetch(request())).json()
+      expect(clearedContext).not.toHaveProperty('employee')
+      expect(clearedContext).toMatchObject({ memories: [] })
+      expect(disposed).toHaveBeenCalledTimes(3)
     } finally { await ctx.fiber.dispose() }
+  })
+
+  it.each([{ orgId: 'foreign', ownerUserId: 'user' }, { orgId: 'org', ownerUserId: 'other' }])('rejects mismatched pinned selection organization or owner: %j', async (fields) => {
+    deps.sessionEmployee = async () => ({ employeeId: 'preset', releaseId: 'release', ...fields })
+    expect((await new SessionContextHttpHandler(deps).fetch(request())).status).toBe(403)
   })
 
   it('shows approved shared memory and excludes the proposed review queue', async () => {

@@ -5,7 +5,8 @@ import { SlotRegistry } from '@deepseek-ai/dsh-client-ui-renderer/client'
 import { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
 import { applyCollaboration } from '../src/client/collaboration.ts'
-import type { CollaborationInjected } from '../src/client/CollaborationNavigation.tsx'
+import type { PropsRenderSlots } from '@deepseek-ai/dsh-client-ui-slots'
+import { CollaborationController } from '../src/client/collaboration-store.ts'
 
 afterEach(() => { vi.unstubAllGlobals() })
 
@@ -13,7 +14,8 @@ it('refreshes the Host-born Session roster before native retain and disposes its
   const ctx = new Context()
   await ctx.plugin(SlotRegistry).await()
   ctx.provide('locale', new LocaleRuntime(ctx))
-  ctx.slots.register({ name: 'root', children: { main: { kind: 'keyed', scope: 'root' }, 'sidebar.sections': { kind: 'list', scope: 'root' } } }, () => null)
+  ctx.slots.register({ name: 'root', children: { main: { kind: 'keyed', scope: 'root' }, 'sidebar.sections': { kind: 'list', scope: 'root' } } },
+    (_props: PropsRenderSlots<'main' | 'sidebar.sections'>) => null)
   let known = false
   const order: string[] = []
   ctx.provide('layout', { selectPanel: () => {} } as never)
@@ -35,10 +37,11 @@ it('refreshes the Host-born Session roster before native retain and disposes its
   await fiber.await()
   const factory = ctx.slots.entriesOfSlot('sidebar.sections')[0]?.inject
   if (typeof factory !== 'function') throw new Error('sidebar injector missing')
-  const injected = (factory as () => CollaborationInjected)()
-  await injected.controller.select('g')
+  const { controller } = factory()
+  if (!(controller instanceof CollaborationController)) throw new Error('collaboration controller missing')
+  await controller.select('g')
   expect(order).toEqual(['refresh', 'host-session'])
-  expect(injected.controller.state.getSnapshot().error).toBeNull()
+  expect(controller.state.getSnapshot().error).toBeNull()
   await fiber.dispose()
   expect(ctx.slots.entriesOfSlot('sidebar.sections')).toHaveLength(0)
   await ctx.fiber.dispose()

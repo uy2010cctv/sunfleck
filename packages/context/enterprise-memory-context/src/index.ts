@@ -143,42 +143,56 @@ function requestPrincipal(ctx: Context): { orgId: string; userId: string } | und
     : undefined
 }
 
-/** Actor of one surface-anchored employee session; structural view of the employee-account
- * service. Dm sessions carry the full pair, group member sessions only their employee, and
- * channel topic sessions no principal identity; `projectId` is present when the anchoring
- * surface is bound to a project. */
+/** Employee Session actor with separate shared-conversation eligibility. The user may attribute
+ * writes without owning bilateral memory; shared project access uses employee membership. */
 interface SessionActor {
   readonly orgId: string
   readonly userId?: string
   readonly employeeId?: string
   readonly projectId?: string
+  /** Shared conversations never own a bilateral user compartment. */
+  readonly shared?: boolean
 }
 
-/** Resolve the anchored employee session actor. Kept structural and optional because compositions
- * without persistent employees do not mount the employee-account service; an absent service or an
- * unanchored session resolves to undefined and recall stays organization/department-only.
+/** Resolve durable collaboration membership before interpreting employee selection as private.
  * @param ctx - hosting context.
- * @param sessionId - session whose surface anchoring is consulted.
- * @returns the session's memory actor, or undefined when unresolvable.
+ * @param sessionId - native Session whose membership is consulted.
+ * @param orgId - organization authorized by the Session Workspace.
+ * @returns the employee actor, with bilateral access disabled for shared Sessions.
  */
-function sessionActor(ctx: Context, sessionId: string): SessionActor | undefined {
+async function sessionActor(ctx: Context, sessionId: string, orgId: string): Promise<SessionActor | undefined> {
   const accounts = (ctx.get.bind(ctx) as (name: string) => unknown)('employeeAccounts') as
     | { resolveSessionActor(sessionId: string): SessionActor | undefined }
     | undefined
-  const anchored = accounts?.resolveSessionActor(sessionId)
-  if (anchored !== undefined) return anchored
   const work = (ctx.get.bind(ctx) as (name: string) => unknown)('enterpriseWorkController') as
     | { employeeActor(sessionId: string): SessionActor | undefined }
     | undefined
-  return work?.employeeActor(sessionId)
+  const actor = accounts?.resolveSessionActor(sessionId) ?? work?.employeeActor(sessionId)
+  const postgres = (ctx.get.bind(ctx) as (name: string) => unknown)('enterprisePostgres') as
+    | { collaboration?: {
+      bySession(sessionId: string): Promise<{ surfaceId: string; employeeId: string } | undefined>
+      get(orgId: string, surfaceId: string): Promise<{ orgId: string; projectId?: string } | undefined>
+    } }
+    | undefined
+  const binding = await postgres?.collaboration?.bySession(sessionId)
+  if (binding === undefined) return actor
+  const surface = await postgres?.collaboration?.get(orgId, binding.surfaceId)
+  if (surface === undefined || surface.orgId !== orgId) throw new Error('collaboration memory requires an authorized conversation')
+  return {
+    orgId, employeeId: binding.employeeId, shared: true,
+    ...(actor?.orgId === orgId && actor.userId !== undefined ? { userId: actor.userId } : {}),
+    ...(surface.projectId === undefined ? {} : { projectId: surface.projectId }),
+  }
 }
 
 /** Org, department, and private-compartment inputs one memory surface resolves for its actor. */
 interface MemoryActorScope {
   /** Organization whose memories are read and written. */
   readonly orgId: string
-  /** Request principal or surface user; attributes writes and owns the `pair` compartment. */
+  /** Request principal or surface user used to attribute writes. */
   readonly userId: string | undefined
+  /** Bilateral owner, absent in every shared collaboration Session. */
+  readonly pairUserId: string | undefined
   /** Surface-anchored employee; owns the `agent` compartment. */
   readonly employeeId: string | undefined
   /** Department ids the shared department compartment resolves to for the workspace. */
@@ -208,6 +222,7 @@ async function resolveMemoryScope(
   return {
     orgId: principal?.orgId ?? actor?.orgId ?? grant.orgId,
     userId: principal?.userId ?? actor?.userId,
+    pairUserId: actor?.shared === true || actor?.userId === undefined ? undefined : principal?.userId ?? actor.userId,
     employeeId: actor?.employeeId,
     departmentIds,
   }
@@ -394,8 +409,9 @@ const MEMORY_RETIRE_REASON = 'memory_retire tool'
 /** Fetch the approved entries of the requested compartments for one resolved scope. The shared
  * listing keeps the recall listener's owner-filter-free visibility — organization plus the
  * workspace's departments — and the private compartments are fetched only for a session anchored
- * to an employee, each with an explicit scope and owner, so foreign private rows never enter. The
- * member-gated project compartment joins after the private ones, fetched only for a session whose
+ * to an employee, each with an explicit scope and owner. Shared Sessions omit pair memory even
+ * with an authenticated request principal. The member-gated project compartment joins after the
+ * private ones, fetched only for a session whose
  * actor anchors to that project and only when the caller asked for it.
  * @param ctx - hosting context, for the lazily resolved project service.
  * @param identity - enterprise identity store.
@@ -420,10 +436,10 @@ async function actorCompartments(
     })
   }
   let own: EnterpriseMemoryEntry[] = []
-  if (scope.employeeId !== undefined && scope.userId !== undefined) {
-    if (wanted.has('pair')) {
+  if (scope.employeeId !== undefined) {
+    if (wanted.has('pair') && scope.pairUserId !== undefined) {
       own = [...own, ...await identity.listMemories({
-        orgId: scope.orgId, scopes: ['pair'], pairUserId: scope.userId, statuses: ['approved'],
+        orgId: scope.orgId, scopes: ['pair'], pairUserId: scope.pairUserId, statuses: ['approved'],
       })]
     }
     if (wanted.has('agent')) {
@@ -479,7 +495,7 @@ async function projectCompartment(
   const projects = projectService(ctx)
   if (projects === undefined) return []
   const project = await projects.requireMember(scope.orgId, projectId, {
-    ...(actor.userId === undefined ? {} : { userId: actor.userId }),
+    ...(actor.shared === true || actor.userId === undefined ? {} : { userId: actor.userId }),
     ...(actor.employeeId === undefined ? {} : { employeeId: actor.employeeId }),
   })
   if (project === undefined) return []
@@ -515,7 +531,7 @@ async function memoryToolScope(
   const grant = await identity.workspaceGrantByRootPath(cwd)
   if (grant === undefined) throw new Error('current Agent Workspace is not enterprise-managed')
   const sessionId = String(agent.id)
-  const actor = sessionActor(ctx, sessionId)
+  const actor = await sessionActor(ctx, sessionId, grant.orgId)
   return {
     identity,
     sessionId,
@@ -530,7 +546,8 @@ const PROJECT_MEMORY_KINDS: readonly string[] = MEMORY_KINDS
 
 /** Write one approved project memory for a member of a project-anchored session. The project must
  * exist in the session's organization and be active, the write attributes to the resolved user
- * (an employee-only actor has no store-writable author), and that user must present membership;
+ * (an employee-only actor has no store-writable author). Shared Sessions require employee
+ * membership; private Sessions may present the resolved user and employee identities;
  * every failed gate is a structured tool error naming the gate, because unlike the read path a
  * write must never silently no-op. Content passes the same scope-aware privacy policy as the
  * other shared compartments — the store runs it, so any finding becomes a tool error instead of
@@ -571,7 +588,7 @@ async function writeProjectMemory(
     throw new Error('project memory requires an authenticated principal or surface user to attribute and gate the write')
   }
   const member = await projects.requireMember(scope.orgId, projectId, {
-    userId: scope.userId,
+    ...(scope.actor.shared === true ? {} : { userId: scope.userId }),
     ...(scope.employeeId === undefined ? {} : { employeeId: scope.employeeId }),
   })
   if (member === undefined) {
@@ -1159,7 +1176,7 @@ export function apply(ctx: Context, config: Config): void {
     try { identity = postgresIdentity(ctx) } catch { return result }
     const grant = await identity.workspaceGrantByRootPath(cwd)
     if (grant === undefined) return result
-    const actor = sessionActor(ctx, String(agent.id))
+    const actor = await sessionActor(ctx, String(agent.id), grant.orgId)
     const scope = await resolveMemoryScope(identity, grant, requestPrincipal(ctx), actor)
     const candidates = await actorCompartments(ctx, identity, scope, actor, TOOL_COMPARTMENTS)
     const ranked = rankEnterpriseMemories(candidates, { now: Date.now() }).slice(0, maxEntries)

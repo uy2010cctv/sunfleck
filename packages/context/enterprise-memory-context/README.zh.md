@@ -22,6 +22,8 @@ Reviewed organization and department memory context for DSH Enterprise。
 
 面向企业 Profile 的已审核企业记忆上下文。插件通过企业工作区授权解析 Session cwd，注入共享组织/部门隔间、锚定会话私有的 agent 与 pair 隔间，以及项目服务确认会话行为人成员资格后的项目隔间的已批准摘要。数字员工身份是独立于 Agent Preset 工作方式的 Session 绑定；员工私有记忆按该身份读取，已学习能力文本按记录的发布版本读取。插件不会加载原始对话正文、待审核/已驳回条目或这些隔间之外的记忆。
 
+群组和频道的持久化 Session 绑定优先于员工选择回退。共享会话保留绑定员工的 agent 笔记，但不能召回、搜索、读取、写入或停用双边 pair 记忆；请求携带用户身份也不会开放此隔间。项目上下文来自协作绑定，并要求绑定员工具备项目成员资格；创建者个人的项目成员资格不会赋予共享会话访问权。
+
 启用自动业务记忆采集时，写入者依次取已认证请求主体和持久化的企业 Session 所有者。未绑定的后台运行必须配置已存在、且以 `service:` 开头的 `backgroundServiceUserId`；绝不会回退为 bootstrap 管理员。已确认的常规知识直接启用，不确定或冲突内容保持待确认。个人工作区偏好不会被提升为共享记忆。
 
 记忆值以带稳定 ID 的事实背景呈现，并附带明确的隐私与访问规范。隐私筛查、范围检查和停用记录仍是权威。员工学习是独立的版本化资产工作流，不会改变业务记忆策略。
@@ -44,7 +46,7 @@ Reviewed organization and department memory context for DSH Enterprise。
 
 ## 项目记忆工具与结项蒸馏
 
-`memory_write` 支持 `scope: "project"`：会话 actor 锚定到项目时，项目必须存在于会话组织内且处于 active 状态，解析出的用户必须是项目成员，写入直接落为已启用（成员制空间免审查），并与其他共享分区一样经过分区感知隐私门禁——任何拦截性发现都会成为工具错误。project 范围只接受 `business-fact | process | terminology | decision`；`memory_search` 与 `memory_read` 对同样的成员会话暴露项目分区。
+`memory_write` 支持 `scope: "project"`：会话 actor 锚定到项目时，项目必须存在于会话组织内且处于 active 状态，必须确认会话行为人的项目成员资格，写入直接落为已启用（成员制空间免审查），并与其他共享分区一样经过分区感知隐私门禁——任何拦截性发现都会成为工具错误。project 范围只接受 `business-fact | process | terminology | decision`；`memory_search` 与 `memory_read` 对同样的成员会话暴露项目分区。
 
 `distillProject` 在结项时闭环：把项目分区中已批准的非 summary 记忆提炼为至多五条共享记忆的 `business-fact` 经验提案，每条按目标分区做隐私分类（被拦截的丢弃并计数；department 目标与反思一致暂不可用），并等待管理员审核。经验编号按内容确定，重复蒸馏会跳过已存在的条目。可通过控制器端点 `POST /enterprise/projects/:id/distill`（成员门禁）触发，或在项目归档时自动触发——归档响应从不等待蒸馏。缺少 `llm` 服务、精炼调用失败或分区为空都会返回结构化报告而不是错误。
 

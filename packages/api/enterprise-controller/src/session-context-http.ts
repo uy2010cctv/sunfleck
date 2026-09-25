@@ -11,6 +11,8 @@ import type { EnterpriseProjects, Project, ProjectId } from '@deepseek-ai/dsh-en
 import type { SessionId } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-session-query'
 import { employeePresetDefinition } from './employee-preset.ts'
+import { employeeReleaseProjectionDefinition } from './employee-session.ts'
+import type { EmployeeReleaseSelection } from './contract/work.ts'
 import { failure, methodFailure } from './http.ts'
 
 /** Published employee metadata, without runtime prompts or internal paths. */
@@ -24,14 +26,14 @@ export interface SessionContextEmployee {
 
 /** Read-only sources used after Session and Workspace authorization. */
 export interface SessionContextDependencies {
-  identity: Pick<EnterpriseIdentityStore, 'sessionWorkspaceGrant' | 'listWorkspaceGrants' | 'listMemories'>
+  identity: Pick<EnterpriseIdentityStore, 'sessionWorkspaceGrant' | 'sessionOwnerUserId' | 'listWorkspaceGrants' | 'listMemories'>
   security: Pick<EnterpriseSecurity, 'authenticateCookieAsync' | 'sessionAccessibleBy' | 'authorizeApiAsync' | 'authorizeResourceAsync'>
-  /** Reads the current preset projection without activating a Session. */
-  sessionPreset?: (sessionId: string) => Promise<string | undefined>
-  /** Resolves visible published metadata for the preset. */
-  employee: (principal: EnterprisePrincipal, presetId: string) => Promise<SessionContextEmployee | undefined>
-  /** Returns only a durable account anchor whose active release matches the native preset. */
-  privateActor: (orgId: string, sessionId: string, presetId: string) => Promise<Pick<SessionMemoryActor, 'employeeId' | 'userId'> | undefined>
+  /** Reads the full pinned employee projection without activating a Session. */
+  sessionEmployee?: (sessionId: string) => Promise<EmployeeReleaseSelection | undefined>
+  /** Resolves visible metadata from the exact pinned release. */
+  employee: (principal: EnterprisePrincipal, selected: EmployeeReleaseSelection) => Promise<SessionContextEmployee | undefined>
+  /** Resolves private memory only for an ordinary owned Session with a matching employee selection. */
+  privateActor: (principal: EnterprisePrincipal, sessionId: string, selected: EmployeeReleaseSelection) => Promise<Pick<SessionMemoryActor, 'employeeId' | 'userId'> | undefined>
   projects?: Pick<EnterpriseProjects, 'list' | 'requireMember'>
   /** Undefined denotes an ordinary Session; an object denotes an explicit collaboration binding. */
   sessionProject?: (principal: EnterprisePrincipal, sessionId: string) => Promise<{ projectId?: string } | undefined>
@@ -63,9 +65,11 @@ export class SessionContextHttpHandler {
       || !(await security.authorizeApiAsync(principal, 'workspace.list', { workspaceId: workspace.workspaceId })).allowed) {
       return failure(403, 'forbidden')
     }
-    if (this.deps.sessionPreset === undefined) return failure(503, 'session-context-unavailable')
-    const presetId = await this.deps.sessionPreset(sessionId)
-    const employee = presetId === undefined ? undefined : await this.deps.employee(principal, presetId)
+    if (this.deps.sessionEmployee === undefined) return failure(503, 'session-context-unavailable')
+    const selected = await this.deps.sessionEmployee(sessionId)
+    if (selected !== undefined && (selected.orgId !== principal.orgId
+      || selected.ownerUserId !== await identity.sessionOwnerUserId(sessionId))) return failure(403, 'forbidden')
+    const employee = selected === undefined ? undefined : await this.deps.employee(principal, selected)
     let project: Project | undefined
     if (this.deps.projects !== undefined) {
       const explicit = await this.deps.sessionProject?.(principal, sessionId)
@@ -100,8 +104,8 @@ export class SessionContextHttpHandler {
       if (project !== undefined) memories.push(...await identity.listMemories({
         orgId: principal.orgId, statuses: ['approved'], scopes: ['project'], projectId: project.projectId,
       }))
-      const actor = employee === undefined || presetId === undefined ? undefined
-        : await this.deps.privateActor(principal.orgId, sessionId, presetId)
+      const actor = employee === undefined || selected === undefined ? undefined
+        : await this.deps.privateActor(principal, sessionId, selected)
       if (actor?.employeeId !== undefined) {
         memories.push(...await identity.listMemories({ orgId: principal.orgId, statuses: ['approved'], scopes: ['agent'], agentEmployeeId: actor.employeeId }))
         if (actor.userId === undefined || actor.userId === principal.userId) {
@@ -141,29 +145,31 @@ export function composeSessionContext(ctx: Context): SessionContextHttpHandler {
       return surface?.projectId === undefined ? {} : { projectId: surface.projectId }
     },
     ...(projects === undefined ? {} : { projects }),
-    ...(query === undefined ? {} : { sessionPreset: async (id: string) => {
+    ...(query === undefined ? {} : { sessionEmployee: async (id: string) => {
       using observation = await query.observeSession(brandString<SessionId>(id))
-      if (observation.projections === undefined) throw new Error('session context requires current Session projections')
-      return observation.projections.values.agentPreset ?? undefined
+      let selected: EmployeeReleaseSelection | null = null
+      for (const event of observation.events) selected = employeeReleaseProjectionDefinition.apply(selected, event)
+      return selected ?? undefined
     } }),
-    employee: async (principal, presetId) => {
-      if (!(await security.authorizeApiAsync(principal, 'enterpriseEmployee.getDraft', { presetId })).allowed) return undefined
-      const draft = await postgres.catalog.getDraft(presetId, principal.orgId)
-      if (draft?.status !== 'published') return undefined
-      const release = (await postgres.catalog.listReleases(presetId, principal.orgId)).toSorted((a, b) => b.version - a.version)[0]
-      if (release === undefined) return undefined
+    employee: async (principal, selected) => {
+      if (!(await security.authorizeApiAsync(principal, 'enterpriseEmployee.getDraft', { presetId: selected.employeeId })).allowed) return undefined
+      const release = await postgres.catalog.getRelease(selected.releaseId, principal.orgId)
+      if (release?.orgId !== selected.orgId || release.presetId !== selected.employeeId
+        || (selected.releaseVersion !== undefined && release.version !== selected.releaseVersion)) return undefined
       const definition = employeePresetDefinition(release)
-      return { id: presetId, displayName: definition.name, role: [definition.position, definition.description].filter(Boolean).join('\n'),
+      return { id: selected.employeeId, displayName: definition.name, role: [definition.position, definition.description].filter(Boolean).join('\n'),
         releaseVersion: definition.releaseVersion, capabilities: definition.capabilities ?? [] }
     },
-    privateActor: async (orgId, sessionId, presetId) => {
+    privateActor: async (principal, sessionId, selected) => {
+      if (selected.ownerUserId !== principal.userId || await postgres.collaboration.bySession(sessionId) !== undefined) return undefined
       const accounts = ctx.get('employeeAccounts')
       const actor = accounts?.resolveSessionActor(sessionId)
-      if (actor?.orgId !== orgId || actor.employeeId === undefined) return undefined
+      if (actor === undefined) return { employeeId: selected.employeeId, userId: principal.userId }
+      if (actor.orgId !== principal.orgId || actor.employeeId === undefined
+        || actor.userId !== principal.userId) return undefined
       const account = accounts?.get(employeeId(actor.employeeId))
-      if (account?.orgId !== orgId || account.activeReleaseId === undefined || account.state === 'archived') return undefined
-      const release = await postgres.catalog.getRelease(account.activeReleaseId, orgId)
-      return release?.presetId === presetId ? actor : undefined
+      if (account?.orgId !== principal.orgId || account.activeReleaseId !== selected.releaseId || account.state === 'archived') return undefined
+      return actor
     },
   })
 }
