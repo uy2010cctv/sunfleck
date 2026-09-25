@@ -47,9 +47,10 @@ export class ChannelWorkflowEventService {
    * @param sourceEventId - Stable signed or provider event identity.
    */
   async onExternal(actor: EnterprisePrincipal, room: CollaborationRecord, trigger: ChannelWorkflowTrigger,
-    sourceEventId: string): Promise<boolean> {
+    sourceEventId: string,
+    revisions?: readonly { readonly id: string; readonly revision: number }[]): Promise<boolean> {
     if (room.kind !== 'channel' || room.orgId !== actor.orgId) throw new Error('workflow source room mismatch')
-    return this.dispatch(actor, room, trigger, sourceEventId)
+    return this.dispatch(actor, room, trigger, sourceEventId, revisions)
   }
 
   /** Continue a human-approved request using its immutable workflow revision.

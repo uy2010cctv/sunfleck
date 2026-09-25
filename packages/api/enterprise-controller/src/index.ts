@@ -2797,6 +2797,17 @@ export function apply(ctx: Context, config: Config): void {
   }
   const gitBridge = new ChannelGitWorkflowBridge({
     subscriptions: () => PostgresChannelWorkflowLedger.gitSubscriptions(ctx.enterprisePostgres.database),
+    eligible: async (subscription) => {
+      try {
+        await requireWorkflowManager(subscription.orgId, subscription.channelId, subscription.createdBy)
+        return true
+      } catch (error) {
+        if (error instanceof CollaborationError && error.status === 404
+          || error instanceof Error && (error.message === 'channel workflow manager unavailable'
+            || error.message === 'channel workflow manager permission revoked')) return false
+        throw error
+      }
+    },
     publish: async (subscription, delivery) => {
       const { actor, room } = await requireWorkflowManager(subscription.orgId,
         subscription.channelId, subscription.createdBy)
@@ -2812,10 +2823,10 @@ export function apply(ctx: Context, config: Config): void {
         requestId: `git:${delivery.deliveryKey}` })
       return saved.event.id
     },
-    run: async (subscription, trigger, signedSourceEventId) => {
+    run: async (subscription, trigger, signedSourceEventId, revisions) => {
       const { actor, room } = await requireWorkflowManager(subscription.orgId,
         subscription.channelId, subscription.createdBy)
-      await workflowEvents.onExternal(actor, room, trigger, signedSourceEventId)
+      return workflowEvents.onExternal(actor, room, trigger, signedSourceEventId, revisions)
     },
   })
   if (config.channelGitHubSecretRef !== '') {

@@ -79,13 +79,13 @@ export async function migrateChannelWorkflows(database: EnterprisePostgresDataba
       throw new Error(`unsupported channel workflow schema version ${version}`)
     }
     if (version === 4) {
-      await tx.query('ALTER TABLE dsh_enterprise_channel_workflow_trigger_inbox ADD COLUMN IF NOT EXISTS revision_refs JSONB')
+      await upgradeTriggerRevisions(tx)
       await tx.query('UPDATE dsh_enterprise_channel_workflow_meta SET version=5')
       return
     }
     if (version === 3) {
       await tx.query('ALTER TABLE dsh_enterprise_channel_workflow_runs ADD COLUMN IF NOT EXISTS lease_token TEXT')
-      await tx.query('ALTER TABLE dsh_enterprise_channel_workflow_trigger_inbox ADD COLUMN IF NOT EXISTS revision_refs JSONB')
+      await upgradeTriggerRevisions(tx)
       await tx.query('UPDATE dsh_enterprise_channel_workflow_meta SET version=5')
       return
     }
@@ -136,6 +136,22 @@ export async function migrateChannelWorkflows(database: EnterprisePostgresDataba
     await tx.query(triggerTable)
     await tx.query('INSERT INTO dsh_enterprise_channel_workflow_meta(version) VALUES(5)')
   })
+}
+
+/** Refuse old pending triggers whose original workflow revision was never recorded.
+ * @param transaction - Version-locked workflow schema transaction.
+ */
+async function upgradeTriggerRevisions(transaction: EnterprisePostgresDatabase): Promise<void> {
+  await transaction.query('ALTER TABLE dsh_enterprise_channel_workflow_trigger_inbox ADD COLUMN IF NOT EXISTS revision_refs JSONB')
+  const pending = (await transaction.query<{ count: string }>(`SELECT count(*)::text AS count
+    FROM dsh_enterprise_channel_workflow_trigger_inbox
+    WHERE state IN ('pending','processing') AND revision_refs IS NULL`)).rows[0]
+  if (Number(pending?.count ?? '0') > 0) {
+    throw new Error('channel workflow migration has an unversioned pending trigger; preserve and review it before upgrading')
+  }
+  await transaction.query(`UPDATE dsh_enterprise_channel_workflow_trigger_inbox
+    SET revision_refs='[]'::jsonb WHERE revision_refs IS NULL AND state='completed'`)
+  await transaction.query('ALTER TABLE dsh_enterprise_channel_workflow_trigger_inbox ALTER COLUMN revision_refs SET NOT NULL')
 }
 
 const dueTable = `CREATE TABLE IF NOT EXISTS dsh_enterprise_channel_workflow_due (

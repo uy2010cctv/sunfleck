@@ -18,44 +18,46 @@ describe('verified Git webhook channel workflow bridge', () => {
 
   it('creates one signed channel ingress for multiple matching workflow revisions', async () => {
     const publish = vi.fn(async () => 'signed-room-event-id')
-    const run = vi.fn(async () => undefined)
+    const run = vi.fn(async () => true)
     const bridge = new ChannelGitWorkflowBridge({
       subscriptions: async () => [
         { orgId: 'org', channelId: 'channel', workflowId: 'release-a', revision: 1, yaml, createdBy: 'manager' },
         { orgId: 'org', channelId: 'channel', workflowId: 'release-b', revision: 1, yaml, createdBy: 'manager' },
         { orgId: 'org', channelId: 'unrelated', workflowId: 'release-c', revision: 1,
           yaml: yaml.replace('company/product', 'other/repo'), createdBy: 'manager' },
-      ], publish, run,
+      ], eligible: async () => true, publish, run,
     })
     expect(await bridge.onVerifiedDelivery(delivery)).toBe(1)
     expect(publish).toHaveBeenCalledOnce()
     expect(run).toHaveBeenCalledWith(expect.objectContaining({ channelId: 'channel' }),
-      expect.objectContaining({ type: 'git', event: 'tag_pushed', repository: 'company/product' }), 'signed-room-event-id')
+      expect.objectContaining({ type: 'git', event: 'tag_pushed', repository: 'company/product' }),
+      'signed-room-event-id', [{ id: 'release-a', revision: 1 }, { id: 'release-b', revision: 1 }])
   })
   it('lets a verified non-tag GitHub webhook trigger an exact channel hook', async () => {
     const publish = vi.fn(async () => 'signed-webhook-event')
-    const run = vi.fn(async () => undefined)
+    const run = vi.fn(async () => true)
     const bridge = new ChannelGitWorkflowBridge({ subscriptions: async () => [{
       orgId: 'org', channelId: 'channel', workflowId: 'webhook', revision: 1, createdBy: 'manager',
       yaml: 'version: 1\nname: Build notice\non:\n  - type: webhook\n    hookId: primary-github\nsteps:\n  - type: room_post\n    text: Build received',
-    }], publish, run })
+    }], eligible: async () => true, publish, run })
     const branch = { ...delivery, event: { ...delivery.event,
       payload: { ...delivery.event.payload, ref: 'refs/heads/main' } } }
     expect(await bridge.onVerifiedDelivery(branch)).toBe(1)
     expect(publish).toHaveBeenCalledOnce()
     expect(run).toHaveBeenCalledWith(expect.objectContaining({ channelId: 'channel' }),
-      { type: 'webhook', hookId: 'primary-github' }, 'signed-webhook-event')
+      { type: 'webhook', hookId: 'primary-github' }, 'signed-webhook-event',
+      [{ id: 'webhook', revision: 1 }])
   })
   it('projects verified code reviews and merged pull requests to their channel', async () => {
     const publish = vi.fn(async () => 'signed-git-event')
-    const run = vi.fn(async () => undefined)
+    const run = vi.fn(async () => true)
     const makeYaml = (event: string) => `version: 1\nname: Review\non:\n  - type: git\n    event: ${event}\n    source: primary-github\n    repository: company/product\nsteps:\n  - type: room_post\n    text: Logged`
     const bridge = new ChannelGitWorkflowBridge({ subscriptions: async () => [
       { orgId: 'org', channelId: 'channel', workflowId: 'review', revision: 1,
         yaml: makeYaml('review_submitted'), createdBy: 'manager' },
       { orgId: 'org', channelId: 'channel', workflowId: 'merge', revision: 1,
         yaml: makeYaml('patch_merged'), createdBy: 'manager' },
-    ], publish, run })
+    ], eligible: async () => true, publish, run })
     const review = { ...delivery, deliveryId: 'review-1', event: { name: 'pull_request_review',
       payload: { action: 'submitted', repository: { full_name: 'company/product' }, review: { id: 42 } } } }
     const merge = { ...delivery, deliveryId: 'merge-1', event: { name: 'pull_request',
@@ -64,8 +66,30 @@ describe('verified Git webhook channel workflow bridge', () => {
     expect(await bridge.onVerifiedDelivery(review)).toBe(1)
     expect(await bridge.onVerifiedDelivery(merge)).toBe(1)
     expect(run).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ type: 'git',
-      event: 'review_submitted' }), 'signed-git-event')
+      event: 'review_submitted' }), 'signed-git-event', [{ id: 'review', revision: 1 }])
     expect(run).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ type: 'git',
-      event: 'patch_merged' }), 'signed-git-event')
+      event: 'patch_merged' }), 'signed-git-event', [{ id: 'merge', revision: 1 }])
+  })
+  it('asks GitHub to retry while a matching workflow is owned by another worker', async () => {
+    const bridge = new ChannelGitWorkflowBridge({ subscriptions: async () => [{
+      orgId: 'org', channelId: 'channel', workflowId: 'release', revision: 1,
+      yaml, createdBy: 'manager',
+    }], eligible: async () => true, publish: async () => 'signed-event', run: async () => false })
+    await expect(bridge.onVerifiedDelivery(delivery)).rejects.toThrow('still active')
+  })
+  it('skips a revoked manager and runs only revisions owned by current managers', async () => {
+    const publish = vi.fn(async () => 'signed-event')
+    const run = vi.fn(async () => true)
+    const bridge = new ChannelGitWorkflowBridge({ subscriptions: async () => [
+      { orgId: 'org', channelId: 'channel', workflowId: 'revoked', revision: 1,
+        yaml, createdBy: 'old-manager' },
+      { orgId: 'org', channelId: 'channel', workflowId: 'current', revision: 2,
+        yaml, createdBy: 'new-manager' },
+    ], eligible: async subscription => subscription.createdBy === 'new-manager', publish, run })
+    expect(await bridge.onVerifiedDelivery(delivery)).toBe(1)
+    expect(publish).toHaveBeenCalledWith(expect.objectContaining({ createdBy: 'new-manager' }),
+      expect.anything())
+    expect(run).toHaveBeenCalledWith(expect.objectContaining({ createdBy: 'new-manager' }),
+      expect.anything(), 'signed-event', [{ id: 'current', revision: 2 }])
   })
 })

@@ -79,8 +79,10 @@ export function parseGitTagDelivery(value: unknown): ChannelGitTag | undefined {
 /** Authorized Host actions for one verified Git delivery. */
 export interface ChannelGitWorkflowDependencies {
   subscriptions(): Promise<readonly ChannelGitSubscription[]>
+  eligible(subscription: ChannelGitSubscription): Promise<boolean>
   publish(subscription: ChannelGitSubscription, delivery: ChannelVerifiedGitDelivery): Promise<string>
-  run(subscription: ChannelGitSubscription, trigger: ChannelWorkflowTrigger, signedSourceEventId: string): Promise<void>
+  run(subscription: ChannelGitSubscription, trigger: ChannelWorkflowTrigger, signedSourceEventId: string,
+    revisions: readonly { readonly id: string; readonly revision: number }[]): Promise<boolean>
 }
 
 /** Match exact repository subscriptions and publish one ingress fact per channel. */
@@ -104,21 +106,35 @@ export class ChannelGitWorkflowBridge {
       triggers.push({ type: 'git', event: verified.gitEvent, source: verified.source,
         repository: verified.repository })
     }
-    const rooms = new Map<string, { subscription: ChannelGitSubscription; triggers: ChannelWorkflowTrigger[] }>()
+    const rooms = new Map<string, { matches: { subscription: ChannelGitSubscription
+      triggers: ChannelWorkflowTrigger[] }[] }>()
     for (const subscription of await this.deps.subscriptions()) {
       const matched = triggers.filter(trigger => workflowMatches(parseChannelWorkflow(subscription.yaml), trigger))
       if (matched.length === 0) continue
       const key = JSON.stringify([subscription.orgId, subscription.channelId])
       const room = rooms.get(key)
-      if (room === undefined) rooms.set(key, { subscription, triggers: matched })
-      else for (const trigger of matched) {
-        if (!room.triggers.some(value => value.type === trigger.type)) room.triggers.push(trigger)
+      if (room === undefined) rooms.set(key, { matches: [{ subscription, triggers: matched }] })
+      else room.matches.push({ subscription, triggers: matched })
+    }
+    let accepted = 0
+    for (const room of rooms.values()) {
+      const eligible: typeof room.matches = []
+      for (const match of room.matches) {
+        if (await this.deps.eligible(match.subscription)) eligible.push(match)
       }
+      const initiator = eligible[0]?.subscription
+      if (initiator === undefined) throw new Error('Git workflow manager permission revoked')
+      const eventId = await this.deps.publish(initiator, verified)
+      const matched = triggers.filter(trigger => eligible.some(match => match.triggers.includes(trigger)))
+      for (const trigger of matched) {
+        const revisions = eligible.filter(match => match.triggers.includes(trigger))
+          .map(match => ({ id: match.subscription.workflowId, revision: match.subscription.revision }))
+        if (!await this.deps.run(initiator, trigger, eventId, revisions)) {
+          throw new Error('Git workflow is still active in another worker')
+        }
+      }
+      accepted++
     }
-    for (const { subscription, triggers: matched } of rooms.values()) {
-      const eventId = await this.deps.publish(subscription, verified)
-      for (const trigger of matched) await this.deps.run(subscription, trigger, eventId)
-    }
-    return rooms.size
+    return accepted
   }
 }

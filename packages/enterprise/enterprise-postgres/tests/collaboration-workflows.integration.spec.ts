@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { finalizeEvent, generateSecretKey, getPublicKey } from 'nostr-tools/pure'
+import { Pool } from 'pg'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { createEnterprisePostgresComposition } from '../src/index.ts'
 import type { EnterprisePostgresComposition } from '../src/index.ts'
@@ -181,5 +182,51 @@ describe.skipIf(url === undefined)('PostgreSQL channel workflow receipts', () =>
     await PostgresChannelWorkflowLedger.completeRoomTrigger(db.database, recovered)
     expect((await PostgresChannelWorkflowLedger.claimRoomTriggers(db.database, Date.now(), 10, 60_000))
       .some(value => value.eventId === saved.event.id)).toBe(false)
+  })
+
+  it('refuses to upgrade an old pending trigger without its original workflow revision', async () => {
+    const admin = new Pool({ connectionString: url as string, max: 1 })
+    const name = `dsh_room_upgrade_${randomUUID().replaceAll('-', '')}`
+    const isolatedUrl = new URL(url as string)
+    isolatedUrl.pathname = `/${name}`
+    let isolated: EnterprisePostgresComposition | undefined
+    let created = false
+    try {
+      await admin.query(`CREATE DATABASE "${name}"`)
+      created = true
+      isolated = await createEnterprisePostgresComposition({ connectionString: isolatedUrl.href,
+        cursorSigningKey: '0123456789abcdef0123456789abcdef' })
+      const oldOrg = randomUUID(), oldUser = randomUUID(), oldWorkspace = randomUUID()
+      await isolated.database.query('INSERT INTO organizations(id,name) VALUES($1,$2)', [oldOrg, 'Old workflow'])
+      await isolated.database.query('INSERT INTO users(id,org_id,username,display_name,disabled) VALUES($1,$2,$1,$1,false)',
+        [oldUser, oldOrg])
+      await isolated.identity.saveWorkspaceGrant({ workspaceId: oldWorkspace, orgId: oldOrg,
+        name: 'Old room', kind: 'personal', ownerUserId: oldUser, rootPath: '/tmp/old-room',
+        sandboxMode: 'workspace-write', expectedRevision: 0 })
+      const oldRoom = await isolated.collaboration.create({ orgId: oldOrg, workspaceId: oldWorkspace,
+        kind: 'channel', name: 'Old channel', memberUserIds: [oldUser], memberEmployeeIds: [],
+        dutyEmployeeIds: [], topicPolicy: 'thread', respondPolicy: 'ingest_only' })
+      const oldLedger = new PostgresChannelWorkflowLedger(isolated.database, oldOrg)
+      await oldLedger.save({ channelId: oldRoom.id, id: 'review', yaml: 'version: 1',
+        expectedRevision: 0, createdBy: oldUser })
+      const key = generateSecretKey()
+      await isolated.roomEvents.ensureRoomActorKey({ orgId: oldOrg, actorKind: 'human', actorId: oldUser,
+        pubkey: getPublicKey(key) })
+      const signed = finalizeEvent({ kind: 9, created_at: Math.floor(Date.now() / 1000),
+        tags: [['h', oldRoom.id]], content: 'review' }, key)
+      await isolated.roomEvents.append({ orgId: oldOrg, surfaceId: oldRoom.id, authorKind: 'human',
+        authorId: oldUser, event: { id: signed.id, pubkey: signed.pubkey, created_at: signed.created_at,
+          kind: signed.kind, tags: signed.tags, content: signed.content, sig: signed.sig } })
+      await isolated.database.query('ALTER TABLE dsh_enterprise_channel_workflow_trigger_inbox DROP COLUMN revision_refs')
+      await isolated.database.query('UPDATE dsh_enterprise_channel_workflow_meta SET version=4')
+      await expect(migrateChannelWorkflows(isolated.database)).rejects.toThrow('pending trigger')
+      const version = await isolated.database.query<{ version: number }>(
+        'SELECT version FROM dsh_enterprise_channel_workflow_meta')
+      expect(version.rows[0]?.version).toBe(4)
+    } finally {
+      await isolated?.close()
+      if (created) await admin.query(`DROP DATABASE "${name}" WITH (FORCE)`)
+      await admin.end()
+    }
   })
 })
