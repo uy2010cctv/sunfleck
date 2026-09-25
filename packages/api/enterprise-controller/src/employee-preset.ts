@@ -20,7 +20,9 @@ export interface EmployeePresetDefinition {
  * @returns the validated definition.
  * @throws when the snapshot profile omits the employee name or responsibility prompt.
 */
-export function employeePresetDefinition(release: EnterpriseEmployeeRelease): EmployeePresetDefinition {
+export function employeePresetDefinition(release: Pick<EnterpriseEmployeeRelease, 'releaseId'> & {
+  readonly snapshot: { readonly profile: Readonly<Record<string, unknown>> }
+}): EmployeePresetDefinition {
   const profile = release.snapshot.profile
   const required = (field: string): string => {
     const value = profile[field]
@@ -55,7 +57,7 @@ export function employeePresetDefinition(release: EnterpriseEmployeeRelease): Em
 export function employeePersona(input: EmployeePresetDefinition): string {
   if (/[\u3400-\u9fff]/u.test([
     input.name, input.description, input.position, input.department, input.prompt,
-  ].filter((value) => value !== undefined).join(''))) {
+  ].filter(value => value !== undefined).join(''))) {
     return `${[
       `你是企业数字员工“${input.name.trim()}”`,
       ...input.position?.trim() ? [`岗位是“${input.position.trim()}”`] : [],

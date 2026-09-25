@@ -729,6 +729,18 @@ export class EnterpriseCatalogRepository {
     return result.rows.map(row => this.release(row))
   }
 
+  /** Read the newest published release for every employee after a Host restart.
+   * @returns Digest-verified releases in preset-id order.
+   */
+  async listLatestReleases(): Promise<EmployeeReleaseView[]> {
+    await this.initialize()
+    const result = await this.database.query<ReleaseRow>(
+      `SELECT DISTINCT ON (preset_id) * FROM dsh_enterprise_employee_releases
+       ORDER BY preset_id, version DESC`,
+    )
+    return result.rows.map(row => this.release(row))
+  }
+
   /**
    * Read one immutable employee release inside its owning organization.
    * @param releaseId - Immutable release identity.

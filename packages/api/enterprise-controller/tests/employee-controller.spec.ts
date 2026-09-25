@@ -4,6 +4,54 @@ import { describe, expect, it, vi } from 'vitest'
 import { EnterpriseEmployeeController, inject } from '../src/index.ts'
 
 describe('enterprise employee publication', () => {
+  it('restores published employees after Host startup and scopes their roster to the caller', async () => {
+    const releases = [
+      { releaseId: 'release-main', presetId: 'employee-main', orgId: 'org-a', version: 2,
+        digest: 'main', publishedBy: 'owner-a', publishedAt: 2,
+        snapshot: { profile: { name: 'Main employee', prompt: 'Work for org A.' }, bindings: [] } },
+      { releaseId: 'release-test', presetId: 'employee-test', orgId: 'org-b', version: 1,
+        digest: 'test', publishedBy: 'owner-b', publishedAt: 1,
+        snapshot: { profile: { name: 'Test employee', prompt: 'Work for org B.' }, bindings: [] } },
+    ]
+    const register = vi.fn(async (_definition: unknown) => async () => {})
+    let access: ((id: string) => Promise<boolean>) | undefined
+    const requestContext = new EnterpriseRequestContext()
+    const ctx = new Context()
+    ctx.provide('loader' as never, { await: async () => {} } as never)
+    ctx.provide('enterprisePostgres' as never, { catalog: {
+      listLatestReleases: vi.fn(async () => releases),
+      getDraft: vi.fn(async (id: string, orgId: string) => ({ presetId: id, orgId, ownerUserId: `owner-${orgId}`,
+        visibility: 'organization' })),
+    } } as never)
+    ctx.provide('enterpriseRequestContext' as never, requestContext as never)
+    ctx.provide('enterpriseSecurity' as never, { authorizeApiAsync: vi.fn(async (principal: { userId: string }) => ({
+      allowed: principal.userId === 'owner-a', reason: 'role',
+    })) } as never)
+    ctx.provide('agentPresets' as never, {
+      defaultId: 'standard',
+      registerAccessPolicy: (policy: (id: string) => Promise<boolean>) => { access = policy; return () => {} },
+      readDocument: vi.fn(async () => ({ agentPreset: 'standard', content: [
+        '- id: persona', "  name: '@deepseek-ai/dsh-persona'", '  config:', '    prefix: Base',
+      ].join('\n') })),
+      register,
+      resolve: vi.fn(async (id: string) => ({ id })),
+    } as never)
+
+    new EnterpriseEmployeeController(ctx)
+    await vi.waitFor(() => { expect(register).toHaveBeenCalledTimes(2) })
+    expect(register.mock.calls.map(call => (call[0] as { id: string }).id)).toEqual(['employee-main', 'employee-test'])
+    expect(access).toBeDefined()
+    await requestContext.run({ orgId: 'org-a', userId: 'owner-a', roles: ['member'] }, async () => {
+      expect(await access!('employee-main')).toBe(true)
+      expect(await access!('employee-test')).toBe(false)
+      expect(await access!('standard')).toBe(true)
+    })
+    await requestContext.run({ orgId: 'org-a', userId: 'reader-a', roles: ['member'] }, async () => {
+      expect(await access!('employee-main')).toBe(false)
+    })
+    await ctx.fiber.dispose()
+  })
+
   it('omits employees that are outside the caller hierarchy scope', async () => {
     const items = [
       { presetId: 'finance', orgId: 'org-a', ownerUserId: 'finance-owner', visibility: 'organization', profile: {}, bindings: [], revision: 1, status: 'published', updatedAt: 1 },
@@ -16,12 +64,14 @@ describe('enterprise employee publication', () => {
       }))
     const requestContext = new EnterpriseRequestContext()
     const ctx = new Context()
+    ctx.provide('loader' as never, { await: async () => {} } as never)
     ctx.provide('enterprisePostgres' as never, { catalog: {
       listDrafts: vi.fn().mockResolvedValue({ items, nextCursor: 'next' }),
+      listLatestReleases: vi.fn(async () => []),
     } } as never)
     ctx.provide('enterpriseSecurity' as never, { authorizeApiAsync, auditApiAsync: vi.fn() } as never)
     ctx.provide('enterpriseRequestContext' as never, requestContext as never)
-    ctx.provide('agentPresets' as never, {} as never)
+    ctx.provide('agentPresets' as never, { registerAccessPolicy: () => () => {} } as never)
     ctx.provide('llm' as never, {} as never)
 
     const page = await requestContext.run(
@@ -35,6 +85,7 @@ describe('enterprise employee publication', () => {
 
   it('declares the Agent Preset service required by publication', () => {
     expect(inject).toContain('agentPresets')
+    expect(inject).toContain('loader')
   })
 
   it('compiles the immutable release identity into the registered Agent preset declaration', async () => {
@@ -61,10 +112,12 @@ describe('enterprise employee publication', () => {
     const auditApiAsync = vi.fn(() => Promise.resolve())
     const requestContext = new EnterpriseRequestContext()
     const ctx = new Context()
-    ctx.provide('enterprisePostgres' as never, { catalog: { publishDraft } } as never)
+    ctx.provide('loader' as never, { await: async () => {} } as never)
+    ctx.provide('enterprisePostgres' as never, { catalog: { publishDraft, listLatestReleases: async () => [] } } as never)
     ctx.provide('enterpriseSecurity' as never, { authorizeApiAsync, auditApiAsync } as never)
     ctx.provide('enterpriseRequestContext' as never, requestContext as never)
     ctx.provide('agentPresets' as never, {
+      registerAccessPolicy: () => () => {},
       defaultId: 'standard',
       readDocument: vi.fn(async () => ({ agentPreset: 'standard', content: sourceComposition })),
       register,
@@ -115,13 +168,15 @@ describe('enterprise employee publication', () => {
       .mockResolvedValueOnce(() => Promise.resolve())
     const requestContext = new EnterpriseRequestContext()
     const ctx = new Context()
-    ctx.provide('enterprisePostgres' as never, { catalog: { publishDraft } } as never)
+    ctx.provide('loader' as never, { await: async () => {} } as never)
+    ctx.provide('enterprisePostgres' as never, { catalog: { publishDraft, listLatestReleases: async () => [] } } as never)
     ctx.provide('enterpriseSecurity' as never, {
       authorizeApiAsync: () => Promise.resolve({ allowed: true, reason: 'role' }),
       auditApiAsync: () => Promise.resolve(),
     } as never)
     ctx.provide('enterpriseRequestContext' as never, requestContext as never)
     ctx.provide('agentPresets' as never, {
+      registerAccessPolicy: () => () => {},
       defaultId: 'standard',
       readDocument: vi.fn(async () => ({ agentPreset: 'standard', content: sourceComposition })),
       register,

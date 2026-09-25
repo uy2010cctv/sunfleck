@@ -60,6 +60,7 @@ export class AgentPresetRegistry extends TypertRemoteService {
   private readonly generations = new Map<ScopeKey, Generation>()
   private readonly bindings = new WeakMap<ScopeKey, Binding>()
   private readonly switches = new Map<string, Promise<unknown>>()
+  private accessPolicy: ((id: string) => Promise<boolean>) | undefined
 
   constructor(ctx: Context, public config: Config) {
     super(ctx, 'agentPresets')
@@ -73,6 +74,23 @@ export class AgentPresetRegistry extends TypertRemoteService {
 
   /** Default preset for a subsequently created session. */
   get defaultId(): string { return this.policy().defaultId }
+
+  /** Gate request-visible presets while allowing a deployment to preserve internal Session replay.
+   * @param policy - Returns whether the current caller may use or inspect one preset.
+   * @returns Disposer that restores the unscoped roster when this deployment unloads.
+   */
+  registerAccessPolicy(policy: (id: string) => Promise<boolean>): () => void {
+    if (this.accessPolicy !== undefined) throw new Error('Agent preset access policy is already registered')
+    this.accessPolicy = policy
+    return () => { if (this.accessPolicy === policy) this.accessPolicy = undefined }
+  }
+
+  private allowed(id: string): Promise<boolean> { return this.accessPolicy?.(id) ?? Promise.resolve(true) }
+
+  private missing(id: string): RemoteError {
+    return new RemoteError('agent-preset/not-found', `Unknown agent preset: ${id}`,
+      { agentPreset: id, available: this.accessPolicy === undefined ? [...this.definitions.keys()] : [] })
+  }
 
   private policy(): { enabled: boolean; defaultId: string } {
     const enabled = this.config.modeSelectionEnabled.get()
@@ -176,8 +194,10 @@ export class AgentPresetRegistry extends TypertRemoteService {
   @Remote('list')
   async remoteExportList(): Promise<AgentPresetRoster> {
     const policy = this.policy()
-    return { presets: (await this.list()).map(row => ({ ...row, isDefault: row.id === policy.defaultId })),
-      modeSelectionEnabled: policy.enabled }
+    const visible = await Promise.all((await this.list()).map(async row => await this.allowed(row.id) ? row : undefined))
+    return { presets: visible.filter((row): row is AgentPreset => row !== undefined)
+      .map(row => ({ ...row, isDefault: row.id === policy.defaultId })),
+    modeSelectionEnabled: policy.enabled }
   }
 
   /** Resolve an identity without starting an Agent.
@@ -186,9 +206,9 @@ export class AgentPresetRegistry extends TypertRemoteService {
    */
   async resolve(id?: string): Promise<AgentPreset> {
     const wanted = id ?? this.defaultId
+    if (!(await this.allowed(wanted))) throw this.missing(wanted)
     const record = this.definitions.get(wanted)
-    if (record === undefined) throw new RemoteError('agent-preset/not-found', `Unknown agent preset: ${wanted}`,
-      { agentPreset: wanted, available: [...this.definitions.keys()] })
+    if (record === undefined) throw this.missing(wanted)
     const broken = await this.diagnostic(record)
     return { id: wanted, ...(broken === undefined ? {} : { broken }) }
   }
@@ -198,26 +218,24 @@ export class AgentPresetRegistry extends TypertRemoteService {
    * @returns The declared composition beside its published metadata.
    */
   @Remote('read')
-  readDocument(agentPreset: string): Promise<AgentPresetDocument> {
+  async readDocument(agentPreset: string): Promise<AgentPresetDocument> {
+    if (!(await this.allowed(agentPreset))) throw this.missing(agentPreset)
     const record = this.definitions.get(agentPreset)
-    if (record === undefined) {
-      return Promise.reject(new RemoteError('agent-preset/not-found', `Unknown agent preset: ${agentPreset}`,
-        { agentPreset, available: [...this.definitions.keys()] }))
-    }
+    if (record === undefined) throw this.missing(agentPreset)
     const { id, name, description, plugins } = record.config
     // The Loader's own dialect, so `!!js` conditions read as declared rather than as expression objects.
     const content = dump(plugins, { schema: entryListSchema, noRefs: true, lineWidth: -1 })
-    return Promise.resolve({
+    return {
       agentPreset: id, content, ...(name === undefined ? {} : { name }), ...(description === undefined ? {} : { description }),
-    })
+    }
   }
 
   private async retain(id?: string): Promise<Generation> {
     const wanted = id ?? this.defaultId
+    if (!(await this.allowed(wanted))) throw this.missing(wanted)
     while (true) {
       const record = this.definitions.get(wanted)
-      if (record === undefined) throw new RemoteError('agent-preset/not-found', `Unknown agent preset: ${wanted}`,
-        { agentPreset: wanted, available: [...this.definitions.keys()] })
+      if (record === undefined) throw this.missing(wanted)
       const broken = await this.diagnostic(record)
       if (this.definitions.get(wanted) !== record) continue
       const generation = record.generation

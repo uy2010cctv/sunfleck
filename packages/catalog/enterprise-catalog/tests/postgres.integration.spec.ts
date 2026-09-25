@@ -75,6 +75,7 @@ describe.skipIf(url === undefined)('enterprise catalog PostgreSQL integration', 
     const release = await repository.publishDraft(input)
     await expect(repository.publishDraft(input)).resolves.toEqual(release)
     expect((await repository.listReleases('preset-pg', 'org-pg'))[0]?.digest).toBe(release.digest)
+    expect((await repository.listLatestReleases()).find(item => item.presetId === 'preset-pg')).toEqual(release)
   })
 
   it('serializes concurrent first draft creation with a deterministic revision conflict', async () => {

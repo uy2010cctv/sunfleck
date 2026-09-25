@@ -25,7 +25,7 @@ Versioned DSH enterprise employee drafts, releases, and capability assets。
 - Agent Preset ID 仍是数字员工的权威身份。
 - 草稿、发布、回滚和资产版本写入先获取实体锁，再获取幂等锁。幂等行把规范请求摘要与已存结果绑定；完全相同的重试返回该结果，同一 key 用于另一请求时明确失败。迁移期间仍可读取旧 schema 创建的仅结果行。
 - 管理查询始终限定在单一组织内，使用参数化过滤，并按 `updatedAt` 和 ID 的稳定顺序通过 HMAC-SHA256 签名的不透明游标分页。
-- 发布版本是带确定性 SHA-256 摘要的不可变快照。
+- 发布版本是带确定性 SHA-256 摘要的不可变快照。`listLatestReleases()` 为 Host 启动恢复逐个读取并验证每个 preset 的最新版本。
 - 已标记为 published 的草稿若内容未变，再次发布会返回当前不可变版本并记录新的幂等键，不会生成重复版本。
 - SOP、知识、技能、工具和模型资产均支持版本，并绑定到员工版本。
 - 资产归档是带 revision 检查的逻辑写入；幂等键与请求摘要绑定，完全相同的重试返回原始结果。

@@ -30,7 +30,7 @@ Preset synchronization replaces the persona `prefix` with the compiled employee 
 
 ## Consequences
 
-A successful catalog commit cannot be multiplied by repeated Publish clicks. A changed draft still produces a new immutable release. The catalog remains authoritative, while the native Preset is a retryable projection used by new Sessions. Republishing an existing employee repairs its persona; running Sessions keep the preset generation they started with and a new Session receives the repaired identity.
+A successful catalog commit cannot be multiplied by repeated Publish clicks. A changed draft still produces a new immutable release. The catalog remains authoritative, while the native Preset is a retryable projection used by new Sessions. The Host reconstructs the newest published release for each employee after Loader settlement on restart; a repeat Publish still reconciles a failed live projection. An authenticated request sees and binds only employees authorized in its organization, while Host-internal replay can resolve committed Session presets. Running Sessions keep the preset generation they started with and a new Session receives the repaired identity.
 
 ## Verification
 

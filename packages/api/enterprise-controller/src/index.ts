@@ -2,6 +2,7 @@
 import { createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { Context } from '@deepseek-ai/cordis'
+import type {} from '@deepseek-ai/cordis-plugin-loader'
 import { registerApp as officialRegisterLarkApp } from '@larksuiteoapi/node-sdk'
 import { Remote, RemoteError, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 import type { EnterprisePrincipal } from '@deepseek-ai/dsh-enterprise-governance'
@@ -697,20 +698,55 @@ export class EnterpriseDeviceController extends TypertRemoteService {
 
 /** Enterprise employee Draft and Release Remote service. */
 export class EnterpriseEmployeeController extends TypertRemoteService {
-  static inject = ['enterprisePostgres', 'enterpriseSecurity', 'enterpriseRequestContext', 'agentPresets', 'llm']
+  static inject = ['enterprisePostgres', 'enterpriseSecurity', 'enterpriseRequestContext', 'agentPresets', 'loader', 'llm']
   /** Disposers of the Agent preset declarations this controller registered, keyed by preset id. */
   private readonly employeePresetDisposers = new Map<string, Promise<() => Promise<void>>>()
+  private readonly employeePresetOrgs = new Map<string, string>()
+  private readonly restoration: Promise<void>
   /** @param ctx - authenticated enterprise Host context. */
-  constructor(ctx: Context) { super(ctx, 'enterpriseEmployeeController', { namespace: 'enterpriseEmployee' }) }
+  constructor(ctx: Context) {
+    super(ctx, 'enterpriseEmployeeController', { namespace: 'enterpriseEmployee' })
+    ctx.effect(() => ctx.agentPresets.registerAccessPolicy(id => this.canUsePreset(id)), 'enterprise employee preset access')
+    this.restoration = ctx.loader.await().then(() => this.restorePublishedPresets())
+    void this.restoration.catch((error) => { ctx.logger.error(`employee preset restoration failed: ${String(error)}`) })
+    ctx.effect(() => async () => {
+      await this.restoration.catch(() => undefined)
+      for (const pending of this.employeePresetDisposers.values()) {
+        const dispose = await pending.catch(() => undefined)
+        if (dispose !== undefined) await dispose()
+      }
+    }, 'enterprise employee preset declarations')
+  }
+
+  private async canUsePreset(id: string): Promise<boolean> {
+    const principal = this.ctx.enterpriseRequestContext.current()
+    if (principal === undefined) return true
+    await this.restoration
+    const orgId = this.employeePresetOrgs.get(id)
+    if (orgId === undefined) return true
+    if (orgId !== principal.orgId) return false
+    return (await this.ctx.enterpriseSecurity.authorizeApiAsync(
+      principal, 'enterpriseEmployee.getDraft', { presetId: id },
+    )).allowed
+  }
+
+  private async restorePublishedPresets(): Promise<void> {
+    const releases = await this.ctx.enterprisePostgres.catalog.listLatestReleases()
+    for (const release of releases) {
+      this.employeePresetOrgs.set(release.presetId, release.orgId)
+      await this.registerEmployeePreset(release.presetId, employeePresetDefinition(release))
+    }
+  }
 
   /** Install or replace the released employee's Agent preset declaration.
    *
-   * The declaration is held in the registry this process owns, so a Host restart drops it;
-   * republishing the release reinstates it. A live session keeps the composition it mounted —
+   * The declaration is held in the registry this process owns; startup restores the latest
+   * published release after Loader settlement. A live session keeps the composition it mounted —
    * the registry retires the replaced revision only once its last reader releases it.
    * @param release - the immutable Release just published.
   */
   private async configurePublishedEmployee(release: EnterpriseEmployeeRelease): Promise<void> {
+    this.employeePresetOrgs.set(release.presetId, release.orgId)
     const input = employeePresetDefinition(release)
     try {
       await this.registerEmployeePreset(release.presetId, input)
@@ -820,6 +856,7 @@ export class EnterpriseEmployeeController extends TypertRemoteService {
   @Remote('publish')
   async publish(request: EnterpriseEmployeePublishRequest): Promise<EnterpriseEmployeeRelease> {
     return catalogCall(this.ctx, 'enterpriseEmployee.publish', request, 'employee', request.presetId, async (principal) => {
+      await this.restoration
       const release = await this.ctx.enterprisePostgres.catalog.publishDraft({
         ...request, orgId: principal.orgId, publishedBy: principal.userId,
       }) as EnterpriseEmployeeRelease
@@ -2618,6 +2655,6 @@ export function apply(ctx: Context): void {
 
 export const inject = [
   'enterprisePostgres', 'enterpriseSecurity', 'enterpriseRequestContext', 'enterpriseCordis',
-  'agentPresets', 'credentials', 'llm', 'sessionController', 'webServer',
+  'agentPresets', 'loader', 'credentials', 'llm', 'sessionController', 'webServer',
 ]
 export { name } from './invariant.ts'

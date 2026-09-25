@@ -78,6 +78,23 @@ describe('declarative preset revisions', () => {
     expect(roster.presets.find(row => row.id === 'standard')?.isDefault).toBe(true)
   })
 
+  it('filters a request roster and refuses a hidden preset while retaining Host access', async () => {
+    const ctx = await setup()
+    await declare(ctx, contribution('standard'))
+    await declare(ctx, contribution('employee-hidden'))
+    let requestActive = true
+    const remove = ctx.agentPresets.registerAccessPolicy(async id => !requestActive || id !== 'employee-hidden')
+    expect((await ctx.agentPresets.remoteExportList()).presets.map(row => row.id)).toEqual(['standard'])
+    await expect(ctx.agentPresets.readDocument('employee-hidden')).rejects.toThrow('Unknown agent preset')
+    const scope = createScope(ctx, {})
+    await expect(ctx.agentPresets.mount(scope.ctx, 'employee-hidden')).rejects.toThrow('Unknown agent preset')
+    requestActive = false
+    await expect(ctx.agentPresets.mount(scope.ctx, 'employee-hidden')).resolves.toMatchObject({ id: 'employee-hidden' })
+    remove()
+    expect((await ctx.agentPresets.remoteExportList()).presets.map(row => row.id)).toEqual(['employee-hidden', 'standard'])
+    await scope.dispose()
+  })
+
   it('rejects duplicate IDs without disposing the first definition', async () => {
     const ctx = await setup()
     await declare(ctx, contribution('standard'))

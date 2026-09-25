@@ -238,6 +238,14 @@ class MemoryPostgresDatabase implements PostgresDatabase {
       this.releases.set(row.release_id, row)
       return [clone(row)]
     }
+    if (text.startsWith('SELECT DISTINCT ON (preset_id) * FROM dsh_enterprise_employee_releases')) {
+      const latest = new Map<string, ReleaseRow>()
+      for (const row of this.releases.values()) {
+        const current = latest.get(row.preset_id)
+        if (current === undefined || row.version > current.version) latest.set(row.preset_id, row)
+      }
+      return [...latest.values()].sort((left, right) => left.preset_id.localeCompare(right.preset_id)).map(clone)
+    }
     if (text.startsWith('SELECT ') && text.includes('FROM dsh_enterprise_employee_releases WHERE release_id')) {
       const row = this.releases.get(String(values[0]))
       return row === undefined || (text.includes('org_id = $2') && row.org_id !== values[1]) ? [] : [clone(row)]
@@ -323,6 +331,26 @@ const firstDraft = {
 }
 
 describe('EnterpriseCatalogRepository', () => {
+  it('restores only the latest published release of each employee', async () => {
+    const repository = catalogRepository()
+    await repository.saveDraft(firstDraft)
+    const first = await repository.publishDraft({
+      orgId: 'org-a', presetId: firstDraft.presetId, expectedRevision: 1,
+      idempotencyKey: 'first-release', publishedBy: 'user-a',
+    })
+    await repository.saveDraft({
+      ...firstDraft, expectedRevision: 2, idempotencyKey: 'second-draft',
+      profile: { name: 'Sales assistant', prompt: 'Use the revised instructions.' },
+    })
+    const latest = await repository.publishDraft({
+      orgId: 'org-a', presetId: firstDraft.presetId, expectedRevision: 3,
+      idempotencyKey: 'second-release', publishedBy: 'user-a',
+    })
+    expect(latest.version).toBe(2)
+    expect(first.version).toBe(1)
+    expect(await repository.listLatestReleases()).toEqual([latest])
+  })
+
   it('learns and publishes an asset atomically without publishing pending profile edits', async () => {
     const repository = catalogRepository()
     await repository.saveDraft(firstDraft)

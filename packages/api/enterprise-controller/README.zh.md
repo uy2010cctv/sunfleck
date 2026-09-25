@@ -28,7 +28,7 @@ kind: "package-reference"
 
 `cordisWorkspace` 读取使用已认证主体过滤私有 Package 和绑定。`archive` 与 `restore` 只操作该主体在指定 Workspace 内拥有的 Plugin；归档保留不可变源码并停止新 Session 激活。`cordisReview.submitSaved` 只接受创建者在部门 Workspace 中的私有版本，另建待审记录而不启用。部门批准与组织发布继续分别遵循负责人和管理员权限。
 
-员工发布会先写入不可变目录版本，再更新新 Session 使用的可写原生 Agent Preset。Preset 写入遇到瞬时失败会重试一次。持续失败时会明确说明目录版本已经发布并要求重试同步；未变化的已发布草稿会返回同一个版本。
+员工发布会先写入不可变目录版本，再更新新 Session 使用的可写原生 Agent Preset。Preset 写入遇到瞬时失败会重试一次。持续失败时会明确说明目录版本已经发布并要求重试同步；未变化的已发布草稿会返回同一个版本。Host Loader 结算后，控制器将每个已发布员工的最新版本重建为 Agent Preset。注册表在列出、读取、选择或绑定员工 preset 前按已认证主体核对员工目录权限；Host 内部的 Session 回放仍能解析已提交的 preset。
 
 三个 HTTP 边界与 Remote namespace 并列挂载：`/enterprise/employees` 下的员工 dm 与记忆治理路由（`employee-http`），`/enterprise/surfaces` 与 `/enterprise/projects` 下的协作面与项目路由（`surfaces-http`），以及令牌认证的入站路由 `POST /enterprise/channels/:channelId/inbound`——它把 `x-dsh-channel-token` header 与部署侧令牌比对，令牌未配置时一律返回 503。协作面与项目路由复用既有 cookie 认证、`channel.read` / `employee.create` / `employee.execute` 与 `team.read` / `team.manage` 动作，以及 `enterpriseSurface.*` / `enterpriseProject.*` 审计名；项目读对非成员折叠为 404，结构化未投递结果以 200 返回。未挂载完整协作面运行时时，已认证的 `GET /enterprise/surfaces` 通过相同的 `channel.read` 审计和类型校验读取 PostgreSQL 目录；协作面写入与入站投递仍返回 503。项目路由承载项目蒸馏：`POST /enterprise/projects/:id/distill` 在成员门禁后运行蒸馏（记忆整理面未挂载时返回 503），`POST /enterprise/projects/:id/archive` 触发同一蒸馏但不等待其完成，项目结项从不因记忆工作而阻塞或失败。响应只承载治理字段——anchored session id、投递错误链、workspace 路径与成员允许列表都不会离开本包。
 
