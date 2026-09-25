@@ -169,9 +169,10 @@ describe('enterprise work Remote controller', () => {
       auditApiAsync: async () => undefined, sessionOwnedBy: async () => true,
     } as never)
     ctx.provide('enterpriseRequestContext' as never, requestContext as never)
-    ctx.provide('sessionController' as never, { create: async () => ({ sessionId: 'session-a' }) } as never)
+    const resolveAgent = vi.fn(async () => ({ agent: { ctx: {}, session: {} } }))
+    ctx.provide('sessionController' as never, { create: async () => ({ sessionId: 'session-a' }), resolveAgent } as never)
     ctx.provide('agentPresets' as never, { composedPreset: () => 'standard', employeeReleaseFor: () => ({ releaseId: 'release-a', releaseVersion: 1 }), select } as never)
-    ctx.provide('agents' as never, { get: () => ({ ctx: {}, session: {} }) } as never)
+    ctx.provide('agents' as never, { get: () => undefined } as never)
     ctx.provide('sessionProjections' as never, { stateOf: () => ({ openTurnStartSeq: null, lastTurn: 0 }) } as never)
     const controller = new EnterpriseWorkController(ctx)
     await expect(requestContext.run(principal, () => controller.selectEmployee({ sessionId: 'session-a', employeeId: 'preset-a' })))
@@ -181,6 +182,7 @@ describe('enterprise work Remote controller', () => {
     await expect(requestContext.run(principal, () => controller.selectEmployee({ sessionId: 'session-a', employeeId: 'preset-a' })))
       .resolves.toMatchObject({ workspaceId: 'workspace-a', employeeReleaseId: 'release-a' })
     expect(select).toHaveBeenCalledOnce()
+    expect(resolveAgent).toHaveBeenCalledWith('session-a')
     expect(upsertWorkRecord).toHaveBeenCalledWith(expect.objectContaining({ employeeReleaseId: 'release-a', sessionId: 'session-a' }))
   })
   it('requires workspace selection instead of choosing the first caller-owned personal workspace', async () => {

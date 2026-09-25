@@ -2410,7 +2410,7 @@ export class CordisGovernanceController extends TypertRemoteService {
 
 /** Goal-first enterprise work entry point. This slice deliberately does not route models, teams, tools, or budgets. */
 export class EnterpriseWorkController extends TypertRemoteService {
-  static inject = ['enterprisePostgres', 'enterpriseSecurity', 'enterpriseRequestContext', 'sessionController', 'agentPresets', 'agents']
+  static inject = ['enterprisePostgres', 'enterpriseSecurity', 'enterpriseRequestContext', 'sessionController', 'agentPresets']
   private readonly work: EnterpriseWorkStartService
   private readonly workspaceDefaults: WorkspaceEmployeeDefaultService
   constructor(ctx: Context) {
@@ -2512,8 +2512,15 @@ export class EnterpriseWorkController extends TypertRemoteService {
       const release = (await this.ctx.enterprisePostgres.catalog.listReleases(request.employeeId, actor.orgId))
         .sort((a, b) => b.version - a.version)[0]
       if (release === undefined) throw new Error('employee has no published release')
-      const agent = this.ctx.agents.get(SessionId(request.sessionId))
-      if (agent === undefined) throw new Error('blank session is not active')
+      const sessionController = this.ctx.get('sessionController') as {
+        resolveAgent(sessionId: SessionId): Promise<
+          { agent: Parameters<Context['agentPresets']['select']>[0] } | { error: Error }
+        >
+      } | undefined
+      if (sessionController === undefined) throw new Error('session controller is unavailable')
+      const resolved = await sessionController.resolveAgent(SessionId(request.sessionId))
+      if ('error' in resolved) throw resolved.error
+      const agent = resolved.agent
       const previousPreset = this.ctx.agentPresets.composedPreset(agent.ctx)
       await this.ctx.agentPresets.select(agent, request.employeeId)
       const mounted = this.ctx.agentPresets.employeeReleaseFor(agent.ctx)
