@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { WorkspaceSnapshot, WorkspaceId } from '@deepseek-ai/dsh-api-workspace-controller/client'
-import { sessionWorkspaceForHero } from '../src/client/skeleton/ConversationContent.tsx'
+import type { SessionListState } from '@deepseek-ai/dsh-api-session-controller/client'
+import { mainHeroSessionId, sessionWorkspaceForHero } from '../src/client/skeleton/ConversationContent.tsx'
 
 describe('blank-session workspace label', () => {
   const workspace: WorkspaceSnapshot['items'][number] = {
@@ -14,5 +15,10 @@ describe('blank-session workspace label', () => {
 
   it('does not invent a Workspace for a removed directory', () => {
     expect(sessionWorkspaceForHero('session-a', '/removed', [workspace])).toBeUndefined()
+  })
+
+  it('uses the Session retained in the main view when the hero scope has no Session', () => {
+    const list = { byId: { 'session-a': { id: 'session-a', retainedBy: { mainView: 1 } } } } as unknown as SessionListState
+    expect(mainHeroSessionId(list)).toBe('session-a')
   })
 })

@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import clsx from 'clsx'
 import type { WorkspaceId } from '@deepseek-ai/dsh-workspace/types'
 import type { WorkspaceSnapshot } from '@deepseek-ai/dsh-api-workspace-controller/client'
+import type { SessionListState } from '@deepseek-ai/dsh-api-session-controller/client'
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { ConversationContentProps, ConversationViewsProps, InputZone } from '../contract/slots.ts'
 import { HeroShell, WorkspaceChip, workspaceLabel } from './EmptyHero.tsx'
 import css from './ConversationRoot.module.css'
@@ -30,6 +32,14 @@ export function sessionWorkspaceForHero(
     ?? (cwd === undefined || cwd === '' ? undefined : workspaces.find(workspace => workspace.path === cwd))
 }
 
+/** The Session currently retained by the main browser view, including blank Sessions.
+ * @param list - Shared Client Session list.
+ * @returns the retained main Session id, if selected.
+ */
+export function mainHeroSessionId(list: SessionListState): SessionId | undefined {
+  return Object.values(list.byId).find(row => (row.retainedBy.mainView ?? 0) > 0)?.id
+}
+
 /**
  * Render the shared Conversation body and its occurrence-selected local Components.
  * @param props - Factory input, standard Session sources, and Conversation seats.
@@ -48,7 +58,9 @@ export function ConversationContent(props: ConversationContentProps) {
   const pendingInteraction = useSessionStatus(snapshot =>
     sessionId === undefined ? undefined : snapshot.get(sessionId)?.pendingInteraction)
   const inputState = useInput(s => s)
-  const cwd = useSessions(s => sessionId === undefined ? undefined : s.byId[sessionId]?.cwd)
+  const mainSessionId = useSessions(mainHeroSessionId)
+  const heroSessionId = mainSessionId ?? sessionId
+  const cwd = useSessions(s => heroSessionId === undefined ? undefined : s.byId[heroSessionId]?.cwd)
   const workspaces = useWorkspaces(s => s)
   // A plugin this package cannot import (ui-model-selection) says this session cannot
   // send; its reason is already localized by whoever raised it.
@@ -84,7 +96,7 @@ export function ConversationContent(props: ConversationContentProps) {
     seatObserver.current.observe(scroller)
   }, [])
 
-  const sessionWorkspace = sessionWorkspaceForHero(sessionId, cwd, workspaces.items)
+  const sessionWorkspace = sessionWorkspaceForHero(heroSessionId, cwd, workspaces.items)
   const pendingWorkspace = workspaces.items.find(
     workspace => workspace.workspaceId === pendingWorkspaceId,
   )
@@ -111,7 +123,7 @@ export function ConversationContent(props: ConversationContentProps) {
   //   5. list ready but no owning workspace (deleted from the sidebar) →
   //      placeholder, never the deleted folder's name via cwd.
   const chipTitle = pendingWorkspace?.title
-    ?? (sessionId === undefined
+    ?? (heroSessionId === undefined
       ? undefined
       : sessionWorkspace?.title
         ?? (workspaces.phase === 'ready' || cwd === undefined || cwd === ''

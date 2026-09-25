@@ -44,7 +44,7 @@ The empty-conversation hero pairs “Intelligence, in symbiosis.” with “让�
 
 The blank-session hero offers separate `conversation.hero.agentPreset` and `conversation.hero.employee` slots. A work-mode plugin owns the former; an enterprise plugin may occupy the latter without replacing the Conversation shell.
 
-The Workspace chip reads the selected Session's membership, then matches its canonical directory against listed Workspaces while membership catches up. A removed Workspace has no list entry and still shows the choose-Workspace placeholder.
+The Workspace chip reads the Session retained in the main view, then its membership or canonical directory against listed Workspaces while the membership projection catches up. A removed Workspace has no list entry and still shows the choose-Workspace placeholder.
 
 The shared image slot props keep display choices separate from durable references: `thumbnail` requests a contained attachment-list thumbnail, while `compact` requests a cropped gallery tile. An optional per-image `label` supplies the accessible display name; loading and cache identity still use the original attachment reference. [ui-attachment](../ui-attachment/README.md) owns rendering and the lightbox.
 
