@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import clsx from 'clsx'
 import type { WorkspaceId } from '@deepseek-ai/dsh-workspace/types'
+import type { WorkspaceSnapshot } from '@deepseek-ai/dsh-api-workspace-controller/client'
 import type { ConversationContentProps, ConversationViewsProps, InputZone } from '../contract/slots.ts'
 import { HeroShell, WorkspaceChip, workspaceLabel } from './EmptyHero.tsx'
 import css from './ConversationRoot.module.css'
@@ -11,6 +12,22 @@ function ConversationSessionView({ renderSlot }: ConversationViewsProps) {
 
 function NoConversationWidthControls() {
   return null
+}
+
+/** Resolve a blank Session's existing Workspace while its membership projection catches up.
+ * @param sessionId - Current Session, when selected.
+ * @param cwd - Canonical Session directory from its header projection.
+ * @param workspaces - Workspaces still present in the caller's list.
+ * @returns a listed Workspace or undefined when no listed directory owns the Session.
+ */
+export function sessionWorkspaceForHero(
+  sessionId: string | undefined,
+  cwd: string | undefined,
+  workspaces: WorkspaceSnapshot['items'],
+): WorkspaceSnapshot['items'][number] | undefined {
+  if (sessionId === undefined) return undefined
+  return workspaces.find(workspace => workspace.sessionIds.some(id => id === sessionId))
+    ?? (cwd === undefined || cwd === '' ? undefined : workspaces.find(workspace => workspace.path === cwd))
 }
 
 /**
@@ -67,9 +84,7 @@ export function ConversationContent(props: ConversationContentProps) {
     seatObserver.current.observe(scroller)
   }, [])
 
-  const sessionWorkspace = sessionId === undefined
-    ? undefined
-    : workspaces.items.find(workspace => workspace.sessionIds.includes(sessionId))
+  const sessionWorkspace = sessionWorkspaceForHero(sessionId, cwd, workspaces.items)
   const pendingWorkspace = workspaces.items.find(
     workspace => workspace.workspaceId === pendingWorkspaceId,
   )
