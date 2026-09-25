@@ -14,6 +14,7 @@ import {
 import { PostgresEnterpriseCordisRepository, migrateEnterpriseCordis } from '@deepseek-ai/dsh-enterprise-cordis'
 import { EnterpriseKnowledgeRepository, migrateKnowledge } from '@deepseek-ai/dsh-knowledge-pgvector'
 import { PostgresDevicePlaneRepository } from '@deepseek-ai/dsh-enterprise-device-plane'
+import { EnterpriseProjectRepository, EnterpriseProjectService, migrateEnterpriseProject } from '@deepseek-ai/dsh-enterprise-project'
 import type { PostgresDatabase as IdentityDatabase, PostgresQueryResult as IdentityResult } from '@deepseek-ai/dsh-enterprise-identity-postgres'
 import type { PostgresDatabase as SessionDatabase, PostgresQueryResult as SessionResult } from '@deepseek-ai/dsh-session-persistence-postgres'
 import type { PostgresDatabase as CatalogDatabase, PostgresQueryResult as CatalogResult } from '@deepseek-ai/dsh-enterprise-catalog'
@@ -23,14 +24,19 @@ import type {
   EnterpriseCordisPostgresDatabase as CordisDatabase,
   EnterpriseCordisPostgresResult as CordisResult,
 } from '@deepseek-ai/dsh-enterprise-cordis'
+import type { PostgresDatabase as ProjectDatabase, PostgresQueryResult as ProjectResult } from '@deepseek-ai/dsh-enterprise-project'
+import { migrateSurfaceDirectory, PostgresSurfaceDirectory } from './surface-directory.ts'
 
-type AnyResult = IdentityResult & SessionResult & CatalogResult & OperationsResult & KnowledgeResult & CordisResult
+export { PostgresSurfaceDirectory, migrateSurfaceDirectory } from './surface-directory.ts'
+export type { SurfaceDirectoryEntry, SurfaceDirectoryKind } from './surface-directory.ts'
+
+type AnyResult = IdentityResult & SessionResult & CatalogResult & OperationsResult & KnowledgeResult & CordisResult & ProjectResult
 
 /** One transaction-aware wrapper shared by all enterprise PG adapters.
  * @param operation - Input value used by this API.
  */
 export class EnterprisePostgresDatabase implements
-  IdentityDatabase, SessionDatabase, CatalogDatabase, OperationsDatabase, KnowledgeDatabase, CordisDatabase {
+  IdentityDatabase, SessionDatabase, CatalogDatabase, OperationsDatabase, KnowledgeDatabase, CordisDatabase, ProjectDatabase {
   private ending: Promise<void> | undefined
 
   constructor(readonly pool: Pool, readonly client?: PoolClient) {}
@@ -120,6 +126,8 @@ export interface EnterprisePostgresComposition {
   readonly knowledge: EnterpriseKnowledgeRepository
   readonly cordis: PostgresEnterpriseCordisRepository
   readonly devicePlane: PostgresDevicePlaneRepository
+  readonly projects: EnterpriseProjectService
+  readonly surfaceDirectory: PostgresSurfaceDirectory
   readonly close: () => Promise<void>
 }
 
@@ -153,6 +161,8 @@ export async function createEnterprisePostgresComposition(config: EnterprisePost
   try {
     await database.health()
     await database.transaction(transaction => migrateEnterpriseIdentityPostgres(transaction))
+    await migrateEnterpriseProject(database)
+    await migrateSurfaceDirectory(database)
     const session = new PostgresSessionStore(database)
     await session.initialize()
     await migrateEnterpriseCatalog(database)
@@ -199,7 +209,10 @@ export async function createEnterprisePostgresComposition(config: EnterprisePost
     const knowledge = new EnterpriseKnowledgeRepository(database)
     const cordis = new PostgresEnterpriseCordisRepository(database)
     const devicePlane = new PostgresDevicePlaneRepository(database)
-    return { database, identity, session, catalog, operations, teamControl, knowledge, cordis, devicePlane, close: () => database.end() }
+    const projects = new EnterpriseProjectService(new EnterpriseProjectRepository(database))
+    const surfaceDirectory = new PostgresSurfaceDirectory(database)
+    return { database, identity, session, catalog, operations, teamControl, knowledge, cordis, devicePlane, projects, surfaceDirectory,
+      close: () => database.end() }
   } catch (error) {
     await database.end()
     throw error
@@ -213,6 +226,7 @@ export async function createEnterprisePostgresComposition(config: EnterprisePost
 export async function apply(ctx: Context, config: EnterprisePostgresConfig): Promise<void> {
   const composition = await createEnterprisePostgresComposition(config)
   ctx.provide('enterprisePostgres', composition)
+  ctx.provide('enterpriseProjects', composition.projects)
   ctx.effect(() => () => { void composition.close() }, 'enterprise-postgres: close pool')
 }
 

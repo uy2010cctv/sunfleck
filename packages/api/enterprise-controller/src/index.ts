@@ -205,7 +205,7 @@ import type {
 import { DeviceAgentHttpHandler } from './device-agent-http.ts'
 import { EmployeeHttpHandler } from './employee-http.ts'
 import { serveConsolidation } from './consolidation-http.ts'
-import { ProjectHttpHandler, SurfaceHttpHandler } from './surfaces-http.ts'
+import { ProjectHttpHandler, SurfaceDirectoryHttpHandler, SurfaceHttpHandler } from './surfaces-http.ts'
 import { RecorderRuntimeBridge, validateRecorderRuntimeSave } from './recorder-runtime.ts'
 
 export type * from './contract/index.ts'
@@ -2553,15 +2553,16 @@ export function apply(ctx: Context): void {
       catch { await writeResponse(res, Response.json({ error: 'invalid-request' }, { status: 400 })) }
     },
   }), 'enterprise-employee: authenticated employee dm routes')
-  // The composed surface plugin provides `surfaces` (surfaces-http `inject`); without
-  // it the collaboration plane is absent and every route fails loud with a 503.
+  // The composed surface runtime owns mutations. Without it, the PostgreSQL
+  // directory serves the authenticated list while mutations still fail loud.
   ctx.effect(() => ctx.webServer.register({
     kind: 'prefix', path: '/enterprise/surfaces',
     handler: async (req, res) => {
-      const plane = resolvePlane(ctx.get('surfaces'), 'surface-plane-unavailable')
-      if (plane.service === undefined) { await writeResponse(res, plane.unavailable); return }
+      const surfaces = ctx.get('surfaces')
       await serveRoute(res, await enterpriseRequest(req), request =>
-        new SurfaceHttpHandler(plane.service, ctx.enterpriseSecurity).fetch(request))
+        surfaces === undefined
+          ? new SurfaceDirectoryHttpHandler(ctx.enterprisePostgres.surfaceDirectory, ctx.enterpriseSecurity).fetch(request)
+          : new SurfaceHttpHandler(surfaces, ctx.enterpriseSecurity).fetch(request))
     },
   }), 'enterprise-surface: authenticated collaboration surface routes')
   ctx.effect(() => ctx.webServer.register({

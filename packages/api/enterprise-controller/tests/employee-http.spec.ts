@@ -21,7 +21,7 @@ import type { UserMessage } from '@deepseek-ai/dsh-llm'
 import { describe, expect, it, vi } from 'vitest'
 import { EmployeeHttpHandler, inject } from '../src/employee-http.ts'
 import type { EmployeeHttpSecurity } from '../src/employee-http.ts'
-import { inject as surfaceInject, ProjectHttpHandler, SurfaceHttpHandler } from '../src/surfaces-http.ts'
+import { inject as surfaceInject, ProjectHttpHandler, SurfaceDirectoryHttpHandler, SurfaceHttpHandler } from '../src/surfaces-http.ts'
 import type { ProjectHttpOptions, SurfaceHttpOptions } from '../src/surfaces-http.ts'
 
 const PRESET = 'employee-preset'
@@ -840,6 +840,27 @@ describe('employee memory governance endpoints', () => {
 })
 
 describe('collaboration surface endpoints', () => {
+  it('lists the PostgreSQL directory with the same authentication and kind gate', async () => {
+    const directory = { list: vi.fn(async () => [
+      { id: 'surface-1', kind: 'group' as const, name: 'Project group', memberCount: 2 },
+    ]) }
+    const handler = new SurfaceDirectoryHttpHandler(directory, new RecordingSecurity(principalOf()))
+    const request = (path: string, cookie = 'dsh_enterprise_session=ticket') => new Request(
+      `http://dsh/enterprise/surfaces${path}`, { headers: { cookie } },
+    )
+    const listed = await handler.fetch(request('?kind=group'))
+    expect(listed.status).toBe(200)
+    expect(await listed.json()).toEqual([{ id: 'surface-1', kind: 'group', name: 'Project group', memberCount: 2 }])
+    expect(directory.list).toHaveBeenCalledWith('org-1', 'group')
+    expect((await handler.fetch(request('?kind=invalid'))).status).toBe(400)
+    expect((await handler.fetch(request('', ''))).status).toBe(401)
+    expect((await new SurfaceDirectoryHttpHandler(directory, new RecordingSecurity(principalOf([])))
+      .fetch(request(''))).status).toBe(403)
+    expect((await handler.fetch(new Request('http://dsh/enterprise/surfaces/groups', {
+      method: 'POST', headers: { cookie: 'dsh_enterprise_session=ticket' },
+    }))).status).toBe(503)
+  })
+
   it('declares the composed keys it reads from the context', () => {
     expect(surfaceInject).toEqual(['surfaces', 'enterpriseProjects'])
   })

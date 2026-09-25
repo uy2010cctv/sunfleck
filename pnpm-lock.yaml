@@ -7408,6 +7408,9 @@ importers:
       '@deepseek-ai/dsh-enterprise-operations':
         specifier: workspace:^
         version: link:../../operations/enterprise-operations
+      '@deepseek-ai/dsh-enterprise-project':
+        specifier: workspace:^
+        version: link:../enterprise-project
       '@deepseek-ai/dsh-knowledge-pgvector':
         specifier: workspace:^
         version: link:../../knowledge/knowledge-pgvector

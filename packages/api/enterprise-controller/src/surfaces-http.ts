@@ -79,6 +79,7 @@ import type {
 import type {
   EnterpriseAction, EnterprisePrincipal,
 } from '@deepseek-ai/dsh-enterprise-governance'
+import type { PostgresSurfaceDirectory, SurfaceDirectoryKind } from '@deepseek-ai/dsh-enterprise-postgres'
 import type { EmployeeHttpSecurity } from './employee-http.ts'
 import {
   authenticatedSegments, cookiePrincipal, failure, guardResource, jsonObjectBody, methodFailure,
@@ -107,6 +108,38 @@ const RESPOND_POLICIES = ['mention_duty', 'ingest_only'] as const
 const PROJECT_VISIBILITIES: readonly ProjectVisibility[] = ['organization', 'private', 'restricted']
 /** Surface kinds the `?kind=` filter accepts. */
 const SURFACE_KINDS = ['dm', 'group', 'channel'] as const
+
+/** Authenticated read boundary for the PostgreSQL surface roster while delivery is not composed. */
+export class SurfaceDirectoryHttpHandler {
+  /** @param directory - PostgreSQL roster reader.
+   * @param security - Cookie authentication and authorization service.
+   */
+  constructor(
+    private readonly directory: Pick<PostgresSurfaceDirectory, 'list'>,
+    private readonly security: EmployeeHttpSecurity,
+  ) {}
+
+  /** List stored rows; mutation routes continue to report the absent surface plane.
+   * @param request - Incoming enterprise surface request.
+   * @returns Authenticated roster or an authorization, validation, or unavailable response.
+   */
+  async fetch(request: Request): Promise<Response> {
+    const principal = await cookiePrincipal(this.security, request)
+    if (principal instanceof Response) return principal
+    const url = new URL(request.url)
+    const segments = url.pathname.split('/').filter(Boolean).slice(2)
+    if (request.method !== 'GET' || segments.length !== 0) return failure(503, 'surface-plane-unavailable')
+    const decision = await guardResource(
+      this.security, principal, 'channel.read', 'enterpriseSurface.list', 'enterprise-surface', 'catalog',
+    )
+    if (!decision.allowed) return failure(403, 'forbidden')
+    const kind = url.searchParams.get('kind')
+    if (kind !== null && !SURFACE_KINDS.includes(kind as SurfaceDirectoryKind)) {
+      return failure(400, 'invalid-kind')
+    }
+    return Response.json(await this.directory.list(principal.orgId, kind === null ? undefined : kind as SurfaceDirectoryKind))
+  }
+}
 
 /** Surface error codes that mean the create payload names an unusable member employee. */
 const MEMBER_VALIDATION_CODES: ReadonlySet<EnterpriseSurfaceError['code']> = new Set([
