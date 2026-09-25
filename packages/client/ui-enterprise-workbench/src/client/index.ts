@@ -249,9 +249,11 @@ export function apply(ctx: Context): void {
           const workspaceId = ctx.workspaces.list.getSnapshot().items.find(row => row.sessionIds.includes(sessionId as never))?.workspaceId
           const summary = ctx.sessions.list.getSnapshot().byId[sessionId as never]
           const selectedEmployee = (summary?.projectionValues as
-            { enterpriseEmployeeRelease?: { employeeId: string } | null } | undefined)?.enterpriseEmployeeRelease
+            { enterpriseEmployeeRelease?: { employeeId: string; releaseVersion?: number } | null } | undefined)?.enterpriseEmployeeRelease
           let selectedId = employees.find(row => row.id === selectedEmployee?.employeeId)?.id
-          if (workspaceId === undefined) return { employees, ...(selectedId === undefined ? {} : { selectedId }), unavailable: false }
+          let selectedVersion = selectedEmployee?.releaseVersion
+          if (workspaceId === undefined) return { employees, ...(selectedId === undefined ? {} : { selectedId }),
+            ...(selectedVersion === undefined ? {} : { selectedVersion }), unavailable: false }
           const response = await ctx.remote.enterpriseWork.workspaceDefault({ workspaceId })
           if (!response.ok) throw new Error(response.error.message)
           const configured = response.value.employeeId
@@ -263,21 +265,24 @@ export function apply(ctx: Context): void {
               const chosen = await ctx.remote.enterpriseWork.selectEmployee({ sessionId, employeeId: configured })
               if (!chosen.ok) throw new Error(chosen.error.message)
               selectedId = configured
+              selectedVersion = chosen.value.releaseVersion
             } catch {
               attemptedDefaults.delete(sessionId)
               unavailable = true
             }
           }
-          return { employees, ...(selectedId === undefined ? {} : { selectedId }), unavailable }
+          return { employees, ...(selectedId === undefined ? {} : { selectedId }),
+            ...(selectedVersion === undefined ? {} : { selectedVersion }), unavailable }
         },
         select: async (sessionId, employeeId) => {
           const selected = await ctx.remote.enterpriseWork.selectEmployee({ sessionId, employeeId })
           if (!selected.ok) throw new Error(selected.error.message)
+          return selected.value.releaseVersion
         },
         currentEmployee: (sessionId) => {
           const employee = (ctx.sessions.list.getSnapshot().byId[sessionId as never]?.projectionValues as
-            { enterpriseEmployeeRelease?: { employeeId: string } | null } | undefined)?.enterpriseEmployeeRelease
-          return typeof employee?.employeeId === 'string' ? employee.employeeId : undefined
+            { enterpriseEmployeeRelease?: { employeeId: string; releaseVersion?: number } | null } | undefined)?.enterpriseEmployeeRelease
+          return typeof employee?.employeeId === 'string' ? employee : undefined
         },
         subscribe: listener => ctx.sessions.list.subscribe(listener),
       }),

@@ -6,10 +6,11 @@ import * as Persona from '@deepseek-ai/dsh-persona'
 import type { EmployeeReleaseSelection } from './contract/work.ts'
 
 const selectionSchema = z.object({
-  employeeId: z.string(), releaseId: z.string(), orgId: z.string(), ownerUserId: z.string(),
+  employeeId: z.string(), releaseId: z.string(), releaseVersion: z.number().int().positive().optional(),
+  orgId: z.string(), ownerUserId: z.string(),
 })
 const stateSchema = z.union([selectionSchema, z.null()])
-const viewSchema = z.union([selectionSchema.pick({ employeeId: true, releaseId: true }), z.null()])
+const viewSchema = z.union([selectionSchema.pick({ employeeId: true, releaseId: true, releaseVersion: true }), z.null()])
 
 /** Latest employee selection, independent of `agentPreset` mode changes. */
 export const employeeReleaseProjectionDefinition = {
@@ -21,6 +22,7 @@ export const employeeReleaseProjectionDefinition = {
     : event.type === 'enterprise-employee/cleared' ? null : state,
   wire: { viewSchema, view: (state: EmployeeReleaseSelection | null) => state === null ? null : {
     employeeId: state.employeeId, releaseId: state.releaseId,
+    ...(state.releaseVersion === undefined ? {} : { releaseVersion: state.releaseVersion }),
   } },
   stateVersion: 1,
 } satisfies ProjectionDefinition<'enterpriseEmployeeRelease', EmployeeReleaseSelection | null>

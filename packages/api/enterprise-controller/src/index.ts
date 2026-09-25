@@ -2535,7 +2535,7 @@ export class EnterpriseWorkController extends TypertRemoteService {
     }
     await this.mountEmployee(agent, release)
     agent.session.append('enterprise-employee/selected', {
-      employeeId: release.presetId, releaseId: release.releaseId,
+      employeeId: release.presetId, releaseId: release.releaseId, releaseVersion: release.version,
       orgId: actor.orgId, ownerUserId: actor.userId,
     })
     this.employeeActors.set(sessionId, {

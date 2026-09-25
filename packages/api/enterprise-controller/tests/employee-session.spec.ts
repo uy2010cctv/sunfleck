@@ -34,14 +34,14 @@ describe('employee selection beside a work mode', () => {
   it('records the employee release independently of the Session preset', () => {
     const definition = employeeReleaseProjectionDefinition
     const selection = {
-      employeeId: 'employee-a', releaseId: 'release-v2', orgId: 'org-a', ownerUserId: 'user-a',
+      employeeId: 'employee-a', releaseId: 'release-v2', releaseVersion: 2, orgId: 'org-a', ownerUserId: 'user-a',
     }
     let state: EmployeeReleaseSelection | null = definition.init()
     expect(state).toBeNull()
     state = definition.apply(state, {
       type: 'enterprise-employee/selected', seq: SessionSeq(0), time: 1, data: selection,
     })
-    expect(definition.wire.view(state)).toEqual({ employeeId: 'employee-a', releaseId: 'release-v2' })
+    expect(definition.wire.view(state)).toEqual({ employeeId: 'employee-a', releaseId: 'release-v2', releaseVersion: 2 })
     state = definition.apply(state, {
       type: 'agent-preset/selected', seq: SessionSeq(1), time: 2, data: { agentPreset: 'minimal' },
     })

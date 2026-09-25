@@ -3,6 +3,7 @@
 export interface EmployeeReleaseSelection {
   readonly employeeId: string
   readonly releaseId: string
+  readonly releaseVersion?: number | undefined
   readonly orgId: string
   readonly ownerUserId: string
 }
@@ -21,7 +22,7 @@ declare module '@deepseek-ai/dsh-session-projection/types' {
     enterpriseEmployeeRelease: EmployeeReleaseSelection | null
   }
   interface SessionProjectionMap {
-    enterpriseEmployeeRelease: Pick<EmployeeReleaseSelection, 'employeeId' | 'releaseId'> | null
+    enterpriseEmployeeRelease: Pick<EmployeeReleaseSelection, 'employeeId' | 'releaseId' | 'releaseVersion'> | null
   }
 }
 
