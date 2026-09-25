@@ -662,7 +662,8 @@ function throwWithImporter(error: unknown, routedParent: string, parent: string)
     const stack = error.stack
     error.message = message
     /* v8 ignore next -- Node's resolver errors always carry a stack */
-    if (stack !== undefined) error.stack = stack.replace(originalMessage, message)
+    // Node may expose a read-only stack; retain its original diagnostic if the rewrite is rejected.
+    if (stack !== undefined) Reflect.set(error, 'stack', stack.replace(originalMessage, message))
   }
   throw error
 }
@@ -685,7 +686,7 @@ function throwWithoutCjsAnchor(error: unknown, anchor: string): never {
     resolved.requireStack = remaining
     const stack = error.stack
     /* v8 ignore next -- Node's resolver errors always carry a stack */
-    if (stack !== undefined) error.stack = stack.replace(originalMessage, error.message)
+    if (stack !== undefined) Reflect.set(error, 'stack', stack.replace(originalMessage, error.message))
   }
   throw error
 }

@@ -21,6 +21,7 @@ import {
   registerWorkerResolution,
   type RuntimeInterception,
 } from '../src/profile-resolution/resolver.ts'
+import { readPluginMeta } from '../src/package-meta.ts'
 import {
   createRuntimeResolution,
   loadProfile,
@@ -173,6 +174,46 @@ async function resolutionOf(f: ReturnType<typeof fixture>): Promise<RuntimeResol
     home: f.root,
   })
 }
+
+it('treats an unexported locale as absent under profile resolution', async () => {
+  const f = fixture()
+  registrations.push(installRuntimeInterception(await resolutionOf(f)))
+  const parent = pathToFileURL(join(f.profile.dir, 'entry.mjs')).href
+  expect(readPluginMeta('@deepseek-ai/dsh-core', parent)).toBeUndefined()
+})
+
+it('preserves an unexported locale error when Node marks its stack read-only', async () => {
+  const f = fixture()
+  const resolution = await resolutionOf(f)
+  const addon = createRequire(import.meta.url)('node-addon-require-builtin') as {
+    requireBuiltin(id: string): unknown
+  }
+  const loader = (addon.requireBuiltin('internal/modules/esm/loader') as {
+    getOrInitializeCascadedLoader(): { resolveSync: (...args: unknown[]) => unknown }
+  }).getOrInitializeCascadedLoader()
+  const original = loader.resolveSync
+  loader.resolveSync = (...args: unknown[]) => {
+    const request = typeof args[0] === 'string' && args[0].includes('/locale/en.json')
+      || typeof args[1] === 'object' && args[1] !== null
+        && 'specifier' in args[1] && args[1].specifier === '@deepseek-ai/dsh-core/locale/en.json'
+    if (request) {
+      const error = Object.assign(new Error('Package subpath is not defined by exports'), {
+        code: 'ERR_PACKAGE_PATH_NOT_EXPORTED',
+      })
+      Object.defineProperty(error, 'stack', { value: error.message, writable: false })
+      throw error
+    }
+    return Reflect.apply(original, loader, args)
+  }
+  const registration = installRuntimeInterception(resolution)
+  try {
+    const parent = pathToFileURL(join(f.profile.dir, 'entry.mjs')).href
+    expect(readPluginMeta('@deepseek-ai/dsh-core', parent)).toBeUndefined()
+  } finally {
+    registration.dispose()
+    loader.resolveSync = original
+  }
+})
 
 /**
  * Ancestor node_modules layers of a profile importer, innermost first:
