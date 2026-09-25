@@ -4,7 +4,7 @@ import { IconChecklistOutlineMedium, IconUserOutlineRegular, IconWarningOutlineR
 import type { EnterpriseWorkbenchKey } from './locales.ts'
 import type {
   EnterpriseProjectDetailError, EnterpriseProjectLifecycle, EnterpriseProjectMemberView,
-  EnterpriseProjectsState, EnterpriseSurfacesState,
+  EnterpriseProjectsState, EnterpriseSurfaceView, EnterpriseSurfacesState,
 } from './store.ts'
 import css from './EnterpriseWorkbench.module.css'
 
@@ -33,11 +33,9 @@ function ProjectStatus({ state, className, t }: {
 }
 
 const SURFACE_KIND_KEYS = {
-  all: 'projects.surfaceKind.all',
   group: 'projects.surfaceKind.group',
   channel: 'projects.surfaceKind.channel',
-  dm: 'projects.surfaceKind.dm',
-} as const satisfies Record<'all' | 'group' | 'channel' | 'dm', EnterpriseWorkbenchKey>
+} as const satisfies Record<'group' | 'channel', EnterpriseWorkbenchKey>
 
 const DETAIL_ERROR_KEYS = {
   'not-member': 'projects.detailError.not-member',
@@ -71,8 +69,11 @@ function MemberSection({ detail, busy, actionError, addProjectMember, t }: {
   }
   return <>
     <div className={css.memberRow} aria-label={t('projects.memberCount', { count: detail.members.length })}>
-      {detail.members.map((member, index) => <MemberAvatar key={`${member.principalType}:${member.principalId}:${index}`}
-        member={member}/>)}
+      {detail.members.map(member => <span className={css.memberPill}
+        key={`${member.principalType}:${member.principalId}`}>
+        <MemberAvatar member={member}/><span>{member.principalId}</span>
+        <small>{t(member.principalType === 'user' ? 'projects.memberType.user' : 'projects.memberType.employee')}</small>
+      </span>)}
     </div>
     <form className={css.startWorkActions} onSubmit={(event) => { event.preventDefault(); submit() }}>
       <label className={css.inlineField}>
@@ -154,48 +155,49 @@ function ProjectDetail({ detail, busy, actionError, addProjectMember, archivePro
       {actionError === 'archive-failed' && <div className={css.inlineError} role="alert">
         {t('projects.archiveFailed')}
       </div>}
-      <p className={css.description}>{t('projects.scopeNote')}</p>
     </article>
   </>
 }
 
-function CreateProjectForm({ busy, actionError, createProject, t }: {
+interface ProjectDraft { readonly name: string; readonly goal: string; readonly workspacePath: string }
+const EMPTY_PROJECT_DRAFT: ProjectDraft = { name: '', goal: '', workspacePath: '' }
+
+function CreateProjectForm({ busy, actionError, draft, change, createProject, onCreated, t }: {
   busy: boolean
   actionError: EnterpriseProjectsState['actionError']
+  draft: ProjectDraft
+  change: (patch: Partial<ProjectDraft>) => void
   createProject: (input: { name: string; goal: string; workspacePath: string }) => Promise<boolean>
+  onCreated: () => void
   t: Translate
 }) {
-  const [name, setName] = useState('')
-  const [goal, setGoal] = useState('')
-  const [workspacePath, setWorkspacePath] = useState('')
   const submit = (): void => {
-    void createProject({ name: name.trim(), goal: goal.trim(), workspacePath: workspacePath.trim() })
+    void createProject({ name: draft.name.trim(), goal: draft.goal.trim(), workspacePath: draft.workspacePath.trim() })
       .then((created) => {
         if (!created) return
-        setName('')
-        setGoal('')
-        setWorkspacePath('')
+        change(EMPTY_PROJECT_DRAFT)
+        onCreated()
       })
   }
   return <form className={css.startWorkActions} aria-label={t('projects.createTitle')}
     onSubmit={(event) => { event.preventDefault(); submit() }}>
     <label className={css.inlineField}>
       <span>{t('projects.name')}</span>
-      <input value={name} placeholder={t('projects.namePlaceholder')} disabled={busy}
-        onChange={(event) => { setName(event.target.value) }}/>
+      <input value={draft.name} placeholder={t('projects.namePlaceholder')} disabled={busy}
+        onChange={(event) => { change({ name: event.target.value }) }}/>
     </label>
     <label className={css.inlineField}>
       <span>{t('projects.goal')}</span>
-      <input value={goal} placeholder={t('projects.goalPlaceholder')} disabled={busy}
-        onChange={(event) => { setGoal(event.target.value) }}/>
+      <input value={draft.goal} placeholder={t('projects.goalPlaceholder')} disabled={busy}
+        onChange={(event) => { change({ goal: event.target.value }) }}/>
     </label>
     <label className={css.inlineField}>
       <span>{t('projects.workspacePath')}</span>
-      <input value={workspacePath} placeholder={t('projects.workspacePathPlaceholder')} disabled={busy}
-        onChange={(event) => { setWorkspacePath(event.target.value) }}/>
+      <input value={draft.workspacePath} placeholder={t('projects.workspacePathPlaceholder')} disabled={busy}
+        onChange={(event) => { change({ workspacePath: event.target.value }) }}/>
     </label>
     <button type="submit" className={css.secondaryButton}
-      disabled={busy || name.trim() === '' || goal.trim() === '' || workspacePath.trim() === ''}>
+      disabled={busy || draft.name.trim() === '' || draft.goal.trim() === '' || draft.workspacePath.trim() === ''}>
       {busy ? t('projects.creating') : t('projects.create')}
     </button>
     {actionError === 'create-failed' && <div className={css.inlineError} role="alert">
@@ -224,47 +226,59 @@ function ProjectList({ projects, selectProject, t }: {
   </button>)}</div>
 }
 
-/** Surface roster rows for one client-side kind filter; the roster stays organization-scoped. */
-function SurfacesRoster({ surfaces, loadSurfaces, t }: {
+/** One member-visible conversation list, scoped to a kind or selected project. */
+function RoomList({ surfaces, projects, workspaces, loadSurfaces, kind, projectId, canCreate = true, openRoom, createRoom, t }: {
   surfaces: EnterpriseSurfacesState
+  projects: EnterpriseProjectsState
+  workspaces: readonly { id: string; name: string }[]
   loadSurfaces: () => Promise<boolean>
+  kind?: 'group' | 'channel'
+  projectId?: string
+  canCreate?: boolean
+  openRoom: (id: string) => boolean
+  createRoom: (kind: 'group' | 'channel', projectId?: string) => boolean
   t: Translate
 }) {
-  const [kind, setKind] = useState<'all' | 'group' | 'channel' | 'dm'>('all')
-  useEffect(() => {
-    if (surfaces.phase === 'idle') void loadSurfaces()
-  }, [surfaces.phase, loadSurfaces])
-  const visible = kind === 'all' ? surfaces.list : surfaces.list.filter(surface => surface.kind === kind)
-  return <section aria-labelledby="surface-roster-title">
-    <div className={css.sectionHead}>
-      <h2 id="surface-roster-title">{t('projects.rosterHeading')}</h2>
-      <select className={css.rosterFilter} aria-label={t('projects.rosterFilter')}
-        value={kind} onChange={(event) => { setKind(event.target.value as typeof kind) }}>
-        <option value="all">{t(SURFACE_KIND_KEYS.all)}</option>
-        <option value="group">{t(SURFACE_KIND_KEYS.group)}</option>
-        <option value="channel">{t(SURFACE_KIND_KEYS.channel)}</option>
-        <option value="dm">{t(SURFACE_KIND_KEYS.dm)}</option>
-      </select>
-    </div>
-    {surfaces.phase === 'error' ? <div className={css.empty} role="alert">
-      <IconWarningOutlineRegular size={20}/><strong>{t('projects.rosterLoadError')}</strong><span>{surfaces.error}</span>
+  const [actionError, setActionError] = useState(false)
+  const visible = surfaces.list.filter((surface): surface is EnterpriseSurfaceView & { kind: 'group' | 'channel' } =>
+    surface.kind === 'group' || surface.kind === 'channel')
+    .filter(surface => (kind === undefined || surface.kind === kind)
+      && (projectId === undefined || surface.projectId === projectId))
+  const projectNames = new Map(projects.list.map(project => [project.id, project.name]))
+  const workspaceNames = new Map(workspaces.map(workspace => [workspace.id, workspace.name]))
+  const start = (target: 'group' | 'channel'): void => { setActionError(!createRoom(target, projectId)) }
+  return <section className={css.roomDirectory} aria-label={projectId === undefined
+    ? t(kind === 'channel' ? 'projects.tab.channels' : 'projects.tab.groups') : t('projects.linkedRooms')}>
+    {projectId !== undefined && <div className={css.sectionHead}><h2>{t('projects.linkedRooms')}</h2>{canCreate && <div className={css.collaborationActions}>
+      <button type="button" className={css.secondaryButton} onClick={() => { start('group') }}>{t('projects.newGroup')}</button>
+      <button type="button" className={css.secondaryButton} onClick={() => { start('channel') }}>{t('projects.newChannel')}</button>
+    </div>}</div>}
+    {surfaces.phase === 'error' && <div className={visible.length > 0 ? css.inlineError : css.empty} role="alert">
+      <IconWarningOutlineRegular size={20}/><strong>{t('projects.rosterLoadError')}</strong>
       <button type="button" className={css.secondaryButton}
         onClick={() => { void loadSurfaces() }}>{t('retry')}</button>
-    </div>
-      : surfaces.phase === 'idle' ? null
-        : visible.length === 0 ? (surfaces.phase === 'loading'
-          ? <div className={css.loading} role="status"><span className={css.skeleton}/>{t('loading')}</div>
-          : <div className={css.empty}><IconChecklistOutlineMedium size={20}/>
-            <span>{t('projects.rosterEmpty')}</span></div>)
-          : <div className={css.rows}>{visible.map(surface => <div className={css.row} key={surface.id}>
-            <span className={css.surfaceChip} data-kind={surface.kind}>{t(SURFACE_KIND_KEYS[surface.kind])}</span>
-            <span className={css.recordMain}>
-              <strong>{surface.name ?? t('projects.surface.unnamed')}</strong>
-            </span>
-            {surface.memberCount !== undefined && <span className={css.recordStatus}>
-              {t('projects.surfaceMembers', { count: surface.memberCount })}
-            </span>}
-          </div>)}</div>}
+    </div>}
+    {surfaces.phase === 'idle' ? null
+      : visible.length === 0 ? (surfaces.phase === 'error' ? null : surfaces.phase === 'loading'
+        ? <div className={css.loading} role="status"><span className={css.skeleton}/></div>
+        : <div className={css.empty}><IconChecklistOutlineMedium size={20}/>
+          <span>{t(projectId !== undefined ? 'projects.emptyProjectRooms'
+            : kind === 'group' ? 'projects.emptyGroup' : 'projects.emptyChannel')}</span></div>)
+        : <div className={css.rows}>{visible.map(surface => <button type="button" className={css.collaborationRow}
+          key={surface.id} aria-label={`${t('projects.openRoom')} ${surface.name ?? t('projects.surface.unnamed')}`}
+          onClick={() => { setActionError(!openRoom(surface.id)) }}>
+          <span className={css.surfaceChip} data-kind={surface.kind}>{t(SURFACE_KIND_KEYS[surface.kind])}</span>
+          <span className={css.recordMain}><strong>{surface.name ?? t('projects.surface.unnamed')}</strong>
+            <span>{surface.workspaceId === undefined ? null : `${workspaceNames.get(surface.workspaceId) ?? t('projects.workspaceUnknown')} · `}
+              {surface.projectId === undefined ? t('projects.unlinked')
+                : projectNames.get(surface.projectId) ?? t('projects.unlinked')}
+              {surface.teamDefinitionId !== undefined && ` · ${t('projects.chartered')}`}</span>
+          </span>
+          {surface.memberCount !== undefined && <span className={css.recordStatus}>
+            {t('projects.surfaceMembers', { count: surface.memberCount })}
+          </span>}
+        </button>)}</div>}
+    {actionError && <p className={css.inlineError} role="alert">{t('projects.roomUnavailable')}</p>}
   </section>
 }
 
@@ -284,6 +298,7 @@ function DetailErrorAlert({ detailError, selectProject, t }: {
 export interface ProjectSpaceProps {
   readonly projects: EnterpriseProjectsState
   readonly surfaces: EnterpriseSurfacesState
+  readonly workspaces?: readonly { id: string; name: string }[]
   readonly loadProjects: () => Promise<boolean>
   readonly loadSurfaces: () => Promise<boolean>
   readonly createProject: (input: { name: string; goal: string; workspacePath: string }) => Promise<boolean>
@@ -292,46 +307,92 @@ export interface ProjectSpaceProps {
     projectId: string, member: { principalType: 'user' | 'employee'; principalId: string },
   ) => Promise<boolean>
   readonly archiveProject: (projectId: string) => Promise<boolean>
+  readonly openRoom: (id: string) => boolean
+  readonly createRoom: (kind: 'group' | 'channel', projectId?: string) => boolean
+  readonly openGovernance: () => void
   readonly t: Translate
 }
 
-/** Project list where one selected row opens the member-gated space, with the surface roster below. */
+/** Projects and member-visible conversations share one task-oriented directory. */
 export function ProjectSpace(props: ProjectSpaceProps) {
-  const { projects, surfaces, loadProjects, loadSurfaces, createProject, selectProject, addProjectMember, archiveProject, t } = props
+  const { projects, surfaces, workspaces = [], loadProjects, loadSurfaces, createProject, selectProject, addProjectMember,
+    archiveProject, openRoom, createRoom, openGovernance, t } = props
+  const [view, setView] = useState<'projects' | 'group' | 'channel'>('projects')
+  const [creatingProject, setCreatingProject] = useState(false)
+  const [projectDraft, setProjectDraft] = useState<ProjectDraft>(EMPTY_PROJECT_DRAFT)
+  const [roomActionError, setRoomActionError] = useState(false)
   useEffect(() => {
     if (projects.phase === 'idle') void loadProjects()
   }, [projects.phase, loadProjects])
+  useEffect(() => {
+    if (surfaces.phase === 'idle') void loadSurfaces()
+  }, [surfaces.phase, loadSurfaces])
   const selected = projects.selected
-  return <section aria-labelledby="project-space-title">
-    <div className={css.sectionHead}>
-      <h2 id="project-space-title">{t('projects.heading')}</h2>
-      <span aria-live="polite">{projects.list.length}</span>
+  const counts = { projects: projects.list.length, group: surfaces.list.filter(row => row.kind === 'group').length,
+    channel: surfaces.list.filter(row => row.kind === 'channel').length }
+  const startRoom = (kind: 'group' | 'channel'): void => { setRoomActionError(!createRoom(kind)) }
+  return <section className={css.collaborationHub} aria-labelledby="project-space-title">
+    <div className={css.collaborationHubHeader}><div><h2 id="project-space-title">{t('projects.heading')}</h2>
+      <p>{t('projects.intro')}</p></div><button type="button" className={css.secondaryButton}
+      onClick={openGovernance}>{t('projects.governance')}</button></div>
+    <div className={css.collaborationTabs} role="tablist" aria-label={t('projects.heading')}>
+      {(['projects', 'group', 'channel'] as const).map(item => <button type="button" role="tab" key={item}
+        id={`collaboration-tab-${item}`} aria-controls="collaboration-panel" tabIndex={view === item ? 0 : -1}
+        aria-selected={view === item} onClick={() => { setView(item); setRoomActionError(false)
+          if (item !== 'projects') void loadSurfaces() }} onKeyDown={(event) => {
+          const tabs = Array.from(event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>('[role="tab"]') ?? [])
+          const index = tabs.indexOf(event.currentTarget)
+          const target = event.key === 'ArrowRight' ? tabs[(index + 1) % tabs.length]
+            : event.key === 'ArrowLeft' ? tabs[(index + tabs.length - 1) % tabs.length]
+              : event.key === 'Home' ? tabs[0] : event.key === 'End' ? tabs.at(-1) : undefined
+          if (target !== undefined) { event.preventDefault(); target.focus(); target.click() }
+        }}>
+        {t(item === 'projects' ? 'projects.tab.projects' : item === 'group' ? 'projects.tab.groups' : 'projects.tab.channels')}
+        <span aria-hidden="true">{counts[item]}</span>
+      </button>)}
     </div>
-    {projects.phase === 'error' ? <div className={css.empty} role="alert">
-      <IconWarningOutlineRegular size={20}/><strong>{t('projects.loadError')}</strong><span>{projects.error}</span>
-      <button type="button" className={css.secondaryButton}
-        onClick={() => { void loadProjects() }}>{t('retry')}</button>
-    </div>
-      : selected !== undefined ? <ProjectDetail
-        detail={selected}
-        busy={projects.busy}
-        actionError={projects.actionError}
-        addProjectMember={addProjectMember}
-        archiveProject={archiveProject}
-        selectProject={selectProject}
-        t={t}
-      />
-        : projects.detailError !== null ? <DetailErrorAlert detailError={projects.detailError}
-          selectProject={selectProject} t={t}/>
-          : projects.phase === 'idle' ? null
-            : projects.list.length === 0 ? (projects.phase === 'loading'
-              ? <div className={css.loading} role="status"><span className={css.skeleton}/>{t('loading')}</div>
-              : <div className={css.empty}><IconUserOutlineRegular size={20}/>
-                <span>{t('projects.empty')}</span></div>)
-              : <ProjectList projects={projects} selectProject={selectProject} t={t}/>}
-    {projects.phase !== 'error' && selected === undefined && projects.detailError === null
-      && <CreateProjectForm busy={projects.busy} actionError={projects.actionError}
-        createProject={createProject} t={t}/>}
-    <SurfacesRoster surfaces={surfaces} loadSurfaces={loadSurfaces} t={t}/>
+    {view === 'projects' && <div role="tabpanel" id="collaboration-panel" aria-labelledby="collaboration-tab-projects" className={css.collaborationPane}>
+      {selected === undefined && <div className={css.collaborationPaneHeader}><h3>{t('projects.tab.projects')}</h3>
+        <button type="button" className={css.primaryButton} aria-expanded={creatingProject}
+          onClick={() => { setCreatingProject(value => !value) }}>{t('projects.newProject')}</button></div>}
+      {creatingProject && selected === undefined && <div className={css.collaborationCreate}><CreateProjectForm
+        busy={projects.busy} actionError={projects.actionError} draft={projectDraft}
+        change={(patch) => { setProjectDraft(value => ({ ...value, ...patch })) }} createProject={createProject}
+        onCreated={() => { setCreatingProject(false) }} t={t}/></div>}
+      {projects.phase === 'error' ? <div className={css.empty} role="alert">
+        <IconWarningOutlineRegular size={20}/><strong>{t('projects.loadError')}</strong><span>{projects.error}</span>
+        <button type="button" className={css.secondaryButton}
+          onClick={() => { void loadProjects() }}>{t('retry')}</button>
+      </div>
+        : selected !== undefined ? <ProjectDetail
+          detail={selected}
+          busy={projects.busy}
+          actionError={projects.actionError}
+          addProjectMember={addProjectMember}
+          archiveProject={archiveProject}
+          selectProject={selectProject}
+          t={t}
+        />
+          : projects.detailError !== null ? <DetailErrorAlert detailError={projects.detailError}
+            selectProject={selectProject} t={t}/>
+            : projects.phase === 'idle' ? null
+              : projects.list.length === 0 ? (projects.phase === 'loading'
+                ? <div className={css.loading} role="status"><span className={css.skeleton}/>{t('loading')}</div>
+                : <div className={css.empty}><IconUserOutlineRegular size={20}/>
+                  <span>{t('projects.empty')}</span></div>)
+                : <ProjectList projects={projects} selectProject={selectProject} t={t}/>}
+      {selected !== undefined && <RoomList surfaces={surfaces} projects={projects} workspaces={workspaces} loadSurfaces={loadSurfaces}
+        projectId={selected.project.id} canCreate={selected.project.state === 'active'}
+        openRoom={openRoom} createRoom={createRoom} t={t}/>}
+    </div>}
+    {view !== 'projects' && <div role="tabpanel" id="collaboration-panel" aria-labelledby={`collaboration-tab-${view}`} className={css.collaborationPane}>
+      <div className={css.collaborationPaneHeader}><div><h3>{t(view === 'group' ? 'projects.tab.groups' : 'projects.tab.channels')}</h3>
+        <p>{t(view === 'group' ? 'projects.groupHelp' : 'projects.channelHelp')}</p></div>
+      <button type="button" className={css.primaryButton} onClick={() => { startRoom(view) }}>
+        {t(view === 'group' ? 'projects.newGroup' : 'projects.newChannel')}</button></div>
+      <RoomList surfaces={surfaces} projects={projects} workspaces={workspaces} loadSurfaces={loadSurfaces} kind={view}
+        openRoom={openRoom} createRoom={createRoom} t={t}/>
+      {roomActionError && <p className={css.inlineError} role="alert">{t('projects.roomUnavailable')}</p>}
+    </div>}
   </section>
 }

@@ -55,6 +55,23 @@ describe('native collaboration navigation', () => {
     fireEvent.click(screen.getByRole('button', { name: '创建' }))
     await waitFor(() =>{  expect(create).toHaveBeenCalledWith({ kind: 'group', name: '续约协作', workspaceId: 'w', memberEmployeeIds: ['analyst'], memberUserIds: ['u'] }) })
   })
+  it('preselects the owning project when creating a channel from its detail', async () => {
+    const { controller, props } = setup()
+    controller.beginCreate('channel', 'project-q4')
+    const create = vi.spyOn(controller, 'create').mockResolvedValue(true)
+    render(<CollaborationSetup {...props} loadChoices={async () => ({ ...choices,
+      projects: [{ id: 'project-q4', name: 'Q4 续约' }] })}/>)
+    await screen.findByLabelText('项目')
+    expect((screen.getByLabelText('项目') as HTMLSelectElement).value).toBe('project-q4')
+    fireEvent.change(screen.getByLabelText('名称'), { target: { value: '项目进度' } })
+    fireEvent.change(screen.getByLabelText('工作区'), { target: { value: 'w' } })
+    fireEvent.click(screen.getByLabelText('分析师'))
+    fireEvent.change(screen.getByLabelText('当值员工'), { target: { value: 'analyst' } })
+    fireEvent.click(screen.getByRole('button', { name: '创建' }))
+    await waitFor(() => { expect(create).toHaveBeenCalledWith(expect.objectContaining({
+      kind: 'channel', projectId: 'project-q4', workspaceId: 'w', dutyEmployeeIds: ['analyst'],
+    })) })
+  })
   it('shows one room for a channel with multiple employees', () => {
     const { controller, props } = setup()
     controller.state.set({ ...controller.state.getSnapshot(), phase: 'ready', selection: {

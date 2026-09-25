@@ -209,7 +209,6 @@ export const inject = [
  * @param ctx - Input value used by this API.
 */
 export function apply(ctx: Context): void {
-  applyCollaboration(ctx)
   if (typeof window !== 'undefined') {
     void completeChannelBindingCallback(ctx.remote.enterpriseChannel, window)
     void completeChannelBotInstallCallback(ctx.remote.enterpriseChannel, window)
@@ -236,6 +235,7 @@ export function apply(ctx: Context): void {
     cordisReview: ctx.remote.cordisReview,
     cordisGovernance: ctx.remote.cordisGovernance,
   }, ctx.sessions, ctx.workspaces, (sessionId) => { ctx.uiWorkspace.openSession(sessionId) })
+  const collaboration = applyCollaboration(ctx, () => { void controller.loadSurfaces() })
 
   const attemptedDefaults = new Set<string>()
   ctx.inject(['conversation'], (scope) => {
@@ -347,6 +347,16 @@ export function apply(ctx: Context): void {
     selectProject: projectId => controller.selectProject(projectId),
     addProjectMember: (projectId, member) => controller.addProjectMember(projectId, member),
     archiveProject: projectId => controller.archiveProject(projectId),
+    openCollaboration: (id) => {
+      const opened = collaboration.openRoom(id)
+      if (opened) controller.close()
+      return opened
+    },
+    createCollaboration: (kind, projectId) => {
+      const opened = collaboration.createRoom(kind, projectId)
+      if (opened) controller.close()
+      return opened
+    },
     prepareWork: input => controller.prepareWork(input),
     startPreparedWork: input => controller.startPreparedWork(input),
     openRecord: (id) => { controller.openRecord(id) },

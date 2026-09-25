@@ -8,6 +8,9 @@ export interface CollaborationSurface {
   readonly kind: 'group' | 'channel'
   readonly name: string
   readonly memberCount: number
+  readonly workspaceId?: string
+  readonly projectId?: string
+  readonly teamDefinitionId?: string
 }
 
 /** Authorized room metadata. Execution Sessions are destinations, not the conversation. */
@@ -62,6 +65,7 @@ export interface CollaborationState {
   readonly searchPhase: 'idle' | 'loading' | 'ready' | 'error'
   readonly busy: boolean
   readonly creation: 'group' | 'channel' | null
+  readonly creationProjectId?: string | undefined
   readonly error: string | null
 }
 
@@ -97,7 +101,10 @@ function array(value: unknown): unknown[] {
 function surface(value: unknown): CollaborationSurface {
   const row = record(value)
   if ((row['kind'] !== 'group' && row['kind'] !== 'channel') || typeof row['memberCount'] !== 'number') throw new Error('invalid-response')
-  return { id: string(row['id']), kind: row['kind'], name: string(row['name']), memberCount: row['memberCount'] }
+  return { id: string(row['id']), kind: row['kind'], name: string(row['name']), memberCount: row['memberCount'],
+    ...(row['workspaceId'] === undefined ? {} : { workspaceId: string(row['workspaceId']) }),
+    ...(row['projectId'] === undefined ? {} : { projectId: string(row['projectId']) }),
+    ...(row['teamDefinitionId'] === undefined ? {} : { teamDefinitionId: string(row['teamDefinitionId']) }) }
 }
 function detail(value: unknown): CollaborationDetail {
   const row = record(value)
@@ -179,6 +186,7 @@ export class CollaborationController {
     private readonly fetch: CollaborationFetch,
     private readonly inspectSession: (id: string, signal: AbortSignal) => void | Promise<void>,
     private readonly openRoom: () => void,
+    private readonly roomCreated?: () => void,
   ) {}
 
   private patch(patch: Partial<CollaborationState>): void {
@@ -234,7 +242,7 @@ export class CollaborationController {
   /** Erase selection and room data when leaving or losing access. */
   clearSelection(): void {
     this.begin().abort()
-    this.patch({ selection: null, roomPhase: 'idle', events: [], olderCursor: null, threadEvents: [], threadPhase: 'idle', searchResults: [], searchPhase: 'idle', busy: false, creation: null, error: null })
+    this.patch({ selection: null, roomPhase: 'idle', events: [], olderCursor: null, threadEvents: [], threadPhase: 'idle', searchResults: [], searchPhase: 'idle', busy: false, creation: null, creationProjectId: undefined, error: null })
   }
 
   /** Observe native main-panel selection so late room responses cannot steal navigation. */
@@ -250,9 +258,9 @@ export class CollaborationController {
   }
 
   /** Open a room creation form. */
-  beginCreate(kind: 'group' | 'channel'): void {
+  beginCreate(kind: 'group' | 'channel', projectId?: string): void {
     this.clearSelection()
-    this.patch({ creation: kind })
+    this.patch({ creation: kind, ...(projectId === undefined ? {} : { creationProjectId: projectId }) })
     this.openRoom()
   }
 
@@ -432,6 +440,7 @@ export class CollaborationController {
     this.patch({ busy: true, error: null })
     try {
       const created = surface(await this.read(input.kind === 'group' ? '/groups' : '/channels', request.signal, { ...input, idempotencyKey }))
+      this.roomCreated?.()
       if (this.cancelled(request)) return false
       this.pendingCreation = undefined
       this.patch({ busy: false })

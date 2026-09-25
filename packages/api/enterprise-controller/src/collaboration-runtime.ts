@@ -564,6 +564,10 @@ export function composeCollaboration(ctx: Context, services: {
       if (project === undefined) return undefined
       return { id, name: project.name, goal: project.goal }
     },
+    projectActive: async (actor, id) => {
+      const project = await database.projects.requireMember(actor.orgId, projectId(id), { userId: actor.userId })
+      return project?.state === 'active'
+    },
     team: async (actor, id) => {
       const team = await services.operations().getTeamDefinition(actor, { teamId: id })
       return team === undefined ? undefined : { id, name: team.name }

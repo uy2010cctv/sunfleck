@@ -21,7 +21,9 @@ function setup(overrides: Partial<CollaborationRecord> = {}) {
   const service = new CollaborationService(store as never, {
     refreshWorkspace: () => { publications.push(sessions.map(value => value.sessionId)) },
     workspaceVisible: async () => true,
+    memberWorkspaceVisible: async () => true,
     employee: async (_actor: unknown, id: string) => ({ employeeId: id, displayName: id === 'a' ? 'Alpha' : id === 'sales' ? 'Sales' : id === 'analyst' ? 'Sales Analyst' : 'Beta', releaseId: `release-${id}` }),
+    projectActive: async () => false,
     createSession: async (_actor: unknown, input: { sessionId: string }) => { creates++; return input.sessionId },
     record: async (_actor: unknown, sessionId: string) => { recorded.push(sessionId) },
     ingest: async () => ({ delivered: true, targets: [] }),
@@ -31,6 +33,19 @@ function setup(overrides: Partial<CollaborationRecord> = {}) {
 }
 
 describe('collaboration routing through native Sessions', () => {
+  it('lists the project and charter relationships needed to organize member rooms', async () => {
+    const fixture = setup({ projectId: 'project-q4', teamDefinitionId: 'charter-q4' })
+    expect(await fixture.service.list(actor)).toEqual([{
+      id: 'surface', kind: 'group', name: 'Support', memberCount: 4,
+      projectId: 'project-q4', teamDefinitionId: 'charter-q4', workspaceId: 'shared',
+    }])
+  })
+  it('refuses to link a new room to an archived project', async () => {
+    const fixture = setup()
+    await expect(fixture.service.create(actor, { kind: 'group', name: 'Late group', workspaceId: 'shared',
+      memberUserIds: ['alice'], memberEmployeeIds: ['a'], dutyEmployeeIds: [], projectId: 'archived',
+    })).rejects.toMatchObject({ code: 'project-unavailable', status: 404 })
+  })
   it('publishes workspace visibility only after the native destination binding is persisted', async () => {
     const fixture = setup()
     const opened = await fixture.service.open(actor, 'surface', { employeeId: 'a' })

@@ -104,6 +104,8 @@ export interface CollaborationRuntime {
   memberWorkspaceVisible(orgId: string, userId: string, workspaceId: string): Promise<boolean>
   employee(actor: EnterprisePrincipal, employeeId: string): Promise<CollaborationEmployee | undefined>
   project(actor: EnterprisePrincipal, id: string): Promise<CollaborationDetail['project']>
+  /** A new room may join only a member-visible active project. */
+  projectActive(actor: EnterprisePrincipal, id: string): Promise<boolean>
   team(actor: EnterprisePrincipal, id: string): Promise<CollaborationDetail['team']>
   createSession(actor: EnterprisePrincipal,
     input: { sessionId: string; workspaceId: string; employee: CollaborationEmployee; objective: string }): Promise<string>
@@ -312,12 +314,16 @@ export class CollaborationService {
    * @param actor - Authenticated human.
    * @returns Sidebar entries.
    */
-  async list(actor: EnterprisePrincipal): Promise<readonly Pick<CollaborationDetail, 'id' | 'kind' | 'name' | 'memberCount'>[]> {
+  async list(actor: EnterprisePrincipal): Promise<readonly (Pick<CollaborationDetail, 'id' | 'kind' | 'name' | 'memberCount' | 'workspaceId'>
+    & { readonly projectId?: string; readonly teamDefinitionId?: string })[]> {
     const rows = await this.store.list(actor.orgId, actor.userId)
     const visible = await Promise.all(rows.map(async row => await this.runtime.workspaceVisible(actor,
       row.workspaceId) ? row : undefined))
     return visible.filter((row): row is CollaborationRecord => row !== undefined).map(row => ({ id: row.id, kind: row.kind,
-      name: row.name, memberCount: row.memberEmployeeIds.length + row.memberUserIds.length }))
+      name: row.name, memberCount: row.memberEmployeeIds.length + row.memberUserIds.length,
+      workspaceId: row.workspaceId,
+      ...(row.projectId === undefined ? {} : { projectId: row.projectId }),
+      ...(row.teamDefinitionId === undefined ? {} : { teamDefinitionId: row.teamDefinitionId }) }))
   }
 
   /** Resolve an authorized native composer to its conversation.
@@ -379,7 +385,7 @@ export class CollaborationService {
       if (!await this.runtime.employee(actor, id)) throw new CollaborationError('employee-unavailable', 404)
     }
     if (input.dutyEmployeeIds.some(id => !input.memberEmployeeIds.includes(id))) throw new CollaborationError('duty-not-member')
-    if (input.projectId !== undefined && !await this.runtime.project(actor,
+    if (input.projectId !== undefined && !await this.runtime.projectActive(actor,
       input.projectId)) throw new CollaborationError('project-unavailable', 404)
     if (input.teamDefinitionId !== undefined && !await this.runtime.team(actor,
       input.teamDefinitionId)) throw new CollaborationError('team-unavailable', 404)

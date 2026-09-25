@@ -173,7 +173,7 @@ export interface EnterpriseProjectMemberView {
   readonly principalId: string
 }
 
-/** Detail of one selected project. Membership is client-known: the creator seed plus members added through this client. */
+/** Detail of one selected project, including its durable member roster. */
 export interface EnterpriseProjectDetail {
   readonly project: EnterpriseProjectSummary
   readonly members: readonly EnterpriseProjectMemberView[]
@@ -205,6 +205,9 @@ export interface EnterpriseSurfaceView {
   readonly name?: string
   /** Stored member principals; dm surfaces store no member rows and omit the count. */
   readonly memberCount?: number
+  readonly workspaceId?: string
+  readonly projectId?: string
+  readonly teamDefinitionId?: string
 }
 
 /** Collaboration-surface roster served by the same-origin surfaces endpoints. */
@@ -1054,13 +1057,20 @@ export class EnterpriseWorkbenchController {
         return
       }
       if (!response.ok) throw new Error(`project detail request failed (${String(response.status)})`)
-      const project = await response.json() as EnterpriseProjectSummary
+      const body: unknown = await response.json()
+      if (body === null || typeof body !== 'object' || Array.isArray(body)) throw new Error('invalid project detail')
+      const fields = body as Record<string, unknown>
+      if (!Array.isArray(fields['members']) || fields['members'].some(member => member === null
+        || typeof member !== 'object' || Array.isArray(member)
+        || !('principalType' in member) || !('principalId' in member)
+        || (member.principalType !== 'user' && member.principalType !== 'employee')
+        || typeof member.principalId !== 'string')) throw new Error('invalid project members')
+      const project = body as EnterpriseProjectSummary
+      const members = fields['members'] as EnterpriseProjectMemberView[]
       if (generation !== this.projectDetailRequestGeneration) return
       const current = this.store.getSnapshot()
-      // The store inserts the creator as the project's first user member; members added
-      // through this client extend the row after their 204 responses.
       this.store.set({ ...current, projects: { ...current.projects, selected: {
-        project, members: [{ principalType: 'user', principalId: project.createdBy }],
+        project, members,
       } } })
     } catch {
       if (generation !== this.projectDetailRequestGeneration) return
@@ -1069,7 +1079,7 @@ export class EnterpriseWorkbenchController {
     }
   }
 
-  /** Add one member to an active project and extend the client-known member row on success.
+  /** Add one member to an active project and update the visible member row on success.
    * @param projectId - Selected project receiving the member.
    * @param member - Principal type and id to add.
    * @returns whether the member was added.

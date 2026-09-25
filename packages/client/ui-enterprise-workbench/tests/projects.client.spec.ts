@@ -32,6 +32,7 @@ const DETAIL: EnterpriseProjectDetail = {
   project: RENEWAL,
   members: [{ principalType: 'user', principalId: 'user-1' }],
 }
+const RENEWAL_DETAIL = { ...RENEWAL, members: DETAIL.members }
 
 const GROUP_SURFACE: EnterpriseSurfaceView = { id: 'surface-1', kind: 'group', name: '销售协作群', memberCount: 3 }
 const CHANNEL_SURFACE: EnterpriseSurfaceView = { id: 'surface-2', kind: 'channel', name: '值班频道', memberCount: 2 }
@@ -62,6 +63,7 @@ function stubFetch(route: FetchRoute): ReturnType<typeof vi.fn> {
 function spaceProps(overrides: {
   projects?: EnterpriseProjectsState
   surfaces?: EnterpriseSurfacesState
+  workspaces?: readonly { id: string; name: string }[]
   loadProjects?: () => Promise<boolean>
   loadSurfaces?: () => Promise<boolean>
   createProject?: (input: { name: string; goal: string; workspacePath: string }) => Promise<boolean>
@@ -70,16 +72,23 @@ function spaceProps(overrides: {
     projectId: string, member: { principalType: 'user' | 'employee'; principalId: string },
   ) => Promise<boolean>
   archiveProject?: (projectId: string) => Promise<boolean>
+  openRoom?: (id: string) => boolean
+  createRoom?: (kind: 'group' | 'channel', projectId?: string) => boolean
+  openGovernance?: () => void
 } = {}) {
   return {
     projects: overrides.projects ?? IDLE_PROJECTS,
     surfaces: overrides.surfaces ?? IDLE_SURFACES,
+    workspaces: overrides.workspaces ?? [],
     loadProjects: overrides.loadProjects ?? vi.fn(() => Promise.resolve(true)),
     loadSurfaces: overrides.loadSurfaces ?? vi.fn(() => Promise.resolve(true)),
     createProject: overrides.createProject ?? vi.fn(() => Promise.resolve(true)),
     selectProject: overrides.selectProject ?? vi.fn(() => Promise.resolve()),
     addProjectMember: overrides.addProjectMember ?? vi.fn(() => Promise.resolve(true)),
     archiveProject: overrides.archiveProject ?? vi.fn(() => Promise.resolve(true)),
+    openRoom: overrides.openRoom ?? vi.fn(() => true),
+    createRoom: overrides.createRoom ?? vi.fn(() => true),
+    openGovernance: overrides.openGovernance ?? vi.fn(),
     t,
   }
 }
@@ -151,7 +160,7 @@ describe('EnterpriseWorkbenchController project slice', () => {
   })
 
   it('reads one project detail behind the member gate and seeds the creator member', async () => {
-    stubFetch(url => url === '/enterprise/projects/project-1' ? jsonResponse(RENEWAL) : undefined)
+    stubFetch(url => url === '/enterprise/projects/project-1' ? jsonResponse(RENEWAL_DETAIL) : undefined)
     const controller = new EnterpriseWorkbenchController({} as never, {} as never, {} as never, () => {})
 
     await controller.selectProject('project-1')
@@ -194,9 +203,9 @@ describe('EnterpriseWorkbenchController project slice', () => {
     expect(state.detailError).toBeNull()
   })
 
-  it('adds one member and extends the client-known member row', async () => {
+  it('adds one member to the visible roster after a successful write', async () => {
     stubFetch((url, init) => {
-      if (url === '/enterprise/projects/project-1' && init?.method === undefined) return jsonResponse(RENEWAL)
+      if (url === '/enterprise/projects/project-1' && init?.method === undefined) return jsonResponse(RENEWAL_DETAIL)
       if (url === '/enterprise/projects/project-1/members' && init?.method === 'POST') {
         return new Response(null, { status: 204 })
       }
@@ -216,10 +225,23 @@ describe('EnterpriseWorkbenchController project slice', () => {
       ],
     })
   })
+  it('reads persisted project members again after reopening the detail', async () => {
+    const persisted = { ...RENEWAL_DETAIL, members: [
+      ...RENEWAL_DETAIL.members, { principalType: 'employee', principalId: 'employee-9' },
+    ] }
+    const fetchMock = stubFetch(url => url === '/enterprise/projects/project-1'
+      ? jsonResponse(persisted) : undefined)
+    const controller = new EnterpriseWorkbenchController({} as never, {} as never, {} as never, () => {})
+    await controller.selectProject('project-1')
+    await controller.selectProject()
+    await controller.selectProject('project-1')
+    expect(controller.store.getSnapshot().projects.selected?.members).toEqual(persisted.members)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
 
   it('maps a failed member add to the contained add-member-failed key', async () => {
     stubFetch((url, init) => {
-      if (url === '/enterprise/projects/project-1' && init?.method === undefined) return jsonResponse(RENEWAL)
+      if (url === '/enterprise/projects/project-1' && init?.method === undefined) return jsonResponse(RENEWAL_DETAIL)
       if (url === '/enterprise/projects/project-1/members' && init?.method === 'POST') {
         return jsonResponse({ error: 'invalid-member' }, 400)
       }
@@ -258,7 +280,7 @@ describe('EnterpriseWorkbenchController project slice', () => {
 
   it('keeps the detail and the contained archive-failed key when archiving fails', async () => {
     stubFetch((url, init) => {
-      if (url === '/enterprise/projects/project-1' && init?.method === undefined) return jsonResponse(RENEWAL)
+      if (url === '/enterprise/projects/project-1' && init?.method === undefined) return jsonResponse(RENEWAL_DETAIL)
       if (url === '/enterprise/projects/project-1/archive' && init?.method === 'POST') {
         return jsonResponse({ error: 'conflict' }, 409)
       }
@@ -300,6 +322,59 @@ describe('EnterpriseWorkbenchController surface slice', () => {
 })
 
 describe('ProjectSpace view', () => {
+  it('opens one authorized group and starts a project-linked channel from the same collaboration hub', async () => {
+    const openRoom = vi.fn(() => true)
+    const createRoom = vi.fn(() => true)
+    const surfaceState: EnterpriseSurfacesState = { phase: 'ready', error: null, list: [
+      { ...GROUP_SURFACE, workspaceId: 'shared', projectId: RENEWAL.id, teamDefinitionId: 'charter-q4' },
+      { ...CHANNEL_SURFACE, projectId: RENEWAL.id },
+    ] }
+    const { rerender } = render(createElement(ProjectSpace, spaceProps({
+      projects: READY_PROJECTS,
+      surfaces: surfaceState, workspaces: [{ id: 'shared', name: '销售部工作区' }], openRoom, createRoom,
+    })))
+    expect(screen.queryByText(GROUP_SURFACE.name as string)).toBeNull()
+    fireEvent.click(screen.getByRole('tab', { name: zh['projects.tab.groups'] }))
+    expect(screen.getByText(/销售部工作区/)).toBeDefined()
+    fireEvent.click(screen.getByRole('button', { name: `${zh['projects.openRoom']} ${GROUP_SURFACE.name}` }))
+    expect(openRoom).toHaveBeenCalledWith(GROUP_SURFACE.id)
+    fireEvent.click(screen.getByRole('tab', { name: zh['projects.tab.projects'] }))
+    rerender(createElement(ProjectSpace, spaceProps({ projects: { ...READY_PROJECTS, selected: DETAIL },
+      surfaces: surfaceState, openRoom, createRoom })))
+    expect(screen.getByText(CHANNEL_SURFACE.name as string)).toBeDefined()
+    fireEvent.click(screen.getByRole('button', { name: zh['projects.newChannel'] }))
+    expect(createRoom).toHaveBeenCalledWith('channel', RENEWAL.id)
+  })
+  it('keeps archived project rooms readable without offering new linked rooms', () => {
+    render(createElement(ProjectSpace, spaceProps({
+      projects: { ...READY_PROJECTS, selected: { project: QUOTING,
+        members: [{ principalType: 'user', principalId: 'user-2' }] } },
+      surfaces: { phase: 'ready', error: null, list: [{ ...GROUP_SURFACE, projectId: QUOTING.id }] },
+    })))
+    expect(screen.getByText(GROUP_SURFACE.name as string)).toBeDefined()
+    expect(screen.queryByRole('button', { name: zh['projects.newGroup'] })).toBeNull()
+    expect(screen.queryByRole('button', { name: zh['projects.newChannel'] })).toBeNull()
+  })
+  it('supports keyboard movement between the project, group, and channel views', () => {
+    render(createElement(ProjectSpace, spaceProps({ projects: READY_PROJECTS,
+      surfaces: { phase: 'ready', error: null, list: [GROUP_SURFACE, CHANNEL_SURFACE] } })))
+    const projectTab = screen.getByRole('tab', { name: zh['projects.tab.projects'] })
+    projectTab.focus()
+    fireEvent.keyDown(projectTab, { key: 'ArrowRight' })
+    expect(screen.getByRole('tab', { name: zh['projects.tab.groups'] }).getAttribute('aria-selected')).toBe('true')
+    expect(screen.getByText(GROUP_SURFACE.name as string)).toBeDefined()
+  })
+  it('keeps an unfinished project draft while browsing groups', () => {
+    render(createElement(ProjectSpace, spaceProps({ projects: projects({ phase: 'ready', list: [] }),
+      surfaces: { phase: 'ready', error: null, list: [] } })))
+    fireEvent.click(screen.getByRole('button', { name: zh['projects.newProject'] }))
+    fireEvent.change(screen.getByPlaceholderText(zh['projects.namePlaceholder']), {
+      target: { value: '续约项目' },
+    })
+    fireEvent.click(screen.getByRole('tab', { name: zh['projects.tab.groups'] }))
+    fireEvent.click(screen.getByRole('tab', { name: zh['projects.tab.projects'] }))
+    expect(screen.getByPlaceholderText<HTMLInputElement>(zh['projects.namePlaceholder']).value).toBe('续约项目')
+  })
   it('loads the directory once on mount and shows rows with accessible state dots', async () => {
     const loadProjects = vi.fn(() => Promise.resolve(true))
     const selectProject = vi.fn(() => Promise.resolve())
@@ -345,7 +420,7 @@ describe('ProjectSpace view', () => {
     expect(loadProjects).toHaveBeenCalledTimes(2)
   })
 
-  it('renders the detail fields with the creator avatar and the scope note', () => {
+  it('renders the project and its linked-conversation section', () => {
     const { container } = render(createElement(ProjectSpace, spaceProps({
       projects: projects({ phase: 'ready', list: [RENEWAL], selected: DETAIL }),
     })))
@@ -353,7 +428,8 @@ describe('ProjectSpace view', () => {
     expect(screen.getByRole('article', { name: `${RENEWAL.name}项目空间` })).toBeDefined()
     expect(screen.getByText(RENEWAL.goal)).toBeDefined()
     expect(screen.getByLabelText('1 位成员')).toBeDefined()
-    expect(screen.getByText(zh['projects.scopeNote'])).toBeDefined()
+    expect(screen.getByText('user-1')).toBeDefined()
+    expect(screen.getByRole('region', { name: zh['projects.linkedRooms'] })).toBeDefined()
     // The creator renders as a human (non-employee) avatar.
     expect(container.querySelector('[data-principal="user"]')).toBeDefined()
     expect(container.querySelector('[data-principal="employee"]')).toBeNull()
@@ -427,6 +503,8 @@ describe('ProjectSpace view', () => {
       projects: projects({ phase: 'ready', list: [] }), createProject,
     })))
 
+    fireEvent.click(screen.getByRole('button', { name: zh['projects.newProject'] }))
+
     fireEvent.change(screen.getByPlaceholderText(zh['projects.namePlaceholder']), {
       target: { value: RENEWAL.name },
     })
@@ -445,7 +523,7 @@ describe('ProjectSpace view', () => {
     })
   })
 
-  it('renders the surface roster chips with member counts and filters by kind', async () => {
+  it('separates groups and channels and omits private messages', async () => {
     const loadSurfaces = vi.fn(() => Promise.resolve(true))
     const { rerender } = render(createElement(ProjectSpace, spaceProps({
       projects: projects({ phase: 'ready', list: [] }),
@@ -460,15 +538,16 @@ describe('ProjectSpace view', () => {
       loadSurfaces,
     })))
 
+    fireEvent.click(screen.getByRole('tab', { name: zh['projects.tab.groups'] }))
     expect(screen.getByText(GROUP_SURFACE.name as string)).toBeDefined()
-    expect(screen.getByText(CHANNEL_SURFACE.name as string)).toBeDefined()
-    expect(screen.getByText(zh['projects.surface.unnamed'])).toBeDefined()
+    expect(screen.queryByText(CHANNEL_SURFACE.name as string)).toBeNull()
+    expect(screen.queryByText(zh['projects.surface.unnamed'])).toBeNull()
     expect(screen.getByText('3 位成员')).toBeDefined()
-    expect(screen.getByText('2 位成员')).toBeDefined()
 
-    fireEvent.change(screen.getByLabelText(zh['projects.rosterFilter']), { target: { value: 'channel' } })
+    fireEvent.click(screen.getByRole('tab', { name: zh['projects.tab.channels'] }))
     expect(screen.queryByText(GROUP_SURFACE.name as string)).toBeNull()
     expect(screen.getByText(CHANNEL_SURFACE.name as string)).toBeDefined()
+    expect(screen.getByText('2 位成员')).toBeDefined()
   })
 
   it('shows the roster load error with retry', async () => {
@@ -486,8 +565,9 @@ describe('ProjectSpace view', () => {
       loadSurfaces,
     })))
 
+    fireEvent.click(screen.getByRole('tab', { name: zh['projects.tab.groups'] }))
     expect(screen.getByRole('alert')?.textContent).toContain(zh['projects.rosterLoadError'])
     fireEvent.click(screen.getByRole('button', { name: zh.retry }))
-    expect(loadSurfaces).toHaveBeenCalledTimes(2)
+    expect(loadSurfaces).toHaveBeenCalledTimes(3)
   })
 })

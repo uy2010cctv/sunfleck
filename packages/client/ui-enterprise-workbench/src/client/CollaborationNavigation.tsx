@@ -73,7 +73,7 @@ function CreateForm({ kind, state, controller, loadChoices, t }: { kind: 'group'
   const [employees, setEmployees] = useState<string[]>([])
   const [people, setPeople] = useState<string[]>([])
   const [team, setTeam] = useState('')
-  const [project, setProject] = useState('')
+  const [project, setProject] = useState(state.creationProjectId ?? '')
   const [duty, setDuty] = useState('')
   const [topicPolicy, setTopic] = useState<'thread' | 'command' | 'lane'>('thread')
   const [respondPolicy, setRespond] = useState<'mention_duty' | 'ingest_only'>('mention_duty')
@@ -105,7 +105,7 @@ function CreateForm({ kind, state, controller, loadChoices, t }: { kind: 'group'
 export function CollaborationSetup({ useCollaboration, controller, loadChoices, t }: InjectFace<CollaborationInjected> & PropsLocale<'enterprise.collaboration'>) {
   const state = useCollaboration(value => value)
   if (state.creation !== null) return <main className={css.setup}>
-    <CreateForm key={state.creation} kind={state.creation} state={state} controller={controller} loadChoices={loadChoices} t={t}/>
+    <CreateForm key={`${state.creation}:${state.creationProjectId ?? ''}`} kind={state.creation} state={state} controller={controller} loadChoices={loadChoices} t={t}/>
   </main>
   return <CollaborationRoom state={state} controller={controller} t={t}/>
 }

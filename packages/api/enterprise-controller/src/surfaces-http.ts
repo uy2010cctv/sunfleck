@@ -29,7 +29,7 @@
  *   carries no message id, so transports own dedup.
  * - `POST /projects` creates one project (creator = authenticated user).
  * - `GET /projects` lists the projects visible to the caller.
- * - `GET /projects/:id` reads one project behind the member gate.
+ * - `GET /projects/:id` reads one project and its member roster behind the member gate.
  * - `POST /projects/:id/members` adds one member.
  * - `POST /projects/:id/archive` archives one project and fires the memory
  *   distillation hook without awaiting it — the archive response never waits
@@ -217,6 +217,11 @@ export interface ProjectView {
   readonly createdAt: number
   /** Archival timestamp in epoch milliseconds, present once archived. */
   readonly archivedAt?: number
+}
+
+/** Member-gated project detail includes the durable human and employee roster. */
+export interface ProjectDetailView extends ProjectView {
+  readonly members: readonly { readonly principalType: 'user' | 'employee'; readonly principalId: string }[]
 }
 
 /** Project one stored surface to its governance fields. */
@@ -675,7 +680,11 @@ export class ProjectHttpHandler {
     )
     if (!decision.allowed) return failure(403, 'forbidden')
     const project = await this.projects.requireMember(principal.orgId, id, { userId: principal.userId })
-    return project === undefined ? failure(404, 'project-not-found') : Response.json(presentProject(project))
+    if (project === undefined) return failure(404, 'project-not-found')
+    const members = await this.projects.listMembers(id)
+    return Response.json({ ...presentProject(project), members: members.map(member => ({
+      principalType: member.principalType, principalId: member.principalId,
+    })) } satisfies ProjectDetailView)
   }
 
   /** Add one user or employee member to an active project. */

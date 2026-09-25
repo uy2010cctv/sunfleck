@@ -140,6 +140,8 @@ function workbenchProps(overrides: Partial<EnterpriseWorkbenchProps> & {
     selectProject: vi.fn(() => Promise.resolve()),
     addProjectMember: vi.fn(() => Promise.resolve(true)),
     archiveProject: vi.fn(() => Promise.resolve(true)),
+    openCollaboration: vi.fn(() => true),
+    createCollaboration: vi.fn(() => true),
     prepareWork: vi.fn(() => Promise.resolve({ kind: 'needs-workspace-selection', availableWorkspaceIds: [] })),
     startPreparedWork: vi.fn(() => Promise.resolve({ sessionId: 'session-created', workspaceId: 'workspace-1', employeeReleaseId: 'release-1', executionSummary: 'Ready.' })),
     openRecord: vi.fn(),
@@ -178,6 +180,19 @@ describe('EnterpriseTrigger', () => {
 })
 
 describe('EnterpriseWorkbench', () => {
+  it('opens a group from the collaboration directory in the native room', () => {
+    const openCollaboration = vi.fn(() => true)
+    render(<EnterpriseWorkbench {...workbenchProps({ openCollaboration,
+      state: { mode: 'enterprise', page: 'projects', projects: {
+        phase: 'ready', list: [], selected: undefined, detailError: null,
+        error: null, busy: false, actionError: null,
+      }, surfaces: { phase: 'ready', error: null, list: [{ id: 'room-a', kind: 'group',
+        name: '产品协作群', memberCount: 3, workspaceId: 'workspace-1' }] } },
+    })}/>)
+    fireEvent.click(screen.getByRole('tab', { name: '群聊' }))
+    fireEvent.click(screen.getByRole('button', { name: '打开 产品协作群' }))
+    expect(openCollaboration).toHaveBeenCalledWith('room-a')
+  })
   it('scopes contributed channel settings to the selected published employee', () => {
     const renderSlot = vi.fn((_name: string, owner: { employee: { name: string; presetId: string; releaseId: string } }) => (
       <div data-testid="employee-channel-panel">{owner.employee.name}:{owner.employee.presetId}:{owner.employee.releaseId}</div>
@@ -597,7 +612,7 @@ describe('EnterpriseWorkbench', () => {
     })} />)
 
     expect(screen.getByRole('navigation', { name: '管理台导航' })).toBeDefined()
-    for (const label of ['数字员工', '工作记录', '审批', '定时任务', '能力资产', '团队']) {
+    for (const label of ['数字员工', '协作空间', '工作记录', '审批', '定时任务', '能力资产', '团队治理']) {
       expect(screen.getByRole('button', { name: label })).toBeDefined()
     }
     fireEvent.click(screen.getByRole('button', { name: '编辑采购专员' }))
@@ -623,6 +638,7 @@ describe('EnterpriseWorkbench', () => {
     } as never)} />)
 
     expect(screen.getByRole('heading', { name: '渠道设置' })).toBeDefined()
+    expect(screen.getByRole('button', { name: '外部渠道' })).toBeDefined()
     expect(screen.getByRole('heading', { name: '财务企业微信' })).toBeDefined()
     expect(screen.getByText('凭证已配置')).toBeDefined()
     expect(screen.getAllByText('适配器证据待补充').length).toBeGreaterThan(0)
@@ -1343,7 +1359,7 @@ describe('EnterpriseWorkbench', () => {
       }, startTeamRun, openRecord, respondTeamDecision,
     } as never)
     const { container, rerender } = render(<EnterpriseWorkbench {...props}/>)
-    expect(screen.getByRole('heading', { name: '团队协作指挥台' })).toBeDefined()
+    expect(screen.getByRole('heading', { name: '团队治理' })).toBeDefined()
     expect(screen.queryByRole('button', { name: '编辑章程' })).toBeNull()
     expect(screen.queryByRole('button', { name: '保存草稿' })).toBeNull()
     expect(container.querySelector('details')?.open).toBe(false)

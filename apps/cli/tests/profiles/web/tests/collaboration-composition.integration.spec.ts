@@ -272,6 +272,14 @@ describe.skipIf(databaseUrl === undefined)('enterprise collaboration source Web 
           const row = await request(`/${kind}`, creation)
           const id = string(row['id'])
           roomIds.push(id)
+          const directoryResponse = await fetch(`${origin}/enterprise/surfaces`, { signal: test.signal,
+            headers: { cookie, origin } })
+          expect(directoryResponse.status).toBe(200)
+          const directory: unknown = await directoryResponse.json()
+          if (!Array.isArray(directory)) throw new Error('room directory is not an array')
+          expect(directory.map(record).find(entry => entry['id'] === id)).toMatchObject({
+            id, workspaceId: app.ready.workspaceId,
+          })
           expect((await request(`/${kind}`, creation))['id']).toBe(id)
           if (kind === 'groups') {
             expect(await request(`/${id}/open`, {})).toMatchObject({ opened: false, reason: 'select-employee' })

@@ -72,6 +72,8 @@ export interface EnterpriseWorkbenchInjected {
     projectId: string, member: { principalType: 'user' | 'employee'; principalId: string },
   ) => Promise<boolean>
   archiveProject: (projectId: string) => Promise<boolean>
+  openCollaboration: (id: string) => boolean
+  createCollaboration: (kind: 'group' | 'channel', projectId?: string) => boolean
   prepareWork: (input: { objective: string; deadline?: string; workspaceId?: string; preferredEmployeeReleaseId?: string }) => Promise<import('@deepseek-ai/dsh-api-enterprise-controller/types').EnterpriseWorkPreparation>
   startPreparedWork: (input: import('@deepseek-ai/dsh-api-enterprise-controller/types').EnterpriseWorkStartRequest) => Promise<import('@deepseek-ai/dsh-api-enterprise-controller/types').EnterpriseWorkStartValue>
   openRecord: (sessionId: SessionId) => void
@@ -1042,7 +1044,7 @@ function CharterEditor({ definition, newerDefinition, releases, api, busy, onDir
   </form>
 }
 
-function TeamControlPanel({ definitions, runs, decisions, autonomy, workspaces, releases, api, busy, onDirty, onClean, t }: {
+function TeamControlPanel({ definitions, runs, decisions, autonomy, workspaces, releases, api, busy, onDirty, onClean, openCollaboration, t }: {
   definitions: EnterprisePageState<EnterpriseTeamDefinition>
   runs: EnterprisePageState<EnterpriseTeamRun>
   decisions: EnterprisePageState<EnterpriseTeamDecision>
@@ -1053,6 +1055,7 @@ function TeamControlPanel({ definitions, runs, decisions, autonomy, workspaces, 
   busy: boolean
   onDirty: () => void
   onClean: () => void
+  openCollaboration: () => void
   t: Translate
 }) {
   const activeDefinitions = definitions.items.filter(item => item.state === 'active')
@@ -1067,7 +1070,8 @@ function TeamControlPanel({ definitions, runs, decisions, autonomy, workspaces, 
   const liveRunCount = runs.items.filter(run => !['completed', 'failed', 'cancelled'].includes(run.state)).length
   return <section className={css.teamControl} aria-labelledby="team-command-title">
     <header className={css.teamCommandHeader}>
-      <div><h2 id="team-command-title">{t('team.commandTitle')}</h2><p>{t('team.commandDescription')}</p></div>
+      <div><h2 id="team-command-title">{t('team.commandTitle')}</h2><p>{t('team.commandDescription')}</p>
+        <button type="button" className={css.secondaryButton} onClick={openCollaboration}>{t('projects.heading')}</button></div>
       <div className={css.teamCommandPulse} aria-label={t('team.commandSummary', { charters: activeDefinitions.length, runs: liveRunCount, decisions: openDecisionCount })}>
         <span><strong>{activeDefinitions.length}</strong>{t('team.commandCharters')}</span>
         <span><strong>{liveRunCount}</strong>{t('team.commandRuns')}</span>
@@ -1900,7 +1904,7 @@ export function EnterpriseWorkbench(props: EnterpriseWorkbenchProps) {
       <main className={css.main}>
         {partial && <div className={css.notice} role="status">{props.t('partial')}</div>}
         {page === 'employees' && <><StartWorkPanel workspaces={workspaces} releases={state.releases} prepareWork={props.prepareWork} startPreparedWork={props.startPreparedWork} onStarted={(sessionId) => { props.openRecord(sessionId as SessionId); props.close() }} t={props.t}/><EmployeesPage state={state} workspaces={workspaces} api={api} guardDirty={guardDirty} renderEmployeeKnowledgeBindings={props.renderSlot} t={props.t} /></>}
-        {page === 'projects' && <ProjectSpace projects={state.projects} surfaces={state.surfaces} loadProjects={props.loadProjects} loadSurfaces={props.loadSurfaces} createProject={props.createProject} selectProject={props.selectProject} addProjectMember={props.addProjectMember} archiveProject={props.archiveProject} t={props.t}/>}
+        {page === 'projects' && <ProjectSpace projects={state.projects} surfaces={state.surfaces} workspaces={workspaces.items.map(item => ({ id: item.workspaceId, name: item.title }))} loadProjects={props.loadProjects} loadSurfaces={props.loadSurfaces} createProject={props.createProject} selectProject={props.selectProject} addProjectMember={props.addProjectMember} archiveProject={props.archiveProject} openRoom={props.openCollaboration} createRoom={props.createCollaboration} openGovernance={() => { requestPage('teams') }} t={props.t}/>}
         {page === 'devices' && <DevicesPage page={devices} api={api} busy={mutationBusy} t={props.t}/>}
         {page === 'work-records' && <WorkRecordsPage page={state.workRecords} update={props.updateWorkRecord} busy={mutationBusy} t={props.t} />}
         {page === 'approvals' && <ApprovalsPage page={state.approvals} api={api} busy={mutationBusy} t={props.t} />}
@@ -1908,7 +1912,7 @@ export function EnterpriseWorkbench(props: EnterpriseWorkbenchProps) {
         {page === 'schedules' && <SchedulesPage page={state.schedules} releases={state.releases} api={api} busy={mutationBusy} onDirty={() => { setLocalFormDirty(true) }} t={props.t} />}
         {page === 'assets' && <AssetsPage page={state.assets} cordisCount={cordisExtensionCount(state)} api={api} busy={mutationBusy} onDirty={() => { setLocalFormDirty(true) }} openExtensions={() => { requestPage('extensions') }} renderKnowledgeAssets={props.renderSlot} t={props.t} />}
         {page === 'teams' && <>
-          <TeamControlPanel definitions={teamDefinitions} runs={teamRuns} decisions={teamDecisions} autonomy={teamAutonomy} workspaces={workspaces} releases={state.releases} api={api} busy={mutationBusy} onDirty={() => { setLocalFormDirty(true) }} onClean={() => { setLocalFormDirty(false) }} t={props.t}/>
+          <TeamControlPanel definitions={teamDefinitions} runs={teamRuns} decisions={teamDecisions} autonomy={teamAutonomy} workspaces={workspaces} releases={state.releases} api={api} busy={mutationBusy} onDirty={() => { setLocalFormDirty(true) }} onClean={() => { setLocalFormDirty(false) }} openCollaboration={() => { requestPage('projects') }} t={props.t}/>
           <LegacyTeamsDisclosure initiallyOpen={teamDefinitions.items.length === 0} count={state.teams.items.length} t={props.t}>
             <TeamsPage embedded page={state.teams} releases={state.releases} api={api} busy={mutationBusy} onDirty={() => { setLocalFormDirty(true) }} t={props.t} />
           </LegacyTeamsDisclosure>

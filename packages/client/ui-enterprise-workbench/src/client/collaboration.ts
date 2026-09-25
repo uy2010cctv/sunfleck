@@ -13,6 +13,12 @@ import { applyCollaborationDetails } from './collaboration-details.ts'
 
 const PANEL_ID = 'enterprise-collaboration' as MainPanelId
 
+/** Native room actions shared with the enterprise overview without duplicating its room state. */
+export interface CollaborationWorkbenchActions {
+  openRoom(id: string): boolean
+  createRoom(kind: 'group' | 'channel', projectId?: string): boolean
+}
+
 function rows(value: unknown): readonly { id: string; name: string }[] {
   if (!Array.isArray(value)) throw new Error('invalid collaboration choices')
   return value.map((item: unknown) => {
@@ -25,10 +31,21 @@ function rows(value: unknown): readonly { id: string; name: string }[] {
   })
 }
 
+function activeProjects(value: unknown): readonly { id: string; name: string }[] {
+  if (!Array.isArray(value)) throw new Error('invalid project choices')
+  return rows(value.filter((item: unknown) => {
+    if (item === null || typeof item !== 'object' || Array.isArray(item)) throw new Error('invalid project choice')
+    const state = (item as Record<string, unknown>)['state']
+    if (state !== 'active' && state !== 'archived') throw new Error('invalid project state')
+    return state === 'active'
+  }))
+}
+
 /** Extend the existing shell without requiring collaboration on non-enterprise hosts.
  * @param ctx - Browser plugin scope owning the navigation registration.
  */
-export function applyCollaboration(ctx: Context): void {
+export function applyCollaboration(ctx: Context, roomCreated?: () => void): CollaborationWorkbenchActions {
+  let current: CollaborationController | undefined
   ctx.inject(['layout', 'slots', 'locale', 'sessions', 'workspaces', 'uiWorkspace', 'remote', 'remote.agentPresets', 'remote.enterpriseTeamDefinition'], (scope) => {
     const controller = new CollaborationController(
       (url, init) => fetch(url, init),
@@ -37,8 +54,10 @@ export function applyCollaboration(ctx: Context): void {
         if (!signal.aborted) scope.uiWorkspace.openSession(id as SessionId)
       },
       () => { scope.layout.selectPanel(PANEL_ID) },
+      roomCreated,
     )
-    scope.effect(() => () => { controller.dispose() }, 'enterprise collaboration navigation')
+    current = controller
+    scope.effect(() => () => { if (current === controller) current = undefined; controller.dispose() }, 'enterprise collaboration navigation')
     scope.effect(() => scope.locale.register(COLLABORATION_NS, { zh, en }), 'enterprise collaboration copy')
     const loadChoices = async (): Promise<CollaborationChoices> => {
       const [presets, teams, peopleResponse, projectsResponse] = await Promise.all([
@@ -53,7 +72,7 @@ export function applyCollaboration(ctx: Context): void {
         employees: presets.value.presets.filter(row => row.kind === 'employee' && row.broken === undefined).map(row => ({ id: row.id, name: row.name ?? row.id })),
         people: peopleAvailable ? rows(await peopleResponse.json()) : [], peopleAvailable,
         teams: teams.ok ? teams.value.items.filter(row => row.state === 'active').map(row => ({ id: row.teamId, name: row.name })) : [],
-        projects: projectsResponse.ok ? rows(await projectsResponse.json()) : [],
+        projects: projectsResponse.ok ? activeProjects(await projectsResponse.json()) : [],
       }
     }
     const inject = (): CollaborationInjected => ({ hooks: { collaboration: controller.state }, controller, loadChoices })
@@ -65,4 +84,16 @@ export function applyCollaboration(ctx: Context): void {
       return () => { reset() }
     }, 'enterprise collaboration room context')
   })
+  return {
+    openRoom: (id) => {
+      if (current === undefined) return false
+      void current.select(id)
+      return true
+    },
+    createRoom: (kind, projectId) => {
+      if (current === undefined) return false
+      current.beginCreate(kind, projectId)
+      return true
+    },
+  }
 }

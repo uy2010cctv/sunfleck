@@ -1248,7 +1248,16 @@ describe('project endpoints', () => {
 
     const member = await callProject(creator, 'GET', `/${id}`)
     expect(member.status).toBe(200)
-    expect(await member.json()).toMatchObject({ id, name: 'Support' })
+    expect(await member.json()).toMatchObject({ id, name: 'Support', members: [
+      { principalType: 'user', principalId: 'user-1' },
+    ] })
+    expect((await callProject(creator, 'POST', `/${id}/members`, {
+      principalType: 'employee', principalId: 'employee-9',
+    })).status).toBe(204)
+    expect(await (await callProject(creator, 'GET', `/${id}`)).json()).toMatchObject({ members: [
+      { principalType: 'user', principalId: 'user-1' },
+      { principalType: 'employee', principalId: 'employee-9' },
+    ] })
 
     expect((await callProject(
       makeProjectHandler(projects, principalOf(['operator'], 'user-2')), 'GET', `/${id}`,
