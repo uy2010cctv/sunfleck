@@ -23,6 +23,7 @@ import { RemoteError, SlotTestRuntime, usePinnedBrowserLanguages } from '@deepse
 import { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
 import { MenuItemButton } from '@deepseek-ai/dsh-client-ui-primitives'
 import { apply, inject } from '@deepseek-ai/dsh-client-ui-workspace/client'
+import { SidebarRightNavigationRegistry } from '../../ui-sidebar-right/src/client/navigation-registry.ts'
 
 // The service reads its initial locale from the browser; these specs assert
 // the shipped Chinese copy, so they state the browser they assume.
@@ -37,6 +38,7 @@ beforeEach(() => { localStorage.clear() })
 async function createRuntime(): Promise<SlotTestRuntime> {
   const runtime = await SlotTestRuntime.create()
   runtime.ctx.provide('layout', { selectPanel: vi.fn() })
+  runtime.ctx.provide('sidebarRightNavigationTabs', new SidebarRightNavigationRegistry())
   runtime.releaseWorkspaceSource()
   // The rename flow never picks a directory; the namespace only has to be there
   // for ui-workspace's inject to settle.
@@ -49,11 +51,11 @@ async function createRuntime(): Promise<SlotTestRuntime> {
 }
 
 /** Test-owned shell role: declares and renders the browsing region and the frame-wide overlay list. */
-type FrameProps = PropsRenderSlots<'sidebar.workspaces' | 'shell.overlay'>
+type FrameProps = PropsRenderSlots<'sidebar.right.navigation.tab' | 'shell.overlay'>
 function SidebarFrame({ renderSlot }: FrameProps) {
   return (
     <>
-      {renderSlot('sidebar.workspaces', { wide: true, expandSidebar: () => {} })}
+      {renderSlot('sidebar.right.navigation.tab', { wide: true, expandSidebar: () => {} }, { entryKey: 'workspace' })}
       {renderSlot('shell.overlay', {})}
     </>
   )
@@ -63,7 +65,7 @@ function SidebarFrame({ renderSlot }: FrameProps) {
 async function declareFrame(runtime: SlotTestRuntime): Promise<void> {
   await runtime.root.declare(
     {
-      'sidebar.workspaces': { kind: 'single', scope: 'root' },
+      'sidebar.right.navigation.tab': { kind: 'keyed', scope: 'root' },
       'shell.overlay': { kind: 'list', scope: 'root' },
     } as never,
     SidebarFrame as never,

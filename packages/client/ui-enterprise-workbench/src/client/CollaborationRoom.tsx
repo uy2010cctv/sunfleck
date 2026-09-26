@@ -1,13 +1,18 @@
 /** Shared group/channel room in the existing SUNFLECK main panel. */
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type FormEvent, type KeyboardEvent } from 'react'
 import { IconCloseOutlineRegular, IconLoadingOutlineRegular, IconSearchOutlineRegular, IconSendOutlineRegular, IconUsersOutlineRegular, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { CollaborationController, CollaborationState, RoomEvent } from './collaboration-store.ts'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-locale/client'
+import type { HostObservable } from '@deepseek-ai/dsh-client-ui-slots'
 import { ChannelWorkflowEditor } from './ChannelWorkflowEditor.tsx'
 import { ChannelDecisionQueue } from './ChannelDecisionQueue.tsx'
 import css from './CollaborationRoom.module.css'
 
 type Copy = TranslateNS<'enterprise.collaboration'>
+const NOT_OCCLUDED: HostObservable<boolean> = {
+  getSnapshot: () => false,
+  subscribe: () => () => {},
+}
 
 /** Count signed reaction events by target and emoji; the event itself stays in the audit timeline. */
 export function reactionCounts(events: readonly RoomEvent[], targetId: string): readonly { emoji: string; count: number }[] {
@@ -57,12 +62,13 @@ function Composer({ state, controller, t, threadRoot }: {
 }) {
   const [draft, setDraft] = useState('')
   const [mentions, setMentions] = useState<string[]>([])
+  const [peopleMentions, setPeopleMentions] = useState<string[]>([])
   const [openMentions, setOpenMentions] = useState(false)
   const [sending, setSending] = useState(false)
   const input = useRef<HTMLTextAreaElement>(null)
   const mentionWrap = useRef<HTMLDivElement>(null)
   const detail = state.selection?.detail
-  useEffect(() => { setDraft(''); setMentions([]) }, [detail?.id, threadRoot])
+  useEffect(() => { setDraft(''); setMentions([]); setPeopleMentions([]) }, [detail?.id, threadRoot])
   useEffect(() => {
     if (!openMentions) return
     const onPointer = (event: MouseEvent): void => { if (!mentionWrap.current?.contains(event.target as Node)) setOpenMentions(false) }
@@ -72,6 +78,7 @@ function Composer({ state, controller, t, threadRoot }: {
     return () => { document.removeEventListener('mousedown', onPointer); document.removeEventListener('keydown', onEscape) }
   }, [openMentions])
   if (detail === undefined) return null
+  const people = detail.humanMembers ?? detail.memberUserIds.map(userId => ({ userId, displayName: userId }))
   const send = async (event?: FormEvent): Promise<void> => {
     event?.preventDefault()
     if (sending || draft.trim() === '') return
@@ -80,24 +87,33 @@ function Composer({ state, controller, t, threadRoot }: {
       const accepted = await controller.send(draft, {
         ...(threadRoot === undefined ? {} : { threadRoot }),
         ...(mentions.length === 0 ? {} : { mentionedEmployeeIds: mentions }),
+        ...(peopleMentions.length === 0 ? {} : { mentionedUserIds: peopleMentions }),
       })
-      if (accepted) { setDraft(''); setMentions([]); setOpenMentions(false); input.current?.focus() }
+      if (accepted) { setDraft(''); setMentions([]); setPeopleMentions([]); setOpenMentions(false); input.current?.focus() }
     } finally { setSending(false) }
   }
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>): void => {
     if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void send() }
   }
   return <form className={css.composer} onSubmit={(event) => { void send(event) }}>
-    {mentions.length > 0 && <div className={css.mentionChips}>{mentions.map((id) => {
+    {(mentions.length > 0 || peopleMentions.length > 0) && <div className={css.mentionChips}>{mentions.map((id) => {
       const member = detail.members.find(item => item.employeeId === id)
-      return <button key={id} type="button" onClick={() => { setMentions(mentions.filter(value => value !== id)) }} aria-label={`${t('removeMention')} ${member?.displayName ?? id}`}>@{member?.displayName ?? id} ×</button>
+      return <button key={`employee:${id}`} type="button" onClick={() => { setMentions(mentions.filter(value => value !== id)) }} aria-label={`${t('removeMention')} ${member?.displayName ?? id}`}>@{member?.displayName ?? id} ×</button>
+    })}{peopleMentions.map((id) => {
+      const member = people.find(item => item.userId === id)
+      return <button key={`human:${id}`} type="button" onClick={() => { setPeopleMentions(peopleMentions.filter(value => value !== id)) }} aria-label={`${t('removeMention')} ${member?.displayName ?? id}`}>@{member?.displayName ?? id} ×</button>
     })}</div>}
     <textarea ref={input} value={draft} onChange={(event) => { setDraft(event.target.value) }} onKeyDown={onKeyDown} placeholder={t(threadRoot === undefined ? 'roomPlaceholder' : 'threadPlaceholder')} aria-label={t('message')} disabled={sending} rows={2}/>
     <div className={css.composerActions}>
       <div ref={mentionWrap} className={css.mentionWrap}><button type="button" aria-expanded={openMentions} onClick={() => { setOpenMentions(!openMentions) }}>{t('mentionMember')}</button>
-        {openMentions && <div className={css.mentionMenu} role="group" aria-label={t('employees')}>
-          {detail.members.map(member => <label key={member.employeeId}><input type="checkbox" checked={mentions.includes(member.employeeId)} onChange={(event) => { setMentions(event.target.checked ? [...mentions, member.employeeId] : mentions.filter(id => id !== member.employeeId)) }}/>{member.displayName}</label>)}
-          {detail.members.length === 0 && <span>{t('emptyEmployees')}</span>}
+        {openMentions && <div className={css.mentionMenu}>
+          <div role="group" aria-label={t('employees')}>
+            {detail.members.map(member => <label key={member.employeeId}><input type="checkbox" checked={mentions.includes(member.employeeId)} onChange={(event) => { setMentions(event.target.checked ? [...mentions, member.employeeId] : mentions.filter(id => id !== member.employeeId)) }}/>{member.displayName}</label>)}
+          </div>
+          <div role="group" aria-label={t('people')}>
+            {people.map(member => <label key={member.userId}><input type="checkbox" checked={peopleMentions.includes(member.userId)} onChange={(event) => { setPeopleMentions(event.target.checked ? [...peopleMentions, member.userId] : peopleMentions.filter(id => id !== member.userId)) }}/>{member.displayName}</label>)}
+          </div>
+          {detail.members.length === 0 && people.length === 0 && <span>{t('emptyEmployees')}</span>}
         </div>}
       </div>
       <span className={css.keyHint}>{t('sendHint')}</span>
@@ -107,10 +123,11 @@ function Composer({ state, controller, t, threadRoot }: {
 }
 
 /** One shared timeline for people and Bots, with a room context and thread rail. */
-export function CollaborationRoom({ state, controller, t }: {
+export function CollaborationRoom({ state, controller, t, occludesMain = NOT_OCCLUDED }: {
   readonly state: CollaborationState
   readonly controller: CollaborationController
   readonly t: Copy
+  readonly occludesMain?: HostObservable<boolean> | undefined
 }) {
   const [showDetails, setShowDetails] = useState(false)
   const [searchInput, setSearchInput] = useState('')
@@ -119,11 +136,20 @@ export function CollaborationRoom({ state, controller, t }: {
   const scrollBeforePrepend = useRef<{ height: number; top: number }>()
   const atBottom = useRef(true)
   const roomId = state.selection?.detail.id
+  const latestSequence = state.events.at(-1)?.sequence
+  const occluded = useSyncExternalStore(occludesMain.subscribe, occludesMain.getSnapshot)
   useEffect(() => {
-    if (roomId === undefined) return
+    if (roomId !== undefined && latestSequence !== undefined && state.roomPhase === 'ready'
+      && !occluded && (!showSearch || state.searchPhase === 'idle')) {
+      void controller.acknowledgeVisible()
+    }
+  }, [controller, roomId, latestSequence, state.roomPhase, state.searchPhase, showSearch, occluded])
+  useEffect(() => {
+    if (roomId === undefined || occluded) return
+    void controller.poll()
     const timer = setInterval(() => { void controller.poll() }, 3000)
     return () => { clearInterval(timer) }
-  }, [controller, roomId])
+  }, [controller, roomId, occluded])
   useEffect(() => {
     setShowDetails(false)
     setShowSearch(false)

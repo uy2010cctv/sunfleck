@@ -6,7 +6,11 @@ const detail = { ...surface, workspaceId: 'workspace', members: [{ employeeId: '
 const human: RoomEvent = { sequence: '9007199254740993', id: 'human-1', pubkey: 'human-public-key', created_at: 1, kind: 9, tags: [['h', 'group-1']], content: 'Please research', sig: 'signed-human-event', author: { kind: 'human', id: 'me', displayName: 'Director' } }
 const bot: RoomEvent = { ...human, sequence: '9007199254740994', id: 'bot-1', pubkey: 'bot-public-key', content: 'I will hand this to Data Bot', sig: 'signed-bot-event', author: { kind: 'employee', id: 'analyst', displayName: 'Research Bot' }, sourceSessionId: 'execution' }
 function fetcher(...responses: Response[]) {
-  return vi.fn(async (_url: string, _init?: RequestInit) => {
+  return vi.fn(async (url: string, init?: RequestInit) => {
+    if (url.endsWith('/read')) {
+      const body = JSON.parse(typeof init?.body === 'string' ? init.body : '') as { sequence: string }
+      return Response.json({ sequence: body.sequence })
+    }
     const response = responses.shift()
     if (response === undefined) throw new Error('unexpected request')
     return response
@@ -19,6 +23,45 @@ function controller(request: ReturnType<typeof fetcher>) {
 }
 
 describe('shared collaboration room', () => {
+  it('coalesces background roster refreshes while the previous request is pending', async () => {
+    let resolveFirst: ((response: Response) => void) | undefined
+    const request = vi.fn(async () => await new Promise<Response>((resolve) => { resolveFirst = resolve }))
+    const { value } = controller(request)
+    const pending = value.refreshIfIdle()
+    await value.refreshIfIdle()
+    expect(request).toHaveBeenCalledOnce()
+    resolveFirst?.(Response.json([]))
+    await pending
+    void value.refreshIfIdle()
+    expect(request).toHaveBeenCalledTimes(2)
+    value.dispose()
+  })
+  it('acknowledges only after a visible room asks to mark its displayed sequence', async () => {
+    const seen = { newMessages: true, mentions: true }
+    const requests: { url: string; method: string; body?: unknown }[] = []
+    const request = vi.fn(async (url: string, init?: RequestInit) => {
+      const method = init?.method ?? 'GET'
+      const body = typeof init?.body === 'string' ? JSON.parse(init.body) as unknown : undefined
+      requests.push({ url, method, ...(body === undefined ? {} : { body }) })
+      if (url.endsWith('/read')) { seen.newMessages = false; seen.mentions = false
+        return Response.json({ sequence: bot.sequence }) }
+      if (url.endsWith('/events?limit=100')) return Response.json({ items: [human, bot], nextCursor: null })
+      if (url === '/enterprise/surfaces') return Response.json([{ ...surface, attention: { ...seen } }])
+      return Response.json(detail)
+    })
+    const { value } = controller(request)
+    await value.refresh()
+    expect(value.state.getSnapshot().surfaces[0]?.attention).toEqual({ newMessages: true, mentions: true })
+    await value.select(surface.id)
+    expect(requests.some(item => item.url.endsWith('/read'))).toBe(false)
+    value.setMainPanel('enterprise-collaboration')
+    await value.acknowledgeVisible()
+    expect(requests).toContainEqual({ url: `/enterprise/surfaces/${surface.id}/read`, method: 'POST',
+      body: { sequence: bot.sequence } })
+    expect(value.state.getSnapshot().events.map(event => event.id)).toEqual([human.id, bot.id])
+    expect(value.state.getSnapshot().surfaces[0]?.attention).toEqual({ newMessages: false, mentions: false })
+    value.dispose()
+  })
   it('publishes bound execution Session ids and clears them after access loss', async () => {
     const changed = vi.fn()
     const request = fetcher(Response.json([{ ...surface, executionSessionIds: ['native-room-1'] }]),
@@ -38,7 +81,8 @@ describe('shared collaboration room', () => {
     expect(value.state.getSnapshot().events.map(item => item.author.displayName)).toEqual(['Director', 'Research Bot'])
     expect(openRoom).toHaveBeenCalledOnce()
     expect(inspect).not.toHaveBeenCalled()
-    expect(request.mock.calls.map(args => args[0])).toEqual(['/enterprise/surfaces', '/enterprise/surfaces/group-1', '/enterprise/surfaces/group-1/events?limit=100'])
+    expect(request.mock.calls.map(args => args[0])).toEqual(['/enterprise/surfaces', '/enterprise/surfaces/group-1',
+      '/enterprise/surfaces/group-1/events?limit=100'])
     value.dispose()
   })
 
@@ -51,7 +95,7 @@ describe('shared collaboration room', () => {
     await value.select('group-1')
     value.setMainPanel('enterprise-collaboration')
     await value.poll()
-    expect(request.mock.calls[2]?.[0]).toContain('after=9007199254740993')
+    expect(request.mock.calls.some(args => args[0].includes('after=9007199254740993'))).toBe(true)
     expect(value.state.getSnapshot().events.map(item => item.id)).toEqual(['human-1', 'bot-1'])
     value.dispose()
   })
@@ -71,12 +115,12 @@ describe('shared collaboration room', () => {
     await value.select('group-1')
     expect(value.state.getSnapshot().olderCursor).toBe(recent[0]?.sequence)
     await value.loadOlder()
-    expect(request.mock.calls[2]?.[0]).toContain(`before=${recent[0]?.sequence}`)
+    expect(request.mock.calls.some(args => args[0].includes(`before=${recent[0]?.sequence}`))).toBe(true)
     expect(value.state.getSnapshot().events[0]?.id).toBe('older')
     expect(value.state.getSnapshot().olderCursor).toBeNull()
     value.setMainPanel('enterprise-collaboration')
     await value.poll()
-    expect(request.mock.calls[3]?.[0]).toContain(`after=${recent.at(-1)?.sequence}`)
+    expect(request.mock.calls.some(args => args[0].includes(`after=${recent.at(-1)?.sequence}`))).toBe(true)
     value.dispose()
   })
 
@@ -119,7 +163,7 @@ describe('shared collaboration room', () => {
     await value.search('research')
     expect(value.state.getSnapshot().threadEvents).toEqual([reply])
     expect(value.state.getSnapshot().searchResults).toEqual([human])
-    expect(request.mock.calls[2]?.[0]).toContain('threadRoot=human-1')
+    expect(request.mock.calls.some(args => args[0].includes('threadRoot=human-1'))).toBe(true)
     value.dispose()
   })
 
@@ -128,7 +172,10 @@ describe('shared collaboration room', () => {
     const reaction = { ...human, sequence: '9007199254740996', id: 'reaction', kind: 7, tags: [['e', human.id]], content: '👍' }
     const bodies: Record<string, unknown>[] = []
     const request = vi.fn(async (url: string, init?: RequestInit) => {
-      if (init?.method === 'POST') bodies.push(JSON.parse(typeof init.body === 'string' ? init.body : '') as Record<string, unknown>)
+      if (init?.method === 'POST' && !url.endsWith('/read')) {
+        bodies.push(JSON.parse(typeof init.body === 'string' ? init.body : '') as Record<string, unknown>)
+      }
+      if (url.endsWith('/read')) return Response.json({ sequence: human.sequence })
       if (url.endsWith('/messages')) return Response.json({ delivered: true, event: reply, targets: [] })
       if (url.endsWith('/reactions')) return Response.json({ event: reaction })
       return Response.json(url.endsWith('/events?limit=100') ? { items: [human], nextCursor: null } : detail)

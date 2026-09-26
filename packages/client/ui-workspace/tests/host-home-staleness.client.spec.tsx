@@ -13,6 +13,7 @@ import type { PropsRenderSlots } from '@deepseek-ai/dsh-client-ui-slots'
 import { SlotTestRuntime, usePinnedBrowserLanguages } from '@deepseek-ai/dsh-client-test-runtime'
 import { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
 import { apply, inject } from '@deepseek-ai/dsh-client-ui-workspace/client'
+import { SidebarRightNavigationRegistry } from '../../ui-sidebar-right/src/client/navigation-registry.ts'
 
 usePinnedBrowserLanguages('zh-CN')
 
@@ -20,15 +21,16 @@ afterEach(cleanup)
 beforeEach(() => { localStorage.clear() })
 
 /** Test-owned sidebar shell role: declares and renders the browsing region. */
-type FrameProps = PropsRenderSlots<'sidebar.workspaces'>
+type FrameProps = PropsRenderSlots<'sidebar.right.navigation.tab'>
 function SidebarFrame({ renderSlot }: FrameProps) {
-  return <>{renderSlot('sidebar.workspaces', { wide: true, expandSidebar: () => {} })}</>
+  return <>{renderSlot('sidebar.right.navigation.tab', { wide: true, expandSidebar: () => {} }, { entryKey: 'workspace' })}</>
 }
 
 /** The assembled sidebar over one Workspace inside the POSIX home the Host reports. */
 async function bench() {
   const runtime = await SlotTestRuntime.create()
   runtime.ctx.provide('layout', { selectPanel: vi.fn() })
+  runtime.ctx.provide('sidebarRightNavigationTabs', new SidebarRightNavigationRegistry())
   runtime.releaseWorkspaceSource()
   const directoryPicker = {}
   const { remote } = runtime
@@ -43,7 +45,7 @@ async function bench() {
     }] as never
   })
   await runtime.root.declare(
-    { 'sidebar.workspaces': { kind: 'single', scope: 'root' } } as never,
+    { 'sidebar.right.navigation.tab': { kind: 'keyed', scope: 'root' } } as never,
     SidebarFrame as never,
   )
   await runtime.mount({ inject: [...inject], apply })

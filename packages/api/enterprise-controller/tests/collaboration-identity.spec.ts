@@ -70,6 +70,14 @@ describe('custodial room signing identities', () => {
     expect(verifyEvent(tampered)).toBe(false)
   })
 
+  it('signs explicit human mentions into the immutable room event', async () => {
+    const signed = await fixture().identity().signHuman(alice, 'room-1', {
+      type: 'text', content: 'Please review', mentionedUserIds: ['bob'], requestId: 'mention-1',
+    })
+    expect(signed.tags).toContainEqual(['dsh-mention', 'bob'])
+    expect(verifyEvent(signed)).toBe(true)
+  })
+
   it('refuses a human actor substitution and an unbound employee session', async () => {
     const { identity } = fixture()
     const signer = identity()

@@ -5,6 +5,7 @@ import { CollaborationRoom, reactionCounts } from '../src/client/CollaborationRo
 import { CollaborationController, type RoomEvent } from '../src/client/collaboration-store.ts'
 import { zh, type CollaborationKey } from '../src/client/collaboration-locales.ts'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-locale/client'
+import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals() })
 const human: RoomEvent = { sequence: '1', id: 'human', pubkey: 'human-pubkey-very-long', created_at: 1, kind: 9, tags: [['h', 'room']], content: '请调研续约', sig: 'human-signature', author: { kind: 'human', id: 'u1', displayName: '张总' } }
@@ -24,6 +25,43 @@ function setup(events: RoomEvent[] = [human, colleague, research, data, reaction
 }
 
 describe('shared room UI', () => {
+  it('acknowledges visible room events after rendering', async () => {
+    const { controller, state, t } = setup([human])
+    const acknowledge = vi.spyOn(controller, 'acknowledgeVisible').mockResolvedValue()
+    render(<CollaborationRoom controller={controller} state={state} t={t}/>)
+    await waitFor(() => { expect(acknowledge).toHaveBeenCalledOnce() })
+    controller.dispose()
+  })
+  it('does not mark a new room event read while search results replace the timeline', async () => {
+    const { controller, state, t } = setup([human])
+    const acknowledge = vi.spyOn(controller, 'acknowledgeVisible').mockResolvedValue()
+    const { rerender } = render(<CollaborationRoom controller={controller} state={state} t={t}/>)
+    await waitFor(() => { expect(acknowledge).toHaveBeenCalledOnce() })
+    fireEvent.click(screen.getByRole('button', { name: '搜索会话' }))
+    const beforeNewEvent = acknowledge.mock.calls.length
+    rerender(<CollaborationRoom controller={controller} state={{ ...state, events: [human, data],
+      searchPhase: 'ready', searchResults: [human] }} t={t}/>)
+    expect(screen.queryByRole('region', { name: '消息记录' })).toBeNull()
+    expect(acknowledge).toHaveBeenCalledTimes(beforeNewEvent)
+    fireEvent.click(screen.getByRole('button', { name: '关闭搜索' }))
+    await waitFor(() => { expect(acknowledge).toHaveBeenCalledTimes(beforeNewEvent + 1) })
+    controller.dispose()
+  })
+  it('keeps a new room event unread while narrow navigation covers the room', async () => {
+    const { controller, state, t } = setup([human])
+    const occludesMain = createSnapshotStore(false)
+    const acknowledge = vi.spyOn(controller, 'acknowledgeVisible').mockResolvedValue()
+    const { rerender } = render(<CollaborationRoom controller={controller} state={state} t={t}
+      occludesMain={occludesMain}/>)
+    await waitFor(() => { expect(acknowledge).toHaveBeenCalledOnce() })
+    occludesMain.set(true)
+    rerender(<CollaborationRoom controller={controller} state={{ ...state, events: [human, data] }} t={t}
+      occludesMain={occludesMain}/>)
+    expect(acknowledge).toHaveBeenCalledOnce()
+    occludesMain.set(false)
+    await waitFor(() => { expect(acknowledge).toHaveBeenCalledTimes(2) })
+    controller.dispose()
+  })
   it('renders two humans and multiple Bots in one ordered timeline with source and signature', () => {
     const { controller, state, t } = setup()
     render(<CollaborationRoom controller={controller} state={state} t={t}/>)
@@ -44,7 +82,7 @@ describe('shared room UI', () => {
     const { controller, state, t } = setup([])
     const send = vi.spyOn(controller, 'send').mockResolvedValueOnce(false).mockResolvedValueOnce(true)
     render(<CollaborationRoom controller={controller} state={state} t={t}/>)
-    fireEvent.click(screen.getByRole('button', { name: '@ 数字员工' }))
+    fireEvent.click(screen.getByRole('button', { name: '@ 提及成员' }))
     fireEvent.click(screen.getByLabelText('研究 Bot'))
     fireEvent.change(screen.getByRole('textbox', { name: '消息' }), { target: { value: '请开始调研' } })
     const input = screen.getByRole('textbox', { name: '消息' })
@@ -54,6 +92,25 @@ describe('shared room UI', () => {
     expect(input.value).toBe('请开始调研')
     fireEvent.click(screen.getByRole('button', { name: '发送' }))
     await waitFor(() => { expect(input.value).toBe('') })
+    controller.dispose()
+  })
+
+  it('sends an explicit human mention alongside Bot mentions', async () => {
+    const { controller, state, t } = setup([])
+    const selected = state.selection
+    if (selected === null) throw new Error('room selection missing')
+    const withPeople = { ...state, selection: { detail: { ...selected.detail,
+      humanMembers: [{ userId: 'u2', displayName: '陈经理' }] } } }
+    const send = vi.spyOn(controller, 'send').mockResolvedValue(true)
+    render(<CollaborationRoom controller={controller} state={withPeople} t={t}/>)
+    fireEvent.click(screen.getByRole('button', { name: '@ 提及成员' }))
+    fireEvent.click(screen.getByLabelText('陈经理'))
+    fireEvent.click(screen.getByLabelText('研究 Bot'))
+    fireEvent.change(screen.getByRole('textbox', { name: '消息' }), { target: { value: '请复核' } })
+    fireEvent.click(screen.getByRole('button', { name: '发送' }))
+    await waitFor(() => { expect(send).toHaveBeenCalledWith('请复核', {
+      mentionedEmployeeIds: ['research-bot'], mentionedUserIds: ['u2'],
+    }) })
     controller.dispose()
   })
 
@@ -77,7 +134,7 @@ describe('shared room UI', () => {
   it('dismisses member mentions with Escape and returns focus to the composer', () => {
     const { controller, state, t } = setup([])
     render(<CollaborationRoom controller={controller} state={state} t={t}/>)
-    fireEvent.click(screen.getByRole('button', { name: '@ 数字员工' }))
+    fireEvent.click(screen.getByRole('button', { name: '@ 提及成员' }))
     expect(screen.getByRole('group', { name: '数字员工' })).toBeTruthy()
     fireEvent.keyDown(document, { key: 'Escape' })
     expect(screen.queryByRole('group', { name: '数字员工' })).toBeNull()

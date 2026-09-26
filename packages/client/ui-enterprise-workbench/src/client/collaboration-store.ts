@@ -8,6 +8,8 @@ export interface CollaborationSurface {
   readonly kind: 'group' | 'channel'
   readonly name: string
   readonly memberCount: number
+  /** Current human's server-authorized unread room facts. */
+  readonly attention?: { readonly newMessages: boolean; readonly mentions: boolean }
   /** Native Sessions kept for Bot execution and hidden from Workspace browsing. */
   readonly executionSessionIds?: readonly string[]
   readonly workspaceId?: string
@@ -20,6 +22,7 @@ export interface CollaborationDetail extends CollaborationSurface {
   readonly workspaceId: string
   readonly members: readonly { employeeId: string; displayName: string }[]
   readonly memberUserIds: readonly string[]
+  readonly humanMembers?: readonly { userId: string; displayName: string }[]
   readonly topics: readonly { id: string; title: string; state: 'open' | 'settled'; sessionId?: string; destinations?: readonly { sessionId: string; employeeId: string }[] }[]
   readonly dutyEmployeeIds: readonly string[]
   readonly project?: { id: string; name: string; goal: string }
@@ -100,13 +103,22 @@ function array(value: unknown): unknown[] {
   if (!Array.isArray(value)) throw new Error('invalid-response')
   return value
 }
+function attention(value: unknown): CollaborationSurface['attention'] {
+  if (value === undefined) return undefined
+  const row = record(value)
+  const newMessages = row['newMessages'], mentions = row['mentions']
+  if (typeof newMessages !== 'boolean' || typeof mentions !== 'boolean') throw new Error('invalid-response')
+  return { newMessages, mentions }
+}
 function surface(value: unknown): CollaborationSurface {
   const row = record(value)
   if ((row['kind'] !== 'group' && row['kind'] !== 'channel') || typeof row['memberCount'] !== 'number') throw new Error('invalid-response')
   const executionSessionIds = row['executionSessionIds']
   if (executionSessionIds !== undefined && (!Array.isArray(executionSessionIds)
     || executionSessionIds.some(value => typeof value !== 'string'))) throw new Error('invalid-response')
+  const roomAttention = attention(row['attention'])
   return { id: string(row['id']), kind: row['kind'], name: string(row['name']), memberCount: row['memberCount'],
+    ...(roomAttention === undefined ? {} : { attention: roomAttention }),
     ...(executionSessionIds === undefined ? {} : { executionSessionIds: executionSessionIds as string[] }),
     ...(row['workspaceId'] === undefined ? {} : { workspaceId: string(row['workspaceId']) }),
     ...(row['projectId'] === undefined ? {} : { projectId: string(row['projectId']) }),
@@ -124,6 +136,10 @@ function detail(value: unknown): CollaborationDetail {
     ...surface(row), workspaceId: string(row['workspaceId']),
     members: array(row['members']).map((value) => { const member = record(value); return { employeeId: string(member['employeeId']), displayName: string(member['displayName']) } }),
     memberUserIds: array(row['memberUserIds']).map(string),
+    ...(row['humanMembers'] === undefined ? {} : { humanMembers: array(row['humanMembers']).map((value) => {
+      const member = record(value)
+      return { userId: string(member['userId']), displayName: string(member['displayName']) }
+    }) }),
     dutyEmployeeIds: array(row['dutyEmployeeIds']).map(string),
     topics: array(row['topics']).map((value) => {
       const topic = record(value)
@@ -184,6 +200,7 @@ export class CollaborationController {
   private pendingMessage: { fingerprint: string; id: string } | undefined
   private pendingReaction: { fingerprint: string; id: string } | undefined
   private readonly executionSessionIds = new Set<string>()
+  private readonly acknowledgedSequences = new Map<string, string>()
 
   /** @param fetch - Authenticated same-origin transport.
    * @param inspectSession - Native Session navigation for an execution source link.
@@ -224,6 +241,26 @@ export class CollaborationController {
     return response.json()
   }
   private cancelled(request: AbortController): boolean { return this.closed || request.signal.aborted }
+  /** Mark only the last event committed into the currently visible room view as read. */
+  async acknowledgeVisible(): Promise<void> {
+    const state = this.state.getSnapshot()
+    const id = state.selection?.detail.id
+    const sequence = state.events.at(-1)?.sequence
+    if (this.mainPanel !== 'enterprise-collaboration' || state.roomPhase !== 'ready'
+      || id === undefined || sequence === undefined || this.acknowledgedSequences.get(id) === sequence) return
+    try {
+      const result = record(await this.read(`/${encodeURIComponent(id)}/read`, new AbortController().signal, { sequence }))
+      if (string(result['sequence']) !== sequence) return
+      this.acknowledgedSequences.set(id, sequence)
+      const current = this.state.getSnapshot()
+      if (!this.closed && current.selection?.detail.id === id && current.events.at(-1)?.sequence === sequence) {
+        this.patch({ surfaces: current.surfaces.map(row => row.id === id && row.attention !== undefined
+          ? { ...row, attention: { newMessages: false, mentions: false } } : row) })
+      }
+    } catch (error) {
+      if (!this.closed && this.state.getSnapshot().selection?.detail.id === id) this.revoke(error)
+    }
+  }
   private begin(): AbortController {
     this.selectionRequest?.abort()
     this.pollRequest?.abort()
@@ -260,12 +297,19 @@ export class CollaborationController {
       const unavailable = error instanceof HttpFailure && [401, 403, 404, 503].includes(error.status)
       if (unavailable) { this.clearSelection(); this.clearExecutionSessions() }
       this.patch({ phase: unavailable ? 'unavailable' : 'error', ...(unavailable ? { surfaces: [] } : {}) })
-    }
+    } finally { if (this.rosterRequest === request) this.rosterRequest = undefined }
+  }
+
+  /** Poll the room roster without aborting a slower in-flight read. */
+  async refreshIfIdle(): Promise<void> {
+    if (this.rosterRequest !== undefined) return
+    await this.refresh()
   }
 
   /** Erase selection and room data when leaving or losing access. */
   clearSelection(): void {
     this.begin().abort()
+    this.acknowledgedSequences.clear()
     this.patch({ selection: null, roomPhase: 'idle', events: [], olderCursor: null, threadEvents: [], threadPhase: 'idle', searchResults: [], searchPhase: 'idle', busy: false, creation: null, creationProjectId: undefined, error: null })
   }
 
@@ -409,7 +453,11 @@ export class CollaborationController {
   }
 
   /** Commit one human room event; no Bot target is required. Retry reuses its stable message id. */
-  async send(text: string, options: { threadRoot?: string; mentionedEmployeeIds?: readonly string[] } = {}): Promise<boolean> {
+  async send(text: string, options: {
+    threadRoot?: string
+    mentionedEmployeeIds?: readonly string[]
+    mentionedUserIds?: readonly string[]
+  } = {}): Promise<boolean> {
     const selected = this.state.getSnapshot().selection
     if (selected === null || text.trim() === '' || this.state.getSnapshot().busy) return false
     const fingerprint = JSON.stringify([selected.detail.id, text, options])

@@ -45,4 +45,24 @@ describe('collaboration HTTP request validation', () => {
     expect(reaction.status).toBe(200)
     expect(react).toHaveBeenCalledWith(expect.anything(), 'group', { eventId: 'signed', emoji: '👍', requestId: 'react-1' })
   })
+
+  it('accepts an exact room read sequence and explicit human mentions', async () => {
+    const markRead = vi.fn(async () => {})
+    const message = vi.fn(async () => ({ delivered: true, targets: [] }))
+    const handler = new CollaborationHttpHandler({ markRead, message } as never, security as never)
+    const invalid = await handler.fetch(new Request('https://dsh/enterprise/surfaces/group/read', {
+      method: 'POST', body: JSON.stringify({ sequence: '0' }),
+    }))
+    expect(invalid.status).toBe(400)
+    expect(markRead).not.toHaveBeenCalled()
+    const response = await handler.fetch(new Request('https://dsh/enterprise/surfaces/group/read', {
+      method: 'POST', body: JSON.stringify({ sequence: '42' }),
+    }))
+    expect(await response.json()).toEqual({ sequence: '42' })
+    expect(markRead).toHaveBeenCalledWith(expect.objectContaining({ userId: 'member' }), 'group', '42')
+    await handler.fetch(new Request('https://dsh/enterprise/surfaces/group/messages', {
+      method: 'POST', body: JSON.stringify({ text: '@Alice review', mentionedUserIds: ['alice'] }),
+    }))
+    expect(message).toHaveBeenCalledWith(expect.anything(), 'group', { text: '@Alice review', mentionedUserIds: ['alice'] })
+  })
 })

@@ -88,6 +88,13 @@ export class CollaborationHttpHandler {
         }), { status: 201 })
       }
       if (id === undefined || target !== undefined) return failure(404, 'not-found')
+      if (operation === 'read') {
+        const sequence = stringField(body, 'sequence')
+        if (sequence === undefined || !/^[1-9][0-9]*$/u.test(sequence)
+          || BigInt(sequence) > 9_223_372_036_854_775_807n) return failure(400, 'invalid-room-read-cursor')
+        await this.service.markRead(principal, id, sequence)
+        return Response.json({ sequence })
+      }
       const topicId = optionalStringField(body, 'topicId')
       if (topicId === null) return failure(400, 'invalid-topic')
       if (operation === 'open') {
@@ -98,13 +105,15 @@ export class CollaborationHttpHandler {
       }
       if (operation === 'messages') {
         const text = stringField(body, 'text'), mentionedEmployeeIds = optionalStringArrayField(body,
-            'mentionedEmployeeIds'), messageId = optionalStringField(body, 'messageId')
+            'mentionedEmployeeIds'), mentionedUserIds = optionalStringArrayField(body, 'mentionedUserIds'),
+          messageId = optionalStringField(body, 'messageId')
         const threadRoot = optionalStringField(body, 'threadRoot')
-        if (text === undefined || mentionedEmployeeIds === null || messageId === null || threadRoot === null) return failure(400, 'invalid-body')
+        if (text === undefined || mentionedEmployeeIds === null || mentionedUserIds === null || messageId === null || threadRoot === null) return failure(400, 'invalid-body')
         return Response.json(await this.service.message(principal, id, { text,
           ...(topicId === undefined ? {} : { topicId }), ...(messageId === undefined ? {} : { messageId }),
           ...(threadRoot === undefined ? {} : { threadRoot }),
-          ...(mentionedEmployeeIds === undefined ? {} : { mentionedEmployeeIds }) }))
+          ...(mentionedEmployeeIds === undefined ? {} : { mentionedEmployeeIds }),
+          ...(mentionedUserIds === undefined ? {} : { mentionedUserIds }) }))
       }
       if (operation === 'reactions') {
         const eventId = stringField(body, 'eventId'), emoji = stringField(body, 'emoji'), requestId = stringField(body, 'requestId')

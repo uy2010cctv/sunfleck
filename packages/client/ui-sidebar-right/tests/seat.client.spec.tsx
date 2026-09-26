@@ -353,6 +353,19 @@ describe('RightbarSeat presentation', () => {
     expect(h.frame.closeRightbar).toHaveBeenCalled()
   })
 
+  it('clears Session fullscreen presentation when root navigation takes focus', async () => {
+    const h = await mountSeat()
+    h.open()
+    act(() => { h.runtime.ctx.sidebarRightNavigationTabs.register({
+      id: 'workspace', title: () => 'Workspace', icon: () => null,
+    }) })
+    fireEvent.click(element(h.view.container, '[data-sidebar-right-mode]'))
+    expect(h.frame.openRightbar).toHaveBeenLastCalledWith(true, true)
+    fireEvent.click(element(h.view.container, '[data-right-navigation-tab="workspace"]'))
+    expect(h.frame.openRightbar).toHaveBeenLastCalledWith(true, false)
+    expect(element(h.view.container, '[data-sidebar-right-session]').hidden).toBe(true)
+  })
+
   it('derives narrow fullscreen without recording mode and returns to normal when widened', async () => {
     const h = await mountSeat(767, false)
     h.open()

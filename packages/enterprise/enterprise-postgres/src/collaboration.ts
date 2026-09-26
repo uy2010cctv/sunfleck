@@ -96,10 +96,10 @@ export async function migrateCollaboration(database: EnterprisePostgresDatabase)
     await tx.query('SELECT pg_advisory_xact_lock($1)', [0x4453434f])
     await tx.query('CREATE TABLE IF NOT EXISTS dsh_enterprise_collaboration_meta (version INTEGER NOT NULL)')
     const version = (await tx.query<{ version: number }>('SELECT version FROM dsh_enterprise_collaboration_meta')).rows[0]?.version
-    if (version !== undefined && version !== 1 && version !== 2 && version !== 3) {
+    if (version !== undefined && version !== 1 && version !== 2 && version !== 3 && version !== 4) {
       throw new Error(`unsupported collaboration schema version ${version}`)
     }
-    if (version === 3) return
+    if (version === 4) return
     if (version === undefined) {
       await tx.query(`CREATE TABLE dsh_enterprise_collaboration_config (
       surface_id TEXT PRIMARY KEY REFERENCES dsh_enterprise_surface_directory(surface_id) ON DELETE CASCADE,
@@ -148,12 +148,32 @@ export async function migrateCollaboration(database: EnterprisePostgresDatabase)
       await tx.query(taskOwnersTable)
       await tx.query('UPDATE dsh_enterprise_collaboration_meta SET version=2 WHERE version=1')
     }
-    await tx.query(taskOwnersTable)
-    await tx.query('ALTER TABLE dsh_enterprise_collaboration_events ADD COLUMN requested_by_user_id TEXT')
-    await tx.query(dispatchTable)
-    await tx.query(`CREATE INDEX dsh_enterprise_collaboration_dispatch_poll
-      ON dsh_enterprise_collaboration_dispatch(state,lease_until,org_id,surface_id,event_id)`)
-    await tx.query('UPDATE dsh_enterprise_collaboration_meta SET version=3 WHERE version=2')
+    if (version === undefined || version === 1 || version === 2) {
+      await tx.query(taskOwnersTable)
+      await tx.query('ALTER TABLE dsh_enterprise_collaboration_events ADD COLUMN requested_by_user_id TEXT')
+      await tx.query(dispatchTable)
+      await tx.query(`CREATE INDEX dsh_enterprise_collaboration_dispatch_poll
+        ON dsh_enterprise_collaboration_dispatch(state,lease_until,org_id,surface_id,event_id)`)
+      await tx.query('UPDATE dsh_enterprise_collaboration_meta SET version=3 WHERE version=2')
+    }
+    await tx.query(`CREATE TABLE dsh_enterprise_collaboration_read_cursors (
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      surface_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      sequence BIGINT NOT NULL CHECK(sequence>0),
+      PRIMARY KEY(org_id,surface_id,user_id),
+      FOREIGN KEY(surface_id,user_id) REFERENCES dsh_enterprise_collaboration_members(surface_id,user_id) ON DELETE CASCADE)`)
+    await tx.query(`CREATE INDEX dsh_enterprise_collaboration_event_mentions
+      ON dsh_enterprise_collaboration_events USING GIN ((event_json->'tags'))`)
+    if (version !== undefined) {
+      await tx.query(`INSERT INTO dsh_enterprise_collaboration_read_cursors(org_id,surface_id,user_id,sequence)
+        SELECT d.org_id,m.surface_id,m.user_id,max(e.sequence)
+        FROM dsh_enterprise_collaboration_members m
+        JOIN dsh_enterprise_surface_directory d ON d.surface_id=m.surface_id
+        JOIN dsh_enterprise_collaboration_events e ON e.org_id=d.org_id AND e.surface_id=m.surface_id
+        GROUP BY d.org_id,m.surface_id,m.user_id`)
+    }
+    await tx.query('UPDATE dsh_enterprise_collaboration_meta SET version=4 WHERE version=3')
   })
 }
 

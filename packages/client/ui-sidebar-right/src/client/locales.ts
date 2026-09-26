@@ -8,6 +8,10 @@
 
 /** Simplified Chinese dictionary and key-set source of truth. */
 export const zh = {
+  'navigation.label': '右侧导航',
+  'navigation.session': '当前会话',
+  'navigation.reopen': '打开右侧导航',
+  'navigation.close': '收起右侧导航',
   'chrome.expand': '打开侧边栏',
   'chrome.expandAria': '打开右侧边栏',
   'chrome.collapse': '收起侧边栏',
@@ -36,6 +40,10 @@ export type SidebarRightKey = keyof typeof zh
 
 /** English dictionary, checked against the Chinese key set. */
 export const en = {
+  'navigation.label': 'Right sidebar',
+  'navigation.session': 'Session',
+  'navigation.reopen': 'Open right navigation',
+  'navigation.close': 'Close right navigation',
   'chrome.expand': 'Open sidebar',
   'chrome.expandAria': 'Open right sidebar',
   'chrome.collapse': 'Collapse sidebar',

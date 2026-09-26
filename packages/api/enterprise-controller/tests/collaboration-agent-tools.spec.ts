@@ -115,6 +115,18 @@ describe('shared room agent tools', () => {
       idempotencyKey: 'revoked', targetEmployeeIds: ['bot-b'] })).isError).toBe(true)
     expect(app.events).toHaveLength(1)
   })
+  it('signs Bot mentions of current human members and rejects an outsider', async () => {
+    const app = await setup()
+    const result = await app.call('room_post', { content: 'Alice, review is ready.', sourceEventId: app.initial.id,
+      idempotencyKey: 'mention-alice', mentionedUserIds: ['alice'] })
+    expect(result.isError).toBeFalsy()
+    expect(app.events[1]?.event.tags).toContainEqual(['dsh-mention', 'alice'])
+    expect(verifyEvent(app.events[1]!.event)).toBe(true)
+    const rejected = await app.call('room_post', { content: 'Private ping', sourceEventId: app.initial.id,
+      idempotencyKey: 'mention-outsider', mentionedUserIds: ['outsider'] })
+    expect(rejected.isError).toBe(true)
+    expect(app.events).toHaveLength(2)
+  })
   it('transfers task ownership with a signed handoff and rejects a competing owner', async () => {
     const app = await setup()
     const result = await app.call('room_handoff', { content: 'Take the review.', sourceEventId: app.initial.id,

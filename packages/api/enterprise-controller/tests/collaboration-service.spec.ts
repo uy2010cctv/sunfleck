@@ -38,6 +38,7 @@ describe('collaboration routing through native Sessions', () => {
     expect(await fixture.service.list(actor)).toEqual([{
       id: 'surface', kind: 'group', name: 'Support', memberCount: 4,
       projectId: 'project-q4', teamDefinitionId: 'charter-q4', workspaceId: 'shared', executionSessionIds: [],
+      attention: { newMessages: false, mentions: false },
     }])
   })
   it('lists native execution Session ids for hiding duplicate Workspace rows', async () => {

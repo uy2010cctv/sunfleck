@@ -25,7 +25,7 @@ kind: "package-reference"
 <a id="use-this-package"></a>
 ## 使用本包
 
-用侧边栏浏览 Workspace 及其 Session、重排它们并新建会话；在 Session Intent 主视觉区用选择器为新会话选择 Workspace。打开的 Workspace 默认显示五条空闲的非空白 Session。正在运行的 Session（包括有子会话正在运行的父会话）始终按原顺序显示，不占用这五条配额；当前选中的空白**新会话**在首条提示词落地前也作为额外行。每次点击**展开其余**最多再显示五条空闲 Session；全部显示后，**收起**恢复初始行数，但仍显示正在运行的 Session。关闭再打开 Workspace 也会恢复该折叠投影。Client 插件可让仅供执行的 Session 不出现在工作区浏览和搜索中，但不改变 Workspace 成员关系、保存的顺序或 Session 日志。企业 Workspace 行会标出 Host 提供的个人、部门共享或项目类型。
+用右侧栏的 Workspace 标签浏览 Workspace 及其 Session、重排它们并新建会话；在 Session Intent 主视觉区用选择器为新会话选择 Workspace。打开的 Workspace 默认显示五条空闲的非空白 Session。正在运行的 Session（包括有子会话正在运行的父会话）始终按原顺序显示，不占用这五条配额；当前选中的空白**新会话**在首条提示词落地前也作为额外行。每次点击**展开其余**最多再显示五条空闲 Session；全部显示后，**收起**恢复初始行数，但仍显示正在运行的 Session。关闭再打开 Workspace 也会恢复该折叠投影。Client 插件可让仅供执行的 Session 不出现在工作区浏览和搜索中，但不改变 Workspace 成员关系、保存的顺序或 Session 日志。企业 Workspace 行会标出 Host 提供的个人、部门共享或项目类型。
 
 ### 重排序与视图选项
 
@@ -181,7 +181,7 @@ Workspace 与 Session 悬浮卡片会复制对应行被截断的值：激活 Wor
 
 以下页面覆盖侧边栏宿主、主视觉区界面与选取后端。
 
-- [ui-sidebar](../ui-sidebar/README.zh.md)——承载 `sidebar.workspaces` 子 slot 的侧边栏外壳。
+- [ui-sidebar-right](../ui-sidebar-right/README.zh.md)——承载 Workspace 导航标签的右侧栏。
 - [ui-conversation](../ui-conversation/README.zh.md)——承载 Session Intent 主视觉区选择器子 slot 的聊天界面。
 - [directory-picker-native](../../host/directory-picker-native/README.zh.md)——填充目录流子 slot 的 OS 选择器后端。
 - [Workspace Controller](../../api/workspace-controller/README.zh.md)——负责 Workspace、成员关系与 Workspace 分组顺序的 Host 变更和框架无关 Client 投影。
@@ -207,6 +207,7 @@ Workspace 与 Session 悬浮卡片会复制对应行被截断的值：激活 Wor
 - **没有模糊内容搜索或事件深链接**：内容后端采用字面 token/短语匹配，选择结果会打开 Session，而不是匹配的事件。
 - **没有 Session 删除**：会话可以归档但绝不会被删除；已归档的行通过「已归档会话」视图筛选与搜索结果中的取消归档操作原位恢复，删除 Workspace 注册记录不会删除 Session。
 - **待处理的用户交互不会聚合到折叠的分组上**：折叠分组内正在等待的行不会点亮分组头指示，只有展开该分组后才可见。
+- **完成提醒只保留在当前进程**：Workspace 标签使用 `uiSession` 观察到的未读完成状态，完整刷新浏览器会清除提示点。每位用户的持久 Session 已读游标尚未保存；房间消息与提及的游标则分别持久化在 PostgreSQL 中。
 - **原生文件夹选择依赖本地 Host 载体**：在 `-native` 组合下，进程内部署或远程浏览器部署无法打开本地操作系统对话框；可远程的选取是 `-browse` 组合的应用内流程。
 
 <a id="dev-note"></a>

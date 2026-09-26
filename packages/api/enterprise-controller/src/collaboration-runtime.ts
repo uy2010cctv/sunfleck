@@ -446,6 +446,7 @@ export function composeCollaboration(ctx: Context, services: {
         const prior = await roomEvents.findByRequest(row.orgId, row.id, 'human', actor.userId, requestId)
         const signedInput = { type: 'text' as const, content: input.text, requestId,
           ...(input.threadRoot === undefined ? {} : { threadRoot: input.threadRoot }),
+          ...(input.mentionedUserIds === undefined ? {} : { mentionedUserIds: input.mentionedUserIds }),
           ...(dispatch.route === undefined ? { targetEmployeeIds: dispatch.targets } : { route: dispatch.route }),
           ...(prior === undefined ? {} : { createdAt: prior.event.created_at }) }
         if (prior !== undefined) {
@@ -490,6 +491,8 @@ export function composeCollaboration(ctx: Context, services: {
         }
       },
       list: (row, options) => roomEvents.list(row.orgId, row.id, options),
+      attention: (row, userId) => roomEvents.attention(row.orgId, row.id, userId),
+      markRead: (row, userId, sequence) => roomEvents.markRead(row.orgId, row.id, userId, sequence),
       get: (row, eventId) => roomEvents.getByEventId(row.orgId, row.id, eventId),
       search: (row, query, limit) => roomEvents.search(row.orgId, row.id, query, { limit }),
       present: async (actor, row, value) => {
@@ -558,6 +561,11 @@ export function composeCollaboration(ctx: Context, services: {
     workspaceVisible: async (actor, id) => (await security.authorizeApiAsync(actor, 'session.create', { workspaceId: id })).allowed,
     memberWorkspaceVisible: async (orgId, userId, workspaceId) => (await database.identity.listWorkspaceGrants({ orgId,
       userId })).some(grant => grant.workspaceId === workspaceId),
+    humanMembers: async (_actor, row) => {
+      const users = await database.identity.listUsers(row.orgId)
+      return row.memberUserIds.map(userId => ({ userId,
+        displayName: users.find(user => user.id === userId)?.displayName ?? userId }))
+    },
     employee,
     project: async (actor, id) => {
       const project = await database.projects.requireMember(actor.orgId, projectId(id), { userId: actor.userId })

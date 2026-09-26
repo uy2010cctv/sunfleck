@@ -1,10 +1,10 @@
 /**
  * ui-workspace contracts. Two registrations share this package:
  *
- * - WorkspaceBrowser fills the sidebar shell's `sidebar.workspaces` hole —
+ * - WorkspaceBrowser fills the right column's `sidebar.right.navigation.tab` Workspace entry —
  *   the whole browsing region (section header, search, grouped/flat session
  *   list, workspace dialogs). It registers this package's viewing store and
- *   consumes the shell's two-fact owner share (wide / expandSidebar).
+ *   consumes the right-navigation owner share (wide / expandSidebar).
  * - WorkspacePicker fills the conversation empty-state hole (menu + error
  *   dialog shared with the browser).
  *
@@ -401,6 +401,7 @@ export type RowToastProps =
 /** Full browser props: shell owner share + viewing store + injected actions + the locale seat. */
 export type WorkspaceBrowserProps =
   PropsRuntime<'sidebar.workspaces'>
+  & { closeNavigation?: () => void }
   & PropsRenderSlots<
     'sidebar.workspaces.directoryFlow' | 'sidebar.workspaces.session.menu.item' | 'sidebar.workspaces.session.row.action'
   >

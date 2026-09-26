@@ -1,7 +1,10 @@
 import { randomBytes, randomUUID } from 'node:crypto'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { finalizeEvent, generateSecretKey, getPublicKey } from 'nostr-tools/pure'
+import { Pool } from 'pg'
 import { createEnterprisePostgresComposition, PostgresRoomEventRepository } from '../src/index.ts'
+import { EnterprisePostgresDatabase } from '../src/index.ts'
+import { migrateCollaboration } from '../src/collaboration.ts'
 import type { EnterprisePostgresComposition, RoomEventAppend, RoomNostrEvent } from '../src/index.ts'
 
 const url = process.env.DSH_TEST_POSTGRES_URL
@@ -61,7 +64,7 @@ describe.skipIf(url === undefined)('PostgreSQL signed room events', () => {
 
   it('keeps rooms and native destinations readable with the version 2 event schema', async () => {
     const version = await db.database.query<{ version: number }>('SELECT version FROM dsh_enterprise_collaboration_meta')
-    expect(version.rows).toEqual([{ version: 3 }])
+    expect(version.rows).toEqual([{ version: 4 }])
     await db.collaboration.bind({ surfaceId, topicId: '', employeeId: 'helper', sessionId: randomUUID() })
     const resumed = new PostgresRoomEventRepository(db.database)
     expect(await db.collaboration.get(orgId, surfaceId)).toBeDefined()
@@ -98,6 +101,69 @@ describe.skipIf(url === undefined)('PostgreSQL signed room events', () => {
     expect(await db.roomEvents.list(otherOrgId, surfaceId)).toEqual([])
     expect(await db.roomEvents.list(orgId, otherSurfaceId)).toEqual([])
     expect(BigInt(third.sequence)).toBeGreaterThan(BigInt(reply.sequence))
+  })
+
+  it('persists each human read cursor and classifies signed posts without counting own messages', async () => {
+    const own = await db.roomEvents.append(input('Own post'))
+    const member = randomUUID()
+    await db.database.query('INSERT INTO users(id,org_id,username,display_name,disabled) VALUES($1,$2,$1,$1,false)', [member, orgId])
+    await db.database.query('INSERT INTO dsh_enterprise_collaboration_members(surface_id,user_id) VALUES($1,$2)', [surfaceId, member])
+    expect(await db.roomEvents.attention(orgId, surfaceId, actorId)).toEqual({ newMessages: false, mentions: false })
+    expect(await db.roomEvents.attention(orgId, surfaceId, member)).toEqual({ newMessages: true, mentions: false })
+    expect(await db.roomEvents.markRead(orgId, otherSurfaceId, member, own.sequence)).toBe(false)
+    expect(await db.roomEvents.markRead(orgId, surfaceId, member, own.sequence)).toBe(true)
+    expect(await new PostgresRoomEventRepository(db.database).attention(orgId, surfaceId, member))
+      .toEqual({ newMessages: false, mentions: false })
+    const memberKey = generateSecretKey()
+    await db.roomEvents.ensureRoomActorKey({ orgId, actorKind: 'human', actorId: member, pubkey: getPublicKey(memberKey) })
+    const tagged = finalizeEvent({ created_at: Math.floor(Date.now() / 1000), kind: 9,
+      tags: [['h', surfaceId], ['dsh-mention', actorId]], content: 'Please review' }, memberKey)
+    const reply = await db.roomEvents.append({ orgId, surfaceId, authorKind: 'human', authorId: member,
+      event: { id: tagged.id, pubkey: tagged.pubkey, created_at: tagged.created_at, kind: tagged.kind,
+        tags: tagged.tags, content: tagged.content, sig: tagged.sig } })
+    expect(await db.roomEvents.attention(orgId, surfaceId, actorId)).toEqual({ newMessages: true, mentions: true })
+    await db.roomEvents.markRead(orgId, surfaceId, actorId, reply.sequence)
+    await db.roomEvents.markRead(orgId, surfaceId, actorId, own.sequence)
+    expect(await db.roomEvents.attention(orgId, surfaceId, actorId)).toEqual({ newMessages: false, mentions: false })
+    const employeeKey = generateSecretKey()
+    await db.roomEvents.ensureRoomActorKey({ orgId, actorKind: 'employee', actorId: 'assistant',
+      pubkey: getPublicKey(employeeKey) })
+    const botPost = finalizeEvent({ created_at: Math.floor(Date.now() / 1000), kind: 9,
+      tags: [['h', surfaceId]], content: 'Work complete' }, employeeKey)
+    await db.roomEvents.append({ orgId, surfaceId, authorKind: 'employee', authorId: 'assistant',
+      event: { id: botPost.id, pubkey: botPost.pubkey, created_at: botPost.created_at, kind: botPost.kind,
+        tags: botPost.tags, content: botPost.content, sig: botPost.sig } })
+    expect(await db.roomEvents.attention(orgId, surfaceId, actorId)).toEqual({ newMessages: true, mentions: false })
+    await db.database.query('DELETE FROM dsh_enterprise_collaboration_members WHERE surface_id=$1 AND user_id=$2', [surfaceId, member])
+    expect(await db.roomEvents.markRead(orgId, surfaceId, member, own.sequence)).toBe(false)
+  })
+
+  it('starts existing members at the latest event when migrating an old room', async () => {
+    const schema = `dsh_read_${randomUUID().replaceAll('-', '')}`
+    await db.database.query(`CREATE SCHEMA ${schema}`)
+    const isolated = new EnterprisePostgresDatabase(new Pool({ connectionString: url, max: 1,
+      options: `-c search_path=${schema}` }))
+    try {
+      await isolated.query('CREATE TABLE organizations(id TEXT PRIMARY KEY)')
+      await isolated.query('CREATE TABLE dsh_enterprise_surface_directory(surface_id TEXT PRIMARY KEY,org_id TEXT NOT NULL)')
+      await isolated.query('CREATE TABLE dsh_enterprise_collaboration_members(surface_id TEXT NOT NULL,user_id TEXT NOT NULL,PRIMARY KEY(surface_id,user_id))')
+      await isolated.query('CREATE TABLE dsh_enterprise_collaboration_events(sequence BIGINT PRIMARY KEY,org_id TEXT NOT NULL,surface_id TEXT NOT NULL,event_json JSONB NOT NULL)')
+      await isolated.query('CREATE TABLE dsh_enterprise_collaboration_meta(version INTEGER NOT NULL)')
+      await isolated.query('INSERT INTO dsh_enterprise_collaboration_meta(version) VALUES(3)')
+      await isolated.query("INSERT INTO organizations(id) VALUES('old-org')")
+      await isolated.query("INSERT INTO dsh_enterprise_surface_directory(surface_id,org_id) VALUES('old-room','old-org')")
+      await isolated.query("INSERT INTO dsh_enterprise_collaboration_members(surface_id,user_id) VALUES('old-room','old-user')")
+      await isolated.query("INSERT INTO dsh_enterprise_collaboration_events(sequence,org_id,surface_id,event_json) VALUES(7,'old-org','old-room','{\"tags\":[]}')")
+      await migrateCollaboration(isolated)
+      const cursors = await isolated.query<{ sequence: string }>('SELECT sequence::text AS sequence FROM dsh_enterprise_collaboration_read_cursors')
+      expect(cursors.rows).toEqual([{ sequence: '7' }])
+      await migrateCollaboration(isolated)
+      expect((await isolated.query<{ version: number }>('SELECT version FROM dsh_enterprise_collaboration_meta')).rows)
+        .toEqual([{ version: 4 }])
+    } finally {
+      await isolated.end()
+      await db.database.query(`DROP SCHEMA ${schema} CASCADE`)
+    }
   })
 
   it('searches only this room and deduplicates a native source cursor', async () => {

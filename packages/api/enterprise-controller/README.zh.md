@@ -36,6 +36,8 @@ kind: "package-reference"
 
 `/enterprise/surfaces` 的 PostgreSQL 协作路由支持显式成员列表、群聊与频道创建、详情、`/by-session/:sessionId` 恢复、原生目标会话打开和文本投递。创建支持按认证组织及创建者隔离的可选 `idempotencyKey`：解析值相同则复用已保存会话，不同则返回 409 且不写入。创建要求已有可访问工作区、可访问该工作区的显式人员成员，以及可见的已发布员工。详情与打开操作均先验证成员和工作区权限。原生 `session.prompt` 在重新加载后仍使用同一路由，并返回授权的响应 Session 标识供导航。团队重试先检查持久化请求回执，再按生命周期路由，因此运行完成或等待人工时仍复用原回执；员工目标通过 `enterpriseWork.start` 绑定准确的已发布版本，恢复时保留独立的基础工作模式预设。群聊中的 @ 匹配包括空格在内的完整成员名称，并优先采用最长有效名称投递到员工会话，已有原生会话中的未提及消息只记录而不启动员工。频道按话题和值班策略路由，每个话题与员工组合保留独立原生会话，`/done` 结束话题。公告频道通过隐私检查后写入组织记忆提案，不启动 Agent。附件明确拒绝。消息保留原生请求标识、协作标识和认证发送者。员工私聊及令牌入站路由仍需单独装配服务；项目路由保留成员校验、归档和可选记忆提炼。
 
+有权限的房间列表行提供 `attention.newMessages` 和 `attention.mentions`，表示认证用户的持久已读游标之后的签名消息。`GET /enterprise/surfaces/:id/events` 返回精确序号；客户端展示该页后，以 `{ "sequence": "..." }` 调用 `POST /enterprise/surfaces/:id/read`，响应返回同一序号。空页不推进游标。人类消息或 Agent 的 `room_post` 可传 `mentionedUserIds`，服务先检查当前成员身份，再写入签名的 `dsh-mention` 标签。房间详情包含有权限查看的人类成员显示名。
+
 按成员权限过滤的房间列表包含各房间的 Workspace、绑定的原生执行 Session 编号以及可选的项目和章程引用，客户端据此分组，并从工作区浏览中省略执行行，无需读取全组织目录。当前 Workspace 授权不通过的会话不会进入列表。新房间只能关联创建者已加入的进行中项目。`GET /enterprise/projects/:id` 在项目成员校验后返回持久化成员名册，重新打开项目详情时不再根据浏览器操作推测成员。
 
 企业 Profile 的 `POST /enterprise/projects` 接收名称和目标。控制器在 `projectWorkspaceRoot` 下选择目录、注册原生 Workspace、原子准备项目授权，最后提交项目；响应包含 Workspace 编号。新增成员后会向有权限的订阅者重新发布该工作区。已归档项目仍可读取，但不能在其工作区启动新 Session。

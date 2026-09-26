@@ -5,9 +5,12 @@ import type { MainPanelId } from '@deepseek-ai/dsh-client-ui-layout/client'
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-workspace/client'
+import type {} from '@deepseek-ai/dsh-client-ui-sidebar-right/client'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
+import type { HostObservable } from '@deepseek-ai/dsh-client-ui-slots'
+import { IconNewChatOutlineRegular, IconUsersOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
 import { CollaborationController } from './collaboration-store.ts'
-import { CollaborationSetup, CollaborationSidebar, type CollaborationChoices, type CollaborationInjected } from './CollaborationNavigation.tsx'
+import { CollaborationSetup, CollaborationGroupNavigation, CollaborationChannelNavigation, type CollaborationChoices, type CollaborationInjected } from './CollaborationNavigation.tsx'
 import { COLLABORATION_NS, en, zh } from './collaboration-locales.ts'
 import { applyCollaborationDetails } from './collaboration-details.ts'
 
@@ -46,7 +49,7 @@ function activeProjects(value: unknown): readonly { id: string; name: string }[]
  */
 export function applyCollaboration(ctx: Context, roomCreated?: () => void): CollaborationWorkbenchActions {
   let current: CollaborationController | undefined
-  ctx.inject(['layout', 'slots', 'locale', 'sessions', 'workspaces', 'uiWorkspace', 'remote', 'remote.agentPresets', 'remote.enterpriseTeamDefinition'], (scope) => {
+  ctx.inject(['layout', 'slots', 'locale', 'sessions', 'workspaces', 'uiWorkspace', 'sidebarRightNavigationTabs', 'remote', 'remote.agentPresets', 'remote.enterpriseTeamDefinition'], (scope) => {
     const controller = new CollaborationController(
       (url, init) => fetch(url, init),
       async (id, signal) => {
@@ -58,6 +61,10 @@ export function applyCollaboration(ctx: Context, roomCreated?: () => void): Coll
       (ids) => { scope.uiWorkspace.setHiddenSessions('enterprise-collaboration', ids.map(SessionId)) },
     )
     current = controller
+    scope.effect(() => {
+      const interval = setInterval(() => { void controller.refreshIfIdle() }, 7500)
+      return () => { clearInterval(interval) }
+    }, 'enterprise collaboration roster refresh')
     scope.effect(() => () => {
       if (current === controller) current = undefined
       scope.uiWorkspace.setHiddenSessions('enterprise-collaboration', [])
@@ -80,9 +87,20 @@ export function applyCollaboration(ctx: Context, roomCreated?: () => void): Coll
         projects: projectsResponse.ok ? activeProjects(await projectsResponse.json()) : [],
       }
     }
-    const inject = (): CollaborationInjected => ({ hooks: { collaboration: controller.state }, controller, loadChoices })
+    const inject = (): CollaborationInjected => ({ hooks: { collaboration: controller.state }, controller, loadChoices,
+      occludesMain: scope.sidebarRightNavigationTabs.occludesMain })
+    const attentionFor = (kind: 'group' | 'channel'): HostObservable<boolean> => ({
+      subscribe: listener => controller.state.subscribe(listener),
+      getSnapshot: () => controller.state.getSnapshot().surfaces.some(row => row.kind === kind
+        && (row.attention?.newMessages === true || row.attention?.mentions === true)),
+    })
     scope.slots.inject('main', () => scope.slots.register({ name: 'main', key: PANEL_ID, locale: COLLABORATION_NS, inject }, CollaborationSetup))
-    scope.slots.inject('sidebar.sections', () => scope.slots.register({ name: 'sidebar.sections', id: 'enterprise-collaboration', order: 100, locale: COLLABORATION_NS, inject }, CollaborationSidebar))
+    scope.effect(() => scope.sidebarRightNavigationTabs.register({ id: 'group', order: 200, title: () => scope.locale.bind(COLLABORATION_NS)('groups'), icon: IconUsersOutlineRegular, attention: attentionFor('group') }), 'enterprise collaboration group tab')
+    scope.effect(() => scope.sidebarRightNavigationTabs.register({ id: 'channel', order: 300, title: () => scope.locale.bind(COLLABORATION_NS)('channels'), icon: IconNewChatOutlineRegular, attention: attentionFor('channel') }), 'enterprise collaboration channel tab')
+    scope.slots.inject('sidebar.right.navigation.tab', function* () {
+      yield scope.slots.register({ name: 'sidebar.right.navigation.tab', key: 'group', locale: COLLABORATION_NS, inject }, CollaborationGroupNavigation)
+      yield scope.slots.register({ name: 'sidebar.right.navigation.tab', key: 'channel', locale: COLLABORATION_NS, inject }, CollaborationChannelNavigation)
+    })
     applyCollaborationDetails(scope, controller)
     scope.effect(() => {
       const reset = scope.on('connection/reset', () => {

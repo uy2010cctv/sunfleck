@@ -18,6 +18,7 @@ export interface CollaborationDetail {
   readonly workspaceId: string
   readonly memberUserIds: readonly string[]
   readonly members: readonly CollaborationEmployee[]
+  readonly humanMembers?: readonly { readonly userId: string; readonly displayName: string }[]
   readonly topics: readonly CollaborationTopic[]
   readonly dutyEmployeeIds: readonly string[]
   readonly topicPolicy?: 'thread' | 'command' | 'lane'
@@ -46,6 +47,7 @@ export interface CollaborationMessageInput {
   readonly topicId?: string
   readonly threadRoot?: string
   readonly mentionedEmployeeIds?: readonly string[]
+  readonly mentionedUserIds?: readonly string[]
   readonly messageId?: string
   /** Native composer source, set only by the Host. */
   readonly sourceSessionId?: string
@@ -81,6 +83,8 @@ export interface CollaborationRoomRuntime {
     readonly threadRoot?: string }): Promise<readonly RoomEvent[]>
   get(row: CollaborationRecord, eventId: string): Promise<RoomEvent | undefined>
   search(row: CollaborationRecord, query: string, limit: number): Promise<readonly RoomEvent[]>
+  attention(row: CollaborationRecord, userId: string): Promise<{ readonly newMessages: boolean; readonly mentions: boolean }>
+  markRead(row: CollaborationRecord, userId: string, sequence: string): Promise<boolean>
   present(actor: EnterprisePrincipal, row: CollaborationRecord, event: RoomEvent): Promise<CollaborationRoomEvent>
   prompt(row: CollaborationRecord, current: RoomEvent): Promise<string>
   dispatchCommitted?(actor: EnterprisePrincipal, row: CollaborationRecord,
@@ -107,6 +111,10 @@ export interface CollaborationRuntime {
   /** A new room may join only a member-visible active project. */
   projectActive(actor: EnterprisePrincipal, id: string): Promise<boolean>
   team(actor: EnterprisePrincipal, id: string): Promise<CollaborationDetail['team']>
+  humanMembers?(actor: EnterprisePrincipal, row: CollaborationRecord): Promise<readonly {
+    readonly userId: string
+    readonly displayName: string
+  }[]>
   createSession(actor: EnterprisePrincipal,
     input: { sessionId: string; workspaceId: string; employee: CollaborationEmployee; objective: string }): Promise<string>
   prompt(actor: EnterprisePrincipal, sessionId: string, record: CollaborationRecord, input: CollaborationMessageInput): Promise<void>
@@ -145,6 +153,21 @@ export class CollaborationService {
     const events = await room.list(row, options)
     return { items: await Promise.all(events.map(event => room.present(actor, row, event))),
       nextCursor: events.at(-1)?.sequence ?? null, prevCursor: events[0]?.sequence ?? null }
+  }
+
+  /** Advance this human's room cursor to an exact event from the displayed room page.
+   * @param actor - Authenticated human.
+   * @param id - Room identity.
+   * @param sequence - Last displayed signed event sequence.
+   */
+  async markRead(actor: EnterprisePrincipal, id: string, sequence: string): Promise<void> {
+    const row = await this.authorized(actor, id)
+    if (!/^[1-9][0-9]*$/u.test(sequence) || BigInt(sequence) > 9_223_372_036_854_775_807n) {
+      throw new CollaborationError('invalid-room-read-cursor')
+    }
+    if (!await this.requireRoom().markRead(row, actor.userId, sequence)) {
+      throw new CollaborationError('room-read-event-not-found', 404)
+    }
   }
 
   /** Search signed room history after current membership validation.
@@ -323,6 +346,8 @@ export class CollaborationService {
       id: row.id, kind: row.kind,
       name: row.name, memberCount: row.memberEmployeeIds.length + row.memberUserIds.length,
       workspaceId: row.workspaceId,
+      attention: this.runtime.room === undefined ? { newMessages: false, mentions: false }
+        : await this.runtime.room.attention(row, actor.userId),
       executionSessionIds: (await this.store.sessions(row.id)).map(binding => binding.sessionId),
       ...(row.projectId === undefined ? {} : { projectId: row.projectId }),
       ...(row.teamDefinitionId === undefined ? {} : { teamDefinitionId: row.teamDefinitionId }) })))
@@ -353,6 +378,7 @@ export class CollaborationService {
     const project = row.projectId === undefined ? undefined : await this.runtime.project(actor, row.projectId)
     const team = row.teamDefinitionId === undefined ? undefined : await this.runtime.team(actor, row.teamDefinitionId)
     const sessions = await this.store.sessions(id)
+    const humanMembers = await this.runtime.humanMembers?.(actor, row)
     const topics = (await this.store.topics(id)).map((topic) => {
       const destinations = sessions.filter(value => value.topicId === topic.id).map(value => ({ sessionId: value.sessionId,
         employeeId: value.employeeId }))
@@ -363,6 +389,7 @@ export class CollaborationService {
       id, kind: row.kind, name: row.name, workspaceId: row.workspaceId, memberUserIds: row.memberUserIds,
       memberCount: row.memberEmployeeIds.length + row.memberUserIds.length,
       members: employees.filter((value): value is CollaborationEmployee => value !== undefined),
+      ...(humanMembers === undefined ? {} : { humanMembers }),
       topics, dutyEmployeeIds: row.dutyEmployeeIds,
       ...(row.topicPolicy === undefined ? {} : { topicPolicy: row.topicPolicy }),
       ...(row.respondPolicy === undefined ? {} : { respondPolicy: row.respondPolicy }),
@@ -505,6 +532,11 @@ export class CollaborationService {
     if (input.text.trim() === '' || input.text.length > 20_000) throw new CollaborationError('invalid-text')
     if (input.mentionedEmployeeIds?.some(id => !row.memberEmployeeIds.includes(id))) {
       throw new CollaborationError('employee-not-member', 404)
+    }
+    if ((input.mentionedUserIds?.length ?? 0) > 32
+      || new Set(input.mentionedUserIds).size !== (input.mentionedUserIds?.length ?? 0)
+      || input.mentionedUserIds?.some(id => !row.memberUserIds.includes(id))) {
+      throw new CollaborationError('human-not-member', 404)
     }
     if (input.sourceSessionId !== undefined) {
       const binding = await this.store.bySession(input.sourceSessionId)

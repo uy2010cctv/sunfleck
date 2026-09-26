@@ -1,7 +1,7 @@
 /** Group/channel rows and pre-session choices inside the existing native shell. */
 import { useEffect, useState } from 'react'
 import { IconNewChatOutlineRegular, IconPlusOutlineRegular, IconRefreshOutlineRegular, IconUsersOutlineRegular, Tooltip, IconLoadingOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
-import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
+import type { HostObservable, InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { SnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-locale/client'
 import type { CollaborationController, CollaborationState, CreateCollaboration } from './collaboration-store.ts'
@@ -23,6 +23,7 @@ export interface CollaborationInjected {
   readonly hooks: { collaboration: SnapshotStore<CollaborationState> }
   readonly controller: CollaborationController
   readonly loadChoices: () => Promise<CollaborationChoices>
+  readonly occludesMain?: HostObservable<boolean>
 }
 type Copy = TranslateNS<'enterprise.collaboration'>
 
@@ -40,20 +41,20 @@ export function collaborationError(error: string, t: Copy): string {
   return t('requestFailed')
 }
 
-/** Contribute group and channel navigation beside Workspace Sessions. */
-export function CollaborationSidebar({ wide, expandSidebar, usePanelInfo, useCollaboration, controller, t }: Pick<PropsRuntime<'sidebar.sections'>, 'wide' | 'expandSidebar' | 'usePanelInfo'> & InjectFace<CollaborationInjected> & PropsLocale<'enterprise.collaboration'>) {
+/** Render one group or channel list inside the right navigation. */
+export function CollaborationSidebar({ wide, expandSidebar, closeNavigation, usePanelInfo, useCollaboration, controller, t, kind: selectedKind }: Pick<PropsRuntime<'sidebar.right.navigation.tab'>, 'wide' | 'expandSidebar' | 'closeNavigation' | 'usePanelInfo'> & InjectFace<CollaborationInjected> & PropsLocale<'enterprise.collaboration'> & { kind?: 'group' | 'channel' }) {
   const state = useCollaboration(value => value)
   const panelId = usePanelInfo(info => info.activePanelId)
   useEffect(() => { controller.setMainPanel(panelId) }, [controller, panelId])
   useEffect(() => { if (state.phase === 'idle') void controller.refresh() }, [controller, state.phase])
   if (state.phase === 'unavailable') return null
   return <div className={css.sections}>
-    {(['group', 'channel'] as const).map(kind => <section key={kind} aria-label={t(kind === 'group' ? 'groups' : 'channels')}>
+    {(['group', 'channel'] as const).filter(kind => selectedKind === undefined || kind === selectedKind).map(kind => <section key={kind} aria-label={t(kind === 'group' ? 'groups' : 'channels')}>
       <div className={css.sectionHeader}>
         {wide ? <span>{t(kind === 'group' ? 'groups' : 'channels')}</span> : <Tooltip label={t(kind === 'group' ? 'groups' : 'channels')} side="right"><button type="button" className={css.iconButton} onClick={expandSidebar} aria-label={t(kind === 'group' ? 'groups' : 'channels')}>{kind === 'group' ? <IconUsersOutlineRegular size={18}/> : <IconNewChatOutlineRegular size={18}/>}</button></Tooltip>}
-        {wide && <Tooltip label={t(kind === 'group' ? 'addGroup' : 'addChannel')}><button type="button" className={css.iconButton} onClick={() => { controller.beginCreate(kind) }} aria-label={t(kind === 'group' ? 'addGroup' : 'addChannel')}><IconPlusOutlineRegular size={14}/></button></Tooltip>}
+        {wide && <Tooltip label={t(kind === 'group' ? 'addGroup' : 'addChannel')}><button type="button" className={css.iconButton} onClick={() => { controller.beginCreate(kind); closeNavigation?.() }} aria-label={t(kind === 'group' ? 'addGroup' : 'addChannel')}><IconPlusOutlineRegular size={14}/></button></Tooltip>}
       </div>
-      {wide && (state.phase === 'loading' && state.surfaces.length === 0 ? <div className={css.skeleton} aria-hidden="true"/> : state.surfaces.filter(row => row.kind === kind).map(row => <button type="button" key={row.id} className={css.row} aria-current={state.selection?.detail.id === row.id ? 'page' : undefined} disabled={state.busy} onClick={() => { void controller.select(row.id) }}>
+      {wide && (state.phase === 'loading' && state.surfaces.length === 0 ? <div className={css.skeleton} aria-hidden="true"/> : state.surfaces.filter(row => row.kind === kind).map(row => <button type="button" key={row.id} className={css.row} aria-current={state.selection?.detail.id === row.id ? 'page' : undefined} disabled={state.busy} onClick={() => { void controller.select(row.id); closeNavigation?.() }}>
         {kind === 'group' ? <IconUsersOutlineRegular size={14}/> : <IconNewChatOutlineRegular size={14}/>}<span>{row.name}</span>
       </button>))}
       {wide && state.phase === 'ready' && !state.surfaces.some(row => row.kind === kind) && <p className={css.empty}>{t(kind === 'group' ? 'emptyGroup' : 'emptyChannel')}</p>}
@@ -62,6 +63,16 @@ export function CollaborationSidebar({ wide, expandSidebar, usePanelInfo, useCol
     {wide && state.error !== null && state.creation === null && (state.selection === null || state.selection.sessionId !== undefined) && <p className={css.queryError} role="alert">{collaborationError(state.error, t)}</p>}
     {wide && <Tooltip label={t('refresh')}><button type="button" className={css.refresh} aria-label={t('refresh')} onClick={() => { void controller.refresh() }}><IconRefreshOutlineRegular size={13}/></button></Tooltip>}
   </div>
+}
+
+/** Group rows in the root right-column navigation. */
+export function CollaborationGroupNavigation(props: Parameters<typeof CollaborationSidebar>[0]) {
+  return <CollaborationSidebar {...props} kind="group" />
+}
+
+/** Channel rows in the root right-column navigation. */
+export function CollaborationChannelNavigation(props: Parameters<typeof CollaborationSidebar>[0]) {
+  return <CollaborationSidebar {...props} kind="channel" />
 }
 
 function CreateForm({ kind, state, controller, loadChoices, t }: { kind: 'group' | 'channel'; state: CollaborationState; controller: CollaborationController; loadChoices: CollaborationInjected['loadChoices']; t: Copy }) {
@@ -102,10 +113,10 @@ function CreateForm({ kind, state, controller, loadChoices, t }: { kind: 'group'
 }
 
 /** Main-panel room; creation keeps the same native shell slot. */
-export function CollaborationSetup({ useCollaboration, controller, loadChoices, t }: InjectFace<CollaborationInjected> & PropsLocale<'enterprise.collaboration'>) {
+export function CollaborationSetup({ useCollaboration, controller, loadChoices, occludesMain, t }: InjectFace<CollaborationInjected> & PropsLocale<'enterprise.collaboration'>) {
   const state = useCollaboration(value => value)
   if (state.creation !== null) return <main className={css.setup}>
     <CreateForm key={`${state.creation}:${state.creationProjectId ?? ''}`} kind={state.creation} state={state} controller={controller} loadChoices={loadChoices} t={t}/>
   </main>
-  return <CollaborationRoom state={state} controller={controller} t={t}/>
+  return <CollaborationRoom state={state} controller={controller} occludesMain={occludesMain} t={t}/>
 }

@@ -43,6 +43,7 @@ import { GUIDE_ID, guideDefinition } from './tabs/guide/definition.ts'
 import { guideTabInfoFactory, tabInfoFactory } from './tab-info.ts'
 import type { TabId } from '@deepseek-ai/dsh-client-ui-dockkit'
 import { defaultSeed } from './contract/seed.ts'
+import { SidebarRightNavigationRegistry } from './navigation-registry.ts'
 
 export type { RightbarSeatProps, SidebarRightInjected, SidebarRightPresentation } from './shell/SidebarRight.tsx'
 export type { GuideBodyProps, GuideInjected } from './tabs/guide/GuideBody.tsx'
@@ -70,6 +71,7 @@ export type { PinResource, SidebarRightNavigator, TabOccurrence } from './tab-do
 export type { SidebarRightKey } from './locales.ts'
 export type { OpenContentIntent } from './stores.ts'
 export type { SidebarRightOpenTab } from './tab-inventory.ts'
+export type { SidebarRightNavigationDefinition } from './navigation-registry.ts'
 
 /** This package's copy namespace. */
 const NS = 'sidebarRight'
@@ -83,6 +85,8 @@ declare module '@deepseek-ai/cordis' {
     sidebarRight: SidebarRightController
     /** Right-Sidebar tab-type registry (stage one of a tab type's registration). */
     sidebarRightTabs: SidebarRightTabRegistry
+    /** Root-scoped right-column destinations. */
+    sidebarRightNavigationTabs: SidebarRightNavigationRegistry
   }
 }
 
@@ -103,6 +107,7 @@ export function apply(ctx: ClientContext): void {
   // its own apply top level for the same reason.
   const t = ctx.locale.bind(NS)
   const tabs = new SidebarRightTabRegistry(ctx)
+  const navigationTabs = new SidebarRightNavigationRegistry()
   const views = new SidebarSessionViews(ctx.sessions)
   ctx.effect(() => {
     const current = ctx.uiSession.adapter.current
@@ -116,6 +121,7 @@ export function apply(ctx: ClientContext): void {
     (address, signal) => { ctx.resources.pin(address, signal) },
   )
   const disposeRegistry = ctx.reflect.provide('sidebarRightTabs', tabs)
+  const disposeNavigationRegistry = ctx.reflect.provide('sidebarRightNavigationTabs', navigationTabs)
   const disposeService = ctx.reflect.provide('sidebarRight', controller)
   // Registered first, so it tears down last: the faces outlive every seat and
   // type that reaches for them. provide()'s disposer settles asynchronously;
@@ -124,6 +130,7 @@ export function apply(ctx: ClientContext): void {
   ctx.effect(() => () => {
     controller.tabDomain.dispose()
     void disposeService()
+    void disposeNavigationRegistry()
     void disposeRegistry()
   }, 'ui-sidebar-right: service faces')
 
@@ -150,11 +157,16 @@ export function apply(ctx: ClientContext): void {
       },
     }
     const layout: ILayout = ctx.layout
+    let navigationPresentation = { shown: false, track: false, fullscreen: false }
+    let sessionPresentation = { shown: false, track: false, fullscreen: false }
+    const reportPresentation = (): void => {
+      const shown = navigationPresentation.shown || sessionPresentation.shown
+      if (shown) layout.openRightbar(navigationPresentation.track || sessionPresentation.track,
+        navigationPresentation.fullscreen || sessionPresentation.fullscreen)
+      else layout.closeRightbar()
+    }
     const injected: Omit<SidebarRightInjected, 'keyedHooks' | 'occurrence' | 'closeTab'> = {
-      syncPresentation({ shown, track, fullscreen }) {
-        if (shown) layout.openRightbar(track, fullscreen)
-        else layout.closeRightbar()
-      },
+      syncPresentation(presentation) { sessionPresentation = presentation; reportPresentation() },
       bindService: binding => controller.bind(binding),
       openTab: (kind, options) => { controller.openTab(kind, options) },
       hooks: { tabTypes: { subscribe: listener => tabs.subscribe(listener), getSnapshot: () => tabs.entries() } },
@@ -164,10 +176,16 @@ export function apply(ctx: ClientContext): void {
     const disposeSeat = ctx.slots.inject('rightbar', function* () {
       yield ctx.slots.register({
         name: 'rightbar',
-        children: { 'rightbar.session': { kind: 'single', scope: 'session' } },
+        locale: NS,
+        children: {
+          'rightbar.session': { kind: 'single', scope: 'session' },
+          'sidebar.right.navigation.tab': { kind: 'keyed', scope: 'root' },
+        },
         inject: (): RightbarRootInjected => ({
-          hooks: { views: views.source },
+          hooks: { views: views.source, navigationTabs: navigationTabs.source },
           mountView: reference => views.mount(reference),
+          syncNavigationPresentation: (presentation) => { navigationPresentation = presentation; reportPresentation() },
+          reportNavigationOcclusion: (value) => { navigationTabs.reportOcclusion(value) },
         }),
       }, RightbarRoot)
       yield ctx.slots.register({

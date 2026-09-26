@@ -15,9 +15,11 @@ function fixture(record: CollaborationRecord = room,
   const routes: Array<{ targets: readonly string[]; route?: 'team' | 'ingest' }> = []
   const sessions: CollaborationSession[] = []
   const prompts: Array<{ employeeId: string; text: string; requestId?: string }> = []
+  const read = new Map<string, string>()
   let permitted = true
   const service = new CollaborationService({
     get: async () => record, sessions: async () => sessions,
+    list: async (_orgId: string, userId: string) => record.memberUserIds.includes(userId) ? [record] : [],
     bySession: async (id: string) => sessions.find(value => value.sessionId === id),
     bind: async (value: CollaborationSession) => { sessions.push(value) },
   } as never, {
@@ -30,11 +32,18 @@ function fixture(record: CollaborationRecord = room,
         const event: RoomEvent = { orgId: 'org', surfaceId: 'group', sequence: String(events.length + 1),
           authorKind: 'human', authorId: actor.userId, requestId: input.messageId ?? `auto-${events.length}`,
           event: { id: `event-${events.length + 1}`, pubkey: 'key', sig: 'sig', created_at: 1,
-            kind: 9, tags: [], content: input.text } }
+            kind: 9, tags: input.mentionedUserIds?.map(userId => ['dsh-mention', userId]) ?? [], content: input.text } }
         events.push(event)
         return event
       },
       list: async () => events,
+      attention: async (_record: CollaborationRecord, userId: string) => {
+        const unread = events.filter(value => BigInt(value.sequence) > BigInt(read.get(userId) ?? '0')
+          && !(value.authorKind === 'human' && value.authorId === userId) && value.event.kind === 9)
+        return { newMessages: unread.length > 0,
+          mentions: unread.some(value => value.event.tags.some(tag => tag[0] === 'dsh-mention' && tag[1] === userId)) }
+      },
+      markRead: async (_record: CollaborationRecord, userId: string, sequence: string) => { read.set(userId, sequence); return true },
       search: async () => events,
       present: async (_actor: EnterprisePrincipal, _record: CollaborationRecord, event: RoomEvent) => ({
         ...event.event, sequence: event.sequence,
@@ -80,6 +89,20 @@ describe('one shared room timeline', () => {
     app.revoke()
     await expect(app.service.message(alice, 'group', { text: 'Secret' })).rejects.toMatchObject({ code: 'not-found' })
     await expect(app.service.search(alice, 'group', 'secret')).rejects.toMatchObject({ code: 'not-found' })
+  })
+
+  it('returns signed room attention and refuses read after Workspace access is revoked', async () => {
+    const app = fixture()
+    await app.service.message(alice, 'group', { text: 'Own post', messageId: 'a1' })
+    expect((await app.service.list(alice))[0]?.attention).toEqual({ newMessages: false, mentions: false })
+    await app.service.message(bob, 'group', { text: 'For Alice', messageId: 'b1', mentionedUserIds: ['alice'] })
+    expect((await app.service.list(alice))[0]?.attention).toEqual({ newMessages: true, mentions: true })
+    await app.service.markRead(alice, 'group', '2')
+    expect((await app.service.list(alice))[0]?.attention).toEqual({ newMessages: false, mentions: false })
+    await expect(app.service.message(bob, 'group', { text: 'Invalid mention', mentionedUserIds: ['eve'] }))
+      .rejects.toMatchObject({ code: 'human-not-member' })
+    app.revoke()
+    await expect(app.service.markRead(alice, 'group', '2')).rejects.toMatchObject({ code: 'not-found' })
   })
 
   it('returns the original native target on a completed outbox retry without dispatching again', async () => {

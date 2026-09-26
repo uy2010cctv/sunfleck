@@ -31,6 +31,7 @@ export type RoomSigningInput =
     readonly sourceCursor?: string
     readonly hop?: number
     readonly targetEmployeeIds?: readonly string[]
+    readonly mentionedUserIds?: readonly string[]
     readonly route?: 'team' | 'ingest'
     readonly requestId?: string
     readonly createdAt?: number }
@@ -156,6 +157,13 @@ function eventTemplate(roomId: string, input: RoomSigningInput): { readonly kind
       if (input.threadRoot !== undefined) { validId(input.threadRoot); tags.push(['e', input.threadRoot, '', 'root']) }
       appendBotSource(tags, input)
       appendTargets(tags, input.targetEmployeeIds)
+      if (input.mentionedUserIds !== undefined) {
+        if (input.mentionedUserIds.length > 32 || new Set(input.mentionedUserIds).size !== input.mentionedUserIds.length
+          || input.mentionedUserIds.some(id => id.trim() !== id || id.length === 0 || id.length > 128)) {
+          throw new Error('room-event-mention-invalid')
+        }
+        for (const userId of input.mentionedUserIds) tags.push(['dsh-mention', userId])
+      }
       appendSourceCursor(tags, input.sourceCursor)
       if (input.route !== undefined) {
         const route: string = input.route

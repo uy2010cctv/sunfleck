@@ -80,6 +80,15 @@ export function installCollaborationAgentTools(ctx: Context, options: Collaborat
     return unique
   }
 
+  const humansFor = (binding: RoomAgentBinding, mentions: readonly string[]) => {
+    const unique = [...new Set(mentions)]
+    if (mentions.length > 32 || unique.length !== mentions.length
+      || unique.some(id => !binding.room.memberUserIds.includes(id))) {
+      throw new Error('room-tool-human-not-member')
+    }
+    return unique
+  }
+
   const nativeSourceCursor = async (agent: Agent, callId: string): Promise<string> => {
     const observed = callCursors.get(String(agent.id))?.get(callId)
     if (observed !== undefined) return `${agent.id}:${observed}`
@@ -139,10 +148,11 @@ export function installCollaborationAgentTools(ctx: Context, options: Collaborat
     try {
       disposers.push(agent.ctx.tools.register(defineTool({
         name: 'room_post',
-        description: 'Post a signed message to this shared room. Optionally request other member employees by exact ids from room context. The source must be the latest received room event; the Host enforces the chain hop budget. Reuse the action key for retries.',
+        description: 'Post a signed message to this shared room. Address human members with mentionedUserIds and optionally request other member employees by exact ids. The source must be the latest received room event; the Host enforces the chain hop budget. Reuse the action key for retries.',
         parameters: {
           ...messageParameters,
           targetEmployeeIds: { type: 'array', items: { type: 'string' }, description: 'Other room employee ids to request after the message commits. Omit to post without waking another employee.' },
+          mentionedUserIds: { type: 'array', items: { type: 'string' }, description: 'Human room member ids explicitly addressed by this post. Omit when no human is addressed.' },
         },
         output: {
           schema: { type: 'object', additionalProperties: false, properties: {
@@ -156,8 +166,10 @@ export function installCollaborationAgentTools(ctx: Context, options: Collaborat
           requireText(args.content); requireText(args.idempotencyKey)
           const binding = await authorized(agent, exec.agent, args.sourceEventId)
           const targets = targetsFor(binding, args.targetEmployeeIds ?? [])
+          const mentionedUserIds = humansFor(binding, args.mentionedUserIds ?? [])
           const event = await signedPost(agent, binding, `room_post:${args.idempotencyKey}`, String(exec.callId), {
             type: 'text', content: args.content, sourceEventId: args.sourceEventId, hop: binding.hop, targetEmployeeIds: targets,
+            ...(mentionedUserIds.length === 0 ? {} : { mentionedUserIds }),
             ...(binding.source.threadRoot === undefined ? {} : { threadRoot: binding.source.threadRoot }),
           })
           exec.signal.throwIfAborted()

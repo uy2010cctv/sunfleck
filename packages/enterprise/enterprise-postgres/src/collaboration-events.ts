@@ -231,6 +231,62 @@ export class PostgresRoomEventRepository {
   /** @param database - Shared enterprise database. */
   constructor(private readonly database: EnterprisePostgresDatabase) {}
 
+  /** Classify unread signed posts for one current human member.
+   * @param orgId - Authorized organization.
+   * @param surfaceId - Authorized room.
+   * @param userId - Current human member.
+   * @returns New-post and explicit-mention attention.
+   */
+  async attention(orgId: string, surfaceId: string, userId: string): Promise<{ newMessages: boolean; mentions: boolean }> {
+    const unread = async (mention: boolean): Promise<boolean> => {
+      const rows = await this.database.query<EventRow>(`SELECT e.* FROM dsh_enterprise_collaboration_events e
+        JOIN dsh_enterprise_collaboration_members m ON m.surface_id=e.surface_id AND m.user_id=$3
+        LEFT JOIN dsh_enterprise_collaboration_read_cursors c
+          ON c.org_id=e.org_id AND c.surface_id=e.surface_id AND c.user_id=m.user_id
+        WHERE e.org_id=$1 AND e.surface_id=$2 AND e.sequence>coalesce(c.sequence,0)
+          AND e.event_json->>'kind'='9' AND NOT (e.author_kind='human' AND e.author_id=$3)
+          AND ($4::boolean=false OR e.event_json->'tags' @> $5::jsonb)
+        ORDER BY e.sequence DESC LIMIT 1`,
+      [orgId, surfaceId, userId, mention, JSON.stringify([['dsh-mention', userId]])])
+      const found = rows.rows[0]
+      if (found === undefined) return false
+      const event = parseRow(found)
+      return event.event.kind === 9 && (!mention || event.event.tags.some(tag => tag[0] === 'dsh-mention' && tag[1] === userId))
+    }
+    const newMessages = await unread(false)
+    return { newMessages, mentions: newMessages && await unread(true) }
+  }
+
+  /** Advance a member's durable cursor only to an exact signed event in this room.
+   * @param orgId - Authorized organization.
+   * @param surfaceId - Authorized room.
+   * @param userId - Current human member.
+   * @param sequence - Last displayed event sequence.
+   * @returns Whether the event belongs to this room and the human remains a member.
+   */
+  async markRead(orgId: string, surfaceId: string, userId: string, sequence: string): Promise<boolean> {
+    if (!DECIMAL.test(sequence) || BigInt(sequence) < 1n || BigInt(sequence) > MAX_SEQUENCE) {
+      throw new Error('invalid room read cursor')
+    }
+    return this.database.transaction(async (tx) => {
+      const event = (await tx.query<EventRow>(`SELECT e.* FROM dsh_enterprise_collaboration_events e
+        JOIN dsh_enterprise_collaboration_members m ON m.surface_id=e.surface_id AND m.user_id=$3
+        WHERE e.org_id=$1 AND e.surface_id=$2 AND e.sequence=$4 FOR KEY SHARE OF m`,
+      [orgId, surfaceId, userId, sequence])).rows[0]
+      if (event === undefined) return false
+      parseRow(event)
+      const updated = await tx.query(`INSERT INTO dsh_enterprise_collaboration_read_cursors
+        (org_id,surface_id,user_id,sequence)
+        SELECT $1,$2,$3,$4 FROM dsh_enterprise_collaboration_members m
+        JOIN dsh_enterprise_surface_directory d ON d.surface_id=m.surface_id AND d.org_id=$1
+        WHERE m.surface_id=$2 AND m.user_id=$3
+        ON CONFLICT(org_id,surface_id,user_id) DO UPDATE
+        SET sequence=greatest(dsh_enterprise_collaboration_read_cursors.sequence,EXCLUDED.sequence)`,
+      [orgId, surfaceId, userId, sequence])
+      return updated.rowCount === 1
+    })
+  }
+
   /** Persist the first public key for one organization actor, or return its existing binding.
    * @param input - Authenticated actor and derived public key.
    * @returns Persisted public key.

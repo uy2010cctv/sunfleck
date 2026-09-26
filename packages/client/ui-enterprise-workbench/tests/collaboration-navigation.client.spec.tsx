@@ -25,7 +25,8 @@ describe('native collaboration navigation', () => {
     const { controller, props } = setup()
     controller.state.set({ ...controller.state.getSnapshot(), phase: 'ready', surfaces: [{ id: 'g', kind: 'group', name: '续约群', memberCount: 2 }, { id: 'c', kind: 'channel', name: 'IT 值班', memberCount: 1 }] })
     const select = vi.spyOn(controller, 'select').mockResolvedValue()
-    render(<CollaborationSidebar {...props} wide expandSidebar={() => {}} />)
+    const closeNavigation = vi.fn()
+    render(<CollaborationSidebar {...props} wide expandSidebar={() => {}} closeNavigation={closeNavigation} />)
     expect(screen.getByRole('region', { name: '群聊' })).toBeTruthy()
     expect(screen.getByRole('region', { name: '频道' })).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: '续约群' }))
@@ -33,6 +34,7 @@ describe('native collaboration navigation', () => {
     expect(screen.getByRole('button', { name: '创建群聊' })).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'IT 值班' }))
     expect(select).toHaveBeenCalledWith('c')
+    expect(closeNavigation).toHaveBeenCalledTimes(2)
   })
 
   it('opens channel navigation from the compact sidebar only after expanding', () => {

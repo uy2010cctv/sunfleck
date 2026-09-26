@@ -1,6 +1,6 @@
 /**
  * The workspace/session browsing region filling the sidebar shell's
- * `sidebar.workspaces` hole: section header (title + view options + add
+ * Workspace navigation hole: section header (title + view options + add
  * workspace), search, the grouped tree or flat list, and the workspace
  * dialogs. Wide state renders the full browser; rail state renders the two
  * region icons (search / add workspace) as 36px controls on the shell's shared
@@ -812,6 +812,7 @@ export function WorkspaceBrowser({
   wide,
   usePanelInfo,
   expandSidebar,
+  closeNavigation,
   useSessions,
   useSessionStatus,
   useWorkspaces,
@@ -862,6 +863,7 @@ export function WorkspaceBrowser({
       return
     }
     open(sessionId)
+    closeNavigation?.()
   }
   const workspaceReady = workspacePhase === 'ready' && workspaceStreamState !== 'loading'
   const mainSessionId = Object.values(list.byId)
@@ -994,6 +996,7 @@ export function WorkspaceBrowser({
     setQuery('')
     setSearchExpanded(false)
     open(sessionId)
+    closeNavigation?.()
   }
   const acknowledgeSessionReveal = (sessionId: SessionId): void => {
     setRevealSessionId(current => current === sessionId ? undefined : current)
