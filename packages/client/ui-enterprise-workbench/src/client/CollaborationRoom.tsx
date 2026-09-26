@@ -1,18 +1,13 @@
 /** Shared group/channel room in the existing SUNFLECK main panel. */
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type FormEvent, type KeyboardEvent } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
 import { IconCloseOutlineRegular, IconLoadingOutlineRegular, IconSearchOutlineRegular, IconSendOutlineRegular, IconUsersOutlineRegular, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { CollaborationController, CollaborationState, RoomEvent } from './collaboration-store.ts'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-locale/client'
-import type { HostObservable } from '@deepseek-ai/dsh-client-ui-slots'
 import { ChannelWorkflowEditor } from './ChannelWorkflowEditor.tsx'
 import { ChannelDecisionQueue } from './ChannelDecisionQueue.tsx'
 import css from './CollaborationRoom.module.css'
 
 type Copy = TranslateNS<'enterprise.collaboration'>
-const NOT_OCCLUDED: HostObservable<boolean> = {
-  getSnapshot: () => false,
-  subscribe: () => () => {},
-}
 
 /** Count signed reaction events by target and emoji; the event itself stays in the audit timeline. */
 export function reactionCounts(events: readonly RoomEvent[], targetId: string): readonly { emoji: string; count: number }[] {
@@ -123,11 +118,10 @@ function Composer({ state, controller, t, threadRoot }: {
 }
 
 /** One shared timeline for people and Bots, with a room context and thread rail. */
-export function CollaborationRoom({ state, controller, t, occludesMain = NOT_OCCLUDED }: {
+export function CollaborationRoom({ state, controller, t }: {
   readonly state: CollaborationState
   readonly controller: CollaborationController
   readonly t: Copy
-  readonly occludesMain?: HostObservable<boolean> | undefined
 }) {
   const [showDetails, setShowDetails] = useState(false)
   const [searchInput, setSearchInput] = useState('')
@@ -137,19 +131,18 @@ export function CollaborationRoom({ state, controller, t, occludesMain = NOT_OCC
   const atBottom = useRef(true)
   const roomId = state.selection?.detail.id
   const latestSequence = state.events.at(-1)?.sequence
-  const occluded = useSyncExternalStore(occludesMain.subscribe, occludesMain.getSnapshot)
   useEffect(() => {
     if (roomId !== undefined && latestSequence !== undefined && state.roomPhase === 'ready'
-      && !occluded && (!showSearch || state.searchPhase === 'idle')) {
+      && (!showSearch || state.searchPhase === 'idle')) {
       void controller.acknowledgeVisible()
     }
-  }, [controller, roomId, latestSequence, state.roomPhase, state.searchPhase, showSearch, occluded])
+  }, [controller, roomId, latestSequence, state.roomPhase, state.searchPhase, showSearch])
   useEffect(() => {
-    if (roomId === undefined || occluded) return
+    if (roomId === undefined) return
     void controller.poll()
     const timer = setInterval(() => { void controller.poll() }, 3000)
     return () => { clearInterval(timer) }
-  }, [controller, roomId, occluded])
+  }, [controller, roomId])
   useEffect(() => {
     setShowDetails(false)
     setShowSearch(false)

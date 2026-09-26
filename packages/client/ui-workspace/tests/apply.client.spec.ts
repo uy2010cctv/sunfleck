@@ -9,8 +9,6 @@ import { SlotRegistry } from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type { StoredEntry } from '@deepseek-ai/dsh-client-ui-slots'
 import { RemoteError, TestRemote } from '@deepseek-ai/dsh-client-test-runtime'
 import { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
-import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
-import { SidebarRightNavigationRegistry } from '../../ui-sidebar-right/src/client/navigation-registry.ts'
 import { apply, inject } from '@deepseek-ai/dsh-client-ui-workspace/client'
 import type { WorkspaceBrowserInjected, WorkspacePickerInjected } from '@deepseek-ai/dsh-client-ui-workspace/client'
 import {
@@ -120,6 +118,9 @@ async function bench() {
     refreshProjections: vi.fn(() => Promise.resolve()),
     fork,
   } as never)
+  ctx.provide('uiSession', { sessionStatus: {
+    getSnapshot: () => new Map(), subscribe: () => () => {},
+  } } as never)
   const pickDirectory = vi.fn(() => Promise.resolve({ ok: true as const, value: '/projects/picked' }))
   const directoryPicker = { pick: pickDirectory }
   Object.assign(new TestRemote(ctx), { directoryPicker })
@@ -130,8 +131,6 @@ async function bench() {
   // comes from FALLBACK_LOCALE (en): state the asserted locale explicitly.
   locale.setLocale('zh')
   ctx.provide('locale', locale)
-  ctx.provide('sidebarRightNavigationTabs', new SidebarRightNavigationRegistry())
-  ctx.provide('uiSession', { sessionStatus: createSnapshotStore(new Map()) } as never)
   return {
     ctx, slots: ctx.get('slots') as SlotRegistry, locale, create, rename,
     retain, using, selectPanel, search, renameSession, binding, fork, pickDirectory, pinSession, unpinSession,
@@ -141,7 +140,7 @@ async function bench() {
   }
 }
 
-type HoleName = 'sidebar.right.navigation.tab' | 'conversation.hero.workspace' | 'conversation.empty.workspace' | 'shell.overlay'
+type HoleName = 'sidebar.workspaces' | 'conversation.hero.workspace' | 'conversation.empty.workspace' | 'shell.overlay'
 
 const MENU_ITEM = 'sidebar.workspaces.session.menu.item'
 const ROW_ACTION = 'sidebar.workspaces.session.row.action'
@@ -150,7 +149,7 @@ type RowListName = typeof MENU_ITEM | typeof ROW_ACTION | 'shell.overlay'
 /** Declare any subset of the holes with a single root registration ('root' is a single slot); the overlay is a list. */
 function declare(slots: SlotRegistry, ...names: HoleName[]): () => void {
   const children = Object.fromEntries(names.map(name => [
-    name, { kind: name === 'shell.overlay' ? 'list' : name === 'sidebar.right.navigation.tab' ? 'keyed' : 'single', scope: 'root' },
+    name, { kind: name === 'shell.overlay' ? 'list' : 'single', scope: 'root' },
   ]))
   return slots.register({ name: 'root', children } as never, () => null)
 }
@@ -170,7 +169,7 @@ function faceOf(registration: StoredEntry): object {
 
 /** The viewing-store instance the browser's declared handle hands the renderer. */
 function viewInstance(slots: SlotRegistry) {
-  const browser = slots.entries('sidebar.right.navigation.tab')[0]!
+  const browser = slots.entries('sidebar.workspaces')[0]!
   if (browser.store === undefined) throw new Error('the browser entry declares no viewing store')
   return (browser.store as WorkspaceViewStoreHandle).create()
 }
@@ -185,8 +184,7 @@ describe('ui-workspace apply', () => {
 
   it('declares the services it drives', () => {
     expect(inject).toEqual([
-      'slots', 'sessions', 'workspaces', 'locale', 'remote', 'remote.directoryPicker', 'layout',
-      'sidebarRightNavigationTabs', 'uiSession',
+      'slots', 'sessions', 'workspaces', 'locale', 'remote', 'remote.directoryPicker', 'layout', 'uiSession',
     ])
   })
 
@@ -206,17 +204,17 @@ describe('ui-workspace apply', () => {
 
   it('registers browser and pickers for declarations arriving before or after apply', async () => {
     const before = await bench()
-    declare(before.slots, 'sidebar.right.navigation.tab')
+    declare(before.slots, 'sidebar.workspaces')
     await before.ctx.plugin({ inject: [...inject], apply }).await()
-    expect(before.slots.entries('sidebar.right.navigation.tab')[0]!.component).toBe(WorkspaceBrowser)
+    expect(before.slots.entries('sidebar.workspaces')[0]!.component).toBe(WorkspaceBrowser)
     // Copy rides the standard locale seat: the entry declares the namespace
     // and apply registered both dictionaries.
-    expect(before.slots.entries('sidebar.right.navigation.tab')[0]!.locale).toBe('workspace')
+    expect(before.slots.entries('sidebar.workspaces')[0]!.locale).toBe('workspace')
     expect(before.locale.bind('workspace')('session.new')).toBe('新会话')
 
     const after = await bench()
     await after.ctx.plugin({ inject: [...inject], apply }).await()
-    declare(after.slots, 'sidebar.right.navigation.tab', 'conversation.hero.workspace', 'conversation.empty.workspace', 'shell.overlay')
+    declare(after.slots, 'sidebar.workspaces', 'conversation.hero.workspace', 'conversation.empty.workspace', 'shell.overlay')
     await Promise.resolve()
     expect(after.slots.entries('conversation.hero.workspace')[0]!.component).toBe(WorkspacePicker)
     // The row actions follow the browser's own declaration, whenever it lands.
@@ -227,7 +225,7 @@ describe('ui-workspace apply', () => {
 
   it('declares the two Session row lists and registers the shipped actions and overlay surfaces into them', async () => {
     const b = await bench()
-    declare(b.slots, 'sidebar.right.navigation.tab', 'shell.overlay')
+    declare(b.slots, 'sidebar.workspaces', 'shell.overlay')
     await b.ctx.plugin({ inject: [...inject], apply }).await()
     // The menu list binds the row's open state into every entry's hook; the
     // hover-button list carries no common face.
@@ -256,7 +254,7 @@ describe('ui-workspace apply', () => {
     // Only the browser declares the viewing store; its handle hands out the
     // one instance the injected callbacks write view state through. The
     // row actions and overlay surfaces declare none.
-    const browser = b.slots.entries('sidebar.right.navigation.tab')[0]!
+    const browser = b.slots.entries('sidebar.workspaces')[0]!
     expect(browser.store).toBeDefined()
     expect(viewInstance(b.slots)).toBe(viewInstance(b.slots))
     for (const registration of [...b.slots.entries(MENU_ITEM), ...b.slots.entries(ROW_ACTION), ...b.slots.entries('shell.overlay')]) {
@@ -272,7 +270,7 @@ describe('ui-workspace apply', () => {
   it('derives the pinned and archived Sets from the Workspace snapshot, rebuilt only when it changes', async () => {
     const b = await bench()
     b.setWorkspaces(workspaceState([workspace('alpha', ['one', 'two'])], [sid('two')], [sid('one')]))
-    declare(b.slots, 'sidebar.right.navigation.tab')
+    declare(b.slots, 'sidebar.workspaces')
     await b.ctx.plugin({ inject: [...inject], apply }).await()
     const pin = faceOf(entry(b.slots, MENU_ITEM, 'pin')) as PinSessionInjected
     const pinButton = faceOf(entry(b.slots, ROW_ACTION, 'pin')) as PinSessionInjected
@@ -301,7 +299,7 @@ describe('ui-workspace apply', () => {
     const b = await bench()
     b.setWorkspaces(workspaceState([workspace('alpha', ['one', 'two', 'three'])]))
     b.setSessions(sessionState([summary('one', 3), summary('two', 2), summary('three', 1)]))
-    declare(b.slots, 'sidebar.right.navigation.tab', 'shell.overlay')
+    declare(b.slots, 'sidebar.workspaces', 'shell.overlay')
     await b.ctx.plugin({ inject: [...inject], apply }).await()
     const view = viewInstance(b.slots)
     const toast = faceOf(entry(b.slots, 'shell.overlay', 'workspace.row-toast')) as RowToastInjected
@@ -342,7 +340,7 @@ describe('ui-workspace apply', () => {
     const b = await bench()
     b.setWorkspaces(workspaceState([workspace('alpha', ['one'])]))
     b.setSessions(sessionState([summary('one', 1)]))
-    declare(b.slots, 'sidebar.right.navigation.tab', 'shell.overlay')
+    declare(b.slots, 'sidebar.workspaces', 'shell.overlay')
     await b.ctx.plugin({ inject: [...inject], apply }).await()
     const view = viewInstance(b.slots)
     const toast = faceOf(entry(b.slots, 'shell.overlay', 'workspace.row-toast')) as RowToastInjected
@@ -359,7 +357,7 @@ describe('ui-workspace apply', () => {
 
   it('archives through the navigation service and raises the archived notice; Host rejections are console diagnostics', async () => {
     const b = await bench()
-    declare(b.slots, 'sidebar.right.navigation.tab', 'shell.overlay')
+    declare(b.slots, 'sidebar.workspaces', 'shell.overlay')
     await b.ctx.plugin({ inject: [...inject], apply }).await()
     const archiveSession = vi.spyOn(b.ctx.uiWorkspace, 'archiveSession').mockResolvedValue(undefined)
     const unarchiveSession = vi.spyOn(b.ctx.uiWorkspace, 'unarchiveSession').mockResolvedValue(undefined)
@@ -398,7 +396,7 @@ describe('ui-workspace apply', () => {
   it('turns the Host\'s running-work refusal into the stop-and-archive confirmation, which archives with stopActivity', async () => {
     const b = await bench()
     b.setSessions(sessionState([{ ...summary('busy', 3), displayTitle: 'Busy session' }]))
-    declare(b.slots, 'sidebar.right.navigation.tab', 'shell.overlay')
+    declare(b.slots, 'sidebar.workspaces', 'shell.overlay')
     await b.ctx.plugin({ inject: [...inject], apply }).await()
     const activity = [{ kind: 'turn' as const }, { kind: 'job' as const, items: [{ id: 'bash-1', label: 'pnpm run build' }] }]
     const refusal = Object.assign(new Error('workspace session archive failed: workspace/session-active: active'), {
@@ -435,11 +433,11 @@ describe('ui-workspace apply', () => {
 
   it('the notice share takes the notice down, undoes an archive, and shows the archived rows', async () => {
     const b = await bench()
-    declare(b.slots, 'sidebar.right.navigation.tab', 'shell.overlay')
+    declare(b.slots, 'sidebar.workspaces', 'shell.overlay')
     await b.ctx.plugin({ inject: [...inject], apply }).await()
     const unarchiveSession = vi.spyOn(b.ctx.uiWorkspace, 'unarchiveSession').mockResolvedValue(undefined)
     const toast = faceOf(entry(b.slots, 'shell.overlay', 'workspace.row-toast')) as RowToastInjected
-    const browser = faceOf(b.slots.entries('sidebar.right.navigation.tab')[0]!) as WorkspaceBrowserInjected
+    const browser = faceOf(b.slots.entries('sidebar.workspaces')[0]!) as WorkspaceBrowserInjected
     const view = viewInstance(b.slots)
 
     // The browser raises the not-openable notice into the same entry, and the source notifies.
@@ -473,7 +471,7 @@ describe('ui-workspace apply', () => {
 
   it('routes fork and rename through their shares, the rename dialog, and the browser face', async () => {
     const b = await bench()
-    declare(b.slots, 'sidebar.right.navigation.tab', 'shell.overlay')
+    declare(b.slots, 'sidebar.workspaces', 'shell.overlay')
     await b.ctx.plugin({ inject: [...inject], apply }).await()
     const unarchiveSession = vi.spyOn(b.ctx.uiWorkspace, 'unarchiveSession').mockResolvedValue(undefined)
 
@@ -509,7 +507,7 @@ describe('ui-workspace apply', () => {
 
     // The browser raises the same rename request from a title double-click,
     // restores from its search results, and carries none of the row verbs itself.
-    const browser = faceOf(b.slots.entries('sidebar.right.navigation.tab')[0]!) as WorkspaceBrowserInjected
+    const browser = faceOf(b.slots.entries('sidebar.workspaces')[0]!) as WorkspaceBrowserInjected
     browser.requestSessionRename('session' as never, 'Row title')
     expect(dialog.hooks.renameRequest.getSnapshot()).toEqual({ sessionId: 'session', currentTitle: 'Row title' })
     for (const verb of ['forkSession', 'archiveSession', 'pinSession', 'unpinSession', 'renameSession', 'undoArchive', 'showArchived']) {
@@ -521,11 +519,11 @@ describe('ui-workspace apply', () => {
 
   it('routes browser actions and picker creation to the services', async () => {
     const b = await bench()
-    declare(b.slots, 'sidebar.right.navigation.tab', 'conversation.hero.workspace')
+    declare(b.slots, 'sidebar.workspaces', 'conversation.hero.workspace')
     await b.ctx.plugin({ inject: [...inject], apply }).await()
     const startSession = vi.spyOn(b.ctx.uiWorkspace, 'startSession').mockImplementation(() => undefined)
 
-    const browser = faceOf(b.slots.entries('sidebar.right.navigation.tab')[0]!) as WorkspaceBrowserInjected
+    const browser = faceOf(b.slots.entries('sidebar.workspaces')[0]!) as WorkspaceBrowserInjected
     // Both arms delegate to the shared Session navigation action.
     browser.startSession('ws' as never)
     expect(startSession).toHaveBeenCalledWith('ws')
@@ -552,13 +550,13 @@ describe('ui-workspace apply', () => {
 
   it('declares the browser child slots and reports directory-flow occupancy per surface', async () => {
     const b = await bench()
-    declare(b.slots, 'sidebar.right.navigation.tab', 'conversation.hero.workspace')
+    declare(b.slots, 'sidebar.workspaces', 'conversation.hero.workspace')
     await b.ctx.plugin({ inject: [...inject], apply }).await()
     // Registration declared the child holes (declaration = render authorization).
     expect(b.slots.spec('sidebar.workspaces.directoryFlow')).toMatchObject({ kind: 'single' })
     expect(b.slots.spec('conversation.hero.workspace.directoryFlow')).toMatchObject({ kind: 'single' })
 
-    const browser = faceOf(b.slots.entries('sidebar.right.navigation.tab')[0]!) as WorkspaceBrowserInjected
+    const browser = faceOf(b.slots.entries('sidebar.workspaces')[0]!) as WorkspaceBrowserInjected
     const picker = faceOf(b.slots.entries('conversation.hero.workspace')[0]!) as WorkspacePickerInjected
     expect(browser.hooks.directoryFlow.getSnapshot()).toBe(false)
     expect(browser.hooks.hostInfo.getSnapshot()).toMatchObject({ home: undefined })
@@ -582,23 +580,23 @@ describe('ui-workspace apply', () => {
       ok: false,
       error: new RemoteError('gateway/internal', 'index unavailable', {}),
     }) as never)
-    declare(b.slots, 'sidebar.right.navigation.tab')
+    declare(b.slots, 'sidebar.workspaces')
     await b.ctx.plugin({ inject: [...inject], apply }).await()
-    const browser = faceOf(b.slots.entries('sidebar.right.navigation.tab')[0]!) as WorkspaceBrowserInjected
+    const browser = faceOf(b.slots.entries('sidebar.workspaces')[0]!) as WorkspaceBrowserInjected
     await expect(browser.searchSessions('needle', new AbortController().signal))
       .rejects.toThrow('index unavailable')
   })
 
   it('unregisters every entry on teardown', async () => {
     const b = await bench()
-    declare(b.slots, 'sidebar.right.navigation.tab', 'conversation.hero.workspace', 'conversation.empty.workspace', 'shell.overlay')
+    declare(b.slots, 'sidebar.workspaces', 'conversation.hero.workspace', 'conversation.empty.workspace', 'shell.overlay')
     const fiber = b.ctx.plugin({ inject: [...inject], apply })
     await fiber.await()
     expect(b.slots.entries(MENU_ITEM)).toHaveLength(4)
     expect(b.slots.entries(ROW_ACTION)).toHaveLength(2)
     expect(b.slots.entries('shell.overlay')).toHaveLength(3)
     await fiber.dispose()
-    expect(b.slots.entries('sidebar.right.navigation.tab')).toHaveLength(0)
+    expect(b.slots.entries('sidebar.workspaces')).toHaveLength(0)
     expect(b.slots.entries('conversation.hero.workspace')).toHaveLength(0)
     // The row lists collapse with the browser declaration; the overlay list
     // (declared by the shell) keeps no ui-workspace entry behind.

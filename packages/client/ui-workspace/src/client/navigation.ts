@@ -21,6 +21,7 @@ import type { RowToast } from './contract/slots.ts'
 import { en, zh } from './locales.ts'
 import { pinOrderAccounts, pinOrderSource } from './pin-order.ts'
 import type { WorkspaceViewStoreActions } from './stores.ts'
+import { SidebarTabRegistry } from './sidebar-tabs.tsx'
 
 interface MainSelection {
   readonly sessionId?: SessionId
@@ -29,6 +30,8 @@ interface MainSelection {
 
 /** Workspace archive and directory operations consumed by Client UI domains. */
 export interface UiWorkspace {
+  /** Left-sidebar Workspace, group, and channel destinations. */
+  readonly navigationTabs: SidebarTabRegistry
   /** Session ids retained for execution but omitted from Workspace browsing. */
   readonly hiddenSessionIds: SnapshotStore<ReadonlySet<SessionId>>
   /** Replace one contributor's hidden ids; an empty list removes that contributor. */
@@ -129,6 +132,7 @@ export class DirectoryBrowseError extends Error {
 
 /** Implements Workspace archive and directory UI operations. */
 class UiWorkspaceService extends Service implements UiWorkspace {
+  readonly navigationTabs = new SidebarTabRegistry()
   private readonly connecting = new Map<WorkspaceId, Promise<SessionId>>()
   private readonly hiddenSessionSources = new Map<string, readonly SessionId[]>()
   readonly hiddenSessionIds = createSnapshotStore<ReadonlySet<SessionId>>(new Set())

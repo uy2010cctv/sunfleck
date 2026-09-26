@@ -25,7 +25,7 @@ This package lets users browse grouped or flat Session lists, choose a Workspace
 <a id="use-this-package"></a>
 ## Use this package
 
-Use the Workspace tab in the right sidebar to browse Workspaces and their Sessions, reorder them, and start new ones; use the picker in the Session Intent hero to choose a Workspace for a new session. An open Workspace shows five idle, non-blank Sessions by default. Running Sessions, including parents with running children, remain visible in their ordered positions without using that quota; the selected blank **New Session** is also an extra row until its first prompt. Each **Show more** click reveals up to five more idle Sessions; after the final batch, **Show less** restores the initial rows while keeping running Sessions visible. Closing and reopening the Workspace also restores this folded projection. Client contributors may hide execution-only Session ids from the browser and search without changing Workspace membership, saved order, or the Session log. Enterprise Workspace rows label the authenticated personal, department shared, or project kind supplied by the Host.
+Use the Workspace tab in the left sidebar to browse Workspaces and their Sessions, reorder them, and start new ones; use the picker in the Session Intent hero to choose a Workspace for a new session. An open Workspace shows five idle, non-blank Sessions by default. Running Sessions, including parents with running children, remain visible in their ordered positions without using that quota; the selected blank **New Session** is also an extra row until its first prompt. Each **Show more** click reveals up to five more idle Sessions; after the final batch, **Show less** restores the initial rows while keeping running Sessions visible. Closing and reopening the Workspace also restores this folded projection. Client contributors may hide execution-only Session ids from the browser and search without changing Workspace membership, saved order, or the Session log. Enterprise Workspace rows label the authenticated personal, department shared, or project kind supplied by the Host.
 
 ### Reordering and view options
 
@@ -181,7 +181,7 @@ Workspace and Session hover cards copy the value their row clips: activating a W
 
 These pages cover the sidebar host, the hero surface, and the picking backends.
 
-- [ui-sidebar-right](../ui-sidebar-right/README.md) — the right column hosting the Workspace navigation tab.
+- [ui-sidebar](../ui-sidebar/README.md) — the left column hosting the Workspace navigation tab.
 - [ui-conversation](../ui-conversation/README.md) — the chat surface hosting the Session Intent hero's picker hole.
 - [directory-picker-native](../../host/directory-picker-native/README.md) — the OS-chooser backend filling the directory-flow hole.
 - [Workspace Controller](../../api/workspace-controller/README.md) — the Host mutations and framework-neutral Client projection that own Workspaces, membership, and Workspace group order.

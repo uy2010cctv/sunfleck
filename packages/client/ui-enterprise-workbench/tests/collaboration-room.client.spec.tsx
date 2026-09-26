@@ -5,7 +5,6 @@ import { CollaborationRoom, reactionCounts } from '../src/client/CollaborationRo
 import { CollaborationController, type RoomEvent } from '../src/client/collaboration-store.ts'
 import { zh, type CollaborationKey } from '../src/client/collaboration-locales.ts'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-locale/client'
-import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals() })
 const human: RoomEvent = { sequence: '1', id: 'human', pubkey: 'human-pubkey-very-long', created_at: 1, kind: 9, tags: [['h', 'room']], content: '请调研续约', sig: 'human-signature', author: { kind: 'human', id: 'u1', displayName: '张总' } }
@@ -45,21 +44,6 @@ describe('shared room UI', () => {
     expect(acknowledge).toHaveBeenCalledTimes(beforeNewEvent)
     fireEvent.click(screen.getByRole('button', { name: '关闭搜索' }))
     await waitFor(() => { expect(acknowledge).toHaveBeenCalledTimes(beforeNewEvent + 1) })
-    controller.dispose()
-  })
-  it('keeps a new room event unread while narrow navigation covers the room', async () => {
-    const { controller, state, t } = setup([human])
-    const occludesMain = createSnapshotStore(false)
-    const acknowledge = vi.spyOn(controller, 'acknowledgeVisible').mockResolvedValue()
-    const { rerender } = render(<CollaborationRoom controller={controller} state={state} t={t}
-      occludesMain={occludesMain}/>)
-    await waitFor(() => { expect(acknowledge).toHaveBeenCalledOnce() })
-    occludesMain.set(true)
-    rerender(<CollaborationRoom controller={controller} state={{ ...state, events: [human, data] }} t={t}
-      occludesMain={occludesMain}/>)
-    expect(acknowledge).toHaveBeenCalledOnce()
-    occludesMain.set(false)
-    await waitFor(() => { expect(acknowledge).toHaveBeenCalledTimes(2) })
     controller.dispose()
   })
   it('renders two humans and multiple Bots in one ordered timeline with source and signature', () => {

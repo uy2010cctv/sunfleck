@@ -101,7 +101,7 @@ describe('ui-sidebar-right apply', () => {
     // and the guide body and chip title under the guide implementation's id.
     // The guide draws no product copy of its own, so neither guide seat binds the dictionary.
     expect(registered.map(entry => [entry.name, entry.key, entry.locale, entry.component])).toEqual([
-      ['rightbar', undefined, 'sidebarRight', RightbarRoot],
+      ['rightbar', undefined, undefined, RightbarRoot],
       ['rightbar.session', undefined, 'sidebarRight', RightbarSeat],
       ['conversation.session.header.corner', undefined, 'sidebarRight', ExpandButton],
       ['sidebar.right.pane.tab', GUIDE_ID, undefined, GuideBody],

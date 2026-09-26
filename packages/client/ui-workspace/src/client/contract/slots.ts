@@ -1,10 +1,10 @@
 /**
  * ui-workspace contracts. Two registrations share this package:
  *
- * - WorkspaceBrowser fills the right column's `sidebar.right.navigation.tab` Workspace entry —
+ * - WorkspaceBrowser fills the left sidebar's `sidebar.workspaces` browsing entry —
  *   the whole browsing region (section header, search, grouped/flat session
  *   list, workspace dialogs). It registers this package's viewing store and
- *   consumes the right-navigation owner share (wide / expandSidebar).
+ *   consumes the left-sidebar owner share (wide / expandSidebar).
  * - WorkspacePicker fills the conversation empty-state hole (menu + error
  *   dialog shared with the browser).
  *
@@ -45,6 +45,7 @@ import type { RemoteHostFacts } from '@deepseek-ai/dsh-api-remotes/client'
 import type { SessionActivity, WorkspaceId, WorkspaceView } from '@deepseek-ai/dsh-api-workspace-controller/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { createWorkspaceViewStore } from '../stores.ts'
+import type { SidebarTabDefinition } from '../sidebar-tabs.tsx'
 
 /**
  * Owner share of the directory-flow holes: the complete conversation between
@@ -95,6 +96,12 @@ export const menuOpenStateFactory: SlotHookFactory<'sidebar.workspaces.session.m
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface SlotMap {
+    /** Group and channel browsers chosen by the Workspace-owned left tab strip. */
+    'sidebar.workspaces.navigation.tab': {
+      kind: 'keyed'
+      scope: 'root'
+      owner: { wide: boolean; expandSidebar: () => void }
+    }
     /** Directory-flow hole under the conversation empty-state picker (declared by the WorkspacePicker entry). */
     'conversation.hero.workspace.directoryFlow': { kind: 'single'; scope: 'root'; owner: DirectoryFlowOwnerProps }
     /** Directory-flow hole under the sidebar browsing region (declared by the WorkspaceBrowser entry). */
@@ -177,6 +184,8 @@ export type DirectoryPickingHooks = PropsHooks<DirectoryPickingInjected['hooks']
  * browsing region drives.
  */
 export type WorkspaceBrowserInjected = {
+  /** Optional category tabs; direct browser mounts retain their ordinary Workspace view. */
+  navigationTabs?: HostObservable<readonly SidebarTabDefinition[]>
   hooks: DirectoryPickingInjected['hooks'] & {
     /**
      * Fixed Host facts, reached through a hook rather than injected as values:
@@ -401,9 +410,9 @@ export type RowToastProps =
 /** Full browser props: shell owner share + viewing store + injected actions + the locale seat. */
 export type WorkspaceBrowserProps =
   PropsRuntime<'sidebar.workspaces'>
-  & { closeNavigation?: () => void }
   & PropsRenderSlots<
-    'sidebar.workspaces.directoryFlow' | 'sidebar.workspaces.session.menu.item' | 'sidebar.workspaces.session.row.action'
+    'sidebar.workspaces.navigation.tab' | 'sidebar.workspaces.directoryFlow'
+    | 'sidebar.workspaces.session.menu.item' | 'sidebar.workspaces.session.row.action'
   >
   & PropsStore<WorkspaceViewStoreHandle>
   & Omit<WorkspaceBrowserInjected, 'hooks'>

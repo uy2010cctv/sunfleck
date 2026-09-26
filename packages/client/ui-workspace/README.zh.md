@@ -25,7 +25,7 @@ kind: "package-reference"
 <a id="use-this-package"></a>
 ## 使用本包
 
-用右侧栏的 Workspace 标签浏览 Workspace 及其 Session、重排它们并新建会话；在 Session Intent 主视觉区用选择器为新会话选择 Workspace。打开的 Workspace 默认显示五条空闲的非空白 Session。正在运行的 Session（包括有子会话正在运行的父会话）始终按原顺序显示，不占用这五条配额；当前选中的空白**新会话**在首条提示词落地前也作为额外行。每次点击**展开其余**最多再显示五条空闲 Session；全部显示后，**收起**恢复初始行数，但仍显示正在运行的 Session。关闭再打开 Workspace 也会恢复该折叠投影。Client 插件可让仅供执行的 Session 不出现在工作区浏览和搜索中，但不改变 Workspace 成员关系、保存的顺序或 Session 日志。企业 Workspace 行会标出 Host 提供的个人、部门共享或项目类型。
+用左侧栏的 Workspace 标签浏览 Workspace 及其 Session、重排它们并新建会话；在 Session Intent 主视觉区用选择器为新会话选择 Workspace。打开的 Workspace 默认显示五条空闲的非空白 Session。正在运行的 Session（包括有子会话正在运行的父会话）始终按原顺序显示，不占用这五条配额；当前选中的空白**新会话**在首条提示词落地前也作为额外行。每次点击**展开其余**最多再显示五条空闲 Session；全部显示后，**收起**恢复初始行数，但仍显示正在运行的 Session。关闭再打开 Workspace 也会恢复该折叠投影。Client 插件可让仅供执行的 Session 不出现在工作区浏览和搜索中，但不改变 Workspace 成员关系、保存的顺序或 Session 日志。企业 Workspace 行会标出 Host 提供的个人、部门共享或项目类型。
 
 ### 重排序与视图选项
 
@@ -181,7 +181,7 @@ Workspace 与 Session 悬浮卡片会复制对应行被截断的值：激活 Wor
 
 以下页面覆盖侧边栏宿主、主视觉区界面与选取后端。
 
-- [ui-sidebar-right](../ui-sidebar-right/README.zh.md)——承载 Workspace 导航标签的右侧栏。
+- [ui-sidebar](../ui-sidebar/README.zh.md)——承载 Workspace 导航标签的左侧栏。
 - [ui-conversation](../ui-conversation/README.zh.md)——承载 Session Intent 主视觉区选择器子 slot 的聊天界面。
 - [directory-picker-native](../../host/directory-picker-native/README.zh.md)——填充目录流子 slot 的 OS 选择器后端。
 - [Workspace Controller](../../api/workspace-controller/README.zh.md)——负责 Workspace、成员关系与 Workspace 分组顺序的 Host 变更和框架无关 Client 投影。

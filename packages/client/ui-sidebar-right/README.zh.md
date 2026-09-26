@@ -47,16 +47,16 @@ kind: "package-reference"
 
 席位通过 `ctx.layout.openRightbar(track, fullscreen)` / `closeRightbar()` 报告呈现，框架不注入本包。宽屏切换全屏不改变中栏宽度；宽度拖拽区只在普通展开态显示。独立浮窗及 `float`/`dock` 操作保持可用。
 
-根导航行位于 Session 停靠面板之上，停靠面板没有单独的标题行。它的两个控件——形态切换与折叠按钮——搭在套件 chrome 席位上，位于右上格 tab 条的最末端，因此 tab 条就是停靠面板的上边。每条 tab 条从左到右读作：在允许时带关闭按钮的 tab 胶囊，添加控件（只在该格没有引导 tab 时绘制；它通过 `ctx.sidebarRight.openTab` 在该格打开引导页），该格的分栏控件，以及右上格里的两个面板控件。窄格里只有 chip 让位；其后的控件从不收缩或被裁切。
+面板没有标题行。它的两个控件——形态切换与折叠按钮——搭在套件 chrome 席位上，位于右上格 tab 条的最末端，因此 tab 条就是面板的整条上边。每条 tab 条从左到右读作：在允许时带关闭按钮的 tab 胶囊，添加控件（只在该格没有引导 tab 时绘制；它通过 `ctx.sidebarRight.openTab` 在该格打开引导页），该格的分栏控件，以及右上格里的两个面板控件。窄格里只有 chip 让位；其后的控件从不收缩或被裁切。
 
 <a id="the-expand-button"></a>
 ## 展开按钮
 
-面板隐藏时，会话 header 角落席位里的一个按钮（`conversation.session.header.corner`，在工具组右缘之外，与 Session 日志控件齐平）是回去的路。它的图形是左侧 sidebar 折叠图标的镜像。它与面板共用一个存储（slot 运行时允许两个同作用域席位共用一个 handle）；面板显示时它什么也不渲染，角落席位随之收起。收起 Session 停靠面板会隐藏其内容，右侧栏的根导航仍可使用。未选中 Session 时，header 按钮不显示，根导航继续渲染。
+面板隐藏时，会话 header 角落席位里的一个按钮（`conversation.session.header.corner`，在工具组右缘之外，与 Session 日志控件齐平）是回去的路。它的图形是左侧 sidebar 折叠图标的镜像。它与面板共用一个存储（slot 运行时允许两个同作用域席位共用一个 handle）；面板显示时它什么也不渲染，角落席位随之收起。于是折叠的 Sidebar 不花会话区任何代价：没有轨条、没有宽度，转录的滚动条留在列的边缘。没有会话就没有按钮也没有面板。
 
 面板取会话区的底色与正文字号，而不是自成一层浮起的表面：它是页面的一列，不是压在页面上的卡片。
 
-root 作用域的 `rightbar` 入口在未选中 Session 或打开房间主面板时仍显示 Workspace、群聊和频道导航。每个目的地通过 `ctx.sidebarRightNavigationTabs` 注册标签信息，通过 keyed `sidebar.right.navigation.tab` slot 注册内容；可选的 observable 控制提醒点。`ctx.sidebarRightNavigationTabs.occludesMain` 报告窄屏根内容是否正遮住主视图，读取方可在其关闭后再执行需要房间可见的操作。Session 标签在独立的 `rightbar.session` 子树中保留原有停靠标签，包括切换目的地后已初始化的 `keepMounted` 内容。每个 View 拥有自身的 Session reference，只有前台 Conversation 绑定 Session 标签导航。低于 768px 时，选择房间或 Session 会收起根导航；固定按钮可以重新打开它，即使房间主面板仍保持选中。
+root 作用域的 `rightbar` 入口通过独立的 `rightbar.session` 子树渲染选中的 Session，以及拥有已初始化 `keepMounted` 正文的后台 Session。每个 View 拥有自身的 Session reference。只有前台 Conversation 上报框架列宽并绑定公共导航；其他子树保持隐藏，不删除 tab 状态。
 
 <a id="state"></a>
 ## 状态

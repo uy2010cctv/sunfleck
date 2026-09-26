@@ -1,9 +1,7 @@
 /**
  * The right Sidebar's extension seats and its copy namespace.
  *
- * Five seats, each with a different reason to exist:
- * - `sidebar.right.navigation.tab` contributes root-scoped browsing content
- *   that remains available without a Session.
+ * Four seats, each with a different reason to exist:
  * - `sidebar.right.pane.tab` is how a tab type contributes a body. It is keyed by
  *   the type definition's `id`, so adding a type is a registration, never an
  *   edit here. The key domain stays the open string space because a tab type may
@@ -40,12 +38,6 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
   }
 
   interface SlotMap {
-    /** Root-scoped browsing destination in the right column. */
-    'sidebar.right.navigation.tab': {
-      kind: 'keyed'
-      scope: 'root'
-      owner: { wide: boolean; expandSidebar: () => void; closeNavigation?: () => void }
-    }
     /** Session content selected by the root-scoped right Sidebar controller. */
     'rightbar.session': {
       kind: 'single'

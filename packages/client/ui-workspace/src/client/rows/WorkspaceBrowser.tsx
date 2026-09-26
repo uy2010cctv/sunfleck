@@ -14,7 +14,7 @@
  * are slot entries with their own behavior, so this component threads no
  * action callbacks and hosts no action surface.
  */
-import { type CSSProperties, type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
+import { type CSSProperties, type ReactNode, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import clsx from 'clsx'
 import {
   Button, IconArchiveCheckOutlineRegular, IconArchiveOutlineRegular,
@@ -39,6 +39,7 @@ import { ProjectRowItem, SearchResultItem, SessionNodeItem } from './Rows.tsx'
 import { AnimatedRows } from './AnimatedRows.tsx'
 import { FLAT_SESSION_ORDER_KEY, type SessionGroupBy } from '../stores.ts'
 import { WorkspacePickFlow } from '../WorkspacePicker.tsx'
+import { SidebarTabs } from '../sidebar-tabs.tsx'
 import css from './WorkspaceBrowser.module.css'
 
 /**
@@ -808,11 +809,10 @@ function SearchResults({
  * @param props - composed slot props (shell owner share + store + injected actions).
  * @returns the region element tree.
  */
-export function WorkspaceBrowser({
+function WorkspaceBrowserContent({
   wide,
   usePanelInfo,
   expandSidebar,
-  closeNavigation,
   useSessions,
   useSessionStatus,
   useWorkspaces,
@@ -863,7 +863,6 @@ export function WorkspaceBrowser({
       return
     }
     open(sessionId)
-    closeNavigation?.()
   }
   const workspaceReady = workspacePhase === 'ready' && workspaceStreamState !== 'loading'
   const mainSessionId = Object.values(list.byId)
@@ -996,7 +995,6 @@ export function WorkspaceBrowser({
     setQuery('')
     setSearchExpanded(false)
     open(sessionId)
-    closeNavigation?.()
   }
   const acknowledgeSessionReveal = (sessionId: SessionId): void => {
     setRevealSessionId(current => current === sessionId ? undefined : current)
@@ -1419,4 +1417,23 @@ export function WorkspaceBrowser({
       </Modal>
     </div>
   )
+}
+
+function WorkspaceBrowserWithTabs({ props }: { readonly props: WorkspaceBrowserProps }) {
+  const source = props.navigationTabs
+  if (source === undefined) throw new Error('Workspace navigation tabs are unavailable')
+  const tabs = useSyncExternalStore(source.subscribe, source.getSnapshot)
+  return <SidebarTabs tabs={tabs} wide={props.wide} expandSidebar={props.expandSidebar}
+    label={props.t('navigation.aria')}
+    renderContent={id => id === 'workspace'
+      ? <WorkspaceBrowserContent {...props}/>
+      : props.renderSlot('sidebar.workspaces.navigation.tab',
+        { wide: props.wide, expandSidebar: props.expandSidebar }, { entryKey: id })}/>
+}
+
+/** Preserve direct Workspace mounts while the composed shell adds category tabs. */
+export function WorkspaceBrowser(props: WorkspaceBrowserProps) {
+  return props.navigationTabs === undefined
+    ? <WorkspaceBrowserContent {...props}/>
+    : <WorkspaceBrowserWithTabs props={props}/>
 }

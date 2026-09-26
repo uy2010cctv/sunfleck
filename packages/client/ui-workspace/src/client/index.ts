@@ -1,6 +1,6 @@
 /**
  * Workspace plugin, browser half. Two registrations: WorkspaceBrowser fills
- * the right column's keyed `sidebar.right.navigation.tab` Workspace entry,
+ * the left sidebar's `sidebar.workspaces` browsing entry,
  * and WorkspacePicker fills the conversation hero's picker hole
  * (`conversation.hero.workspace` — both hero forms). Both read real Host
  * Workspaces through the global useWorkspaces hook, and each declares its
@@ -31,7 +31,6 @@ import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 // Type-only: pulls the Session root standard-hook merge.
 import type {} from '@deepseek-ai/dsh-client-ui-session/client'
-import type {} from '@deepseek-ai/dsh-client-ui-sidebar-right/client'
 import { IconWorkspaceTreeOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
 import { workspaceCompletionAttention } from './workspace-attention.ts'
 import {
@@ -91,7 +90,7 @@ const NS = 'workspace'
  * declaration through `slots.inject()` instead of assuming order.
  */
 export const inject = [
-  'slots', 'sessions', 'workspaces', 'locale', 'remote', 'remote.directoryPicker', 'layout', 'sidebarRightNavigationTabs', 'uiSession',
+  'slots', 'sessions', 'workspaces', 'locale', 'remote', 'remote.directoryPicker', 'layout', 'uiSession',
 ]
 
 /**
@@ -224,6 +223,7 @@ export function apply(ctx: Context): void {
     showArchived: () => { viewInstance.actions.setArchivedFilter('show') },
   })
   const browserInjected = (): WorkspaceBrowserInjected => ({
+    navigationTabs: uiWorkspace.navigationTabs.source,
     // Explicit group actions keep their target; unscoped New Session inherits
     // the current Session Workspace before the recent-Workspace fallback.
     startSession: (workspaceId) => { uiWorkspace.startSession(workspaceId) },
@@ -246,17 +246,17 @@ export function apply(ctx: Context): void {
     hooks: { directoryFlow: pickerFlowSource },
   })
   const workspaceAttention = workspaceCompletionAttention(ctx.uiSession.sessionStatus, sessions.list, uiWorkspace.hiddenSessionIds)
-  ctx.effect(() => ctx.sidebarRightNavigationTabs.register({
+  ctx.effect(() => uiWorkspace.navigationTabs.register({
     id: 'workspace', order: 100, title: () => ctx.locale.bind(NS)('section.workspaces'),
     icon: IconWorkspaceTreeOutlineRegular, attention: workspaceAttention,
-  }), 'ui-workspace: right navigation tab')
+  }), 'ui-workspace: left navigation tab')
   // Each registration declares its owned children in the same call; slot
   // injection follows both the owner and declaration HMR lifetimes.
-  ctx.slots.inject('sidebar.right.navigation.tab', () => ctx.slots.register(
+  ctx.slots.inject('sidebar.workspaces', () => ctx.slots.register(
     {
-      name: 'sidebar.right.navigation.tab',
-      key: 'workspace',
+      name: 'sidebar.workspaces',
       children: {
+        'sidebar.workspaces.navigation.tab': { kind: 'keyed', scope: 'root' },
         'sidebar.workspaces.directoryFlow': { kind: 'single', scope: 'root' },
         // Every row entry reads the menu's open state through a hook bound
         // from the row's render occurrence (the owner passes the state pair
