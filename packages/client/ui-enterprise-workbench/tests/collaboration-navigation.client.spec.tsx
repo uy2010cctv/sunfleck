@@ -21,15 +21,16 @@ function setup() {
 }
 
 describe('native collaboration navigation', () => {
-  it('hides stored groups while keeping channels selectable', () => {
+  it('shows stored groups and channels as separate selectable sections', () => {
     const { controller, props } = setup()
     controller.state.set({ ...controller.state.getSnapshot(), phase: 'ready', surfaces: [{ id: 'g', kind: 'group', name: '续约群', memberCount: 2 }, { id: 'c', kind: 'channel', name: 'IT 值班', memberCount: 1 }] })
     const select = vi.spyOn(controller, 'select').mockResolvedValue()
     render(<CollaborationSidebar {...props} wide expandSidebar={() => {}} />)
-    expect(screen.queryByRole('region', { name: '群聊' })).toBeNull()
+    expect(screen.getByRole('region', { name: '群聊' })).toBeTruthy()
     expect(screen.getByRole('region', { name: '频道' })).toBeTruthy()
-    expect(screen.queryByRole('button', { name: '续约群' })).toBeNull()
-    expect(screen.queryByRole('button', { name: '创建群聊' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: '续约群' }))
+    expect(select).toHaveBeenCalledWith('g')
+    expect(screen.getByRole('button', { name: '创建群聊' })).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'IT 值班' }))
     expect(select).toHaveBeenCalledWith('c')
   })
