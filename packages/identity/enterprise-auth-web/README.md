@@ -29,6 +29,7 @@ Persistent Web authentication and authorization:
 - Organization, department tree, user membership, managed Workspace/sandbox, reviewed memory, role, disable, resource-policy, and audit administration APIs.
 - Platform administrators can atomically create another organization with its first administrator and rename any organization without changing its durable id. A tenant administrator may rename only its own organization. Local and mapped SSO login issue Sessions inside the selected organization. Anonymous auth status exposes only organization ids and display names for the login selector; after authentication, tenant administrators receive only their own organization while platform administrators receive the complete selector directory.
 - A default managed personal DSH Workspace on bootstrap/login, department shared Workspaces, and member-created personal Workspaces below the deployment-owned root.
+- Project Workspaces prepared under the configured project root appear only to current project members. Archived projects remain readable but refuse new Sessions; project Workspaces cannot be renamed or removed through ordinary Workspace actions.
 - New managed Workspaces are stored below an organization-specific filesystem compartment. Existing grants retain their persisted paths.
 - Unknown Host endpoints fail closed.
 

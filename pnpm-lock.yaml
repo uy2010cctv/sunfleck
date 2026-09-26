@@ -9621,6 +9621,9 @@ importers:
       '@deepseek-ai/dsh-enterprise-identity':
         specifier: workspace:^
         version: link:../enterprise-identity
+      '@deepseek-ai/dsh-enterprise-project':
+        specifier: workspace:^
+        version: link:../../enterprise/enterprise-project
       '@deepseek-ai/dsh-enterprise-sso':
         specifier: workspace:^
         version: link:../enterprise-sso

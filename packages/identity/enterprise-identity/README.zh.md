@@ -24,6 +24,8 @@ Persistent enterprise organizations, users, sessions, resource policies, and aud
 
 `EnterpriseIdentityStore` 是 Host 使用的持久化契约。SQLite `EnterpriseIdentityRepository` 只是其中一种实现；部署方可以注入事务型 PostgreSQL 实现，而不让认证逻辑依赖 SQLite 文件路径。
 
+共享的 Workspace 授权视图可包含由 PostgreSQL 项目绑定提供的 `project` 类型和项目编号。SQLite 不写入项目授权；其 `saveWorkspaceGrant` 会拒绝该类型，避免保存无法使用的授权行。
+
 认证主体投影包含当前部门归属和主部门。授权服务从组织目录补充负责部门；调用方不能从显示名称或 Workspace 路径推断这些关系。
 
 可选的 `collaborationSessionAccess` 查询返回已记录协作会话的配置工作区和调用者是否为明确成员，权限撤销后也返回否定的成员结果。不支持协作的提供方省略该方法；消费方仍须验证当前工作区访问权限，并在管理操作中保留会话所有权检查。

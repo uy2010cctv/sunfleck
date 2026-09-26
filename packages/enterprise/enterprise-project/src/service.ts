@@ -108,7 +108,7 @@ export class EnterpriseProjectService implements EnterpriseProjects {
 
   async create(input: CreateProjectInput): Promise<Project> {
     const spec = resolveCreateProjectSpec(input)
-    return this.store.createProject({ ...spec, projectId: projectId(randomUUID()) })
+    return this.store.createProject({ ...spec, projectId: input.projectId ?? projectId(randomUUID()) })
   }
 
   async get(projectId: ProjectId): Promise<Project | undefined> {

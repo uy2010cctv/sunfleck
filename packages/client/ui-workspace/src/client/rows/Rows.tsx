@@ -250,6 +250,7 @@ export function ProjectRowItem({ group, containsCurrentDescendant = false, onTog
       </span>
       <span className={css.projectText}>
         <span className={css.title}>{label}</span>
+        {row.enterpriseKind !== undefined && <small className={css.workspaceKind}>{t(`workspace.kind.${row.enterpriseKind}`)}</small>}
       </span>
       <span className={css.rowActions}>
         {actions !== undefined && (

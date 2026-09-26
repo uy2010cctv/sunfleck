@@ -53,6 +53,11 @@ describe('EnterpriseProjectService.create', () => {
     expect(created.visibility).toBe('restricted')
     expect(created.allowedUserIds).toEqual(['user-b', 'user-c'])
   })
+  it('uses a Host-preselected project id for Workspace preparation', async () => {
+    const service = makeService()
+    const created = await service.create({ ...baseInput, projectId: projectId('prepared-project') })
+    expect(created.projectId).toBe('prepared-project')
+  })
 
   it('rejects empty names, goals, creators, relative workspaces, and empty allowed ids', async () => {
     const service = makeService()

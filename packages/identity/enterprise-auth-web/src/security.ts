@@ -36,6 +36,11 @@ export interface EnterpriseSecurityOptions {
   ) => Promise<EnterpriseResource | null | undefined>
   /** Resolves departments the human principal may manage. */
   readonly managedDepartmentIds?: (orgId: string, userId: string) => Promise<readonly string[]>
+  /** Project membership and lifecycle authority for project Workspace grants. */
+  readonly projectAccess?: (orgId: string, userId: string, projectId: string) => Promise<{
+    readonly member: boolean
+    readonly active: boolean
+  }>
 }
 
 /** Data used by `ApiClassification`. */
@@ -368,6 +373,7 @@ export class EnterpriseSecurity {
   private readonly randomId: () => string
   private readonly resourcePolicyResolver: EnterpriseSecurityOptions['resourcePolicyResolver']
   private readonly managedDepartmentIds: EnterpriseSecurityOptions['managedDepartmentIds']
+  private readonly projectAccess: EnterpriseSecurityOptions['projectAccess']
 
   constructor(
     readonly repository: EnterpriseIdentityStore,
@@ -379,6 +385,7 @@ export class EnterpriseSecurity {
     this.randomId = options.randomId ?? randomUUID
     this.resourcePolicyResolver = options.resourcePolicyResolver
     this.managedDepartmentIds = options.managedDepartmentIds
+    this.projectAccess = options.projectAccess
   }
 
   /**
@@ -592,6 +599,17 @@ export class EnterpriseSecurity {
     }
     const classification = classifyApiEndpoint(endpoint, input)
     if (classification === undefined) return { allowed: false, reason: 'insufficient-role' }
+    if (classification.resourceType === 'workspace' && classification.resourceId !== undefined) {
+      const grant = await this.repository.workspaceGrant(classification.resourceId)
+      if (grant?.kind === 'project') {
+        const access = grant.projectId === undefined ? undefined
+          : await this.projectAccess?.(principal.orgId, principal.userId, grant.projectId)
+        if (grant.orgId !== principal.orgId || access?.member !== true) return { allowed: false, reason: 'resource-hidden' }
+        if (classification.action === 'workspace.manage' || classification.action === 'session.create' && !access.active) {
+          return { allowed: false, reason: 'resource-hidden' }
+        }
+      }
+    }
     const sessionId = sessionAuthorizationId(input)
     if (sessionId !== undefined && (classification.resourceType === 'session' || endpoint.startsWith('workspace.'))) {
       if (SHARED_SESSION_ENDPOINTS.has(endpoint) && !await this.sessionAccessibleBy(principal, sessionId)) {
@@ -650,7 +668,7 @@ export class EnterpriseSecurity {
   }
 
   /**
-   * Project the native Workspace stream to the caller's personal and department grants.
+   * Project the native Workspace stream to the caller's personal, department and project grants.
    * Protected default and shared Workspaces explicitly carry `deletable: false`.
    * @param principal - authenticated stream owner.
    * @param frames - native Workspace baseline and increment stream.
@@ -660,9 +678,7 @@ export class EnterpriseSecurity {
     principal: EnterprisePrincipal,
     frames: AsyncIterable<unknown>,
   ): AsyncIterable<unknown> {
-    const visible = new Map((await this.repository.listWorkspaceGrants({
-      orgId: principal.orgId, userId: principal.userId,
-    })).map(grant => [grant.workspaceId, grant]))
+    const visible = new Map((await this.visibleWorkspaceGrants(principal)).map(grant => [grant.workspaceId, grant]))
     const deletable = this.deletableWorkspaceIds(principal, [...visible.values()])
     const emitted = new Set<string>()
     for await (const frame of frames) {
@@ -673,10 +689,14 @@ export class EnterpriseSecurity {
         const projected: Record<string, unknown>[] = []
         for (const item of items) {
           const workspace = workspaceRecord(item)
-          if (workspace === undefined || !visible.has(workspace.workspaceId)) continue
+          if (workspace === undefined) continue
+          const grant = visible.get(workspace.workspaceId)
+          if (grant === undefined) continue
           emitted.add(workspace.workspaceId)
           projected.push({
             ...workspace.value,
+            enterpriseKind: grant.kind,
+            ...(grant.projectId === undefined ? {} : { projectId: grant.projectId }),
             sessionIds: await this.visibleSessionIds(
               principal,
               Array.isArray(workspace.value['sessionIds']) ? workspace.value['sessionIds'] : [],
@@ -700,9 +720,15 @@ export class EnterpriseSecurity {
       if (frame['type'] === 'upsert') {
         const workspace = workspaceRecord(frame['workspace'])
         if (workspace === undefined) continue
-        const grant = visible.get(workspace.workspaceId)
-          ?? await this.waitForVisibleWorkspaceGrant(principal, workspace.workspaceId)
-        if (grant === undefined) continue
+        const current = (await this.visibleWorkspaceGrants(principal))
+          .find(candidate => candidate.workspaceId === workspace.workspaceId)
+        const grant = current ?? (visible.has(workspace.workspaceId)
+          ? undefined : await this.waitForVisibleWorkspaceGrant(principal, workspace.workspaceId))
+        if (grant === undefined) {
+          visible.delete(workspace.workspaceId)
+          if (emitted.delete(workspace.workspaceId)) yield { type: 'remove', workspaceId: workspace.workspaceId }
+          continue
+        }
         visible.set(workspace.workspaceId, grant)
         const currentDeletable = this.deletableWorkspaceIds(principal, [...visible.values()])
         emitted.add(workspace.workspaceId)
@@ -710,6 +736,8 @@ export class EnterpriseSecurity {
           ...frame,
           workspace: {
             ...workspace.value,
+            enterpriseKind: grant.kind,
+            ...(grant.projectId === undefined ? {} : { projectId: grant.projectId }),
             sessionIds: await this.visibleSessionIds(
               principal,
               Array.isArray(workspace.value['sessionIds']) ? workspace.value['sessionIds'] : [],
@@ -833,12 +861,30 @@ export class EnterpriseSecurity {
     const collaboration = await this.repository.collaborationSessionAccess?.({
       orgId: principal.orgId, userId: principal.userId, sessionId,
     })
-    if (collaboration === undefined) return this.sessionOwnedBy(principal, sessionId)
+    if (collaboration === undefined) {
+      if (!await this.sessionOwnedBy(principal, sessionId)) return false
+      const binding = await this.repository.sessionWorkspaceGrant(sessionId)
+      if (binding?.kind !== 'project') return true
+      return binding.projectId !== undefined && binding.orgId === principal.orgId
+        && (await this.projectAccess?.(principal.orgId, principal.userId, binding.projectId))?.member === true
+    }
     if (principal.actorType === 'employee' || !collaboration.member || collaboration.orgId !== principal.orgId) return false
     const binding = await this.repository.sessionWorkspaceGrant(sessionId)
     if (binding?.orgId !== principal.orgId || binding.workspaceId !== collaboration.workspaceId) return false
-    return (await this.repository.listWorkspaceGrants({ orgId: principal.orgId, userId: principal.userId }))
+    return (await this.visibleWorkspaceGrants(principal))
       .some(grant => grant.workspaceId === collaboration.workspaceId && grant.orgId === principal.orgId)
+  }
+
+  /** Merge ordinary grants with project Workspaces visible to the current project member. */
+  private async visibleWorkspaceGrants(principal: EnterprisePrincipal): Promise<EnterpriseWorkspaceGrant[]> {
+    const ordinary = await this.repository.listWorkspaceGrants({ orgId: principal.orgId, userId: principal.userId })
+    if (this.projectAccess === undefined) return ordinary
+    const candidates = (await this.repository.listOrganizationWorkspaceGrants(principal.orgId))
+      .filter(grant => grant.kind === 'project')
+    const project = await Promise.all(candidates.map(async grant => grant.projectId !== undefined
+      && (await this.projectAccess?.(principal.orgId, principal.userId, grant.projectId))?.member === true
+      ? grant : undefined))
+    return [...ordinary, ...project.filter((grant): grant is EnterpriseWorkspaceGrant => grant !== undefined)]
   }
 
   /**
@@ -903,9 +949,7 @@ export class EnterpriseSecurity {
     workspaceId: string,
   ): Promise<EnterpriseWorkspaceGrant | undefined> {
     for (let attempt = 0; attempt < 20; attempt++) {
-      const grant = (await this.repository.listWorkspaceGrants({
-        orgId: principal.orgId, userId: principal.userId,
-      })).find(candidate => candidate.workspaceId === workspaceId)
+      const grant = (await this.visibleWorkspaceGrants(principal)).find(candidate => candidate.workspaceId === workspaceId)
       if (grant !== undefined) return grant
       await new Promise(resolve => setTimeout(resolve, 10))
     }

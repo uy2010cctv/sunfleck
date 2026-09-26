@@ -307,6 +307,14 @@ function bench(options: BenchOptions = {}) {
 }
 
 describe('UiWorkspaceService', () => {
+  it('combines hidden execution sources and restores rows when a contributor leaves', () => {
+    const b = bench()
+    b.uiWorkspace.setHiddenSessions('rooms', [sid('room-a'), sid('room-b')])
+    b.uiWorkspace.setHiddenSessions('other', [sid('room-b'), sid('job')])
+    expect([...b.uiWorkspace.hiddenSessionIds.getSnapshot()]).toEqual([sid('room-a'), sid('room-b'), sid('job')])
+    b.uiWorkspace.setHiddenSessions('rooms', [])
+    expect([...b.uiWorkspace.hiddenSessionIds.getSnapshot()]).toEqual([sid('room-b'), sid('job')])
+  })
   it.each([
     ['zh', '默认工作区', '默认工作区'],
     ['en', 'Default workspace', 'Default workspace'],

@@ -24,6 +24,8 @@ PostgreSQL persistence for DSH enterprise organizations, users, roles, external 
 
 The `enterprise_workspace_employee_defaults` table stores one nullable employee identity and monotonically increasing revision per Workspace. Compare-and-swap writes preserve the revision after clearing a default and refuse a missing Workspace or stale revision; the authenticated controller owns the manager and employee-visibility checks.
 
+`enterprise_project_workspace_links` binds an existing native Workspace grant to one project id. A prepared base grant and link commit in one transaction; the project row commits afterward. The read face presents linked grants as `project`, without exposing the temporary creator ownership. Project membership and archive policy remain with the project service and authenticated security layer; an unstarted preparation can be discarded only while no Session is bound.
+
 ## Migration
 
 Run a read-only preflight first:

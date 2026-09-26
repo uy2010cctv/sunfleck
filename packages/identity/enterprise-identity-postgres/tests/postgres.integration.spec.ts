@@ -71,6 +71,30 @@ describe.skipIf(url === undefined)('enterprise identity PostgreSQL directory int
       .resolves.toMatchObject({ workspaceId: 'workspace-alice', ownerUserId: 'user-1' })
     await expect(repository.sessionOwnerUserId('session-pg')).resolves.toBe('user-1')
   })
+  it('projects a durable project link without turning it into a personal grant', async () => {
+    await repository.saveWorkspaceGrant({ workspaceId: 'workspace-project', orgId: 'org-a',
+      name: 'Renewal project', kind: 'personal', ownerUserId: 'user-1',
+      rootPath: '/managed/projects/renewal', sandboxMode: 'workspace-write', expectedRevision: 0 })
+    const linked = await repository.bindProjectWorkspace({ orgId: 'org-a',
+      workspaceId: 'workspace-project', projectId: 'project-renewal' })
+    expect(linked).toMatchObject({ kind: 'project', projectId: 'project-renewal' })
+    expect(linked).not.toHaveProperty('ownerUserId')
+    expect(await repository.bindProjectWorkspace({ orgId: 'org-a', workspaceId: 'workspace-project',
+      projectId: 'project-renewal' })).toEqual(linked)
+    expect((await repository.listOrganizationWorkspaceGrants('org-a')).find(row => row.workspaceId === 'workspace-project'))
+      .toMatchObject({ kind: 'project', projectId: 'project-renewal' })
+    expect((await repository.listWorkspaceGrants({ orgId: 'org-a', userId: 'user-1' })).some(row =>
+      row.workspaceId === 'workspace-project')).toBe(false)
+  })
+  it('prepares and discards an unstarted project Workspace as one scoped grant', async () => {
+    const input = { orgId: 'org-a', workspaceId: 'workspace-prepared', projectId: 'project-prepared',
+      createdBy: 'user-1', name: 'Prepared project', rootPath: '/managed/projects/prepared' }
+    expect(await repository.prepareProjectWorkspace(input)).toMatchObject({
+      workspaceId: input.workspaceId, kind: 'project', projectId: input.projectId,
+    })
+    expect(await repository.discardPreparedProjectWorkspace(input)).toBe(true)
+    expect(await repository.workspaceGrant(input.workspaceId)).toBeUndefined()
+  })
 
   it('keeps a workspace employee default across reads and rejects stale revisions', async () => {
     await repository.saveWorkspaceGrant({
@@ -188,7 +212,7 @@ describe.skipIf(url === undefined)('enterprise identity PostgreSQL directory int
 
     await expect(repository.supersedeMemory(superseded.id, superseded.id, 1)).rejects.toThrow(/itself/)
     await expect(repository.supersedeMemory(superseded.id, summary.id, 1)).rejects.toThrow(/approved/)
-    await expect(repository.supersedeMemory(superseded.id, 'memory-missing', 1)).rejects.toThrow(/superseding/)
+    await expect(repository.supersedeMemory(summary.id, 'memory-missing', 1)).rejects.toThrow(/superseding/)
     await expect(repository.supersedeMemory('memory-missing', summary.id, 1)).rejects.toThrow(/missing/)
 
     await expect(repository.batchUpdateImportance([

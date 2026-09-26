@@ -1,6 +1,6 @@
 /** Register shared room navigation beside native Workspace Sessions. */
 import type { Context } from '@deepseek-ai/cordis'
-import type { SessionId } from '@deepseek-ai/dsh-session/types'
+import { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { MainPanelId } from '@deepseek-ai/dsh-client-ui-layout/client'
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
@@ -55,9 +55,14 @@ export function applyCollaboration(ctx: Context, roomCreated?: () => void): Coll
       },
       () => { scope.layout.selectPanel(PANEL_ID) },
       roomCreated,
+      (ids) => { scope.uiWorkspace.setHiddenSessions('enterprise-collaboration', ids.map(SessionId)) },
     )
     current = controller
-    scope.effect(() => () => { if (current === controller) current = undefined; controller.dispose() }, 'enterprise collaboration navigation')
+    scope.effect(() => () => {
+      if (current === controller) current = undefined
+      scope.uiWorkspace.setHiddenSessions('enterprise-collaboration', [])
+      controller.dispose()
+    }, 'enterprise collaboration navigation')
     scope.effect(() => scope.locale.register(COLLABORATION_NS, { zh, en }), 'enterprise collaboration copy')
     const loadChoices = async (): Promise<CollaborationChoices> => {
       const [presets, teams, peopleResponse, projectsResponse] = await Promise.all([
@@ -80,7 +85,11 @@ export function applyCollaboration(ctx: Context, roomCreated?: () => void): Coll
     scope.slots.inject('sidebar.sections', () => scope.slots.register({ name: 'sidebar.sections', id: 'enterprise-collaboration', order: 100, locale: COLLABORATION_NS, inject }, CollaborationSidebar))
     applyCollaborationDetails(scope, controller)
     scope.effect(() => {
-      const reset = scope.on('connection/reset', () => { controller.clearSelection(); void controller.refresh() })
+      const reset = scope.on('connection/reset', () => {
+        controller.clearSelection()
+        controller.clearExecutionSessions()
+        void controller.refresh()
+      })
       return () => { reset() }
     }, 'enterprise collaboration room context')
   })

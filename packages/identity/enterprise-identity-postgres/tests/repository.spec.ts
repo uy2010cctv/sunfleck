@@ -53,7 +53,7 @@ describe('PgEnterpriseIdentityRepository', () => {
     expect(await new PgEnterpriseIdentityRepository(new RecordingDatabase()).collaborationSessionAccess({ orgId: 'org-a', userId: 'member-1', sessionId: 'shared-session' })).toBeUndefined()
   })
 
-  it('adds the workspace employee table without breaking a v8 identity rollback', async () => {
+  it('adds project Workspace links when upgrading a v8 identity store', async () => {
     class VersionEightDatabase extends RecordingDatabase {
       override async query<Row extends Record<string, unknown> = Record<string, unknown>>(
         text: string, values: readonly unknown[] = [],
@@ -68,7 +68,8 @@ describe('PgEnterpriseIdentityRepository', () => {
     const database = new VersionEightDatabase()
     await migrateEnterpriseIdentityPostgres(database)
     expect(database.queries.map(query => query.text)).toContainEqual(expect.stringContaining('CREATE TABLE IF NOT EXISTS enterprise_workspace_employee_defaults'))
-    expect(database.queries.some(query => query.text.startsWith('UPDATE enterprise_meta'))).toBe(false)
+    expect(database.queries.map(query => query.text)).toContainEqual(expect.stringContaining('CREATE TABLE IF NOT EXISTS enterprise_project_workspace_links'))
+    expect(database.queries.some(query => query.text.startsWith('UPDATE enterprise_meta'))).toBe(true)
   })
   it('upgrades v4 Session bindings with an explicit owner column', async () => {
     class VersionFourDatabase extends RecordingDatabase {

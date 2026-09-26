@@ -126,6 +126,7 @@ function mount(overrides: Partial<WorkspaceBrowserProps> = {}) {
     createWorkspace: vi.fn(async () => workspace('created', [])),
     useDirectoryFlow: bindSnapshotSelector({ getSnapshot: () => true, subscribe: () => () => {} }),
     useHostInfo: selector => selector({ home: undefined, isLoopback: true }),
+    useHiddenSessions: hook(new Set<SessionId>()),
     renderSlot: renderDirectoryFlowOnly,
     t,
     ...overrides,
@@ -141,6 +142,33 @@ function rerender(b: ReturnType<typeof mount>, overrides: Partial<WorkspaceBrows
 }
 
 describe('WorkspaceBrowser', () => {
+  it('names personal, department shared, and project Workspaces from enterprise metadata', () => {
+    mount({ useWorkspaces: hook(workspaceState([
+      { ...workspace('personal', []), enterpriseKind: 'personal' },
+      { ...workspace('department', []), enterpriseKind: 'department' },
+      { ...workspace('project', []), enterpriseKind: 'project', projectId: 'project-q4' },
+    ])) })
+    expect(screen.getByText('个人工作区')).toBeTruthy()
+    expect(screen.getByText('部门共享工作区')).toBeTruthy()
+    expect(screen.getByText('项目工作区')).toBeTruthy()
+  })
+  it('omits room execution Sessions from Workspace, flat, and search views without changing membership', () => {
+    const account = workspace('shared', ['ordinary', 'room-execution'])
+    const b = mount({
+      useSessions: hook(sessionState([summary('ordinary', 2), summary('room-execution', 1)])),
+      useWorkspaces: hook(workspaceState([account])),
+      useHiddenSessions: hook(new Set([sid('room-execution')])),
+    })
+    fireEvent.click(screen.getByText('shared'))
+    expect(screen.getByText('ordinary')).toBeTruthy()
+    expect(screen.queryByText('room-execution')).toBeNull()
+    act(() => { b.store.actions.setGroupBy('flat') })
+    expect(screen.queryByText('room-execution')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: '搜索会话' }))
+    fireEvent.change(screen.getByPlaceholderText('搜索会话名称'), { target: { value: 'room-execution' } })
+    expect(screen.queryByText('room-execution')).toBeNull()
+    expect(account.sessionIds).toEqual([sid('ordinary'), sid('room-execution')])
+  })
   it.each(['workspace', 'flat', 'ungrouped'] as const)('keeps %s recency independent of arrival order and saved manual positions', (mode) => {
     localStorage.clear()
     const preferences = createWorkspaceViewStore().create()

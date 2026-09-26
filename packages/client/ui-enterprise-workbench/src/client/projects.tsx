@@ -154,20 +154,20 @@ function ProjectDetail({ detail, busy, actionError, addProjectMember, archivePro
   </>
 }
 
-interface ProjectDraft { readonly name: string; readonly goal: string; readonly workspacePath: string }
-const EMPTY_PROJECT_DRAFT: ProjectDraft = { name: '', goal: '', workspacePath: '' }
+interface ProjectDraft { readonly name: string; readonly goal: string }
+const EMPTY_PROJECT_DRAFT: ProjectDraft = { name: '', goal: '' }
 
 function CreateProjectForm({ busy, actionError, draft, change, createProject, onCreated, t }: {
   busy: boolean
   actionError: EnterpriseProjectsState['actionError']
   draft: ProjectDraft
   change: (patch: Partial<ProjectDraft>) => void
-  createProject: (input: { name: string; goal: string; workspacePath: string }) => Promise<boolean>
+  createProject: (input: { name: string; goal: string }) => Promise<boolean>
   onCreated: () => void
   t: Translate
 }) {
   const submit = (): void => {
-    void createProject({ name: draft.name.trim(), goal: draft.goal.trim(), workspacePath: draft.workspacePath.trim() })
+    void createProject({ name: draft.name.trim(), goal: draft.goal.trim() })
       .then((created) => {
         if (!created) return
         change(EMPTY_PROJECT_DRAFT)
@@ -186,13 +186,8 @@ function CreateProjectForm({ busy, actionError, draft, change, createProject, on
       <input value={draft.goal} placeholder={t('projects.goalPlaceholder')} disabled={busy}
         onChange={(event) => { change({ goal: event.target.value }) }}/>
     </label>
-    <label className={css.inlineField}>
-      <span>{t('projects.workspacePath')}</span>
-      <input value={draft.workspacePath} placeholder={t('projects.workspacePathPlaceholder')} disabled={busy}
-        onChange={(event) => { change({ workspacePath: event.target.value }) }}/>
-    </label>
     <button type="submit" className={css.secondaryButton}
-      disabled={busy || draft.name.trim() === '' || draft.goal.trim() === '' || draft.workspacePath.trim() === ''}>
+      disabled={busy || draft.name.trim() === '' || draft.goal.trim() === ''}>
       {busy ? t('projects.creating') : t('projects.create')}
     </button>
     {actionError === 'create-failed' && <div className={css.inlineError} role="alert">
@@ -292,7 +287,7 @@ export interface ProjectSpaceProps {
   readonly workspaces?: readonly { id: string; name: string }[]
   readonly loadProjects: () => Promise<boolean>
   readonly loadSurfaces: () => Promise<boolean>
-  readonly createProject: (input: { name: string; goal: string; workspacePath: string }) => Promise<boolean>
+  readonly createProject: (input: { name: string; goal: string }) => Promise<boolean>
   readonly selectProject: (projectId?: string) => Promise<void>
   readonly addProjectMember: (
     projectId: string, member: { principalType: 'user' | 'employee'; principalId: string },

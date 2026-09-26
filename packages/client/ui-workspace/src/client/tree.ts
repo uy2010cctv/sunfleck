@@ -18,6 +18,16 @@ import { workspaceTitleOf } from '@deepseek-ai/dsh-util-workspace-path'
 /** Group key for Sessions outside every Workspace. */
 export const UNGROUPED_KEY = ''
 
+/** Omit execution-only Sessions from the browser view while preserving the source catalog and Workspace order. */
+export function excludeSessionIds(list: SessionListState, hidden: ReadonlySet<SessionId>): SessionListState {
+  if (hidden.size === 0) return list
+  const byId: SessionListState['byId'] = {}
+  for (const [id, row] of Object.entries(list.byId)) {
+    if (!hidden.has(id as SessionId)) byId[id as SessionId] = row
+  }
+  return { ...list, ids: list.ids.filter(id => !hidden.has(id)), byId }
+}
+
 /**
  * Resolve the Workspace browser group that owns one Session.
  * @param workspaces - authoritative Workspace membership.
@@ -78,6 +88,7 @@ export interface GroupNode {
   createdAt: number | undefined
   /** False when enterprise policy protects the default personal or shared Workspace. */
   deletable?: boolean | undefined
+  enterpriseKind?: WorkspaceView['enterpriseKind']
   label: string
   /** Total visible sessions in the group. */
   sessionCount: number
@@ -126,6 +137,7 @@ interface Group {
   cwd: string | undefined
   createdAt: number | undefined
   deletable: boolean | undefined
+  enterpriseKind: WorkspaceView['enterpriseKind']
   label: string
   sessions: SessionSummary[]
 }
@@ -325,8 +337,9 @@ function buildGroup(
   deletable: boolean | undefined,
   label: string,
   members: readonly SessionSummary[],
+  enterpriseKind?: WorkspaceView['enterpriseKind'],
 ): Group {
-  return { key, workspaceId, cwd, createdAt, deletable, label, sessions: [...members] }
+  return { key, workspaceId, cwd, createdAt, deletable, label, enterpriseKind, sessions: [...members] }
 }
 
 /** Apply a stored Ungrouped order and append newly loose Sessions by recency. */
@@ -373,7 +386,7 @@ function groupByWorkspace(
     }
     groups.push(buildGroup(
       workspace.workspaceId, workspace.workspaceId, workspace.path,
-      Date.parse(workspace.createdAt), workspace.deletable, workspace.title, members,
+      Date.parse(workspace.createdAt), workspace.deletable, workspace.title, members, workspace.enterpriseKind,
     ))
   }
   const stray = list.ids
@@ -475,6 +488,7 @@ export function deriveGroups(
       cwd: g.cwd,
       createdAt: g.createdAt,
       ...(g.deletable === undefined ? {} : { deletable: g.deletable }),
+      ...(g.enterpriseKind === undefined ? {} : { enterpriseKind: g.enterpriseKind }),
       label: g.label,
       sessionCount: g.sessions.length,
       expanded,

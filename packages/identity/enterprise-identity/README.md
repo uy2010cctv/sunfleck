@@ -24,6 +24,8 @@ SQLite persistence for organizations, nested departments, users and memberships,
 
 `EnterpriseIdentityStore` is the Host-facing persistence contract. The SQLite `EnterpriseIdentityRepository` is one implementation; deployments may inject a transactional PostgreSQL-backed implementation without coupling authentication to SQLite file paths.
 
+The shared Workspace grant view can carry a `project` kind and project id supplied by the PostgreSQL project link. SQLite does not write project grants; its `saveWorkspaceGrant` refuses that kind instead of storing an unusable authorization row.
+
 Authenticated principal projections include current department memberships and the primary department. Authorization services add managed departments from the organization directory; callers do not infer them from display names or Workspace paths.
 
 The optional `collaborationSessionAccess` lookup returns the recorded collaboration Workspace and whether the caller is an explicit member, including a negative membership result after revocation. Providers without collaboration support omit it; consumers must still verify current Workspace access and preserve Session ownership for management operations.

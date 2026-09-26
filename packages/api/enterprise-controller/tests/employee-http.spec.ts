@@ -1190,6 +1190,20 @@ describe('channel inbound endpoint', () => {
 describe('project endpoints', () => {
   const CREATE = { name: 'Support', goal: 'Ship support.', workspacePath: '/managed/projects/support' }
 
+  it('creates the native project Workspace without accepting a browser filesystem path', async () => {
+    const projects = makeProjects()
+    const workspace = { create: vi.fn(async (input: { orgId: string; name: string; goal: string; createdBy: string }) => ({
+      project: await projects.create({ ...input, workspacePath: '/managed/projects/generated' }),
+      workspaceId: 'workspace-generated',
+    })), workspaceId: async () => 'workspace-generated', notify: async () => {} }
+    const handler = makeProjectHandler(projects, principalOf(['creator']), { workspace })
+    const created = await callProject(handler, 'POST', '', { name: 'Generated', goal: 'Ship' })
+    expect(created.status).toBe(201)
+    expect(await created.json()).toMatchObject({ name: 'Generated', workspaceId: 'workspace-generated' })
+    expect(workspace.create).toHaveBeenCalledWith(expect.objectContaining({ createdBy: 'user-1' }))
+    expect((await callProject(handler, 'POST', '', CREATE)).status).toBe(400)
+  })
+
   it('creates one project owned by the caller and strips internal fields', async () => {
     const projects = makeProjects()
     const handler = makeProjectHandler(projects, principalOf(['creator']))

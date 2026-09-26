@@ -7,6 +7,7 @@
     { "path": "../../credentials/credentials" },
     { "path": "../../governance/enterprise-governance" },
     { "path": "../enterprise-identity" },
+    { "path": "../../enterprise/enterprise-project" },
     { "path": "../enterprise-sso" },
     { "path": "../../host/webserver" }
     ,{ "path": "../../workspace/workspace" }

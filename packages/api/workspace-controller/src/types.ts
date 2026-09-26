@@ -29,6 +29,10 @@ export interface WorkspaceView {
   readonly updatedAt: string
   /** Caller-specific deletion capability; absent outside an enterprise projection. */
   readonly deletable?: boolean
+  /** Enterprise classification supplied by authenticated Workspace filtering. */
+  readonly enterpriseKind?: 'personal' | 'department' | 'project'
+  /** Owning project when this Workspace follows project membership. */
+  readonly projectId?: string
 }
 
 declare module '@deepseek-ai/dsh-typert-protocol' {

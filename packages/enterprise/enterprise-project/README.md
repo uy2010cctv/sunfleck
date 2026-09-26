@@ -9,7 +9,9 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-`dsh-enterprise-project` persists the enterprise project governance entity in PostgreSQL: one organization-scoped, member-gated project space with a name, goal, workspace path, optional team-definition binding, listing visibility, explicit membership, and an archived-terminal lifecycle. It exposes the `ctx.enterpriseProjects` Cordis service over a `PostgresDatabase` handle the composition supplies, and owns the versioned `projects` and `project_members` schema with its own migration unit. Projects are member-gated spaces per the employee-surfaces spec: listing visibility never substitutes for a member row.
+`dsh-enterprise-project` persists organization-scoped projects in PostgreSQL with a name, goal, workspace path, optional team binding, listing visibility, membership, and archival. It exposes `ctx.enterpriseProjects` over a supplied `PostgresDatabase` handle and owns the versioned `projects` and `project_members` tables. Listing visibility never substitutes for project membership.
+
+`create` accepts an optional Host-preselected project id so a composing controller can prepare the native Workspace directory and grant before the project row commits. Browser requests never choose the project id or filesystem path.
 
 ## Table of Contents
 
@@ -99,7 +101,7 @@ None at this repository layer. The service changes no model request, so it canno
 
 These limits define when this service is a poor fit or needs composing support.
 
-- **Workspace binding is a stored path only** — the service keeps `workspacePath` as an opaque absolute string and performs no registry lookup; binding a project to a live workspace through `workspaceRegistry.ensure` and `attachSession` belongs to the consuming flow.
+- **Workspace binding belongs to the Host** — the service keeps `workspacePath` as an opaque absolute string and performs no registry lookup. The Web enterprise controller creates a native Workspace and a member-gated project grant before committing a new project; callers that use the service directly must provide their own Workspace provisioning.
 - **Visibility is a self-contained simplification** — listing visibility is stored on the project row and evaluated in the service, not shared with the governance `resource_policies` table; 'restricted' means `allowedUserIds` plus the creator, and the 'administrator' role bypasses filters, with no department scoping.
 - **Team-definition references are not foreign-keyed** — `teamDefinitionId` is a plain column because team definitions live in the operations schema keyed by `(org_id, team_id)`; referential checks belong to the composing flow.
 - **Archival attribution is caller-owned** — `archive` accepts an actor id only to validate it; the store records `archived_at` but no archiving principal, so audit trails stay with the caller.

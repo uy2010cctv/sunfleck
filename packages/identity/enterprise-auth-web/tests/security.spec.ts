@@ -91,6 +91,51 @@ describe('EnterpriseSecurity', () => {
       actorType: 'human', userId: 'member-1', departmentIds: ['dept-finance'],
     })
   })
+  it('shows a project Workspace only to current members and blocks work after archive', async () => {
+    const grant = { workspaceId: 'project-workspace', orgId: 'org-a', name: 'Q4 Renewal',
+      kind: 'project' as const, projectId: 'project-q4', rootPath: '/managed/projects/q4',
+      sandboxMode: 'workspace-write' as const, revision: 1, createdAt: now, updatedAt: now }
+    const workspaceGrant = repository.workspaceGrant.bind(repository)
+    const organizationGrants = repository.listOrganizationWorkspaceGrants.bind(repository)
+    Object.assign(repository, {
+      workspaceGrant: (id: string) => id === grant.workspaceId ? grant : workspaceGrant(id),
+      listOrganizationWorkspaceGrants: (orgId: string) => [...organizationGrants(orgId), grant],
+      sessionWorkspaceGrant: (id: string) => id === 'project-session' ? grant : undefined,
+    })
+    let member = true, active = true
+    security = new EnterpriseSecurity(repository, config, { projectAccess: async (_org, userId) => ({
+      member: userId === 'member-1' && member, active,
+    }) })
+    const principal = security.loginLocal('org-a', 'member', 'enterprise-password')!.principal
+    const frames: unknown[] = []
+    for await (const frame of security.filterWorkspaceFollow(principal, (async function* () {
+      yield { type: 'baseline', value: { items: [{ workspaceId: grant.workspaceId, title: grant.name,
+        path: grant.rootPath, sessionIds: [] }], archivedSessionIds: [] } }
+    })())) frames.push(frame)
+    expect(frames).toMatchObject([{ type: 'baseline', value: { items: [{
+      workspaceId: grant.workspaceId, enterpriseKind: 'project', projectId: grant.projectId, deletable: false,
+    }] } }])
+    expect(await security.authorizeApiAsync(principal, 'session.create', { workspaceId: grant.workspaceId }))
+      .toMatchObject({ allowed: true })
+    active = false
+    expect(await security.authorizeApiAsync(principal, 'session.create', { workspaceId: grant.workspaceId }))
+      .toMatchObject({ allowed: false })
+    member = false
+    expect(await security.authorizeApiAsync(principal, 'workspace.list', { workspaceId: grant.workspaceId }))
+      .toMatchObject({ allowed: false })
+    expect(await security.authorizeApiAsync(security.loginLocal('org-a', 'admin', 'enterprise-password')!.principal,
+      'session.create', { workspaceId: grant.workspaceId })).toMatchObject({ allowed: false })
+    member = true
+    const updates: unknown[] = []
+    for await (const frame of security.filterWorkspaceFollow(principal, (async function* () {
+      yield { type: 'baseline', value: { items: [{ workspaceId: grant.workspaceId, title: grant.name,
+        path: grant.rootPath, sessionIds: [] }], archivedSessionIds: [] } }
+      member = false
+      yield { type: 'upsert', workspace: { workspaceId: grant.workspaceId, title: grant.name,
+        path: grant.rootPath, sessionIds: [] } }
+    })())) updates.push(frame)
+    expect(updates.at(-1)).toEqual({ type: 'remove', workspaceId: grant.workspaceId })
+  })
 
   it('uses managed departments when authorizing department-scoped resources', async () => {
     const managerSecurity = new EnterpriseSecurity(repository, config, {

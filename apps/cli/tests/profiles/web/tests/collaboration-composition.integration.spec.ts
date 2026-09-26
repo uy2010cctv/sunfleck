@@ -214,9 +214,9 @@ describe.skipIf(databaseUrl === undefined)('enterprise collaboration source Web 
           expect(response.ok, JSON.stringify(value)).toBe(true)
           return record(value)
         }
-        const rpc = async (method: string, input: object): Promise<Record<string, unknown>> => {
+        const rpc = async (method: string, input: object, actorCookie = cookie): Promise<Record<string, unknown>> => {
           const response = await fetch(`${origin}/api/${method}`, { method: 'POST', signal: test.signal,
-            headers: { cookie, origin, 'content-type': 'application/json' },
+            headers: { cookie: actorCookie, origin, 'content-type': 'application/json' },
             body: JSON.stringify({ type: 'client-request', rpcId: randomUUID(), method, payload: { args: { request: input } } }),
           })
           const result = record(record(await response.json())['result'])
@@ -246,6 +246,25 @@ describe.skipIf(databaseUrl === undefined)('enterprise collaboration source Web 
           body: JSON.stringify({ organizationId: 'collaboration-fixture', username: 'colleague', password }) })
         expect(colleagueLogin.status).toBe(200)
         const colleagueCookie = [...cookies(browser), ...cookies(colleagueLogin)].join('; ')
+        const createdProject = record(await (await adminRequest('POST', '/enterprise/projects', {
+          name: 'Q4 fixture project', goal: 'Share one project Workspace',
+        })).json())
+        const projectId = string(createdProject['id'])
+        const projectWorkspaceId = string(createdProject['workspaceId'])
+        const link = await database.query<{ project_id: string }>(
+          'SELECT project_id FROM enterprise_project_workspace_links WHERE workspace_id=$1', [projectWorkspaceId])
+        expect(link.rows).toEqual([{ project_id: projectId }])
+        await adminRequest('POST', `/enterprise/projects/${projectId}/members`, {
+          principalType: 'user', principalId: 'fixture-colleague',
+        })
+        const colleagueProject = await fetch(`${origin}/enterprise/projects/${projectId}`, {
+          headers: { cookie: colleagueCookie }, signal: test.signal,
+        })
+        expect(colleagueProject.status).toBe(200)
+        expect(await colleagueProject.json()).toMatchObject({ workspaceId: projectWorkspaceId,
+          members: expect.arrayContaining([{ principalType: 'user', principalId: 'fixture-colleague' }]) })
+        const projectSession = await rpc('session/create', { workspaceId: projectWorkspaceId }, colleagueCookie)
+        expect(typeof projectSession['sessionId']).toBe('string')
         const items = (value: Record<string, unknown>): Record<string, unknown>[] => {
           if (!Array.isArray(value['items'])) throw new Error('room page has no event list')
           return value['items'].map(record)
@@ -293,6 +312,13 @@ describe.skipIf(databaseUrl === undefined)('enterprise collaboration source Web 
           const targets = sent['targets']
           if (!Array.isArray(targets)) throw new Error('delivery has no destinations')
           const sessionId = string(record(targets[0])['sessionId'])
+          const executionDirectory = await fetch(`${origin}/enterprise/surfaces`, { signal: test.signal,
+            headers: { cookie, origin } })
+          expect(executionDirectory.status).toBe(200)
+          const executionRows: unknown = await executionDirectory.json()
+          if (!Array.isArray(executionRows)) throw new Error('room execution directory is not an array')
+          expect(record(executionRows.map(record).find(entry => entry['id'] === id))['executionSessionIds'])
+            .toContain(sessionId)
           expect(await request(`/${id}/open`, { employeeId: 'fixture-assistant',
             ...(sent['topicId'] === undefined ? {} : { topicId: sent['topicId'] }),
           })).toMatchObject({ opened: true, sessionId })

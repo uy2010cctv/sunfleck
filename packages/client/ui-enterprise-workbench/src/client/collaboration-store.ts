@@ -8,6 +8,8 @@ export interface CollaborationSurface {
   readonly kind: 'group' | 'channel'
   readonly name: string
   readonly memberCount: number
+  /** Native Sessions kept for Bot execution and hidden from Workspace browsing. */
+  readonly executionSessionIds?: readonly string[]
   readonly workspaceId?: string
   readonly projectId?: string
   readonly teamDefinitionId?: string
@@ -101,7 +103,11 @@ function array(value: unknown): unknown[] {
 function surface(value: unknown): CollaborationSurface {
   const row = record(value)
   if ((row['kind'] !== 'group' && row['kind'] !== 'channel') || typeof row['memberCount'] !== 'number') throw new Error('invalid-response')
+  const executionSessionIds = row['executionSessionIds']
+  if (executionSessionIds !== undefined && (!Array.isArray(executionSessionIds)
+    || executionSessionIds.some(value => typeof value !== 'string'))) throw new Error('invalid-response')
   return { id: string(row['id']), kind: row['kind'], name: string(row['name']), memberCount: row['memberCount'],
+    ...(executionSessionIds === undefined ? {} : { executionSessionIds: executionSessionIds as string[] }),
     ...(row['workspaceId'] === undefined ? {} : { workspaceId: string(row['workspaceId']) }),
     ...(row['projectId'] === undefined ? {} : { projectId: string(row['projectId']) }),
     ...(row['teamDefinitionId'] === undefined ? {} : { teamDefinitionId: string(row['teamDefinitionId']) }) }
@@ -177,6 +183,7 @@ export class CollaborationController {
   private pendingCreation: { fingerprint: string; id: string } | undefined
   private pendingMessage: { fingerprint: string; id: string } | undefined
   private pendingReaction: { fingerprint: string; id: string } | undefined
+  private readonly executionSessionIds = new Set<string>()
 
   /** @param fetch - Authenticated same-origin transport.
    * @param inspectSession - Native Session navigation for an execution source link.
@@ -187,10 +194,26 @@ export class CollaborationController {
     private readonly inspectSession: (id: string, signal: AbortSignal) => void | Promise<void>,
     private readonly openRoom: () => void,
     private readonly roomCreated?: () => void,
+    private readonly executionSessionsChanged?: (ids: readonly string[]) => void,
   ) {}
 
   private patch(patch: Partial<CollaborationState>): void {
     if (!this.closed) this.state.set({ ...this.state.getSnapshot(), ...patch })
+  }
+  private rememberExecutionSessions(ids: readonly string[]): void {
+    if (this.executionSessionsChanged === undefined) return
+    let changed = false
+    for (const id of ids) {
+      if (this.executionSessionIds.has(id)) continue
+      this.executionSessionIds.add(id)
+      changed = true
+    }
+    if (changed) this.executionSessionsChanged([...this.executionSessionIds])
+  }
+  /** Clear the local execution classification when the authenticated identity changes. */
+  clearExecutionSessions(): void {
+    this.executionSessionIds.clear()
+    this.executionSessionsChanged?.([])
   }
   private async read(path: string, signal: AbortSignal, body?: object): Promise<unknown> {
     const response = await this.fetch(`/enterprise/surfaces${path}`, {
@@ -227,6 +250,7 @@ export class CollaborationController {
     try {
       const rows = array(await this.read('', request.signal)).filter(value => record(value)['kind'] !== 'dm').map(surface)
       if (!this.cancelled(request)) {
+        this.rememberExecutionSessions(rows.flatMap(row => row.executionSessionIds ?? []))
         const selected = this.state.getSnapshot().selection
         if (selected !== null && !rows.some(row => row.id === selected.detail.id)) this.clearSelection()
         this.patch({ phase: 'ready', surfaces: rows })
@@ -234,7 +258,7 @@ export class CollaborationController {
     } catch (error) {
       if (this.cancelled(request)) return
       const unavailable = error instanceof HttpFailure && [401, 403, 404, 503].includes(error.status)
-      if (unavailable) this.clearSelection()
+      if (unavailable) { this.clearSelection(); this.clearExecutionSessions() }
       this.patch({ phase: unavailable ? 'unavailable' : 'error', ...(unavailable ? { surfaces: [] } : {}) })
     }
   }
@@ -275,6 +299,7 @@ export class CollaborationController {
       this.patch({ selection: { detail: current } })
       const page = eventPage(await this.read(`/${encodeURIComponent(id)}/events?limit=100`, request.signal))
       if (this.cancelled(request)) return
+      this.rememberExecutionSessions(page.items.flatMap(item => item.sourceSessionId === undefined ? [] : [item.sourceSessionId]))
       this.patch({ events: page.items, olderCursor: page.items.length === 100 ? page.items[0]?.sequence ?? null : null, roomPhase: 'ready', busy: false })
     } catch (error) {
       if (this.cancelled(request)) return
@@ -315,6 +340,7 @@ export class CollaborationController {
       const query = latest === undefined ? '?limit=100' : `?after=${encodeURIComponent(latest)}&limit=100`
       const page = eventPage(await this.read(`/${encodeURIComponent(id)}/events${query}`, request.signal))
       if (this.cancelled(request) || this.state.getSnapshot().selection?.detail.id !== id) return
+      this.rememberExecutionSessions(page.items.flatMap(item => item.sourceSessionId === undefined ? [] : [item.sourceSessionId]))
       this.patch({ events: appendUnique(this.state.getSnapshot().events, page.items) })
       const selectedThread = this.state.getSnapshot().selection?.threadRoot
       if (selectedThread !== undefined && page.items.some(item => item.threadRoot === selectedThread)) void this.refreshThread()
@@ -396,6 +422,10 @@ export class CollaborationController {
       if (this.cancelled(request)) return false
       if (result['delivered'] !== true) { this.patch({ busy: false, error: typeof result['reason'] === 'string' ? result['reason'] : 'request-failed' }); return false }
       const posted = roomEvent(result['event'])
+      if (Array.isArray(result['targets'])) this.rememberExecutionSessions(result['targets'].flatMap((value) => {
+        const target = record(value)
+        return typeof target['sessionId'] === 'string' ? [target['sessionId']] : []
+      }))
       this.pendingMessage = undefined
       if (this.state.getSnapshot().selection?.detail.id === selected.detail.id) {
         this.patch({

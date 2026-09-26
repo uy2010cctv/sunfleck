@@ -315,15 +315,17 @@ export class CollaborationService {
    * @returns Sidebar entries.
    */
   async list(actor: EnterprisePrincipal): Promise<readonly (Pick<CollaborationDetail, 'id' | 'kind' | 'name' | 'memberCount' | 'workspaceId'>
-    & { readonly projectId?: string; readonly teamDefinitionId?: string })[]> {
+    & { readonly projectId?: string; readonly teamDefinitionId?: string; readonly executionSessionIds: readonly string[] })[]> {
     const rows = await this.store.list(actor.orgId, actor.userId)
     const visible = await Promise.all(rows.map(async row => await this.runtime.workspaceVisible(actor,
       row.workspaceId) ? row : undefined))
-    return visible.filter((row): row is CollaborationRecord => row !== undefined).map(row => ({ id: row.id, kind: row.kind,
+    return Promise.all(visible.filter((row): row is CollaborationRecord => row !== undefined).map(async row => ({
+      id: row.id, kind: row.kind,
       name: row.name, memberCount: row.memberEmployeeIds.length + row.memberUserIds.length,
       workspaceId: row.workspaceId,
+      executionSessionIds: (await this.store.sessions(row.id)).map(binding => binding.sessionId),
       ...(row.projectId === undefined ? {} : { projectId: row.projectId }),
-      ...(row.teamDefinitionId === undefined ? {} : { teamDefinitionId: row.teamDefinitionId }) }))
+      ...(row.teamDefinitionId === undefined ? {} : { teamDefinitionId: row.teamDefinitionId }) })))
   }
 
   /** Resolve an authorized native composer to its conversation.

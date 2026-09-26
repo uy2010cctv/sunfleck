@@ -185,6 +185,7 @@ export type WorkspaceBrowserInjected = {
      * saw. Select the field the surface needs (`info => info.home`).
      */
     hostInfo: HostObservable<RemoteHostFacts>
+    hiddenSessions: HostObservable<ReadonlySet<SessionId>>
   }
   /**
    * Start a New Session in a Workspace: reuse-or-create its blank session and

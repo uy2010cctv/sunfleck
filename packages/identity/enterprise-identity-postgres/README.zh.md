@@ -24,6 +24,8 @@ PostgreSQL persistence and safe SQLite migration for DSH enterprise identity。
 
 `enterprise_workspace_employee_defaults` 表为每个工作区保存一个可为空的员工身份和单调递增 revision。比较交换写入在清除默认值后仍保留 revision，并拒绝不存在的工作区或过期 revision；管理员和员工可见性校验由认证控制器负责。
 
+`enterprise_project_workspace_links` 将已有原生 Workspace 授权绑定到一个项目编号。准备中的基础授权和绑定在同一事务提交，之后才提交项目行。读取时将绑定的授权呈现为 `project`，不暴露准备阶段的创建者所有权。项目成员与归档策略仍由项目服务和认证安全层负责；只有尚未绑定 Session 的准备记录才能撤销。
+
 ## 迁移
 
 先运行只读预检：

@@ -67,6 +67,8 @@ export interface ProjectMember {
 
 /** Inputs for creating one project. */
 export interface CreateProjectInput {
+  /** Preselected id used when a Workspace must be prepared before the project commit. */
+  readonly projectId?: ProjectId
   /** Owning organization identifier; the organization row must already exist. */
   readonly orgId: string
   /** Human-readable project name; must not be empty. */

@@ -37,8 +37,13 @@ describe('collaboration routing through native Sessions', () => {
     const fixture = setup({ projectId: 'project-q4', teamDefinitionId: 'charter-q4' })
     expect(await fixture.service.list(actor)).toEqual([{
       id: 'surface', kind: 'group', name: 'Support', memberCount: 4,
-      projectId: 'project-q4', teamDefinitionId: 'charter-q4', workspaceId: 'shared',
+      projectId: 'project-q4', teamDefinitionId: 'charter-q4', workspaceId: 'shared', executionSessionIds: [],
     }])
+  })
+  it('lists native execution Session ids for hiding duplicate Workspace rows', async () => {
+    const fixture = setup()
+    fixture.sessions.push({ surfaceId: 'surface', topicId: '', employeeId: 'a', sessionId: 'execution-1' })
+    expect(await fixture.service.list(actor)).toMatchObject([{ executionSessionIds: ['execution-1'] }])
   })
   it('refuses to link a new room to an archived project', async () => {
     const fixture = setup()

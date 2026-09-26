@@ -66,7 +66,7 @@ function spaceProps(overrides: {
   workspaces?: readonly { id: string; name: string }[]
   loadProjects?: () => Promise<boolean>
   loadSurfaces?: () => Promise<boolean>
-  createProject?: (input: { name: string; goal: string; workspacePath: string }) => Promise<boolean>
+  createProject?: (input: { name: string; goal: string }) => Promise<boolean>
   selectProject?: (projectId?: string) => Promise<void>
   addProjectMember?: (
     projectId: string, member: { principalType: 'user' | 'employee'; principalId: string },
@@ -133,15 +133,13 @@ describe('EnterpriseWorkbenchController project slice', () => {
     })
     const controller = new EnterpriseWorkbenchController({} as never, {} as never, {} as never, () => {})
 
-    await expect(controller.createProject({
-      name: RENEWAL.name, goal: RENEWAL.goal, workspacePath: '/managed/projects/renewal',
-    })).resolves.toBe(true)
+    await expect(controller.createProject({ name: RENEWAL.name, goal: RENEWAL.goal })).resolves.toBe(true)
 
     expect(fetchMock).toHaveBeenCalledWith('/enterprise/projects', {
       method: 'POST',
       credentials: 'same-origin',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ name: RENEWAL.name, goal: RENEWAL.goal, workspacePath: '/managed/projects/renewal' }),
+      body: JSON.stringify({ name: RENEWAL.name, goal: RENEWAL.goal }),
     })
     const state = controller.store.getSnapshot().projects
     expect(state).toMatchObject({ phase: 'ready', busy: false, actionError: null, list: [RENEWAL] })
@@ -152,7 +150,7 @@ describe('EnterpriseWorkbenchController project slice', () => {
       init?.method === 'POST' ? jsonResponse({ error: 'invalid-payload' }, 400) : undefined)
     const controller = new EnterpriseWorkbenchController({} as never, {} as never, {} as never, () => {})
 
-    await expect(controller.createProject({ name: 'x', goal: 'y', workspacePath: 'relative' }))
+    await expect(controller.createProject({ name: 'x', goal: 'y' }))
       .resolves.toBe(false)
     expect(controller.store.getSnapshot().projects).toMatchObject({
       busy: false, actionError: 'create-failed',
@@ -520,14 +518,11 @@ describe('ProjectSpace view', () => {
     fireEvent.change(screen.getByPlaceholderText(zh['projects.goalPlaceholder']), {
       target: { value: RENEWAL.goal },
     })
-    fireEvent.change(screen.getByPlaceholderText(zh['projects.workspacePathPlaceholder']), {
-      target: { value: '/managed/projects/renewal' },
-    })
     fireEvent.click(screen.getByRole('button', { name: zh['projects.create'] }))
 
     await waitFor(() => {
       expect(createProject).toHaveBeenCalledWith({
-        name: RENEWAL.name, goal: RENEWAL.goal, workspacePath: '/managed/projects/renewal',
+        name: RENEWAL.name, goal: RENEWAL.goal,
       })
     })
   })

@@ -32,7 +32,7 @@ import type { PropsRenderSlots } from '@deepseek-ai/dsh-client-ui-slots'
 import type { WorkspaceBrowserProps } from '../contract/slots.ts'
 import type { ArchivedFilter, GroupNode, SessionNode, SessionOrderBy, SessionRowState } from '../tree.ts'
 import {
-  deriveFlat, deriveGroups, deriveSearchResults, orderByRecency, owningGroupKey, owningParentFolder,
+  deriveFlat, deriveGroups, deriveSearchResults, excludeSessionIds, orderByRecency, owningGroupKey, owningParentFolder,
   pinCurrentBlank, reconcileManualOrder, sessionMemberIds, UNGROUPED_KEY,
 } from '../tree.ts'
 import { ProjectRowItem, SearchResultItem, SessionNodeItem } from './Rows.tsx'
@@ -714,6 +714,7 @@ function SearchResults({
   open,
   onUnarchive,
   workspaces,
+  hiddenSessionIds,
   archivedSessionIds,
   archivedFilter,
   query,
@@ -723,6 +724,7 @@ function SearchResults({
   t,
 }: Pick<WorkspaceBrowserProps, 'useSessions' | 'useSessionStatus' | 'open' | 't' | 'usePanelInfo'> & {
   workspaces: readonly WorkspaceView[]
+  hiddenSessionIds: ReadonlySet<SessionId>
   archivedSessionIds: readonly SessionNode['id'][]
   /** Search matches follow the archived filter selected for the list. */
   archivedFilter: ArchivedFilter
@@ -734,13 +736,14 @@ function SearchResults({
 }) {
   const panelActive = usePanelInfo(info => info.activePanelId !== null)
   const list = useSessions(s => s)
+  const visibleList = useMemo(() => excludeSessionIds(list, hiddenSessionIds), [list, hiddenSessionIds])
   const statuses = useSessionStatus(s => s)
   const currentRemote = remote.query === query
     ? remote
     : { query, status: 'loading' as const, items: [], hasMore: false }
   const results = useMemo(
     () => deriveSearchResults(
-      list,
+      visibleList,
       workspaces,
       query,
       archivedSessionIds,
@@ -749,7 +752,7 @@ function SearchResults({
       currentRemote,
       resultLimit,
     ),
-    [list, workspaces, query, archivedSessionIds, archivedFilter, statuses, currentRemote, resultLimit],
+    [visibleList, workspaces, query, archivedSessionIds, archivedFilter, statuses, currentRemote, resultLimit],
   )
   const pending = currentRemote.status === 'loading'
   const currentId = panelActive
@@ -827,12 +830,15 @@ export function WorkspaceBrowser({
   searchResultLimit,
   useDirectoryFlow,
   useHostInfo,
+  useHiddenSessions,
   renderSlot,
   t,
 }: WorkspaceBrowserProps) {
   const home = useHostInfo(info => info.home)
   // Ordering remains live while the rail or search replaces the list body.
   const list = useSessions(state => state)
+  const hiddenSessionIds = useHiddenSessions(value => value)
+  const visibleList = useMemo(() => excludeSessionIds(list, hiddenSessionIds), [list, hiddenSessionIds])
   const workspaces = useWorkspaces(state => state.items)
   const workspacePhase = useWorkspaces(state => state.phase)
   const workspaceStreamState = useWorkspaces(state => state.state)
@@ -1284,6 +1290,7 @@ export function WorkspaceBrowser({
               open={openSearchResult}
               onUnarchive={onSessionUnarchive}
               workspaces={workspaces}
+              hiddenSessionIds={hiddenSessionIds}
               archivedSessionIds={archivedSessionIds}
               archivedFilter={archivedFilter}
               query={normalizedQuery}
@@ -1296,7 +1303,7 @@ export function WorkspaceBrowser({
             ? (
               <FlatList
                 usePanelInfo={usePanelInfo}
-                list={list}
+                list={visibleList}
                 sessionIds={orderedFlatSessionIds}
                 rowState={rowState}
                 workspaceReady={workspaceReady}
@@ -1314,7 +1321,7 @@ export function WorkspaceBrowser({
             : (
               <SessionTree
                 usePanelInfo={usePanelInfo}
-                list={list}
+                list={visibleList}
                 useSessionStatus={useSessionStatus}
                 onSessionRenameRequest={requestSessionRename}
                 renderSlot={renderSlot}

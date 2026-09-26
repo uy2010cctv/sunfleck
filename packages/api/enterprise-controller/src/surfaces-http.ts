@@ -81,6 +81,7 @@ import type {
 } from '@deepseek-ai/dsh-enterprise-governance'
 import type { PostgresSurfaceDirectory, SurfaceDirectoryKind } from '@deepseek-ai/dsh-enterprise-postgres'
 import type { EmployeeHttpSecurity } from './employee-http.ts'
+import type { ProjectWorkspaceProvisioner } from './project-workspace.ts'
 import {
   authenticatedSegments, cookiePrincipal, failure, guardResource, jsonObjectBody, methodFailure,
   optionalStringArrayField, optionalStringField, stringArrayField, stringField, timingSafeTokenMatches,
@@ -217,6 +218,8 @@ export interface ProjectView {
   readonly createdAt: number
   /** Archival timestamp in epoch milliseconds, present once archived. */
   readonly archivedAt?: number
+  /** Native Workspace registered for this project when provisioning has settled. */
+  readonly workspaceId?: string
 }
 
 /** Member-gated project detail includes the durable human and employee roster. */
@@ -232,13 +235,14 @@ function presentSurface(entry: SurfaceListEntry): SurfaceView {
 }
 
 /** Project one project to its governance fields. */
-function presentProject(project: Project): ProjectView {
+function presentProject(project: Project, workspaceId?: string): ProjectView {
   return {
     id: project.projectId, name: project.name, goal: project.goal,
     ...(project.teamDefinitionId === undefined ? {} : { teamDefinitionId: project.teamDefinitionId }),
     state: project.state, visibility: project.visibility, createdBy: project.createdBy,
     createdAt: project.createdAt,
     ...(project.archivedAt === undefined ? {} : { archivedAt: project.archivedAt }),
+    ...(workspaceId === undefined ? {} : { workspaceId }),
   }
 }
 
@@ -584,6 +588,8 @@ export interface ProjectDistillationSeam {
 export interface ProjectHttpOptions {
   /** Distillation seam; the mounted memory-consolidation runtime satisfies it structurally. */
   readonly consolidation?: ProjectDistillationSeam | undefined
+  /** Native Workspace preparation and lookup for the enterprise project profile. */
+  readonly workspace?: Pick<ProjectWorkspaceProvisioner, 'create' | 'workspaceId' | 'notify'> | undefined
 }
 
 /** Project governance HTTP boundary owned by the enterprise controller. */
@@ -637,7 +643,8 @@ export class ProjectHttpHandler {
     const projects = await this.projects.list(principal.orgId, {
       userId: principal.userId, roles: principal.roles,
     })
-    return Response.json(projects.map(presentProject))
+    return Response.json(await Promise.all(projects.map(async project =>
+      presentProject(project, await this.options.workspace?.workspaceId(project)))))
   }
 
   /** Create one active project owned by the authenticated user as its creator and first member. */
@@ -648,17 +655,26 @@ export class ProjectHttpHandler {
     if (denial !== undefined) return denial
     const name = stringField(body, 'name')
     const goal = stringField(body, 'goal')
-    const workspacePath = stringField(body, 'workspacePath')
+    const workspacePath = optionalStringField(body, 'workspacePath')
     const teamDefinitionId = stringField(body, 'teamDefinitionId')
     const allowedUserIds = optionalStringArrayField(body, 'allowedUserIds')
     const visibility = PROJECT_VISIBILITIES.find(value => value === body['visibility'])
-    if (name === undefined || goal === undefined || workspacePath === undefined
-      || !isAbsolute(workspacePath) || allowedUserIds === null) {
+    if (name === undefined || goal === undefined || workspacePath === null || allowedUserIds === null
+      || (this.options.workspace === undefined && (workspacePath === undefined || !isAbsolute(workspacePath)))
+      || (this.options.workspace !== undefined && workspacePath !== undefined)) {
       return failure(400, 'invalid-payload')
     }
     try {
+      if (this.options.workspace !== undefined) {
+        const created = await this.options.workspace.create({ orgId: principal.orgId, name, goal,
+          createdBy: principal.userId,
+          ...(teamDefinitionId === undefined ? {} : { teamDefinitionId }),
+          ...(visibility === undefined ? {} : { visibility }),
+          ...(allowedUserIds === undefined || allowedUserIds.length === 0 ? {} : { allowedUserIds }) })
+        return Response.json(presentProject(created.project, created.workspaceId), { status: 201 })
+      }
       const project = await this.projects.create({
-        orgId: principal.orgId, name, goal, workspacePath, createdBy: principal.userId,
+        orgId: principal.orgId, name, goal, workspacePath: workspacePath as string, createdBy: principal.userId,
         ...(teamDefinitionId === undefined ? {} : { teamDefinitionId }),
         ...(visibility === undefined ? {} : { visibility }),
         ...(allowedUserIds === undefined || allowedUserIds.length === 0 ? {} : { allowedUserIds }),
@@ -682,7 +698,7 @@ export class ProjectHttpHandler {
     const project = await this.projects.requireMember(principal.orgId, id, { userId: principal.userId })
     if (project === undefined) return failure(404, 'project-not-found')
     const members = await this.projects.listMembers(id)
-    return Response.json({ ...presentProject(project), members: members.map(member => ({
+    return Response.json({ ...presentProject(project, await this.options.workspace?.workspaceId(project)), members: members.map(member => ({
       principalType: member.principalType, principalId: member.principalId,
     })) } satisfies ProjectDetailView)
   }
@@ -704,6 +720,13 @@ export class ProjectHttpHandler {
     }
     try {
       await this.projects.addMember(principal.orgId, id, { principalType, principalId, addedBy: principal.userId })
+      if (this.options.workspace !== undefined) {
+        const project = await this.projects.get(id)
+        if (project !== undefined) {
+          try { await this.options.workspace.notify(project) }
+          catch (_error) { /* The membership commit is authoritative; a reconnect reloads Workspace visibility. */ }
+        }
+      }
       return new Response(null, { status: 204 })
     } catch (error: unknown) {
       return this.projectFailure(error)

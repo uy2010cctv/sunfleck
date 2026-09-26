@@ -165,6 +165,7 @@ export interface EnterpriseProjectSummary {
   readonly createdAt: number
   /** Archival timestamp in epoch milliseconds, present once archived. */
   readonly archivedAt?: number
+  readonly workspaceId?: string
 }
 
 /** One member principal of the selected project. The store seeds the creator and appends adds. */
@@ -1009,11 +1010,11 @@ export class EnterpriseWorkbenchController {
     return false
   }
 
-  /** Create one project and reload the directory on success; failures stay contained in the slice.
-   * @param input - Business fields of the new project; the workspace path stays transport-only.
+  /** Create one project and its native Workspace, then reload the directory.
+   * @param input - Business fields; the Host chooses the managed directory.
    * @returns whether the project was created and the directory reloaded.
    */
-  async createProject(input: { name: string; goal: string; workspacePath: string }): Promise<boolean> {
+  async createProject(input: { name: string; goal: string }): Promise<boolean> {
     if (!this.beginProjectAction()) return false
     try {
       const response = await fetch('/enterprise/projects', {

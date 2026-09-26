@@ -119,6 +119,8 @@
 
     - id: enterprise-controller
       name: '@deepseek-ai/dsh-api-enterprise-controller'
+      config:
+        projectWorkspaceRoot: !!js process.env.DSH_ENTERPRISE_WORKSPACE_ROOT ?? dshHomePath('enterprise/workspaces/projects')
 
     - id: tool-computer-use
       name: '@deepseek-ai/dsh-tool-computer-use'

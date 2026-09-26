@@ -3,7 +3,7 @@
 import type { PostgresDatabase } from './types.ts'
 
 /** Value exported as `ENTERPRISE_IDENTITY_POSTGRES_SCHEMA_VERSION`. */
-export const ENTERPRISE_IDENTITY_POSTGRES_SCHEMA_VERSION = 8
+export const ENTERPRISE_IDENTITY_POSTGRES_SCHEMA_VERSION = 9
 
 /** Scope-to-owner pairing CHECK shared by the create-path and widen-path `enterprise_memories` DDL. */
 const ENTERPRISE_MEMORIES_PAIRING_CHECK = `(
@@ -156,6 +156,10 @@ const STATEMENTS = [
   )`,
   `CREATE INDEX IF NOT EXISTS enterprise_workspace_grants_org_kind
     ON enterprise_workspace_grants(org_id, kind, name, workspace_id)`,
+  `CREATE TABLE IF NOT EXISTS enterprise_project_workspace_links (
+    workspace_id TEXT PRIMARY KEY REFERENCES enterprise_workspace_grants(workspace_id) ON DELETE CASCADE,
+    project_id TEXT NOT NULL UNIQUE
+  )`,
   `CREATE TABLE IF NOT EXISTS enterprise_workspace_employee_defaults (
     workspace_id TEXT PRIMARY KEY REFERENCES enterprise_workspace_grants(workspace_id) ON DELETE CASCADE,
     org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
@@ -264,6 +268,10 @@ export async function migrateEnterpriseIdentityPostgres(database: PostgresDataba
   // columns and drops/re-adds the current CHECK set without touching committed rows.
   if (Number(version) === 7) {
     await widenEnterpriseMemories(database)
+    await database.query("UPDATE enterprise_meta SET value = $1 WHERE key = 'schema-version'", [String(ENTERPRISE_IDENTITY_POSTGRES_SCHEMA_VERSION)])
+    return
+  }
+  if (Number(version) === 8) {
     await database.query("UPDATE enterprise_meta SET value = $1 WHERE key = 'schema-version'", [String(ENTERPRISE_IDENTITY_POSTGRES_SCHEMA_VERSION)])
     return
   }

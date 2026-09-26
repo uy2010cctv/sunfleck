@@ -9,7 +9,9 @@ kind: "package-reference"
 
 ## 概述
 
-`dsh-enterprise-project` 在 PostgreSQL 中持久化企业项目治理实体：一个组织范围内、按成员准入的项目空间，包含名称、目标、工作区路径、可选的团队定义绑定、列表可见性、显式成员关系，以及以 archived 为终态的生命周期。它在组合方提供的 `PostgresDatabase` 句柄上暴露 `ctx.enterpriseProjects` Cordis 服务，并以自己的迁移单元拥有带版本的 `projects` 与 `project_members` 模式。按员工界面规范，项目是按成员准入的空间：列表可见性永远不能替代成员行。
+`dsh-enterprise-project` 在 PostgreSQL 中持久化组织范围的项目，记录名称、目标、工作区路径、可选团队绑定、列表可见性、成员和归档状态。它通过组合方提供的 `PostgresDatabase` 句柄暴露 `ctx.enterpriseProjects`，并管理带版本的 `projects` 与 `project_members` 表。列表可见性不能代替项目成员资格。
+
+`create` 可接收由 Host 预选的项目编号，使组合控制器在项目行提交前准备原生 Workspace 目录与授权。浏览器请求不能选择项目编号或文件系统路径。
 
 ## 目录
 
@@ -100,7 +102,7 @@ kind: "package-reference"
 
 这些限制界定了本服务何时不适配或需要组合方支持。
 
-- **工作区绑定只是存储的路径** — 服务把 `workspacePath` 保存为不透明的绝对字符串，不做任何注册表查询；通过 `workspaceRegistry.ensure` 与 `attachSession` 把项目绑定到活工作区属于消费方流程。
+- **工作区绑定由 Host 负责** — 服务把 `workspacePath` 保存为不透明的绝对字符串，不做注册表查询。Web 企业控制器先创建原生 Workspace 和受项目成员权限约束的授权，再提交新项目；直接使用本服务的调用方须自行配置 Workspace 创建流程。
 - **可见性是自包含的简化** — 列表可见性存储在项目行上并在服务内求值，不与治理 `resource_policies` 表共享；'restricted' 表示 `allowedUserIds` 加创建者，'administrator' 角色绕过过滤，且没有部门范围。
 - **团队定义引用没有外键** — `teamDefinitionId` 是普通列，因为团队定义位于按 `(org_id, team_id)` 建键的运营模式中；引用检查属于组合方流程。
 - **归档归属由调用方拥有** — `archive` 接受 actor id 仅用于校验；存储只记录 `archived_at` 而不记录归档主体，审计轨迹留在调用方。

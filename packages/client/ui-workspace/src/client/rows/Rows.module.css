@@ -160,6 +160,7 @@
   flex-direction: column;
   gap: 2px;
 }
+.workspaceKind { color: var(--dsw-alias-label-secondary); font-size: 11px; line-height: 15px; }
 
 .title {
   min-width: 0;

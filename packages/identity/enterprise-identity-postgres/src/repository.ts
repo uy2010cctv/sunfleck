@@ -111,6 +111,7 @@ interface WorkspaceGrantRow extends Record<string, unknown> {
   readonly revision: number | string
   readonly created_at: number | string
   readonly updated_at: number | string
+  readonly linked_project_id?: string | null
 }
 
 interface MemoryRow extends Record<string, unknown> {
@@ -471,6 +472,9 @@ export class PgEnterpriseIdentityRepository {
   async saveWorkspaceGrant(input: SaveEnterpriseWorkspaceGrantInput): Promise<EnterpriseWorkspaceGrant> {
     this.assertWorkspaceGrantShape(input)
     return this.transaction(async (database) => {
+      const link = await database.query<{ project_id: string }>(
+        'SELECT project_id FROM enterprise_project_workspace_links WHERE workspace_id = $1', [input.workspaceId])
+      if (link.rows[0] !== undefined) throw new Error('project Workspace grant cannot be replaced')
       await this.assertWorkspaceGrantReferences(database, input)
       const currentResult = await database.query<{ org_id: string; revision: number | string }>(
         'SELECT org_id, revision FROM enterprise_workspace_grants WHERE workspace_id = $1 FOR UPDATE', [input.workspaceId],
@@ -499,6 +503,7 @@ export class PgEnterpriseIdentityRepository {
 
   private assertWorkspaceGrantShape(input: SaveEnterpriseWorkspaceGrantInput): void {
     if (!input.workspaceId.trim() || !input.name.trim() || !input.rootPath.trim()) throw new Error('enterprise workspace identity, name, and root path are required')
+    if (input.kind === 'project') throw new Error('project Workspace grants require a project link')
     if (input.kind === 'personal' && (input.ownerUserId === undefined || input.departmentId !== undefined)) throw new Error('personal enterprise workspace requires one owner and no department')
     if (input.kind === 'department' && (input.departmentId === undefined || input.ownerUserId !== undefined)) throw new Error('department enterprise workspace requires one department and no owner')
   }
@@ -519,8 +524,77 @@ export class PgEnterpriseIdentityRepository {
    * @returns Result produced by this API.
    */
   async workspaceGrant(workspaceId: string): Promise<EnterpriseWorkspaceGrant | undefined> {
-    const result = await this.database.query<WorkspaceGrantRow>('SELECT * FROM enterprise_workspace_grants WHERE workspace_id = $1', [workspaceId])
+    const result = await this.database.query<WorkspaceGrantRow>(`SELECT workspace.*, link.project_id AS linked_project_id
+      FROM enterprise_workspace_grants workspace
+      LEFT JOIN enterprise_project_workspace_links link USING(workspace_id)
+      WHERE workspace.workspace_id = $1`, [workspaceId])
     return result.rows[0] === undefined ? undefined : this.workspaceGrantFromRow(result.rows[0])
+  }
+
+  /** Bind an existing creator-owned grant to one project; repeated equal bindings are idempotent.
+   * @param input - Project and Workspace identities already created in the same organization.
+   * @returns the project-scoped grant after durable readback.
+   */
+  async bindProjectWorkspace(input: { orgId: string; workspaceId: string; projectId: string }): Promise<EnterpriseWorkspaceGrant> {
+    await this.transaction(async (database) => {
+      const inserted = await database.query<{ workspace_id: string }>(`INSERT INTO enterprise_project_workspace_links(workspace_id,project_id)
+        SELECT workspace_id,$3 FROM enterprise_workspace_grants
+        WHERE workspace_id=$1 AND org_id=$2 AND kind='personal'
+        ON CONFLICT DO NOTHING RETURNING workspace_id`, [input.workspaceId, input.orgId, input.projectId])
+      if (inserted.rows[0] !== undefined) return
+      const existing = await database.query<{ project_id: string }>(
+        'SELECT project_id FROM enterprise_project_workspace_links WHERE workspace_id=$1', [input.workspaceId])
+      if (existing.rows[0]?.project_id !== input.projectId) throw new Error('project Workspace binding conflict')
+    })
+    const grant = await this.workspaceGrant(input.workspaceId)
+    if (grant?.kind !== 'project' || grant.projectId !== input.projectId || grant.orgId !== input.orgId) {
+      throw new Error('project Workspace binding did not become readable')
+    }
+    return grant
+  }
+
+  /** Prepare a project Workspace grant and its link in one PostgreSQL transaction.
+   * The project row is committed last by the caller, so this link grants no access until that row exists.
+   * @param input - Newly registered native Workspace and the pending project identity.
+   * @returns the linked grant after commit.
+   */
+  async prepareProjectWorkspace(input: {
+    orgId: string
+    workspaceId: string
+    projectId: string
+    createdBy: string
+    name: string
+    rootPath: string
+  }): Promise<EnterpriseWorkspaceGrant> {
+    if (!input.name.trim() || !input.rootPath.trim() || !input.projectId.trim()) throw new Error('project Workspace fields are required')
+    await this.transaction(async (database) => {
+      const at = this.now()
+      await database.query(`INSERT INTO enterprise_workspace_grants(workspace_id,org_id,name,kind,
+        owner_user_id,department_id,root_path,sandbox_mode,revision,created_at,updated_at)
+        VALUES($1,$2,$3,'personal',$4,NULL,$5,'workspace-write',1,$6,$6)`,
+      [input.workspaceId, input.orgId, input.name.trim(), input.createdBy, input.rootPath, at])
+      await database.query('INSERT INTO enterprise_project_workspace_links(workspace_id,project_id) VALUES($1,$2)',
+        [input.workspaceId, input.projectId])
+    })
+    const grant = await this.workspaceGrant(input.workspaceId)
+    if (grant?.kind !== 'project' || grant.projectId !== input.projectId || grant.orgId !== input.orgId) {
+      throw new Error('project Workspace grant did not become readable')
+    }
+    return grant
+  }
+
+  /** Remove only an unstarted prepared project Workspace after creation fails.
+   * @param input - Exact pending project and Workspace identity to discard.
+   * @returns whether the prepared grant was removed.
+   */
+  async discardPreparedProjectWorkspace(input: { orgId: string; workspaceId: string; projectId: string }): Promise<boolean> {
+    const result = await this.database.query<{ workspace_id: string }>(`DELETE FROM enterprise_workspace_grants workspace
+      WHERE workspace.workspace_id=$1 AND workspace.org_id=$2
+        AND EXISTS(SELECT 1 FROM enterprise_project_workspace_links link
+          WHERE link.workspace_id=workspace.workspace_id AND link.project_id=$3)
+        AND NOT EXISTS(SELECT 1 FROM enterprise_session_workspaces binding WHERE binding.workspace_id=workspace.workspace_id)
+      RETURNING workspace.workspace_id`, [input.workspaceId, input.orgId, input.projectId])
+    return result.rows[0] !== undefined
   }
 
   /** Read the current employee selection for a workspace.
@@ -576,7 +650,8 @@ export class PgEnterpriseIdentityRepository {
    */
   async workspaceGrantByRootPath(rootPath: string): Promise<EnterpriseWorkspaceGrant | undefined> {
     const result = await this.database.query<WorkspaceGrantRow>(
-      'SELECT * FROM enterprise_workspace_grants WHERE root_path = $1', [rootPath],
+      `SELECT workspace.*, link.project_id AS linked_project_id FROM enterprise_workspace_grants workspace
+        LEFT JOIN enterprise_project_workspace_links link USING(workspace_id) WHERE workspace.root_path = $1`, [rootPath],
     )
     return result.rows[0] === undefined ? undefined : this.workspaceGrantFromRow(result.rows[0])
   }
@@ -588,7 +663,9 @@ export class PgEnterpriseIdentityRepository {
   async listWorkspaceGrants(input: { orgId: string; userId: string }): Promise<EnterpriseWorkspaceGrant[]> {
     const result = await this.database.query<WorkspaceGrantRow>(`SELECT workspace.* FROM enterprise_workspace_grants workspace
       LEFT JOIN user_departments membership ON membership.department_id = workspace.department_id AND membership.user_id = $1
-      WHERE workspace.org_id = $2 AND (workspace.owner_user_id = $1 OR membership.user_id IS NOT NULL)
+      LEFT JOIN enterprise_project_workspace_links link USING(workspace_id)
+      WHERE workspace.org_id = $2 AND link.workspace_id IS NULL
+        AND (workspace.owner_user_id = $1 OR membership.user_id IS NOT NULL)
       ORDER BY CASE workspace.kind WHEN 'personal' THEN 0 ELSE 1 END, workspace.name, workspace.workspace_id`,
     [input.userId, input.orgId])
     return result.rows.map(row => this.workspaceGrantFromRow(row))
@@ -599,16 +676,19 @@ export class PgEnterpriseIdentityRepository {
    * @returns Result produced by this API.
    */
   async listOrganizationWorkspaceGrants(orgId: string): Promise<EnterpriseWorkspaceGrant[]> {
-    const result = await this.database.query<WorkspaceGrantRow>(`SELECT * FROM enterprise_workspace_grants WHERE org_id = $1
-      ORDER BY kind, name, workspace_id`, [orgId])
+    const result = await this.database.query<WorkspaceGrantRow>(`SELECT workspace.*, link.project_id AS linked_project_id
+      FROM enterprise_workspace_grants workspace LEFT JOIN enterprise_project_workspace_links link USING(workspace_id)
+      WHERE workspace.org_id = $1 ORDER BY workspace.kind, workspace.name, workspace.workspace_id`, [orgId])
     return result.rows.map(row => this.workspaceGrantFromRow(row))
   }
 
   private workspaceGrantFromRow(row: WorkspaceGrantRow): EnterpriseWorkspaceGrant {
+    const projectId = row.linked_project_id ?? undefined
     return {
-      workspaceId: row.workspace_id, orgId: row.org_id, name: row.name, kind: row.kind,
-      ...(row.owner_user_id === null ? {} : { ownerUserId: row.owner_user_id }),
-      ...(row.department_id === null ? {} : { departmentId: row.department_id }),
+      workspaceId: row.workspace_id, orgId: row.org_id, name: row.name, kind: projectId === undefined ? row.kind : 'project',
+      ...(projectId === undefined && row.owner_user_id !== null ? { ownerUserId: row.owner_user_id } : {}),
+      ...(projectId === undefined && row.department_id !== null ? { departmentId: row.department_id } : {}),
+      ...(projectId === undefined ? {} : { projectId }),
       rootPath: row.root_path, sandboxMode: row.sandbox_mode, revision: Number(row.revision),
       createdAt: Number(row.created_at), updatedAt: Number(row.updated_at),
     }
@@ -659,9 +739,10 @@ export class PgEnterpriseIdentityRepository {
    * @returns Result produced by this API.
    */
   async sessionWorkspaceGrant(sessionId: string): Promise<EnterpriseWorkspaceGrant | undefined> {
-    const result = await this.database.query<WorkspaceGrantRow>(`SELECT workspace.*
+    const result = await this.database.query<WorkspaceGrantRow>(`SELECT workspace.*, link.project_id AS linked_project_id
       FROM enterprise_session_workspaces binding
       JOIN enterprise_workspace_grants workspace ON workspace.workspace_id = binding.workspace_id
+      LEFT JOIN enterprise_project_workspace_links link ON link.workspace_id = workspace.workspace_id
       WHERE binding.session_id = $1`, [sessionId])
     return result.rows[0] === undefined ? undefined : this.workspaceGrantFromRow(result.rows[0])
   }

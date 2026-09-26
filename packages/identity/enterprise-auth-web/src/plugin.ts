@@ -5,6 +5,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { WebRoute } from '@deepseek-ai/dsh-host-webserver'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import { EnterpriseIdentityRepository, type EnterpriseIdentityStore } from '@deepseek-ai/dsh-enterprise-identity'
+import { projectId } from '@deepseek-ai/dsh-enterprise-project'
 import {
   EnterpriseLdapProvider,
   EnterpriseOidcProvider,
@@ -162,6 +163,10 @@ export async function apply(ctx: Context, config: EnterpriseAuthWebConfig): Prom
     }
 
     const security = new EnterpriseSecurity(repository, config, {
+      projectAccess: async (orgId, userId, id) => {
+        const project = await ctx.get('enterpriseProjects')?.requireMember(orgId, projectId(id), { userId })
+        return { member: project !== undefined, active: project?.state === 'active' }
+      },
       managedDepartmentIds: async (orgId, userId) => {
         const departments = await repository.listDepartments(orgId)
         const managed = await Promise.all(departments.map(async department =>
@@ -212,6 +217,16 @@ export async function apply(ctx: Context, config: EnterpriseAuthWebConfig): Prom
           if (grant.kind === 'personal') {
             if (grant.ownerUserId === undefined) return null
             return { orgId: grant.orgId, creatorUserId: grant.ownerUserId, visibility: 'private' }
+          }
+          if (grant.kind === 'project') {
+            if (grant.projectId === undefined) return null
+            const projects = ctx.get('enterpriseProjects')
+            if (projects === undefined) return null
+            const project = await projects?.get(projectId(grant.projectId))
+            if (project?.orgId !== grant.orgId) return null
+            const members = await projects.listMembers(projectId(grant.projectId))
+            return { orgId: grant.orgId, visibility: 'restricted',
+              allowedUserIds: members.filter(member => member.principalType === 'user').map(member => member.principalId) }
           }
           const allowedUserIds = (await repository.listUsers(grant.orgId))
             .filter(user => grant.departmentId !== undefined && user.departmentIds.includes(grant.departmentId))

@@ -19,6 +19,7 @@
     "@deepseek-ai/dsh-credentials": "workspace:^",
     "@deepseek-ai/dsh-enterprise-governance": "workspace:^",
     "@deepseek-ai/dsh-enterprise-identity": "workspace:^",
+    "@deepseek-ai/dsh-enterprise-project": "workspace:^",
     "@deepseek-ai/dsh-enterprise-sso": "workspace:^",
     "@deepseek-ai/dsh-host-webserver": "workspace:^"
     ,"@deepseek-ai/dsh-workspace": "workspace:^"
@@ -29,6 +30,7 @@
     "@deepseek-ai/dsh-credentials": "workspace:^",
     "@deepseek-ai/dsh-enterprise-governance": "workspace:^",
     "@deepseek-ai/dsh-enterprise-identity": "workspace:^",
+    "@deepseek-ai/dsh-enterprise-project": "workspace:^",
     "@deepseek-ai/dsh-enterprise-sso": "workspace:^",
     "@deepseek-ai/dsh-host-webserver": "workspace:^"
     ,"@deepseek-ai/dsh-workspace": "workspace:^"

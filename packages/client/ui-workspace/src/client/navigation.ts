@@ -9,7 +9,7 @@ import type {
   SessionTarget,
   SessionListState,
 } from '@deepseek-ai/dsh-api-session-controller/client'
-import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
+import { createSnapshotStore, type SnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type { SubagentAddress } from '@deepseek-ai/dsh-subagent/client'
 import type {
   IWorkspaces, WorkspaceId, WorkspaceSnapshot, WorkspaceView,
@@ -29,6 +29,10 @@ interface MainSelection {
 
 /** Workspace archive and directory operations consumed by Client UI domains. */
 export interface UiWorkspace {
+  /** Session ids retained for execution but omitted from Workspace browsing. */
+  readonly hiddenSessionIds: SnapshotStore<ReadonlySet<SessionId>>
+  /** Replace one contributor's hidden ids; an empty list removes that contributor. */
+  setHiddenSessions(source: string, ids: readonly SessionId[]): void
   /**
    * Select a Session and show its Conversation as one UI navigation action.
    * @param target - known Session identity or durable direct-parent subagent address to display.
@@ -126,6 +130,8 @@ export class DirectoryBrowseError extends Error {
 /** Implements Workspace archive and directory UI operations. */
 class UiWorkspaceService extends Service implements UiWorkspace {
   private readonly connecting = new Map<WorkspaceId, Promise<SessionId>>()
+  private readonly hiddenSessionSources = new Map<string, readonly SessionId[]>()
+  readonly hiddenSessionIds = createSnapshotStore<ReadonlySet<SessionId>>(new Set())
   private readonly lifetime = new AbortController()
   private readonly selection = createSnapshotStore<MainSelection>(
     {}, { persist: { name: 'dsh.sessions.current' } },
@@ -159,6 +165,14 @@ class UiWorkspaceService extends Service implements UiWorkspace {
         reference?.release()
       }
     }, 'ui-workspace: Workspace navigation policy')
+  }
+
+  /** Keep hidden execution sessions out of navigation without changing their durable Workspace membership. */
+  setHiddenSessions(source: string, ids: readonly SessionId[]): void {
+    if (source.trim() === '') throw new Error('hidden Session source is required')
+    if (ids.length === 0) this.hiddenSessionSources.delete(source)
+    else this.hiddenSessionSources.set(source, [...new Set(ids)])
+    this.hiddenSessionIds.set(new Set([...this.hiddenSessionSources.values()].flat()))
   }
 
   async connectWorkspace(workspaceId: WorkspaceId): Promise<SessionId> {

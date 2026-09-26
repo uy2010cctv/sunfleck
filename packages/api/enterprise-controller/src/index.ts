@@ -2,6 +2,7 @@
 import { createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { Readable } from 'node:stream'
+import { isAbsolute } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/cordis-plugin-loader'
@@ -10,6 +11,9 @@ import { Remote, RemoteError, TypertRemoteService } from '@deepseek-ai/dsh-typer
 import type { EnterprisePrincipal } from '@deepseek-ai/dsh-enterprise-governance'
 import type {} from '@deepseek-ai/dsh-enterprise-auth-web'
 import type {} from '@deepseek-ai/dsh-enterprise-postgres'
+import type { WorkspaceId } from '@deepseek-ai/dsh-workspace/types'
+import { brandString } from '@deepseek-ai/dsh-brand'
+import type {} from '@deepseek-ai/dsh-workspace'
 import { PostgresChannelWorkflowLedger } from '@deepseek-ai/dsh-enterprise-postgres'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import { dshHomePath } from '@deepseek-ai/dsh-home-paths'
@@ -228,6 +232,7 @@ import { DeviceAgentHttpHandler } from './device-agent-http.ts'
 import { EmployeeHttpHandler } from './employee-http.ts'
 import { serveConsolidation } from './consolidation-http.ts'
 import { ProjectHttpHandler, SurfaceHttpHandler } from './surfaces-http.ts'
+import { ProjectWorkspaceProvisioner } from './project-workspace.ts'
 import { RecorderRuntimeBridge, validateRecorderRuntimeSave } from './recorder-runtime.ts'
 
 export type * from './contract/index.ts'
@@ -2497,7 +2502,13 @@ export class EnterpriseWorkController extends TypertRemoteService {
       completeWorkStart: ({ principal: actor, ...input }) => operations(ctx).completeWorkStart(actor, input),
     })
     this.workspaceDefaults = new WorkspaceEmployeeDefaultService({
-      grant: id => ctx.enterprisePostgres.identity.workspaceGrant(id),
+      grant: async (id) => {
+        const grant = await ctx.enterprisePostgres.identity.workspaceGrant(id)
+        if (grant === undefined || grant.kind === 'project') return undefined
+        return { workspaceId: grant.workspaceId, orgId: grant.orgId, kind: grant.kind,
+          ...(grant.ownerUserId === undefined ? {} : { ownerUserId: grant.ownerUserId }),
+          ...(grant.departmentId === undefined ? {} : { departmentId: grant.departmentId }) }
+      },
       mayUseWorkspace: async (actor, id) => (await ctx.enterpriseSecurity.authorizeApiAsync(actor, 'session.create', { workspaceId: id })).allowed,
       departmentManagers: async (orgId, departmentId) =>
         (await ctx.enterprisePostgres.cordis.departmentManagers(orgId, departmentId))?.managerUserIds ?? [],
@@ -2719,6 +2730,7 @@ async function serveRoute(
  * @param config - Validated room context and handoff limits.
 */
 export function apply(ctx: Context, config: Config): void {
+  if (!isAbsolute(config.projectWorkspaceRoot)) throw new Error('project Workspace root must be absolute')
   const workflowIdentity = new CollaborationIdentity(ctx.credentials, ctx.enterprisePostgres.roomEvents, {
     human: async (actor, roomId) => {
       try { await collaboration.service.detail(actor, roomId); return true }
@@ -3080,9 +3092,18 @@ export function apply(ctx: Context, config: Config): void {
     handler: async (req, res) => {
       const plane = resolvePlane(ctx.get('enterpriseProjects'), 'project-plane-unavailable')
       if (plane.service === undefined) { await writeResponse(res, plane.unavailable); return }
+      const workspace = new ProjectWorkspaceProvisioner(config.projectWorkspaceRoot, plane.service, {
+        create: async (path, title) => ctx.workspaceRegistry.create(path, title),
+        delete: async id => ctx.workspaceRegistry.delete(brandString<WorkspaceId>(id)),
+        resolveByPath: async path => ctx.workspaceRegistry.resolveByPath(path),
+      }, ctx.enterprisePostgres.identity, (id) => {
+        try { ctx.emit('workspace/visibility-changed', brandString<WorkspaceId>(id)) }
+        catch (error) { ctx.logger.warn(`project Workspace refresh failed: ${String(error)}`) }
+      })
       await serveRoute(res, await enterpriseRequest(req), request =>
         new ProjectHttpHandler(plane.service, ctx.enterpriseSecurity, {
           consolidation: ctx.get('memoryConsolidation'),
+          workspace,
         }).fetch(request))
     },
   }), 'enterprise-project: authenticated project routes')
@@ -3115,20 +3136,34 @@ export const inject = [
   'enterprisePostgres', 'enterpriseSecurity', 'enterpriseRequestContext', 'enterpriseCordis',
   'agentPresets', 'agents', 'sessions', 'sessionPersistence', 'sessionProjections',
   'loader', 'credentials', 'llm', 'sessionController', 'webServer',
+  'workspaceRegistry',
 ]
 /** Deployment limits for shared-room model context and Bot handoffs. */
 export interface Config {
+  /** Maximum characters of signed room history sent to a Bot. */
   readonly roomContextCharacters: number
+  /** Maximum room events sent to a Bot. */
   readonly roomContextEvents: number
+  /** Maximum Bot-to-Bot handoffs from one room event. */
   readonly maxBotHops: number
+  /** Milliseconds between pending room delivery scans. */
   readonly roomDispatchPollMs: number
+  /** Milliseconds a claimed room delivery remains leased. */
   readonly roomDispatchLeaseMs: number
+  /** Milliseconds between scheduled workflow scans. */
   readonly workflowPollIntervalMs: number
+  /** Maximum workflows claimed per scan. */
   readonly workflowBatchLimit: number
+  /** Milliseconds a claimed workflow remains leased. */
   readonly workflowLeaseMs: number
+  /** Credential reference used to verify GitHub webhook signatures. */
   readonly channelGitHubSecretRef: string
+  /** Registered GitHub source accepted by channel workflows. */
   readonly channelGitHubSource: string
+  /** Maximum accepted GitHub webhook body size in bytes. */
   readonly channelGitHubMaxBodyBytes: number
+  /** Absolute parent directory for newly created project Workspaces. */
+  readonly projectWorkspaceRoot: string
 }
 /** Validated deployment options with explicit default limits. */
 export const Config: z<Config> = z.object({
@@ -3143,5 +3178,6 @@ export const Config: z<Config> = z.object({
   channelGitHubSecretRef: z.string().default(''),
   channelGitHubSource: z.string().default('primary-github'),
   channelGitHubMaxBodyBytes: z.natural().min(1).max(10_485_760).default(1_048_576),
+  projectWorkspaceRoot: z.string().min(1).default(dshHomePath('enterprise/workspaces/projects')),
 })
 export { name } from './invariant.ts'

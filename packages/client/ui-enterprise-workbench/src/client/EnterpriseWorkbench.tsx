@@ -66,7 +66,7 @@ export interface EnterpriseWorkbenchInjected {
   retireEmployeeMemory: (employeeId: string, memoryId: string, revision: number) => Promise<boolean>
   loadProjects: () => Promise<boolean>
   loadSurfaces: () => Promise<boolean>
-  createProject: (input: { name: string; goal: string; workspacePath: string }) => Promise<boolean>
+  createProject: (input: { name: string; goal: string }) => Promise<boolean>
   selectProject: (projectId?: string) => Promise<void>
   addProjectMember: (
     projectId: string, member: { principalType: 'user' | 'employee'; principalId: string },

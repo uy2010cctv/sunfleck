@@ -19,6 +19,17 @@ function controller(request: ReturnType<typeof fetcher>) {
 }
 
 describe('shared collaboration room', () => {
+  it('publishes bound execution Session ids and clears them after access loss', async () => {
+    const changed = vi.fn()
+    const request = fetcher(Response.json([{ ...surface, executionSessionIds: ['native-room-1'] }]),
+      new Response('', { status: 403 }))
+    const value = new CollaborationController(request, vi.fn(), vi.fn(), undefined, changed)
+    await value.refresh()
+    expect(changed).toHaveBeenCalledWith(['native-room-1'])
+    await value.refresh()
+    expect(changed).toHaveBeenLastCalledWith([])
+    value.dispose()
+  })
   it('opens one group timeline for all human and Bot authors without opening an employee Session', async () => {
     const request = fetcher(Response.json([surface]), Response.json(detail), Response.json({ items: [human, bot], nextCursor: null }))
     const { value, openRoom, inspect } = controller(request)

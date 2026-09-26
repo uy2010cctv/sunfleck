@@ -94,9 +94,11 @@ export interface EnterpriseWorkspaceGrant {
   readonly workspaceId: string
   readonly orgId: string
   readonly name: string
-  readonly kind: 'personal' | 'department'
+  readonly kind: 'personal' | 'department' | 'project'
   readonly ownerUserId?: string
   readonly departmentId?: string
+  /** Project membership, rather than an owner or department, grants access. */
+  readonly projectId?: string
   readonly rootPath: string
   readonly sandboxMode: 'read-only' | 'workspace-write'
   readonly revision: number
@@ -870,6 +872,7 @@ export class EnterpriseIdentityRepository implements EnterpriseIdentityStore {
 
   private assertWorkspaceGrantShape(input: SaveEnterpriseWorkspaceGrantInput): void {
     if (!input.workspaceId.trim() || !input.name.trim() || !input.rootPath.trim()) throw new Error('enterprise workspace identity, name, and root path are required')
+    if (input.kind === 'project') throw new Error('project Workspace grants require PostgreSQL project composition')
     if (input.kind === 'personal' && (input.ownerUserId === undefined || input.departmentId !== undefined)) {
       throw new Error('personal enterprise workspace requires one owner and no department')
     }
