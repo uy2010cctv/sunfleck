@@ -152,7 +152,7 @@ export interface Config {
 
 Depends on: `Volatile` (`@deepseek-ai/cordis`)
 
-Source: [`packages/preset/agent-preset-registry/src/preset.ts:13`](../packages/preset/agent-preset-registry/src/preset.ts)
+Source: [`packages/preset/agent-preset-registry/src/preset.ts:16`](../packages/preset/agent-preset-registry/src/preset.ts)
 
 <a id="deepseek-aidsh-agent-tool-presentation"></a>
 
@@ -177,6 +177,44 @@ export interface Config {
 Depends on: [`ToolPresentationMode`](subsystems/tools.md)
 
 Source: [`packages/core/agent-tool-presentation/src/index.ts:38`](../packages/core/agent-tool-presentation/src/index.ts)
+
+<a id="deepseek-aidsh-api-enterprise-controller"></a>
+
+## `@deepseek-ai/dsh-api-enterprise-controller`
+
+Requires: `enterprisePostgres` · `enterpriseSecurity` · `enterpriseRequestContext` · `enterpriseCordis` · `agentPresets` · `agents` · `sessions` · `sessionPersistence` · `sessionProjections` · `loader` · `credentials` · `llm` · `sessionController` · `webServer` · `workspaceRegistry`
+
+```ts config-catalog
+/** Deployment limits for shared-room model context and Bot handoffs. */
+export interface Config {
+  /** Maximum characters of signed room history sent to a Bot. */
+  readonly roomContextCharacters: number
+  /** Maximum room events sent to a Bot. */
+  readonly roomContextEvents: number
+  /** Maximum Bot-to-Bot handoffs from one room event. */
+  readonly maxBotHops: number
+  /** Milliseconds between pending room delivery scans. */
+  readonly roomDispatchPollMs: number
+  /** Milliseconds a claimed room delivery remains leased. */
+  readonly roomDispatchLeaseMs: number
+  /** Milliseconds between scheduled workflow scans. */
+  readonly workflowPollIntervalMs: number
+  /** Maximum workflows claimed per scan. */
+  readonly workflowBatchLimit: number
+  /** Milliseconds a claimed workflow remains leased. */
+  readonly workflowLeaseMs: number
+  /** Credential reference used to verify GitHub webhook signatures. */
+  readonly channelGitHubSecretRef: string
+  /** Registered GitHub source accepted by channel workflows. */
+  readonly channelGitHubSource: string
+  /** Maximum accepted GitHub webhook body size in bytes. */
+  readonly channelGitHubMaxBodyBytes: number
+  /** Absolute parent directory for newly created project Workspaces. */
+  readonly projectWorkspaceRoot: string
+}
+```
+
+Source: [`packages/api/enterprise-controller/src/index.ts:3142`](../packages/api/enterprise-controller/src/index.ts)
 
 <a id="deepseek-aidsh-api-gateway"></a>
 
@@ -228,7 +266,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/api/session-controller/src/index.ts:79`](../packages/api/session-controller/src/index.ts)
+Source: [`packages/api/session-controller/src/index.ts:80`](../packages/api/session-controller/src/index.ts)
 
 <a id="deepseek-aidsh-api-settings-controller"></a>
 
@@ -868,7 +906,7 @@ export interface EnterprisePostgresConfig {
 }
 ```
 
-Source: [`packages/enterprise/enterprise-postgres/src/index.ts:82`](../packages/enterprise/enterprise-postgres/src/index.ts)
+Source: [`packages/enterprise/enterprise-postgres/src/index.ts:113`](../packages/enterprise/enterprise-postgres/src/index.ts)
 
 <a id="deepseek-aidsh-enterprise-project"></a>
 
@@ -4416,7 +4454,6 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 - `@deepseek-ai/dsh-acp-app` — requires `cmdlineArgs` ([`packages/bundle/acp-app/src/index.ts`](../packages/bundle/acp-app/src/index.ts))
 - `@deepseek-ai/dsh-agent` ([`packages/core/agent/src/index.ts`](../packages/core/agent/src/index.ts))
 - `@deepseek-ai/dsh-api-account-controller` — requires `deepseekAccount` ([`packages/api/account-controller/src/index.ts`](../packages/api/account-controller/src/index.ts))
-- `@deepseek-ai/dsh-api-enterprise-controller` — requires `enterprisePostgres` · `enterpriseSecurity` · `enterpriseRequestContext` · `enterpriseCordis` · `agentPresets` · `credentials` · `llm` · `sessionController` · `webServer` ([`packages/api/enterprise-controller/src/index.ts`](../packages/api/enterprise-controller/src/index.ts))
 - `@deepseek-ai/dsh-api-remotes` — requires `typertGateway` ([`packages/api/remotes/src/index.ts`](../packages/api/remotes/src/index.ts))
 - `@deepseek-ai/dsh-authorization` — requires `credentials` ([`packages/credentials/authorization/src/index.ts`](../packages/credentials/authorization/src/index.ts))
 - `@deepseek-ai/dsh-browser-use` ([`packages/browser-use/browser-use/src/index.ts`](../packages/browser-use/browser-use/src/index.ts))
@@ -4455,6 +4492,7 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 - `@deepseek-ai/dsh-client-ui-settings-general` ([`packages/client/ui-settings-general/src/index.ts`](../packages/client/ui-settings-general/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-settings-plugin-inventory` ([`packages/client/ui-settings-plugin-inventory/src/index.ts`](../packages/client/ui-settings-plugin-inventory/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-settings-plugins` ([`packages/client/ui-settings-plugins/src/index.ts`](../packages/client/ui-settings-plugins/src/index.ts))
+- `@deepseek-ai/dsh-client-ui-settings-recorder` ([`packages/client/ui-settings-recorder/src/index.ts`](../packages/client/ui-settings-recorder/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-settings-shell` ([`packages/client/ui-settings-shell/src/index.ts`](../packages/client/ui-settings-shell/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-settings-subagent` ([`packages/client/ui-settings-subagent/src/index.ts`](../packages/client/ui-settings-subagent/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-settings-web-search` ([`packages/client/ui-settings-web-search/src/index.ts`](../packages/client/ui-settings-web-search/src/index.ts))
@@ -4470,7 +4508,6 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 - `@deepseek-ai/dsh-client-ui-user-questions` ([`packages/client/ui-user-questions/src/index.ts`](../packages/client/ui-user-questions/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-workflow-run` ([`packages/client/ui-workflow-run/src/index.ts`](../packages/client/ui-workflow-run/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-workspace` ([`packages/client/ui-workspace/src/index.ts`](../packages/client/ui-workspace/src/index.ts))
-- `@deepseek-ai/dsh-client-ui-workspace-files` ([`packages/client/ui-workspace-files/src/index.ts`](../packages/client/ui-workspace-files/src/index.ts))
 - `@deepseek-ai/dsh-command-compact` — requires `commands` · `compaction` ([`packages/compaction/command-compact/src/index.ts`](../packages/compaction/command-compact/src/index.ts))
 - `@deepseek-ai/dsh-command-feedback` — requires `commands` ([`packages/feedback/command-feedback/src/index.ts`](../packages/feedback/command-feedback/src/index.ts))
 - `@deepseek-ai/dsh-command-goal` — requires `commands` · `goals` ([`packages/goal/command-goal/src/index.ts`](../packages/goal/command-goal/src/index.ts))
