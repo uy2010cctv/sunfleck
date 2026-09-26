@@ -97,7 +97,7 @@ Across every channel, DSH is the only business-state and audit system. Within DS
 
 ## Collaboration Workbench
 
-Projects, group conversations, and channels are peer entry points in one Collaboration space. A group or channel may belong to an active project, while project membership and room membership remain separately authorized. Archived project rooms remain readable. Project detail reads the persisted member roster and lists only linked conversations. A human opens a room from the same directory that creates it; the native sidebar keeps those rooms close to Workspace conversations.
+Projects and channels are the visible entry points in one Collaboration space. Group records and their execution history remain stored while group discovery and creation controls are hidden. A channel may belong to an active project, while project membership and room membership remain separately authorized. Archived project channels remain readable. Project detail reads the persisted member roster and lists only linked channels. A human opens a channel from the same directory that creates it; the native sidebar keeps channels close to Workspace conversations.
 
 Team Governance is the management home for charters, governed Runs, and Human decisions. External channel settings govern WeCom and other provider connections; they are distinct from shared channels inside SUNFLECK. The Collaboration directory lists rooms visible to the current member and does not substitute for an organization-wide administrator inventory.
 

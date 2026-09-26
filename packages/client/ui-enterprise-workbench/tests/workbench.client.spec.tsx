@@ -180,17 +180,17 @@ describe('EnterpriseTrigger', () => {
 })
 
 describe('EnterpriseWorkbench', () => {
-  it('opens a group from the collaboration directory in the native room', () => {
+  it('opens a channel from the collaboration directory in the native room', () => {
     const openCollaboration = vi.fn(() => true)
     render(<EnterpriseWorkbench {...workbenchProps({ openCollaboration,
       state: { mode: 'enterprise', page: 'projects', projects: {
         phase: 'ready', list: [], selected: undefined, detailError: null,
         error: null, busy: false, actionError: null,
-      }, surfaces: { phase: 'ready', error: null, list: [{ id: 'room-a', kind: 'group',
-        name: '产品协作群', memberCount: 3, workspaceId: 'workspace-1' }] } },
+      }, surfaces: { phase: 'ready', error: null, list: [{ id: 'room-a', kind: 'channel',
+        name: '产品频道', memberCount: 3, workspaceId: 'workspace-1' }] } },
     })}/>)
-    fireEvent.click(screen.getByRole('tab', { name: '群聊' }))
-    fireEvent.click(screen.getByRole('button', { name: '打开 产品协作群' }))
+    fireEvent.click(screen.getByRole('tab', { name: '频道' }))
+    fireEvent.click(screen.getByRole('button', { name: '打开 产品频道' }))
     expect(openCollaboration).toHaveBeenCalledWith('room-a')
   })
   it('scopes contributed channel settings to the selected published employee', () => {

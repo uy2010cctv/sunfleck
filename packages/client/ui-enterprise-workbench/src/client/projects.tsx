@@ -32,11 +32,6 @@ function ProjectStatus({ state, className, t }: {
   </span>
 }
 
-const SURFACE_KIND_KEYS = {
-  group: 'projects.surfaceKind.group',
-  channel: 'projects.surfaceKind.channel',
-} as const satisfies Record<'group' | 'channel', EnterpriseWorkbenchKey>
-
 const DETAIL_ERROR_KEYS = {
   'not-member': 'projects.detailError.not-member',
   'load-failed': 'projects.detailError.load-failed',
@@ -226,13 +221,12 @@ function ProjectList({ projects, selectProject, t }: {
   </button>)}</div>
 }
 
-/** One member-visible conversation list, scoped to a kind or selected project. */
-function RoomList({ surfaces, projects, workspaces, loadSurfaces, kind, projectId, canCreate = true, openRoom, createRoom, t }: {
+/** Member-visible channels, optionally scoped to one project. */
+function RoomList({ surfaces, projects, workspaces, loadSurfaces, projectId, canCreate = true, openRoom, createRoom, t }: {
   surfaces: EnterpriseSurfacesState
   projects: EnterpriseProjectsState
   workspaces: readonly { id: string; name: string }[]
   loadSurfaces: () => Promise<boolean>
-  kind?: 'group' | 'channel'
   projectId?: string
   canCreate?: boolean
   openRoom: (id: string) => boolean
@@ -240,18 +234,16 @@ function RoomList({ surfaces, projects, workspaces, loadSurfaces, kind, projectI
   t: Translate
 }) {
   const [actionError, setActionError] = useState(false)
-  const visible = surfaces.list.filter((surface): surface is EnterpriseSurfaceView & { kind: 'group' | 'channel' } =>
-    surface.kind === 'group' || surface.kind === 'channel')
-    .filter(surface => (kind === undefined || surface.kind === kind)
-      && (projectId === undefined || surface.projectId === projectId))
+  const visible = surfaces.list.filter((surface): surface is EnterpriseSurfaceView & { kind: 'channel' } =>
+    surface.kind === 'channel')
+    .filter(surface => projectId === undefined || surface.projectId === projectId)
   const projectNames = new Map(projects.list.map(project => [project.id, project.name]))
   const workspaceNames = new Map(workspaces.map(workspace => [workspace.id, workspace.name]))
-  const start = (target: 'group' | 'channel'): void => { setActionError(!createRoom(target, projectId)) }
+  const start = (): void => { setActionError(!createRoom('channel', projectId)) }
   return <section className={css.roomDirectory} aria-label={projectId === undefined
-    ? t(kind === 'channel' ? 'projects.tab.channels' : 'projects.tab.groups') : t('projects.linkedRooms')}>
+    ? t('projects.tab.channels') : t('projects.linkedRooms')}>
     {projectId !== undefined && <div className={css.sectionHead}><h2>{t('projects.linkedRooms')}</h2>{canCreate && <div className={css.collaborationActions}>
-      <button type="button" className={css.secondaryButton} onClick={() => { start('group') }}>{t('projects.newGroup')}</button>
-      <button type="button" className={css.secondaryButton} onClick={() => { start('channel') }}>{t('projects.newChannel')}</button>
+      <button type="button" className={css.secondaryButton} onClick={start}>{t('projects.newChannel')}</button>
     </div>}</div>}
     {surfaces.phase === 'error' && <div className={visible.length > 0 ? css.inlineError : css.empty} role="alert">
       <IconWarningOutlineRegular size={20}/><strong>{t('projects.rosterLoadError')}</strong>
@@ -262,17 +254,16 @@ function RoomList({ surfaces, projects, workspaces, loadSurfaces, kind, projectI
       : visible.length === 0 ? (surfaces.phase === 'error' ? null : surfaces.phase === 'loading'
         ? <div className={css.loading} role="status"><span className={css.skeleton}/></div>
         : <div className={css.empty}><IconChecklistOutlineMedium size={20}/>
-          <span>{t(projectId !== undefined ? 'projects.emptyProjectRooms'
-            : kind === 'group' ? 'projects.emptyGroup' : 'projects.emptyChannel')}</span></div>)
+          <span>{t(projectId !== undefined ? 'projects.emptyProjectRooms' : 'projects.emptyChannel')}</span></div>)
         : <div className={css.rows}>{visible.map(surface => <button type="button" className={css.collaborationRow}
           key={surface.id} aria-label={`${t('projects.openRoom')} ${surface.name ?? t('projects.surface.unnamed')}`}
           onClick={() => { setActionError(!openRoom(surface.id)) }}>
-          <span className={css.surfaceChip} data-kind={surface.kind}>{t(SURFACE_KIND_KEYS[surface.kind])}</span>
+          <span className={css.surfaceChip} data-kind={surface.kind}>{t('projects.surfaceKind.channel')}</span>
           <span className={css.recordMain}><strong>{surface.name ?? t('projects.surface.unnamed')}</strong>
             <span>{surface.workspaceId === undefined ? null : `${workspaceNames.get(surface.workspaceId) ?? t('projects.workspaceUnknown')} · `}
               {surface.projectId === undefined ? t('projects.unlinked')
                 : projectNames.get(surface.projectId) ?? t('projects.unlinked')}
-              {surface.teamDefinitionId !== undefined && ` · ${t('projects.chartered')}`}</span>
+            </span>
           </span>
           {surface.memberCount !== undefined && <span className={css.recordStatus}>
             {t('projects.surfaceMembers', { count: surface.memberCount })}
@@ -317,7 +308,7 @@ export interface ProjectSpaceProps {
 export function ProjectSpace(props: ProjectSpaceProps) {
   const { projects, surfaces, workspaces = [], loadProjects, loadSurfaces, createProject, selectProject, addProjectMember,
     archiveProject, openRoom, createRoom, openGovernance, t } = props
-  const [view, setView] = useState<'projects' | 'group' | 'channel'>('projects')
+  const [view, setView] = useState<'projects' | 'channel'>('projects')
   const [creatingProject, setCreatingProject] = useState(false)
   const [projectDraft, setProjectDraft] = useState<ProjectDraft>(EMPTY_PROJECT_DRAFT)
   const [roomActionError, setRoomActionError] = useState(false)
@@ -328,15 +319,14 @@ export function ProjectSpace(props: ProjectSpaceProps) {
     if (surfaces.phase === 'idle') void loadSurfaces()
   }, [surfaces.phase, loadSurfaces])
   const selected = projects.selected
-  const counts = { projects: projects.list.length, group: surfaces.list.filter(row => row.kind === 'group').length,
-    channel: surfaces.list.filter(row => row.kind === 'channel').length }
-  const startRoom = (kind: 'group' | 'channel'): void => { setRoomActionError(!createRoom(kind)) }
+  const counts = { projects: projects.list.length, channel: surfaces.list.filter(row => row.kind === 'channel').length }
+  const startRoom = (): void => { setRoomActionError(!createRoom('channel')) }
   return <section className={css.collaborationHub} aria-labelledby="project-space-title">
     <div className={css.collaborationHubHeader}><div><h2 id="project-space-title">{t('projects.heading')}</h2>
       <p>{t('projects.intro')}</p></div><button type="button" className={css.secondaryButton}
       onClick={openGovernance}>{t('projects.governance')}</button></div>
     <div className={css.collaborationTabs} role="tablist" aria-label={t('projects.heading')}>
-      {(['projects', 'group', 'channel'] as const).map(item => <button type="button" role="tab" key={item}
+      {(['projects', 'channel'] as const).map(item => <button type="button" role="tab" key={item}
         id={`collaboration-tab-${item}`} aria-controls="collaboration-panel" tabIndex={view === item ? 0 : -1}
         aria-selected={view === item} onClick={() => { setView(item); setRoomActionError(false)
           if (item !== 'projects') void loadSurfaces() }} onKeyDown={(event) => {
@@ -347,7 +337,7 @@ export function ProjectSpace(props: ProjectSpaceProps) {
               : event.key === 'Home' ? tabs[0] : event.key === 'End' ? tabs.at(-1) : undefined
           if (target !== undefined) { event.preventDefault(); target.focus(); target.click() }
         }}>
-        {t(item === 'projects' ? 'projects.tab.projects' : item === 'group' ? 'projects.tab.groups' : 'projects.tab.channels')}
+        {t(item === 'projects' ? 'projects.tab.projects' : 'projects.tab.channels')}
         <span aria-hidden="true">{counts[item]}</span>
       </button>)}
     </div>
@@ -386,11 +376,10 @@ export function ProjectSpace(props: ProjectSpaceProps) {
         openRoom={openRoom} createRoom={createRoom} t={t}/>}
     </div>}
     {view !== 'projects' && <div role="tabpanel" id="collaboration-panel" aria-labelledby={`collaboration-tab-${view}`} className={css.collaborationPane}>
-      <div className={css.collaborationPaneHeader}><div><h3>{t(view === 'group' ? 'projects.tab.groups' : 'projects.tab.channels')}</h3>
-        <p>{t(view === 'group' ? 'projects.groupHelp' : 'projects.channelHelp')}</p></div>
-      <button type="button" className={css.primaryButton} onClick={() => { startRoom(view) }}>
-        {t(view === 'group' ? 'projects.newGroup' : 'projects.newChannel')}</button></div>
-      <RoomList surfaces={surfaces} projects={projects} workspaces={workspaces} loadSurfaces={loadSurfaces} kind={view}
+      <div className={css.collaborationPaneHeader}><div><h3>{t('projects.tab.channels')}</h3>
+        <p>{t('projects.channelHelp')}</p></div>
+      <button type="button" className={css.primaryButton} onClick={startRoom}>{t('projects.newChannel')}</button></div>
+      <RoomList surfaces={surfaces} projects={projects} workspaces={workspaces} loadSurfaces={loadSurfaces}
         openRoom={openRoom} createRoom={createRoom} t={t}/>
       {roomActionError && <p className={css.inlineError} role="alert">{t('projects.roomUnavailable')}</p>}
     </div>}

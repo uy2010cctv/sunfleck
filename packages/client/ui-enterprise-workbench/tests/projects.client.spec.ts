@@ -322,26 +322,36 @@ describe('EnterpriseWorkbenchController surface slice', () => {
 })
 
 describe('ProjectSpace view', () => {
-  it('opens one authorized group and starts a project-linked channel from the same collaboration hub', async () => {
+  it('hides stored groups and offers only project and channel entry points', () => {
+    render(createElement(ProjectSpace, spaceProps({ projects: READY_PROJECTS,
+      surfaces: { phase: 'ready', error: null, list: [GROUP_SURFACE, CHANNEL_SURFACE] } })))
+    expect(screen.queryByRole('tab', { name: '群聊' })).toBeNull()
+    fireEvent.click(screen.getByRole('tab', { name: zh['projects.tab.channels'] }))
+    expect(screen.getByText(CHANNEL_SURFACE.name as string)).toBeDefined()
+    expect(screen.queryByText(GROUP_SURFACE.name as string)).toBeNull()
+    expect(screen.queryByRole('button', { name: '新建群聊' })).toBeNull()
+  })
+  it('opens a channel and starts another channel linked to the selected project', async () => {
     const openRoom = vi.fn(() => true)
     const createRoom = vi.fn(() => true)
     const surfaceState: EnterpriseSurfacesState = { phase: 'ready', error: null, list: [
-      { ...GROUP_SURFACE, workspaceId: 'shared', projectId: RENEWAL.id, teamDefinitionId: 'charter-q4' },
-      { ...CHANNEL_SURFACE, projectId: RENEWAL.id },
+      { ...GROUP_SURFACE, projectId: RENEWAL.id },
+      { ...CHANNEL_SURFACE, workspaceId: 'shared', projectId: RENEWAL.id },
     ] }
     const { rerender } = render(createElement(ProjectSpace, spaceProps({
       projects: READY_PROJECTS,
       surfaces: surfaceState, workspaces: [{ id: 'shared', name: '销售部工作区' }], openRoom, createRoom,
     })))
     expect(screen.queryByText(GROUP_SURFACE.name as string)).toBeNull()
-    fireEvent.click(screen.getByRole('tab', { name: zh['projects.tab.groups'] }))
+    fireEvent.click(screen.getByRole('tab', { name: zh['projects.tab.channels'] }))
     expect(screen.getByText(/销售部工作区/)).toBeDefined()
-    fireEvent.click(screen.getByRole('button', { name: `${zh['projects.openRoom']} ${GROUP_SURFACE.name}` }))
-    expect(openRoom).toHaveBeenCalledWith(GROUP_SURFACE.id)
+    fireEvent.click(screen.getByRole('button', { name: `${zh['projects.openRoom']} ${CHANNEL_SURFACE.name}` }))
+    expect(openRoom).toHaveBeenCalledWith(CHANNEL_SURFACE.id)
     fireEvent.click(screen.getByRole('tab', { name: zh['projects.tab.projects'] }))
     rerender(createElement(ProjectSpace, spaceProps({ projects: { ...READY_PROJECTS, selected: DETAIL },
       surfaces: surfaceState, openRoom, createRoom })))
     expect(screen.getByText(CHANNEL_SURFACE.name as string)).toBeDefined()
+    expect(screen.queryByText(GROUP_SURFACE.name as string)).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: zh['projects.newChannel'] }))
     expect(createRoom).toHaveBeenCalledWith('channel', RENEWAL.id)
   })
@@ -349,29 +359,28 @@ describe('ProjectSpace view', () => {
     render(createElement(ProjectSpace, spaceProps({
       projects: { ...READY_PROJECTS, selected: { project: QUOTING,
         members: [{ principalType: 'user', principalId: 'user-2' }] } },
-      surfaces: { phase: 'ready', error: null, list: [{ ...GROUP_SURFACE, projectId: QUOTING.id }] },
+      surfaces: { phase: 'ready', error: null, list: [{ ...CHANNEL_SURFACE, projectId: QUOTING.id }] },
     })))
-    expect(screen.getByText(GROUP_SURFACE.name as string)).toBeDefined()
-    expect(screen.queryByRole('button', { name: zh['projects.newGroup'] })).toBeNull()
+    expect(screen.getByText(CHANNEL_SURFACE.name as string)).toBeDefined()
     expect(screen.queryByRole('button', { name: zh['projects.newChannel'] })).toBeNull()
   })
-  it('supports keyboard movement between the project, group, and channel views', () => {
+  it('supports keyboard movement between project and channel views', () => {
     render(createElement(ProjectSpace, spaceProps({ projects: READY_PROJECTS,
       surfaces: { phase: 'ready', error: null, list: [GROUP_SURFACE, CHANNEL_SURFACE] } })))
     const projectTab = screen.getByRole('tab', { name: zh['projects.tab.projects'] })
     projectTab.focus()
     fireEvent.keyDown(projectTab, { key: 'ArrowRight' })
-    expect(screen.getByRole('tab', { name: zh['projects.tab.groups'] }).getAttribute('aria-selected')).toBe('true')
-    expect(screen.getByText(GROUP_SURFACE.name as string)).toBeDefined()
+    expect(screen.getByRole('tab', { name: zh['projects.tab.channels'] }).getAttribute('aria-selected')).toBe('true')
+    expect(screen.getByText(CHANNEL_SURFACE.name as string)).toBeDefined()
   })
-  it('keeps an unfinished project draft while browsing groups', () => {
+  it('keeps an unfinished project draft while browsing channels', () => {
     render(createElement(ProjectSpace, spaceProps({ projects: projects({ phase: 'ready', list: [] }),
       surfaces: { phase: 'ready', error: null, list: [] } })))
     fireEvent.click(screen.getByRole('button', { name: zh['projects.newProject'] }))
     fireEvent.change(screen.getByPlaceholderText(zh['projects.namePlaceholder']), {
       target: { value: '续约项目' },
     })
-    fireEvent.click(screen.getByRole('tab', { name: zh['projects.tab.groups'] }))
+    fireEvent.click(screen.getByRole('tab', { name: zh['projects.tab.channels'] }))
     fireEvent.click(screen.getByRole('tab', { name: zh['projects.tab.projects'] }))
     expect(screen.getByPlaceholderText<HTMLInputElement>(zh['projects.namePlaceholder']).value).toBe('续约项目')
   })
@@ -523,7 +532,7 @@ describe('ProjectSpace view', () => {
     })
   })
 
-  it('separates groups and channels and omits private messages', async () => {
+  it('shows channels while omitting stored groups and private messages', async () => {
     const loadSurfaces = vi.fn(() => Promise.resolve(true))
     const { rerender } = render(createElement(ProjectSpace, spaceProps({
       projects: projects({ phase: 'ready', list: [] }),
@@ -538,15 +547,10 @@ describe('ProjectSpace view', () => {
       loadSurfaces,
     })))
 
-    fireEvent.click(screen.getByRole('tab', { name: zh['projects.tab.groups'] }))
-    expect(screen.getByText(GROUP_SURFACE.name as string)).toBeDefined()
-    expect(screen.queryByText(CHANNEL_SURFACE.name as string)).toBeNull()
-    expect(screen.queryByText(zh['projects.surface.unnamed'])).toBeNull()
-    expect(screen.getByText('3 位成员')).toBeDefined()
-
     fireEvent.click(screen.getByRole('tab', { name: zh['projects.tab.channels'] }))
     expect(screen.queryByText(GROUP_SURFACE.name as string)).toBeNull()
     expect(screen.getByText(CHANNEL_SURFACE.name as string)).toBeDefined()
+    expect(screen.queryByText(zh['projects.surface.unnamed'])).toBeNull()
     expect(screen.getByText('2 位成员')).toBeDefined()
   })
 
@@ -565,7 +569,7 @@ describe('ProjectSpace view', () => {
       loadSurfaces,
     })))
 
-    fireEvent.click(screen.getByRole('tab', { name: zh['projects.tab.groups'] }))
+    fireEvent.click(screen.getByRole('tab', { name: zh['projects.tab.channels'] }))
     expect(screen.getByRole('alert')?.textContent).toContain(zh['projects.rosterLoadError'])
     fireEvent.click(screen.getByRole('button', { name: zh.retry }))
     expect(loadSurfaces).toHaveBeenCalledTimes(3)

@@ -21,25 +21,27 @@ function setup() {
 }
 
 describe('native collaboration navigation', () => {
-  it('renders actual groups and channels and selects a stored row', () => {
+  it('hides stored groups while keeping channels selectable', () => {
     const { controller, props } = setup()
     controller.state.set({ ...controller.state.getSnapshot(), phase: 'ready', surfaces: [{ id: 'g', kind: 'group', name: '续约群', memberCount: 2 }, { id: 'c', kind: 'channel', name: 'IT 值班', memberCount: 1 }] })
     const select = vi.spyOn(controller, 'select').mockResolvedValue()
     render(<CollaborationSidebar {...props} wide expandSidebar={() => {}} />)
-    expect(screen.getByRole('region', { name: '群聊' })).toBeTruthy()
+    expect(screen.queryByRole('region', { name: '群聊' })).toBeNull()
     expect(screen.getByRole('region', { name: '频道' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: '续约群' })).toBeNull()
+    expect(screen.queryByRole('button', { name: '创建群聊' })).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: 'IT 值班' }))
     expect(select).toHaveBeenCalledWith('c')
   })
 
-  it('opens creation from the compact sidebar only after expanding', () => {
+  it('opens channel navigation from the compact sidebar only after expanding', () => {
     const { props } = setup()
     props.controller.state.set({ ...props.controller.state.getSnapshot(), phase: 'ready' })
     const expand = vi.fn()
     render(<CollaborationSidebar {...props} wide={false} expandSidebar={expand} />)
-    fireEvent.click(screen.getByRole('button', { name: '群聊' }))
+    fireEvent.click(screen.getByRole('button', { name: '频道' }))
     expect(expand).toHaveBeenCalledOnce()
-    expect(screen.queryByText('暂无群聊')).toBeNull()
+    expect(screen.queryByText('暂无频道')).toBeNull()
   })
 
   it('submits explicit workspace, human and employee choices', async () => {

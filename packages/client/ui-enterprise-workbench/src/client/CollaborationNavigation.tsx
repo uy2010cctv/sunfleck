@@ -1,6 +1,6 @@
 /** Group/channel rows and pre-session choices inside the existing native shell. */
 import { useEffect, useState } from 'react'
-import { IconUsersOutlineRegular, IconNewChatOutlineRegular, IconPlusOutlineRegular, IconRefreshOutlineRegular, Tooltip, IconLoadingOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
+import { IconNewChatOutlineRegular, IconPlusOutlineRegular, IconRefreshOutlineRegular, Tooltip, IconLoadingOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { SnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-locale/client'
@@ -40,7 +40,7 @@ export function collaborationError(error: string, t: Copy): string {
   return t('requestFailed')
 }
 
-/** Contribute native-styled group/channel sections without replacing Workspace browsing. */
+/** Contribute channel navigation while retaining stored groups outside discovery. */
 export function CollaborationSidebar({ wide, expandSidebar, usePanelInfo, useCollaboration, controller, t }: Pick<PropsRuntime<'sidebar.sections'>, 'wide' | 'expandSidebar' | 'usePanelInfo'> & InjectFace<CollaborationInjected> & PropsLocale<'enterprise.collaboration'>) {
   const state = useCollaboration(value => value)
   const panelId = usePanelInfo(info => info.activePanelId)
@@ -48,16 +48,16 @@ export function CollaborationSidebar({ wide, expandSidebar, usePanelInfo, useCol
   useEffect(() => { if (state.phase === 'idle') void controller.refresh() }, [controller, state.phase])
   if (state.phase === 'unavailable') return null
   return <div className={css.sections}>
-    {(['group', 'channel'] as const).map(kind => <section key={kind} aria-label={t(kind === 'group' ? 'groups' : 'channels')}>
+    <section aria-label={t('channels')}>
       <div className={css.sectionHeader}>
-        {wide ? <span>{t(kind === 'group' ? 'groups' : 'channels')}</span> : <Tooltip label={t(kind === 'group' ? 'groups' : 'channels')} side="right"><button type="button" className={css.iconButton} onClick={expandSidebar} aria-label={t(kind === 'group' ? 'groups' : 'channels')}><IconUsersOutlineRegular size={18}/></button></Tooltip>}
-        {wide && <Tooltip label={t(kind === 'group' ? 'addGroup' : 'addChannel')}><button type="button" className={css.iconButton} onClick={() => { controller.beginCreate(kind) }} aria-label={t(kind === 'group' ? 'addGroup' : 'addChannel')}><IconPlusOutlineRegular size={14}/></button></Tooltip>}
+        {wide ? <span>{t('channels')}</span> : <Tooltip label={t('channels')} side="right"><button type="button" className={css.iconButton} onClick={expandSidebar} aria-label={t('channels')}><IconNewChatOutlineRegular size={18}/></button></Tooltip>}
+        {wide && <Tooltip label={t('addChannel')}><button type="button" className={css.iconButton} onClick={() => { controller.beginCreate('channel') }} aria-label={t('addChannel')}><IconPlusOutlineRegular size={14}/></button></Tooltip>}
       </div>
-      {wide && (state.phase === 'loading' && state.surfaces.length === 0 ? <div className={css.skeleton} aria-hidden="true"/> : state.surfaces.filter(row => row.kind === kind).map(row => <button type="button" key={row.id} className={css.row} aria-current={state.selection?.detail.id === row.id ? 'page' : undefined} disabled={state.busy} onClick={() => { void controller.select(row.id) }}>
-        {kind === 'group' ? <IconUsersOutlineRegular size={14}/> : <IconNewChatOutlineRegular size={14}/>}<span>{row.name}</span>
+      {wide && (state.phase === 'loading' && state.surfaces.length === 0 ? <div className={css.skeleton} aria-hidden="true"/> : state.surfaces.filter(row => row.kind === 'channel').map(row => <button type="button" key={row.id} className={css.row} aria-current={state.selection?.detail.id === row.id ? 'page' : undefined} disabled={state.busy} onClick={() => { void controller.select(row.id) }}>
+        <IconNewChatOutlineRegular size={14}/><span>{row.name}</span>
       </button>))}
-      {wide && state.phase === 'ready' && !state.surfaces.some(row => row.kind === kind) && <p className={css.empty}>{t(kind === 'group' ? 'emptyGroup' : 'emptyChannel')}</p>}
-    </section>)}
+      {wide && state.phase === 'ready' && !state.surfaces.some(row => row.kind === 'channel') && <p className={css.empty}>{t('emptyChannel')}</p>}
+    </section>
     {wide && state.phase === 'error' && <div className={css.queryError} role="alert">{t('loadError')}<button type="button" onClick={() => { void controller.refresh() }}>{t('retry')}</button></div>}
     {wide && state.error !== null && state.creation === null && (state.selection === null || state.selection.sessionId !== undefined) && <p className={css.queryError} role="alert">{collaborationError(state.error, t)}</p>}
     {wide && <Tooltip label={t('refresh')}><button type="button" className={css.refresh} aria-label={t('refresh')} onClick={() => { void controller.refresh() }}><IconRefreshOutlineRegular size={13}/></button></Tooltip>}
