@@ -85,9 +85,8 @@ export function NativeSessionDetailsAction(
   if (!hasContext) return null
   return <button type="button" className={css.action} onClick={props.openDetails}>
     {employee === undefined ? <IconUsersOutlineRegular size={16} />
-      : employee.avatarSeed === undefined
-        ? <span className={css.actionAvatar} aria-hidden="true">{employee.displayName.slice(0, 1)}</span>
-        : <img className={css.actionAvatar} src={dicebearAvatarUrl(employee.avatarSeed)} alt="" loading="lazy" referrerPolicy="no-referrer" />}
+      : <img className={css.actionAvatar} src={dicebearAvatarUrl(employee.avatarSeed ?? employee.id)} alt=""
+        loading="lazy" referrerPolicy="no-referrer" />}
     <span>{employee?.displayName ?? props.t('title')}</span>
   </button>
 }

@@ -172,10 +172,11 @@ export function CollaborationRoom({ state, controller, loadChoices, t }: {
   }, [state.events.at(-1)?.sequence])
   const timeline = useMemo(() => state.events.filter(event => event.kind !== 7), [state.events])
   const selected = state.selection
-  const avatars = useMemo(() => new Map((selected?.detail.members ?? []).flatMap((member) => {
-    if (member.avatarSeed === undefined) return []
-    return [[member.employeeId, dicebearAvatarUrl(member.avatarSeed)] as const]
-  })), [selected?.detail.members])
+  // Same seed resolution as the workbench roster cards: profile seed, else the
+  // employee id, so every digital employee shows the roster face, never a text
+  // initial.
+  const avatars = useMemo(() => new Map((selected?.detail.members ?? []).map(member =>
+    [member.employeeId, dicebearAvatarUrl(member.avatarSeed ?? member.employeeId)] as const)), [selected?.detail.members])
   if (selected === null) return <main className={css.room}><div className={css.center}>
     {state.roomPhase === 'loading' ? <IconLoadingOutlineRegular size={20}/> : t(state.error === 'forbidden' ? 'forbidden' : state.roomPhase === 'error' ? 'loadError' : 'noSelection')}
   </div></main>

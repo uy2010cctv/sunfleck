@@ -191,8 +191,11 @@ describe('shared room UI', () => {
     expect(own).toHaveLength(1)
     expect(own[0]!.textContent).toContain('张总')
     const avatars = [...container.querySelectorAll('img')].map(node => node.getAttribute('src'))
-    expect(avatars.length).toBeGreaterThan(0)
-    expect(avatars.every(src => src?.includes('seed-bot'))).toBe(true)
+    // The research Bot appears twice (post + handoff) and the data Bot once.
+    expect(avatars).toHaveLength(3)
+    expect(avatars.filter(src => src?.includes('seed-bot'))).toHaveLength(2)
+    // The unseeded employee falls back to its id seed, matching the roster card.
+    expect(avatars.filter(src => src?.includes('data-bot'))).toHaveLength(1)
     controller.dispose()
   })
 

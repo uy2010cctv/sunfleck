@@ -52,10 +52,14 @@ describe('authorized Session memory scopes', () => {
     fireEvent.click(screen.getByRole('button'))
     expect(props.openDetails).toHaveBeenCalledOnce()
   })
-  it('falls back to the name initial without a seed and to the generic title without an employee', () => {
-    const seeded = render(<NativeSessionDetailsAction {...actionProps({ id: 'employee-a', displayName: '采购员', role: '采购', capabilities: [] })} />)
-    expect(seeded.container.querySelector('img')).toBeNull()
-    expect(screen.getByText('采')).toBeTruthy()
+  it('renders the roster avatar for a bound employee with or without a profile seed, and the generic icon for projects only', () => {
+    const seeded = render(<NativeSessionDetailsAction {...actionProps({ id: 'employee-a', displayName: '采购员', role: '采购', capabilities: [], avatarSeed: 'seed-a' })} />)
+    expect(screen.getByText('采购员')).toBeTruthy()
+    expect(seeded.container.querySelector('img')?.getAttribute('src')).toContain('seed-a')
+    cleanup()
+    const unseeded = render(<NativeSessionDetailsAction {...actionProps({ id: 'employee-a', displayName: '采购员', role: '采购', capabilities: [] })} />)
+    // Without a profile seed the employee id seeds the same roster avatar.
+    expect(unseeded.container.querySelector('img')?.getAttribute('src')).toContain('employee-a')
     cleanup()
     const projectOnly = render(<NativeSessionDetailsAction {...actionProps(undefined)} />)
     expect(projectOnly.container.querySelector('img')).toBeNull()
