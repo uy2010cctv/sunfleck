@@ -2722,7 +2722,7 @@ async function serveRoute(
   route: (request: Request) => Promise<Response>,
 ): Promise<void> {
   try { await writeResponse(res, await route(request)) }
-  catch { await writeResponse(res, Response.json({ error: 'invalid-request' }, { status: 400 })) }
+  catch (error) { console.error('[serveRoute]', request.method, new URL(request.url).pathname, error); await writeResponse(res, Response.json({ error: 'invalid-request' }, { status: 400 })) }
 }
 
 /** Install all enterprise Remote namespace owners.

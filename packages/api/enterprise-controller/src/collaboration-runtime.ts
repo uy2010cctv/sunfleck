@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto'
 import type { Context } from '@deepseek-ai/cordis'
 import { brandString } from '@deepseek-ai/dsh-brand'
 import { hasSessionPromptRequest } from '@deepseek-ai/dsh-api-session-controller'
+import { SessionPersistenceNotFoundError } from '@deepseek-ai/dsh-session-persistence'
 import type {} from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-experimental-agent-team'
 import type {} from '@deepseek-ai/dsh-api-session-controller'
@@ -73,7 +74,15 @@ export function composeCollaboration(ctx: Context, services: {
   let outbox: CollaborationRoomOutbox | undefined
   const teamMemberRooms = new Map<string, { row: CollaborationRecord; rootSessionId: string; employeeId: string }>()
   const readSessionEvents = async (sessionId: string): Promise<SessionEvent[]> => {
-    const handle = await ctx.sessionPersistence.open(brandString<SessionId>(sessionId), 'read')
+    let handle: Awaited<ReturnType<typeof ctx.sessionPersistence.open>>
+    try {
+      handle = await ctx.sessionPersistence.open(brandString<SessionId>(sessionId), 'read')
+    } catch (error) {
+      // A work Session created for a first mention has no persisted events
+      // yet; an empty history is the correct replay baseline for it.
+      if (error instanceof SessionPersistenceNotFoundError) return []
+      throw error
+    }
     try {
       const all: SessionEvent[] = []
       for (let offset = 0; ; offset += 256) {
