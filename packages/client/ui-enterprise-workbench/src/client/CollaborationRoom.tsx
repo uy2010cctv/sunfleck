@@ -24,12 +24,31 @@ export function reactionCounts(events: readonly RoomEvent[], targetId: string): 
 
 function shortKey(value: string): string { return value.length < 13 ? value : `${value.slice(0, 8)}…${value.slice(-4)}` }
 
-function Entry({ event, reactions, self, avatarUrl, attachmentUrlFor, onThread, onReaction, onInspect, t }: {
+/** Employee identity chip shown on the triggering message while the agent works. */
+export interface WorkingChip { readonly employeeId: string; readonly displayName: string; readonly avatarUrl?: string }
+
+/** One rendered timeline row: the event plus any grouped agent execution state. */
+interface TimelineItem {
+  readonly event: RoomEvent
+  /** Agent tool/progress events folded into this final answer, collapsed by default. */
+  readonly workflowDetails?: readonly RoomEvent[]
+  /** Agents mentioned by this human message that have not replied yet. */
+  readonly working?: readonly WorkingChip[]
+}
+
+/** Drop the model-generated reply meta prefix from an employee answer. */
+export function stripReplyBoilerplate(content: string): string {
+  return content.replace(/^已在房间回复[（(][^）)]*[)）][，,、]?\s*/, '')
+}
+
+function Entry({ event, reactions, self, avatarUrl, attachmentUrlFor, workflowDetails, working, onThread, onReaction, onInspect, t }: {
   readonly event: RoomEvent
   readonly reactions: readonly { emoji: string; count: number }[]
   readonly self: boolean
   readonly avatarUrl: string | undefined
   readonly attachmentUrlFor: (attachmentId: string) => string
+  readonly workflowDetails?: readonly RoomEvent[]
+  readonly working?: readonly WorkingChip[]
   readonly onThread: (id: string) => void
   readonly onReaction: (id: string, emoji: string) => void
   readonly onInspect: (id: string) => void
@@ -45,7 +64,7 @@ function Entry({ event, reactions, self, avatarUrl, attachmentUrlFor, onThread, 
       : <span className={`${css.avatar} ${event.author.kind === 'employee' ? css.bot : event.author.kind === 'service' ? css.service : ''}`} aria-hidden="true">{event.author.displayName.slice(0, 1)}</span>}
     <div className={css.entryBody}>
       <div className={css.meta}><span className={css.author}>{event.author.displayName}</span><span className={css.kind}>{t(event.author.kind === 'employee' ? 'botMember' : event.author.kind === 'service' ? 'serviceMember' : 'humanMember')}</span><time dateTime={new Date(event.created_at * 1000).toISOString()}>{time}</time>{workflow && <span className={css.kind}>{t('workflowEvent')}</span>}{workflowStatus !== undefined && <span className={css.kind}>{workflowStatus}</span>}</div>
-      <p className={css.content}>{event.content}</p>
+      <p className={css.content}>{event.author.kind === 'employee' ? stripReplyBoilerplate(event.content) : event.content}</p>
       {event.attachments !== undefined && <div className={css.attachments}>{event.attachments.map(file => (
         <a key={file.attachmentId} className={css.fileChip} href={attachmentUrlFor(file.attachmentId)}
           target="_blank" rel="noreferrer" aria-label={`${t('attachment')} ${file.name}`}>
@@ -54,6 +73,21 @@ function Entry({ event, reactions, self, avatarUrl, attachmentUrlFor, onThread, 
           <span className={css.fileName}>{file.name}</span>
           <span className={css.fileSize}>{humanSize(file.size)}</span>
         </a>))}</div>}
+      {working !== undefined && working.length > 0 && <div className={css.workingChips}>{working.map(chip => (
+        <span key={chip.employeeId} className={css.workingChip} aria-label={t('replying')}>
+          {chip.avatarUrl !== undefined
+            ? <img className={css.workingAvatar} src={chip.avatarUrl} alt="" loading="lazy" referrerPolicy="no-referrer"/>
+            : <span className={css.workingAvatar} aria-hidden="true">{chip.displayName.slice(0, 1)}</span>}
+          <span>{chip.displayName}</span>
+          <span className={css.typingDots} aria-hidden="true"><i/><i/><i/></span>
+        </span>))}</div>}
+      {workflowDetails !== undefined && workflowDetails.length > 0 && <details className={css.workflowDetails}>
+        <summary>{t('workflowDetails')} · {workflowDetails.length}</summary>
+        <ul>{workflowDetails.map(detail => <li key={detail.id}>
+          <span className={css.detailMeta}>{detail.author.displayName} · {new Date(detail.created_at * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+          <span>{detail.content}</span>
+        </li>)}</ul>
+      </details>}
       {event.delivery === 'failed' && <p className={css.failure} role="status">{t('deliveryFailed')}</p>}
       <div className={css.eventFooter}>
         <Tooltip label={`${t('signedRecord')} · ${event.pubkey}`}><span className={css.signature}>{t('signedRecord')} · {shortKey(event.pubkey)}</span></Tooltip>
@@ -268,6 +302,60 @@ export function CollaborationRoom({ state, controller, loadChoices, t }: {
   const detail = selected.detail
   const avatarFor = (event: RoomEvent): string | undefined => event.author.kind === 'employee' ? avatars.get(event.author.id) : undefined
   const attachmentUrlFor = (attachmentId: string): string => controller.attachmentUrl(detail.id, attachmentId)
+  // Group one agent reply: the employee's tool/progress events fold into their
+  // next signed answer as collapsed details; a mentioned employee without an
+  // answer yet renders a working chip on the mentioning message. Orphan
+  // progress events (agent stopped, or a new turn started) render standalone.
+  const displayItems = useMemo(() => {
+    const items: TimelineItem[] = []
+    const pending = new Map<string, RoomEvent[]>()
+    // The employee's last signed answer across the whole timeline decides
+    // whether an earlier mention is still being worked on.
+    const answeredSeq = new Map<string, string>()
+    for (const event of timeline) {
+      if (event.author.kind === 'employee' && event.kind === 9) answeredSeq.set(event.author.id, event.sequence)
+    }
+    const members = new Map(detail.members.map(member => [member.employeeId, member.displayName]))
+    const flushOrphans = (): void => {
+      for (const events of pending.values()) {
+        for (const event of events) items.push({ event })
+      }
+      pending.clear()
+    }
+    for (const event of timeline) {
+      if (event.author.kind === 'employee' && event.kind !== 9) {
+        const list = pending.get(event.author.id) ?? []
+        list.push(event)
+        pending.set(event.author.id, list)
+        continue
+      }
+      if (event.author.kind === 'employee') {
+        const details = pending.get(event.author.id)
+        pending.delete(event.author.id)
+        items.push({ event, ...(details === undefined ? {} : { workflowDetails: details }) })
+        continue
+      }
+      flushOrphans()
+      let working: readonly WorkingChip[] | undefined
+      if (event.author.kind === 'human') {
+        const targets = event.tags.filter(tag => tag[0] === 'dsh-target' && tag[1] !== undefined)
+          .map(tag => tag[1] as string)
+        const active = targets.filter((id) => {
+          const answered = answeredSeq.get(id)
+          return answered === undefined || BigInt(answered) < BigInt(event.sequence)
+        })
+        if (active.length > 0) {
+          working = active.map((id) => {
+            const avatarUrl = avatars.get(id)
+            return { employeeId: id, displayName: members.get(id) ?? id, ...(avatarUrl === undefined ? {} : { avatarUrl }) }
+          })
+        }
+      }
+      items.push({ event, ...(working === undefined ? {} : { working }) })
+    }
+    flushOrphans()
+    return items
+  }, [timeline, avatars, detail.members])
   const isSelf = (event: RoomEvent): boolean => event.author.kind === 'human' && event.author.id === detail.viewerUserId
   const threadRoot = selected.threadRoot
   const root = threadRoot === undefined ? undefined : [...state.events, ...state.searchResults].find(event => event.id === threadRoot)
@@ -300,8 +388,10 @@ export function CollaborationRoom({ state, controller, loadChoices, t }: {
               void controller.loadOlder()
             }}>{t('loadOlder')}</button>}
             {timeline.length === 0 && <div className={css.center}>{t('emptyRoom')}</div>}
-            {timeline.map(event => <Entry key={event.id} event={event} reactions={reactionCounts(state.events, event.id)}
-              self={isSelf(event)} avatarUrl={avatarFor(event)} attachmentUrlFor={attachmentUrlFor}
+            {displayItems.map(item => <Entry key={item.event.id} event={item.event} reactions={reactionCounts(state.events, item.event.id)}
+              self={isSelf(item.event)} avatarUrl={avatarFor(item.event)} attachmentUrlFor={attachmentUrlFor}
+              {...(item.workflowDetails === undefined ? {} : { workflowDetails: item.workflowDetails })}
+              {...(item.working === undefined ? {} : { working: item.working })}
               onThread={(id) => { void controller.openThread(id) }}
               onReaction={(id, emoji) => { void controller.react(id, emoji) }}
               onInspect={(id) => { void controller.inspect(id) }} t={t}/>)}

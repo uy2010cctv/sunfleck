@@ -238,6 +238,47 @@ describe('shared room UI', () => {
     controller.dispose()
   })
 
+  it('folds an agent tool run into its final answer as collapsed details', () => {
+    const { controller, state, t } = setup()
+    const selected = state.selection
+    if (selected === null) throw new Error('room selection missing')
+    const tool = (id: string, content: string): RoomEvent => ({
+      ...research, id, sequence: String(Number(research.sequence) + 100), kind: 91000, content })
+    const toolA = tool('tool-a', 'Tool skill started.')
+    const toolB = tool('tool-b', 'Tool bash succeeded.')
+    const answer: RoomEvent = { ...research, id: 'answer-1', sequence: '300',
+      content: '已在房间回复（事件 \'ca7b9160…c768\'，序号 71），调研完成：结论如下。' }
+    const grouped = { ...state, events: [human, toolA, toolB, answer] }
+    const { container } = render(<CollaborationRoom controller={controller} state={grouped} t={t}/>)
+    // Tool events render exactly once, inside the answer entry, collapsed.
+    expect(container.querySelectorAll('article')).toHaveLength(2)
+    expect(container.textContent).toContain('执行详情')
+    expect(container.textContent).toContain('Tool bash succeeded.')
+    expect(container.querySelectorAll('details')[0]?.hasAttribute('open')).toBe(false)
+    // The meta prefix is stripped from the displayed answer.
+    expect(container.textContent).not.toContain('已在房间回复')
+    expect(container.textContent).toContain('调研完成：结论如下。')
+    controller.dispose()
+  })
+
+  it('shows a working chip on the mentioning message until the agent answers', () => {
+    const { controller, state, t } = setup([human])
+    const selected = state.selection
+    if (selected === null) throw new Error('room selection missing')
+    const targeted = { ...human, tags: [...human.tags, ['dsh-target', 'research-bot']] }
+    const working = { ...state, events: [targeted] }
+    const view = render(<CollaborationRoom controller={controller} state={working} t={t}/>)
+    expect(screen.getByLabelText('正在回复')).toBeTruthy()
+    expect(view.container.querySelector('img')?.getAttribute('src')).toContain('seed=research-bot')
+    // The chip clears once the mentioned employee posts its answer.
+    const answered = { ...state, events: [targeted, research] }
+    cleanup()
+    const after = render(<CollaborationRoom controller={controller} state={answered} t={t}/>)
+    expect(after.container.querySelector('[aria-label="正在回复"]')).toBeNull()
+    after.unmount()
+    controller.dispose()
+  })
+
   it('places channel workflow definitions in its right details pane', async () => {
     vi.stubGlobal('fetch', vi.fn(async (url: string) => Response.json(url.endsWith('/decisions')
       ? { items: [], canDecide: false }
