@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { CollaborationRoom, reactionCounts } from '../src/client/CollaborationRoom.tsx'
+import { CollaborationRoom, reactionCounts, stripReplyBoilerplate } from '../src/client/CollaborationRoom.tsx'
 import { CollaborationController, type RoomEvent } from '../src/client/collaboration-store.ts'
 import { zh, type CollaborationKey } from '../src/client/collaboration-locales.ts'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-locale/client'
@@ -272,6 +272,13 @@ describe('shared room UI', () => {
     expect(container.textContent).not.toContain('已在房间回复')
     expect(container.textContent).toContain('调研完成：结论如下。')
     controller.dispose()
+  })
+
+  it('strips the 回应 meta variant and keeps a pure meta message readable', () => {
+    expect(stripReplyBoilerplate('已在房间回应（事件 \'632a363b…e185f6\'，序号 197）。\n\n**回应的四件事：**\n1. 向管理员确认在线。'))
+      .toBe('**回应的四件事：**\n1. 向管理员确认在线。')
+    // A message that is nothing but the meta line stays readable.
+    expect(stripReplyBoilerplate('已在房间回应（事件 \'abc\'，序号 5）。')).not.toBe('')
   })
 
   it('shows a working chip on the mentioning message until the agent answers', () => {

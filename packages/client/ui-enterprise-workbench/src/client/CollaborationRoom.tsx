@@ -36,9 +36,11 @@ interface TimelineItem {
   readonly working?: readonly WorkingChip[]
 }
 
-/** Drop the model-generated reply meta prefix from an employee answer. */
+/** Drop the model-generated reply meta prefix (回复/回应 variants) from an employee answer.
+ * A message that is nothing but the meta line keeps its original content. */
 export function stripReplyBoilerplate(content: string): string {
-  return content.replace(/^已在房间回复[（(][^）)]*[)）][，,、]?\s*/, '')
+  const stripped = content.replace(/^已在房间回[复应][（(][^）)]*[)）][，,、。]?\s*/, '')
+  return stripped.trim() === '' ? content : stripped
 }
 
 function Entry({ event, reactions, self, avatarUrl, attachmentUrlFor, workflowDetails, working, onThread, onReaction, onInspect, t }: {
@@ -154,7 +156,7 @@ function Composer({ state, controller, t, threadRoot }: {
   const pickAll = (): void => {
     if (allSelected) { setMentions([]); setPeopleMentions([]); return }
     setMentions(detail.members.map(member => member.employeeId))
-    setPeopleMentions(detail.memberUserIds)
+    setPeopleMentions([...detail.memberUserIds])
   }
   const readyAttachments = uploads.flatMap(upload => upload.status === 'ready' && upload.ref !== undefined ? [upload.ref] : [])
   const uploadPending = uploads.some(upload => upload.status === 'uploading')
