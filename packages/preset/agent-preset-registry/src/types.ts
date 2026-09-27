@@ -16,6 +16,8 @@ export interface EmployeeMetadata {
   readonly department?: string
   /** Bounded capability labels derived from the preset's real composition. */
   readonly capabilities?: readonly string[]
+  /** Deterministic avatar seed from the published profile; absent for legacy releases. */
+  readonly avatarSeed?: string
 }
 
 /**

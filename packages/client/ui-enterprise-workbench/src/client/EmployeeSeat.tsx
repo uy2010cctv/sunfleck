@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import { Menu, Toast, IconWarningOutlineRegular, IconChevronDownOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { AgentPresetRow } from '@deepseek-ai/dsh-agent-preset-registry/types'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
+import { dicebearAvatarUrl } from './avatar.ts'
 import css from './EmployeeSeat.module.css'
 
 /** Host actions for the current blank Session. */
@@ -50,14 +51,16 @@ export function EmployeeSeat({ sessionId, load, select, currentEmployee, subscri
   }, [sessionId, load, t])
   if (sessionId === undefined || rows.length === 0) return notice === undefined ? null : <p role="alert">{notice}</p>
   const selectedRow = rows.find(row => row.id === selected)
+  const avatarFor = (row: AgentPresetRow): string => dicebearAvatarUrl(row.employee?.avatarSeed ?? row.id)
   return <>
     <Menu open={open} onClose={() => { setOpen(false) }} selectedId={selected}
       items={rows.map(row => ({
         id: row.id,
-        label: <span className={css.option}><strong>{row.name ?? t('employeeSeat.unnamed')}</strong><small>{[
+        label: <span className={css.option}><img className={css.optionAvatar} src={avatarFor(row)} alt=""
+          loading="lazy" referrerPolicy="no-referrer"/><span className={css.optionText}><strong>{row.name ?? t('employeeSeat.unnamed')}</strong><small>{[
           row.employee?.position ?? row.description,
           row.employee?.releaseVersion === undefined ? undefined : t('employeeSeat.version', { version: row.employee.releaseVersion }),
-        ].filter(Boolean).join(' · ')}</small></span>,
+        ].filter(Boolean).join(' · ')}</small></span></span>,
       }))}
       onSelect={(id) => {
         setOpen(false)
@@ -69,6 +72,8 @@ export function EmployeeSeat({ sessionId, load, select, currentEmployee, subscri
       }} align="start" portal className={css.anchor}
       anchor={<button type="button" className={css.seat} disabled={busy} aria-haspopup="menu" aria-expanded={open}
         onClick={() => { setOpen(value => !value) }}>
+        {selectedRow !== undefined && <img className={css.seatAvatar} src={avatarFor(selectedRow)} alt=""
+          loading="lazy" referrerPolicy="no-referrer"/>}
         <span>{selectedRow?.name ?? t('employeeSeat.choose')}{selectedVersion === undefined
           ? '' : ` · ${t('employeeSeat.version', { version: selectedVersion })}`}</span><IconChevronDownOutlineRegular size={14}/>
       </button>}/>

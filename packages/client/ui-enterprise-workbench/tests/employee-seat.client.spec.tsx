@@ -22,9 +22,15 @@ describe('new-session employee picker', () => {
     } as unknown as Parameters<typeof EmployeeSeat>[0]
     render(<EmployeeSeat {...props} />)
     expect(await screen.findByRole('button', { name: /采购员 · 版本 2/ })).toBeDefined()
+    // The anchor and each option carry the roster avatar; without a profile
+    // seed the employee id seeds the same face as the roster card.
+    const anchor = screen.getByRole('button', { name: /采购员 · 版本 2/ })
+    expect(anchor.querySelector('img')?.getAttribute('src')).toContain('employee-a')
+    fireEvent.click(anchor)
+    expect(await screen.findByText(/版本 3/)).toBeDefined()
+    const srcs = [...document.querySelectorAll('img')].map(node => node.getAttribute('src'))
+    expect(srcs.filter(src => src?.includes('employee-a'))).toHaveLength(2)
     act(() => { notify() })
     expect(screen.getByRole('button', { name: /采购员 · 版本 2/ })).toBeDefined()
-    fireEvent.click(screen.getByRole('button', { name: /采购员 · 版本 2/ }))
-    expect(await screen.findByText(/版本 3/)).toBeDefined()
   })
 })

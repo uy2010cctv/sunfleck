@@ -118,6 +118,7 @@ export async function employeePresetDeclaration(
       releaseId: input.releaseId, releaseVersion: input.releaseVersion,
       ...(input.position === undefined ? {} : { position: input.position }),
       ...(input.department === undefined ? {} : { department: input.department }),
+      ...(input.avatarSeed === undefined ? {} : { avatarSeed: input.avatarSeed }),
       ...(input.capabilities === undefined ? {} : { capabilities: input.capabilities }),
     },
     name: input.name,
