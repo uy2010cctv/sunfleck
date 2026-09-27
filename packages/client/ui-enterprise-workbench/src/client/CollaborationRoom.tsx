@@ -30,8 +30,8 @@ export interface WorkingChip { readonly employeeId: string; readonly displayName
 /** One rendered timeline row: the event plus any grouped agent execution state. */
 interface TimelineItem {
   readonly event: RoomEvent
-  /** Agent tool/progress events folded into this final answer, collapsed by default. */
-  readonly workflowDetails?: readonly RoomEvent[]
+  /** Agent tool/progress events and follow-up messages folded into this final answer, collapsed by default. */
+  workflowDetails?: RoomEvent[]
   /** Agents mentioned by this human message that have not replied yet. */
   readonly working?: readonly WorkingChip[]
   /** In channels, agent replies that belong to this message's thread. */
@@ -91,7 +91,7 @@ function Entry({ event, reactions, self, avatarUrl, attachmentUrlFor, workflowDe
         <summary>{t('workflowDetails')} · {workflowDetails.length}</summary>
         <ul>{workflowDetails.map(detail => <li key={detail.id}>
           <span className={css.detailMeta}>{detail.author.displayName} · {new Date(detail.created_at * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-          <span>{detail.content}</span>
+          <span className={css.detailContent}>{detail.author.kind === 'employee' ? stripReplyBoilerplate(detail.content) : detail.content}</span>
         </li>)}</ul>
       </details>}
       {threadReplies !== undefined && threadReplies.length > 0 && <button type="button" className={css.threadChip}
@@ -355,6 +355,11 @@ export function CollaborationRoom({ state, controller, loadChoices, t }: {
       }
       pending.clear()
     }
+    // One agent reply spans everything the employee posts between two human
+    // messages: the first signed message is the main answer, tool progress
+    // events and any further signed messages fold into it as details.
+    const runAnswered = new Set<string>()
+    const runAnswerItem = new Map<string, TimelineItem>()
     for (const event of timeline) {
       if (isChannel && event.author.kind === 'employee' && event.threadRoot !== undefined
         && threadReplies.has(event.threadRoot)) continue
@@ -367,10 +372,23 @@ export function CollaborationRoom({ state, controller, loadChoices, t }: {
       if (event.author.kind === 'employee') {
         const details = pending.get(event.author.id)
         pending.delete(event.author.id)
-        items.push({ event, ...(details === undefined ? {} : { workflowDetails: details }) })
+        if (runAnswered.has(event.author.id)) {
+          // A further signed message from the same reply run folds into the
+          // main answer instead of rendering as its own timeline row.
+          const main = runAnswerItem.get(event.author.id)
+          if (main !== undefined) main.workflowDetails = [...(main.workflowDetails ?? []), event]
+          continue
+        }
+        runAnswered.add(event.author.id)
+        const item: TimelineItem = { event, ...(details === undefined ? {} : { workflowDetails: details }) }
+        if (item.workflowDetails !== undefined) item.workflowDetails = [...item.workflowDetails]
+        runAnswerItem.set(event.author.id, item)
+        items.push(item)
         continue
       }
       flushOrphans()
+      runAnswered.clear()
+      runAnswerItem.clear()
       let working: readonly WorkingChip[] | undefined
       if (event.author.kind === 'human') {
         const targets = event.tags.filter(tag => tag[0] === 'dsh-target' && tag[1] !== undefined)

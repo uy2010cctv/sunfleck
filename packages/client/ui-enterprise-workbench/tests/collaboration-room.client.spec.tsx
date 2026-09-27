@@ -348,6 +348,29 @@ describe('shared room UI', () => {
     controller.dispose()
   })
 
+  it('folds a follow-up signed message from the same reply run into the main answer', () => {
+    const { controller, state, t } = setup()
+    const selected = state.selection
+    if (selected === null) throw new Error('room selection missing')
+    const main: RoomEvent = { ...research, id: 'main-1', sequence: '300',
+      content: '@Enterprise Administrator 收到，我在。同步一下我这边的状态。' }
+    const followUp: RoomEvent = { ...research, id: 'follow-1', sequence: '301',
+      content: '已在房间回应（事件 \'632a363b…e185f6\'，序号 197）。\n\n**回应的四件事：**\n1. 向管理员确认在线。' }
+    const grouped = { ...state, events: [human, main, followUp] }
+    const { container } = render(<CollaborationRoom controller={controller} state={grouped} t={t}/>)
+    // One agent reply produces ONE timeline row; the follow-up folds in.
+    expect(container.querySelectorAll('article')).toHaveLength(2)
+    expect(container.textContent).toContain('收到，我在。')
+    expect(container.textContent).toContain('回应的四件事')
+    expect(container.textContent).not.toContain('已在房间回应')
+    // A new human message starts a fresh run: the next answer stands alone.
+    const secondTurn = { ...state, events: [human, main, followUp, colleague, { ...research, id: 'main-2', sequence: '400', content: '新一轮回答。' }] }
+    const second = render(<CollaborationRoom controller={controller} state={secondTurn} t={t}/>)
+    expect(second.container.querySelectorAll('article')).toHaveLength(4)
+    second.unmount()
+    controller.dispose()
+  })
+
   it('places channel workflow definitions in its right details pane', async () => {
     vi.stubGlobal('fetch', vi.fn(async (url: string) => Response.json(url.endsWith('/decisions')
       ? { items: [], canDecide: false }
