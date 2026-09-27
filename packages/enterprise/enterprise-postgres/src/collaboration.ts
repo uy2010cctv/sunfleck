@@ -97,6 +97,17 @@ const dispatchTable = `CREATE TABLE dsh_enterprise_collaboration_dispatch (
     ((state='processing' AND lease_token IS NOT NULL AND lease_until IS NOT NULL)
       OR (state<>'processing' AND lease_token IS NULL AND lease_until IS NULL)))`
 
+const attachmentsTable = `CREATE TABLE IF NOT EXISTS dsh_enterprise_collaboration_attachments (
+  surface_id TEXT NOT NULL REFERENCES dsh_enterprise_surface_directory(surface_id) ON DELETE CASCADE,
+  attachment_id TEXT NOT NULL,
+  uploader_user_id TEXT NOT NULL,
+  name TEXT NOT NULL,
+  mime_type TEXT NOT NULL,
+  size BIGINT NOT NULL CHECK (size >= 0),
+  data BYTEA NOT NULL,
+  created_at BIGINT NOT NULL,
+  PRIMARY KEY(surface_id,attachment_id))`
+
 /** Add collaboration tables under a monotonic, transaction-locked schema version.
  * @param database - Shared enterprise database.
  * @returns When schema initialization commits.
@@ -175,6 +186,9 @@ export async function migrateCollaboration(database: EnterprisePostgresDatabase)
       FOREIGN KEY(surface_id,user_id) REFERENCES dsh_enterprise_collaboration_members(surface_id,user_id) ON DELETE CASCADE)`)
     await tx.query(`CREATE INDEX dsh_enterprise_collaboration_event_mentions
       ON dsh_enterprise_collaboration_events USING GIN ((event_json->'tags'))`)
+    // Idempotent on every boot: room attachments are additive storage, so the
+    // addition needs no meta version bump and converges on the first boot.
+    await tx.query(attachmentsTable)
     if (version !== undefined) {
       await tx.query(`INSERT INTO dsh_enterprise_collaboration_read_cursors(org_id,surface_id,user_id,sequence)
         SELECT d.org_id,m.surface_id,m.user_id,max(e.sequence)
@@ -401,5 +415,46 @@ export class PostgresCollaborationRepository {
       VALUES($1,$2,$3,$4) ON CONFLICT(surface_id,topic_id,employee_id) DO UPDATE SET session_id=EXCLUDED.session_id
       WHERE dsh_enterprise_collaboration_sessions.session_id=EXCLUDED.session_id`, [value.surfaceId, value.topicId, value.employeeId, value.sessionId])
     if (result.rowCount !== 1) throw new Error('collaboration destination is already bound to another Session')
+  }
+
+  /** Store one uploaded room attachment; the id is assigned by the caller and validated for uniqueness by the key.
+   * @param value - Uploaded bytes and metadata, scoped to one conversation.
+   */
+  async putAttachment(value: { readonly surfaceId: string
+    readonly attachmentId: string
+    readonly uploaderUserId: string
+    readonly name: string
+    readonly mimeType: string
+    readonly data: Buffer }): Promise<void> {
+    await this.database.query(`INSERT INTO dsh_enterprise_collaboration_attachments
+      (surface_id,attachment_id,uploader_user_id,name,mime_type,size,data,created_at)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT(surface_id,attachment_id) DO NOTHING`,
+    [value.surfaceId, value.attachmentId, value.uploaderUserId, value.name, value.mimeType, value.data.length,
+      value.data, Date.now()])
+  }
+
+  /** Read one uploaded room attachment within its conversation.
+   * @param surfaceId - Authorized conversation.
+   * @param attachmentId - Upload identity.
+   * @returns Attachment metadata and bytes, or undefined for foreign or absent ids.
+   */
+  async getAttachment(surfaceId: string, attachmentId: string): Promise<{ readonly attachmentId: string
+    readonly uploaderUserId: string
+    readonly name: string
+    readonly mimeType: string
+    readonly size: number
+    readonly data: Buffer } | undefined> {
+    const row = (await this.query<{
+      attachment_id: string
+      uploader_user_id: string
+      name: string
+      mime_type: string
+      size: string | number
+      data: Buffer
+    }>(`SELECT attachment_id,uploader_user_id,name,mime_type,size,data
+        FROM dsh_enterprise_collaboration_attachments WHERE surface_id=$1 AND attachment_id=$2`, [surfaceId, attachmentId])).rows[0]
+    if (row === undefined) return undefined
+    return { attachmentId: row.attachment_id, uploaderUserId: row.uploader_user_id, name: row.name,
+      mimeType: row.mime_type, size: Number(row.size), data: row.data }
   }
 }

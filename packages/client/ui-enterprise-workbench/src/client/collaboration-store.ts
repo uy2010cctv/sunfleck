@@ -51,6 +51,8 @@ export interface RoomEvent {
   readonly threadRoot?: string
   readonly delivery?: 'pending' | 'delivered' | 'failed'
   readonly sourceSessionId?: string
+  /** Files signed into this message, resolved from stored room attachments. */
+  readonly attachments?: readonly { attachmentId: string; name: string; mimeType: string; size: number }[]
 }
 
 /** Selected room and its optional focused thread. */
@@ -182,6 +184,12 @@ function roomEvent(value: unknown): RoomEvent {
     ...(row['threadRoot'] === undefined ? {} : { threadRoot: string(row['threadRoot']) }),
     ...(delivery === undefined ? {} : { delivery }),
     ...(row['sourceSessionId'] === undefined ? {} : { sourceSessionId: string(row['sourceSessionId']) }),
+    ...(() => {
+      const files = array(row['tags']).map(value => array(value).map(string)).flatMap((tag): { attachmentId: string; name: string; mimeType: string; size: number }[] =>
+        tag[0] === 'attachment' && tag[1] !== undefined && tag[2] !== undefined && tag[3] !== undefined && tag[4] !== undefined
+          ? [{ attachmentId: tag[1], name: tag[2], mimeType: tag[3], size: Number(tag[4]) }] : [])
+      return files.length === 0 ? {} : { attachments: files }
+    })(),
   }
 }
 function eventPage(value: unknown): { items: RoomEvent[]; nextCursor: string | null } {
@@ -469,16 +477,25 @@ export class CollaborationController {
     threadRoot?: string
     mentionedEmployeeIds?: readonly string[]
     mentionedUserIds?: readonly string[]
+    /** Uploaded attachment references committed before the send. */
+    attachments?: readonly { attachmentId: string; name: string; mimeType: string; size: number }[]
   } = {}): Promise<boolean> {
     const selected = this.state.getSnapshot().selection
-    if (selected === null || text.trim() === '' || this.state.getSnapshot().busy) return false
+    if (selected === null || (text.trim() === '' && (options.attachments?.length ?? 0) === 0) || this.state.getSnapshot().busy) return false
     const fingerprint = JSON.stringify([selected.detail.id, text, options])
     if (this.pendingMessage?.fingerprint !== fingerprint) this.pendingMessage = { fingerprint, id: randomUUID() }
     const messageId = this.pendingMessage.id
     const request = new AbortController()
     this.patch({ busy: true, error: null })
     try {
-      const result = record(await this.read(`/${encodeURIComponent(selected.detail.id)}/messages`, request.signal, { text, messageId, ...options }))
+      const result = record(await this.read(`/${encodeURIComponent(selected.detail.id)}/messages`, request.signal, {
+        text, messageId,
+        ...(options.threadRoot === undefined ? {} : { threadRoot: options.threadRoot }),
+        ...(options.mentionedEmployeeIds === undefined ? {} : { mentionedEmployeeIds: options.mentionedEmployeeIds }),
+        ...(options.mentionedUserIds === undefined ? {} : { mentionedUserIds: options.mentionedUserIds }),
+        ...(options.attachments === undefined || options.attachments.length === 0 ? {}
+          : { attachments: options.attachments.map(file => ({ attachmentId: file.attachmentId })) }),
+      }))
       if (this.cancelled(request)) return false
       if (result['delivered'] !== true) { this.patch({ busy: false, error: typeof result['reason'] === 'string' ? result['reason'] : 'request-failed' }); return false }
       const posted = roomEvent(result['event'])
@@ -579,6 +596,21 @@ export class CollaborationController {
       if (!this.cancelled(request)) this.patch({ busy: false, error: error instanceof HttpFailure ? error.message : 'request-failed' })
       return false
     }
+  }
+
+  /** Upload one attachment into the selected room; files commit before the message referencing them. */
+  async uploadAttachment(roomId: string, file: File): Promise<{ attachmentId: string; name: string; mimeType: string; size: number }> {
+    const response = await this.fetch(`/enterprise/surfaces/${encodeURIComponent(roomId)}/attachments?name=${encodeURIComponent(file.name)}&type=${encodeURIComponent(file.type || 'application/octet-stream')}`, {
+      credentials: 'same-origin', method: 'POST', body: file,
+    })
+    if (!response.ok) throw new HttpFailure(response.status)
+    const row = record(await response.json())
+    return { attachmentId: string(row['attachmentId']), name: string(row['name']), mimeType: string(row['mimeType']), size: Number(row['size']) }
+  }
+
+  /** Same-origin download URL for one room attachment. */
+  attachmentUrl(roomId: string, attachmentId: string): string {
+    return `/enterprise/surfaces/${encodeURIComponent(roomId)}/attachments/${encodeURIComponent(attachmentId)}`
   }
 
   /** Abort pending reads so an unloaded plugin cannot publish navigation or state. */

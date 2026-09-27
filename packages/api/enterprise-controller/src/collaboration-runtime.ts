@@ -443,12 +443,13 @@ export function composeCollaboration(ctx: Context, services: {
       if (agent !== undefined) await roomTools?.attach(agent)
     },
     room: roomAvailable ? {
-      appendHuman: async (actor, row, input, dispatch) => {
+      appendHuman: async (actor, row, input, dispatch, attachments) => {
         const requestId = input.messageId ?? randomUUID()
         const prior = await roomEvents.findByRequest(row.orgId, row.id, 'human', actor.userId, requestId)
         const signedInput = { type: 'text' as const, content: input.text, requestId,
           ...(input.threadRoot === undefined ? {} : { threadRoot: input.threadRoot }),
           ...(input.mentionedUserIds === undefined ? {} : { mentionedUserIds: input.mentionedUserIds }),
+          ...(attachments === undefined || attachments.length === 0 ? {} : { attachments }),
           ...(dispatch.route === undefined ? { targetEmployeeIds: dispatch.targets } : { route: dispatch.route }),
           ...(prior === undefined ? {} : { createdAt: prior.event.created_at }) }
         if (prior !== undefined) {

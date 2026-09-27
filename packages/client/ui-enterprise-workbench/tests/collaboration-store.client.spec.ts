@@ -190,6 +190,36 @@ describe('shared collaboration room', () => {
     value.dispose()
   })
 
+  it('uploads attachments and sends them referenced by id, rendering attachment tags', async () => {
+    const detailWithSeed = { ...detail, members: [{ employeeId: 'analyst', displayName: 'Analyst', avatarSeed: 'seed-a' }] }
+    const bodies: { url: string; body: Record<string, unknown> }[] = []
+    let uploaded: { name: string; type: string } | undefined
+    const fileEvent = { ...human, tags: [...human.tags, ['attachment', 'att-1', '报价.pdf', 'application/pdf', String(2048)]] }
+    const request = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.includes('/attachments?name=')) {
+        uploaded = { name: decodeURIComponent(url.split('name=')[1] ?? '').split('&')[0] ?? '',
+          type: decodeURIComponent(url.split('type=')[1] ?? '') }
+        return Response.json({ attachmentId: 'att-1', name: '报价.pdf', mimeType: 'application/pdf', size: 2048 })
+      }
+      if (init?.method === 'POST' && url.endsWith('/messages')) {
+        bodies.push({ url, body: JSON.parse(typeof init.body === 'string' ? init.body : '') as Record<string, unknown> })
+        return Response.json({ delivered: true, event: fileEvent, targets: [] })
+      }
+      if (url.endsWith('/events?limit=100')) return Response.json({ items: [fileEvent], nextCursor: null })
+      return Response.json(detailWithSeed)
+    })
+    const { value } = controller(request)
+    await value.select('group-1')
+    const ref = await value.uploadAttachment('group-1', new File(['x'], '报价.pdf', { type: 'application/pdf' }))
+    expect(ref).toMatchObject({ attachmentId: 'att-1', name: '报价.pdf', mimeType: 'application/pdf', size: 2048 })
+    expect(uploaded).toMatchObject({ name: '报价.pdf', type: 'application/pdf' })
+    expect(await value.send('', { attachments: [ref] })).toBe(true)
+    expect(bodies[0]?.body).toMatchObject({ text: '', attachments: [{ attachmentId: 'att-1' }] })
+    expect(value.state.getSnapshot().events[0]?.attachments).toEqual([
+      { attachmentId: 'att-1', name: '报价.pdf', mimeType: 'application/pdf', size: 2048 }])
+    value.dispose()
+  })
+
   it('applies group administrator changes and reloads the room and roster', async () => {
     const bodies: { url: string; body: Record<string, unknown> }[] = []
     const renamed = { ...detail, name: 'New name', announcement: 'hello' }

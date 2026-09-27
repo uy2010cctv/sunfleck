@@ -199,6 +199,45 @@ describe('shared room UI', () => {
     controller.dispose()
   })
 
+  it('opens the member picker from a typed @, filters it, and inserts the picked name', async () => {
+    const { controller, state, t } = setup([])
+    const selected = state.selection
+    if (selected === null) throw new Error('room selection missing')
+    const seeded = { ...state, selection: { detail: { ...selected.detail,
+      members: [{ employeeId: 'research-bot', displayName: '研究 Bot', avatarSeed: 'seed-bot' }, { employeeId: 'data-bot', displayName: '数据 Bot' }],
+      humanMembers: [{ userId: 'u2', displayName: '陈经理' }] } } }
+    const send = vi.spyOn(controller, 'send').mockResolvedValue(true)
+    render(<CollaborationRoom controller={controller} state={seeded} t={t}/>)
+    const input = screen.getByRole('textbox', { name: '消息' })
+    fireEvent.change(input, { target: { value: '请 @研 复核', selectionStart: 4 } })
+    expect(await screen.findByText('研究 Bot')).toBeTruthy()
+    expect(screen.queryByText('数据 Bot')).toBeNull()
+    // Menu rows carry the roster avatar for digital employees.
+    expect(document.querySelector('img')).not.toBeNull()
+    fireEvent.click(screen.getByText('研究 Bot'))
+    expect((input as HTMLTextAreaElement).value).toBe('请 @研究 Bot  复核')
+    fireEvent.click(screen.getByRole('button', { name: '发送' }))
+    await waitFor(() => { expect(send).toHaveBeenCalledWith('请 @研究 Bot  复核', expect.objectContaining({
+      mentionedEmployeeIds: ['research-bot'] })) })
+    controller.dispose()
+  })
+
+  it('attaches files, uploads them before send, and renders signed attachments', async () => {
+    const { controller, state, t } = setup([])
+    const upload = vi.spyOn(controller, 'uploadAttachment').mockResolvedValue({
+      attachmentId: 'att-1', name: '报价.pdf', mimeType: 'application/pdf', size: 2048 })
+    vi.spyOn(controller, 'attachmentUrl').mockReturnValue('/download')
+    const send = vi.spyOn(controller, 'send').mockResolvedValue(true)
+    render(<CollaborationRoom controller={controller} state={state} t={t}/>)
+    const file = new File(['x'], '报价.pdf', { type: 'application/pdf' })
+    fireEvent.change(document.querySelector('input[type="file"]')!, { target: { files: [file] } })
+    await waitFor(() => { expect(upload).toHaveBeenCalled() })
+    fireEvent.click(screen.getByRole('button', { name: '发送' }))
+    await waitFor(() => { expect(send).toHaveBeenCalledWith('', expect.objectContaining({
+      attachments: [{ attachmentId: 'att-1', name: '报价.pdf', mimeType: 'application/pdf', size: 2048 }] })) })
+    controller.dispose()
+  })
+
   it('places channel workflow definitions in its right details pane', async () => {
     vi.stubGlobal('fetch', vi.fn(async (url: string) => Response.json(url.endsWith('/decisions')
       ? { items: [], canDecide: false }

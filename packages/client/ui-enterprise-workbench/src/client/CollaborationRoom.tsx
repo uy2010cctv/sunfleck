@@ -24,11 +24,12 @@ export function reactionCounts(events: readonly RoomEvent[], targetId: string): 
 
 function shortKey(value: string): string { return value.length < 13 ? value : `${value.slice(0, 8)}…${value.slice(-4)}` }
 
-function Entry({ event, reactions, self, avatarUrl, onThread, onReaction, onInspect, t }: {
+function Entry({ event, reactions, self, avatarUrl, attachmentUrlFor, onThread, onReaction, onInspect, t }: {
   readonly event: RoomEvent
   readonly reactions: readonly { emoji: string; count: number }[]
   readonly self: boolean
   readonly avatarUrl: string | undefined
+  readonly attachmentUrlFor: (attachmentId: string) => string
   readonly onThread: (id: string) => void
   readonly onReaction: (id: string, emoji: string) => void
   readonly onInspect: (id: string) => void
@@ -45,6 +46,14 @@ function Entry({ event, reactions, self, avatarUrl, onThread, onReaction, onInsp
     <div className={css.entryBody}>
       <div className={css.meta}><span className={css.author}>{event.author.displayName}</span><span className={css.kind}>{t(event.author.kind === 'employee' ? 'botMember' : event.author.kind === 'service' ? 'serviceMember' : 'humanMember')}</span><time dateTime={new Date(event.created_at * 1000).toISOString()}>{time}</time>{workflow && <span className={css.kind}>{t('workflowEvent')}</span>}{workflowStatus !== undefined && <span className={css.kind}>{workflowStatus}</span>}</div>
       <p className={css.content}>{event.content}</p>
+      {event.attachments !== undefined && <div className={css.attachments}>{event.attachments.map(file => (
+        <a key={file.attachmentId} className={css.fileChip} href={attachmentUrlFor(file.attachmentId)}
+          target="_blank" rel="noreferrer" aria-label={`${t('attachment')} ${file.name}`}>
+          {file.mimeType.startsWith('image/') && <img className={css.filePreview} src={attachmentUrlFor(file.attachmentId)}
+            alt={file.name} loading="lazy" referrerPolicy="no-referrer"/>}
+          <span className={css.fileName}>{file.name}</span>
+          <span className={css.fileSize}>{humanSize(file.size)}</span>
+        </a>))}</div>}
       {event.delivery === 'failed' && <p className={css.failure} role="status">{t('deliveryFailed')}</p>}
       <div className={css.eventFooter}>
         <Tooltip label={`${t('signedRecord')} · ${event.pubkey}`}><span className={css.signature}>{t('signedRecord')} · {shortKey(event.pubkey)}</span></Tooltip>
@@ -57,6 +66,20 @@ function Entry({ event, reactions, self, avatarUrl, onThread, onReaction, onInsp
   </article>
 }
 
+/** One file being attached to the draft; uploads commit before the message referencing them. */
+interface PendingUpload {
+  readonly key: string
+  readonly file: File
+  readonly status: 'uploading' | 'ready' | 'error'
+  readonly ref?: { attachmentId: string; name: string; mimeType: string; size: number }
+}
+
+function humanSize(size: number): string {
+  if (size >= 1024 * 1024) return `${(size / (1024 * 1024)).toFixed(1)} MB`
+  if (size >= 1024) return `${Math.max(1, Math.round(size / 1024))} KB`
+  return `${size} B`
+}
+
 function Composer({ state, controller, t, threadRoot }: {
   readonly state: CollaborationState
   readonly controller: CollaborationController
@@ -67,11 +90,15 @@ function Composer({ state, controller, t, threadRoot }: {
   const [mentions, setMentions] = useState<string[]>([])
   const [peopleMentions, setPeopleMentions] = useState<string[]>([])
   const [openMentions, setOpenMentions] = useState(false)
+  const [mentionQuery, setMentionQuery] = useState('')
+  const [typedMention, setTypedMention] = useState(false)
+  const [uploads, setUploads] = useState<PendingUpload[]>([])
   const [sending, setSending] = useState(false)
   const input = useRef<HTMLTextAreaElement>(null)
   const mentionWrap = useRef<HTMLDivElement>(null)
+  const fileInput = useRef<HTMLInputElement>(null)
   const detail = state.selection?.detail
-  useEffect(() => { setDraft(''); setMentions([]); setPeopleMentions([]) }, [detail?.id, threadRoot])
+  useEffect(() => { setDraft(''); setMentions([]); setPeopleMentions([]); setUploads([]) }, [detail?.id, threadRoot])
   useEffect(() => {
     if (!openMentions) return
     const onPointer = (event: MouseEvent): void => { if (!mentionWrap.current?.contains(event.target as Node)) setOpenMentions(false) }
@@ -82,45 +109,103 @@ function Composer({ state, controller, t, threadRoot }: {
   }, [openMentions])
   if (detail === undefined) return null
   const people = detail.humanMembers ?? detail.memberUserIds.map(userId => ({ userId, displayName: userId }))
+  const query = mentionQuery.toLowerCase()
+  const employeeCandidates = detail.members.filter(member => member.displayName.toLowerCase().includes(query))
+  const peopleCandidates = people.filter(member => member.displayName.toLowerCase().includes(query))
+  const readyAttachments = uploads.flatMap(upload => upload.status === 'ready' && upload.ref !== undefined ? [upload.ref] : [])
+  const uploadPending = uploads.some(upload => upload.status === 'uploading')
+  // Typing @ right before the caret summons the member picker filtered by the
+  // partial name after it; the button opens the same menu unfiltered.
+  const refreshMentionQuery = (text: string, caret: number | null): void => {
+    const match = /(?:^|\s)@([^\s@]*)$/.exec(text.slice(0, caret ?? text.length))
+    if (match !== null) { setMentionQuery(match[1] ?? ''); setTypedMention(true); setOpenMentions(true) }
+    else if (typedMention) { setOpenMentions(false); setTypedMention(false) }
+  }
+  const insertMention = (name: string): void => {
+    if (!typedMention) return
+    setDraft((current) => {
+      const index = current.lastIndexOf(`@${mentionQuery}`)
+      if (index === -1) return `${current}@${name} `
+      return `${current.slice(0, index)}@${name} ${current.slice(index + 1 + mentionQuery.length)}`
+    })
+  }
+  const toggleMember = (kind: 'employee' | 'human', id: string, name: string): void => {
+    if (kind === 'employee') setMentions(current => current.includes(id) ? current.filter(value => value !== id) : [...current, id])
+    else setPeopleMentions(current => current.includes(id) ? current.filter(value => value !== id) : [...current, id])
+    if (typedMention) { insertMention(name); setOpenMentions(false); setTypedMention(false); input.current?.focus() }
+  }
   const send = async (event?: FormEvent): Promise<void> => {
     event?.preventDefault()
-    if (sending || draft.trim() === '') return
+    if (sending || uploadPending || (draft.trim() === '' && readyAttachments.length === 0)) return
     setSending(true)
     try {
       const accepted = await controller.send(draft, {
         ...(threadRoot === undefined ? {} : { threadRoot }),
         ...(mentions.length === 0 ? {} : { mentionedEmployeeIds: mentions }),
         ...(peopleMentions.length === 0 ? {} : { mentionedUserIds: peopleMentions }),
+        ...(readyAttachments.length === 0 ? {} : { attachments: readyAttachments }),
       })
-      if (accepted) { setDraft(''); setMentions([]); setPeopleMentions([]); setOpenMentions(false); input.current?.focus() }
+      if (accepted) {
+        setDraft(''); setMentions([]); setPeopleMentions([]); setUploads([]); setOpenMentions(false); input.current?.focus()
+      }
     } finally { setSending(false) }
   }
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>): void => {
     if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void send() }
   }
+  const pickFiles = (files: FileList | null): void => {
+    for (const file of Array.from(files ?? [])) {
+      const key = `${file.name}:${file.size}:${Date.now()}:${Math.random()}`
+      setUploads(current => [...current, { key, file, status: 'uploading' }])
+      void controller.uploadAttachment(detail.id, file)
+        .then((ref) => { setUploads(current => current.map(upload => upload.key === key ? { ...upload, status: 'ready' as const, ref } : upload)) })
+        .catch(() => { setUploads(current => current.map(upload => upload.key === key ? { ...upload, status: 'error' as const } : upload)) })
+    }
+    if (fileInput.current !== null) fileInput.current.value = ''
+  }
   return <form className={css.composer} onSubmit={(event) => { void send(event) }}>
-    {(mentions.length > 0 || peopleMentions.length > 0) && <div className={css.mentionChips}>{mentions.map((id) => {
+    {(mentions.length > 0 || peopleMentions.length > 0 || uploads.length > 0) && <div className={css.mentionChips}>{mentions.map((id) => {
       const member = detail.members.find(item => item.employeeId === id)
       return <button key={`employee:${id}`} type="button" onClick={() => { setMentions(mentions.filter(value => value !== id)) }} aria-label={`${t('removeMention')} ${member?.displayName ?? id}`}>@{member?.displayName ?? id} ×</button>
     })}{peopleMentions.map((id) => {
       const member = people.find(item => item.userId === id)
       return <button key={`human:${id}`} type="button" onClick={() => { setPeopleMentions(peopleMentions.filter(value => value !== id)) }} aria-label={`${t('removeMention')} ${member?.displayName ?? id}`}>@{member?.displayName ?? id} ×</button>
-    })}</div>}
-    <textarea ref={input} value={draft} onChange={(event) => { setDraft(event.target.value) }} onKeyDown={onKeyDown} placeholder={t(threadRoot === undefined ? 'roomPlaceholder' : 'threadPlaceholder')} aria-label={t('message')} disabled={sending} rows={2}/>
+    })}{uploads.map(upload => <span key={upload.key} className={css.uploadChip} data-status={upload.status}
+      title={upload.status === 'error' ? t('attachFailed') : upload.status === 'uploading' ? t('attachUploading') : undefined}>
+      {upload.status === 'uploading' && `${t('attachUploading')} · `}{upload.status === 'error' && `${t('attachFailed')} · `}{upload.file.name}
+      <button type="button" aria-label={`${t('removeAttachment')} ${upload.file.name}`}
+        onClick={() => { setUploads(current => current.filter(item => item.key !== upload.key)) }}>×</button>
+    </span>)}</div>}
+    <textarea ref={input} value={draft}
+      onChange={(event) => { setDraft(event.target.value); refreshMentionQuery(event.target.value, event.target.selectionStart) }}
+      onKeyDown={onKeyDown} placeholder={t(threadRoot === undefined ? 'roomPlaceholder' : 'threadPlaceholder')} aria-label={t('message')} disabled={sending} rows={2}/>
     <div className={css.composerActions}>
-      <div ref={mentionWrap} className={css.mentionWrap}><button type="button" aria-expanded={openMentions} onClick={() => { setOpenMentions(!openMentions) }}>{t('mentionMember')}</button>
+      <input ref={fileInput} type="file" multiple hidden
+        onChange={(event) => { pickFiles(event.target.files) }}/>
+      <button type="button" className={css.attach} aria-label={t('attach')} title={t('attach')}
+        disabled={sending} onClick={() => { fileInput.current?.click() }}>＋</button>
+      <div ref={mentionWrap} className={css.mentionWrap}><button type="button" aria-expanded={openMentions} onClick={() => { setTypedMention(false); setMentionQuery(''); setOpenMentions(!openMentions) }}>{t('mentionMember')}</button>
         {openMentions && <div className={css.mentionMenu}>
           <div role="group" aria-label={t('employees')}>
-            {detail.members.map(member => <label key={member.employeeId}><input type="checkbox" checked={mentions.includes(member.employeeId)} onChange={(event) => { setMentions(event.target.checked ? [...mentions, member.employeeId] : mentions.filter(id => id !== member.employeeId)) }}/>{member.displayName}</label>)}
+            {employeeCandidates.map(member => <span key={member.employeeId} className={css.menuRow}>
+              <img className={css.menuAvatar} src={dicebearAvatarUrl(member.avatarSeed ?? member.employeeId)} alt=""
+                loading="lazy" referrerPolicy="no-referrer"/>
+              <label><input type="checkbox" checked={mentions.includes(member.employeeId)}
+                onChange={() => { toggleMember('employee', member.employeeId, member.displayName) }}/>{member.displayName}</label>
+            </span>)}
           </div>
           <div role="group" aria-label={t('people')}>
-            {people.map(member => <label key={member.userId}><input type="checkbox" checked={peopleMentions.includes(member.userId)} onChange={(event) => { setPeopleMentions(event.target.checked ? [...peopleMentions, member.userId] : peopleMentions.filter(id => id !== member.userId)) }}/>{member.displayName}</label>)}
+            {peopleCandidates.map(member => <span key={member.userId} className={css.menuRow}>
+              <span className={css.menuAvatar} aria-hidden="true">{member.displayName.slice(0, 1)}</span>
+              <label><input type="checkbox" checked={peopleMentions.includes(member.userId)}
+                onChange={() => { toggleMember('human', member.userId, member.displayName) }}/>{member.displayName}</label>
+            </span>)}
           </div>
-          {detail.members.length === 0 && people.length === 0 && <span>{t('emptyEmployees')}</span>}
+          {employeeCandidates.length === 0 && peopleCandidates.length === 0 && <span>{t('mentionNoMatch')}</span>}
         </div>}
       </div>
       <span className={css.keyHint}>{t('sendHint')}</span>
-      <button type="submit" className={css.send} disabled={sending || draft.trim() === ''} aria-label={t('send')}><IconSendOutlineRegular size={16}/></button>
+      <button type="submit" className={css.send} disabled={sending || uploadPending || (draft.trim() === '' && readyAttachments.length === 0)} aria-label={t('send')}><IconSendOutlineRegular size={16}/></button>
     </div>
   </form>
 }
@@ -182,6 +267,7 @@ export function CollaborationRoom({ state, controller, loadChoices, t }: {
   </div></main>
   const detail = selected.detail
   const avatarFor = (event: RoomEvent): string | undefined => event.author.kind === 'employee' ? avatars.get(event.author.id) : undefined
+  const attachmentUrlFor = (attachmentId: string): string => controller.attachmentUrl(detail.id, attachmentId)
   const isSelf = (event: RoomEvent): boolean => event.author.kind === 'human' && event.author.id === detail.viewerUserId
   const threadRoot = selected.threadRoot
   const root = threadRoot === undefined ? undefined : [...state.events, ...state.searchResults].find(event => event.id === threadRoot)
@@ -199,7 +285,7 @@ export function CollaborationRoom({ state, controller, loadChoices, t }: {
         {showSearch && state.searchPhase !== 'idle' ? <div className={css.scroll} role="region" aria-label={t('searchResults')}>
           {state.searchPhase === 'loading' && <div className={css.center}><IconLoadingOutlineRegular size={20}/></div>}
           {state.searchPhase === 'error' && <div className={css.center} role="alert">{t('searchFailed')}<button type="button" onClick={() => { void controller.search(searchInput) }}>{t('retry')}</button></div>}
-          {state.searchPhase === 'ready' && (state.searchResults.length === 0 ? <div className={css.center}>{t('noSearchResults')}</div> : state.searchResults.map(event => <Entry key={event.id} event={event} reactions={[]} self={isSelf(event)} avatarUrl={avatarFor(event)} onThread={(id) => { setShowSearch(false); void controller.openThread(id) }} onReaction={(id, emoji) => { void controller.react(id, emoji) }} onInspect={(id) => { void controller.inspect(id) }} t={t}/>))}
+          {state.searchPhase === 'ready' && (state.searchResults.length === 0 ? <div className={css.center}>{t('noSearchResults')}</div> : state.searchResults.map(event => <Entry key={event.id} event={event} reactions={[]} self={isSelf(event)} avatarUrl={avatarFor(event)} attachmentUrlFor={attachmentUrlFor} onThread={(id) => { setShowSearch(false); void controller.openThread(id) }} onReaction={(id, emoji) => { void controller.react(id, emoji) }} onInspect={(id) => { void controller.inspect(id) }} t={t}/>))}
         </div> : <div ref={scroll} className={css.scroll} role="region" aria-label={t('roomTimeline')}
           onScroll={(event) => {
             const node = event.currentTarget
@@ -215,7 +301,7 @@ export function CollaborationRoom({ state, controller, loadChoices, t }: {
             }}>{t('loadOlder')}</button>}
             {timeline.length === 0 && <div className={css.center}>{t('emptyRoom')}</div>}
             {timeline.map(event => <Entry key={event.id} event={event} reactions={reactionCounts(state.events, event.id)}
-              self={isSelf(event)} avatarUrl={avatarFor(event)}
+              self={isSelf(event)} avatarUrl={avatarFor(event)} attachmentUrlFor={attachmentUrlFor}
               onThread={(id) => { void controller.openThread(id) }}
               onReaction={(id, emoji) => { void controller.react(id, emoji) }}
               onInspect={(id) => { void controller.inspect(id) }} t={t}/>)}
@@ -236,7 +322,7 @@ export function CollaborationRoom({ state, controller, loadChoices, t }: {
           {detail.project !== undefined && <section><h3>{t('project')}</h3><p>{detail.project.name}</p></section>}
           {detail.kind === 'channel' && <><ChannelDecisionQueue key={`${detail.id}-decisions`} channelId={detail.id} t={t}/>
             <ChannelWorkflowEditor key={`${detail.id}-workflows`} channelId={detail.id} t={t}/></>}
-        </div> : <><div className={css.threadScroll}>{root !== undefined && <Entry event={root} reactions={reactionCounts(state.events, root.id)} self={isSelf(root)} avatarUrl={avatarFor(root)} onThread={() => {}} onReaction={(id, emoji) => { void controller.react(id, emoji) }} onInspect={(id) => { void controller.inspect(id) }} t={t}/>}{state.threadPhase === 'loading' && <div className={css.center}><IconLoadingOutlineRegular size={20}/></div>}{state.threadPhase === 'error' && <div className={css.center} role="alert">{t('loadError')}<button type="button" onClick={() => { void controller.openThread(threadRoot) }}>{t('retry')}</button></div>}{state.threadPhase === 'ready' && state.threadEvents.filter(event => event.kind !== 7 && event.id !== threadRoot).map(event => <Entry key={event.id} event={event} reactions={reactionCounts(state.threadEvents, event.id)} self={isSelf(event)} avatarUrl={avatarFor(event)} onThread={() => {}} onReaction={(id, emoji) => { void controller.react(id, emoji) }} onInspect={(id) => { void controller.inspect(id) }} t={t}/>)}</div><Composer state={state} controller={controller} t={t} threadRoot={threadRoot}/></>}
+        </div> : <><div className={css.threadScroll}>{root !== undefined && <Entry event={root} reactions={reactionCounts(state.events, root.id)} self={isSelf(root)} avatarUrl={avatarFor(root)} attachmentUrlFor={attachmentUrlFor} onThread={() => {}} onReaction={(id, emoji) => { void controller.react(id, emoji) }} onInspect={(id) => { void controller.inspect(id) }} t={t}/>}{state.threadPhase === 'loading' && <div className={css.center}><IconLoadingOutlineRegular size={20}/></div>}{state.threadPhase === 'error' && <div className={css.center} role="alert">{t('loadError')}<button type="button" onClick={() => { void controller.openThread(threadRoot) }}>{t('retry')}</button></div>}{state.threadPhase === 'ready' && state.threadEvents.filter(event => event.kind !== 7 && event.id !== threadRoot).map(event => <Entry key={event.id} event={event} reactions={reactionCounts(state.threadEvents, event.id)} self={isSelf(event)} avatarUrl={avatarFor(event)} attachmentUrlFor={attachmentUrlFor} onThread={() => {}} onReaction={(id, emoji) => { void controller.react(id, emoji) }} onInspect={(id) => { void controller.inspect(id) }} t={t}/>)}</div><Composer state={state} controller={controller} t={t} threadRoot={threadRoot}/></>}
       </aside>}
     </div>
   </main>

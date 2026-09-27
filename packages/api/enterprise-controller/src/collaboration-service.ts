@@ -1,5 +1,6 @@
 /** Shared conversation authorization and routing through the existing native Session runtime. */
 import { createHash, randomUUID } from 'node:crypto'
+import type { RoomAttachmentTag } from './collaboration-identity.ts'
 import type { EnterprisePrincipal } from '@deepseek-ai/dsh-enterprise-governance'
 import { CollaborationCreationConflictError } from '@deepseek-ai/dsh-enterprise-postgres'
 import type { CollaborationRecord, CollaborationTopic, CollaborationSession, RoomEvent,
@@ -57,13 +58,24 @@ export interface CollaborationMessageInput {
   readonly mentionedEmployeeIds?: readonly string[]
   readonly mentionedUserIds?: readonly string[]
   readonly messageId?: string
+  /** Uploaded room files referenced by this message; resolved and signed from stored metadata. */
+  readonly attachments?: readonly { readonly attachmentId: string }[]
   /** Native composer source, set only by the Host. */
   readonly sourceSessionId?: string
 }
+/** Upload limits for one room attachment and one message's attachment count. */
+export const ROOM_ATTACHMENT_LIMITS = { maxBytes: 20 * 1024 * 1024, maxPerMessage: 8, maxNameLength: 200 } as const
 /** Explicit member ids for one group membership change; omitted kinds stay unchanged. */
 export interface CollaborationMemberChange {
   readonly employeeIds?: readonly string[]
   readonly userIds?: readonly string[]
+}
+/** One uploaded room file: stored bytes plus the metadata signed into message events. */
+export interface RoomAttachmentRef {
+  readonly attachmentId: string
+  readonly name: string
+  readonly mimeType: string
+  readonly size: number
 }
 /** Routing receipt; accepted messages are durable, not necessarily completed by an employee. */
 export type CollaborationDelivery =
@@ -85,7 +97,7 @@ export type CollaborationRoomEvent = RoomEvent['event'] & {
 export interface CollaborationRoomRuntime {
   appendHuman(actor: EnterprisePrincipal, row: CollaborationRecord,
     input: CollaborationMessageInput, dispatch: { readonly targets: readonly string[]
-      readonly route?: 'team' | 'ingest' }): Promise<RoomEvent>
+      readonly route?: 'team' | 'ingest' }, attachments?: readonly RoomAttachmentTag[]): Promise<RoomEvent>
   react(actor: EnterprisePrincipal, row: CollaborationRecord,
     input: { readonly eventId: string
       readonly emoji: string
@@ -619,9 +631,72 @@ export class CollaborationService {
     return { delivered: true, targets: deliveries, ...(topicId === '' ? {} : { topicId }) }
   }
 
+  /** Store one uploaded file for a room the actor belongs to.
+   * @param actor - Authenticated current room member.
+   * @param id - Room identity.
+   * @param upload - Raw bytes plus client-supplied name and media type.
+   * @returns The stored attachment reference (server-assigned id).
+   */
+  async uploadAttachment(actor: EnterprisePrincipal, id: string, upload: { readonly name: string
+    readonly mimeType: string
+    readonly data: Buffer }): Promise<RoomAttachmentRef> {
+    await this.authorized(actor, id)
+    const name = upload.name.trim()
+    if (name === '' || name.length > ROOM_ATTACHMENT_LIMITS.maxNameLength || /[\u0000-\u001f\u007f]/.test(name)) {
+      throw new CollaborationError('invalid-attachment')
+    }
+    const mimeType = upload.mimeType.trim() === '' ? 'application/octet-stream' : upload.mimeType.trim()
+    if (mimeType.length > 100 || !/^[\w.+-]+\/[\w.+-]+$/.test(mimeType)) throw new CollaborationError('invalid-attachment')
+    if (upload.data.length === 0 || upload.data.length > ROOM_ATTACHMENT_LIMITS.maxBytes) {
+      throw new CollaborationError('attachment-too-large', 413)
+    }
+    const attachmentId = randomUUID()
+    await this.store.putAttachment({ surfaceId: id, attachmentId, uploaderUserId: actor.userId,
+      name, mimeType, data: upload.data })
+    return { attachmentId, name, mimeType, size: upload.data.length }
+  }
+
+  /** Read one stored room attachment after current membership validation.
+   * @param actor - Authenticated current room member.
+   * @param id - Room identity.
+   * @param attachmentId - Upload identity.
+   * @returns Attachment metadata and bytes.
+   */
+  async attachment(actor: EnterprisePrincipal, id: string, attachmentId: string): Promise<RoomAttachmentRef & { readonly data: Buffer }> {
+    await this.authorized(actor, id)
+    const stored = await this.store.getAttachment(id, attachmentId)
+    if (stored === undefined) throw new CollaborationError('attachment-not-found', 404)
+    return stored
+  }
+
+  /** Resolve message-attachment references to stored metadata under current membership.
+   * @param row - Current room.
+   * @param input - Message input carrying at most the per-message attachment budget.
+   * @returns Stored references for every referenced id.
+   */
+  private async resolveAttachments(row: CollaborationRecord,
+    input: CollaborationMessageInput): Promise<readonly RoomAttachmentRef[]> {
+    const ids = input.attachments?.map(attachment => attachment.attachmentId) ?? []
+    if (ids.length === 0) return []
+    if (ids.length > ROOM_ATTACHMENT_LIMITS.maxPerMessage
+      || ids.some(attachmentId => typeof attachmentId !== 'string' || attachmentId.length === 0 || attachmentId.length > 128)) {
+      throw new CollaborationError('invalid-attachment')
+    }
+    const resolved: RoomAttachmentRef[] = []
+    for (const attachmentId of [...new Set(ids)]) {
+      const stored = await this.store.getAttachment(row.id, attachmentId)
+      if (stored === undefined) throw new CollaborationError('attachment-not-found', 404)
+      resolved.push({ attachmentId: stored.attachmentId, name: stored.name, mimeType: stored.mimeType, size: stored.size })
+    }
+    return resolved
+  }
+
   private async roomMessage(actor: EnterprisePrincipal, row: CollaborationRecord, input: CollaborationMessageInput,
     room: CollaborationRoomRuntime): Promise<CollaborationDelivery> {
-    if (input.text.trim() === '' || input.text.length > 20_000) throw new CollaborationError('invalid-text')
+    if ((input.text.trim() === '' && (input.attachments?.length ?? 0) === 0) || input.text.length > 20_000) {
+      throw new CollaborationError('invalid-text')
+    }
+    const attachments = await this.resolveAttachments(row, input)
     if (input.mentionedEmployeeIds?.some(id => !row.memberEmployeeIds.includes(id))) {
       throw new CollaborationError('employee-not-member', 404)
     }
@@ -646,7 +721,8 @@ export class CollaborationService {
     const dispatch: { targets: string[]; route?: 'team' | 'ingest' } = { targets,
       ...(row.teamDefinitionId === undefined ? row.respondPolicy === 'ingest_only' ? { route: 'ingest' as const } : {}
         : { route: 'team' as const }) }
-    const committed = await room.appendHuman(actor, row, input, dispatch)
+    const committed = await room.appendHuman(actor, row, input, dispatch,
+      attachments.length === 0 ? undefined : attachments)
     await room.committed?.(actor, row, committed)
     const event = await room.present(actor, row, committed)
     if (room.dispatchCommitted !== undefined) {

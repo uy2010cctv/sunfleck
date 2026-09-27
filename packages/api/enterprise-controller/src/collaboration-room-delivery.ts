@@ -42,7 +42,13 @@ function line(value: RoomEvent, names: ReadonlyMap<string, string>): string {
   const root = value.threadRoot === undefined ? '' : ` thread:${value.threadRoot}`
   const identity = `${value.authorKind}:${value.authorId}`
   const author = names.get(identity)
-  return `[${value.event.id}] ${author === undefined ? identity : `${author} (${identity})`}${root}: ${value.event.content}`
+  const attachments = value.event.tags.filter(tag => tag[0] === 'attachment')
+    .map(([, id, name, mime, size]) => {
+      const meta = [name, mime, size === undefined ? undefined : `${size} bytes`].filter(Boolean).join(' · ')
+      return `attachment ${id}${meta === '' ? '' : ` (${meta})`}`
+    })
+  const files = attachments.length === 0 ? '' : ` [${attachments.join('; ')}]`
+  return `[${value.event.id}] ${author === undefined ? identity : `${author} (${identity})`}${root}: ${value.event.content}${files}`
 }
 
 /** Select directly addressed Bots while preventing self-loops and hop chains.

@@ -22,6 +22,14 @@ export interface RoomServiceSigner {
   readonly serviceId: string
 }
 
+/** Metadata of one uploaded room file signed into a text event. */
+export interface RoomAttachmentTag {
+  readonly attachmentId: string
+  readonly name: string
+  readonly mimeType: string
+  readonly size: number
+}
+
 /** Content and references signed into one immutable room event. */
 export type RoomSigningInput =
   | { readonly type: 'text'
@@ -34,7 +42,8 @@ export type RoomSigningInput =
     readonly mentionedUserIds?: readonly string[]
     readonly route?: 'team' | 'ingest'
     readonly requestId?: string
-    readonly createdAt?: number }
+    readonly createdAt?: number
+    readonly attachments?: readonly RoomAttachmentTag[] }
   | { readonly type: 'reaction'
     readonly content: string
     readonly targetEventId: string
@@ -142,11 +151,29 @@ function appendRequest(tags: string[][], requestId: string | undefined): void {
   tags.push(['dsh-request', requestId])
 }
 
+function appendAttachments(tags: string[][], attachments: readonly RoomAttachmentTag[] | undefined): void {
+  if (attachments === undefined || attachments.length === 0) return
+  if (attachments.length > 8) throw new Error('room-event-attachment-invalid')
+  for (const attachment of attachments) {
+    const id = attachment.attachmentId
+    if (typeof id !== 'string' || id.length === 0 || id.length > 128 || id.trim() !== id
+      || attachment.name.length === 0 || attachment.name.length > 200
+      || attachment.mimeType.length === 0 || attachment.mimeType.length > 100
+      || !Number.isSafeInteger(attachment.size) || attachment.size < 0) {
+      throw new Error('room-event-attachment-invalid')
+    }
+    tags.push(['attachment', id, attachment.name, attachment.mimeType, String(attachment.size)])
+  }
+}
+
 function eventTemplate(roomId: string, input: RoomSigningInput): { readonly kind: number
   readonly tags: string[][]
   readonly content: string
   readonly created_at: number } {
-  if (roomId.trim() === '' || input.content.trim() === '') throw new Error('room-event-content-invalid')
+  if (roomId.trim() === '' || (input.content.trim() === ''
+    && !(input.type === 'text' && (input.attachments?.length ?? 0) > 0))) {
+    throw new Error('room-event-content-invalid')
+  }
   const createdAt = input.createdAt ?? Math.floor(Date.now() / 1000)
   if (!Number.isSafeInteger(createdAt) || createdAt < 0 || createdAt > MAX_CREATED_AT) {
     throw new Error('room-event-timestamp-invalid')
@@ -165,6 +192,7 @@ function eventTemplate(roomId: string, input: RoomSigningInput): { readonly kind
         for (const userId of input.mentionedUserIds) tags.push(['dsh-mention', userId])
       }
       appendSourceCursor(tags, input.sourceCursor)
+      appendAttachments(tags, input.attachments)
       if (input.route !== undefined) {
         const route: string = input.route
         if (!['team', 'ingest'].includes(route) || (input.targetEmployeeIds?.length ?? 0) > 0) {

@@ -58,12 +58,29 @@ export class CollaborationHttpHandler {
           if (query === null) return failure(400, 'invalid-search')
           return Response.json(await this.service.search(principal, id, query))
         }
+        if (operation === 'attachments' && target !== undefined) {
+          const stored = await this.service.attachment(principal, id, target)
+          return new Response(new Uint8Array(stored.data), { headers: {
+            'content-type': stored.mimeType,
+            'content-length': String(stored.size),
+            'content-disposition': `attachment; filename*=UTF-8''${encodeURIComponent(stored.name)}`,
+            'cache-control': 'private, immutable',
+          } })
+        }
         return failure(404, 'not-found')
       }
       if (request.method !== 'POST') return failure(405, 'method-not-allowed')
+      // The room upload route consumes a raw binary body, so it dispatches
+      // before the JSON-object parse the other operations share.
+      if (id !== undefined && operation === 'attachments' && target === undefined) {
+        const name = new URL(request.url).searchParams.get('name') ?? ''
+        const mimeType = new URL(request.url).searchParams.get('type') ?? 'application/octet-stream'
+        const data = Buffer.from(await request.arrayBuffer())
+        return Response.json(await this.service.uploadAttachment(principal, id, { name, mimeType, data }), { status: 201 })
+      }
       const body = await jsonObjectBody(request)
       if (body === undefined) return failure(400, 'invalid-body')
-      if (body['attachments'] !== undefined || body['content'] !== undefined) return failure(400, 'text-only-collaboration')
+      if (body['content'] !== undefined) return failure(400, 'text-only-collaboration')
       if (create) {
         const name = stringField(body, 'name'), workspaceId = stringField(body, 'workspaceId')
         const idempotencyKey = optionalStringField(body, 'idempotencyKey')
@@ -125,14 +142,26 @@ export class CollaborationHttpHandler {
           ...(employeeId === undefined ? {} : { employeeId }) }))
       }
       if (operation === 'messages') {
-        const text = stringField(body, 'text'), mentionedEmployeeIds = optionalStringArrayField(body,
-            'mentionedEmployeeIds'), mentionedUserIds = optionalStringArrayField(body, 'mentionedUserIds'),
-          messageId = optionalStringField(body, 'messageId')
+        const text = typeof body['text'] === 'string' ? body['text'] : undefined
+        const mentionedEmployeeIds = optionalStringArrayField(body, 'mentionedEmployeeIds')
+        const mentionedUserIds = optionalStringArrayField(body, 'mentionedUserIds')
+        const messageId = optionalStringField(body, 'messageId')
         const threadRoot = optionalStringField(body, 'threadRoot')
-        if (text === undefined || mentionedEmployeeIds === null || mentionedUserIds === null || messageId === null || threadRoot === null) return failure(400, 'invalid-body')
-        return Response.json(await this.service.message(principal, id, { text,
+        const rawAttachments = body['attachments']
+        const attachments = rawAttachments === undefined ? undefined
+          : Array.isArray(rawAttachments) ? rawAttachments.map((value) => {
+            const row = typeof value === 'object' && value !== null && !Array.isArray(value)
+              ? value as Record<string, unknown> : undefined
+            return typeof row?.['attachmentId'] === 'string' ? { attachmentId: row['attachmentId'] } : undefined
+          }).filter((value): value is { attachmentId: string } => value !== undefined) : null
+        if (attachments === null || (text === undefined && (attachments?.length ?? 0) === 0)
+          || mentionedEmployeeIds === null || mentionedUserIds === null || messageId === null || threadRoot === null) {
+          return failure(400, 'invalid-body')
+        }
+        return Response.json(await this.service.message(principal, id, { text: text ?? '',
           ...(topicId === undefined ? {} : { topicId }), ...(messageId === undefined ? {} : { messageId }),
           ...(threadRoot === undefined ? {} : { threadRoot }),
+          ...(attachments === undefined || attachments.length === 0 ? {} : { attachments }),
           ...(mentionedEmployeeIds === undefined ? {} : { mentionedEmployeeIds }),
           ...(mentionedUserIds === undefined ? {} : { mentionedUserIds }) }))
       }

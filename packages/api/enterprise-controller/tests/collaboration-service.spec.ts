@@ -3,7 +3,7 @@ import { CollaborationService } from '../src/collaboration-service.ts'
 import type { CollaborationRecord, CollaborationSession, CollaborationTopic } from '@deepseek-ai/dsh-enterprise-postgres'
 
 const actor = { orgId: 'org', userId: 'alice', roles: ['administrator'] as const }
-function setup(overrides: Partial<CollaborationRecord> = {}) {
+function setup(overrides: Partial<CollaborationRecord> = {}, room?: Record<string, unknown>) {
   const record: CollaborationRecord = { id: 'surface', orgId: 'org', kind: 'group', name: 'Support', workspaceId: 'shared', memberUserIds: ['alice', 'bob'], memberEmployeeIds: ['a', 'b'], dutyEmployeeIds: [], ...overrides }
   const sessions: CollaborationSession[] = []
   const topics: CollaborationTopic[] = []
@@ -37,7 +37,12 @@ function setup(overrides: Partial<CollaborationRecord> = {}) {
       stored.memberUserIds = record.memberUserIds.filter(id => !users.has(id))
       stored.memberEmployeeIds = record.memberEmployeeIds.filter(id => !employees.has(id))
     },
+    putAttachment: async (value: { attachmentId: string; name: string; mimeType: string; uploaderUserId: string }) => {
+      attachments.set(value.attachmentId, { ...value, size: 2048 })
+    },
+    getAttachment: async (_surfaceId: string, attachmentId: string) => attachments.get(attachmentId),
   }
+  const attachments = new Map<string, { attachmentId: string; name: string; mimeType: string; uploaderUserId: string; size: number }>()
   const service = new CollaborationService(store as never, {
     refreshWorkspace: () => { publications.push(sessions.map(value => value.sessionId)) },
     workspaceVisible: async () => true,
@@ -49,6 +54,7 @@ function setup(overrides: Partial<CollaborationRecord> = {}) {
     record: async (_actor: unknown, sessionId: string) => { recorded.push(sessionId) },
     ingest: async () => ({ delivered: true, targets: [] }),
     prompt: async (_actor: unknown, sessionId: string) => { prompted.push(sessionId) },
+    ...(room === undefined ? {} : { room }),
   } as never)
   return { service, sessions, prompted, recorded, publications, get creates() { return creates },
     setMemberVisible: (value: boolean) => { memberVisible = value } }
@@ -144,6 +150,36 @@ describe('collaboration routing through native Sessions', () => {
     expect(next).toMatchObject({ delivered: true })
     if (!next.delivered) throw new Error('expected new topic')
     expect(next.topicId).not.toBe(first.topicId)
+  })
+
+  it('uploads room attachments, signs them into the message, and names them in employee prompts', async () => {
+    const committed: { readonly text: string; readonly attachments?: unknown }[] = []
+    const fixture = setup({ adminUserId: 'alice' }, {
+      appendHuman: async (_actor: unknown, _row: unknown, input: { text: string }, _dispatch: unknown,
+        attachments?: readonly unknown[]) => {
+        committed.push({ text: input.text, attachments })
+        const tags = (attachments ?? []).map((file: { attachmentId: string; name: string; mimeType: string; size: number }) =>
+          ['attachment', file.attachmentId, file.name, file.mimeType, String(file.size)])
+        return { event: { id: 'evt-1', kind: 9, content: input.text, tags }, sequence: '1' }
+      },
+      present: async (_actor: unknown, _row: unknown, value: {
+        event: { tags: string[][]; content: string; id: string }
+        sequence: string }) =>
+        ({ ...value.event, sequence: value.sequence, author: { kind: 'human' as const, id: 'alice', displayName: 'Alice' } }),
+    })
+    const ref = await fixture.service.uploadAttachment(actor, 'surface',
+      { name: '报价.pdf', mimeType: 'application/pdf', data: Buffer.alloc(2048) })
+    expect(ref).toMatchObject({ name: '报价.pdf', mimeType: 'application/pdf', size: 2048 })
+    const detail = await fixture.service.message(actor, 'surface', { text: '见附件', attachments: [ref] })
+    expect(detail.delivered).toBe(true)
+    if (!detail.delivered || detail.event === undefined) throw new Error('expected committed event')
+    const tag = detail.event.tags.find(candidate => candidate[0] === 'attachment')
+    expect(tag?.slice(1)).toEqual([ref.attachmentId, '报价.pdf', 'application/pdf', '2048'])
+    expect(committed[0]).toMatchObject({ text: '见附件' })
+    await expect(fixture.service.message(actor, 'surface', { text: 'x',
+      attachments: [{ attachmentId: 'missing' }] })).rejects.toMatchObject({ code: 'attachment-not-found', status: 404 })
+    await expect(fixture.service.uploadAttachment(actor, 'surface', { name: 'big.bin', mimeType: 'application/octet-stream',
+      data: Buffer.alloc(21 * 1024 * 1024) })).rejects.toMatchObject({ code: 'attachment-too-large', status: 413 })
   })
 
   it('matches a full employee name with spaces and prefers the longest roster name', async () => {
