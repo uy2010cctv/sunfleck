@@ -116,6 +116,9 @@ export async function migrateCollaboration(database: EnterprisePostgresDatabase)
   await database.transaction(async (tx) => {
     await tx.query('SELECT pg_advisory_xact_lock($1)', [0x4453434f])
     await tx.query('CREATE TABLE IF NOT EXISTS dsh_enterprise_collaboration_meta (version INTEGER NOT NULL)')
+    // Idempotent on every boot and before any version short-cut: room
+    // attachments are additive storage, so the addition needs no version bump.
+    await tx.query(attachmentsTable)
     const version = (await tx.query<{ version: number }>('SELECT version FROM dsh_enterprise_collaboration_meta')).rows[0]?.version
     if (version !== undefined && version !== 1 && version !== 2 && version !== 3 && version !== 4) {
       throw new Error(`unsupported collaboration schema version ${version}`)
@@ -186,9 +189,6 @@ export async function migrateCollaboration(database: EnterprisePostgresDatabase)
       FOREIGN KEY(surface_id,user_id) REFERENCES dsh_enterprise_collaboration_members(surface_id,user_id) ON DELETE CASCADE)`)
     await tx.query(`CREATE INDEX dsh_enterprise_collaboration_event_mentions
       ON dsh_enterprise_collaboration_events USING GIN ((event_json->'tags'))`)
-    // Idempotent on every boot: room attachments are additive storage, so the
-    // addition needs no meta version bump and converges on the first boot.
-    await tx.query(attachmentsTable)
     if (version !== undefined) {
       await tx.query(`INSERT INTO dsh_enterprise_collaboration_read_cursors(org_id,surface_id,user_id,sequence)
         SELECT d.org_id,m.surface_id,m.user_id,max(e.sequence)
