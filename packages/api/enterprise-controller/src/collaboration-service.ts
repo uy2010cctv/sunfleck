@@ -553,6 +553,30 @@ export class CollaborationService {
     return this.detail(actor, id)
   }
 
+  /** Remove the authenticated member from one group; the recorded administrator cannot leave.
+   * @param actor - Authenticated group member.
+   * @param id - Group identity.
+   * @returns Refreshed detail.
+   */
+  async leave(actor: EnterprisePrincipal, id: string): Promise<CollaborationDetail> {
+    const row = await this.authorized(actor, id)
+    if (row.kind !== 'group') throw new CollaborationError('group-only')
+    if (row.adminUserId === actor.userId) throw new CollaborationError('group-admin-leave')
+    await this.store.removeMembers(id, { employeeIds: [], userIds: [actor.userId] })
+    return this.detail(actor, id)
+  }
+
+  /** Dissolve one group as its recorded administrator; content stays stored (archived).
+   * @param actor - Authenticated group administrator.
+   * @param id - Group identity.
+   * @returns The detail of the archived group.
+   */
+  async dissolve(actor: EnterprisePrincipal, id: string): Promise<CollaborationDetail> {
+    await this.requireGroupAdmin(actor, id)
+    if (!await this.store.archive(actor.orgId, id)) throw new CollaborationError('not-found', 404)
+    return this.detail(actor, id)
+  }
+
   /** Authorize one group administration request by its recorded creating human. */
   private async requireGroupAdmin(actor: EnterprisePrincipal, id: string): Promise<CollaborationRecord> {
     const row = await this.authorized(actor, id)
@@ -791,8 +815,8 @@ export class CollaborationService {
 
   private async authorized(actor: EnterprisePrincipal, id: string): Promise<CollaborationRecord> {
     const row = await this.store.get(actor.orgId, id)
-    if (row === undefined || !row.memberUserIds.includes(actor.userId) || !await this.runtime.workspaceVisible(actor,
-      row.workspaceId)) throw new CollaborationError('not-found', 404)
+    if (row === undefined || row.archivedAt !== undefined || !row.memberUserIds.includes(actor.userId)
+      || !await this.runtime.workspaceVisible(actor, row.workspaceId)) throw new CollaborationError('not-found', 404)
     return row
   }
 

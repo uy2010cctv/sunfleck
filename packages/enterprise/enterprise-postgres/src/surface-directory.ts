@@ -28,6 +28,8 @@ export async function migrateSurfaceDirectory(database: EnterprisePostgresDataba
       CHECK ((kind = 'dm' AND name IS NULL AND member_count = 0)
         OR (kind IN ('group','channel') AND name IS NOT NULL AND length(trim(name)) > 0))
     )`)
+    // Idempotent: archived rooms keep their content but leave the active lists.
+    await transaction.query('ALTER TABLE dsh_enterprise_surface_directory ADD COLUMN IF NOT EXISTS archived_at BIGINT')
     await transaction.query(
       'CREATE INDEX IF NOT EXISTS dsh_enterprise_surface_directory_org_created_idx '
       + 'ON dsh_enterprise_surface_directory(org_id, created_at, surface_id)',

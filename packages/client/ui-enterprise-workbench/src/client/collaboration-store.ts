@@ -728,6 +728,32 @@ export class CollaborationController {
     }
   }
 
+  /** Remove the signed-in member from one group; the roster drops the room. */
+  async leaveRoom(id: string): Promise<boolean> {
+    return this.endRoom(id, '/leave')
+  }
+
+  /** Dissolve one group as its administrator; the room archives and disappears from active lists. */
+  async dissolveRoom(id: string): Promise<boolean> {
+    return this.endRoom(id, '/dissolve')
+  }
+
+  private async endRoom(id: string, path: string): Promise<boolean> {
+    const request = new AbortController()
+    this.patch({ busy: true, error: null })
+    try {
+      await this.read(`/${encodeURIComponent(id)}${path}`, request.signal, {})
+      if (this.cancelled(request)) return false
+      this.patch({ busy: false })
+      this.clearSelection()
+      await this.refresh()
+      return true
+    } catch (error) {
+      if (!this.cancelled(request)) { if (!this.revoke(error)) this.patch({ busy: false, error: error instanceof HttpFailure ? error.message : 'request-failed' }) }
+      return false
+    }
+  }
+
   /** Abort pending reads so an unloaded plugin cannot publish navigation or state. */
   dispose(): void {
     this.closed = true

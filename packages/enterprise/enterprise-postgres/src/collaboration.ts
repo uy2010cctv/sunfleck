@@ -24,6 +24,7 @@ export interface CollaborationRecord extends CollaborationConfig, CollaborationS
   readonly kind: 'group' | 'channel'
   readonly name: string
   readonly memberUserIds: readonly string[]
+  readonly archivedAt?: number
 }
 /** Topic lifecycle and the native Session it addresses. */
 export interface CollaborationTopic {
@@ -282,7 +283,8 @@ export class PostgresCollaborationRepository {
    */
   async list(orgId: string, userId: string): Promise<readonly CollaborationRecord[]> {
     const result = await this.query<{ surface_id: string }>(`SELECT d.surface_id FROM dsh_enterprise_surface_directory d
-      JOIN dsh_enterprise_collaboration_members m USING(surface_id) WHERE d.org_id=$1 AND m.user_id=$2 ORDER BY d.created_at,d.surface_id`, [orgId, userId])
+      JOIN dsh_enterprise_collaboration_members m USING(surface_id) WHERE d.org_id=$1 AND m.user_id=$2 AND d.archived_at IS NULL
+      ORDER BY d.created_at,d.surface_id`, [orgId, userId])
     const rows = await Promise.all(result.rows.map(row => this.get(orgId, row.surface_id)))
     return rows.filter((row): row is CollaborationRecord => row !== undefined)
   }
@@ -293,13 +295,24 @@ export class PostgresCollaborationRepository {
    * @returns Stored conversation, or undefined for foreign or absent ids.
    */
   async get(orgId: string, id: string): Promise<CollaborationRecord | undefined> {
-    const row = (await this.query<{ kind: string; name: string; config_json: unknown }>(`SELECT d.kind,d.name,c.config_json FROM dsh_enterprise_surface_directory d
+    const row = (await this.query<{ kind: string; name: string; archived_at: string | number | null; config_json: unknown }>(`SELECT d.kind,d.name,d.archived_at,c.config_json FROM dsh_enterprise_surface_directory d
       JOIN dsh_enterprise_collaboration_config c USING(surface_id) WHERE d.org_id=$1 AND d.surface_id=$2`, [orgId, id])).rows[0]
     if (row === undefined) return undefined
     if (row.kind !== 'group' && row.kind !== 'channel') throw new Error('invalid collaboration kind')
     const members = await this.query<{ user_id: string }>('SELECT user_id FROM dsh_enterprise_collaboration_members WHERE surface_id=$1 ORDER BY user_id', [id])
     return { id, orgId, kind: row.kind, name: row.name, ...parseCollaborationConfig(row.config_json),
-      memberUserIds: members.rows.map(member => member.user_id) }
+      memberUserIds: members.rows.map(member => member.user_id),
+      ...(row.archived_at === null || row.archived_at === undefined ? {} : { archivedAt: Number(row.archived_at) }) }
+  }
+
+  /** Archive one conversation; its content stays stored but it leaves the active lists.
+   * @param orgId - Organization scope.
+   * @param id - Conversation identity.
+   * @returns Whether the conversation exists.
+   */
+  async archive(orgId: string, id: string): Promise<boolean> {
+    return (await this.query('UPDATE dsh_enterprise_surface_directory SET archived_at=$3 WHERE org_id=$1 AND surface_id=$2 AND archived_at IS NULL',
+      [orgId, id, Date.now()])).rowCount === 1
   }
 
   /** Rename one conversation within its organization.

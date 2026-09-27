@@ -126,6 +126,12 @@ export class CollaborationHttpHandler {
         if (muted !== undefined) patch.muted = muted
         return Response.json(await this.service.setPrefs(principal, id, patch))
       }
+      if (operation === 'leave') {
+        return Response.json(await this.service.leave(principal, id))
+      }
+      if (operation === 'dissolve') {
+        return Response.json(await this.service.dissolve(principal, id))
+      }
       if (operation === 'rename') {
         const name = stringField(body, 'name')
         if (name === undefined) return failure(400, 'invalid-body')
