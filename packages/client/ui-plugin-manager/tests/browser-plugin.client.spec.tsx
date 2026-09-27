@@ -1,15 +1,14 @@
 // @vitest-environment jsdom
 import { Context, Service } from '@deepseek-ai/cordis'
 import { afterEach, describe, expect, it, onTestFinished, vi } from 'vitest'
-import { cleanup, render } from '@testing-library/react'
+import { cleanup } from '@testing-library/react'
 import { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
 import { SlotRegistry } from '@deepseek-ai/dsh-client-ui-renderer/client'
-import { resolveSlotLabel } from '@deepseek-ai/dsh-client-ui-slots'
 import { TestRemote, usePinnedBrowserLanguages } from '@deepseek-ai/dsh-client-test-runtime'
 import * as settings from '@deepseek-ai/dsh-client-ui-settings/client'
 import { apply, inject, NS, PANEL_ID } from '../src/client/index.ts'
 import { PluginManagerPage } from '../src/client/PluginManagerPage.tsx'
-import { PluginsPanelIcon } from '../src/client/PluginsPanelIcon.tsx'
+import { PluginsFooterButton } from '../src/client/PluginsFooterButton.tsx'
 import type { PluginManagerFace } from '../src/client/manager-store.ts'
 
 usePinnedBrowserLanguages('zh-CN')
@@ -17,6 +16,7 @@ afterEach(cleanup)
 
 async function bench() {
   const ctx = new Context()
+  const opened: string[] = []
   onTestFinished(async () => { await ctx.fiber.dispose() })
   await ctx.plugin(SlotRegistry).await()
   const locale = new LocaleRuntime(ctx)
@@ -38,8 +38,9 @@ async function bench() {
       registries: vi.fn(() => Promise.resolve({ ok: true as const, value: { registry: null, fallbackRegistries: [], resolved: null } })),
     },
   })
+  ctx.provide('layout', { selectPanel: (id: string) => { opened.push(id) } } as never)
   await ctx.plugin(settings).await()
-  return { ctx, slots: ctx.get('slots') as SlotRegistry, locale, list, remote }
+  return { ctx, slots: ctx.get('slots') as SlotRegistry, locale, list, remote, opened }
 }
 
 function declare(slots: SlotRegistry): () => void {
@@ -47,14 +48,14 @@ function declare(slots: SlotRegistry): () => void {
     name: 'root',
     children: {
       'main': { kind: 'keyed', scope: 'root' },
-      'sidebar.panellist': { kind: 'list', scope: 'root' },
+      'settings.aux': { kind: 'list', scope: 'root' },
     },
   } as never, () => null)
 }
 
 describe('ui-plugin-manager browser plugin', () => {
   it('declares only the services the page and its Remote methods use', () => {
-    expect(inject).toEqual(['slots', 'locale', 'remote', 'remote.pluginManager', 'remote.pluginInventory', 'remote.pluginRegistryProbe', 'configForms'])
+    expect(inject).toEqual(['slots', 'locale', 'layout', 'remote', 'remote.pluginManager', 'remote.pluginInventory', 'remote.pluginRegistryProbe', 'configForms'])
   })
 
   it('registers the sidebar entry and its page, which reads the Host only once rendered and follows Host changes', async () => {
@@ -67,17 +68,14 @@ describe('ui-plugin-manager browser plugin', () => {
     expect(entry.component).toBe(PluginManagerPage)
     expect(entry.options).toMatchObject({ key: PANEL_ID })
     expect(entry.locale).toBe(NS)
-    // The sidebar entry addresses the page by the same id and speaks the dictionary.
-    const icon = b.slots.entries('sidebar.panellist')[0]!
-    expect(icon.component).toBe(PluginsPanelIcon)
-    const unread = () => { throw new Error('The sidebar icon must not read application state') }
-    const glyph = render(<PluginsPanelIcon size={18} active={false}
-      usePanelInfo={unread} useSessions={unread} useSessionStatus={unread} useSessionRetainInfo={unread}
-      useWorkspaces={unread} useResource={unread} />)
-    expect(glyph.container.querySelector('svg')?.getAttribute('width')).toBe('18')
-    expect(icon.options).toMatchObject({ id: PANEL_ID, order: 0 })
-    expect(icon.locale).toBe(NS)
-    expect(resolveSlotLabel(icon.options.label)).toBe('插件')
+    // The footer entry addresses the page by the same id and speaks the dictionary.
+    const entry2 = b.slots.entries('settings.aux')[0]!
+    expect(entry2.component).toBe(PluginsFooterButton)
+    expect(entry2.options).toMatchObject({ id: PANEL_ID, order: 0 })
+    expect(entry2.locale).toBe(NS)
+    const face2 = (entry2.inject as unknown as () => { open: () => void })()
+    face2.open()
+    expect(b.opened).toEqual([PANEL_ID])
     // The page declares the slots a plugin's configuration arrives through, and binds their projection beside its state.
     expect(b.slots.spec('plugins.item')).toMatchObject({ kind: 'list', scope: 'root' })
     expect(b.slots.spec('plugins.bundle.config')).toMatchObject({ kind: 'keyed', scope: 'root' })
@@ -114,7 +112,7 @@ describe('ui-plugin-manager browser plugin', () => {
 
     await fiber.dispose()
     expect(b.slots.entries('main')).toHaveLength(0)
-    expect(b.slots.entries('sidebar.panellist')).toHaveLength(0)
+    expect(b.slots.entries('settings.aux')).toHaveLength(0)
     b.remote.emit('plugin-manager/changed', [{ reason: 'install' }])
     await Promise.resolve()
     expect(b.list).toHaveBeenCalledTimes(3)

@@ -1,0 +1,36 @@
+.button {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  height: 42px;
+  padding: 0 10px 0 8px;
+  box-sizing: border-box;
+  border: none;
+  border-radius: 12px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.button:hover { background: var(--dsw-alias-interactive-bg-hover, rgba(128, 128, 128, 0.14)); }
+
+.button span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.rail {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.rail:hover { background: var(--dsw-alias-interactive-bg-hover, rgba(128, 128, 128, 0.14)); }
+
+.button:focus-visible, .rail:focus-visible { outline: 2px solid var(--dse-color-focus, currentColor); outline-offset: 2px; }

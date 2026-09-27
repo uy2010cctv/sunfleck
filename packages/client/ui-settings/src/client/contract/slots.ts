@@ -26,6 +26,14 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
      */
     'settings.trigger': { kind: 'single'; scope: 'root'; owner: SettingsTriggerOwnerProps }
     /**
+     * Optional buttons rendered inside the sidebar-foot trigger row, beside
+     * the settings launcher (the Plugins entry sits here so shell features
+     * share one bottom row). Registrants own icon, label, activation, and
+     * failure presentation; the shell supplies only the ordered render site
+     * and the column state.
+     */
+    'settings.aux': { kind: 'list'; scope: 'root'; owner: SettingsTriggerOwnerProps }
+    /**
      * The panel title text seat. Content renders inside the nav heading row;
      * the dialog's accessible name points at that node via aria-labelledby.
      * Absent contribution leaves the heading empty.

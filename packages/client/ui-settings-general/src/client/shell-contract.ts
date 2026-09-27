@@ -63,6 +63,7 @@ export type SettingsRootComponentProps =
   & PropsRenderSlots<
     | 'settings.launcher'
     | 'settings.trigger'
+    | 'settings.aux'
     | 'settings.header'
     | 'settings.action'
     | 'settings.close'

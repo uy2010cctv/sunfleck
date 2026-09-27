@@ -174,6 +174,7 @@ export function apply(ctx: ClientContext): void {
     children: {
       'settings.launcher': { kind: 'single', scope: 'root' },
       'settings.trigger': { kind: 'single', scope: 'root' },
+      'settings.aux': { kind: 'list', scope: 'root' },
       'settings.header': { kind: 'single', scope: 'root' },
       'settings.action': { kind: 'list', scope: 'root' },
       'settings.close': { kind: 'single', scope: 'root' },

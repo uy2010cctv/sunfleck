@@ -1,6 +1,6 @@
 /**
- * Plugin manager, browser half: the **Plugins** entry of the sidebar and the
- * management page it opens in the main column. The page installs, enables,
+ * Plugin manager, browser half: the **Plugins** entry beside the sidebar-foot
+ * settings launcher and the management page it opens in the main column. The page installs, enables,
  * disables, and removes the bundles of the Host's profile through the
  * `pluginManager` Remote and switches their rows in the profile's user layer.
  * A plugin that carries its own configuration renders it on this page through
@@ -10,10 +10,10 @@
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
 // Type-only: the root `main` keyed slot the page registers into, declared by
-// ui-layout with the panel id brand, and the `sidebar.panellist` list the
-// entry registers into, declared by ui-sidebar.
+// ui-layout with the panel id brand, and the `settings.aux` trigger-row list
+// the entry registers into, declared by the settings contract.
 import type { MainPanelId } from '@deepseek-ai/dsh-client-ui-layout/client'
-import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
+import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 // Type-only: the ctx.remote Context merge and the forwarded-event key face.
 import type {} from '@deepseek-ai/dsh-api-remotes/client'
@@ -21,7 +21,7 @@ import type {} from '@deepseek-ai/dsh-api-remotes/client'
 // through the owning package's client-safe types subpath).
 import type {} from '@deepseek-ai/dsh-plugin-manager/types'
 import { PluginManagerPage } from './PluginManagerPage.tsx'
-import { PluginsPanelIcon } from './PluginsPanelIcon.tsx'
+import { PluginsFooterButton } from './PluginsFooterButton.tsx'
 import { configLedgerSource } from './config-ledger.ts'
 import { PluginManagerController } from './manager-store.ts'
 import { en, zh, type PluginManagerLocaleKey } from './locales.ts'
@@ -49,7 +49,7 @@ export const NS = 'pluginManager'
 export const PANEL_ID = 'plugins' as MainPanelId
 
 /** Services required by the sidebar registration and the Remote methods; the inventory says whether the Host manages a profile. */
-export const inject = ['slots', 'locale', 'remote', 'remote.pluginManager', 'remote.pluginInventory', 'remote.pluginRegistryProbe', 'configForms']
+export const inject = ['slots', 'locale', 'layout', 'remote', 'remote.pluginManager', 'remote.pluginInventory', 'remote.pluginRegistryProbe', 'configForms']
 
 /**
  * Contribute the Plugins entry to the sidebar with the management page it
@@ -58,7 +58,6 @@ export const inject = ['slots', 'locale', 'remote', 'remote.pluginManager', 'rem
  */
 export function apply(ctx: ClientContext): void {
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'ui-plugin-manager: dictionaries')
-  const t = ctx.locale.bind(NS)
   const controller = new PluginManagerController(ctx)
   ctx.effect(() => () => { controller.dispose() }, 'ui-plugin-manager: controller')
   // The Host says when what is installed, enabled, or composed changed — from
@@ -97,12 +96,12 @@ export function apply(ctx: ClientContext): void {
       'plugins.detail.section': { kind: 'list', scope: 'root' },
     },
   }, PluginManagerPage))
-  ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({
-    name: 'sidebar.panellist',
+  ctx.slots.inject('settings.aux', () => ctx.slots.register({
+    name: 'settings.aux',
     id: PANEL_ID,
     order: 0,
-    label: () => t('panel'),
     locale: NS,
-  }, PluginsPanelIcon))
+    inject: () => ({ open: () => { ctx.layout.selectPanel(PANEL_ID) } }),
+  }, PluginsFooterButton))
 
 }
