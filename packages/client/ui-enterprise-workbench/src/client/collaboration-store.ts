@@ -98,6 +98,15 @@ export interface CreateCollaboration {
   readonly dutyEmployeeIds?: readonly string[]
 }
 
+/** One file an agent session presented, shown as a card on its room reply. */
+export interface RoomPresentedFile {
+  readonly path: string
+  readonly description?: string
+  readonly seq: number
+  readonly index: number
+  readonly downloadUrl: string
+}
+
 /** Fetch signature injectable without global browser state. */
 export type CollaborationFetch = (url: string, init?: RequestInit) => Promise<Response>
 
@@ -211,6 +220,9 @@ function eventPage(value: unknown): { items: RoomEvent[]; nextCursor: string | n
   const row = record(value)
   return { items: array(row['items']).map(roomEvent), nextCursor: row['nextCursor'] === null ? null : string(row['nextCursor']) }
 }
+/** Sequence sentinel for optimistic echoes; sorts after every real event. */
+const PENDING_SEQUENCE = '999999999999999999999'
+
 function appendUnique(current: readonly RoomEvent[], incoming: readonly RoomEvent[]): RoomEvent[] {
   const seen = new Set(current.map(item => item.id))
   const additions = incoming.filter((item) => { if (seen.has(item.id)) return false; seen.add(item.id); return true })
@@ -236,6 +248,7 @@ export class CollaborationController {
   private pendingReaction: { fingerprint: string; id: string } | undefined
   private readonly executionSessionIds = new Set<string>()
   private readonly acknowledgedSequences = new Map<string, string>()
+  private readonly presentedCache = new Map<string, readonly RoomPresentedFile[]>()
 
   /** @param fetch - Authenticated same-origin transport.
    * @param inspectSession - Native Session navigation for an execution source link.
@@ -280,7 +293,10 @@ export class CollaborationController {
   async acknowledgeVisible(): Promise<void> {
     const state = this.state.getSnapshot()
     const id = state.selection?.detail.id
-    const sequence = state.events.at(-1)?.sequence
+    const last = state.events.at(-1)
+    // A pending echo has no server sequence; acknowledging it would fail.
+    if (last?.id.startsWith('pending-') === true) return
+    const sequence = last?.sequence
     if (this.mainPanel !== 'enterprise-collaboration' || state.roomPhase !== 'ready'
       || id === undefined || sequence === undefined || this.acknowledgedSequences.get(id) === sequence) return
     try {
@@ -502,6 +518,20 @@ export class CollaborationController {
     const messageId = this.pendingMessage.id
     const request = new AbortController()
     this.patch({ busy: true, error: null })
+    // Optimistic echo: the request also drives the agent dispatch chain, so
+    // show the post immediately and reconcile with the signed event on return.
+    const viewerId = selected.detail.viewerUserId
+    const viewerName = selected.detail.humanMembers?.find(member => member.userId === viewerId)?.displayName ?? viewerId
+    const echo: RoomEvent = {
+      sequence: PENDING_SEQUENCE, id: `pending-${messageId}`, pubkey: '', created_at: Math.floor(Date.now() / 1000),
+      kind: 9, tags: [], content: text, sig: '',
+      author: { kind: 'human', id: viewerId, displayName: viewerName },
+      delivery: 'pending',
+    }
+    this.patch({
+      events: appendUnique(this.state.getSnapshot().events, [echo]),
+      ...(options.threadRoot === undefined ? {} : { threadEvents: appendUnique(this.state.getSnapshot().threadEvents, [echo]) }),
+    })
     try {
       const result = record(await this.read(`/${encodeURIComponent(selected.detail.id)}/messages`, request.signal, {
         text, messageId,
@@ -520,15 +550,31 @@ export class CollaborationController {
       }))
       this.pendingMessage = undefined
       if (this.state.getSnapshot().selection?.detail.id === selected.detail.id) {
+        const dropPending = (events: readonly RoomEvent[]): RoomEvent[] => events.filter(item => item.id !== echo.id)
         this.patch({
           busy: false,
-          events: appendUnique(this.state.getSnapshot().events, [posted]),
-          ...(options.threadRoot === undefined ? {} : { threadEvents: appendUnique(this.state.getSnapshot().threadEvents, [posted]) }),
+          events: appendUnique(dropPending(this.state.getSnapshot().events), [posted]),
+          ...(options.threadRoot === undefined ? {}
+            : { threadEvents: appendUnique(dropPending(this.state.getSnapshot().threadEvents), [posted]) }),
         })
       }
       return true
     } catch (error) {
-      if (!this.cancelled(request)) { if (!this.revoke(error)) this.patch({ busy: false, error: error instanceof HttpFailure ? error.message : 'request-failed' }) }
+      const failed = (events: readonly RoomEvent[]): RoomEvent[] => events.map((event) => {
+        if (event.id === echo.id) return { ...event, delivery: 'failed' as const }
+        return event
+      })
+      if (!this.cancelled(request)) {
+        if (!this.revoke(error)) {
+          const snapshot = this.state.getSnapshot()
+          this.patch({
+            busy: false,
+            events: failed(snapshot.events),
+            threadEvents: failed(snapshot.threadEvents),
+            error: error instanceof HttpFailure ? error.message : 'request-failed',
+          })
+        }
+      }
       return false
     }
   }
@@ -626,6 +672,29 @@ export class CollaborationController {
   /** Same-origin download URL for one room attachment. */
   attachmentUrl(roomId: string, attachmentId: string): string {
     return `/enterprise/surfaces/${encodeURIComponent(roomId)}/attachments/${encodeURIComponent(attachmentId)}`
+  }
+
+  /** Read the files an agent session presented; cached per session for the room lifetime. */
+  async presentedFiles(sessionId: string): Promise<readonly RoomPresentedFile[]> {
+    const cached = this.presentedCache.get(sessionId)
+    if (cached !== undefined) return cached
+    const response = await this.fetch(`/enterprise/session-context/presented/${encodeURIComponent(sessionId)}`, {
+      credentials: 'same-origin',
+    })
+    if (!response.ok) throw new HttpFailure(response.status)
+    const row = record(await response.json())
+    const files = array(row['files']).map((value) => {
+      const item = record(value)
+      const seq = count(item['seq']), index = count(item['index'])
+      return {
+        path: string(item['path']),
+        ...(item['description'] === undefined ? {} : { description: string(item['description']) }),
+        seq, index,
+        downloadUrl: `/api/present.download?sessionId=${encodeURIComponent(sessionId)}&seq=${String(seq)}&index=${String(index)}`,
+      }
+    })
+    this.presentedCache.set(sessionId, files)
+    return files
   }
 
   /** Merge this member's sidebar preferences for one room into the stored row. */

@@ -1,13 +1,14 @@
 /** Shared group/channel room in the existing SUNFLECK main panel. */
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
 import { IconCloseOutlineRegular, IconLoadingOutlineRegular, IconSearchOutlineRegular, IconSendOutlineRegular, IconUsersOutlineRegular, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
-import type { CollaborationController, CollaborationState, RoomEvent } from './collaboration-store.ts'
+import type { CollaborationController, CollaborationState, RoomEvent, RoomPresentedFile } from './collaboration-store.ts'
 import type { CollaborationChoices } from './CollaborationNavigation.tsx'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-locale/client'
 import { ChannelWorkflowEditor } from './ChannelWorkflowEditor.tsx'
 import { ChannelDecisionQueue } from './ChannelDecisionQueue.tsx'
 import { CollaborationGroupDetails } from './CollaborationGroupDetails.tsx'
 import { dicebearAvatarUrl } from './avatar.ts'
+import { MarkdownText, type MarkdownLabels } from '@deepseek-ai/dsh-client-ui-primitives'
 import 'emoji-picker-element'
 import css from './CollaborationRoom.module.css'
 
@@ -65,7 +66,7 @@ export function stripReplyBoilerplate(content: string): string {
   return stripped.trim() === '' ? content : stripped
 }
 
-function Entry({ event, reactions, self, avatarUrl, attachmentUrlFor, workflowDetails, working, threadReplies,
+function Entry({ event, reactions, self, avatarUrl, attachmentUrlFor, workflowDetails, working, threadReplies, presented,
   threadAvatarFor = () => undefined, onThread, onReaction, onInspect, t }: {
   readonly event: RoomEvent
   readonly reactions: readonly ReactionSummary[]
@@ -75,6 +76,7 @@ function Entry({ event, reactions, self, avatarUrl, attachmentUrlFor, workflowDe
   readonly workflowDetails?: readonly RoomEvent[]
   readonly working?: readonly WorkingChip[]
   readonly threadReplies?: readonly RoomEvent[]
+  readonly presented?: readonly RoomPresentedFile[]
   readonly threadAvatarFor?: (authorId: string) => string | undefined
   readonly onThread: (id: string) => void
   readonly onReaction: (id: string, emoji: string) => void
@@ -83,6 +85,10 @@ function Entry({ event, reactions, self, avatarUrl, attachmentUrlFor, workflowDe
 }) {
   const [pickerOpen, setPickerOpen] = useState(false)
   const pickerRef = useRef<HTMLElement | null>(null)
+  const markdownLabels: MarkdownLabels = {
+    code: { copyLabel: t('markdownCopy'), copiedLabel: t('markdownCopied') },
+    footnotes: t('markdownFootnotes'),
+  }
   const mine = reactions.find(reaction => reaction.mine)
   useEffect(() => {
     if (!pickerOpen) return
@@ -120,7 +126,20 @@ function Entry({ event, reactions, self, avatarUrl, attachmentUrlFor, workflowDe
           </span>
         </span>}
       </div>
-      <p className={css.content}>{event.author.kind === 'employee' ? stripReplyBoilerplate(event.content) : event.content}</p>
+      {event.author.kind === 'employee'
+        ? <div className={css.contentMarkdown}><MarkdownText text={stripReplyBoilerplate(event.content)} labels={markdownLabels}/></div>
+        : <p className={css.content}>{event.content}</p>}
+      {presented !== undefined && presented.length > 0 && <div className={css.fileCards}>{presented.map(file => (
+        <div className={css.fileCardInner}>
+          <span className={css.fileCardIcon} aria-hidden="true">{(file.path.split('.').pop() ?? '').slice(0, 4).toUpperCase()}</span>
+          <span className={css.fileCardBody}>
+            <span className={css.fileCardName}>{file.path.split('/').pop() ?? file.path}</span>
+            {file.description !== undefined && <span className={css.fileCardDesc}>{file.description}</span>}
+          </span>
+          <a className={css.fileCardDownload} href={file.downloadUrl} download
+            aria-label={`${t('attachment')} ${file.path.split('/').pop() ?? file.path}`}>⬇</a>
+        </div>
+      ))}</div>}
       {event.attachments !== undefined && <div className={css.attachments}>{event.attachments.map(file => (
         <a key={file.attachmentId} className={css.fileChip} href={attachmentUrlFor(file.attachmentId)}
           target="_blank" rel="noreferrer" aria-label={`${t('attachment')} ${file.name}`}>
@@ -379,6 +398,24 @@ export function CollaborationRoom({ state, controller, loadChoices, t }: {
   // initial.
   const avatars = useMemo(() => new Map((selected?.detail.members ?? []).map(member =>
     [member.employeeId, dicebearAvatarUrl(member.avatarSeed ?? member.employeeId)] as const)), [selected?.detail.members])
+  // Agent replies carry the work Session that produced them; fetch its
+  // presented files once per Session so answers can show file cards.
+  const sourceSessions = useMemo(() => new Set(state.events.flatMap((event) => {
+    if (event.author.kind !== 'employee' || event.sourceSessionId === undefined) return []
+    return [event.sourceSessionId]
+  })), [state.events])
+  const [presentedFiles, setPresentedFiles] = useState<ReadonlyMap<string, readonly RoomPresentedFile[]>>(new Map())
+  useEffect(() => {
+    let live = true
+    for (const sessionId of sourceSessions) {
+      if (presentedFiles.has(sessionId)) continue
+      void controller.presentedFiles(sessionId)
+        .then((files) => { if (live) setPresentedFiles(current => new Map(current).set(sessionId, files)) })
+        .catch(() => {})
+    }
+    return () => { live = false }
+  }, [controller, sourceSessions, presentedFiles])
+  const presentedFor = (sessionId: string): readonly RoomPresentedFile[] | undefined => presentedFiles.get(sessionId)
   // Group one agent reply: the employee's tool/progress events fold into their
   // next signed answer as collapsed details; a mentioned employee without an
   // answer yet renders a working chip on the mentioning message. Orphan
@@ -433,7 +470,11 @@ export function CollaborationRoom({ state, controller, loadChoices, t }: {
           // A further signed message from the same reply run folds into the
           // main answer instead of rendering as its own timeline row.
           const main = runAnswerItem.get(event.author.id)
-          if (main !== undefined) main.workflowDetails = [...(main.workflowDetails ?? []), event]
+          if (main !== undefined) {
+            // Fold the follow-up message plus any tool events it carried.
+            main.workflowDetails = [...(main.workflowDetails ?? []), event, ...(pending.get(event.author.id) ?? [])]
+            pending.delete(event.author.id)
+          }
           continue
         }
         runAnswered.add(event.author.id)
@@ -506,16 +547,20 @@ export function CollaborationRoom({ state, controller, loadChoices, t }: {
               void controller.loadOlder()
             }}>{t('loadOlder')}</button>}
             {timeline.length === 0 && <div className={css.center}>{t('emptyRoom')}</div>}
-            {displayItems.map(item => <Entry key={item.event.id} event={item.event}
-              reactions={reactionSummaries(state.events, item.event.id, detail.viewerUserId)}
-              self={isSelf(item.event)} avatarUrl={avatarFor(item.event)}
-              attachmentUrlFor={attachmentUrlFor} threadAvatarFor={authorId => avatars.get(authorId)}
-              {...(item.workflowDetails === undefined ? {} : { workflowDetails: item.workflowDetails })}
-              {...(item.working === undefined ? {} : { working: item.working })}
-              {...(item.threadReplies === undefined ? {} : { threadReplies: item.threadReplies })}
-              onThread={(id) => { void controller.openThread(id) }}
-              onReaction={(id, emoji) => { void controller.react(id, emoji) }}
-              onInspect={(id) => { void controller.inspect(id) }} t={t}/>)}
+            {displayItems.map((item) => {
+              const presented = item.event.sourceSessionId === undefined ? undefined : presentedFor(item.event.sourceSessionId)
+              return <Entry key={item.event.id} event={item.event}
+                reactions={reactionSummaries(state.events, item.event.id, detail.viewerUserId)}
+                self={isSelf(item.event)} avatarUrl={avatarFor(item.event)}
+                attachmentUrlFor={attachmentUrlFor} threadAvatarFor={authorId => avatars.get(authorId)}
+                {...(item.workflowDetails === undefined ? {} : { workflowDetails: item.workflowDetails })}
+                {...(item.working === undefined ? {} : { working: item.working })}
+                {...(item.threadReplies === undefined ? {} : { threadReplies: item.threadReplies })}
+                {...(presented === undefined ? {} : { presented })}
+                onThread={(id) => { void controller.openThread(id) }}
+                onReaction={(id, emoji) => { void controller.react(id, emoji) }}
+                onInspect={(id) => { void controller.inspect(id) }} t={t}/>
+            })}
           </>}
         </div>}
         {state.error !== null && <p className={css.error} role="alert">{t(state.error === 'forbidden' ? 'forbidden' : 'requestFailed')}</p>}

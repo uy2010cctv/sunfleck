@@ -15,6 +15,14 @@ import { employeeReleaseProjectionDefinition } from './employee-session.ts'
 import type { EmployeeReleaseSelection } from './contract/work.ts'
 import { failure, methodFailure } from './http.ts'
 
+/** One file a session presented, addressable through the download route. */
+export interface PresentedFileEntry {
+  readonly path: string
+  readonly description?: string
+  readonly seq: number
+  readonly index: number
+}
+
 /** Published employee metadata, without runtime prompts or internal paths. */
 export interface SessionContextEmployee {
   readonly id: string
@@ -33,6 +41,10 @@ export interface SessionContextDependencies {
   sessionEmployee?: (sessionId: string) => Promise<EmployeeReleaseSelection | undefined>
   /** Resolves visible metadata from the exact pinned release. */
   employee: (principal: EnterprisePrincipal, selected: EmployeeReleaseSelection) => Promise<SessionContextEmployee | undefined>
+  /** Lists the files the session presented, for room members reading an agent reply. */
+  presentedFiles?: (sessionId: string) => Promise<readonly PresentedFileEntry[]>
+  /** Whether the principal is a member of the room that bound this Session. */
+  roomMember?: (principal: EnterprisePrincipal, sessionId: string) => Promise<boolean>
   /** Resolves private memory only for an ordinary owned Session with a matching employee selection. */
   privateActor: (principal: EnterprisePrincipal, sessionId: string, selected: EmployeeReleaseSelection) => Promise<Pick<SessionMemoryActor, 'employeeId' | 'userId'> | undefined>
   projects?: Pick<EnterpriseProjects, 'list' | 'requireMember'>
@@ -55,6 +67,10 @@ export class SessionContextHttpHandler {
     if (principal === undefined) return failure(401, 'unauthenticated')
     if (request.method !== 'GET') return methodFailure('GET')
     const parts = new URL(request.url).pathname.split('/').filter(Boolean)
+    if (parts.length === 4 && parts[0] === 'enterprise' && parts[1] === 'session-context' && parts[2] === 'presented'
+      && parts[3] !== undefined) {
+      return this.fetchPresented(principal, decodeURIComponent(parts[3]))
+    }
     const encodedSessionId = parts[2]
     if (parts.length !== 3 || parts[0] !== 'enterprise' || parts[1] !== 'session-context' || encodedSessionId === undefined) return failure(404, 'not-found')
     const sessionId = decodeURIComponent(encodedSessionId)
@@ -126,6 +142,20 @@ export class SessionContextHttpHandler {
       })),
     })
   }
+
+  /** Serve the presented-file list for one Session after member or session access.
+   * @param principal - Authenticated principal.
+   * @param sessionId - Native Session whose agent reply is being rendered.
+   * @returns The presented files with their download coordinates.
+   */
+  private async fetchPresented(principal: EnterprisePrincipal, sessionId: string): Promise<Response> {
+    if (this.deps.presentedFiles === undefined) return failure(503, 'session-context-unavailable')
+    const accessible = await this.deps.security.sessionAccessibleBy(principal, sessionId)
+    if (!accessible && !(this.deps.roomMember !== undefined && await this.deps.roomMember(principal, sessionId))) {
+      return failure(403, 'forbidden')
+    }
+    return Response.json({ sessionId, files: await this.deps.presentedFiles(sessionId) })
+  }
 }
 
 /** Compose read-only Session context from the mounted native and enterprise services.
@@ -152,6 +182,32 @@ export function composeSessionContext(ctx: Context): SessionContextHttpHandler {
       for (const event of observation.events) selected = employeeReleaseProjectionDefinition.apply(selected, event)
       return selected ?? undefined
     } }),
+    ...(query === undefined ? {} : { presentedFiles: async (id: string) => {
+      using observation = await query.observeSession(brandString<SessionId>(id))
+      const files: PresentedFileEntry[] = []
+      for (const event of observation.events) {
+        // The observation union is narrower than the log: presented files ride
+        // a deliverables event type this package's union omits.
+        const presented = event as unknown as {
+          type: string
+          seq: number
+          data: { files: readonly { path: unknown; description?: unknown }[] }
+        }
+        if (presented.type !== 'deliverables/presented') continue
+        presented.data.files.forEach((file, index) => {
+          if (typeof file.path !== 'string' || file.path === '') return
+          const description = typeof file.description === 'string' && file.description !== '' ? file.description : undefined
+          files.push({ path: file.path, ...(description === undefined ? {} : { description }), seq: presented.seq, index })
+        })
+      }
+      return files
+    } }),
+    roomMember: async (principal, id) => {
+      const binding = await postgres.collaboration.bySession(id)
+      if (binding === undefined) return false
+      const room = await postgres.collaboration.get(principal.orgId, binding.surfaceId)
+      return room !== undefined && room.memberUserIds.includes(principal.userId)
+    },
     employee: async (principal, selected) => {
       if (!(await security.authorizeApiAsync(principal, 'enterpriseEmployee.getDraft', { presetId: selected.employeeId })).allowed) return undefined
       const release = await postgres.catalog.getRelease(selected.releaseId, principal.orgId)

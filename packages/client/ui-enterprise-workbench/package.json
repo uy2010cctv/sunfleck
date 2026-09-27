@@ -108,6 +108,7 @@
     "lib/types/**/*.d.ts"
   ],
   "dependencies": {
+    "@deepseek-ai/dsh-client-ui-deliverables": "workspace:^",
     "emoji-picker-element": "1.29.1",
     "qrcode": "1.5.4"
   }

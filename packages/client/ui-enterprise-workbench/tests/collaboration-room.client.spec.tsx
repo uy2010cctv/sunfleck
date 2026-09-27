@@ -129,6 +129,24 @@ describe('shared room UI', () => {
     controller.dispose()
   })
 
+  it('shows presented file cards on the agent reply that carries a work Session', async () => {
+    const presentedFiles = [{ path: 'reports/BRIEF.md', description: 'Lead 汇总的趋势洞察', seq: 40, index: 0,
+      downloadUrl: '/api/present.download?sessionId=session-work-1&seq=40&index=0' }]
+    const { controller, state, t } = setup()
+    const presented = vi.spyOn(controller, 'presentedFiles').mockResolvedValue(presentedFiles)
+    const selected = state.selection
+    if (selected === null) throw new Error('room selection missing')
+    const answer: RoomEvent = { ...research, id: 'answer-9', sequence: '400',
+      sourceSessionId: 'session-work-1', content: '报告已完成。' }
+    const withAnswer = { ...state, events: [human, answer] }
+    render(<CollaborationRoom controller={controller} state={withAnswer} t={t}/>)
+    expect(presented).toHaveBeenCalledWith('session-work-1')
+    expect(await screen.findByText('BRIEF.md')).toBeTruthy()
+    const download = screen.getByRole('link', { name: /BRIEF.md/ })
+    expect(download.getAttribute('href')).toContain('/api/present.download?sessionId=session-work-1&seq=40&index=0')
+    controller.dispose()
+  })
+
   it('dismisses member mentions with Escape and returns focus to the composer', () => {
     const { controller, state, t } = setup([])
     render(<CollaborationRoom controller={controller} state={state} t={t}/>)
@@ -222,6 +240,22 @@ describe('shared room UI', () => {
     view.rerender(<CollaborationRoom controller={controller} state={{ ...state, selection: null }} t={t}/>)
     view.rerender(<CollaborationRoom controller={controller} state={state} t={t}/>)
     expect(view.container.textContent).toContain('Q4 续约')
+    controller.dispose()
+  })
+
+  it('echoes the human post immediately and reconciles it with the signed event', async () => {
+    const { controller, state, t } = setup()
+    let resolveSend: ((response: Response) => void) | undefined
+    vi.spyOn(controller, 'fetch').mockImplementationOnce(() => new Promise<Response>((resolve) => { resolveSend = resolve }))
+      .mockImplementation(async (url: string) => Response.json(
+        url.endsWith('/events?limit=100') ? { items: [], nextCursor: null } : state.selection?.detail ?? {}))
+    render(<CollaborationRoom controller={controller} state={state} t={t}/>)
+    fireEvent.change(screen.getByRole('textbox', { name: '消息' }), { target: { value: '即时上屏' } })
+    fireEvent.click(screen.getByRole('button', { name: '发送' }))
+    // The optimistic echo appears before the response lands.
+    expect(screen.getByText('即时上屏')).toBeTruthy()
+    resolveSend?.(Response.json({ delivered: true, event: { ...human, id: 'signed-1', content: '即时上屏' }, targets: [] }))
+    await waitFor(() => { expect(screen.queryByText('即时上屏')).toBeTruthy() })
     controller.dispose()
   })
 

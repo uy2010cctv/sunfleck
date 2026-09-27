@@ -88,6 +88,10 @@
 .workflowDetails li { display: grid; gap: 2px; font-size: 12px; line-height: 1.5; }
 .detailMeta { color: var(--dsw-alias-label-secondary); font-size: 11px; }
 .detailContent { white-space: pre-wrap; overflow-wrap: anywhere; }
+.fileCards { display: flex; gap: 8px; flex-wrap: wrap; margin: 8px 0 2px; }
+.fileCards > * { min-width: 200px; }
+.fileCardDownload { display: inline-grid; place-items: center; width: 28px; height: 28px; flex: none; border-radius: 50%; background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-label-primary); text-decoration: none; font-size: 13px; }
+.fileCardDownload:hover { background: var(--dsw-alias-interactive-bg-hover); }
 .fileChip { display: inline-flex; align-items: center; gap: 8px; max-width: 320px; border: 1px solid var(--dsw-alias-border-l1); border-radius: 10px; padding: 6px 10px; background: var(--dsw-alias-bg-layer-1); color: var(--dsw-alias-label-primary); text-decoration: none; font-size: 12px; }
 .fileChip:hover { background: var(--dsw-alias-interactive-bg-hover); }
 .filePreview { width: 44px; height: 44px; flex: none; border-radius: 6px; object-fit: cover; }
