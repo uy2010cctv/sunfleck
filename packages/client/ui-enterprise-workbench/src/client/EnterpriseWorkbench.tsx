@@ -158,8 +158,8 @@ export type EnterpriseWorkbenchProps = PropsRuntime<'shell.overlay'>
 type Translate = (key: EnterpriseWorkbenchKey, params?: Record<string, string | number>) => string
 const LEGACY_TEAM_OWNER_SENTINEL = 'system:legacy-fixed-team-migration'
 const NAV_GROUPS: readonly { label: EnterpriseWorkbenchKey; items: readonly [EnterpriseWorkbenchPage, EnterpriseWorkbenchKey][] }[] = [
-  { label: 'nav.use', items: [['employees', 'nav.employees'], ['projects', 'nav.projects'], ['devices', 'nav.devices'], ['work-records', 'nav.work-records'], ['approvals', 'nav.approvals'], ['attention', 'nav.attention']] },
-  { label: 'nav.manage', items: [['schedules', 'nav.schedules'], ['assets', 'nav.assets'], ['teams', 'nav.teams'], ['channels', 'nav.channels'], ['extensions', 'nav.extensions']] },
+  { label: 'nav.use', items: [['employees', 'nav.employees'], ['devices', 'nav.devices'], ['approvals', 'nav.approvals'], ['attention', 'nav.attention']] },
+  { label: 'nav.manage', items: [['projects', 'nav.projects'], ['work-records', 'nav.work-records'], ['schedules', 'nav.schedules'], ['assets', 'nav.assets'], ['teams', 'nav.teams'], ['channels', 'nav.channels'], ['extensions', 'nav.extensions']] },
 ]
 
 function formatDate(value: number): string {
