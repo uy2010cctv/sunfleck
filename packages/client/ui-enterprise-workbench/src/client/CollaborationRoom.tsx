@@ -430,14 +430,14 @@ export function CollaborationRoom({ state, controller, loadChoices, t }: {
       if (event.author.kind === 'employee' && event.kind === 9) answeredSeq.set(event.author.id, event.sequence)
     }
     const members = new Map((selected?.detail.members ?? []).map(member => [member.employeeId, member.displayName]))
-    // In channels every agent reply belongs to the thread of the message that
-    // triggered it: claim those events so the main timeline stays human-only.
+    // In channels every reply belongs to the thread of the message it answers:
+    // claim human and agent replies alike so the main timeline stays root-only.
     const isChannel = (selected?.detail.kind ?? 'group') === 'channel'
     const threadReplies = new Map<string, RoomEvent[]>()
     if (isChannel) {
-      const humanIds = new Set(timeline.filter(event => event.author.kind === 'human').map(event => event.id))
+      const rootIds = new Set(timeline.filter(event => event.threadRoot === undefined).map(event => event.id))
       for (const event of timeline) {
-        if (event.author.kind !== 'employee' || event.threadRoot === undefined || !humanIds.has(event.threadRoot)) continue
+        if (event.threadRoot === undefined || !rootIds.has(event.threadRoot)) continue
         const list = threadReplies.get(event.threadRoot) ?? []
         list.push(event)
         threadReplies.set(event.threadRoot, list)
@@ -455,8 +455,7 @@ export function CollaborationRoom({ state, controller, loadChoices, t }: {
     const runAnswered = new Set<string>()
     const runAnswerItem = new Map<string, TimelineItem>()
     for (const event of timeline) {
-      if (isChannel && event.author.kind === 'employee' && event.threadRoot !== undefined
-        && threadReplies.has(event.threadRoot)) continue
+      if (isChannel && event.threadRoot !== undefined && threadReplies.has(event.threadRoot)) continue
       if (event.author.kind === 'employee' && event.kind !== 9) {
         const list = pending.get(event.author.id) ?? []
         list.push(event)

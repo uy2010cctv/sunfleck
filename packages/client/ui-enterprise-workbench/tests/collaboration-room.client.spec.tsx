@@ -108,9 +108,12 @@ describe('shared room UI', () => {
     const initial = render(<CollaborationRoom controller={controller} state={state} t={t}/>)
     expect(initial.container.querySelector('button[aria-label="在线程中回复"]')).toBeNull()
     initial.unmount()
+    // Human replies inside the thread also leave the main timeline.
+    const humanReply: RoomEvent = { ...human, id: 'human-reply', sequence: '500', threadRoot: human.id, content: '线程里的补充' }
     const reply: RoomEvent = { ...research, id: 'reply-1', threadRoot: human.id, content: '已收到协作消息。' }
-    const channelState = { ...state, selection: { detail: { ...state.selection!.detail, kind: 'channel' as const } }, events: [human, reply] }
+    const channelState = { ...state, selection: { detail: { ...state.selection!.detail, kind: 'channel' as const } }, events: [human, humanReply, reply] }
     render(<CollaborationRoom controller={controller} state={channelState} t={t}/>)
+    expect(screen.queryByText('线程里的补充')).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: /条回复/ }))
     expect(thread).toHaveBeenCalledWith('human')
     fireEvent.click(screen.getByRole('button', { name: '搜索会话' }))
