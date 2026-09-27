@@ -1,6 +1,6 @@
 /** Group/channel rows and pre-session choices inside the existing native shell. */
 import { useEffect, useState } from 'react'
-import { IconNewChatOutlineRegular, IconPlusOutlineRegular, IconRefreshOutlineRegular, IconUsersOutlineRegular, Tooltip, IconLoadingOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
+import { IconEllipsisOutlineRegular, IconNewChatOutlineRegular, IconPlusOutlineRegular, IconRefreshOutlineRegular, IconUsersOutlineRegular, Menu, Tooltip, IconLoadingOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { SnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-locale/client'
@@ -43,6 +43,7 @@ export function collaborationError(error: string, t: Copy): string {
 /** Render one group or channel list inside the left navigation. */
 export function CollaborationSidebar({ wide, expandSidebar, usePanelInfo, useCollaboration, controller, t, kind: selectedKind }: Pick<PropsRuntime<'sidebar.workspaces.navigation.tab'>, 'wide' | 'expandSidebar' | 'usePanelInfo'> & InjectFace<CollaborationInjected> & PropsLocale<'enterprise.collaboration'> & { kind?: 'group' | 'channel' }) {
   const state = useCollaboration(value => value)
+  const [menuRoom, setMenuRoom] = useState<string | null>(null)
   const panelId = usePanelInfo(info => info.activePanelId)
   useEffect(() => { controller.setMainPanel(panelId) }, [controller, panelId])
   useEffect(() => { if (state.phase === 'idle') void controller.refresh() }, [controller, state.phase])
@@ -53,9 +54,43 @@ export function CollaborationSidebar({ wide, expandSidebar, usePanelInfo, useCol
         {wide ? <span>{t(kind === 'group' ? 'groups' : 'channels')}</span> : <Tooltip label={t(kind === 'group' ? 'groups' : 'channels')} side="right"><button type="button" className={css.iconButton} onClick={expandSidebar} aria-label={t(kind === 'group' ? 'groups' : 'channels')}>{kind === 'group' ? <IconUsersOutlineRegular size={18}/> : <IconNewChatOutlineRegular size={18}/>}</button></Tooltip>}
         {wide && <Tooltip label={t(kind === 'group' ? 'addGroup' : 'addChannel')}><button type="button" className={css.iconButton} onClick={() => { controller.beginCreate(kind) }} aria-label={t(kind === 'group' ? 'addGroup' : 'addChannel')}><IconPlusOutlineRegular size={14}/></button></Tooltip>}
       </div>
-      {wide && (state.phase === 'loading' && state.surfaces.length === 0 ? <div className={css.skeleton} aria-hidden="true"/> : state.surfaces.filter(row => row.kind === kind).map(row => <button type="button" key={row.id} className={css.row} aria-current={state.selection?.detail.id === row.id ? 'page' : undefined} disabled={state.busy} onClick={() => { void controller.select(row.id) }}>
-        {kind === 'group' ? <IconUsersOutlineRegular size={14}/> : <IconNewChatOutlineRegular size={14}/>}<span>{row.name}</span>
-      </button>))}
+      {wide && (state.phase === 'loading' && state.surfaces.length === 0 ? <div className={css.skeleton} aria-hidden="true"/> : state.surfaces.filter(row => row.kind === kind)
+        .slice().sort((a, b) => Number(b.prefs?.pinned === true) - Number(a.prefs?.pinned === true))
+        .map((row) => {
+          const muted = row.prefs?.muted === true
+          const unread = row.attention?.unread ?? 0
+          return <div key={row.id} className={css.rowWrap} data-active={state.selection?.detail.id === row.id || undefined}>
+            <button type="button" className={css.row} aria-current={state.selection?.detail.id === row.id ? 'page' : undefined} disabled={state.busy} onClick={() => { void controller.select(row.id) }}>
+              {kind === 'group' ? <IconUsersOutlineRegular size={14}/> : <IconNewChatOutlineRegular size={14}/>}
+              <span className={css.rowName}>{row.name}</span>
+              {row.prefs?.starred === true && <span className={css.starFlag} aria-hidden="true">★</span>}
+              {muted && <span className={css.muteFlag} title={t('mute')}>{t('muteBadge')}</span>}
+            </button>
+            {!muted && row.attention?.mentions === true && <span className={css.mentionBadge} title={t('mentionBadge')}>@</span>}
+            {!muted && row.attention?.newMessages === true && unread > 0 && <span className={css.unreadBadge}
+              title={t('unreadBadge', { count: unread })}>{unread > 99 ? '99+' : unread}</span>}
+            <Menu open={menuRoom === row.id} onClose={() => { setMenuRoom(null) }}
+              items={[
+                { id: 'pin', label: `${row.prefs?.pinned === true ? '✓ ' : ''}${t(row.prefs?.pinned === true ? 'unpin' : 'pin')}` },
+                { id: 'star', label: `${row.prefs?.starred === true ? '✓ ' : ''}${t(row.prefs?.starred === true ? 'unstar' : 'star')}` },
+                { id: 'mute', label: `${muted ? '✓ ' : ''}${t(muted ? 'unmute' : 'mute')}` },
+              ]}
+              onSelect={(id) => {
+                setMenuRoom(null)
+                void controller.setRoomPrefs(row.id,
+                  id === 'pin' ? { pinned: row.prefs?.pinned !== true }
+                    : id === 'star' ? { starred: row.prefs?.starred !== true }
+                      : { muted: row.prefs?.muted !== true })
+              }}
+              align="end" portal
+              anchor={<button type="button" className={css.rowMenu} aria-label={t('roomMenu')} aria-haspopup="menu"
+                aria-expanded={menuRoom === row.id}
+                onClick={() => { setMenuRoom(menuRoom === row.id ? null : row.id) }}>
+                <IconEllipsisOutlineRegular size={14}/>
+              </button>}
+            />
+          </div>
+        }))}
       {wide && state.phase === 'ready' && !state.surfaces.some(row => row.kind === kind) && <p className={css.empty}>{t(kind === 'group' ? 'emptyGroup' : 'emptyChannel')}</p>}
     </section>)}
     {wide && state.phase === 'error' && <div className={css.queryError} role="alert">{t('loadError')}<button type="button" onClick={() => { void controller.refresh() }}>{t('retry')}</button></div>}

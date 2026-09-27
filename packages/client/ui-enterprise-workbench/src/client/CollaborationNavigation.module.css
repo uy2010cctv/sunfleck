@@ -5,6 +5,17 @@
 .row { display: flex; align-items: center; width: 100%; min-height: 30px; padding: 5px 8px; gap: 8px; border: 0; border-radius: 6px; background: transparent; color: var(--dsw-alias-label-primary); font: inherit; font-size: 13px; cursor: pointer; text-align: start; }
 .row span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .row[aria-current='page'] { background: var(--dsw-alias-interactive-bg-hover); }
+.rowWrap { display: flex; align-items: center; position: relative; }
+.rowName { flex: 1; }
+.rowWrap[data-active='true'] .row { background: var(--dsw-alias-interactive-bg-hover); }
+.rowMenu { display: inline-grid; place-items: center; flex: none; width: 22px; height: 22px; margin-left: 2px; border: 0; border-radius: 5px; padding: 0; background: transparent; color: var(--dsw-alias-label-secondary); cursor: pointer; opacity: 0; transition: opacity 100ms ease; }
+.rowWrap:hover .rowMenu, .rowMenu[aria-expanded='true'], .rowWrap[data-active='true'] .rowMenu { opacity: 1; }
+.rowMenu:hover { background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-primary); }
+.mentionBadge { flex: none; display: inline-grid; place-items: center; min-width: 16px; height: 16px; margin-left: 2px; border-radius: 8px; padding: 0 4px; background: var(--dsw-alias-state-business-primary, #32cd32); color: var(--dsw-alias-label-primary-foreground, #fff); font-size: 11px; font-weight: 600; }
+.unreadBadge { flex: none; display: inline-grid; place-items: center; min-width: 16px; height: 16px; margin-left: 2px; border-radius: 8px; padding: 0 4px; background: var(--dsw-alias-state-error-primary, #e5534b); color: #fff; font-size: 11px; font-weight: 600; }
+.starFlag { flex: none; color: #f5b301; font-size: 11px; margin-left: 2px; }
+.muteFlag { flex: none; display: inline-grid; place-items: center; min-width: 14px; height: 14px; margin-left: 2px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 4px; color: var(--dsw-alias-label-secondary); font-size: 10px; }
+.rowWrap:has(.row:disabled) .rowMenu { opacity: 0; }
 .row svg { flex: none; }
 .empty { margin: 3px 8px 8px; color: var(--dsw-alias-label-secondary); font-size: 12px; }
 .refresh { margin-inline-start: 4px; }

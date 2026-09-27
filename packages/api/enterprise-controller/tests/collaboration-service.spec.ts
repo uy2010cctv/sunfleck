@@ -41,8 +41,26 @@ function setup(overrides: Partial<CollaborationRecord> = {}, room?: Record<strin
       attachments.set(value.attachmentId, { ...value, size: 2048 })
     },
     getAttachment: async (_surfaceId: string, attachmentId: string) => attachments.get(attachmentId),
+    roomPrefs: async (userId: string, surfaceIds: readonly string[]) => {
+      const map = new Map<string, { pinned: boolean; starred: boolean; muted: boolean }>()
+      const stored = prefsStore.get(userId)
+      if (stored !== undefined && surfaceIds.includes('surface')) map.set('surface', stored)
+      return map
+    },
+    setRoomPrefs: async (_surfaceId: string, userId: string,
+      patch: { readonly pinned?: boolean; readonly starred?: boolean; readonly muted?: boolean }) => {
+      const current = prefsStore.get(userId) ?? { pinned: false, starred: false, muted: false }
+      const merged = {
+        pinned: patch.pinned ?? current.pinned,
+        starred: patch.starred ?? current.starred,
+        muted: patch.muted ?? current.muted,
+      }
+      prefsStore.set(userId, merged)
+      return merged
+    },
   }
   const attachments = new Map<string, { attachmentId: string; name: string; mimeType: string; uploaderUserId: string; size: number }>()
+  const prefsStore = new Map<string, { pinned: boolean; starred: boolean; muted: boolean }>()
   const service = new CollaborationService(store as never, {
     refreshWorkspace: () => { publications.push(sessions.map(value => value.sessionId)) },
     workspaceVisible: async () => true,
@@ -66,7 +84,8 @@ describe('collaboration routing through native Sessions', () => {
     expect(await fixture.service.list(actor)).toEqual([{
       id: 'surface', kind: 'group', name: 'Support', memberCount: 4,
       projectId: 'project-q4', teamDefinitionId: 'charter-q4', workspaceId: 'shared', executionSessionIds: [],
-      attention: { newMessages: false, mentions: false },
+      attention: { newMessages: false, mentions: false, unread: 0 },
+      prefs: { pinned: false, starred: false, muted: false },
     }])
   })
   it('lists native execution Session ids for hiding duplicate Workspace rows', async () => {
@@ -180,6 +199,16 @@ describe('collaboration routing through native Sessions', () => {
       attachments: [{ attachmentId: 'missing' }] })).rejects.toMatchObject({ code: 'attachment-not-found', status: 404 })
     await expect(fixture.service.uploadAttachment(actor, 'surface', { name: 'big.bin', mimeType: 'application/octet-stream',
       data: Buffer.alloc(21 * 1024 * 1024) })).rejects.toMatchObject({ code: 'attachment-too-large', status: 413 })
+  })
+
+  it('lists preferences with the roster and lets members merge their own', async () => {
+    const fixture = setup({ adminUserId: 'alice' })
+    expect((await fixture.service.list(actor))[0]?.prefs).toEqual({ pinned: false, starred: false, muted: false })
+    expect(await fixture.service.setPrefs(actor, 'surface', { pinned: true })).toEqual({ pinned: true, starred: false, muted: false })
+    expect(await fixture.service.setPrefs(actor, 'surface', { muted: true })).toEqual({ pinned: true, starred: false, muted: true })
+    expect((await fixture.service.list(actor))[0]?.prefs).toEqual({ pinned: true, starred: false, muted: true })
+    await expect(fixture.service.setPrefs({ ...actor, userId: 'eve' }, 'surface', { pinned: true }))
+      .rejects.toMatchObject({ code: 'not-found' })
   })
 
   it('matches a full employee name with spaces and prefers the longest roster name', async () => {

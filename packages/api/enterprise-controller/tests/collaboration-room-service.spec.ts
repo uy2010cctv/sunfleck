@@ -22,6 +22,10 @@ function fixture(record: CollaborationRecord = room,
     list: async (_orgId: string, userId: string) => record.memberUserIds.includes(userId) ? [record] : [],
     bySession: async (id: string) => sessions.find(value => value.sessionId === id),
     bind: async (value: CollaborationSession) => { sessions.push(value) },
+    roomPrefs: async () => new Map(),
+    setRoomPrefs: async (_surfaceId: string, _userId: string,
+      patch: { pinned?: boolean; starred?: boolean; muted?: boolean }) =>
+      ({ pinned: patch.pinned ?? false, starred: patch.starred ?? false, muted: patch.muted ?? false }),
   } as never, {
     room: {
       appendHuman: async (actor: EnterprisePrincipal, _record: CollaborationRecord, input: CollaborationMessageInput,
@@ -37,10 +41,18 @@ function fixture(record: CollaborationRecord = room,
         return event
       },
       list: async () => events,
+      roomPrefs: async () => new Map(),
+      setRoomPrefs: async (_surfaceId: string, _userId: string,
+        patch: { pinned?: boolean; starred?: boolean; muted?: boolean }) =>
+        ({ pinned: patch.pinned ?? false, starred: patch.starred ?? false, muted: patch.muted ?? false }),
+      roomPrefs: async () => new Map(),
+      setRoomPrefs: async (_surfaceId: string, _userId: string,
+        patch: { pinned?: boolean; starred?: boolean; muted?: boolean }) =>
+        ({ pinned: patch.pinned ?? false, starred: patch.starred ?? false, muted: patch.muted ?? false }),
       attention: async (_record: CollaborationRecord, userId: string) => {
         const unread = events.filter(value => BigInt(value.sequence) > BigInt(read.get(userId) ?? '0')
           && !(value.authorKind === 'human' && value.authorId === userId) && value.event.kind === 9)
-        return { newMessages: unread.length > 0,
+        return { newMessages: unread.length > 0, unread: unread.length,
           mentions: unread.some(value => value.event.tags.some(tag => tag[0] === 'dsh-mention' && tag[1] === userId)) }
       },
       markRead: async (_record: CollaborationRecord, userId: string, sequence: string) => { read.set(userId, sequence); return true },
@@ -94,11 +106,11 @@ describe('one shared room timeline', () => {
   it('returns signed room attention and refuses read after Workspace access is revoked', async () => {
     const app = fixture()
     await app.service.message(alice, 'group', { text: 'Own post', messageId: 'a1' })
-    expect((await app.service.list(alice))[0]?.attention).toEqual({ newMessages: false, mentions: false })
+    expect((await app.service.list(alice))[0]?.attention).toEqual({ newMessages: false, mentions: false, unread: 0 })
     await app.service.message(bob, 'group', { text: 'For Alice', messageId: 'b1', mentionedUserIds: ['alice'] })
-    expect((await app.service.list(alice))[0]?.attention).toEqual({ newMessages: true, mentions: true })
+    expect((await app.service.list(alice))[0]?.attention).toEqual({ newMessages: true, mentions: true, unread: 1 })
     await app.service.markRead(alice, 'group', '2')
-    expect((await app.service.list(alice))[0]?.attention).toEqual({ newMessages: false, mentions: false })
+    expect((await app.service.list(alice))[0]?.attention).toEqual({ newMessages: false, mentions: false, unread: 0 })
     await expect(app.service.message(bob, 'group', { text: 'Invalid mention', mentionedUserIds: ['eve'] }))
       .rejects.toMatchObject({ code: 'human-not-member' })
     app.revoke()

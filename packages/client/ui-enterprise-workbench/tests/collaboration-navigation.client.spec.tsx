@@ -35,6 +35,34 @@ describe('native collaboration navigation', () => {
     expect(select).toHaveBeenCalledWith('c')
   })
 
+  it('shows mention and unread badges, hides them when muted, and pins rooms via the row menu', async () => {
+    const { controller, props } = setup()
+    controller.state.set({ ...controller.state.getSnapshot(), phase: 'ready', surfaces: [
+      { id: 'g-a', kind: 'group', name: '甲群', memberCount: 2,
+        attention: { newMessages: true, mentions: true, unread: 5 }, prefs: { pinned: false, starred: false, muted: false } },
+      { id: 'g-b', kind: 'group', name: '乙群', memberCount: 2,
+        attention: { newMessages: false, mentions: false, unread: 0 }, prefs: { pinned: true, starred: true, muted: false } },
+      { id: 'g-c', kind: 'group', name: '丙群', memberCount: 2,
+        attention: { newMessages: true, mentions: false, unread: 3 }, prefs: { pinned: false, starred: false, muted: true } },
+    ] })
+    const setRoomPrefs = vi.spyOn(controller, 'setRoomPrefs').mockResolvedValue(true)
+    render(<CollaborationSidebar {...props} wide expandSidebar={() => {}} />)
+    // Pinned 乙群 sorts first; muted 丙群 shows no badges.
+    const names = [...screen.getByRole('region', { name: '群聊' }).querySelectorAll('button')]
+      .map(node => node.textContent ?? '').filter(text => text.includes('群'))
+    expect(names[0]).toContain('乙群')
+    expect(names[2]).toContain('丙群')
+    expect(screen.getByText('5')).toBeTruthy()
+    expect(screen.getAllByTitle('有人@了你')).toHaveLength(1)
+    expect(screen.queryByText('3')).toBeNull()
+    expect(screen.getByText('★')).toBeTruthy()
+    expect(screen.getAllByTitle('免打扰')).toHaveLength(1)
+    // The row menu pins 甲群.
+    fireEvent.click(screen.getAllByRole('button', { name: '房间选项' })[1]!)
+    fireEvent.click(await screen.findByText('置顶'))
+    await waitFor(() => { expect(setRoomPrefs).toHaveBeenCalledWith('g-a', { pinned: true }) })
+  })
+
   it('opens channel navigation from the compact sidebar only after expanding', () => {
     const { props } = setup()
     props.controller.state.set({ ...props.controller.state.getSnapshot(), phase: 'ready' })

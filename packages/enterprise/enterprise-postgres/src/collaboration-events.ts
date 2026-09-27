@@ -235,9 +235,10 @@ export class PostgresRoomEventRepository {
    * @param orgId - Authorized organization.
    * @param surfaceId - Authorized room.
    * @param userId - Current human member.
-   * @returns New-post and explicit-mention attention.
+   * @returns New-post and explicit-mention attention plus the unread post count.
    */
-  async attention(orgId: string, surfaceId: string, userId: string): Promise<{ newMessages: boolean; mentions: boolean }> {
+  async attention(orgId: string, surfaceId: string,
+    userId: string): Promise<{ newMessages: boolean; mentions: boolean; unread: number }> {
     const unread = async (mention: boolean): Promise<boolean> => {
       const rows = await this.database.query<EventRow>(`SELECT e.* FROM dsh_enterprise_collaboration_events e
         JOIN dsh_enterprise_collaboration_members m ON m.surface_id=e.surface_id AND m.user_id=$3
@@ -253,8 +254,16 @@ export class PostgresRoomEventRepository {
       const event = parseRow(found)
       return event.event.kind === 9 && (!mention || event.event.tags.some(tag => tag[0] === 'dsh-mention' && tag[1] === userId))
     }
+    const counted = await this.database.query<{ unread: string | number }>(`SELECT count(*)::text AS unread FROM dsh_enterprise_collaboration_events e
+      JOIN dsh_enterprise_collaboration_members m ON m.surface_id=e.surface_id AND m.user_id=$3
+      LEFT JOIN dsh_enterprise_collaboration_read_cursors c
+        ON c.org_id=e.org_id AND c.surface_id=e.surface_id AND c.user_id=m.user_id
+      WHERE e.org_id=$1 AND e.surface_id=$2 AND e.sequence>coalesce(c.sequence,0)
+        AND e.event_json->>'kind'='9' AND NOT (e.author_kind='human' AND e.author_id=$3)`,
+    [orgId, surfaceId, userId])
+    const unreadCount = Number(counted.rows[0]?.unread ?? 0)
     const newMessages = await unread(false)
-    return { newMessages, mentions: newMessages && await unread(true) }
+    return { newMessages, mentions: newMessages && await unread(true), unread: unreadCount }
   }
 
   /** Advance a member's durable cursor only to an exact signed event in this room.

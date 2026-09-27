@@ -112,6 +112,20 @@ export class CollaborationHttpHandler {
         await this.service.markRead(principal, id, sequence)
         return Response.json({ sequence })
       }
+      if (operation === 'prefs') {
+        const flag = (field: string): boolean | undefined => {
+          const value = body[field]
+          if (value === undefined) return undefined
+          if (typeof value !== 'boolean') throw new CollaborationError('invalid-prefs')
+          return value
+        }
+        const patch: { pinned?: boolean; starred?: boolean; muted?: boolean } = {}
+        const pinned = flag('pinned'), starred = flag('starred'), muted = flag('muted')
+        if (pinned !== undefined) patch.pinned = pinned
+        if (starred !== undefined) patch.starred = starred
+        if (muted !== undefined) patch.muted = muted
+        return Response.json(await this.service.setPrefs(principal, id, patch))
+      }
       if (operation === 'rename') {
         const name = stringField(body, 'name')
         if (name === undefined) return failure(400, 'invalid-body')

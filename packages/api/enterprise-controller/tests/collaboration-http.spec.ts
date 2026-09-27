@@ -109,6 +109,19 @@ describe('collaboration HTTP request validation', () => {
       { method: 'POST', body: Buffer.from('bytes') }))
     expect(uploaded.status).toBe(201)
     expect(await uploaded.json()).toMatchObject({ attachmentId: 'att-1' })
+    const setPrefs = vi.fn(async () => ({ pinned: true, starred: false, muted: false }))
+    const prefsHandler = new CollaborationHttpHandler({ setPrefs } as never, security as never)
+    const denied = await prefsHandler.fetch(new Request('https://dsh/enterprise/surfaces/group/prefs', {
+      method: 'POST', body: JSON.stringify({ pinned: 'yes' }),
+    }))
+    expect(denied.status).toBe(400)
+    expect(await denied.json()).toEqual({ error: 'invalid-prefs' })
+    const saved = await prefsHandler.fetch(new Request('https://dsh/enterprise/surfaces/group/prefs', {
+      method: 'POST', body: JSON.stringify({ pinned: true, muted: true }),
+    }))
+    expect(saved.status).toBe(200)
+    expect(setPrefs).toHaveBeenCalledWith(expect.objectContaining({ userId: 'member' }), 'group', { pinned: true, muted: true })
+    expect(await saved.json()).toEqual({ pinned: true, starred: false, muted: false })
     const call = uploadAttachment.mock.calls[0]
     expect(call?.[0]).toMatchObject({ userId: 'member' })
     expect(call?.[1]).toBe('group')

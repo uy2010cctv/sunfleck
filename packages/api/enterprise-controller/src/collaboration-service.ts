@@ -1,6 +1,7 @@
 /** Shared conversation authorization and routing through the existing native Session runtime. */
 import { createHash, randomUUID } from 'node:crypto'
 import type { RoomAttachmentTag } from './collaboration-identity.ts'
+import type { RoomPrefs } from '@deepseek-ai/dsh-enterprise-postgres'
 import type { EnterprisePrincipal } from '@deepseek-ai/dsh-enterprise-governance'
 import { CollaborationCreationConflictError } from '@deepseek-ai/dsh-enterprise-postgres'
 import type { CollaborationRecord, CollaborationTopic, CollaborationSession, RoomEvent,
@@ -108,7 +109,11 @@ export interface CollaborationRoomRuntime {
     readonly threadRoot?: string }): Promise<readonly RoomEvent[]>
   get(row: CollaborationRecord, eventId: string): Promise<RoomEvent | undefined>
   search(row: CollaborationRecord, query: string, limit: number): Promise<readonly RoomEvent[]>
-  attention(row: CollaborationRecord, userId: string): Promise<{ readonly newMessages: boolean; readonly mentions: boolean }>
+  attention(row: CollaborationRecord, userId: string): Promise<{
+    readonly newMessages: boolean
+    readonly mentions: boolean
+    readonly unread: number
+  }>
   markRead(row: CollaborationRecord, userId: string, sequence: string): Promise<boolean>
   present(actor: EnterprisePrincipal, row: CollaborationRecord, event: RoomEvent): Promise<CollaborationRoomEvent>
   prompt(row: CollaborationRecord, current: RoomEvent): Promise<string>
@@ -360,22 +365,44 @@ export class CollaborationService {
 
   /** List conversations whose membership and workspace remain accessible.
    * @param actor - Authenticated human.
-   * @returns Sidebar entries.
+   * @returns Sidebar entries with attention, unread count, and this member's preferences.
    */
   async list(actor: EnterprisePrincipal): Promise<readonly (Pick<CollaborationDetail, 'id' | 'kind' | 'name' | 'memberCount' | 'workspaceId'>
-    & { readonly projectId?: string; readonly teamDefinitionId?: string; readonly executionSessionIds: readonly string[] })[]> {
+    & { readonly projectId?: string
+      readonly teamDefinitionId?: string
+      readonly executionSessionIds: readonly string[]
+      readonly prefs: RoomPrefs })[]> {
     const rows = await this.store.list(actor.orgId, actor.userId)
     const visible = await Promise.all(rows.map(async row => await this.runtime.workspaceVisible(actor,
       row.workspaceId) ? row : undefined))
-    return Promise.all(visible.filter((row): row is CollaborationRecord => row !== undefined).map(async row => ({
+    const members = visible.filter((row): row is CollaborationRecord => row !== undefined)
+    const prefs = await this.store.roomPrefs(actor.userId, members.map(row => row.id))
+    const noPrefs: RoomPrefs = { pinned: false, starred: false, muted: false }
+    return Promise.all(members.map(async row => ({
       id: row.id, kind: row.kind,
       name: row.name, memberCount: row.memberEmployeeIds.length + row.memberUserIds.length,
       workspaceId: row.workspaceId,
-      attention: this.runtime.room === undefined ? { newMessages: false, mentions: false }
+      attention: this.runtime.room === undefined ? { newMessages: false, mentions: false, unread: 0 }
         : await this.runtime.room.attention(row, actor.userId),
+      prefs: prefs.get(row.id) ?? noPrefs,
       executionSessionIds: (await this.store.sessions(row.id)).map(binding => binding.sessionId),
       ...(row.projectId === undefined ? {} : { projectId: row.projectId }),
       ...(row.teamDefinitionId === undefined ? {} : { teamDefinitionId: row.teamDefinitionId }) })))
+  }
+
+  /** Merge this member's sidebar preferences for one authorized conversation.
+   * @param actor - Authenticated room member.
+   * @param id - Room identity.
+   * @param patch - Flags to change; omitted flags keep their stored value.
+   * @returns The merged stored preferences.
+   */
+  async setPrefs(actor: EnterprisePrincipal, id: string,
+    patch: { readonly pinned?: boolean; readonly starred?: boolean; readonly muted?: boolean }): Promise<RoomPrefs> {
+    await this.authorized(actor, id)
+    for (const value of [patch.pinned, patch.starred, patch.muted]) {
+      if (value !== undefined && typeof value !== 'boolean') throw new CollaborationError('invalid-prefs')
+    }
+    return this.store.setRoomPrefs(id, actor.userId, patch)
   }
 
   /** Resolve an authorized native composer to its conversation.

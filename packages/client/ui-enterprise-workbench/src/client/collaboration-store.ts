@@ -9,7 +9,9 @@ export interface CollaborationSurface {
   readonly name: string
   readonly memberCount: number
   /** Current human's server-authorized unread room facts. */
-  readonly attention?: { readonly newMessages: boolean; readonly mentions: boolean }
+  readonly attention?: { readonly newMessages: boolean; readonly mentions: boolean; readonly unread?: number }
+  /** This member's sidebar preferences for the room. */
+  readonly prefs?: { readonly pinned: boolean; readonly starred: boolean; readonly muted: boolean }
   /** Native Sessions kept for Bot execution and hidden from Workspace browsing. */
   readonly executionSessionIds?: readonly string[]
   readonly workspaceId?: string
@@ -107,6 +109,10 @@ function string(value: unknown): string {
   if (typeof value !== 'string') throw new Error('invalid-response')
   return value
 }
+function count(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) throw new Error('invalid-response')
+  return value
+}
 function array(value: unknown): unknown[] {
   if (!Array.isArray(value)) throw new Error('invalid-response')
   return value
@@ -116,7 +122,14 @@ function attention(value: unknown): CollaborationSurface['attention'] {
   const row = record(value)
   const newMessages = row['newMessages'], mentions = row['mentions']
   if (typeof newMessages !== 'boolean' || typeof mentions !== 'boolean') throw new Error('invalid-response')
-  return { newMessages, mentions }
+  return { newMessages, mentions, ...(row['unread'] === undefined ? {} : { unread: count(row['unread']) }) }
+}
+function prefs(value: unknown): CollaborationSurface['prefs'] {
+  if (value === undefined) return undefined
+  const row = record(value)
+  const pinned = row['pinned'], starred = row['starred'], muted = row['muted']
+  if (typeof pinned !== 'boolean' || typeof starred !== 'boolean' || typeof muted !== 'boolean') throw new Error('invalid-response')
+  return { pinned, starred, muted }
 }
 function surface(value: unknown): CollaborationSurface {
   const row = record(value)
@@ -125,8 +138,10 @@ function surface(value: unknown): CollaborationSurface {
   if (executionSessionIds !== undefined && (!Array.isArray(executionSessionIds)
     || executionSessionIds.some(value => typeof value !== 'string'))) throw new Error('invalid-response')
   const roomAttention = attention(row['attention'])
+  const roomPrefs = prefs(row['prefs'])
   return { id: string(row['id']), kind: row['kind'], name: string(row['name']), memberCount: row['memberCount'],
     ...(roomAttention === undefined ? {} : { attention: roomAttention }),
+    ...(roomPrefs === undefined ? {} : { prefs: roomPrefs }),
     ...(executionSessionIds === undefined ? {} : { executionSessionIds: executionSessionIds as string[] }),
     ...(row['workspaceId'] === undefined ? {} : { workspaceId: string(row['workspaceId']) }),
     ...(row['projectId'] === undefined ? {} : { projectId: string(row['projectId']) }),
@@ -611,6 +626,37 @@ export class CollaborationController {
   /** Same-origin download URL for one room attachment. */
   attachmentUrl(roomId: string, attachmentId: string): string {
     return `/enterprise/surfaces/${encodeURIComponent(roomId)}/attachments/${encodeURIComponent(attachmentId)}`
+  }
+
+  /** Merge this member's sidebar preferences for one room into the stored row. */
+  async setRoomPrefs(id: string,
+    patch: { readonly pinned?: boolean; readonly starred?: boolean; readonly muted?: boolean }): Promise<boolean> {
+    const request = new AbortController()
+    this.patch({ busy: true, error: null })
+    try {
+      const row = record(await this.read(`/${encodeURIComponent(id)}/prefs`, request.signal, {
+        ...(patch.pinned === undefined ? {} : { pinned: patch.pinned }),
+        ...(patch.starred === undefined ? {} : { starred: patch.starred }),
+        ...(patch.muted === undefined ? {} : { muted: patch.muted }),
+      }))
+      const merged = prefs(row)
+      if (merged === undefined) throw new Error('invalid-response')
+      if (!this.cancelled(request)) {
+        const snapshot = this.state.getSnapshot()
+        const selection = snapshot.selection
+        this.patch({
+          surfaces: snapshot.surfaces.map(surface => surface.id === id ? { ...surface, prefs: merged } : surface),
+          ...(selection !== null && selection.detail.id === id
+            ? { selection: { ...selection, detail: { ...selection.detail, prefs: merged } } }
+            : {}),
+        })
+      }
+      this.patch({ busy: false })
+      return true
+    } catch (error) {
+      if (!this.cancelled(request)) { if (!this.revoke(error)) this.patch({ busy: false, error: error instanceof HttpFailure ? error.message : 'request-failed' }) }
+      return false
+    }
   }
 
   /** Abort pending reads so an unloaded plugin cannot publish navigation or state. */

@@ -97,6 +97,22 @@ const dispatchTable = `CREATE TABLE dsh_enterprise_collaboration_dispatch (
     ((state='processing' AND lease_token IS NOT NULL AND lease_until IS NOT NULL)
       OR (state<>'processing' AND lease_token IS NULL AND lease_until IS NULL)))`
 
+/** Per-user room preferences persisted beside the conversation. */
+export interface RoomPrefs {
+  readonly pinned: boolean
+  readonly starred: boolean
+  readonly muted: boolean
+}
+
+const prefsTable = `CREATE TABLE IF NOT EXISTS dsh_enterprise_collaboration_room_prefs (
+  surface_id TEXT NOT NULL REFERENCES dsh_enterprise_collaboration_config(surface_id) ON DELETE CASCADE,
+  user_id TEXT NOT NULL,
+  pinned BOOLEAN NOT NULL DEFAULT FALSE,
+  starred BOOLEAN NOT NULL DEFAULT FALSE,
+  muted BOOLEAN NOT NULL DEFAULT FALSE,
+  updated_at BIGINT NOT NULL,
+  PRIMARY KEY(surface_id,user_id))`
+
 const attachmentsTable = `CREATE TABLE IF NOT EXISTS dsh_enterprise_collaboration_attachments (
   surface_id TEXT NOT NULL REFERENCES dsh_enterprise_surface_directory(surface_id) ON DELETE CASCADE,
   attachment_id TEXT NOT NULL,
@@ -117,8 +133,10 @@ export async function migrateCollaboration(database: EnterprisePostgresDatabase)
     await tx.query('SELECT pg_advisory_xact_lock($1)', [0x4453434f])
     await tx.query('CREATE TABLE IF NOT EXISTS dsh_enterprise_collaboration_meta (version INTEGER NOT NULL)')
     // Idempotent on every boot and before any version short-cut: room
-    // attachments are additive storage, so the addition needs no version bump.
+    // attachments and per-user preferences are additive storage, so these
+    // additions need no version bump.
     await tx.query(attachmentsTable)
+    await tx.query(prefsTable)
     const version = (await tx.query<{ version: number }>('SELECT version FROM dsh_enterprise_collaboration_meta')).rows[0]?.version
     if (version !== undefined && version !== 1 && version !== 2 && version !== 3 && version !== 4) {
       throw new Error(`unsupported collaboration schema version ${version}`)
@@ -431,6 +449,48 @@ export class PostgresCollaborationRepository {
       VALUES($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT(surface_id,attachment_id) DO NOTHING`,
     [value.surfaceId, value.attachmentId, value.uploaderUserId, value.name, value.mimeType, value.data.length,
       value.data, Date.now()])
+  }
+
+  /** Read one member preferences for the listed conversations; absent rows mean all-false.
+   * @param userId - Room member.
+   * @param surfaceIds - Conversations to read.
+   * @returns Preferences keyed by conversation id.
+   */
+  async roomPrefs(userId: string, surfaceIds: readonly string[]): Promise<Map<string, RoomPrefs>> {
+    const prefs = new Map<string, RoomPrefs>()
+    if (surfaceIds.length === 0) return prefs
+    const rows = await this.query<{ surface_id: string; pinned: boolean; starred: boolean; muted: boolean }>(
+      'SELECT surface_id,pinned,starred,muted FROM dsh_enterprise_collaboration_room_prefs WHERE user_id=$1 AND surface_id=ANY($2::text[])',
+      [userId, [...surfaceIds]])
+    for (const row of rows.rows) {
+      prefs.set(row.surface_id, { pinned: row.pinned, starred: row.starred, muted: row.muted })
+    }
+    return prefs
+  }
+
+  /** Merge one member preferences for one conversation; omitted flags keep their stored value.
+   * @param surfaceId - Authorized conversation.
+   * @param userId - Room member.
+   * @param patch - Flags to change.
+   * @returns The merged stored preferences.
+   */
+  async setRoomPrefs(surfaceId: string, userId: string,
+    patch: { readonly pinned?: boolean; readonly starred?: boolean; readonly muted?: boolean }): Promise<RoomPrefs> {
+    return this.database.transaction(async (tx) => {
+      const current = (await tx.query<{ pinned: boolean; starred: boolean; muted: boolean }>(
+        'SELECT pinned,starred,muted FROM dsh_enterprise_collaboration_room_prefs WHERE surface_id=$1 AND user_id=$2 FOR UPDATE',
+        [surfaceId, userId])).rows[0] ?? { pinned: false, starred: false, muted: false }
+      const merged = {
+        pinned: patch.pinned ?? current.pinned,
+        starred: patch.starred ?? current.starred,
+        muted: patch.muted ?? current.muted,
+      }
+      await tx.query(`INSERT INTO dsh_enterprise_collaboration_room_prefs
+        (surface_id,user_id,pinned,starred,muted,updated_at) VALUES($1,$2,$3,$4,$5,$6)
+        ON CONFLICT(surface_id,user_id) DO UPDATE SET pinned=$3,starred=$4,muted=$5,updated_at=$6`,
+      [surfaceId, userId, merged.pinned, merged.starred, merged.muted, Date.now()])
+      return merged
+    })
   }
 
   /** Read one uploaded room attachment within its conversation.

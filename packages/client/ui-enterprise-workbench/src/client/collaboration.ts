@@ -90,7 +90,7 @@ export function applyCollaboration(ctx: Context, roomCreated?: () => void): Coll
     const attentionFor = (kind: 'group' | 'channel'): HostObservable<boolean> => ({
       subscribe: listener => controller.state.subscribe(listener),
       getSnapshot: () => controller.state.getSnapshot().surfaces.some(row => row.kind === kind
-        && (row.attention?.newMessages === true || row.attention?.mentions === true)),
+        && row.prefs?.muted !== true && (row.attention?.newMessages === true || row.attention?.mentions === true)),
     })
     scope.slots.inject('main', () => scope.slots.register({ name: 'main', key: PANEL_ID, locale: COLLABORATION_NS, inject }, CollaborationSetup))
     scope.effect(() => scope.uiWorkspace.navigationTabs.register({ id: 'group', order: 200, title: () => scope.locale.bind(COLLABORATION_NS)('groups'), icon: IconUsersOutlineRegular, attention: attentionFor('group') }), 'enterprise collaboration group tab')
