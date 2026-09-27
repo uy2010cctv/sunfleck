@@ -8,21 +8,41 @@ import { ChannelWorkflowEditor } from './ChannelWorkflowEditor.tsx'
 import { ChannelDecisionQueue } from './ChannelDecisionQueue.tsx'
 import { CollaborationGroupDetails } from './CollaborationGroupDetails.tsx'
 import { dicebearAvatarUrl } from './avatar.ts'
+import 'emoji-picker-element'
 import css from './CollaborationRoom.module.css'
 
 type Copy = TranslateNS<'enterprise.collaboration'>
 
-/** Count signed reaction events by target and emoji; the event itself stays in the audit timeline. */
-export function reactionCounts(events: readonly RoomEvent[], targetId: string): readonly { emoji: string; count: number }[] {
-  const counts = new Map<string, number>()
-  for (const event of events) {
-    if (event.kind !== 7 || !event.tags.some(tag => tag[0] === 'e' && tag[1] === targetId)) continue
-    counts.set(event.content, (counts.get(event.content) ?? 0) + 1)
+declare global {
+  namespace JSX {
+    interface IntrinsicElements {
+      /** Open-source emoji picker web component (emoji-picker-element). */
+      'emoji-picker': { class?: string | undefined; ref?: React.Ref<HTMLElement | null> }
+    }
   }
-  return [...counts].map(([emoji, count]) => ({ emoji, count }))
 }
 
-function shortKey(value: string): string { return value.length < 13 ? value : `${value.slice(0, 8)}…${value.slice(-4)}` }
+/** One visible emoji reaction group on a message. */
+export interface ReactionSummary { readonly emoji: string; readonly count: number; readonly mine: boolean }
+
+/** Summarize reactions by target: only each author's latest reaction counts, so a
+ * viewer adding another emoji replaces their previous one in the display. */
+export function reactionSummaries(events: readonly RoomEvent[], targetId: string,
+  viewerId?: string): readonly ReactionSummary[] {
+  const latest = new Map<string, string>()
+  for (const event of events) {
+    if (event.kind !== 7 || !event.tags.some(tag => tag[0] === 'e' && tag[1] === targetId)) continue
+    latest.set(event.author.id, event.content)
+  }
+  const groups = new Map<string, { count: number; mine: boolean }>()
+  for (const [authorId, emoji] of latest) {
+    const group = groups.get(emoji) ?? { count: 0, mine: false }
+    group.count += 1
+    if (viewerId !== undefined && authorId === viewerId) group.mine = true
+    groups.set(emoji, group)
+  }
+  return [...groups].map(([emoji, group]) => ({ emoji, count: group.count, mine: group.mine }))
+}
 
 /** Employee identity chip shown on the triggering message while the agent works. */
 export interface WorkingChip { readonly employeeId: string; readonly displayName: string; readonly avatarUrl?: string }
@@ -46,20 +66,38 @@ export function stripReplyBoilerplate(content: string): string {
 }
 
 function Entry({ event, reactions, self, avatarUrl, attachmentUrlFor, workflowDetails, working, threadReplies,
-  onThread, onReaction, onInspect, t }: {
+  threadAvatarFor = () => undefined, onThread, onReaction, onInspect, t }: {
   readonly event: RoomEvent
-  readonly reactions: readonly { emoji: string; count: number }[]
+  readonly reactions: readonly ReactionSummary[]
   readonly self: boolean
   readonly avatarUrl: string | undefined
   readonly attachmentUrlFor: (attachmentId: string) => string
   readonly workflowDetails?: readonly RoomEvent[]
   readonly working?: readonly WorkingChip[]
   readonly threadReplies?: readonly RoomEvent[]
+  readonly threadAvatarFor?: (authorId: string) => string | undefined
   readonly onThread: (id: string) => void
   readonly onReaction: (id: string, emoji: string) => void
   readonly onInspect: (id: string) => void
   readonly t: Copy
 }) {
+  const [pickerOpen, setPickerOpen] = useState(false)
+  const pickerRef = useRef<HTMLElement | null>(null)
+  const mine = reactions.find(reaction => reaction.mine)
+  useEffect(() => {
+    if (!pickerOpen) return
+    const node = pickerRef.current
+    if (node === null) return
+    const onPick = (custom: Event): void => {
+      const detail = (custom as CustomEvent<{ unicode: string }>).detail
+      if (typeof detail.unicode === 'string' && detail.unicode !== '') {
+        onReaction(event.id, detail.unicode)
+        setPickerOpen(false)
+      }
+    }
+    node.addEventListener('emoji-click', onPick)
+    return () => { node.removeEventListener('emoji-click', onPick) }
+  }, [pickerOpen, event.id, onReaction])
   const workflow = event.kind !== 9
   const workflowStatus = event.tags.find(tag => tag[0] === 'status')?.[1]
   const time = new Date(event.created_at * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
@@ -69,7 +107,19 @@ function Entry({ event, reactions, self, avatarUrl, attachmentUrlFor, workflowDe
         alt={event.author.displayName} loading="lazy" referrerPolicy="no-referrer"/>
       : <span className={`${css.avatar} ${event.author.kind === 'employee' ? css.bot : event.author.kind === 'service' ? css.service : ''}`} aria-hidden="true">{event.author.displayName.slice(0, 1)}</span>}
     <div className={css.entryBody}>
-      <div className={css.meta}><span className={css.author}>{event.author.displayName}</span><span className={css.kind}>{t(event.author.kind === 'employee' ? 'botMember' : event.author.kind === 'service' ? 'serviceMember' : 'humanMember')}</span><time dateTime={new Date(event.created_at * 1000).toISOString()}>{time}</time>{workflow && <span className={css.kind}>{t('workflowEvent')}</span>}{workflowStatus !== undefined && <span className={css.kind}>{workflowStatus}</span>}</div>
+      <div className={css.meta}><span className={css.author}>{event.author.displayName}</span><span className={css.kind}>{t(event.author.kind === 'employee' ? 'botMember' : event.author.kind === 'service' ? 'serviceMember' : 'humanMember')}</span><time dateTime={new Date(event.created_at * 1000).toISOString()}>{time}</time>{workflow && <span className={css.kind}>{t('workflowEvent')}</span>}{workflowStatus !== undefined && <span className={css.kind}>{workflowStatus}</span>}
+        {event.kind === 9 && <span className={css.reactionRow}>
+          {reactions.map(reaction => <button type="button" key={reaction.emoji} aria-label={`${reaction.emoji} ${reaction.count}`}
+            className={reaction.mine ? css.reactionMine : undefined}
+            onClick={() => { if (!reaction.mine) onReaction(event.id, reaction.emoji) }}>{reaction.emoji}{reaction.count > 1 ? ` ${reaction.count}` : ''}</button>)}
+          <span className={css.reactionWrap}>
+            <button type="button" aria-label={t('reactTo')}
+              className={`${css.reactionAdd} ${mine === undefined ? css.reactionGhost : ''}`}
+              onClick={() => { setPickerOpen(!pickerOpen) }}>{mine === undefined ? '🙂' : mine.emoji}</button>
+            {pickerOpen && <emoji-picker ref={pickerRef} class={css.emojiPicker}/>}
+          </span>
+        </span>}
+      </div>
       <p className={css.content}>{event.author.kind === 'employee' ? stripReplyBoilerplate(event.content) : event.content}</p>
       {event.attachments !== undefined && <div className={css.attachments}>{event.attachments.map(file => (
         <a key={file.attachmentId} className={css.fileChip} href={attachmentUrlFor(file.attachmentId)}
@@ -94,17 +144,24 @@ function Entry({ event, reactions, self, avatarUrl, attachmentUrlFor, workflowDe
           <span className={css.detailContent}>{detail.author.kind === 'employee' ? stripReplyBoilerplate(detail.content) : detail.content}</span>
         </li>)}</ul>
       </details>}
-      {threadReplies !== undefined && threadReplies.length > 0 && <button type="button" className={css.threadChip}
-        onClick={() => { onThread(event.id) }}>
-        {t('threadReplies', { count: threadReplies.length })} · {threadReplies.map(reply => reply.author.displayName).join('、')}
-      </button>}
+      {threadReplies !== undefined && threadReplies.length > 0 && (() => {
+        const last = threadReplies[threadReplies.length - 1]
+        const stack = threadReplies.slice(-3).reverse()
+        if (last === undefined) return null
+        return <button type="button" className={css.threadChip} onClick={() => { onThread(event.id) }}>
+          <span className={css.threadStack}>{stack.map((reply) => {
+            const url = threadAvatarFor(reply.author.id)
+            return url === undefined
+              ? <span key={reply.id} className={css.threadAvatar} aria-hidden="true">{reply.author.displayName.slice(0, 1)}</span>
+              : <img key={reply.id} className={css.threadAvatar} src={url} alt="" loading="lazy" referrerPolicy="no-referrer"/>
+          })}</span>
+          <span>{t('threadReplies', { count: threadReplies.length })}</span>
+          <span className={css.threadTime}>{new Date(last.created_at * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+        </button>
+      })()}
       {event.delivery === 'failed' && <p className={css.failure} role="status">{t('deliveryFailed')}</p>}
       <div className={css.eventFooter}>
-        <Tooltip label={`${t('signedRecord')} · ${event.pubkey}`}><span className={css.signature}>{t('signedRecord')} · {shortKey(event.pubkey)}</span></Tooltip>
         {event.sourceSessionId !== undefined && <button type="button" onClick={() => { if (event.sourceSessionId !== undefined) onInspect(event.sourceSessionId) }}>{t('viewExecution')}</button>}
-        {event.kind === 9 && <><button type="button" onClick={() => { onThread(event.id) }}>{t('replyThread')}</button>
-          <button type="button" aria-label={`${t('reactTo')} ${event.author.displayName}`} onClick={() => { onReaction(event.id, '👍') }}>👍</button></>}
-        {reactions.map(reaction => <button type="button" key={reaction.emoji} aria-label={`${reaction.emoji} ${reaction.count}`} onClick={() => { onReaction(event.id, reaction.emoji) }}>{reaction.emoji} {reaction.count}</button>)}
       </div>
     </div>
   </article>
@@ -449,8 +506,10 @@ export function CollaborationRoom({ state, controller, loadChoices, t }: {
               void controller.loadOlder()
             }}>{t('loadOlder')}</button>}
             {timeline.length === 0 && <div className={css.center}>{t('emptyRoom')}</div>}
-            {displayItems.map(item => <Entry key={item.event.id} event={item.event} reactions={reactionCounts(state.events, item.event.id)}
-              self={isSelf(item.event)} avatarUrl={avatarFor(item.event)} attachmentUrlFor={attachmentUrlFor}
+            {displayItems.map(item => <Entry key={item.event.id} event={item.event}
+              reactions={reactionSummaries(state.events, item.event.id, detail.viewerUserId)}
+              self={isSelf(item.event)} avatarUrl={avatarFor(item.event)}
+              attachmentUrlFor={attachmentUrlFor} threadAvatarFor={authorId => avatars.get(authorId)}
               {...(item.workflowDetails === undefined ? {} : { workflowDetails: item.workflowDetails })}
               {...(item.working === undefined ? {} : { working: item.working })}
               {...(item.threadReplies === undefined ? {} : { threadReplies: item.threadReplies })}
@@ -474,7 +533,7 @@ export function CollaborationRoom({ state, controller, loadChoices, t }: {
           {detail.project !== undefined && <section><h3>{t('project')}</h3><p>{detail.project.name}</p></section>}
           {detail.kind === 'channel' && <><ChannelDecisionQueue key={`${detail.id}-decisions`} channelId={detail.id} t={t}/>
             <ChannelWorkflowEditor key={`${detail.id}-workflows`} channelId={detail.id} t={t}/></>}
-        </div> : <><div className={css.threadScroll}>{root !== undefined && <Entry event={root} reactions={reactionCounts(state.events, root.id)} self={isSelf(root)} avatarUrl={avatarFor(root)} attachmentUrlFor={attachmentUrlFor} onThread={() => {}} onReaction={(id, emoji) => { void controller.react(id, emoji) }} onInspect={(id) => { void controller.inspect(id) }} t={t}/>}{state.threadPhase === 'loading' && <div className={css.center}><IconLoadingOutlineRegular size={20}/></div>}{state.threadPhase === 'error' && <div className={css.center} role="alert">{t('loadError')}<button type="button" onClick={() => { void controller.openThread(threadRoot) }}>{t('retry')}</button></div>}{state.threadPhase === 'ready' && state.threadEvents.filter(event => event.kind !== 7 && event.id !== threadRoot).map(event => <Entry key={event.id} event={event} reactions={reactionCounts(state.threadEvents, event.id)} self={isSelf(event)} avatarUrl={avatarFor(event)} attachmentUrlFor={attachmentUrlFor} onThread={() => {}} onReaction={(id, emoji) => { void controller.react(id, emoji) }} onInspect={(id) => { void controller.inspect(id) }} t={t}/>)}</div><Composer state={state} controller={controller} t={t} threadRoot={threadRoot}/></>}
+        </div> : <><div className={css.threadScroll}>{root !== undefined && <Entry event={root} reactions={reactionSummaries(state.events, root.id, detail.viewerUserId)} self={isSelf(root)} avatarUrl={avatarFor(root)} attachmentUrlFor={attachmentUrlFor} onThread={() => {}} onReaction={(id, emoji) => { void controller.react(id, emoji) }} onInspect={(id) => { void controller.inspect(id) }} t={t}/>}{state.threadPhase === 'loading' && <div className={css.center}><IconLoadingOutlineRegular size={20}/></div>}{state.threadPhase === 'error' && <div className={css.center} role="alert">{t('loadError')}<button type="button" onClick={() => { void controller.openThread(threadRoot) }}>{t('retry')}</button></div>}{state.threadPhase === 'ready' && state.threadEvents.filter(event => event.kind !== 7 && event.id !== threadRoot).map(event => <Entry key={event.id} event={event} reactions={reactionSummaries(state.threadEvents, event.id, detail.viewerUserId)} self={isSelf(event)} avatarUrl={avatarFor(event)} attachmentUrlFor={attachmentUrlFor} onThread={() => {}} onReaction={(id, emoji) => { void controller.react(id, emoji) }} onInspect={(id) => { void controller.inspect(id) }} t={t}/>)}</div><Composer state={state} controller={controller} t={t} threadRoot={threadRoot}/></>}
       </aside>}
     </div>
   </main>

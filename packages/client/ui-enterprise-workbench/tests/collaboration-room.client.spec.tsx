@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { CollaborationRoom, reactionCounts, stripReplyBoilerplate } from '../src/client/CollaborationRoom.tsx'
+import { CollaborationRoom, reactionSummaries, stripReplyBoilerplate } from '../src/client/CollaborationRoom.tsx'
 import { CollaborationController, type RoomEvent } from '../src/client/collaboration-store.ts'
 import { zh, type CollaborationKey } from '../src/client/collaboration-locales.ts'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-locale/client'
@@ -56,9 +56,10 @@ describe('shared room UI', () => {
     expect(screen.getByRole('region', { name: '消息记录' }).textContent).toContain('数据 Bot')
     expect(screen.getByRole('region', { name: '消息记录' }).textContent).toContain('研究 Bot 将任务交给编辑 Bot')
     expect(screen.getByText('工作流')).toBeTruthy()
-    expect(screen.getAllByText(/签名记录/).length).toBeGreaterThan(0)
+    // The signature label is hidden; only execution-source links remain in footers.
+    expect(screen.queryAllByText(/签名记录/)).toHaveLength(0)
     expect(screen.getAllByRole('button', { name: '查看执行记录' })).toHaveLength(3)
-    expect(reactionCounts(state.events, 'research')).toEqual([{ emoji: '👍', count: 1 }])
+    expect(reactionSummaries(state.events, 'research', 'u1')).toEqual([{ emoji: '👍', count: 1, mine: true }])
     expect(screen.queryByText('reaction')).toBeNull()
     controller.dispose()
   })
@@ -103,14 +104,26 @@ describe('shared room UI', () => {
     const { controller, state, t } = setup()
     const thread = vi.spyOn(controller, 'openThread').mockResolvedValue()
     const search = vi.spyOn(controller, 'search').mockResolvedValue()
-    const inspect = vi.spyOn(controller, 'inspect').mockResolvedValue()
-    render(<CollaborationRoom controller={controller} state={state} t={t}/>)
-    fireEvent.click(screen.getAllByRole('button', { name: '在线程中回复' })[0]!)
+    // The reply-in-thread footer button is hidden; channels open threads from the reply chip.
+    const initial = render(<CollaborationRoom controller={controller} state={state} t={t}/>)
+    expect(initial.container.querySelector('button[aria-label="在线程中回复"]')).toBeNull()
+    initial.unmount()
+    const reply: RoomEvent = { ...research, id: 'reply-1', threadRoot: human.id, content: '已收到协作消息。' }
+    const channelState = { ...state, selection: { detail: { ...state.selection!.detail, kind: 'channel' as const } }, events: [human, reply] }
+    render(<CollaborationRoom controller={controller} state={channelState} t={t}/>)
+    fireEvent.click(screen.getByRole('button', { name: /条回复/ }))
     expect(thread).toHaveBeenCalledWith('human')
     fireEvent.click(screen.getByRole('button', { name: '搜索会话' }))
     fireEvent.change(screen.getByPlaceholderText('搜索消息与工作记录'), { target: { value: '指标' } })
     fireEvent.click(screen.getByRole('button', { name: '搜索' }))
     expect(search).toHaveBeenCalledWith('指标')
+    controller.dispose()
+  })
+
+  it('keeps inline agent replies with execution links in groups', () => {
+    const { controller, state, t } = setup()
+    const inspect = vi.spyOn(controller, 'inspect').mockResolvedValue()
+    render(<CollaborationRoom controller={controller} state={state} t={t}/>)
     fireEvent.click(screen.getAllByRole('button', { name: '查看执行记录' })[0]!)
     expect(inspect).toHaveBeenCalledWith('execution-1')
     controller.dispose()
