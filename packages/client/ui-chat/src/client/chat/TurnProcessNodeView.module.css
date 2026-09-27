@@ -49,9 +49,72 @@
   white-space: nowrap;
 }
 
+/* Running mark: the glyph grows seed → sprout → breaking soil → tree →
+   grove → forest. One 3s keyframe loop per stage with a negative per-stage
+   delay keeps the six phases staggered across iterations, so the mark falls
+   back to the seed and regrows every 3 seconds. */
+.growthMark {
+  position: relative;
+  display: inline-grid;
+  width: 15px;
+  height: 15px;
+  margin-right: 6px;
+  vertical-align: -2px;
+}
+
+.growthStage {
+  grid-area: 1 / 1;
+  display: grid;
+  place-items: center;
+  color: #32cd32;
+  font-size: 13px;
+  line-height: 1;
+  opacity: 0;
+  transform: scale(0.2);
+  animation: growthStage 3s linear infinite;
+  animation-delay: calc(var(--stage) * 0.5s - 3s);
+}
+
+@keyframes growthStage {
+  0% { opacity: 0; transform: scale(0.2); }
+  4% { opacity: 1; transform: scale(1.14); }
+  9% { opacity: 1; transform: scale(1); }
+  13% { opacity: 1; transform: scale(1); }
+  17% { opacity: 0; transform: scale(0.92); }
+  100% { opacity: 0; transform: scale(0.92); }
+}
+
+/* The growing label: lime green with a light streak sweeping across. */
+.growthText {
+  background: linear-gradient(100deg, #32cd32 42%, #c8ffc8 50%, #32cd32 58%);
+  background-size: 240% 100%;
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+  animation: growthSweep 2.2s linear infinite;
+}
+
+@keyframes growthSweep {
+  from { background-position: 130% 0; }
+  to { background-position: -70% 0; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .root,
   .chevron {
     transition: none;
+  }
+
+  .growthStage {
+    animation: none;
+    opacity: 0;
+  }
+
+  .growthStage:nth-child(4) { opacity: 1; transform: none; }
+
+  .growthText {
+    background: none;
+    color: #32cd32;
+    animation: none;
   }
 }

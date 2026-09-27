@@ -1,10 +1,13 @@
-import { memo, useEffect, useState } from 'react'
+import { memo, useEffect, useState, type CSSProperties } from 'react'
 import { IconChevronDownOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ChatNodeViewProps } from '../contract/slots.ts'
 import { turnProcessAlwaysOpen } from '../contract/turn-process.ts'
 import { formatLiveRunDuration, formatRunDuration, LIVE_RUN_CLOCK_INTERVAL_MS } from './message-chrome.ts'
 import a11yCss from './accessibility.module.css'
 import css from './TurnProcessNodeView.module.css'
+
+/** Growth stages of the running mark: seed, sprout, breaking soil, tree, grove, forest. */
+const GROWTH_STAGES = ['。', '丨', '十', '木', '林', '森'] as const
 
 /** Turn-level process disclosure controller. */
 export const TurnProcessNodeView = memo(function TurnProcessNodeView({
@@ -33,12 +36,12 @@ export const TurnProcessNodeView = memo(function TurnProcessNodeView({
     : running ? formatLiveRunDuration(elapsedMs, t) : formatRunDuration(elapsedMs, t)
   // Other end reasons retain elapsed time; only cancellation and failure replace it.
   const label = running
-    ? duration === undefined ? t('chat.deepDiving') : t('message.turnProcess.deepDivingFor', { duration })
+    ? duration === undefined ? t('chat.growing') : t('message.turnProcess.growingFor', { duration })
     : reason === 'aborted' ? t('message.stopped')
       : reason === 'error' ? t('message.turnProcess.failed')
         : duration === undefined ? t('message.turnProcess.worked')
           : t('message.turnProcess.took', { duration })
-  const announcement = running ? t('chat.deepDiving')
+  const announcement = running ? t('chat.growing')
     : reason === 'aborted' ? t('message.stopped')
       : reason === 'error' ? t('message.turnProcess.failed')
         : t('message.turnProcess.worked')
@@ -60,7 +63,13 @@ export const TurnProcessNodeView = memo(function TurnProcessNodeView({
           turnProcess.setOpen(!open)
         }}
       >
-        <span className={css.label}>{label}</span>
+        <span className={css.label}>
+          {running && <span className={css.growthMark} aria-hidden="true">
+            {GROWTH_STAGES.map((stage, index) => <span key={stage} className={css.growthStage}
+              style={{ '--stage': index } as CSSProperties}>{stage}</span>)}
+          </span>}
+          <span className={running ? css.growthText : undefined}>{label}</span>
+        </span>
         {canCollapse && <IconChevronDownOutlineRegular className={css.chevron} />}
       </button>
     </>
