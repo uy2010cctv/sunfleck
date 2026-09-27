@@ -199,6 +199,19 @@ describe('shared room UI', () => {
     controller.dispose()
   })
 
+  it('keeps hooks stable when the room selection appears after an empty render', () => {
+    const { controller, state, t } = setup()
+    const empty = { ...state, selection: null }
+    const view = render(<CollaborationRoom controller={controller} state={empty} t={t}/>)
+    // Selecting a room after rendering without one must not crash the tree.
+    view.rerender(<CollaborationRoom controller={controller} state={state} t={t}/>)
+    expect(view.container.textContent).toContain('Q4 续约')
+    view.rerender(<CollaborationRoom controller={controller} state={{ ...state, selection: null }} t={t}/>)
+    view.rerender(<CollaborationRoom controller={controller} state={state} t={t}/>)
+    expect(view.container.textContent).toContain('Q4 续约')
+    controller.dispose()
+  })
+
   it('opens the member picker from a typed @, filters it, and inserts the picked name', async () => {
     const { controller, state, t } = setup([])
     const selected = state.selection

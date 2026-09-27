@@ -296,12 +296,6 @@ export function CollaborationRoom({ state, controller, loadChoices, t }: {
   // initial.
   const avatars = useMemo(() => new Map((selected?.detail.members ?? []).map(member =>
     [member.employeeId, dicebearAvatarUrl(member.avatarSeed ?? member.employeeId)] as const)), [selected?.detail.members])
-  if (selected === null) return <main className={css.room}><div className={css.center}>
-    {state.roomPhase === 'loading' ? <IconLoadingOutlineRegular size={20}/> : t(state.error === 'forbidden' ? 'forbidden' : state.roomPhase === 'error' ? 'loadError' : 'noSelection')}
-  </div></main>
-  const detail = selected.detail
-  const avatarFor = (event: RoomEvent): string | undefined => event.author.kind === 'employee' ? avatars.get(event.author.id) : undefined
-  const attachmentUrlFor = (attachmentId: string): string => controller.attachmentUrl(detail.id, attachmentId)
   // Group one agent reply: the employee's tool/progress events fold into their
   // next signed answer as collapsed details; a mentioned employee without an
   // answer yet renders a working chip on the mentioning message. Orphan
@@ -315,7 +309,7 @@ export function CollaborationRoom({ state, controller, loadChoices, t }: {
     for (const event of timeline) {
       if (event.author.kind === 'employee' && event.kind === 9) answeredSeq.set(event.author.id, event.sequence)
     }
-    const members = new Map(detail.members.map(member => [member.employeeId, member.displayName]))
+    const members = new Map((selected?.detail.members ?? []).map(member => [member.employeeId, member.displayName]))
     const flushOrphans = (): void => {
       for (const events of pending.values()) {
         for (const event of events) items.push({ event })
@@ -355,7 +349,14 @@ export function CollaborationRoom({ state, controller, loadChoices, t }: {
     }
     flushOrphans()
     return items
-  }, [timeline, avatars, detail.members])
+  }, [timeline, avatars, selected?.detail.members])
+  if (selected === null) return <main className={css.room}><div className={css.center}>
+    {state.roomPhase === 'loading' ? <IconLoadingOutlineRegular size={20}/> : t(state.error === 'forbidden' ? 'forbidden' : state.roomPhase === 'error' ? 'loadError' : 'noSelection')}
+  </div></main>
+  const detail = selected.detail
+  const avatarFor = (event: RoomEvent): string | undefined => event.author.kind === 'employee' ? avatars.get(event.author.id) : undefined
+  const attachmentUrlFor = (attachmentId: string): string => controller.attachmentUrl(detail.id, attachmentId)
+
   const isSelf = (event: RoomEvent): boolean => event.author.kind === 'human' && event.author.id === detail.viewerUserId
   const threadRoot = selected.threadRoot
   const root = threadRoot === undefined ? undefined : [...state.events, ...state.searchResults].find(event => event.id === threadRoot)
