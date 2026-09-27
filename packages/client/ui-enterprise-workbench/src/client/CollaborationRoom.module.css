@@ -64,6 +64,8 @@
 .typingDots i:nth-child(2) { animation-delay: 150ms; }
 .typingDots i:nth-child(3) { animation-delay: 300ms; }
 @keyframes typingBounce { 0%, 60%, 100% { transform: translateY(0); opacity: .4; } 30% { transform: translateY(-3px); opacity: 1; } }
+.threadChip { display: inline-flex; align-items: center; gap: 6px; margin: 6px 0 2px; border: 0; border-radius: 7px; padding: 4px 10px; background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-state-business-primary, #32cd32); font: inherit; font-size: 12px; cursor: pointer; }
+.threadChip:hover { background: var(--dsw-alias-interactive-bg-hover); }
 .workflowDetails { margin: 6px 0 2px; border: 1px solid var(--dsw-alias-border-l1); border-radius: 9px; background: var(--dsw-alias-bg-layer-1); }
 .workflowDetails summary { cursor: pointer; padding: 6px 10px; color: var(--dsw-alias-label-secondary); font-size: 12px; list-style-position: inside; }
 .workflowDetails summary:hover { color: var(--dsw-alias-label-primary); }

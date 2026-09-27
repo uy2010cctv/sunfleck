@@ -330,6 +330,24 @@ describe('shared room UI', () => {
     controller.dispose()
   })
 
+  it('moves channel agent replies into the thread chip of the triggering message', () => {
+    const { controller, state, t } = setup()
+    const selected = state.selection
+    if (selected === null) throw new Error('room selection missing')
+    const reply: RoomEvent = { ...research, id: 'reply-1', threadRoot: human.id, content: '已收到协作消息。' }
+    const channel = { ...state, selection: { detail: { ...selected.detail, kind: 'channel' as const } }, events: [human, reply] }
+    const view = render(<CollaborationRoom controller={controller} state={channel} t={t}/>)
+    // The agent reply leaves the main timeline; a thread chip names the replier.
+    const articles = view.container.querySelectorAll('article')
+    expect(articles).toHaveLength(1)
+    expect(articles[0]!.textContent).toContain('请调研续约')
+    expect(articles[0]!.textContent).not.toContain('已收到协作消息')
+    const openThread = vi.spyOn(controller, 'openThread').mockResolvedValue()
+    fireEvent.click(screen.getByRole('button', { name: /条回复/ }))
+    expect(openThread).toHaveBeenCalledWith('human')
+    controller.dispose()
+  })
+
   it('places channel workflow definitions in its right details pane', async () => {
     vi.stubGlobal('fetch', vi.fn(async (url: string) => Response.json(url.endsWith('/decisions')
       ? { items: [], canDecide: false }

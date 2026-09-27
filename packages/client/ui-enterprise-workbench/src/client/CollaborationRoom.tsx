@@ -34,6 +34,8 @@ interface TimelineItem {
   readonly workflowDetails?: readonly RoomEvent[]
   /** Agents mentioned by this human message that have not replied yet. */
   readonly working?: readonly WorkingChip[]
+  /** In channels, agent replies that belong to this message's thread. */
+  readonly threadReplies?: readonly RoomEvent[]
 }
 
 /** Drop the model-generated reply meta prefix (回复/回应 variants) from an employee answer.
@@ -43,7 +45,8 @@ export function stripReplyBoilerplate(content: string): string {
   return stripped.trim() === '' ? content : stripped
 }
 
-function Entry({ event, reactions, self, avatarUrl, attachmentUrlFor, workflowDetails, working, onThread, onReaction, onInspect, t }: {
+function Entry({ event, reactions, self, avatarUrl, attachmentUrlFor, workflowDetails, working, threadReplies,
+  onThread, onReaction, onInspect, t }: {
   readonly event: RoomEvent
   readonly reactions: readonly { emoji: string; count: number }[]
   readonly self: boolean
@@ -51,6 +54,7 @@ function Entry({ event, reactions, self, avatarUrl, attachmentUrlFor, workflowDe
   readonly attachmentUrlFor: (attachmentId: string) => string
   readonly workflowDetails?: readonly RoomEvent[]
   readonly working?: readonly WorkingChip[]
+  readonly threadReplies?: readonly RoomEvent[]
   readonly onThread: (id: string) => void
   readonly onReaction: (id: string, emoji: string) => void
   readonly onInspect: (id: string) => void
@@ -90,6 +94,10 @@ function Entry({ event, reactions, self, avatarUrl, attachmentUrlFor, workflowDe
           <span>{detail.content}</span>
         </li>)}</ul>
       </details>}
+      {threadReplies !== undefined && threadReplies.length > 0 && <button type="button" className={css.threadChip}
+        onClick={() => { onThread(event.id) }}>
+        {t('threadReplies', { count: threadReplies.length })} · {threadReplies.map(reply => reply.author.displayName).join('、')}
+      </button>}
       {event.delivery === 'failed' && <p className={css.failure} role="status">{t('deliveryFailed')}</p>}
       <div className={css.eventFooter}>
         <Tooltip label={`${t('signedRecord')} · ${event.pubkey}`}><span className={css.signature}>{t('signedRecord')} · {shortKey(event.pubkey)}</span></Tooltip>
@@ -328,6 +336,19 @@ export function CollaborationRoom({ state, controller, loadChoices, t }: {
       if (event.author.kind === 'employee' && event.kind === 9) answeredSeq.set(event.author.id, event.sequence)
     }
     const members = new Map((selected?.detail.members ?? []).map(member => [member.employeeId, member.displayName]))
+    // In channels every agent reply belongs to the thread of the message that
+    // triggered it: claim those events so the main timeline stays human-only.
+    const isChannel = (selected?.detail.kind ?? 'group') === 'channel'
+    const threadReplies = new Map<string, RoomEvent[]>()
+    if (isChannel) {
+      const humanIds = new Set(timeline.filter(event => event.author.kind === 'human').map(event => event.id))
+      for (const event of timeline) {
+        if (event.author.kind !== 'employee' || event.threadRoot === undefined || !humanIds.has(event.threadRoot)) continue
+        const list = threadReplies.get(event.threadRoot) ?? []
+        list.push(event)
+        threadReplies.set(event.threadRoot, list)
+      }
+    }
     const flushOrphans = (): void => {
       for (const events of pending.values()) {
         for (const event of events) items.push({ event })
@@ -335,6 +356,8 @@ export function CollaborationRoom({ state, controller, loadChoices, t }: {
       pending.clear()
     }
     for (const event of timeline) {
+      if (isChannel && event.author.kind === 'employee' && event.threadRoot !== undefined
+        && threadReplies.has(event.threadRoot)) continue
       if (event.author.kind === 'employee' && event.kind !== 9) {
         const list = pending.get(event.author.id) ?? []
         list.push(event)
@@ -363,11 +386,12 @@ export function CollaborationRoom({ state, controller, loadChoices, t }: {
           })
         }
       }
-      items.push({ event, ...(working === undefined ? {} : { working }) })
+      const replies = isChannel ? threadReplies.get(event.id) : undefined
+      items.push({ event, ...(working === undefined ? {} : { working }), ...(replies === undefined ? {} : { threadReplies: replies }) })
     }
     flushOrphans()
     return items
-  }, [timeline, avatars, selected?.detail.members])
+  }, [timeline, avatars, selected?.detail.kind, selected?.detail.members])
   if (selected === null) return <main className={css.room}><div className={css.center}>
     {state.roomPhase === 'loading' ? <IconLoadingOutlineRegular size={20}/> : t(state.error === 'forbidden' ? 'forbidden' : state.roomPhase === 'error' ? 'loadError' : 'noSelection')}
   </div></main>
@@ -411,6 +435,7 @@ export function CollaborationRoom({ state, controller, loadChoices, t }: {
               self={isSelf(item.event)} avatarUrl={avatarFor(item.event)} attachmentUrlFor={attachmentUrlFor}
               {...(item.workflowDetails === undefined ? {} : { workflowDetails: item.workflowDetails })}
               {...(item.working === undefined ? {} : { working: item.working })}
+              {...(item.threadReplies === undefined ? {} : { threadReplies: item.threadReplies })}
               onThread={(id) => { void controller.openThread(id) }}
               onReaction={(id, emoji) => { void controller.react(id, emoji) }}
               onInspect={(id) => { void controller.inspect(id) }} t={t}/>)}
