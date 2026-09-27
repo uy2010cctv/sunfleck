@@ -51,6 +51,9 @@
 .attach { border: 0; padding: 5px 8px; border-radius: 6px; background: transparent; color: var(--dsw-alias-label-secondary); font: inherit; font-size: 13px; cursor: pointer; }
 .attach:hover { background: var(--dsw-alias-interactive-bg-hover); }
 .attach:disabled { opacity: .5; cursor: not-allowed; }
+.menuAll label, .menuAll { display: flex; align-items: center; gap: 8px; padding: 4px 2px; cursor: pointer; }
+.menuAllLabel { font-weight: 600; color: #32cd32; }
+.menuAllHint { color: var(--dsw-alias-label-secondary); font-size: 11px; }
 .menuAvatar { display: inline-grid; place-items: center; width: 22px; height: 22px; flex: none; border-radius: 50%; object-fit: cover; background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-label-primary); font-size: 11px; }
 .attachments { display: flex; gap: 8px; flex-wrap: wrap; margin: 6px 0; }
 .workingChips { display: flex; gap: 6px; flex-wrap: wrap; margin: 6px 0 2px; }

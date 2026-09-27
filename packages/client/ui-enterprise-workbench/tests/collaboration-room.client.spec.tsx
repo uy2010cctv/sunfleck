@@ -292,6 +292,37 @@ describe('shared room UI', () => {
     controller.dispose()
   })
 
+  it('expands @ ALL to every member mention and inserts the token', async () => {
+    const { controller, state, t } = setup([])
+    const selected = state.selection
+    if (selected === null) throw new Error('room selection missing')
+    const seeded = { ...state, selection: { detail: { ...selected.detail,
+      members: [{ employeeId: 'research-bot', displayName: '研究 Bot' }, { employeeId: 'data-bot', displayName: '数据 Bot' }],
+      humanMembers: [{ userId: 'u2', displayName: '陈经理' }] } } }
+    const send = vi.spyOn(controller, 'send').mockResolvedValue(true)
+    render(<CollaborationRoom controller={controller} state={seeded} t={t}/>)
+    fireEvent.click(screen.getByRole('button', { name: '@ 提及成员' }))
+    fireEvent.click(screen.getByText('@ ALL'))
+    fireEvent.change(screen.getByRole('textbox', { name: '消息' }), { target: { value: '全体注意' } })
+    fireEvent.click(screen.getByRole('button', { name: '发送' }))
+    await waitFor(() => { expect(send).toHaveBeenCalledWith('全体注意', expect.objectContaining({
+      mentionedEmployeeIds: ['research-bot', 'data-bot'], mentionedUserIds: ['u1', 'u2', 'u3'] })) })
+    controller.dispose()
+  })
+
+  it('offers @ ALL from the typed @ filter and inserts the token', async () => {
+    const { controller, state, t } = setup([])
+    const selected = state.selection
+    if (selected === null) throw new Error('room selection missing')
+    const targeted = { ...state, events: [{ ...human, tags: [...human.tags, ['dsh-target', 'research-bot']] }] }
+    render(<CollaborationRoom controller={controller} state={targeted} t={t}/>)
+    const input = screen.getByRole('textbox', { name: '消息' })
+    fireEvent.change(input, { target: { value: '@al', selectionStart: 3 } })
+    fireEvent.click(await screen.findByText('@ ALL'))
+    expect((input as HTMLTextAreaElement).value).toBe('@ALL ')
+    controller.dispose()
+  })
+
   it('places channel workflow definitions in its right details pane', async () => {
     vi.stubGlobal('fetch', vi.fn(async (url: string) => Response.json(url.endsWith('/decisions')
       ? { items: [], canDecide: false }

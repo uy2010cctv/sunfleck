@@ -146,6 +146,16 @@ function Composer({ state, controller, t, threadRoot }: {
   const query = mentionQuery.toLowerCase()
   const employeeCandidates = detail.members.filter(member => member.displayName.toLowerCase().includes(query))
   const peopleCandidates = people.filter(member => member.displayName.toLowerCase().includes(query))
+  // @ ALL is a pseudo member that expands to every human and employee in the room.
+  const allMatches = query === '' || 'all'.includes(query)
+  const allSelected = detail.members.length > 0
+    && detail.members.every(member => mentions.includes(member.employeeId))
+    && detail.memberUserIds.every(userId => peopleMentions.includes(userId))
+  const pickAll = (): void => {
+    if (allSelected) { setMentions([]); setPeopleMentions([]); return }
+    setMentions(detail.members.map(member => member.employeeId))
+    setPeopleMentions(detail.memberUserIds)
+  }
   const readyAttachments = uploads.flatMap(upload => upload.status === 'ready' && upload.ref !== undefined ? [upload.ref] : [])
   const uploadPending = uploads.some(upload => upload.status === 'uploading')
   // Typing @ right before the caret summons the member picker filtered by the
@@ -220,6 +230,12 @@ function Composer({ state, controller, t, threadRoot }: {
         disabled={sending} onClick={() => { fileInput.current?.click() }}>＋</button>
       <div ref={mentionWrap} className={css.mentionWrap}><button type="button" aria-expanded={openMentions} onClick={() => { setTypedMention(false); setMentionQuery(''); setOpenMentions(!openMentions) }}>{t('mentionMember')}</button>
         {openMentions && <div className={css.mentionMenu}>
+          {allMatches && <div role="group" aria-label={t('mentionAll')}>
+            <label className={css.menuAll}><input type="checkbox" checked={allSelected}
+              onChange={() => { pickAll(); if (typedMention) { insertMention('ALL'); setOpenMentions(false); setTypedMention(false); input.current?.focus() } }}/>
+            <span className={css.menuAllLabel}>@ ALL</span><span className={css.menuAllHint}>{t('mentionAllHint')}</span>
+            </label>
+          </div>}
           <div role="group" aria-label={t('employees')}>
             {employeeCandidates.map(member => <span key={member.employeeId} className={css.menuRow}>
               <img className={css.menuAvatar} src={dicebearAvatarUrl(member.avatarSeed ?? member.employeeId)} alt=""
@@ -235,7 +251,7 @@ function Composer({ state, controller, t, threadRoot }: {
                 onChange={() => { toggleMember('human', member.userId, member.displayName) }}/>{member.displayName}</label>
             </span>)}
           </div>
-          {employeeCandidates.length === 0 && peopleCandidates.length === 0 && <span>{t('mentionNoMatch')}</span>}
+          {employeeCandidates.length === 0 && peopleCandidates.length === 0 && !allMatches && <span>{t('mentionNoMatch')}</span>}
         </div>}
       </div>
       <span className={css.keyHint}>{t('sendHint')}</span>
