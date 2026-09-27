@@ -246,15 +246,19 @@ describe('shared room UI', () => {
   it('echoes the human post immediately and reconciles it with the signed event', async () => {
     const { controller, state, t } = setup()
     let resolveSend: ((response: Response) => void) | undefined
-    vi.spyOn(controller, 'fetch').mockImplementationOnce(() => new Promise<Response>((resolve) => { resolveSend = resolve }))
-      .mockImplementation(async (url: string) => Response.json(
-        url.endsWith('/events?limit=100') ? { items: [], nextCursor: null } : state.selection?.detail ?? {}))
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url.endsWith('/messages')) {
+        return new Promise<Response>((resolve) => { resolveSend = resolve })
+      }
+      return Response.json(url.endsWith('/events?limit=100') ? { items: [], nextCursor: null } : state.selection?.detail ?? {})
+    }))
     render(<CollaborationRoom controller={controller} state={state} t={t}/>)
     fireEvent.change(screen.getByRole('textbox', { name: '消息' }), { target: { value: '即时上屏' } })
     fireEvent.click(screen.getByRole('button', { name: '发送' }))
     // The optimistic echo appears before the response lands.
     expect(screen.getByText('即时上屏')).toBeTruthy()
     resolveSend?.(Response.json({ delivered: true, event: { ...human, id: 'signed-1', content: '即时上屏' }, targets: [] }))
+    vi.unstubAllGlobals()
     await waitFor(() => { expect(screen.queryByText('即时上屏')).toBeTruthy() })
     controller.dispose()
   })
