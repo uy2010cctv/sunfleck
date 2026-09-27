@@ -6,7 +6,14 @@ import type { CollaborationFetch } from './collaboration-store.ts'
 export type ContextMemoryScope = 'organization' | 'department' | 'project' | 'agent' | 'pair'
 /** Read-only context returned after Session authorization. */
 export interface SessionContext {
-  readonly employee?: { id: string; displayName: string; role: string; releaseVersion?: number; capabilities: readonly string[] }
+  readonly employee?: {
+    id: string
+    displayName: string
+    role: string
+    releaseVersion?: number
+    capabilities: readonly string[]
+    avatarSeed?: string
+  }
   readonly project?: { id: string; name: string; goal: string; state: string }
   readonly memories: readonly {
     id: string
@@ -46,7 +53,7 @@ function parse(value: unknown): SessionContext {
   const project = row['project'] === undefined ? undefined : record(row['project'])
   if (typeof row['memoryAvailable'] !== 'boolean') throw new Error('invalid-response')
   return {
-    ...(employee === undefined ? {} : { employee: { id: text(employee['id']), displayName: text(employee['displayName']), role: text(employee['role']), capabilities: list(employee['capabilities']).map(text), ...(employee['releaseVersion'] === undefined ? {} : { releaseVersion: number(employee['releaseVersion']) }) } }),
+    ...(employee === undefined ? {} : { employee: { id: text(employee['id']), displayName: text(employee['displayName']), role: text(employee['role']), capabilities: list(employee['capabilities']).map(text), ...(employee['releaseVersion'] === undefined ? {} : { releaseVersion: number(employee['releaseVersion']) }), ...(employee['avatarSeed'] === undefined ? {} : { avatarSeed: text(employee['avatarSeed']) }) } }),
     ...(project === undefined ? {} : { project: { id: text(project['id']), name: text(project['name']), goal: text(project['goal']), state: text(project['state']) } }),
     memoryAvailable: row['memoryAvailable'],
     memories: list(row['memories']).map((value) => {

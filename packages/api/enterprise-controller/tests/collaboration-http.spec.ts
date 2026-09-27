@@ -65,4 +65,30 @@ describe('collaboration HTTP request validation', () => {
     }))
     expect(message).toHaveBeenCalledWith(expect.anything(), 'group', { text: '@Alice review', mentionedUserIds: ['alice'] })
   })
+
+  it('validates and routes group administrator operations before the service sees them', async () => {
+    const rename = vi.fn(async () => ({ id: 'group' }))
+    const setAnnouncement = vi.fn(async () => ({ id: 'group' }))
+    const addMembers = vi.fn(async () => ({ id: 'group' }))
+    const removeMembers = vi.fn(async () => ({ id: 'group' }))
+    const handler = new CollaborationHttpHandler({ rename, setAnnouncement, addMembers, removeMembers } as never, security as never)
+    const base = 'https://dsh/enterprise/surfaces/group'
+    expect((await handler.fetch(new Request(`${base}/rename`, { method: 'POST', body: JSON.stringify({}) }))).status).toBe(400)
+    expect(rename).not.toHaveBeenCalled()
+    expect((await handler.fetch(new Request(`${base}/rename`, { method: 'POST', body: JSON.stringify({ name: 'New name' }) }))).status).toBe(200)
+    expect(rename).toHaveBeenCalledWith(expect.objectContaining({ userId: 'member' }), 'group', 'New name')
+    expect((await handler.fetch(new Request(`${base}/announcement`, { method: 'POST', body: JSON.stringify({ text: 'Launch Friday' }) }))).status).toBe(200)
+    expect(setAnnouncement).toHaveBeenCalledWith(expect.objectContaining({ userId: 'member' }), 'group', 'Launch Friday')
+    expect((await handler.fetch(new Request(`${base}/announcement`, { method: 'POST', body: JSON.stringify({ text: '' }) }))).status).toBe(200)
+    expect(setAnnouncement).toHaveBeenLastCalledWith(expect.objectContaining({ userId: 'member' }), 'group', '')
+    expect((await handler.fetch(new Request(`${base}/members/add`, { method: 'POST', body: JSON.stringify({ memberUserIds: 'alice' }) }))).status).toBe(400)
+    expect((await handler.fetch(new Request(`${base}/members/add`, { method: 'POST', body: JSON.stringify({}) }))).status).toBe(400)
+    expect(addMembers).not.toHaveBeenCalled()
+    expect((await handler.fetch(new Request(`${base}/members/add`, { method: 'POST',
+      body: JSON.stringify({ memberEmployeeIds: ['analyst'], memberUserIds: ['alice'] }) }))).status).toBe(200)
+    expect(addMembers).toHaveBeenCalledWith(expect.objectContaining({ userId: 'member' }), 'group',
+      { employeeIds: ['analyst'], userIds: ['alice'] })
+    expect((await handler.fetch(new Request(`${base}/members/remove`, { method: 'POST', body: JSON.stringify({ memberUserIds: ['alice'] }) }))).status).toBe(200)
+    expect(removeMembers).toHaveBeenCalledWith(expect.objectContaining({ userId: 'member' }), 'group', { userIds: ['alice'] })
+  })
 })

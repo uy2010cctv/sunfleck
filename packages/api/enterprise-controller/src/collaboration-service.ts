@@ -8,7 +8,9 @@ import type { CollaborationRecord, CollaborationTopic, CollaborationSession, Roo
 /** Published employee projection used for routing and the detail panel. */
 export interface CollaborationEmployee { readonly employeeId: string
   readonly displayName: string
-  readonly releaseId: string }
+  readonly releaseId: string
+  /** Deterministic avatar seed from the published profile; absent for legacy releases. */
+  readonly avatarSeed?: string }
 /** Authenticated conversation details; native ids are returned only after membership and workspace checks. */
 export interface CollaborationDetail {
   readonly id: string
@@ -21,6 +23,12 @@ export interface CollaborationDetail {
   readonly humanMembers?: readonly { readonly userId: string; readonly displayName: string }[]
   readonly topics: readonly CollaborationTopic[]
   readonly dutyEmployeeIds: readonly string[]
+  /** The authenticated human, so clients can distinguish their own posts. */
+  readonly viewerUserId: string
+  /** Whether the authenticated human administers this group. */
+  readonly viewerIsAdmin: boolean
+  readonly adminUserId?: string
+  readonly announcement?: string
   readonly topicPolicy?: 'thread' | 'command' | 'lane'
   readonly respondPolicy?: 'mention_duty' | 'ingest_only'
   readonly project?: { readonly id: string
@@ -51,6 +59,11 @@ export interface CollaborationMessageInput {
   readonly messageId?: string
   /** Native composer source, set only by the Host. */
   readonly sourceSessionId?: string
+}
+/** Explicit member ids for one group membership change; omitted kinds stay unchanged. */
+export interface CollaborationMemberChange {
+  readonly employeeIds?: readonly string[]
+  readonly userIds?: readonly string[]
 }
 /** Routing receipt; accepted messages are durable, not necessarily completed by an employee. */
 export type CollaborationDelivery =
@@ -391,6 +404,10 @@ export class CollaborationService {
       members: employees.filter((value): value is CollaborationEmployee => value !== undefined),
       ...(humanMembers === undefined ? {} : { humanMembers }),
       topics, dutyEmployeeIds: row.dutyEmployeeIds,
+      viewerUserId: actor.userId,
+      viewerIsAdmin: row.adminUserId === actor.userId,
+      ...(row.adminUserId === undefined ? {} : { adminUserId: row.adminUserId }),
+      ...(row.announcement === undefined ? {} : { announcement: row.announcement }),
       ...(row.topicPolicy === undefined ? {} : { topicPolicy: row.topicPolicy }),
       ...(row.respondPolicy === undefined ? {} : { respondPolicy: row.respondPolicy }),
       ...(project === undefined ? {} : { project }), ...(team === undefined ? {} : { team }),
@@ -418,16 +435,91 @@ export class CollaborationService {
       input.projectId)) throw new CollaborationError('project-unavailable', 404)
     if (input.teamDefinitionId !== undefined && !await this.runtime.team(actor,
       input.teamDefinitionId)) throw new CollaborationError('team-unavailable', 404)
-    const { idempotencyKey, ...values } = input
+    const { idempotencyKey, announcement: _omitted, ...values } = input
     try {
       const row = await this.store.create({ ...values, memberUserIds, memberEmployeeIds: [...new Set(input.memberEmployeeIds)],
-        dutyEmployeeIds: [...new Set(input.dutyEmployeeIds)], orgId: actor.orgId },
+        dutyEmployeeIds: [...new Set(input.dutyEmployeeIds)], orgId: actor.orgId, adminUserId: actor.userId },
       idempotencyKey === undefined ? undefined : { creatorUserId: actor.userId, idempotencyKey })
       return await this.detail(actor, row.id)
     } catch (error) {
       if (error instanceof CollaborationCreationConflictError) throw new CollaborationError('idempotency-conflict', 409)
       throw error
     }
+  }
+
+  /** Rename a group as its creating administrator.
+   * @param actor - Authenticated group administrator.
+   * @param id - Group identity.
+   * @param name - New stored name.
+   * @returns Refreshed detail.
+   */
+  async rename(actor: EnterprisePrincipal, id: string, name: string): Promise<CollaborationDetail> {
+    await this.requireGroupAdmin(actor, id)
+    const trimmed = name.trim()
+    if (trimmed === '' || trimmed.length > 120) throw new CollaborationError('invalid-name')
+    if (!await this.store.rename(actor.orgId, id, trimmed)) throw new CollaborationError('not-found', 404)
+    return this.detail(actor, id)
+  }
+
+  /** Replace the group announcement as its creating administrator; empty text removes the notice.
+   * @param actor - Authenticated group administrator.
+   * @param id - Group identity.
+   * @param text - Announcement text.
+   * @returns Refreshed detail.
+   */
+  async setAnnouncement(actor: EnterprisePrincipal, id: string, text: string): Promise<CollaborationDetail> {
+    await this.requireGroupAdmin(actor, id)
+    const trimmed = text.trim()
+    if (trimmed.length > 2000) throw new CollaborationError('invalid-announcement')
+    await this.store.setAnnouncement(id, trimmed === '' ? undefined : trimmed)
+    return this.detail(actor, id)
+  }
+
+  /** Add human and employee members to a group as its creating administrator.
+   * @param actor - Authenticated group administrator.
+   * @param id - Group identity.
+   * @param input - Explicit human and published employee ids.
+   * @returns Refreshed detail.
+   */
+  async addMembers(actor: EnterprisePrincipal, id: string,
+    input: CollaborationMemberChange): Promise<CollaborationDetail> {
+    const row = await this.requireGroupAdmin(actor, id)
+    const employeeIds = [...new Set(input.employeeIds ?? [])], userIds = [...new Set(input.userIds ?? [])]
+    if (employeeIds.length === 0 && userIds.length === 0) throw new CollaborationError('invalid-members')
+    for (const employeeId of employeeIds) {
+      if (!await this.runtime.employee(actor, employeeId)) throw new CollaborationError('employee-unavailable', 404)
+    }
+    for (const userId of userIds) {
+      if (!await this.runtime.memberWorkspaceVisible(actor.orgId, userId, row.workspaceId)) {
+        throw new CollaborationError('member-workspace-forbidden', 403)
+      }
+    }
+    await this.store.addMembers(id, { employeeIds, userIds })
+    return this.detail(actor, id)
+  }
+
+  /** Remove human and employee members from a group as its creating administrator.
+   * @param actor - Authenticated group administrator.
+   * @param id - Group identity.
+   * @param input - Explicit human and employee ids; absent ids stay absent.
+   * @returns Refreshed detail.
+   */
+  async removeMembers(actor: EnterprisePrincipal, id: string,
+    input: CollaborationMemberChange): Promise<CollaborationDetail> {
+    const row = await this.requireGroupAdmin(actor, id)
+    const employeeIds = [...new Set(input.employeeIds ?? [])], userIds = [...new Set(input.userIds ?? [])]
+    if (employeeIds.length === 0 && userIds.length === 0) throw new CollaborationError('invalid-members')
+    if (row.adminUserId !== undefined && userIds.includes(row.adminUserId)) throw new CollaborationError('group-admin-removal')
+    await this.store.removeMembers(id, { employeeIds, userIds })
+    return this.detail(actor, id)
+  }
+
+  /** Authorize one group administration request by its recorded creating human. */
+  private async requireGroupAdmin(actor: EnterprisePrincipal, id: string): Promise<CollaborationRecord> {
+    const row = await this.authorized(actor, id)
+    if (row.kind !== 'group') throw new CollaborationError('group-only')
+    if (row.adminUserId !== actor.userId) throw new CollaborationError('group-admin-required', 403)
+    return row
   }
 
   /** Open an existing topic or an explicitly selected group employee.

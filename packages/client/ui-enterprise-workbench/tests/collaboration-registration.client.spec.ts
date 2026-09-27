@@ -29,7 +29,7 @@ it('opens a shared room panel without retaining any employee Session and dispose
   ctx.provide('remote', {} as never)
   ctx.provide('remote.agentPresets', {} as never)
   ctx.provide('remote.enterpriseTeamDefinition', {} as never)
-  const detail = { id: 'g', kind: 'group', name: 'Review', memberCount: 1, workspaceId: 'w', members: [], memberUserIds: [], topics: [], dutyEmployeeIds: [] }
+  const detail = { id: 'g', kind: 'group', name: 'Review', memberCount: 1, workspaceId: 'w', members: [], memberUserIds: [], topics: [], dutyEmployeeIds: [], viewerUserId: 'u', viewerIsAdmin: false }
   vi.stubGlobal('fetch', vi.fn(async (url: string) => Response.json(url.includes('/events?') ? { items: [], nextCursor: null } : detail)))
   const fiber = ctx.plugin({ apply: applyCollaboration })
   await fiber.await()

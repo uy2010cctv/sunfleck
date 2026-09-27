@@ -20,11 +20,17 @@ export interface CollaborationSurface {
 /** Authorized room metadata. Execution Sessions are destinations, not the conversation. */
 export interface CollaborationDetail extends CollaborationSurface {
   readonly workspaceId: string
-  readonly members: readonly { employeeId: string; displayName: string }[]
+  readonly members: readonly { employeeId: string; displayName: string; avatarSeed?: string }[]
   readonly memberUserIds: readonly string[]
   readonly humanMembers?: readonly { userId: string; displayName: string }[]
   readonly topics: readonly { id: string; title: string; state: 'open' | 'settled'; sessionId?: string; destinations?: readonly { sessionId: string; employeeId: string }[] }[]
   readonly dutyEmployeeIds: readonly string[]
+  /** The signed-in human, so the room can right-align their own posts. */
+  readonly viewerUserId: string
+  /** Whether the signed-in human administers this group. */
+  readonly viewerIsAdmin: boolean
+  readonly adminUserId?: string
+  readonly announcement?: string
   readonly project?: { id: string; name: string; goal: string }
   readonly team?: { id: string; name: string }
   readonly topicPolicy?: 'thread' | 'command' | 'lane'
@@ -132,9 +138,11 @@ function detail(value: unknown): CollaborationDetail {
   if (respondPolicy !== undefined && respondPolicy !== 'mention_duty' && respondPolicy !== 'ingest_only') throw new Error('invalid-response')
   const project = row['project'] === undefined ? undefined : record(row['project'])
   const team = row['team'] === undefined ? undefined : record(row['team'])
+  if (typeof row['viewerIsAdmin'] !== 'boolean' || typeof row['viewerUserId'] !== 'string') throw new Error('invalid-response')
   return {
     ...surface(row), workspaceId: string(row['workspaceId']),
-    members: array(row['members']).map((value) => { const member = record(value); return { employeeId: string(member['employeeId']), displayName: string(member['displayName']) } }),
+    members: array(row['members']).map((value) => { const member = record(value); return { employeeId: string(member['employeeId']), displayName: string(member['displayName']),
+      ...(member['avatarSeed'] === undefined ? {} : { avatarSeed: string(member['avatarSeed']) }) } }),
     memberUserIds: array(row['memberUserIds']).map(string),
     ...(row['humanMembers'] === undefined ? {} : { humanMembers: array(row['humanMembers']).map((value) => {
       const member = record(value)
@@ -147,6 +155,10 @@ function detail(value: unknown): CollaborationDetail {
       if (state !== 'open' && state !== 'settled') throw new Error('invalid-response')
       return { id: string(topic['id']), title: string(topic['title']), state, ...(topic['destinations'] === undefined ? {} : { destinations: array(topic['destinations']).map((value) => { const target = record(value); return { sessionId: string(target['sessionId']), employeeId: string(target['employeeId']) } }) }), ...(topic['sessionId'] === undefined ? {} : { sessionId: string(topic['sessionId']) }) }
     }),
+    viewerUserId: row['viewerUserId'],
+    viewerIsAdmin: row['viewerIsAdmin'],
+    ...(row['adminUserId'] === undefined ? {} : { adminUserId: string(row['adminUserId']) }),
+    ...(row['announcement'] === undefined ? {} : { announcement: string(row['announcement']) }),
     ...(project === undefined ? {} : { project: { id: string(project['id']), name: string(project['name']), goal: string(project['goal']) } }),
     ...(team === undefined ? {} : { team: { id: string(team['id']), name: string(team['name']) } }),
     ...(topicPolicy === undefined ? {} : { topicPolicy }),
@@ -506,6 +518,43 @@ export class CollaborationController {
       }
       return true
     } catch (error) { if (!this.revoke(error)) this.patch({ busy: false, error: error instanceof HttpFailure ? error.message : 'request-failed' }); return false }
+  }
+
+  /** Apply one administrator change to a group and reload its authorized detail and roster row. */
+  private async mutateRoom(id: string, path: string, body: object): Promise<boolean> {
+    const request = new AbortController()
+    this.patch({ busy: true, error: null })
+    try {
+      await this.read(`/${encodeURIComponent(id)}${path}`, request.signal, body)
+      if (this.cancelled(request)) return false
+      this.patch({ busy: false })
+      await this.refreshCurrent()
+      void this.refresh()
+      return true
+    } catch (error) {
+      if (!this.cancelled(request)) { if (!this.revoke(error)) this.patch({ busy: false, error: error instanceof HttpFailure ? error.message : 'request-failed' }) }
+      return false
+    }
+  }
+
+  /** Rename a group as its creating administrator. */
+  rename(id: string, name: string): Promise<boolean> {
+    return this.mutateRoom(id, '/rename', { name })
+  }
+
+  /** Replace the group announcement as its creating administrator; empty text removes the notice. */
+  setAnnouncement(id: string, text: string): Promise<boolean> {
+    return this.mutateRoom(id, '/announcement', { text })
+  }
+
+  /** Add human and employee members to a group as its creating administrator. */
+  addMembers(id: string, memberEmployeeIds: readonly string[], memberUserIds: readonly string[]): Promise<boolean> {
+    return this.mutateRoom(id, '/members/add', { memberEmployeeIds: [...memberEmployeeIds], memberUserIds: [...memberUserIds] })
+  }
+
+  /** Remove human and employee members from a group as its creating administrator. */
+  removeMembers(id: string, memberEmployeeIds: readonly string[], memberUserIds: readonly string[]): Promise<boolean> {
+    return this.mutateRoom(id, '/members/remove', { memberEmployeeIds: [...memberEmployeeIds], memberUserIds: [...memberUserIds] })
   }
 
   /** Create one collaboration room, refresh the roster and open its shared timeline. */

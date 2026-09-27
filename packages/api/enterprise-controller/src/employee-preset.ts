@@ -14,6 +14,7 @@ export interface EmployeePresetDefinition {
   readonly position?: string
   readonly department?: string
   readonly capabilities?: readonly string[]
+  readonly avatarSeed?: string
   readonly prompt: string
 }
 
@@ -43,12 +44,14 @@ export function employeePresetDefinition(release: Pick<EnterpriseEmployeeRelease
   const description = optional('description')
   const position = optional('position')
   const department = optional('department')
+  const avatarSeed = optional('avatarSeed')
   return {
     releaseId: release.releaseId, releaseVersion: release.version,
     name: required('name'), prompt: required('prompt'),
     ...description === undefined ? {} : { description },
     ...position === undefined ? {} : { position },
     ...department === undefined ? {} : { department },
+    ...avatarSeed === undefined ? {} : { avatarSeed },
     capabilities,
   }
 }

@@ -2,9 +2,12 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
 import { IconCloseOutlineRegular, IconLoadingOutlineRegular, IconSearchOutlineRegular, IconSendOutlineRegular, IconUsersOutlineRegular, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { CollaborationController, CollaborationState, RoomEvent } from './collaboration-store.ts'
+import type { CollaborationChoices } from './CollaborationNavigation.tsx'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-locale/client'
 import { ChannelWorkflowEditor } from './ChannelWorkflowEditor.tsx'
 import { ChannelDecisionQueue } from './ChannelDecisionQueue.tsx'
+import { CollaborationGroupDetails } from './CollaborationGroupDetails.tsx'
+import { dicebearAvatarUrl } from './avatar.ts'
 import css from './CollaborationRoom.module.css'
 
 type Copy = TranslateNS<'enterprise.collaboration'>
@@ -21,9 +24,11 @@ export function reactionCounts(events: readonly RoomEvent[], targetId: string): 
 
 function shortKey(value: string): string { return value.length < 13 ? value : `${value.slice(0, 8)}…${value.slice(-4)}` }
 
-function Entry({ event, reactions, onThread, onReaction, onInspect, t }: {
+function Entry({ event, reactions, self, avatarUrl, onThread, onReaction, onInspect, t }: {
   readonly event: RoomEvent
   readonly reactions: readonly { emoji: string; count: number }[]
+  readonly self: boolean
+  readonly avatarUrl: string | undefined
   readonly onThread: (id: string) => void
   readonly onReaction: (id: string, emoji: string) => void
   readonly onInspect: (id: string) => void
@@ -32,8 +37,11 @@ function Entry({ event, reactions, onThread, onReaction, onInspect, t }: {
   const workflow = event.kind !== 9
   const workflowStatus = event.tags.find(tag => tag[0] === 'status')?.[1]
   const time = new Date(event.created_at * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-  return <article className={`${css.entry} ${workflow ? css.workflow : ''}`} data-event-id={event.id}>
-    <span className={`${css.avatar} ${event.author.kind === 'employee' ? css.bot : event.author.kind === 'service' ? css.service : ''}`} aria-hidden="true">{event.author.displayName.slice(0, 1)}</span>
+  return <article className={`${css.entry} ${self ? css.entrySelf : ''} ${workflow ? css.workflow : ''}`} data-event-id={event.id}>
+    {avatarUrl !== undefined
+      ? <img className={`${css.avatar} ${event.author.kind === 'employee' ? css.bot : ''}`} src={avatarUrl}
+        alt={event.author.displayName} loading="lazy" referrerPolicy="no-referrer"/>
+      : <span className={`${css.avatar} ${event.author.kind === 'employee' ? css.bot : event.author.kind === 'service' ? css.service : ''}`} aria-hidden="true">{event.author.displayName.slice(0, 1)}</span>}
     <div className={css.entryBody}>
       <div className={css.meta}><span className={css.author}>{event.author.displayName}</span><span className={css.kind}>{t(event.author.kind === 'employee' ? 'botMember' : event.author.kind === 'service' ? 'serviceMember' : 'humanMember')}</span><time dateTime={new Date(event.created_at * 1000).toISOString()}>{time}</time>{workflow && <span className={css.kind}>{t('workflowEvent')}</span>}{workflowStatus !== undefined && <span className={css.kind}>{workflowStatus}</span>}</div>
       <p className={css.content}>{event.content}</p>
@@ -118,9 +126,10 @@ function Composer({ state, controller, t, threadRoot }: {
 }
 
 /** One shared timeline for people and Bots, with a room context and thread rail. */
-export function CollaborationRoom({ state, controller, t }: {
+export function CollaborationRoom({ state, controller, loadChoices, t }: {
   readonly state: CollaborationState
   readonly controller: CollaborationController
+  readonly loadChoices?: () => Promise<CollaborationChoices>
   readonly t: Copy
 }) {
   const [showDetails, setShowDetails] = useState(false)
@@ -163,10 +172,16 @@ export function CollaborationRoom({ state, controller, t }: {
   }, [state.events.at(-1)?.sequence])
   const timeline = useMemo(() => state.events.filter(event => event.kind !== 7), [state.events])
   const selected = state.selection
+  const avatars = useMemo(() => new Map((selected?.detail.members ?? []).flatMap((member) => {
+    if (member.avatarSeed === undefined) return []
+    return [[member.employeeId, dicebearAvatarUrl(member.avatarSeed)] as const]
+  })), [selected?.detail.members])
   if (selected === null) return <main className={css.room}><div className={css.center}>
     {state.roomPhase === 'loading' ? <IconLoadingOutlineRegular size={20}/> : t(state.error === 'forbidden' ? 'forbidden' : state.roomPhase === 'error' ? 'loadError' : 'noSelection')}
   </div></main>
   const detail = selected.detail
+  const avatarFor = (event: RoomEvent): string | undefined => event.author.kind === 'employee' ? avatars.get(event.author.id) : undefined
+  const isSelf = (event: RoomEvent): boolean => event.author.kind === 'human' && event.author.id === detail.viewerUserId
   const threadRoot = selected.threadRoot
   const root = threadRoot === undefined ? undefined : [...state.events, ...state.searchResults].find(event => event.id === threadRoot)
   return <main className={css.room}>
@@ -183,7 +198,7 @@ export function CollaborationRoom({ state, controller, t }: {
         {showSearch && state.searchPhase !== 'idle' ? <div className={css.scroll} role="region" aria-label={t('searchResults')}>
           {state.searchPhase === 'loading' && <div className={css.center}><IconLoadingOutlineRegular size={20}/></div>}
           {state.searchPhase === 'error' && <div className={css.center} role="alert">{t('searchFailed')}<button type="button" onClick={() => { void controller.search(searchInput) }}>{t('retry')}</button></div>}
-          {state.searchPhase === 'ready' && (state.searchResults.length === 0 ? <div className={css.center}>{t('noSearchResults')}</div> : state.searchResults.map(event => <Entry key={event.id} event={event} reactions={[]} onThread={(id) => { setShowSearch(false); void controller.openThread(id) }} onReaction={(id, emoji) => { void controller.react(id, emoji) }} onInspect={(id) => { void controller.inspect(id) }} t={t}/>))}
+          {state.searchPhase === 'ready' && (state.searchResults.length === 0 ? <div className={css.center}>{t('noSearchResults')}</div> : state.searchResults.map(event => <Entry key={event.id} event={event} reactions={[]} self={isSelf(event)} avatarUrl={avatarFor(event)} onThread={(id) => { setShowSearch(false); void controller.openThread(id) }} onReaction={(id, emoji) => { void controller.react(id, emoji) }} onInspect={(id) => { void controller.inspect(id) }} t={t}/>))}
         </div> : <div ref={scroll} className={css.scroll} role="region" aria-label={t('roomTimeline')}
           onScroll={(event) => {
             const node = event.currentTarget
@@ -199,6 +214,7 @@ export function CollaborationRoom({ state, controller, t }: {
             }}>{t('loadOlder')}</button>}
             {timeline.length === 0 && <div className={css.center}>{t('emptyRoom')}</div>}
             {timeline.map(event => <Entry key={event.id} event={event} reactions={reactionCounts(state.events, event.id)}
+              self={isSelf(event)} avatarUrl={avatarFor(event)}
               onThread={(id) => { void controller.openThread(id) }}
               onReaction={(id, emoji) => { void controller.react(id, emoji) }}
               onInspect={(id) => { void controller.inspect(id) }} t={t}/>)}
@@ -210,13 +226,16 @@ export function CollaborationRoom({ state, controller, t }: {
       {(showDetails || threadRoot !== undefined) && <aside className={css.side} aria-label={t(threadRoot === undefined ? 'roomDetails' : 'roomThread')}>
         <div className={css.sideHeader}><h2>{t(threadRoot === undefined ? 'roomDetails' : 'roomThread')}</h2><button type="button" aria-label={t('closeDetails')} onClick={() => { if (threadRoot !== undefined) controller.closeThread(); else setShowDetails(false) }}><IconCloseOutlineRegular size={16}/></button></div>
         {threadRoot === undefined ? <div className={css.details}>
-          <section><h3>{t('people')}</h3><p>{detail.memberUserIds.length} {t('humanMembers')}</p></section>
-          <section><h3>{t('employees')}</h3>{detail.members.length === 0 ? <p>{t('emptyEmployees')}</p> : <ul>{detail.members.map(member => <li key={member.employeeId}>{member.displayName}{detail.dutyEmployeeIds.includes(member.employeeId) && <span>{t('onDuty')}</span>}</li>)}</ul>}</section>
+          {detail.kind === 'group' ? <CollaborationGroupDetails detail={detail}
+            {...(detail.viewerIsAdmin ? { controller } : {})}
+            {...(loadChoices === undefined ? {} : { loadChoices })} t={t}/>
+            : <><section><h3>{t('people')}</h3><p>{detail.memberUserIds.length} {t('humanMembers')}</p></section>
+              <section><h3>{t('employees')}</h3>{detail.members.length === 0 ? <p>{t('emptyEmployees')}</p> : <ul>{detail.members.map(member => <li key={member.employeeId}>{member.displayName}{detail.dutyEmployeeIds.includes(member.employeeId) && <span>{t('onDuty')}</span>}</li>)}</ul>}</section></>}
           {detail.team !== undefined && <section><h3>{t('team')}</h3><p>{detail.team.name}</p></section>}
           {detail.project !== undefined && <section><h3>{t('project')}</h3><p>{detail.project.name}</p></section>}
           {detail.kind === 'channel' && <><ChannelDecisionQueue key={`${detail.id}-decisions`} channelId={detail.id} t={t}/>
             <ChannelWorkflowEditor key={`${detail.id}-workflows`} channelId={detail.id} t={t}/></>}
-        </div> : <><div className={css.threadScroll}>{root !== undefined && <Entry event={root} reactions={reactionCounts(state.events, root.id)} onThread={() => {}} onReaction={(id, emoji) => { void controller.react(id, emoji) }} onInspect={(id) => { void controller.inspect(id) }} t={t}/>}{state.threadPhase === 'loading' && <div className={css.center}><IconLoadingOutlineRegular size={20}/></div>}{state.threadPhase === 'error' && <div className={css.center} role="alert">{t('loadError')}<button type="button" onClick={() => { void controller.openThread(threadRoot) }}>{t('retry')}</button></div>}{state.threadPhase === 'ready' && state.threadEvents.filter(event => event.kind !== 7 && event.id !== threadRoot).map(event => <Entry key={event.id} event={event} reactions={reactionCounts(state.threadEvents, event.id)} onThread={() => {}} onReaction={(id, emoji) => { void controller.react(id, emoji) }} onInspect={(id) => { void controller.inspect(id) }} t={t}/>)}</div><Composer state={state} controller={controller} t={t} threadRoot={threadRoot}/></>}
+        </div> : <><div className={css.threadScroll}>{root !== undefined && <Entry event={root} reactions={reactionCounts(state.events, root.id)} self={isSelf(root)} avatarUrl={avatarFor(root)} onThread={() => {}} onReaction={(id, emoji) => { void controller.react(id, emoji) }} onInspect={(id) => { void controller.inspect(id) }} t={t}/>}{state.threadPhase === 'loading' && <div className={css.center}><IconLoadingOutlineRegular size={20}/></div>}{state.threadPhase === 'error' && <div className={css.center} role="alert">{t('loadError')}<button type="button" onClick={() => { void controller.openThread(threadRoot) }}>{t('retry')}</button></div>}{state.threadPhase === 'ready' && state.threadEvents.filter(event => event.kind !== 7 && event.id !== threadRoot).map(event => <Entry key={event.id} event={event} reactions={reactionCounts(state.threadEvents, event.id)} self={isSelf(event)} avatarUrl={avatarFor(event)} onThread={() => {}} onReaction={(id, emoji) => { void controller.react(id, emoji) }} onInspect={(id) => { void controller.inspect(id) }} t={t}/>)}</div><Composer state={state} controller={controller} t={t} threadRoot={threadRoot}/></>}
       </aside>}
     </div>
   </main>

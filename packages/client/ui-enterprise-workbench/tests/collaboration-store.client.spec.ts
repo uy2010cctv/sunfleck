@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { CollaborationController, type RoomEvent } from '../src/client/collaboration-store.ts'
 
 const surface = { id: 'group-1', kind: 'group', name: 'Renewal', memberCount: 4 }
-const detail = { ...surface, workspaceId: 'workspace', members: [{ employeeId: 'analyst', displayName: 'Analyst' }], memberUserIds: ['me', 'other'], topics: [], dutyEmployeeIds: [] }
+const detail = { ...surface, workspaceId: 'workspace', members: [{ employeeId: 'analyst', displayName: 'Analyst' }], memberUserIds: ['me', 'other'], topics: [], dutyEmployeeIds: [], viewerUserId: 'me', viewerIsAdmin: true, adminUserId: 'me' }
 const human: RoomEvent = { sequence: '9007199254740993', id: 'human-1', pubkey: 'human-public-key', created_at: 1, kind: 9, tags: [['h', 'group-1']], content: 'Please research', sig: 'signed-human-event', author: { kind: 'human', id: 'me', displayName: 'Director' } }
 const bot: RoomEvent = { ...human, sequence: '9007199254740994', id: 'bot-1', pubkey: 'bot-public-key', content: 'I will hand this to Data Bot', sig: 'signed-bot-event', author: { kind: 'employee', id: 'analyst', displayName: 'Research Bot' }, sourceSessionId: 'execution' }
 function fetcher(...responses: Response[]) {
@@ -187,6 +187,46 @@ describe('shared collaboration room', () => {
     expect(bodies[0]).toMatchObject({ text: '请复核', threadRoot: human.id, mentionedEmployeeIds: ['analyst'] })
     expect(bodies[1]).toMatchObject({ eventId: human.id, emoji: '👍' })
     expect(value.state.getSnapshot().events.map(event => event.id)).toEqual([human.id, reply.id, reaction.id])
+    value.dispose()
+  })
+
+  it('applies group administrator changes and reloads the room and roster', async () => {
+    const bodies: { url: string; body: Record<string, unknown> }[] = []
+    const renamed = { ...detail, name: 'New name', announcement: 'hello' }
+    const request = vi.fn(async (url: string, init?: RequestInit) => {
+      if (init?.method === 'POST' && (url.endsWith('/rename') || url.endsWith('/announcement')
+        || url.endsWith('/members/add') || url.endsWith('/members/remove'))) {
+        bodies.push({ url, body: JSON.parse(typeof init.body === 'string' ? init.body : '') as Record<string, unknown> })
+        return Response.json(renamed)
+      }
+      if (url === '/enterprise/surfaces') return Response.json([{ ...surface, name: 'New name' }])
+      if (url.endsWith('/events?limit=100')) return Response.json({ items: [], nextCursor: null })
+      return Response.json(renamed)
+    })
+    const { value } = controller(request)
+    await value.select('group-1')
+    expect(await value.rename('group-1', 'New name')).toBe(true)
+    expect(await value.setAnnouncement('group-1', 'hello')).toBe(true)
+    expect(await value.addMembers('group-1', ['a'], ['u'])).toBe(true)
+    expect(await value.removeMembers('group-1', [], ['u'])).toBe(true)
+    expect(bodies.map(row => row['url'])).toEqual(['/enterprise/surfaces/group-1/rename', '/enterprise/surfaces/group-1/announcement',
+      '/enterprise/surfaces/group-1/members/add', '/enterprise/surfaces/group-1/members/remove'])
+    expect(bodies[0]?.body).toMatchObject({ name: 'New name' })
+    expect(bodies[1]?.body).toMatchObject({ text: 'hello' })
+    expect(bodies[2]?.body).toMatchObject({ memberEmployeeIds: ['a'], memberUserIds: ['u'] })
+    expect(bodies[3]?.body).toMatchObject({ memberUserIds: ['u'] })
+    expect(value.state.getSnapshot().selection?.detail.name).toBe('New name')
+    expect(value.state.getSnapshot().surfaces[0]?.name).toBe('New name')
+    value.dispose()
+  })
+
+  it('keeps the selected room after a denied administrator change', async () => {
+    const request = fetcher(Response.json(detail), Response.json({ items: [], nextCursor: null }),
+      new Response('', { status: 403 }), Response.json([surface]))
+    const { value } = controller(request)
+    await value.select('group-1')
+    expect(await value.rename('group-1', 'Nope')).toBe(false)
+    expect(value.state.getSnapshot()).toMatchObject({ error: 'forbidden' })
     value.dispose()
   })
 

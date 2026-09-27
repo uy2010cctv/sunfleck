@@ -18,6 +18,7 @@ function setup(events: RoomEvent[] = [human, colleague, research, data, reaction
   controller.state.set({ ...controller.state.getSnapshot(), roomPhase: 'ready', selection: { detail: {
     id: 'room', kind: 'group', name: 'Q4 续约', workspaceId: 'workspace', memberCount: 5,
     members: [{ employeeId: 'research-bot', displayName: '研究 Bot' }, { employeeId: 'data-bot', displayName: '数据 Bot' }], memberUserIds: ['u1', 'u2', 'u3'], dutyEmployeeIds: [], topics: [],
+    viewerUserId: 'u1', viewerIsAdmin: false,
   } }, events })
   const t: TranslateNS<'enterprise.collaboration'> = key => zh[key as CollaborationKey] ?? key
   return { controller, state: controller.state.getSnapshot(), t }
@@ -123,6 +124,75 @@ describe('shared room UI', () => {
     fireEvent.keyDown(document, { key: 'Escape' })
     expect(screen.queryByRole('group', { name: '数字员工' })).toBeNull()
     expect(document.activeElement).toBe(screen.getByRole('textbox', { name: '消息' }))
+    controller.dispose()
+  })
+
+  it('lets the group administrator rename, publish the announcement, and change membership', async () => {
+    const { controller, state, t } = setup([])
+    const selected = state.selection
+    if (selected === null) throw new Error('room selection missing')
+    const admin = { ...state, selection: { detail: { ...selected.detail, viewerIsAdmin: true, adminUserId: 'u1',
+      humanMembers: [{ userId: 'u1', displayName: '张总' }, { userId: 'u2', displayName: '陈经理' }] } } }
+    const rename = vi.spyOn(controller, 'rename').mockResolvedValue(true)
+    const setAnnouncement = vi.spyOn(controller, 'setAnnouncement').mockResolvedValue(true)
+    const addMembers = vi.spyOn(controller, 'addMembers').mockResolvedValue(true)
+    const removeMembers = vi.spyOn(controller, 'removeMembers').mockResolvedValue(true)
+    render(<CollaborationRoom controller={controller} state={admin} t={t}
+      loadChoices={async () => ({ workspaces: [], employees: [{ id: 'new-bot', name: '新 Bot' }],
+        people: [{ id: 'u9', name: '王五' }], teams: [], projects: [], peopleAvailable: true })}/>)
+    fireEvent.click(screen.getByRole('button', { name: '会话详情' }))
+    expect(screen.getByText('张总')).toBeTruthy()
+    expect(screen.getByText('群管理员')).toBeTruthy()
+    const renameInput = () => {
+      fireEvent.click(screen.getAllByRole('button', { name: '编辑' })[0]!)
+      return screen.getByRole('textbox', { name: '群名称' })
+    }
+    fireEvent.change(renameInput(), { target: { value: 'Q4 交付群' } })
+    fireEvent.click(screen.getAllByRole('button', { name: '保存' })[0]!)
+    await waitFor(() => { expect(rename).toHaveBeenCalledWith('room', 'Q4 交付群') })
+    await waitFor(() => { expect(screen.getAllByRole('button', { name: '编辑' })).toHaveLength(2) })
+    fireEvent.click(screen.getAllByRole('button', { name: '编辑' })[1]!)
+    fireEvent.change(screen.getByRole('textbox', { name: '群公告' }), { target: { value: '周五评审' } })
+    fireEvent.click(screen.getByRole('button', { name: '保存' }))
+    await waitFor(() => { expect(setAnnouncement).toHaveBeenCalledWith('room', '周五评审') })
+    fireEvent.click(screen.getByLabelText('移除成员 陈经理'))
+    await waitFor(() => { expect(removeMembers).toHaveBeenCalledWith('room', [], ['u2']) })
+    fireEvent.click(screen.getByRole('button', { name: '添加' }))
+    fireEvent.click(await screen.findByLabelText('新 Bot'))
+    fireEvent.click(screen.getByLabelText('王五'))
+    fireEvent.click(screen.getByRole('button', { name: '添加' }))
+    await waitFor(() => { expect(addMembers).toHaveBeenCalledWith('room', ['new-bot'], ['u9']) })
+    controller.dispose()
+  })
+
+  it('shows the announcement and administrator badge without member controls for other members', async () => {
+    const { controller, state, t } = setup([])
+    const selected = state.selection
+    if (selected === null) throw new Error('room selection missing')
+    const member = { ...state, selection: { detail: { ...selected.detail, viewerIsAdmin: false, adminUserId: 'u1',
+      announcement: '周五评审', humanMembers: [{ userId: 'u1', displayName: '张总' }] } } }
+    render(<CollaborationRoom controller={controller} state={member} t={t}/>)
+    fireEvent.click(screen.getByRole('button', { name: '会话详情' }))
+    expect(screen.getByText('周五评审')).toBeTruthy()
+    expect(screen.getByText('群管理员')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: '编辑' })).toBeNull()
+    expect(screen.queryByRole('button', { name: '移除成员 张总' })).toBeNull()
+    controller.dispose()
+  })
+
+  it('right-aligns the viewer posts and renders employee avatars from their published profile', () => {
+    const { controller, state, t } = setup()
+    const selected = state.selection
+    if (selected === null) throw new Error('room selection missing')
+    const seeded = { ...state, selection: { detail: { ...selected.detail,
+      members: [{ employeeId: 'research-bot', displayName: '研究 Bot', avatarSeed: 'seed-bot' }, { employeeId: 'data-bot', displayName: '数据 Bot' }] } } }
+    const { container } = render(<CollaborationRoom controller={controller} state={seeded} t={t}/>)
+    const own = [...container.querySelectorAll('article')].filter(node => node.className.includes('entrySelf'))
+    expect(own).toHaveLength(1)
+    expect(own[0]!.textContent).toContain('张总')
+    const avatars = [...container.querySelectorAll('img')].map(node => node.getAttribute('src'))
+    expect(avatars.length).toBeGreaterThan(0)
+    expect(avatars.every(src => src?.includes('seed-bot'))).toBe(true)
     controller.dispose()
   })
 

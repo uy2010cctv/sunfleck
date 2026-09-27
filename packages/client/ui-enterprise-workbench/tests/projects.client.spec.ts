@@ -464,15 +464,25 @@ describe('ProjectSpace view', () => {
     await waitFor(() => { expect(archiveProject).toHaveBeenCalledWith('project-1') })
   })
 
-  it('adds an employee member from the typed id and the type toggle', async () => {
+  it('adds an employee member from the named directory picker and shows member names', async () => {
     const addProjectMember = vi.fn(() => Promise.resolve(true))
+    stubFetch((url) => {
+      if (url === '/auth/admin/users') return jsonResponse([{ id: 'user-1', displayName: '张三' }])
+      if (url === '/enterprise/employees') return jsonResponse([{ id: 'employee-9', displayName: '采购员' }])
+      return undefined
+    })
     render(createElement(ProjectSpace, spaceProps({
       projects: projects({ phase: 'ready', list: [RENEWAL], selected: DETAIL }), addProjectMember,
     })))
 
+    // Loaded directories replace raw ids with display names in the member pills.
+    await waitFor(() => { expect(screen.getAllByText('张三').length).toBeGreaterThan(0) })
+    expect(screen.queryByText('user-1')).toBeNull()
+
     fireEvent.change(screen.getByLabelText(zh['projects.memberType']), { target: { value: 'employee' } })
-    const id = screen.getByPlaceholderText<HTMLInputElement>(zh['projects.memberIdPlaceholder'])
-    fireEvent.change(id, { target: { value: 'employee-9' } })
+    const picker = screen.getByLabelText(zh['projects.memberChoose'])
+    if (!(picker instanceof HTMLSelectElement)) throw new Error('member picker is not a select')
+    fireEvent.change(picker, { target: { value: 'employee-9' } })
     fireEvent.click(screen.getByRole('button', { name: zh['projects.add'] }))
 
     await waitFor(() => {
@@ -480,9 +490,7 @@ describe('ProjectSpace view', () => {
         principalType: 'employee', principalId: 'employee-9',
       })
     })
-    await waitFor(() => {
-      expect(screen.getByPlaceholderText<HTMLInputElement>(zh['projects.memberIdPlaceholder']).value).toBe('')
-    })
+    await waitFor(() => { expect(picker.value).toBe('') })
   })
 
   it('shows the contained action errors for the add and the archive', () => {

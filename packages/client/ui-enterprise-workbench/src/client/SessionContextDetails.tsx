@@ -4,6 +4,7 @@ import { IconLoadingOutlineRegular, IconUsersOutlineRegular } from '@deepseek-ai
 import type { CollaborationController } from './collaboration-store.ts'
 import type { ContextMemoryScope, SessionContextController } from './session-context-store.ts'
 import type { CollaborationDetailsKey } from './collaboration-details-locales.ts'
+import { dicebearAvatarUrl } from './avatar.ts'
 import { CollaborationDetails, CollaborationDetailsAction } from './CollaborationDetails.tsx'
 import css from './CollaborationDetails.module.css'
 
@@ -64,7 +65,7 @@ export function NativeSessionDetails(
 
 /** Show the details entry for authorized collaboration, employee or project context.
  * @param props - Native Session context and the Sidebar open action.
- * @returns A Session details button when metadata is available.
+ * @returns A Session details button: the pinned employee's avatar and name when one is bound.
  */
 export function NativeSessionDetailsAction(
   props: SessionContextDetailsProps & { readonly controller: CollaborationController; readonly openDetails: () => void },
@@ -77,9 +78,16 @@ export function NativeSessionDetailsAction(
     useCallback(listener => props.contextController.state.subscribe(listener), [props.contextController]),
     useCallback(() => props.contextController.state.getSnapshot(), [props.contextController]),
   )
-  const hasContext = context.sessionId === props.sessionId && context.context !== null
-    && (context.context.employee !== undefined || context.context.project !== undefined)
+  const current = context.sessionId === props.sessionId ? context.context : null
+  const employee = current?.employee
+  const hasContext = current !== null && (employee !== undefined || current.project !== undefined)
   if (state.selection?.sessionId === props.sessionId) return <CollaborationDetailsAction {...props} />
   if (!hasContext) return null
-  return <button type="button" className={css.action} onClick={props.openDetails}><IconUsersOutlineRegular size={16} /><span>{props.t('title')}</span></button>
+  return <button type="button" className={css.action} onClick={props.openDetails}>
+    {employee === undefined ? <IconUsersOutlineRegular size={16} />
+      : employee.avatarSeed === undefined
+        ? <span className={css.actionAvatar} aria-hidden="true">{employee.displayName.slice(0, 1)}</span>
+        : <img className={css.actionAvatar} src={dicebearAvatarUrl(employee.avatarSeed)} alt="" loading="lazy" referrerPolicy="no-referrer" />}
+    <span>{employee?.displayName ?? props.t('title')}</span>
+  </button>
 }

@@ -279,7 +279,7 @@ describe('EmployeeDirectory view', () => {
     })))
 
     expect(screen.getByRole('article', { name: '采购协调员详情' })).toBeDefined()
-    expect(screen.getByText(`角色卡：${BUYER.roleCard}`)).toBeDefined()
+    expect(screen.getByText(BUYER.roleCard)).toBeDefined()
     expect(screen.getByRole('img', { name: '组织：0' })).toBeDefined()
     expect(screen.getByRole('img', { name: '部门：0' })).toBeDefined()
     expect(screen.getByRole('img', { name: '私有：1' })).toBeDefined()

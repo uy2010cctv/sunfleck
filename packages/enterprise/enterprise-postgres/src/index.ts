@@ -30,7 +30,7 @@ import { migrateCollaboration, PostgresCollaborationRepository } from './collabo
 import { PostgresRoomEventRepository } from './collaboration-events.ts'
 import { migrateChannelWorkflows } from './collaboration-workflows.ts'
 export { PostgresCollaborationRepository, CollaborationCreationConflictError } from './collaboration.ts'
-export type { CollaborationConfig, CollaborationRecord, CollaborationTopic, CollaborationSession } from './collaboration.ts'
+export type { CollaborationConfig, CollaborationSettings, CollaborationRecord, CollaborationTopic, CollaborationSession } from './collaboration.ts'
 export { PostgresRoomEventRepository, RoomEventConflictError, RoomActorKeyConflictError, parseRoomNostrEvent } from './collaboration-events.ts'
 export type { RoomActorKind, RoomActorKeyBinding, RoomNostrEvent, RoomEventAppend, RoomEvent,
   RoomEventPageOptions, RoomDispatchClaim } from './collaboration-events.ts'

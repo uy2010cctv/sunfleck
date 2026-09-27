@@ -17,6 +17,10 @@
 .more { display: block; margin: 18px auto; padding: 8px 12px; }
 .entry { display: flex; gap: 10px; padding: 10px 6px; border-radius: 8px; }
 .entry:hover { background: var(--dsw-alias-bg-layer-1); }
+.entrySelf { flex-direction: row-reverse; }
+.entrySelf .entryBody { display: flex; flex-direction: column; align-items: flex-end; text-align: right; }
+.entrySelf .avatar { flex: none; }
+.entry img.avatar { object-fit: cover; }
 .workflow { margin-block: 6px; border: 1px solid var(--dsw-alias-border-l1); background: var(--dsw-alias-bg-layer-1); }
 .avatar { display: grid; place-items: center; width: 30px; height: 30px; flex: none; border-radius: 9px; background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-label-primary); font-size: 13px; }
 .bot { border-radius: 50%; color: var(--dsw-alias-state-business-primary); }
@@ -55,6 +59,24 @@
 .details ul { list-style: none; padding: 0; margin: 0; }
 .details li { display: flex; justify-content: space-between; gap: 8px; padding: 5px 0; }
 .details li span { color: var(--dsw-alias-label-secondary); font-size: 12px; }
+.manageRow { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.details .manageRow h3 { margin: 0; }
+.manageRow button, .adminActions button, .addPicker > button { border: 0; padding: 3px 8px; border-radius: 6px; background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-label-primary); font: inherit; font-size: 12px; cursor: pointer; }
+.manageRow button:hover, .adminActions button:hover, .addPicker > button:hover { background: var(--dsw-alias-interactive-bg-hover); }
+.manageRow button:disabled, .adminActions button:disabled, .addPicker button:disabled { opacity: .5; cursor: not-allowed; }
+.adminForm { display: grid; gap: 6px; margin-top: 6px; }
+.adminForm input, .adminForm textarea { box-sizing: border-box; width: 100%; border: 1px solid var(--dsw-alias-border-l2); border-radius: 7px; padding: 5px 8px; background: var(--dsw-alias-bg-layer-1); color: var(--dsw-alias-label-primary); font: inherit; font-size: 13px; resize: vertical; }
+.adminActions { display: flex; gap: 6px; }
+.details .badge { flex: none; border-radius: 5px; padding: 1px 6px; background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-state-business-primary); font-size: 11px; }
+.memberMeta { display: inline-flex; align-items: center; gap: 6px; }
+.removeMember { border: 0; padding: 0 4px; background: transparent; color: var(--dsw-alias-label-secondary); font: inherit; font-size: 14px; line-height: 1; cursor: pointer; }
+.removeMember:hover { color: var(--dsw-alias-state-error-primary); }
+.removeMember:disabled { opacity: .5; cursor: not-allowed; }
+.addPicker { display: grid; gap: 10px; margin-top: 8px; }
+.addPicker fieldset { border: 0; padding: 0; margin: 0; display: grid; gap: 2px; }
+.addPicker legend { color: var(--dsw-alias-label-secondary); font-size: 12px; padding: 0; margin-bottom: 4px; }
+.addPicker label { display: flex; align-items: center; gap: 8px; padding: 4px 2px; cursor: pointer; }
+.adminLoading { display: flex; color: var(--dsw-alias-label-secondary); }
 .threadScroll { padding: 10px; }
 .side .composer { margin: 8px 10px 12px; }
 .search { display: flex; align-items: center; gap: 6px; padding: 8px 20px; border-bottom: 1px solid var(--dsw-alias-border-l1); }

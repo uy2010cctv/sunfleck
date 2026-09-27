@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { SessionContextController } from '../src/client/session-context-store.ts'
-const data = { employee: { id: 'employee-a', displayName: '采购员', role: '采购', capabilities: ['采购查询'] }, memories: [], memoryAvailable: true }
+const data = { employee: { id: 'employee-a', displayName: '采购员', role: '采购', capabilities: ['采购查询'], avatarSeed: 'seed-a' }, memories: [], memoryAvailable: true }
 describe('native Session context', () => {
   it('rejects stale responses and clears context immediately on Session change', async () => {
     let resolveFirst: (value: Response) => void = () => {}
@@ -13,6 +13,7 @@ describe('native Session context', () => {
     await first
     expect(controller.state.getSnapshot().sessionId).toBe('new-session')
     expect(controller.state.getSnapshot().context?.employee?.displayName).toBe('采购员')
+    expect(controller.state.getSnapshot().context?.employee?.avatarSeed).toBe('seed-a')
     await controller.load(undefined)
     expect(controller.state.getSnapshot().context).toBeNull()
   })

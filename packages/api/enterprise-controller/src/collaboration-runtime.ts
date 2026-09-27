@@ -191,7 +191,9 @@ export function composeCollaboration(ctx: Context, services: {
     const release = (await database.catalog.listReleases(id, actor.orgId)).toSorted((a, b) => b.version - a.version)[0]
     if (release === undefined) return undefined
     const displayName = draft.profile['displayName'] ?? draft.profile['name'] ?? id
-    return { employeeId: id, displayName: typeof displayName === 'string' ? displayName : id, releaseId: release.releaseId }
+    const avatarSeed = draft.profile['avatarSeed']
+    return { employeeId: id, displayName: typeof displayName === 'string' ? displayName : id, releaseId: release.releaseId,
+      ...(typeof avatarSeed === 'string' && avatarSeed.trim() !== '' ? { avatarSeed } : {}) }
   }
   const resume = async (actor: EnterprisePrincipal, id: string, row: CollaborationRecord) => {
     const binding = (await store.sessions(row.id)).find(value => value.sessionId === id)

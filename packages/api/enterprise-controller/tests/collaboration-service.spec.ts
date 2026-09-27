@@ -10,26 +10,48 @@ function setup(overrides: Partial<CollaborationRecord> = {}) {
   const prompted: string[] = []
   const recorded: string[] = []
   const publications: string[][] = []
+  const stored = record as { -readonly [K in keyof CollaborationRecord]: CollaborationRecord[K] }
   let creates = 0
+  let memberVisible = true
   const store = {
     list: async () => [record], get: async (orgId: string) => orgId === record.orgId ? record : undefined,
     sessions: async () => sessions, topics: async () => topics,
     bind: async (value: CollaborationSession) => { sessions.push(value) },
     ensureTopic: async (_surface: string, id: string, title: string) => { if (!topics.some(t => t.id === id)) topics.push({ id, title, state: 'open' }) },
     settle: async () => true,
+    rename: async (orgId: string, id: string, name: string) => {
+      if (orgId !== record.orgId || id !== record.id) return false
+      stored.name = name
+      return true
+    },
+    setAnnouncement: async (_surfaceId: string, announcement: string | undefined) => {
+      if (announcement === undefined) delete stored.announcement
+      else stored.announcement = announcement
+    },
+    addMembers: async (_surfaceId: string, input: { readonly userIds: readonly string[]; readonly employeeIds: readonly string[] }) => {
+      stored.memberUserIds = [...new Set([...record.memberUserIds, ...input.userIds])]
+      stored.memberEmployeeIds = [...new Set([...record.memberEmployeeIds, ...input.employeeIds])]
+    },
+    removeMembers: async (_surfaceId: string, input: { readonly userIds: readonly string[]; readonly employeeIds: readonly string[] }) => {
+      const users = new Set(input.userIds), employees = new Set(input.employeeIds)
+      stored.memberUserIds = record.memberUserIds.filter(id => !users.has(id))
+      stored.memberEmployeeIds = record.memberEmployeeIds.filter(id => !employees.has(id))
+    },
   }
   const service = new CollaborationService(store as never, {
     refreshWorkspace: () => { publications.push(sessions.map(value => value.sessionId)) },
     workspaceVisible: async () => true,
-    memberWorkspaceVisible: async () => true,
-    employee: async (_actor: unknown, id: string) => ({ employeeId: id, displayName: id === 'a' ? 'Alpha' : id === 'sales' ? 'Sales' : id === 'analyst' ? 'Sales Analyst' : 'Beta', releaseId: `release-${id}` }),
+    memberWorkspaceVisible: async () => memberVisible,
+    employee: async (_actor: unknown, id: string) => id === 'ghost' ? undefined
+      : { employeeId: id, displayName: id === 'a' ? 'Alpha' : id === 'sales' ? 'Sales' : id === 'analyst' ? 'Sales Analyst' : 'Beta', releaseId: `release-${id}` },
     projectActive: async () => false,
     createSession: async (_actor: unknown, input: { sessionId: string }) => { creates++; return input.sessionId },
     record: async (_actor: unknown, sessionId: string) => { recorded.push(sessionId) },
     ingest: async () => ({ delivered: true, targets: [] }),
     prompt: async (_actor: unknown, sessionId: string) => { prompted.push(sessionId) },
   } as never)
-  return { service, sessions, prompted, recorded, publications, get creates() { return creates } }
+  return { service, sessions, prompted, recorded, publications, get creates() { return creates },
+    setMemberVisible: (value: boolean) => { memberVisible = value } }
 }
 
 describe('collaboration routing through native Sessions', () => {
@@ -129,6 +151,45 @@ describe('collaboration routing through native Sessions', () => {
     const result = await fixture.service.message(actor, 'surface', { text: '@Sales Analyst, review this' })
     expect(result).toMatchObject({ delivered: true, targets: [{ employeeId: 'analyst' }] })
     expect(await fixture.service.message(actor, 'surface', { text: '@Salesperson review this' })).toEqual({ delivered: false, reason: 'no-target' })
+  })
+
+})
+
+describe('group administration by its recorded creator', () => {
+  it('lets the creator rename the group and read back the refreshed detail as administrator', async () => {
+    const fixture = setup({ adminUserId: 'alice', announcement: 'Review Friday' })
+    const detail = await fixture.service.rename(actor, 'surface', ' Renewed ')
+    expect(detail).toMatchObject({ name: 'Renewed', viewerUserId: 'alice', viewerIsAdmin: true, adminUserId: 'alice', announcement: 'Review Friday' })
+    expect(await fixture.service.setAnnouncement(actor, 'surface', 'Launch Monday')).toMatchObject({ announcement: 'Launch Monday' })
+    expect(await fixture.service.setAnnouncement(actor, 'surface', '')).not.toHaveProperty('announcement')
+  })
+  it('rejects a rename that is empty or longer than the stored name budget', async () => {
+    const fixture = setup({ adminUserId: 'alice' })
+    await expect(fixture.service.rename(actor, 'surface', '   ')).rejects.toMatchObject({ code: 'invalid-name' })
+    await expect(fixture.service.rename(actor, 'surface', 'x'.repeat(121))).rejects.toMatchObject({ code: 'invalid-name' })
+  })
+  it('denies administration to other members, strangers, and legacy groups without a recorded creator', async () => {
+    await expect(setup({ adminUserId: 'alice' }).service.rename({ ...actor, userId: 'bob' }, 'surface', 'New')).rejects.toMatchObject({ code: 'group-admin-required', status: 403 })
+    await expect(setup({ adminUserId: 'alice' }).service.rename({ ...actor, userId: 'eve' }, 'surface', 'New')).rejects.toMatchObject({ code: 'not-found' })
+    await expect(setup().service.rename(actor, 'surface', 'New')).rejects.toMatchObject({ code: 'group-admin-required', status: 403 })
+    await expect(setup({ adminUserId: 'alice', kind: 'channel' }).service.rename(actor, 'surface', 'New')).rejects.toMatchObject({ code: 'group-only' })
+  })
+  it('adds visible humans and published employees and reports the enlarged roster', async () => {
+    const fixture = setup({ adminUserId: 'alice' })
+    const detail = await fixture.service.addMembers(actor, 'surface', { employeeIds: ['a', 'c'], userIds: ['carol'] })
+    expect(detail.memberCount).toBe(6)
+    expect(detail.members.map(member => member.employeeId)).toContain('c')
+    await expect(fixture.service.addMembers(actor, 'surface', { employeeIds: ['ghost'] })).rejects.toMatchObject({ code: 'employee-unavailable', status: 404 })
+    fixture.setMemberVisible(false)
+    await expect(fixture.service.addMembers(actor, 'surface', { userIds: ['carol'] })).rejects.toMatchObject({ code: 'member-workspace-forbidden', status: 403 })
+    await expect(fixture.service.addMembers(actor, 'surface', {})).rejects.toMatchObject({ code: 'invalid-members' })
+  })
+  it('removes members but never the recorded administrator', async () => {
+    const fixture = setup({ adminUserId: 'alice' })
+    const detail = await fixture.service.removeMembers(actor, 'surface', { employeeIds: ['b'], userIds: ['bob'] })
+    expect(detail).toMatchObject({ memberCount: 2, memberUserIds: ['alice'] })
+    await expect(fixture.service.removeMembers(actor, 'surface', { userIds: ['alice'] })).rejects.toMatchObject({ code: 'group-admin-removal' })
+    await expect(fixture.service.removeMembers(actor, 'surface', { employeeIds: [] })).rejects.toMatchObject({ code: 'invalid-members' })
   })
 
 })

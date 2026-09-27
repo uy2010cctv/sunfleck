@@ -11,6 +11,7 @@ const selection: CollaborationSelection = {
     members: [{ employeeId: 'employee-secret', displayName: '采购员' }], memberUserIds: ['user-secret'], dutyEmployeeIds: ['employee-secret'],
     topics: [{ id: 'topic-a', title: '九月采购', state: 'open' }], topicPolicy: 'thread', respondPolicy: 'mention_duty',
     team: { id: 'team-secret', name: '采购团队' }, project: { id: 'project-secret', name: '秋季上新', goal: '按时备货' },
+    viewerUserId: 'user-secret', viewerIsAdmin: false,
   },
 }
 function setup(value: CollaborationSelection | null = selection) {

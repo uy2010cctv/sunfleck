@@ -82,6 +82,7 @@ describe('native collaboration navigation', () => {
         id: 'c', kind: 'channel', name: 'IT', memberCount: 2, workspaceId: 'w', memberUserIds: [], dutyEmployeeIds: [],
         members: [{ employeeId: 'a', displayName: '分析师' }, { employeeId: 'b', displayName: '李清' }],
         topics: [{ id: 'topic', title: '复核', state: 'open', destinations: [{ employeeId: 'a', sessionId: 'sa' }, { employeeId: 'b', sessionId: 'sb' }] }],
+        viewerUserId: 'u', viewerIsAdmin: false,
       },
     } })
     render(<CollaborationSetup {...props}/>)

@@ -117,5 +117,5 @@ export function CollaborationSetup({ useCollaboration, controller, loadChoices, 
   if (state.creation !== null) return <main className={css.setup}>
     <CreateForm key={`${state.creation}:${state.creationProjectId ?? ''}`} kind={state.creation} state={state} controller={controller} loadChoices={loadChoices} t={t}/>
   </main>
-  return <CollaborationRoom state={state} controller={controller} t={t}/>
+  return <CollaborationRoom state={state} controller={controller} loadChoices={loadChoices} t={t}/>
 }

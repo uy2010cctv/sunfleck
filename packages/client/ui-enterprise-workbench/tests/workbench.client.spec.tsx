@@ -1410,8 +1410,8 @@ describe('EnterpriseWorkbench', () => {
     expect(screen.queryByText(/JSON/u)).toBeNull()
     expect(screen.queryByLabelText('团队 ID')).toBeNull()
     fireEvent.change(screen.getByLabelText('团队名称'), { target: { value: '采购协同组' } })
-    fireEvent.change(screen.getByLabelText('Human 负责人'), { target: { value: 'owner-1' } })
-    fireEvent.change(screen.getByLabelText('领队 Agent'), { target: { value: 'release-lead' } })
+    fireEvent.change(screen.getByLabelText('团队负责人'), { target: { value: 'owner-1' } })
+    fireEvent.change(screen.getByLabelText('领队数字员工'), { target: { value: 'release-lead' } })
     fireEvent.click(screen.getByRole('button', { name: '保存草稿' }))
 
     await waitFor(() => { expect(saveTeamDefinitionDraft).toHaveBeenCalledOnce() })
@@ -1468,12 +1468,12 @@ describe('EnterpriseWorkbench', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '完善章程' }))
     expect(screen.getByRole('heading', { name: '完善团队章程' })).toBeDefined()
-    expect(screen.getByLabelText<HTMLInputElement>('Human 负责人').value).toBe('')
-    expect(screen.getByLabelText<HTMLSelectElement>('领队 Agent').value).toBe('release-lead-old')
+    expect(screen.getByLabelText<HTMLInputElement>('团队负责人').value).toBe('')
+    expect(screen.getByLabelText<HTMLSelectElement>('领队数字员工').value).toBe('release-lead-old')
     fireEvent.change(screen.getByLabelText('北极星目标'), { target: { value: '让每次采购交付都可验证、可追溯' } })
-    fireEvent.change(screen.getByLabelText('Human 负责人'), { target: { value: 'owner-1' } })
+    fireEvent.change(screen.getByLabelText('团队负责人'), { target: { value: 'owner-1' } })
     fireEvent.change(screen.getByLabelText('Agent lead 职责说明'), { target: { value: '拆解工作并持续汇报' } })
-    fireEvent.click(screen.getByRole('radio', { name: '选择交付核验员为验证 Agent' }))
+    fireEvent.click(screen.getByRole('radio', { name: '选择交付核验员为核验数字员工' }))
     fireEvent.change(screen.getByLabelText('验收标准'), { target: { value: '来源可追溯\n金额复核通过' } })
     fireEvent.click(screen.getByRole('button', { name: '保存并启用' }))
 
@@ -1532,10 +1532,10 @@ describe('EnterpriseWorkbench', () => {
     vi.spyOn(window, 'confirm').mockReturnValue(true)
     fireEvent.click(screen.getByRole('button', { name: '载入服务器版本' }))
     expect(screen.getByLabelText<HTMLInputElement>('团队名称').value).toBe('服务器新版本')
-    fireEvent.change(screen.getByLabelText('Human 负责人'), { target: { value: 'owner-1' } })
+    fireEvent.change(screen.getByLabelText('团队负责人'), { target: { value: 'owner-1' } })
     fireEvent.change(screen.getByLabelText('协调者 职责说明'), { target: { value: '协调既有流程' } })
-    fireEvent.click(screen.getByText('注意力与并发上限'))
-    fireEvent.change(screen.getByLabelText('待 Human 决策上限'), { target: { value: '' } })
+    fireEvent.click(screen.getByText('工作量限制（可选）'))
+    fireEvent.change(screen.getByLabelText('同时等待人工处理的上限'), { target: { value: '' } })
     fireEvent.click(screen.getByRole('button', { name: '保存草稿' }))
 
     await waitFor(() => { expect(saveTeamDefinitionDraft).toHaveBeenCalledOnce() })
@@ -1639,7 +1639,7 @@ describe('EnterpriseWorkbench', () => {
       },
     } as never, patchEmployeeDraft, optimizeEmployeePrompt })} />)
 
-    const model = screen.getByRole('combobox', { name: '模型引用' })
+    const model = screen.getByRole('combobox', { name: '使用模型' })
     expect(model.textContent).toContain('DeepSeek Chat')
     fireEvent.change(model, { target: { value: 'deepseek/deepseek-reasoner' } })
     expect(patchEmployeeDraft).toHaveBeenCalledWith({ modelRef: 'deepseek/deepseek-reasoner' })
@@ -1718,7 +1718,7 @@ describe('EnterpriseWorkbench', () => {
     expect(patchEmployeeDraft).toHaveBeenCalledWith(expect.objectContaining({
       bindings: [{ kind: 'sop', assetId: 'rfq', version: 2 }],
     }))
-    expect(screen.getByText('高级 JSON 编辑')).toBeDefined()
+    expect(screen.queryByText(/JSON/u)).toBeNull()
 
     rerender(<EnterpriseWorkbench {...workbenchProps({ state: {
       mode: 'enterprise', page: 'teams', releases: [{
@@ -1824,7 +1824,7 @@ describe('EnterpriseWorkbench', () => {
     }).toMatchInlineSnapshot(`
       {
         "action": "已绑定",
-        "bindings": "询价 SOP修订 2移除",
+        "bindings": "询价 SOP版本 2移除",
         "options": [
           "选择已审核的能力资产",
           "询价 SOP（已绑定）",
@@ -1861,7 +1861,7 @@ describe('EnterpriseWorkbench', () => {
       ] },
     } } as never)} />)
     expect(within(screen.getByRole('list', { name: '已绑定能力' })).getByText('询价 SOP')).toBeDefined()
-    expect(screen.getByText('修订 1 · 当前目录中不可用')).toBeDefined()
+    expect(screen.getByText('版本 1 · 当前目录中不可用')).toBeDefined()
     expect(screen.getByRole('combobox', { name: '能力资产' }).textContent).not.toContain('询价 SOP')
     expect(screen.getByText('当前目录暂无可用的此类能力资产。可在“能力资产”中查看或登记。')).toBeDefined()
   })
@@ -2175,7 +2175,7 @@ describe('EnterpriseWorkbench', () => {
     })} />)
 
     expect(screen.getByLabelText('职责 Prompt')).toBeDefined()
-    expect(screen.getByLabelText('模型引用')).toBeDefined()
+    expect(screen.getByLabelText('使用模型')).toBeDefined()
     expect(screen.getByRole('alert').textContent).toContain('职责 Prompt 不能为空')
     fireEvent.click(screen.getByRole('button', { name: '工作记录' }))
     expect(confirmSpy).toHaveBeenCalled()

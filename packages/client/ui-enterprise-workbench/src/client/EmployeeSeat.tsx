@@ -54,7 +54,7 @@ export function EmployeeSeat({ sessionId, load, select, currentEmployee, subscri
     <Menu open={open} onClose={() => { setOpen(false) }} selectedId={selected}
       items={rows.map(row => ({
         id: row.id,
-        label: <span className={css.option}><strong>{row.name ?? row.id}</strong><small>{[
+        label: <span className={css.option}><strong>{row.name ?? t('employeeSeat.unnamed')}</strong><small>{[
           row.employee?.position ?? row.description,
           row.employee?.releaseVersion === undefined ? undefined : t('employeeSeat.version', { version: row.employee.releaseVersion }),
         ].filter(Boolean).join(' · ')}</small></span>,

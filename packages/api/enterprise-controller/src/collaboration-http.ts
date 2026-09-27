@@ -87,13 +87,34 @@ export class CollaborationHttpHandler {
           ...(respondPolicy === 'mention_duty' || respondPolicy === 'ingest_only' ? { respondPolicy } : {}),
         }), { status: 201 })
       }
-      if (id === undefined || target !== undefined) return failure(404, 'not-found')
+      if (id === undefined || (target !== undefined && operation !== 'members')) return failure(404, 'not-found')
       if (operation === 'read') {
         const sequence = stringField(body, 'sequence')
         if (sequence === undefined || !/^[1-9][0-9]*$/u.test(sequence)
           || BigInt(sequence) > 9_223_372_036_854_775_807n) return failure(400, 'invalid-room-read-cursor')
         await this.service.markRead(principal, id, sequence)
         return Response.json({ sequence })
+      }
+      if (operation === 'rename') {
+        const name = stringField(body, 'name')
+        if (name === undefined) return failure(400, 'invalid-body')
+        return Response.json(await this.service.rename(principal, id, name))
+      }
+      if (operation === 'announcement') {
+        const text = body['text']
+        if (typeof text !== 'string') return failure(400, 'invalid-body')
+        return Response.json(await this.service.setAnnouncement(principal, id, text))
+      }
+      if (operation === 'members' && (target === 'add' || target === 'remove')) {
+        const memberEmployeeIds = optionalStringArrayField(body, 'memberEmployeeIds')
+        const memberUserIds = optionalStringArrayField(body, 'memberUserIds')
+        if (memberEmployeeIds === null || memberUserIds === null
+          || (memberEmployeeIds?.length ?? 0) + (memberUserIds?.length ?? 0) === 0) return failure(400, 'invalid-body')
+        const change = { ...(memberEmployeeIds === undefined ? {} : { employeeIds: memberEmployeeIds }),
+          ...(memberUserIds === undefined ? {} : { userIds: memberUserIds }) }
+        return Response.json(await (target === 'add'
+          ? this.service.addMembers(principal, id, change)
+          : this.service.removeMembers(principal, id, change)))
       }
       const topicId = optionalStringField(body, 'topicId')
       if (topicId === null) return failure(400, 'invalid-topic')

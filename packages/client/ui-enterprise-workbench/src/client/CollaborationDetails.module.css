@@ -28,7 +28,8 @@
 .topic { justify-content: space-between; width: 100%; padding: var(--dse-space-2xs); text-align: start; }
 .topic:hover, .topic[aria-current='true'], .action:hover, .notice button:hover { background: var(--dsw-alias-interactive-bg-hover); }
 .topic:focus-visible, .action:focus-visible, .notice button:focus-visible { outline: 2px solid var(--dse-color-focus); outline-offset: 2px; }
-.action { min-height: 28px; font-size: 13px; color: var(--dsw-alias-label-secondary); }
+.action { min-height: 28px; font-size: var(--dsh-content-font-size, 13px); color: var(--dsw-alias-label-secondary); }
+.actionAvatar { display: inline-grid; place-items: center; width: 20px; height: 20px; flex: none; border-radius: 50%; object-fit: cover; background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-label-primary); font-size: 12px; }
 .action svg, .root li svg { flex: none; }
 .notice { padding-block: var(--dse-space-xs); }
 .loading { display: flex; justify-content: center; padding-block: var(--dse-space-xs); }

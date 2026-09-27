@@ -12,8 +12,13 @@ export interface CollaborationConfig {
   readonly topicPolicy?: 'thread' | 'command' | 'lane'
   readonly respondPolicy?: 'mention_duty' | 'ingest_only'
 }
+/** Group management state; the creating human administers a group and may edit its notice. */
+export interface CollaborationSettings {
+  readonly adminUserId?: string
+  readonly announcement?: string
+}
 /** Persisted organization-scoped conversation. */
-export interface CollaborationRecord extends CollaborationConfig {
+export interface CollaborationRecord extends CollaborationConfig, CollaborationSettings {
   readonly id: string
   readonly orgId: string
   readonly kind: 'group' | 'channel'
@@ -37,11 +42,11 @@ export interface CollaborationSession {
   readonly sessionId: string
 }
 
-/** Validate durable JSON before using it for routing.
+/** Validate durable JSON before using it for routing and group administration.
  * @param value - PostgreSQL JSON value.
- * @returns Validated routing choices.
+ * @returns Validated routing choices and group settings.
  */
-export function parseCollaborationConfig(value: unknown): CollaborationConfig {
+export function parseCollaborationConfig(value: unknown): CollaborationConfig & CollaborationSettings {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) throw new Error('invalid collaboration configuration')
   const row = value as Record<string, unknown>
   const strings = (field: string): string[] => {
@@ -60,11 +65,16 @@ export function parseCollaborationConfig(value: unknown): CollaborationConfig {
   const respondPolicy = row['respondPolicy']
   if (topicPolicy !== undefined && topicPolicy !== 'thread' && topicPolicy !== 'command' && topicPolicy !== 'lane') throw new Error('invalid collaboration topic policy')
   if (respondPolicy !== undefined && respondPolicy !== 'mention_duty' && respondPolicy !== 'ingest_only') throw new Error('invalid collaboration respond policy')
+  const adminUserId = row['adminUserId']
+  if (adminUserId !== undefined && (typeof adminUserId !== 'string' || adminUserId.trim() === '')) throw new Error('invalid collaboration admin user')
+  const announcement = row['announcement']
+  if (announcement !== undefined && (typeof announcement !== 'string' || announcement.trim() === '')) throw new Error('invalid collaboration announcement')
   return {
     workspaceId, memberEmployeeIds: strings('memberEmployeeIds'), dutyEmployeeIds: strings('dutyEmployeeIds'),
     ...(typeof row['teamDefinitionId'] === 'string' ? { teamDefinitionId: row['teamDefinitionId'] } : {}),
     ...(typeof row['projectId'] === 'string' ? { projectId: row['projectId'] } : {}),
     ...(topicPolicy === undefined ? {} : { topicPolicy }), ...(respondPolicy === undefined ? {} : { respondPolicy }),
+    ...(adminUserId === undefined ? {} : { adminUserId }), ...(announcement === undefined ? {} : { announcement }),
   }
 }
 
@@ -183,6 +193,8 @@ export class CollaborationCreationConflictError extends Error {
 }
 
 function creationFingerprint(input: Omit<CollaborationRecord, 'id'>): string {
+  // Group administration state is excluded: the stored id already commits the creator, and rows
+  // recorded before it existed must stay valid retry targets.
   return JSON.stringify({
     orgId: input.orgId, kind: input.kind, name: input.name, workspaceId: input.workspaceId,
     memberEmployeeIds: input.memberEmployeeIds, memberUserIds: [...new Set(input.memberUserIds)].sort(),
@@ -256,6 +268,74 @@ export class PostgresCollaborationRepository {
     const members = await this.query<{ user_id: string }>('SELECT user_id FROM dsh_enterprise_collaboration_members WHERE surface_id=$1 ORDER BY user_id', [id])
     return { id, orgId, kind: row.kind, name: row.name, ...parseCollaborationConfig(row.config_json),
       memberUserIds: members.rows.map(member => member.user_id) }
+  }
+
+  /** Rename one conversation within its organization.
+   * @param orgId - Organization scope.
+   * @param id - Conversation identity.
+   * @param name - Trimmed non-empty stored name.
+   * @returns Whether the conversation exists.
+   */
+  async rename(orgId: string, id: string, name: string): Promise<boolean> {
+    return (await this.query('UPDATE dsh_enterprise_surface_directory SET name=$3 WHERE org_id=$1 AND surface_id=$2',
+      [orgId, id, name])).rowCount === 1
+  }
+
+  /** Replace the stored group announcement.
+   * @param surfaceId - Authorized conversation.
+   * @param announcement - Trimmed notice text, or undefined to remove the notice.
+   */
+  async setAnnouncement(surfaceId: string, announcement: string | undefined): Promise<void> {
+    if (announcement === undefined) {
+      await this.database.query("UPDATE dsh_enterprise_collaboration_config SET config_json = config_json - 'announcement' WHERE surface_id=$1", [surfaceId])
+      return
+    }
+    await this.database.query('UPDATE dsh_enterprise_collaboration_config SET config_json = config_json || $2::jsonb WHERE surface_id=$1',
+      [surfaceId, JSON.stringify({ announcement })])
+  }
+
+  /** Add human and employee members; repeats stay absent and the directory count mirrors stored employees.
+   * @param surfaceId - Authorized conversation.
+   * @param input - Human ids for the members table and employee ids for routing.
+   */
+  async addMembers(surfaceId: string,
+    input: { readonly userIds: readonly string[]; readonly employeeIds: readonly string[] }): Promise<void> {
+    await this.database.transaction(async (tx) => {
+      await this.mergeEmployeeRoster(tx, surfaceId,
+        current => [...new Set([...current, ...input.employeeIds])])
+      for (const userId of new Set(input.userIds)) {
+        await tx.query('INSERT INTO dsh_enterprise_collaboration_members(surface_id,user_id) VALUES($1,$2) ON CONFLICT DO NOTHING', [surfaceId, userId])
+      }
+    })
+  }
+
+  /** Remove human and employee members; absent ids stay absent.
+   * @param surfaceId - Authorized conversation.
+   * @param input - Human and employee ids to drop from the conversation.
+   */
+  async removeMembers(surfaceId: string,
+    input: { readonly userIds: readonly string[]; readonly employeeIds: readonly string[] }): Promise<void> {
+    await this.database.transaction(async (tx) => {
+      const removed = new Set(input.employeeIds)
+      await this.mergeEmployeeRoster(tx, surfaceId, current => current.filter(id => !removed.has(id)))
+      if (input.userIds.length > 0) {
+        await tx.query('DELETE FROM dsh_enterprise_collaboration_members WHERE surface_id=$1 AND user_id=ANY($2::text[])',
+          [surfaceId, [...new Set(input.userIds)]])
+      }
+    })
+  }
+
+  /** Apply one employee-roster change to the stored configuration and the directory count under a row lock. */
+  private async mergeEmployeeRoster(tx: EnterprisePostgresDatabase, surfaceId: string,
+    next: (current: readonly string[]) => readonly string[]): Promise<void> {
+    const row = (await tx.query<{ config_json: unknown }>(
+      'SELECT config_json FROM dsh_enterprise_collaboration_config WHERE surface_id=$1 FOR UPDATE', [surfaceId])).rows[0]
+    if (row === undefined) throw new Error('collaboration configuration is missing')
+    const employeeIds = [...new Set(next(parseCollaborationConfig(row.config_json).memberEmployeeIds))]
+    await tx.query(`UPDATE dsh_enterprise_collaboration_config
+      SET config_json = jsonb_set(config_json,'{memberEmployeeIds}',$2::jsonb) WHERE surface_id=$1`,
+    [surfaceId, JSON.stringify(employeeIds)])
+    await tx.query('UPDATE dsh_enterprise_surface_directory SET member_count=$2 WHERE surface_id=$1', [surfaceId, employeeIds.length])
   }
 
   /** List topic state with its native transcript binding.

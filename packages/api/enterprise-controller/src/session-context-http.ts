@@ -22,6 +22,7 @@ export interface SessionContextEmployee {
   readonly role: string
   readonly releaseVersion?: number
   readonly capabilities: readonly string[]
+  readonly avatarSeed?: string
 }
 
 /** Read-only sources used after Session and Workspace authorization. */
@@ -158,7 +159,8 @@ export function composeSessionContext(ctx: Context): SessionContextHttpHandler {
         || (selected.releaseVersion !== undefined && release.version !== selected.releaseVersion)) return undefined
       const definition = employeePresetDefinition(release)
       return { id: selected.employeeId, displayName: definition.name, role: [definition.position, definition.description].filter(Boolean).join('\n'),
-        releaseVersion: definition.releaseVersion, capabilities: definition.capabilities ?? [] }
+        releaseVersion: definition.releaseVersion, capabilities: definition.capabilities ?? [],
+        ...(definition.avatarSeed === undefined ? {} : { avatarSeed: definition.avatarSeed }) }
     },
     privateActor: async (principal, sessionId, selected) => {
       if (selected.ownerUserId !== principal.userId || await postgres.collaboration.bySession(sessionId) !== undefined) return undefined

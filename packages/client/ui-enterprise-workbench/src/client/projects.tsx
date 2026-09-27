@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react'
 import { IconChecklistOutlineMedium, IconUserOutlineRegular, IconWarningOutlineRegular, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { EnterpriseWorkbenchKey } from './locales.ts'
 import type {
-  EnterpriseProjectDetailError, EnterpriseProjectLifecycle, EnterpriseProjectMemberView,
+  EnterpriseProjectDetailError, EnterpriseProjectLifecycle,
   EnterpriseProjectsState, EnterpriseSurfaceView, EnterpriseSurfacesState,
 } from './store.ts'
 import css from './EnterpriseWorkbench.module.css'
@@ -37,12 +37,48 @@ const DETAIL_ERROR_KEYS = {
   'load-failed': 'projects.detailError.load-failed',
 } as const satisfies Record<EnterpriseProjectDetailError, EnterpriseWorkbenchKey>
 
-function MemberAvatar({ member }: { member: EnterpriseProjectMemberView }) {
-  return <span
-    className={css.memberAvatar}
-    data-principal={member.principalType}
-    aria-hidden="true"
-  >{member.principalId.slice(0, 1)}</span>
+/** One selectable directory entry: a colleague or a published digital employee. */
+interface DirectoryChoice {
+  readonly id: string
+  readonly name: string
+}
+
+/** First non-empty display field of a raw directory row. */
+function directoryChoice(row: { id?: unknown; displayName?: unknown; name?: unknown; username?: unknown }): DirectoryChoice | undefined {
+  if (typeof row.id !== 'string' || row.id === '') return undefined
+  for (const field of [row.displayName, row.name, row.username]) {
+    if (typeof field === 'string' && field !== '') return { id: row.id, name: field }
+  }
+  return { id: row.id, name: row.id }
+}
+
+interface MemberDirectory {
+  readonly loaded: boolean
+  readonly people: readonly DirectoryChoice[]
+  readonly employees: readonly DirectoryChoice[]
+}
+
+/** Load the people and digital-employee directories once so members are picked by name, never by id. */
+function useMemberDirectory(): MemberDirectory {
+  const [directory, setDirectory] = useState<MemberDirectory>({ loaded: false, people: [], employees: [] })
+  useEffect(() => {
+    let live = true
+    const list = (path: string): Promise<readonly DirectoryChoice[]> =>
+      fetch(path, { credentials: 'same-origin', headers: { accept: 'application/json' } })
+        .then(async response => response.ok
+          ? response.json() as Promise<readonly { id?: unknown; displayName?: unknown; name?: unknown; username?: unknown }[]>
+          : [])
+        .then(rows => rows.flatMap((row) => {
+          const choice = directoryChoice(row)
+          return choice === undefined ? [] : [choice]
+        }))
+        .catch(() => [])
+    void Promise.all([list('/auth/admin/users'), list('/enterprise/employees')]).then(([people, employees]) => {
+      if (live) setDirectory({ loaded: true, people, employees })
+    })
+    return () => { live = false }
+  }, [])
+  return directory
 }
 
 function MemberSection({ detail, busy, actionError, addProjectMember, t }: {
@@ -54,8 +90,14 @@ function MemberSection({ detail, busy, actionError, addProjectMember, t }: {
   ) => Promise<boolean>
   t: Translate
 }) {
+  const directory = useMemberDirectory()
   const [principalType, setPrincipalType] = useState<'user' | 'employee'>('user')
   const [principalId, setPrincipalId] = useState('')
+  const directoryChoices = principalType === 'user' ? directory.people : directory.employees
+  const nameOf = (id: string): string => {
+    const choice = [...directory.people, ...directory.employees].find(candidate => candidate.id === id)
+    return choice?.name ?? id
+  }
   const submit = (): void => {
     const id = principalId.trim()
     if (id === '') return
@@ -66,7 +108,8 @@ function MemberSection({ detail, busy, actionError, addProjectMember, t }: {
     <div className={css.memberRow} aria-label={t('projects.memberCount', { count: detail.members.length })}>
       {detail.members.map(member => <span className={css.memberPill}
         key={`${member.principalType}:${member.principalId}`}>
-        <MemberAvatar member={member}/><span>{member.principalId}</span>
+        <MemberAvatar name={nameOf(member.principalId)} principalType={member.principalType}/>
+        <span>{nameOf(member.principalId)}</span>
         <small>{t(member.principalType === 'user' ? 'projects.memberType.user' : 'projects.memberType.employee')}</small>
       </span>)}
     </div>
@@ -74,20 +117,29 @@ function MemberSection({ detail, busy, actionError, addProjectMember, t }: {
       <label className={css.inlineField}>
         <span>{t('projects.memberType')}</span>
         <select value={principalType} disabled={busy}
-          onChange={(event) => { setPrincipalType(event.target.value as 'user' | 'employee') }}>
+          onChange={(event) => { setPrincipalType(event.target.value as 'user' | 'employee'); setPrincipalId('') }}>
           <option value="user">{t('projects.memberType.user')}</option>
           <option value="employee">{t('projects.memberType.employee')}</option>
         </select>
       </label>
-      <label className={css.searchField}>
-        <span className={css.visuallyHidden}>{t('projects.memberId')}</span>
-        <input
-          value={principalId}
-          placeholder={t('projects.memberIdPlaceholder')}
-          disabled={busy}
-          onChange={(event) => { setPrincipalId(event.target.value) }}
-        />
-      </label>
+      {directory.loaded && directoryChoices.length > 0
+        ? <label className={css.inlineField}>
+          <span>{t('projects.memberChoose')}</span>
+          <select value={principalId} disabled={busy}
+            onChange={(event) => { setPrincipalId(event.target.value) }}>
+            <option value="">{t('projects.memberChoosePlaceholder')}</option>
+            {directoryChoices.map(choice => <option key={choice.id} value={choice.id}>{choice.name}</option>)}
+          </select>
+        </label>
+        : <label className={css.searchField}>
+          <span className={css.visuallyHidden}>{t('projects.memberId')}</span>
+          <input
+            value={principalId}
+            placeholder={t(directory.loaded ? 'projects.memberIdFallback' : 'projects.memberIdPlaceholder')}
+            disabled={busy}
+            onChange={(event) => { setPrincipalId(event.target.value) }}
+          />
+        </label>}
       <button type="submit" className={css.secondaryButton} disabled={busy || principalId.trim() === ''}>
         {busy ? t('projects.adding') : t('projects.add')}
       </button>
@@ -152,6 +204,14 @@ function ProjectDetail({ detail, busy, actionError, addProjectMember, archivePro
       </div>}
     </article>
   </>
+}
+
+function MemberAvatar({ name, principalType }: { name: string; principalType: 'user' | 'employee' }) {
+  return <span
+    className={css.memberAvatar}
+    data-principal={principalType}
+    aria-hidden="true"
+  >{name.slice(0, 1)}</span>
 }
 
 interface ProjectDraft { readonly name: string; readonly goal: string }
