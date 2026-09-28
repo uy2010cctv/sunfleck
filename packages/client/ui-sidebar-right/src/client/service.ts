@@ -1,34 +1,8 @@
 /**
- * `ctx.sidebarRight`: what other plugins may ask of this column.
- *
- * The surface is per session and its state lives in that session's store
- * instance, which the slot runtime mints per session and a root service cannot
- * reach on its own. Two paths lead in. The mounted seat publishes its binding —
- * session id, bound actions, its surface — for exactly as long as it is mounted,
- * and every command on the public face goes through that binding; a command
- * arriving with no seat mounted has no session to act on and fails loudly rather
- * than writing into a surface nobody is drawing. `mounted` publishes that
- * binding's session as an observable, so a consumer that wants to open content
- * as soon as a seat is on screen subscribes to it instead of assuming one is
- * bound when its own effect runs. And the plugin adopts each
- * session's store instance as the runtime mints it, so the controller reaches
- * any session's store by id and syncs the Tab domain from that store's commits.
- *
- * A tab's own actions (`tabActions`) aim at the session the tab is in, not at
- * the mounted one: they run through that session's adopted store, so a callback
- * fired after the user switched sessions still lands where its tab is, and they
- * do nothing for a session whose store was never minted.
- *
- * `openResource` and `openTab` are the navigation controller, and every way
- * into the column is a call to one of them: the conversation's file links, a
- * tool row's line reference, the strip's add control, a guide entry box, a file
- * tree's rows. A resource is claimed through the registry by address; a page is
- * named by kind and recorded at the address this package composes for it. Both
- * hand the store one settled intent and record the navigation in the Tab
- * domain. Placement is the caller's option, never a type's property.
- *
- * The registration adopts Session stores and injects the mounted seat binding;
- * callers use the service's navigation methods.
+ * Session-scoped Sidebar navigation, explicit global-panel previews and tab lifetimes.
+ * Mounted seats own public commands; adopted stores own tab-bound actions.
+ * Explicit previews retain their source Session through the framework view owner
+ * and defer navigation until that source seat is bound.
  */
 import { sidebarTargetFromElement, type SidebarRightTarget } from './focus.ts'
 import { randomUUID } from '@deepseek-ai/dsh-util-crypto'
@@ -66,16 +40,17 @@ interface Adoption {
  * Adoption reconciles restored records before any seat renders, then follows commits.
  * @param tabs - registered tab types.
  * @param pin - resource retention for an occurrence's lifetime.
+ * @param preview - owner of an explicit Session view over the current global panel.
  * @returns the controller and plugin-owned adoption and scope-removal callbacks.
  */
-export function createSidebarRightController(tabs: SidebarRightTabRegistry, pin: PinResource): {
+export function createSidebarRightController(tabs: SidebarRightTabRegistry, pin: PinResource, preview?: SidebarRightPreviewOwner): {
   controller: SidebarRightController
   adopt: (sessionId: SessionId, store: SidebarRightSurfaceStore) => () => void
   forget: (sessionId: SessionId) => void
 } {
   const adopted = new Map<SessionId, Adoption>()
   const inventory = new SidebarTabInventory()
-  const controller = new SidebarRightController(tabs, pin, adopted, inventory.source)
+  const controller = new SidebarRightController(tabs, pin, adopted, inventory.source, preview)
   return {
     controller,
     forget: (sessionId) => { inventory.remove(sessionId) },
@@ -95,6 +70,17 @@ export function createSidebarRightController(tabs: SidebarRightTabRegistry, pin:
       }
     },
   }
+}
+
+/** Framework owner for explicit Session previews over a global panel. */
+export interface SidebarRightPreviewOwner {
+  /**
+   * Retain and display the source Session without changing main selection.
+   * @param sessionId - source Session retained by the framework owner.
+   */
+  show(sessionId: SessionId): void
+  /** Withdraw the explicit view after its panel closes. */
+  clear(): void
 }
 
 /** Everything a command needs, as the mounted seat sees it. */
@@ -161,7 +147,7 @@ export type SidebarRightCloseHandler = (sessionId: SessionId, tab: TabRecord) =>
 export interface ISidebarRight {
   /**
    * The session whose seat is mounted, or `undefined` while no seat is on
-   * screen (a global panel is active, or no session is selected). Moves when a
+   * screen. Explicit previews may bind a source Session over a global panel. Moves when a
    * seat binds or releases, so a component that opens content from its own
    * mount effect reads it through a bound hook and acts once it is defined:
    * the frame mounts the Conversation column ahead of the seat, and the seat
@@ -181,6 +167,15 @@ export interface ISidebarRight {
    * @param options - placement, the opening type, and navigation parameters.
    */
   openResource(address: string, options?: SidebarRightOpenResourceOptions): void
+  /**
+   * Open source Session content over the active global panel without selecting a Conversation.
+   * Collapse or central-panel navigation withdraws the view; retained bodies keep their reference.
+   * Resource providers retain their existing authorization and occurrence lifetimes.
+   * @param sessionId - Session providing the resource and preview scope.
+   * @param address - source resource address, unchanged by this method.
+   * @param options - preview type, placement and navigation parameters.
+   */
+  openResourceForSession(sessionId: SessionId, address: string, options?: SidebarRightOpenResourceOptions): void
   /**
    * Open a page type by kind: the type in force for it, at the address this
    * package records pages under. A kind nothing registered throws.
@@ -240,6 +235,9 @@ export class SidebarRightController implements ISidebarRight {
   /** The mounted seat's session; see {@link ISidebarRight.mounted}. */
   readonly mounted: ObservableSnapshot<SessionId | undefined> = this.mountedSession
   private binding: SidebarRightBinding | undefined
+  private previewSession: SessionId | undefined
+  private previewExpanded = false
+  private pendingPreview: { sessionId: SessionId; address: string; options: SidebarRightOpenResourceOptions } | undefined
   private readonly closeHandlers = new Map<string, SidebarRightCloseHandler>()
 
   /**
@@ -265,12 +263,14 @@ export class SidebarRightController implements ISidebarRight {
    * @param pin - `ctx.resources.pin`, which the Tab domain holds addresses with.
    * @param adopted - plugin-owned session stores used by occurrence actions.
    * @param openTabs - plugin-owned metadata source across saved and adopted layouts.
+   * @param preview - framework owner of an explicit Session preview view.
    */
   constructor(
     private readonly tabs: SidebarRightTabRegistry,
     pin: PinResource,
     private readonly adopted = new Map<SessionId, Adoption>(),
     openTabs: SidebarTabInventory['source'] = new SidebarTabInventory().source,
+    private readonly preview?: SidebarRightPreviewOwner,
   ) {
     this.openTabs = openTabs
     this.tabDomain = new TabDomain(this, pin)
@@ -295,6 +295,18 @@ export class SidebarRightController implements ISidebarRight {
   bind(binding: SidebarRightBinding): () => void {
     this.binding = binding
     this.publishMounted()
+    if (this.previewSession === binding.sessionId) {
+      const pending = this.pendingPreview
+      if (pending?.sessionId === binding.sessionId) {
+        this.pendingPreview = undefined
+        this.placeResource(binding.sessionId, binding.actions, pending.address, pending.options)
+      } else if (binding.surfaces[binding.sessionId]?.layout.expanded === true) {
+        this.previewExpanded = true
+      } else if (this.previewExpanded) {
+        this.cancelPreview()
+        this.preview?.clear()
+      }
+    }
     return () => {
       // A newer seat may already have taken over; only the binding that is
       // still ours may be cleared.
@@ -318,6 +330,35 @@ export class SidebarRightController implements ISidebarRight {
   openResource(address: string, options: SidebarRightOpenResourceOptions = {}): void {
     const { sessionId, actions } = this.require()
     this.placeResource(sessionId, actions, address, options)
+  }
+
+  /**
+   * Display a source Session resource while retaining the central panel.
+   * @param sessionId - source Session retained by the preview owner.
+   * @param address - source resource URI.
+   * @param options - resource type, placement and navigation parameters.
+   */
+  openResourceForSession(sessionId: SessionId, address: string, options: SidebarRightOpenResourceOptions = {}): void {
+    if (!address.startsWith(RESOURCE_SCHEME)) throw new Error(`sidebarRight: no registered tab type claims "${address}"`)
+    this.tabs.claim(address, options.kind)
+    if (this.preview === undefined) throw new Error('sidebarRight: no Session preview owner is registered')
+    this.previewSession = sessionId
+    this.previewExpanded = false
+    this.pendingPreview = { sessionId, address, options }
+    try { this.preview.show(sessionId) }
+    catch (error) { this.cancelPreview(); throw error }
+    if (this.binding?.sessionId === sessionId) {
+      this.pendingPreview = undefined
+      this.placeResource(sessionId, this.binding.actions, address, options)
+      this.previewExpanded = true
+    }
+  }
+
+  /** Cancel deferred preview navigation when its central panel changes or the plugin unloads. */
+  cancelPreview(): void {
+    this.pendingPreview = undefined
+    this.previewSession = undefined
+    this.previewExpanded = false
   }
 
   /**

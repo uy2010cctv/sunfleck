@@ -22,6 +22,8 @@ English | [中文](README.zh.md)
 <a id="use-this-package"></a>
 ## Use this package
 
+`GET /enterprise/session-context/presented/:sessionId` returns declared file paths and their native event/index download coordinates after Session access or room membership checks. Each file includes `replySourceSeq` when its complete native turn has a room reply; the service derives this sequence from the full Session log, independently of room pagination.
+
 `GET /enterprise/session-context/:sessionId` returns the Session's pinned employee release, an explicit-member project, and approved authorized summaries without activating a runtime. Employee selection is independent of the work-mode preset and is checked against the durable owner and organization. Private summaries require an ordinary owner-only Session with a matching employee selection or account anchor; collaboration Sessions omit agent and pair summaries. Pair memory requires both employee and user ids; legacy pair rows without employee attribution are omitted.
 
 Mount the controller only in the enterprise profile after `enterprisePostgres`, `enterpriseSecurity`, `enterpriseRequestContext`, and `sessionController`. Clients consume its generated `enterpriseEmployee`, `enterpriseAsset`, `enterpriseTeam`, `enterpriseTeamDefinition`, `enterpriseTeamRun`, `enterpriseTeamDecision`, `enterpriseTeamAutonomy`, `enterpriseOperation`, `enterpriseWork`, and `enterpriseDevice` namespaces through API Gateway. The TeamRun start and cancel namespaces use an optional `enterpriseTeamRuntimeDriver`; without a provider, start fails with a stable runtime-unavailable result. Device pairing and Computer Use requests are bound to the authenticated user, Workspace, Session, short-lived operation permit, and device signature. Host code injects organization and actor identity, while browser requests cannot write runtime revisions or event positions. The package does not replace DSH Workspace, Session, Workflow, Sandbox, Subagent, or Agent Loop identities.
@@ -63,7 +65,7 @@ The workflow trigger inbox captures the exact workflow revision when its signed 
 
 #### What the model sees
 
-Collaboration delivery records the authenticated message as `user/message` in the selected native Session. Employee mention and duty routing use the same Agent preset and Session history as ordinary work.
+Collaboration delivery records the authenticated message as `user/message` in the selected native Session. Employee mention and duty routing use the same Agent preset and Session history as ordinary work. The bounded room input asks employees to create requested file deliverables and call `present` before their final reply; external messaging requires an explicit request.
 
 #### Token effect
 

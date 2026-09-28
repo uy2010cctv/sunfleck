@@ -143,10 +143,24 @@ describe('shared room UI', () => {
       sourceSessionId: 'session-work-1', content: '报告已完成。' }
     const withAnswer = { ...state, events: [human, answer] }
     render(<CollaborationRoom controller={controller} state={withAnswer} t={t}/>)
-    expect(presented).toHaveBeenCalledWith('session-work-1')
+    expect(presented).toHaveBeenCalledWith('session-work-1', '400')
     expect(await screen.findByText('BRIEF.md')).toBeTruthy()
     const download = screen.getByRole('link', { name: /BRIEF.md/ })
     expect(download.getAttribute('href')).toContain('/api/present.download?sessionId=session-work-1&seq=40&index=0')
+    controller.dispose()
+  })
+
+  it('loads delivery metadata for a reply found only in thread or search history', async () => {
+    const { controller, state, t } = setup()
+    const presented = vi.spyOn(controller, 'presentedFiles').mockResolvedValue([])
+    const threadReply: RoomEvent = { ...research, id: 'thread-only', sequence: '400', sourceSessionId: 'thread-work' }
+    const searchedReply: RoomEvent = { ...research, id: 'search-only', sequence: '401', sourceSessionId: 'search-work' }
+    render(<CollaborationRoom controller={controller} state={{ ...state, events: [human],
+      threadEvents: [threadReply], searchResults: [searchedReply] }} t={t}/>)
+    await waitFor(() => {
+      expect(presented).toHaveBeenCalledWith('thread-work', '400')
+      expect(presented).toHaveBeenCalledWith('search-work', '401')
+    })
     controller.dispose()
   })
 
@@ -263,6 +277,17 @@ describe('shared room UI', () => {
     resolveSend?.(Response.json({ delivered: true, event: { ...human, id: 'signed-1', content: '即时上屏' }, targets: [] }))
     vi.unstubAllGlobals()
     await waitFor(() => { expect(screen.queryByText('即时上屏')).toBeTruthy() })
+    controller.dispose()
+  })
+
+  it('uses the shared workspace composer capsule with attachment and member controls only', () => {
+    const { controller, state, t } = setup()
+    const view = render(<CollaborationRoom controller={controller} state={state} t={t}/>)
+    expect(view.container.querySelector('[data-composer-card]')).not.toBeNull()
+    expect(screen.getByRole('textbox', { name: '消息' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: '添加附件' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: '@ 提及成员' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: /选择模型|访问模式|权限选择/ })).toBeNull()
     controller.dispose()
   })
 
@@ -438,6 +463,20 @@ describe('shared room UI', () => {
     const second = render(<CollaborationRoom controller={controller} state={secondTurn} t={t}/>)
     expect(second.container.querySelectorAll('article')).toHaveLength(4)
     second.unmount()
+    controller.dispose()
+  })
+
+  it('keeps delivery cards visible when their owning follow-up reply is folded', async () => {
+    const { controller, state, t } = setup()
+    vi.spyOn(controller, 'presentedFiles').mockResolvedValue([{ path: '/workspace/follow-up.txt', seq: 20,
+      index: 0, replySourceSeq: 25, downloadUrl: '/api/present.download?sessionId=execution-1&seq=20&index=0' }])
+    const first = { ...research, tags: [['dsh-source', 'execution-1:15']] }
+    const followUp = { ...research, id: 'follow-up-file', sequence: '5', content: '文件已交付',
+      tags: [['dsh-source', 'execution-1:25']] }
+    render(<CollaborationRoom controller={controller} state={{ ...state, events: [human, first, followUp] }} t={t}/>)
+    expect(await screen.findByText('follow-up.txt')).toBeTruthy()
+    expect(screen.getByRole('link', { name: /follow-up.txt/ }).getAttribute('href'))
+      .toContain('sessionId=execution-1&seq=20&index=0')
     controller.dispose()
   })
 

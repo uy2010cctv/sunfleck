@@ -91,6 +91,9 @@
     },
     {
       "path": "../../session/session-persistence"
+    },
+    {
+      "path": "../../deliverables/tool-present"
     }
   ]
 }

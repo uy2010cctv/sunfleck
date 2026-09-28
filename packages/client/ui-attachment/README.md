@@ -51,6 +51,8 @@ While a file drag is over the page, the full-viewport overlay announces the drop
 
 The plugin waits for `conversation.input.attachments`, `conversation.message.images`, `conversation.trajectory.images`, and `tool.call.images` through `ctx.slots.inject`. It then registers the composer rail, document drop target, shared history gallery for Chat, Trajectory, and Tool results, and original-image lightbox. The presentation components are driven entirely by props: the slot owner supplies attachment data, image loading, callbacks, and the locale translator; the package entry exports no components.
 
+The root-scoped `attachments.pending-file-card` factory lets other composers, including collaboration rooms, render the same pending-file card. Owners supply filename, byte size, upload state, optional progress, and remove/retry callbacks; browser File objects and upload requests stay with the owner. The factory resolves the shared conversation labels.
+
 | File | Role |
 |---|---|
 | [`src/client/ComposerAttachments.tsx`](src/client/ComposerAttachments.tsx) | Ordered image/file rail + drop overlay assembly |

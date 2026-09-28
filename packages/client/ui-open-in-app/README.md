@@ -49,6 +49,8 @@ The plugin registers the split button on `conversation.session.header.utilities`
 
 The directory and file adapters supply application metadata and operations to [`OpenTargetButton`](src/client/OpenTargetButton.tsx), which owns menu ordering, default markers, icons, sizing, and gesture feedback. The file header and empty state share `FileOpenTarget`, while `OpenPathInjected.applications` queries `session.workspacePathApplications` through [`open-path.ts`](src/client/open-path.ts). Opening uses `session.openWorkspacePath`; the Host revalidates an explicitly selected handler before launch. The directory adapter keeps the existing catalog routes. `FileRouteAction` supplies the same control to delivery cards and change review through `deliverables.file.actions` and `deliverables.review.file.actions`; a delivery may also supply an authenticated download URL, which stays available without a Host desktop. The routes retain Session file authorization. A failed or unavailable file query therefore needs no platform-specific UI implementation.
 
+The root-scoped `deliverables.presented-card.actions` contribution uses the same file control for delivery cards rendered outside a Session conversation; its owner supplies the source Session’s authenticated action and download routes.
+
 </details>
 
 -----

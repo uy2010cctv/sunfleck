@@ -44,6 +44,8 @@ Target packages declaration-merge their snapshot and Location data maps, then re
 The empty-conversation hero pairs “Intelligence, in symbiosis.” with “让智能，自然生长。” in both interface languages. The subtitle occupies its own line; no preview badge is displayed.
 
 <a id="shell-and-standard-props"></a>
+The workspace composer uses the shared `ComposerCard`, `ComposerControlRow` and `ComposerSendButton` primitives; its Session editor and mode controls remain supplied by this package.
+
 ## Shell and standard props
 
 The blank-session hero offers separate `conversation.hero.agentPreset` and `conversation.hero.employee` slots. A work-mode plugin owns the former; an enterprise plugin may occupy the latter without replacing the Conversation shell.

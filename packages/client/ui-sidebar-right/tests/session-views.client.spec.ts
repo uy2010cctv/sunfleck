@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, expect, it, vi } from 'vitest'
 import { SlotTestRuntime } from '@deepseek-ai/dsh-client-test-runtime'
+import type { MainPanelId } from '@deepseek-ai/dsh-client-ui-layout/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { TabId } from '@deepseek-ai/dsh-client-ui-dockkit'
 import { SidebarSessionView } from '../src/client/session-view.ts'
@@ -110,5 +111,44 @@ it('reports opening failure and releases Views even when committed roots are sti
   views.dispose()
   expect(release).toHaveBeenCalledOnce()
   unmount()
+  expect(release).toHaveBeenCalledOnce()
+})
+
+it('releases an explicit source view after its final root leaves and preserves the main view', async () => {
+  const r = await runtime()
+  const views = new SidebarSessionViews(r.sessions)
+  owners.push(views)
+  views.select(A)
+  const main = views.source.getSnapshot()[0]!
+  const panel = 'enterprise-collaboration' as MainPanelId
+  views.showPreview(B, panel)
+  const source = views.source.getSnapshot().find(view => view.sessionId === B)!
+  const unmount = views.mount(source.reference)
+  const release = vi.spyOn(source.reference, 'release')
+  expect(source.selected).toBe(true)
+  expect(source.previewPanelId).toBe(panel)
+  expect(views.changePanel(panel)).toBe(false)
+  views.clearPreview()
+  expect(views.source.getSnapshot()).toEqual([{ ...main, selected: true }])
+  expect(release).not.toHaveBeenCalled()
+  unmount()
+  expect(release).toHaveBeenCalledOnce()
+})
+
+it('retains an initialized source body after panel exit until its occurrence closes', async () => {
+  const r = await runtime()
+  const views = new SidebarSessionViews(r.sessions)
+  owners.push(views)
+  views.showPreview(B, 'enterprise-collaboration' as MainPanelId)
+  const source = views.source.getSnapshot()[0]!
+  const lifetime = new AbortController()
+  source.retainTab(TAB, lifetime.signal)
+  const release = vi.spyOn(source.reference, 'release')
+  expect(views.changePanel(null)).toBe(true)
+  expect(views.source.getSnapshot()[0]?.selected).toBe(false)
+  expect(views.source.getSnapshot()[0]?.previewPanelId).toBeUndefined()
+  expect(release).not.toHaveBeenCalled()
+  lifetime.abort()
+  expect(views.source.getSnapshot()).toEqual([])
   expect(release).toHaveBeenCalledOnce()
 })

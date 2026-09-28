@@ -23,6 +23,16 @@ function controller(request: ReturnType<typeof fetcher>) {
 }
 
 describe('shared collaboration room', () => {
+  it('refreshes delivery metadata when a source Session publishes another reply', async () => {
+    const file = { path: '/workspace/test.txt', description: 'Test delivery', seq: 22, index: 0 }
+    const request = fetcher(Response.json({ files: [] }), Response.json({ files: [file] }))
+    const { value } = controller(request)
+    expect(await value.presentedFiles('execution', 'reply-1')).toEqual([])
+    expect(await value.presentedFiles('execution', 'reply-1')).toEqual([])
+    expect(await value.presentedFiles('execution', 'reply-2')).toMatchObject([file])
+    expect(request).toHaveBeenCalledTimes(2)
+    value.dispose()
+  })
   it('polls the committed cursor while a pending or failed local echo remains visible', async () => {
     const posting = Promise.withResolvers<Response>()
     const request = vi.fn(async (url: string) => {

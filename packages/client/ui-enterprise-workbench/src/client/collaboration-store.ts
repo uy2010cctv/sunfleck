@@ -104,6 +104,8 @@ export interface RoomPresentedFile {
   readonly description?: string
   readonly seq: number
   readonly index: number
+  /** Native closing reply that owns this declaration, derived from the full Session log. */
+  readonly replySourceSeq?: number
   readonly downloadUrl: string
 }
 
@@ -248,7 +250,10 @@ export class CollaborationController {
   private pendingReaction: { fingerprint: string; id: string } | undefined
   private readonly executionSessionIds = new Set<string>()
   private readonly acknowledgedSequences = new Map<string, string>()
-  private readonly presentedCache = new Map<string, readonly RoomPresentedFile[]>()
+  private readonly presentedCache = new Map<string, {
+    readonly revision: string | undefined
+    readonly files: readonly RoomPresentedFile[]
+  }>()
 
   /** @param fetch - Authenticated same-origin transport.
    * @param inspectSession - Native Session navigation for an execution source link.
@@ -361,6 +366,7 @@ export class CollaborationController {
   clearSelection(): void {
     this.begin().abort()
     this.acknowledgedSequences.clear()
+    this.presentedCache.clear()
     this.patch({ selection: null, roomPhase: 'idle', events: [], olderCursor: null, threadEvents: [], threadPhase: 'idle', searchResults: [], searchPhase: 'idle', busy: false, creation: null, creationProjectId: undefined, error: null })
   }
 
@@ -673,10 +679,10 @@ export class CollaborationController {
     return `/enterprise/surfaces/${encodeURIComponent(roomId)}/attachments/${encodeURIComponent(attachmentId)}`
   }
 
-  /** Read the files an agent session presented; cached per session for the room lifetime. */
-  async presentedFiles(sessionId: string): Promise<readonly RoomPresentedFile[]> {
+  /** Read declared files for the latest signed reply from a source Session. */
+  async presentedFiles(sessionId: string, revision?: string): Promise<readonly RoomPresentedFile[]> {
     const cached = this.presentedCache.get(sessionId)
-    if (cached !== undefined) return cached
+    if (cached !== undefined && cached.revision === revision) return cached.files
     const response = await this.fetch(`/enterprise/session-context/presented/${encodeURIComponent(sessionId)}`, {
       credentials: 'same-origin',
     })
@@ -689,10 +695,11 @@ export class CollaborationController {
         path: string(item['path']),
         ...(item['description'] === undefined ? {} : { description: string(item['description']) }),
         seq, index,
+        ...(item['replySourceSeq'] === undefined ? {} : { replySourceSeq: count(item['replySourceSeq']) }),
         downloadUrl: `/api/present.download?sessionId=${encodeURIComponent(sessionId)}&seq=${String(seq)}&index=${String(index)}`,
       }
     })
-    this.presentedCache.set(sessionId, files)
+    this.presentedCache.set(sessionId, { revision, files })
     return files
   }
 

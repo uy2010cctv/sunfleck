@@ -1,7 +1,7 @@
 /** Group/channel rows and pre-session choices inside the existing native shell. */
 import { useEffect, useState } from 'react'
 import { IconEllipsisOutlineRegular, IconNewChatOutlineRegular, IconPlusOutlineRegular, IconRefreshOutlineRegular, IconUsersOutlineRegular, Menu, Tooltip, IconLoadingOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
-import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
+import type { InjectFace, PropsLocale, PropsRuntime, PropsRenderFactories } from '@deepseek-ai/dsh-client-ui-slots'
 import type { SnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-locale/client'
 import type { CollaborationController, CollaborationState, CreateCollaboration } from './collaboration-store.ts'
@@ -147,10 +147,10 @@ function CreateForm({ kind, state, controller, loadChoices, t }: { kind: 'group'
 }
 
 /** Main-panel room; creation keeps the same native shell slot. */
-export function CollaborationSetup({ useCollaboration, controller, loadChoices, t }: InjectFace<CollaborationInjected> & PropsLocale<'enterprise.collaboration'>) {
+export function CollaborationSetup({ useCollaboration, controller, loadChoices, renderFactorySlot, t }: InjectFace<CollaborationInjected> & PropsLocale<'enterprise.collaboration'> & Partial<PropsRenderFactories>) {
   const state = useCollaboration(value => value)
   if (state.creation !== null) return <main className={css.setup}>
     <CreateForm key={`${state.creation}:${state.creationProjectId ?? ''}`} kind={state.creation} state={state} controller={controller} loadChoices={loadChoices} t={t}/>
   </main>
-  return <CollaborationRoom state={state} controller={controller} loadChoices={loadChoices} t={t}/>
+  return <CollaborationRoom state={state} controller={controller} loadChoices={loadChoices} renderFactorySlot={renderFactorySlot} t={t}/>
 }

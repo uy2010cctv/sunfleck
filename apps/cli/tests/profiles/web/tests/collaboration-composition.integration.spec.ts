@@ -1,7 +1,7 @@
 /** Keyless source-checkout enterprise Web composition through the supported profile launcher. */
 import { spawn, type ChildProcess } from 'node:child_process'
 import { createHmac, randomBytes, randomUUID } from 'node:crypto'
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
@@ -305,7 +305,8 @@ describe.skipIf(databaseUrl === undefined)('enterprise collaboration source Web 
             expect(await request(`/${id}/open`, { employeeId: 'fixture-assistant' })).toMatchObject({ opened: true })
           }
           const messageId = randomUUID()
-          const message = { text: `Complete ${kind} request.`, messageId, mentionedEmployeeIds: ['fixture-assistant'] }
+          const message = { text: kind === 'groups' ? 'Fixture file delivery request.' : `Complete ${kind} request.`,
+            messageId, mentionedEmployeeIds: ['fixture-assistant'] }
           const sent = await request(`/${id}/messages`, message)
           expect(sent['delivered']).toBe(true)
           expect(await request(`/${id}/messages`, message)).toEqual(sent)
@@ -345,6 +346,23 @@ describe.skipIf(databaseUrl === undefined)('enterprise collaboration source Web 
             releaseVersion: kind === 'groups' ? 1 : 2,
           })
           if (kind === 'groups') {
+            const delivery = await database.query<{ data: { files: readonly { path: string }[] } }>(
+              "SELECT event_json::jsonb->'data' AS data FROM session_v4.dsh_session_events WHERE session_id=$1 AND event_type='deliverables/presented' ORDER BY seq",
+              [sessionId])
+            expect(delivery.rows).toHaveLength(1)
+            expect(delivery.rows[0]?.data.files).toEqual([{ path: 'room-report.txt', description: 'Shared room report' }])
+            expect(await readFile(join(root, 'workspace', 'room-report.txt'), 'utf8')).toBe('Shared fixture report.\n')
+            expect(stream).toContain('call present with existing paths')
+            const nativeReply = await database.query<{ seq: string }>(
+              "SELECT seq FROM session_v4.dsh_session_events WHERE session_id=$1 AND event_type='assistant/message' ORDER BY seq DESC LIMIT 1",
+              [sessionId])
+            const presentedResponse = await fetch(`${origin}/enterprise/session-context/presented/${sessionId}`, {
+              headers: { cookie }, signal: test.signal,
+            })
+            expect(presentedResponse.status).toBe(200)
+            expect(await presentedResponse.json()).toMatchObject({ files: [{ path: 'room-report.txt',
+              replySourceSeq: Number(nativeReply.rows[0]?.seq),
+            }] })
             const draft = await rpc('enterpriseEmployee/getDraft', { presetId: 'fixture-assistant' })
             const saved = await rpc('enterpriseEmployee/saveDraft', { presetId: 'fixture-assistant',
               expectedRevision: draft['revision'], idempotencyKey: randomUUID(), visibility: 'organization',

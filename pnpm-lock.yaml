@@ -1199,6 +1199,9 @@ importers:
       '@deepseek-ai/dsh-system-prompt':
         specifier: workspace:^
         version: link:../../core/system-prompt
+      '@deepseek-ai/dsh-tool-present':
+        specifier: workspace:*
+        version: link:../../deliverables/tool-present
       '@deepseek-ai/dsh-tools':
         specifier: workspace:*
         version: link:../../core/tools
@@ -4027,9 +4030,6 @@ importers:
 
   packages/client/ui-enterprise-workbench:
     dependencies:
-      '@deepseek-ai/dsh-client-ui-deliverables':
-        specifier: workspace:^
-        version: link:../ui-deliverables
       emoji-picker-element:
         specifier: 1.29.1
         version: 1.29.1
@@ -4070,9 +4070,15 @@ importers:
       '@deepseek-ai/dsh-client-test-runtime':
         specifier: workspace:^
         version: link:../../test-support/client-runtime
+      '@deepseek-ai/dsh-client-ui-attachment':
+        specifier: workspace:*
+        version: link:../ui-attachment
       '@deepseek-ai/dsh-client-ui-conversation':
         specifier: workspace:*
         version: link:../ui-conversation
+      '@deepseek-ai/dsh-client-ui-deliverables':
+        specifier: workspace:*
+        version: link:../ui-deliverables
       '@deepseek-ai/dsh-client-ui-layout':
         specifier: workspace:^
         version: link:../ui-layout

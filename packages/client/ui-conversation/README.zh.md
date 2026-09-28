@@ -44,6 +44,8 @@ target package 通过 declaration merge 扩展 snapshot 与 Location data map，
 空会话首页在两种界面语言下均显示英文“Intelligence, in symbiosis.”与中文“让智能，自然生长。”。副标题独占一行，不显示预览版徽标。
 
 <a id="shell-and-standard-props"></a>
+工作区输入框使用共享的 `ComposerCard`、`ComposerControlRow` 和 `ComposerSendButton` 基础组件；Session 编辑器和模式控件仍由本包提供。
+
 ## Shell 与标准 props
 
 空白会话首页提供独立的 `conversation.hero.agentPreset` 与 `conversation.hero.employee` 插槽。工作方式插件负责前者；企业插件可占用后者，而无须替换 Conversation 外壳。

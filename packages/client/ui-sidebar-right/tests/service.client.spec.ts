@@ -13,7 +13,7 @@ import { Context } from '@deepseek-ai/cordis'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { LayoutState, PaneId, TabId } from '@deepseek-ai/dsh-client-ui-dockkit'
 import { dockPaneIds, findTabPane, getPane } from '@deepseek-ai/dsh-client-ui-dockkit'
-import { createSidebarRightController } from '../src/client/service.ts'
+import { createSidebarRightController, type SidebarRightPreviewOwner } from '../src/client/service.ts'
 import { SidebarRightTabRegistry } from '../src/client/tab-registry.ts'
 import { createSidebarRightStore } from '../src/client/stores.ts'
 import { guideDefinition } from '../src/client/tabs/guide/definition.ts'
@@ -32,7 +32,7 @@ const SESSION = 's-test' as SessionId
 const t = ((key: string) => key) as Parameters<typeof guideDefinition>[0]
 
 /** A controller over a real registry and a real store, bound as a mounted seat would be. */
-function harness() {
+function harness(preview?: SidebarRightPreviewOwner) {
   const ctx = new Context()
   const tabs = new SidebarRightTabRegistry(ctx)
   tabs.register(guideDefinition(t))
@@ -47,7 +47,7 @@ function harness() {
     title: address => address.slice(address.lastIndexOf('/') + 1),
   })
   const pin = vi.fn<(address: string, signal: AbortSignal) => void>()
-  const { controller, adopt } = createSidebarRightController(tabs, pin)
+  const { controller, adopt } = createSidebarRightController(tabs, pin, preview)
   const instance = createSidebarRightStore(() => ({ kind: 'guide', title: 'seed' })).create()
   const layout = (): LayoutState => {
     const surface = instance.getSnapshot().bySession[SESSION]
@@ -100,6 +100,38 @@ describe('SidebarRightController — opening', () => {
       expect(getPane(h.layout(), pane).tabs).toContain(terminals[0]!.id)
       expect(getPane(h.layout(), pane).tabs).toContain(terminals[1]!.id)
     } finally { release() }
+  })
+
+  it('defers source resource placement until its seat binds and cancels abandoned navigation', () => {
+    const preview = { show: vi.fn(), clear: vi.fn() }
+    const h = harness(preview)
+    h.adopt(SESSION, h.instance)
+    const address = 'dsh-resource://file/session/s-test/report.html'
+    h.controller.openResourceForSession(SESSION, address, { params: { line: 3 } })
+    expect(preview.show).toHaveBeenCalledExactlyOnceWith(SESSION)
+    expect(h.titles()).toEqual([])
+    h.controller.cancelPreview()
+    h.publish()
+    expect(h.titles()).toEqual([])
+    h.controller.openResourceForSession(SESSION, address, { params: { line: 3 } })
+    expect(h.controller.active()?.contentId).toBe(address)
+    expect(h.controller.tabDomain.occurrence(SESSION, h.controller.active()!).navigation.getSnapshot().params).toEqual({ line: 3 })
+  })
+
+  it('rejects an unclaimed resource without retaining a preview source', () => {
+    const preview = { show: vi.fn(), clear: vi.fn() }
+    const h = harness(preview)
+    expect(() => { h.controller.openResourceForSession(SESSION, 'https://example.com') }).toThrow('no registered tab type claims')
+    expect(preview.show).not.toHaveBeenCalled()
+    h.publish()
+    expect(h.titles()).toEqual([])
+  })
+
+  it('cancels pending placement if the preview owner refuses its global panel', () => {
+    const h = harness({ show: () => { throw new Error('no panel') }, clear: vi.fn() })
+    expect(() => { h.controller.openResourceForSession(SESSION, 'dsh-resource://file/session/s-test/report.html') }).toThrow('no panel')
+    h.publish()
+    expect(h.titles()).toEqual([])
   })
 
   it('refuses every write while no seat is mounted', () => {

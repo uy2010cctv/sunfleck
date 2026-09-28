@@ -9,6 +9,8 @@
  * surface; the owning view renders an empty list and inert prose at zero cost.
  */
 import './file-actions.ts'
+import { fileAddressFor } from '@deepseek-ai/dsh-util-workspace-path'
+import { PresentedCardFactory, type PresentedCardInjected, type PresentedCardInput } from './PresentedCardFactory.tsx'
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-api-remotes/client'
 import type {} from '@deepseek-ai/dsh-client-connection/client'
@@ -31,6 +33,19 @@ import { en, NS, zh, type DeliverablesKey } from './locales.ts'
 import {
   deliverablesDefinition, presentedForClosing, producedFileMentions, selectProducedFiles,
 } from './turn-deliverables.ts'
+
+declare module '@deepseek-ai/dsh-client-ui-slots' {
+  interface SlotFactoryMap {
+    /** Root-scoped delivery card retaining the source Session's authorization coordinates. */
+    'deliverables.presented-card': {
+      scope: 'root'
+      props: PresentedCardInput
+      locale: 'deliverables'
+      inject: PresentedCardInjected
+      children: { 'deliverables.presented-card.actions': { kind: 'list'; scope: 'root' } }
+    }
+  }
+}
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface LocaleNamespaceMap {
@@ -56,6 +71,16 @@ export function apply(ctx: ClientContext): void {
     summaries.reset()
     diffs.reset()
   })
+  ctx.slots.registerFactory({
+    name: 'deliverables.presented-card', scope: 'root', locale: NS,
+    children: { 'deliverables.presented-card.actions': { kind: 'list', scope: 'root' } },
+    inject: (): PresentedCardInjected => ({
+      hooks: { presentedOpen: opener.state, presentedHost: opener.host },
+      reloadPresentedHost: () => opener.loadHost(),
+      openPresented: (sessionId, seq, index, action, application) => opener.open(sessionId, seq, index, action, application),
+      openPreview: (sessionId, cwd, path) => { ctx.sidebarRight.openResourceForSession(sessionId, fileAddressFor(sessionId, cwd, path)) },
+    }),
+  }, PresentedCardFactory)
   ctx.uiConversation.events.register(deliverablesDefinition)
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'ui-deliverables: dictionaries')
   ctx.slots.inject(

@@ -116,6 +116,9 @@ export function apply(ctx: ClientContext): void {
   ctx.slots.inject('deliverables.file.actions', () => ctx.slots.register({
     name: 'deliverables.file.actions', id: 'open-in-app', locale: NS,
   }, FileRouteAction))
+  ctx.slots.inject('deliverables.presented-card.actions', () => ctx.slots.register({
+    name: 'deliverables.presented-card.actions', id: 'open-in-app', locale: NS,
+  }, FileRouteAction))
   ctx.slots.inject('deliverables.review.file.actions', () => ctx.slots.register({
     name: 'deliverables.review.file.actions', id: 'open-in-app', locale: NS,
   }, FileRouteAction))

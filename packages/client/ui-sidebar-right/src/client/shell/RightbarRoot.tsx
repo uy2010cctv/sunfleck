@@ -27,12 +27,13 @@ function SessionView({ view, visible, SessionProvider, renderSlot, mountView, wi
 }
 
 /**
- * Keep independent Session subtrees and hide those outside the selected Conversation.
+ * Keep independent Session subtrees for the selected Conversation or an explicit global-panel preview.
  * @param props - frame geometry, view targets and the authorized Session renderer.
  * @returns the foreground and retained background Sidebars.
  */
 export function RightbarRoot({ usePanelInfo, useViews, ...props }: RootProps) {
-  const visible = usePanelInfo(info => info.activePanelId === null)
+  const panelId = usePanelInfo(info => info.activePanelId)
   const views = useViews(value => value)
-  return <>{views.map(view => <SessionView key={view.sessionId} {...props} view={view} visible={visible} />)}</>
+  return <>{views.map(view => <SessionView key={view.sessionId} {...props}
+    view={view} visible={panelId === null || view.previewPanelId === panelId} />)}</>
 }

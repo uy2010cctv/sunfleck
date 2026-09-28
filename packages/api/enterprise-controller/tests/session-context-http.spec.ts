@@ -44,6 +44,42 @@ describe('authorized native session context', () => {
     expect((await new SessionContextHttpHandler(deps).fetch(request())).status).toBe(403)
     expect(deps.sessionEmployee).not.toHaveBeenCalled()
   })
+
+  it('associates presented files with the closing reply of their own complete native turn', async () => {
+    const ctx = new Context()
+    const disposed = vi.fn()
+    const observeSession = vi.fn(async () => ({ events: [
+      { type: 'assistant/message', seq: 2, data: { turn: 1, message: { content: [{ type: 'text', text: 'Working' }] } } },
+      { type: 'deliverables/presented', seq: 3, data: { turn: 1, files: [{ path: 'earlier.txt' }] } },
+      { type: 'assistant/message', seq: 6, data: { turn: 1, message: { content: [{ type: 'text', text: 'Earlier report' }] } } },
+      { type: 'turn/end', seq: 7, data: { turn: 1, reason: { kind: 'completed' } } },
+      { type: 'deliverables/presented', seq: 11, data: { turn: 2, files: [{ path: 'later.txt' }] } },
+      { type: 'assistant/message', seq: 12, data: { turn: 2, message: { content: [{ type: 'text', text: 'Later report' }] } } },
+      { type: 'turn/end', seq: 13, data: { turn: 2, reason: { kind: 'completed' } } },
+      { type: 'deliverables/presented', seq: 15, data: { turn: 3, files: [{ path: 'failed.txt' }] } },
+      { type: 'turn/end', seq: 16, data: { turn: 3, reason: { kind: 'error' } } },
+      { type: 'deliverables/presented', seq: 18, data: { turn: 4, files: [{ path: 'pending.txt' }] } },
+      { type: 'assistant/message', seq: 19, data: { turn: 4, message: { content: [{ type: 'text', text: 'Pending' }] } } },
+      { type: 'deliverables/presented', seq: 21, data: { turn: 5, files: [{ path: 'silent.txt' }] } },
+      { type: 'assistant/message', seq: 22, data: { turn: 5, message: { content: [{ type: 'text', text: '  ' }] } } },
+      { type: 'turn/end', seq: 23, data: { turn: 5, reason: { kind: 'completed' } } },
+    ], [Symbol.dispose]: disposed }))
+    ctx.provide('enterprisePostgres' as never, { identity } as never)
+    ctx.provide('enterpriseSecurity' as never, deps.security as never)
+    ctx.provide('sessionQuery' as never, { observeSession } as never)
+    try {
+      const response = await composeSessionContext(ctx).fetch(new Request('https://dsh/enterprise/session-context/presented/session'))
+      expect(await response.json()).toEqual({ sessionId: 'session', files: [
+        { path: 'earlier.txt', seq: 3, index: 0, replySourceSeq: 6 },
+        { path: 'later.txt', seq: 11, index: 0, replySourceSeq: 12 },
+        { path: 'failed.txt', seq: 15, index: 0, replySourceSeq: 16 },
+        { path: 'pending.txt', seq: 18, index: 0 },
+        { path: 'silent.txt', seq: 21, index: 0 },
+      ] })
+      expect(observeSession).toHaveBeenCalledWith('session')
+      expect(disposed).toHaveBeenCalledOnce()
+    } finally { await ctx.fiber.dispose() }
+  })
   it('denies revoked workspace access even when the session remains owned', async () => {
     deps.security.authorizeApiAsync = async () => ({ allowed: false, reason: 'resource-hidden' })
     expect((await new SessionContextHttpHandler(deps).fetch(request())).status).toBe(403)

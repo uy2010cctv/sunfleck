@@ -54,7 +54,7 @@ export type { ExpandButtonProps } from './shell/ExpandButton.tsx'
 export type { SidebarRightState, SurfaceState } from './stores.ts'
 export type {
   ISidebarRight, SidebarRightBinding, SidebarRightOpenResourceOptions, SidebarRightOpenTabOptions,
-  SidebarRightPlacement, SidebarRightCloseHandler, SurfaceActions,
+  SidebarRightPlacement, SidebarRightCloseHandler, SidebarRightPreviewOwner, SurfaceActions,
 } from './service.ts'
 export type {
   SidebarRightGuideBox, SidebarRightGuideEntry, SidebarRightTabClaim, SidebarRightTabDefinition,
@@ -118,7 +118,21 @@ export function apply(ctx: ClientContext): void {
   const { controller, adopt, forget } = createSidebarRightController(
     tabs,
     (address, signal) => { ctx.resources.pin(address, signal) },
+    {
+      show(sessionId) {
+        const panelId = ctx.layout.panelInfo.getSnapshot().activePanelId
+        if (panelId === null) throw new Error('sidebarRight: Session preview requires an active global panel')
+        views.showPreview(sessionId, panelId)
+      },
+      clear: () => { views.clearPreview() },
+    },
   )
+  ctx.effect(() => {
+    const panelInfo = ctx.layout.panelInfo
+    return panelInfo.subscribe(() => {
+      if (views.changePanel(panelInfo.getSnapshot().activePanelId)) controller.cancelPreview()
+    })
+  }, 'ui-sidebar-right: panel preview lifetime')
   const disposeRegistry = ctx.reflect.provide('sidebarRightTabs', tabs)
   const disposeService = ctx.reflect.provide('sidebarRight', controller)
   // Registered first, so it tears down last: the faces outlive every seat and
@@ -126,6 +140,7 @@ export function apply(ctx: ClientContext): void {
   // teardown is synchronous fire-and-forget, matching ui-layout's root entry.
   // Unloading aborts every tab occurrence, which releases every pin.
   ctx.effect(() => () => {
+    controller.cancelPreview()
     controller.tabDomain.dispose()
     void disposeService()
     void disposeRegistry()

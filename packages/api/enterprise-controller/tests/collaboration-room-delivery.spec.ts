@@ -9,6 +9,17 @@ const event = (sequence: string, authorId: string, content: string, tags: string
 })
 
 describe('shared room execution input', () => {
+  it('directs requested file delivery through present in the native room input', () => {
+    const latest = event('1', 'alice', '@Research create report.txt and share it here')
+    expect(roomPrompt('Research room', [latest], latest, { characters: 500, events: 1 }))
+      .toMatchInlineSnapshot(`
+        "Shared room: Research room
+        Read these signed room events in order. Each [id] is an auditable source event. Reply in the room as yourself.
+        For requested files, create them and call present with existing paths before your final reply for room members to open or download. Reply here; external messaging requires an explicit request.
+        [event-1] human:alice: @Research create report.txt and share it here"
+      `)
+  })
+
   it('retains exact source event IDs and current text while bounding older context', () => {
     const events = Array.from({ length: 40 }, (_, index) => event(String(index + 1), 'alice', `Older ${index} ${'x'.repeat(200)}`))
     const latest = event('41', 'alice', '@Research investigate')
@@ -20,6 +31,15 @@ describe('shared room execution input', () => {
     expect(prompt).toContain('Earlier room events omitted')
     expect(prompt.length).toBeLessThanOrEqual(1400)
     expect(prompt).not.toContain('event-1]')
+  })
+
+  it('retains the current source id and delivery instructions at the minimum context limit', () => {
+    const latest = { ...event('1', 'alice', 'x'.repeat(1000)),
+      event: { ...event('1', 'alice', '').event, id: 'a'.repeat(64), content: 'x'.repeat(1000) } }
+    const prompt = roomPrompt('r'.repeat(80), [latest], latest, { characters: 500, events: 1 })
+    expect(prompt).toContain(`[${latest.event.id}]`)
+    expect(prompt).toContain('external messaging requires an explicit request.')
+    expect(prompt.length).toBeLessThanOrEqual(500)
   })
 
   it('routes explicit employee mentions and blocks self loops or excessive hops', () => {

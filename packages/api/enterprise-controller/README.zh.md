@@ -22,6 +22,8 @@ kind: "package-reference"
 <a id="use-this-package"></a>
 ## 使用本包
 
+`GET /enterprise/session-context/presented/:sessionId` 在检查 Session 访问权或房间成员身份后，返回声明交付的文件路径及其原生事件序号和文件索引下载坐标。若文件所属的完整原生轮次存在房间回复，每项包含 `replySourceSeq`；服务从完整 Session 日志推导该序号，不受房间分页影响。
+
 `GET /enterprise/session-context/:sessionId` 返回 Session 固定的员工发布版本、明确成员所属项目和已授权批准摘要，不启动运行时。员工选择独立于工作方式预设，并校验持久化所有者与组织。私有摘要要求仅所有者可访问的普通 Session，且员工选择或账号锚定匹配；协作 Session 不返回员工私有及双边摘要。双边记忆同时要求员工和用户编号；缺少员工归属的旧双边条目不返回。
 
 仅在企业 Profile 中，并在 `enterprisePostgres`、`enterpriseSecurity`、`enterpriseRequestContext` 和 `sessionController` 之后挂载本 Controller。Client 通过 API Gateway 使用生成的 `enterpriseEmployee`、`enterpriseAsset`、`enterpriseTeam`、`enterpriseTeamDefinition`、`enterpriseTeamRun`、`enterpriseTeamDecision`、`enterpriseTeamAutonomy`、`enterpriseOperation`、`enterpriseWork` 和 `enterpriseDevice` namespace。TeamRun start 和 cancel namespace 使用可选 `enterpriseTeamRuntimeDriver`；没有 provider 时，start 返回稳定 runtime-unavailable 失败。设备配对和 Computer Use 请求同时绑定已认证用户、Workspace、Session、短期操作 Permit 和设备签名。Host 注入组织与 actor 身份，browser 请求不能写 runtime revision 或 event position。本包不替代 DSH 的 Workspace、Session、Workflow、Sandbox、Subagent 或 Agent Loop 身份。
@@ -61,7 +63,7 @@ kind: "package-reference"
 
 #### What the model sees
 
-协作投递把认证用户消息作为 `user/message` 记录到选定的原生 Session。员工提及和值班路由使用与普通工作相同的 Agent 预设和会话历史。
+协作投递把认证用户消息作为 `user/message` 记录到选定的原生 Session。员工提及和值班路由使用与普通工作相同的 Agent 预设和会话历史。有界房间输入要求员工创建请求的交付文件，并在最终回复前调用 `present`；向外部会话发送消息需要明确请求。
 
 #### Token effect
 

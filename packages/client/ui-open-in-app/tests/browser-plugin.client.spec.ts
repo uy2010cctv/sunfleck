@@ -48,6 +48,7 @@ async function bench() {
       'sidebar.right.tab.document.actions': { kind: 'list', scope: 'session' },
       'sidebar.right.tab.document.unpreviewable': { kind: 'list', scope: 'session' },
       'deliverables.file.actions': { kind: 'list', scope: 'session' },
+      'deliverables.presented-card.actions': { kind: 'list', scope: 'root' },
       'deliverables.review.file.actions': { kind: 'list', scope: 'session' },
     },
   } as never, () => null)
@@ -173,6 +174,9 @@ describe('open-in-app browser half', () => {
     expect(header?.component).toBe(OpenPathAction)
     expect(empty?.component).toBe(OpenPathEmptyAction)
     expect(ctx.slots.entries('deliverables.file.actions')).toHaveLength(1)
+    expect(ctx.slots.entries('deliverables.presented-card.actions')[0]?.component).toBe(
+      ctx.slots.entries('deliverables.file.actions')[0]?.component)
+    expect(ctx.slots.entries('deliverables.presented-card.actions')).toHaveLength(1)
     expect(header?.options).toMatchObject({ id: 'open-in-app' })
     const face = (header?.inject as unknown as () => OpenPathInjected)()
     const emptyFace = (empty?.inject as unknown as () => OpenPathInjected)()
@@ -191,6 +195,7 @@ describe('open-in-app browser half', () => {
     expect(ctx.slots.entries('sidebar.right.tab.document.actions').map(entry => entry.options.id)).not.toContain('open-in-app')
     expect(ctx.slots.entries('sidebar.right.tab.document.unpreviewable').map(entry => entry.options.id)).not.toContain('open-in-app')
     expect(ctx.slots.entries('deliverables.file.actions')).toHaveLength(0)
+    expect(ctx.slots.entries('deliverables.presented-card.actions')).toHaveLength(0)
   })
 
   it('registers the header split button, and fiber teardown removes it (HMR safety)', async () => {

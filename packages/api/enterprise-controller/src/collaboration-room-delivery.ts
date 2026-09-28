@@ -1,7 +1,7 @@
 /** Bounded, source-labelled room context for native employee Sessions. */
 import type { RoomEvent } from '@deepseek-ai/dsh-enterprise-postgres'
 
-/** Compose exact model-visible room context from authorized, signed events.
+/** Compose bounded room delivery instructions and authorized, signed events for native user history.
  * @param roomName - Current room name.
  * @param events - Recent events in ascending sequence order.
  * @param current - Event that triggered this employee turn.
@@ -14,6 +14,8 @@ export function roomPrompt(roomName: string, events: readonly RoomEvent[], curre
   if (!Number.isSafeInteger(limits.characters) || limits.characters < 500
     || !Number.isSafeInteger(limits.events) || limits.events < 1) throw new Error('invalid room context limits')
   const header = `Shared room: ${roomName.slice(0, 80)}\nRead these signed room events in order. Each [id] is an auditable source event. Reply in the room as yourself.\n`
+    + 'For requested files, create them and call present with existing paths before your final reply for room members to open or download. '
+    + 'Reply here; external messaging requires an explicit request.\n'
   const currentLine = line(current, names)
   const ceiling = limits.characters
   const tailBudget = ceiling - header.length - 2

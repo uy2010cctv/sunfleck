@@ -10,6 +10,8 @@ import { projectId } from '@deepseek-ai/dsh-enterprise-project'
 import type { EnterpriseProjects, Project, ProjectId } from '@deepseek-ai/dsh-enterprise-project'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-session-query'
+import type {} from '@deepseek-ai/dsh-tool-present/types'
+import { roomTurnPost, type RoomTurnEvent } from './collaboration-room-delivery.ts'
 import { employeePresetDefinition } from './employee-preset.ts'
 import { employeeReleaseProjectionDefinition } from './employee-session.ts'
 import type { EmployeeReleaseSelection } from './contract/work.ts'
@@ -21,6 +23,8 @@ export interface PresentedFileEntry {
   readonly description?: string
   readonly seq: number
   readonly index: number
+  /** Native source sequence of the completed turn's room reply, when available. */
+  readonly replySourceSeq?: number
 }
 
 /** Published employee metadata, without runtime prompts or internal paths. */
@@ -185,19 +189,18 @@ export function composeSessionContext(ctx: Context): SessionContextHttpHandler {
     ...(query === undefined ? {} : { presentedFiles: async (id: string) => {
       using observation = await query.observeSession(brandString<SessionId>(id))
       const files: PresentedFileEntry[] = []
+      const turns = new Map<number, RoomTurnEvent[]>()
       for (const event of observation.events) {
-        // The observation union is narrower than the log: presented files ride
-        // a deliverables event type this package's union omits.
-        const presented = event as unknown as {
-          type: string
-          seq: number
-          data: { files: readonly { path: unknown; description?: unknown }[] }
-        }
-        if (presented.type !== 'deliverables/presented') continue
-        presented.data.files.forEach((file, index) => {
-          if (typeof file.path !== 'string' || file.path === '') return
-          const description = typeof file.description === 'string' && file.description !== '' ? file.description : undefined
-          files.push({ path: file.path, ...(description === undefined ? {} : { description }), seq: presented.seq, index })
+        if (event.type !== 'assistant/message' && event.type !== 'turn/end') continue
+        const records = turns.get(event.data.turn) ?? []
+        records.push(event)
+        turns.set(event.data.turn, records)
+      }
+      for (const event of observation.events) {
+        if (event.type !== 'deliverables/presented') continue
+        const replySourceSeq = roomTurnPost(turns.get(event.data.turn) ?? [], event.data.turn)?.sourceSeq
+        event.data.files.forEach((file, index) => {
+          files.push({ ...file, seq: event.seq, index, ...(replySourceSeq === undefined ? {} : { replySourceSeq }) })
         })
       }
       return files

@@ -22,6 +22,21 @@ export function apply(ctx, config) {
       const userIndex = options.messages.findLastIndex(message => message.role === 'user' && message.source?.kind === 'user')
       const user = options.messages[userIndex]
       const textInput = user?.content.filter(block => block.type === 'text').map(block => block.text).join('') ?? ''
+      if (textInput.endsWith('Fixture file delivery request.') && textInput.includes('call present with existing paths')) {
+        const results = options.messages.slice(userIndex).filter(message => message.role === 'tool')
+        if (results.length < 2) {
+          const name = results.length === 0 ? 'write' : 'present'
+          const args = JSON.stringify(name === 'write'
+            ? { file_path: 'room-report.txt', content: 'Shared fixture report.\n' }
+            : { files: [{ path: 'room-report.txt', description: 'Shared room report' }] })
+          const callId = `fixture-file-${name}-${user.source.rpcId}`
+          yield { type: 'block-start', index: 0, blockType: 'tool-call' }
+          yield { type: 'tool-call-delta', index: 0, id: callId, name, argumentsDelta: args }
+          yield { type: 'block-end', index: 0, block: { type: 'tool-call', id: callId, name, arguments: args } }
+          yield { type: 'finish', reason: { kind: 'tool-calls' } }
+          return
+        }
+      }
       if (textInput.endsWith('Fixture handoff request.') && !options.messages.slice(userIndex).some(message => message.role === 'tool')) {
         const sourceEventId = user.source.rpcId
         const callId = `fixture-handoff-${sourceEventId}`

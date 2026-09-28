@@ -775,6 +775,10 @@ describe('plugin registration', () => {
     await fiber.await()
     const [entry] = ctx.slots.entries('conversation.chat.turnTail')
     expect(entry).toBeDefined()
+    expect(ctx.slots.snapshot('factory:deliverables.presented-card')).toMatchObject([{
+      scope: 'root',
+    }])
+    expect(ctx.slots.spec('deliverables.presented-card.actions')).toEqual({ kind: 'list', scope: 'root' })
     expect(ctx.slots.entries('tool.call.toolview')).toHaveLength(1)
     expect(entry?.inject).toBeDefined()
     expect(registered).toMatchObject({ kind: 'changes-review', patterns: ['dsh-resource://changes-review/**'] })
@@ -861,6 +865,8 @@ describe('plugin registration', () => {
     expect(ctx.slots.entries('tool.call.toolview')).toHaveLength(0)
     expect(ctx.slots.entries('sidebar.right.pane.tab')).toHaveLength(0)
     expect(registered).toBeUndefined()
+    expect(ctx.slots.snapshot('factory:deliverables.presented-card')).toEqual([])
+    expect(ctx.slots.spec('deliverables.presented-card.actions')).toBeUndefined()
     // Fiber teardown retracts the service: the consumer's ctx.get sees the off state.
     expect((ctx as { get(name: string): unknown }).get('chatFileMentions')).toBeUndefined()
   })

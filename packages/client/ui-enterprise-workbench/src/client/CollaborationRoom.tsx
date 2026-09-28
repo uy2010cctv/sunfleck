@@ -1,7 +1,11 @@
 /** Shared group/channel room in the existing SUNFLECK main panel. */
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
 import { createPortal } from 'react-dom'
-import { IconCloseOutlineRegular, IconLoadingOutlineRegular, IconReactionAddOutlineRegular, IconSearchOutlineRegular, IconSendOutlineRegular, IconUsersOutlineRegular, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
+import type {} from '@deepseek-ai/dsh-client-ui-attachment/client'
+import type { PropsRenderFactories } from '@deepseek-ai/dsh-client-ui-slots'
+import { RoomPresentedFiles } from './RoomPresentedFiles.tsx'
+import { filesForRoomReply } from './room-presented-files.ts'
+import { ComposerCard, ComposerControlRow, ComposerSendButton, IconCloseOutlineRegular, IconLoadingOutlineRegular, IconReactionAddOutlineRegular, IconSearchOutlineRegular, IconUsersOutlineRegular, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { CollaborationController, CollaborationState, RoomEvent, RoomPresentedFile } from './collaboration-store.ts'
 import type { CollaborationChoices } from './CollaborationNavigation.tsx'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-locale/client'
@@ -70,7 +74,7 @@ export function stripReplyBoilerplate(content: string): string {
 }
 
 function Entry({ event, reactions, self, avatarUrl, attachmentUrlFor, workflowDetails, working, threadReplies, presented,
-  threadAvatarFor = () => undefined, onThread, onReaction, onInspect, t }: {
+  threadAvatarFor = () => undefined, onThread, onReaction, onInspect, renderFactorySlot, foldedPresented, t }: {
   readonly event: RoomEvent
   readonly reactions: readonly ReactionSummary[]
   readonly self: boolean
@@ -79,7 +83,9 @@ function Entry({ event, reactions, self, avatarUrl, attachmentUrlFor, workflowDe
   readonly workflowDetails?: readonly RoomEvent[]
   readonly working?: readonly WorkingChip[]
   readonly threadReplies?: readonly RoomEvent[]
-  readonly presented?: readonly RoomPresentedFile[]
+  readonly presented?: readonly RoomPresentedFile[] | undefined
+  readonly foldedPresented?: readonly { readonly id: string; readonly sessionId: string; readonly files: readonly RoomPresentedFile[] }[]
+  readonly renderFactorySlot?: PropsRenderFactories['renderFactorySlot'] | undefined
   readonly threadAvatarFor?: (authorId: string) => string | undefined
   readonly onThread: (id: string) => void
   readonly onReaction: (id: string, emoji: string) => void
@@ -180,17 +186,10 @@ function Entry({ event, reactions, self, avatarUrl, attachmentUrlFor, workflowDe
       {event.author.kind === 'employee'
         ? <div className={css.contentMarkdown}><MarkdownText text={stripReplyBoilerplate(event.content)} labels={markdownLabels}/></div>
         : <p className={css.content}>{event.content}</p>}
-      {presented !== undefined && presented.length > 0 && <div className={css.fileCards}>{presented.map(file => (
-        <div className={css.fileCardInner}>
-          <span className={css.fileCardIcon} aria-hidden="true">{(file.path.split('.').pop() ?? '').slice(0, 4).toUpperCase()}</span>
-          <span className={css.fileCardBody}>
-            <span className={css.fileCardName}>{file.path.split('/').pop() ?? file.path}</span>
-            {file.description !== undefined && <span className={css.fileCardDesc}>{file.description}</span>}
-          </span>
-          <a className={css.fileCardDownload} href={file.downloadUrl} download
-            aria-label={`${t('attachment')} ${file.path.split('/').pop() ?? file.path}`}>⬇</a>
-        </div>
-      ))}</div>}
+      {presented !== undefined && event.sourceSessionId !== undefined && <RoomPresentedFiles files={presented}
+        sessionId={event.sourceSessionId} {...(renderFactorySlot === undefined ? {} : { renderFactorySlot })} downloadLabel={t('attachment')} />}
+      {foldedPresented?.map(delivery => <RoomPresentedFiles key={delivery.id} files={delivery.files}
+        sessionId={delivery.sessionId} {...(renderFactorySlot === undefined ? {} : { renderFactorySlot })} downloadLabel={t('attachment')} />)}
       {event.attachments !== undefined && <div className={css.attachments}>{event.attachments.map(file => (
         <a key={file.attachmentId} className={css.fileChip} href={attachmentUrlFor(file.attachmentId)}
           target="_blank" rel="noreferrer" aria-label={`${t('attachment')} ${file.name}`}>
@@ -251,11 +250,12 @@ function humanSize(size: number): string {
   return `${size} B`
 }
 
-function Composer({ state, controller, t, threadRoot }: {
+function Composer({ state, controller, renderFactorySlot, t, threadRoot }: {
   readonly state: CollaborationState
   readonly controller: CollaborationController
   readonly t: Copy
   readonly threadRoot?: string
+  readonly renderFactorySlot?: PropsRenderFactories['renderFactorySlot'] | undefined
 }) {
   const [draft, setDraft] = useState('')
   const [mentions, setMentions] = useState<string[]>([])
@@ -334,74 +334,88 @@ function Composer({ state, controller, t, threadRoot }: {
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>): void => {
     if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void send() }
   }
+  const uploadFile = (upload: PendingUpload): void => {
+    setUploads(current => current.map(item => item.key === upload.key ? { ...item, status: 'uploading' } : item))
+    void controller.uploadAttachment(detail.id, upload.file)
+      .then((ref) => { setUploads(current => current.map(item => item.key === upload.key ? { ...item, status: 'ready' as const, ref } : item)) })
+      .catch(() => { setUploads(current => current.map(item => item.key === upload.key ? { ...item, status: 'error' as const } : item)) })
+  }
   const pickFiles = (files: FileList | null): void => {
     for (const file of Array.from(files ?? [])) {
-      const key = `${file.name}:${file.size}:${Date.now()}:${Math.random()}`
-      setUploads(current => [...current, { key, file, status: 'uploading' }])
-      void controller.uploadAttachment(detail.id, file)
-        .then((ref) => { setUploads(current => current.map(upload => upload.key === key ? { ...upload, status: 'ready' as const, ref } : upload)) })
-        .catch(() => { setUploads(current => current.map(upload => upload.key === key ? { ...upload, status: 'error' as const } : upload)) })
+      const upload: PendingUpload = { key: `${file.name}:${file.size}:${Date.now()}:${Math.random()}`, file, status: 'uploading' }
+      setUploads(current => [...current, upload])
+      uploadFile(upload)
     }
     if (fileInput.current !== null) fileInput.current.value = ''
   }
   return <form className={css.composer} onSubmit={(event) => { void send(event) }}>
-    {(mentions.length > 0 || peopleMentions.length > 0 || uploads.length > 0) && <div className={css.mentionChips}>{mentions.map((id) => {
-      const member = detail.members.find(item => item.employeeId === id)
-      return <button key={`employee:${id}`} type="button" onClick={() => { setMentions(mentions.filter(value => value !== id)) }} aria-label={`${t('removeMention')} ${member?.displayName ?? id}`}>@{member?.displayName ?? id} ×</button>
-    })}{peopleMentions.map((id) => {
-      const member = people.find(item => item.userId === id)
-      return <button key={`human:${id}`} type="button" onClick={() => { setPeopleMentions(peopleMentions.filter(value => value !== id)) }} aria-label={`${t('removeMention')} ${member?.displayName ?? id}`}>@{member?.displayName ?? id} ×</button>
-    })}{uploads.map(upload => <span key={upload.key} className={css.uploadChip} data-status={upload.status}
-      title={upload.status === 'error' ? t('attachFailed') : upload.status === 'uploading' ? t('attachUploading') : undefined}>
-      {upload.status === 'uploading' && `${t('attachUploading')} · `}{upload.status === 'error' && `${t('attachFailed')} · `}{upload.file.name}
-      <button type="button" aria-label={`${t('removeAttachment')} ${upload.file.name}`}
-        onClick={() => { setUploads(current => current.filter(item => item.key !== upload.key)) }}>×</button>
-    </span>)}</div>}
-    <textarea ref={input} value={draft}
-      onChange={(event) => { setDraft(event.target.value); refreshMentionQuery(event.target.value, event.target.selectionStart) }}
-      onKeyDown={onKeyDown} placeholder={t(threadRoot === undefined ? 'roomPlaceholder' : 'threadPlaceholder')} aria-label={t('message')} disabled={sending} rows={2}/>
-    <div className={css.composerActions}>
-      <input ref={fileInput} type="file" multiple hidden
-        onChange={(event) => { pickFiles(event.target.files) }}/>
-      <button type="button" className={css.attach} aria-label={t('attach')} title={t('attach')}
-        disabled={sending} onClick={() => { fileInput.current?.click() }}>＋</button>
-      <div ref={mentionWrap} className={css.mentionWrap}><button type="button" aria-expanded={openMentions} onClick={() => { setTypedMention(false); setMentionQuery(''); setOpenMentions(!openMentions) }}>{t('mentionMember')}</button>
-        {openMentions && <div className={css.mentionMenu}>
-          {allMatches && <div role="group" aria-label={t('mentionAll')}>
-            <label className={css.menuAll}><input type="checkbox" checked={allSelected}
-              onChange={() => { pickAll(); if (typedMention) { insertMention('ALL'); setOpenMentions(false); setTypedMention(false); input.current?.focus() } }}/>
-            <span className={css.menuAllLabel}>@ ALL</span><span className={css.menuAllHint}>{t('mentionAllHint')}</span>
-            </label>
+    <ComposerCard>
+      {(mentions.length > 0 || peopleMentions.length > 0 || uploads.length > 0) && <div className={css.mentionChips}>{mentions.map((id) => {
+        const member = detail.members.find(item => item.employeeId === id)
+        return <button key={`employee:${id}`} type="button" onClick={() => { setMentions(mentions.filter(value => value !== id)) }} aria-label={`${t('removeMention')} ${member?.displayName ?? id}`}>@{member?.displayName ?? id} ×</button>
+      })}{peopleMentions.map((id) => {
+        const member = people.find(item => item.userId === id)
+        return <button key={`human:${id}`} type="button" onClick={() => { setPeopleMentions(peopleMentions.filter(value => value !== id)) }} aria-label={`${t('removeMention')} ${member?.displayName ?? id}`}>@{member?.displayName ?? id} ×</button>
+      })}</div>}
+      {uploads.length > 0 && <div className={css.uploads}>{uploads.map((upload) => {
+        const remove = (): void => { setUploads(current => current.filter(item => item.key !== upload.key)) }
+        const retry = (): void => { uploadFile(upload) }
+        const fallback = <span className={css.uploadChip} data-status={upload.status}>
+          {upload.file.name}
+          {upload.status === 'error' && <button type="button" onClick={retry}>{t('retry')}</button>}
+          <button type="button" aria-label={`${t('removeAttachment')} ${upload.file.name}`} onClick={remove}>×</button>
+        </span>
+        return <div key={upload.key}>{renderFactorySlot === undefined ? fallback
+          : renderFactorySlot('attachments.pending-file-card', { name: upload.file.name, bytes: upload.file.size,
+            state: upload.status, onRemove: remove, onRetry: retry }, { fallback })}</div>
+      })}</div>}
+      <textarea ref={input} value={draft}
+        onChange={(event) => { setDraft(event.target.value); refreshMentionQuery(event.target.value, event.target.selectionStart) }}
+        onKeyDown={onKeyDown} placeholder={t(threadRoot === undefined ? 'roomPlaceholder' : 'threadPlaceholder')} aria-label={t('message')} disabled={sending} rows={2}/>
+      <ComposerControlRow className={css.composerActions}>
+        <input ref={fileInput} type="file" multiple hidden
+          onChange={(event) => { pickFiles(event.target.files) }}/>
+        <button type="button" className={css.attach} aria-label={t('attach')} title={t('attach')}
+          disabled={sending} onClick={() => { fileInput.current?.click() }}>＋</button>
+        <div ref={mentionWrap} className={css.mentionWrap}><button type="button" aria-expanded={openMentions} onClick={() => { setTypedMention(false); setMentionQuery(''); setOpenMentions(!openMentions) }}>{t('mentionMember')}</button>
+          {openMentions && <div className={css.mentionMenu}>
+            {allMatches && <div role="group" aria-label={t('mentionAll')}>
+              <label className={css.menuAll}><input type="checkbox" checked={allSelected}
+                onChange={() => { pickAll(); if (typedMention) { insertMention('ALL'); setOpenMentions(false); setTypedMention(false); input.current?.focus() } }}/>
+              <span className={css.menuAllLabel}>@ ALL</span><span className={css.menuAllHint}>{t('mentionAllHint')}</span>
+              </label>
+            </div>}
+            <div role="group" aria-label={t('employees')}>
+              {employeeCandidates.map(member => <span key={member.employeeId} className={css.menuRow}>
+                <img className={css.menuAvatar} src={dicebearAvatarUrl(member.avatarSeed ?? member.employeeId)} alt=""
+                  loading="lazy" referrerPolicy="no-referrer"/>
+                <label><input type="checkbox" checked={mentions.includes(member.employeeId)}
+                  onChange={() => { toggleMember('employee', member.employeeId, member.displayName) }}/>{member.displayName}</label>
+              </span>)}
+            </div>
+            <div role="group" aria-label={t('people')}>
+              {peopleCandidates.map(member => <span key={member.userId} className={css.menuRow}>
+                <span className={css.menuAvatar} aria-hidden="true">{member.displayName.slice(0, 1)}</span>
+                <label><input type="checkbox" checked={peopleMentions.includes(member.userId)}
+                  onChange={() => { toggleMember('human', member.userId, member.displayName) }}/>{member.displayName}</label>
+              </span>)}
+            </div>
+            {employeeCandidates.length === 0 && peopleCandidates.length === 0 && !allMatches && <span>{t('mentionNoMatch')}</span>}
           </div>}
-          <div role="group" aria-label={t('employees')}>
-            {employeeCandidates.map(member => <span key={member.employeeId} className={css.menuRow}>
-              <img className={css.menuAvatar} src={dicebearAvatarUrl(member.avatarSeed ?? member.employeeId)} alt=""
-                loading="lazy" referrerPolicy="no-referrer"/>
-              <label><input type="checkbox" checked={mentions.includes(member.employeeId)}
-                onChange={() => { toggleMember('employee', member.employeeId, member.displayName) }}/>{member.displayName}</label>
-            </span>)}
-          </div>
-          <div role="group" aria-label={t('people')}>
-            {peopleCandidates.map(member => <span key={member.userId} className={css.menuRow}>
-              <span className={css.menuAvatar} aria-hidden="true">{member.displayName.slice(0, 1)}</span>
-              <label><input type="checkbox" checked={peopleMentions.includes(member.userId)}
-                onChange={() => { toggleMember('human', member.userId, member.displayName) }}/>{member.displayName}</label>
-            </span>)}
-          </div>
-          {employeeCandidates.length === 0 && peopleCandidates.length === 0 && !allMatches && <span>{t('mentionNoMatch')}</span>}
-        </div>}
-      </div>
-      <span className={css.keyHint}>{t('sendHint')}</span>
-      <button type="submit" className={css.send} disabled={sending || uploadPending || (draft.trim() === '' && readyAttachments.length === 0)} aria-label={t('send')}><IconSendOutlineRegular size={16}/></button>
-    </div>
+        </div>
+        <span className={css.keyHint}>{t('sendHint')}</span>
+        <ComposerSendButton type="submit" disabled={sending || uploadPending || (draft.trim() === '' && readyAttachments.length === 0)} aria-label={t('send')} />
+      </ComposerControlRow>
+    </ComposerCard>
   </form>
 }
 
 /** One shared timeline for people and Bots, with a room context and thread rail. */
-export function CollaborationRoom({ state, controller, loadChoices, t }: {
+export function CollaborationRoom({ state, controller, loadChoices, renderFactorySlot, t }: {
   readonly state: CollaborationState
   readonly controller: CollaborationController
   readonly loadChoices?: () => Promise<CollaborationChoices>
+  readonly renderFactorySlot?: PropsRenderFactories['renderFactorySlot'] | undefined
   readonly t: Copy
 }) {
   const [showDetails, setShowDetails] = useState(false)
@@ -449,24 +463,33 @@ export function CollaborationRoom({ state, controller, loadChoices, t }: {
   // initial.
   const avatars = useMemo(() => new Map((selected?.detail.members ?? []).map(member =>
     [member.employeeId, dicebearAvatarUrl(member.avatarSeed ?? member.employeeId)] as const)), [selected?.detail.members])
-  // Agent replies carry the work Session that produced them; fetch its
-  // presented files once per Session so answers can show file cards.
-  const sourceSessions = useMemo(() => new Set(state.events.flatMap((event) => {
-    if (event.author.kind !== 'employee' || event.sourceSessionId === undefined) return []
-    return [event.sourceSessionId]
-  })), [state.events])
+  // Signed reply revisions invalidate empty or earlier delivery lists.
+  const sourceRevisions = useMemo(() => {
+    const revisions = new Map<string, string>()
+    for (const event of [...state.events, ...state.threadEvents, ...state.searchResults]) {
+      if (event.kind === 9 && event.author.kind === 'employee' && event.sourceSessionId !== undefined) {
+        const prior = revisions.get(event.sourceSessionId)
+        if (prior === undefined || BigInt(event.sequence) > BigInt(prior)) revisions.set(event.sourceSessionId, event.sequence)
+      }
+    }
+    return JSON.stringify([...revisions])
+  }, [state.events, state.threadEvents, state.searchResults])
   const [presentedFiles, setPresentedFiles] = useState<ReadonlyMap<string, readonly RoomPresentedFile[]>>(new Map())
   useEffect(() => {
     let live = true
-    for (const sessionId of sourceSessions) {
-      if (presentedFiles.has(sessionId)) continue
-      void controller.presentedFiles(sessionId)
+    const revisions: readonly (readonly [string, string])[] = JSON.parse(sourceRevisions)
+    for (const [sessionId, revision] of revisions) {
+      void controller.presentedFiles(sessionId, revision)
         .then((files) => { if (live) setPresentedFiles(current => new Map(current).set(sessionId, files)) })
-        .catch(() => {})
+        .catch((_error: unknown) => { /* A later signed reply retries unavailable delivery metadata. */ })
     }
     return () => { live = false }
-  }, [controller, sourceSessions, presentedFiles])
-  const presentedFor = (sessionId: string): readonly RoomPresentedFile[] | undefined => presentedFiles.get(sessionId)
+  }, [controller, roomId, sourceRevisions])
+  const presentedFor = (event: RoomEvent): readonly RoomPresentedFile[] | undefined => {
+    const files = event.sourceSessionId === undefined ? undefined : presentedFiles.get(event.sourceSessionId)
+    return files === undefined ? undefined
+      : filesForRoomReply([...state.events, ...state.threadEvents, ...state.searchResults], event, files)
+  }
   // Group one agent reply: the employee's tool/progress events fold into their
   // next signed answer as collapsed details; a mentioned employee without an
   // answer yet renders a working chip on the mentioning message. Orphan
@@ -594,7 +617,7 @@ export function CollaborationRoom({ state, controller, loadChoices, t }: {
         {showSearch && state.searchPhase !== 'idle' ? <div className={css.scroll} role="region" aria-label={t('searchResults')}>
           {state.searchPhase === 'loading' && <div className={css.center}><IconLoadingOutlineRegular size={20}/></div>}
           {state.searchPhase === 'error' && <div className={css.center} role="alert">{t('searchFailed')}<button type="button" onClick={() => { void controller.search(searchInput) }}>{t('retry')}</button></div>}
-          {state.searchPhase === 'ready' && (state.searchResults.length === 0 ? <div className={css.center}>{t('noSearchResults')}</div> : state.searchResults.map(event => <Entry key={event.id} event={event} reactions={[]} self={isSelf(event)} avatarUrl={avatarFor(event)} attachmentUrlFor={attachmentUrlFor} onThread={(id) => { setShowSearch(false); void controller.openThread(id) }} onReaction={(id, emoji) => { void controller.react(id, emoji) }} onInspect={(id) => { void controller.inspect(id) }} t={t}/>))}
+          {state.searchPhase === 'ready' && (state.searchResults.length === 0 ? <div className={css.center}>{t('noSearchResults')}</div> : state.searchResults.map(event => <Entry renderFactorySlot={renderFactorySlot} presented={presentedFor(event)} key={event.id} event={event} reactions={[]} self={isSelf(event)} avatarUrl={avatarFor(event)} attachmentUrlFor={attachmentUrlFor} onThread={(id) => { setShowSearch(false); void controller.openThread(id) }} onReaction={(id, emoji) => { void controller.react(id, emoji) }} onInspect={(id) => { void controller.inspect(id) }} t={t}/>))}
         </div> : <div ref={scroll} className={css.scroll} role="region" aria-label={t('roomTimeline')}
           onScroll={(event) => {
             const node = event.currentTarget
@@ -619,8 +642,14 @@ export function CollaborationRoom({ state, controller, loadChoices, t }: {
                   {last !== undefined && <span className={css.threadTime}>{new Date(last.created_at * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>}
                 </button>
               }
-              const presented = item.event.sourceSessionId === undefined ? undefined : presentedFor(item.event.sourceSessionId)
-              return <Entry key={item.event.id} event={item.event}
+              const presented = presentedFor(item.event)
+              const foldedPresented = (item.workflowDetails ?? []).flatMap((reply) => {
+                const files = presentedFor(reply)
+                return reply.sourceSessionId === undefined || files === undefined || files.length === 0 ? []
+                  : [{ id: reply.id, sessionId: reply.sourceSessionId, files }]
+              })
+              return <Entry renderFactorySlot={renderFactorySlot} key={item.event.id} event={item.event}
+                foldedPresented={foldedPresented}
                 reactions={reactionSummaries(state.events, item.event.id, detail.viewerUserId)}
                 self={isSelf(item.event)} avatarUrl={avatarFor(item.event)}
                 attachmentUrlFor={attachmentUrlFor} threadAvatarFor={authorId => avatars.get(authorId)}
@@ -635,7 +664,7 @@ export function CollaborationRoom({ state, controller, loadChoices, t }: {
           </>}
         </div>}
         {state.error !== null && <p className={css.error} role="alert">{t(state.error === 'forbidden' ? 'forbidden' : 'requestFailed')}</p>}
-        <Composer state={state} controller={controller} t={t}/>
+        <Composer state={state} controller={controller} renderFactorySlot={renderFactorySlot} t={t}/>
       </div>
       {(showDetails || threadRoot !== undefined) && <aside className={css.side} aria-label={t(threadRoot === undefined ? 'roomDetails' : 'roomThread')}>
         <div className={css.sideHeader}><h2>{t(threadRoot === undefined ? 'roomDetails' : 'roomThread')}</h2><button type="button" aria-label={t('closeDetails')} onClick={() => { if (threadRoot !== undefined) controller.closeThread(); else setShowDetails(false) }}><IconCloseOutlineRegular size={16}/></button></div>
@@ -649,7 +678,7 @@ export function CollaborationRoom({ state, controller, loadChoices, t }: {
           {detail.project !== undefined && <section><h3>{t('project')}</h3><p>{detail.project.name}</p></section>}
           {detail.kind === 'channel' && <><ChannelDecisionQueue key={`${detail.id}-decisions`} channelId={detail.id} t={t}/>
             <ChannelWorkflowEditor key={`${detail.id}-workflows`} channelId={detail.id} t={t}/></>}
-        </div> : <><div className={css.threadScroll}>{root !== undefined && <Entry event={root} reactions={reactionSummaries(state.events, root.id, detail.viewerUserId)} self={isSelf(root)} avatarUrl={avatarFor(root)} attachmentUrlFor={attachmentUrlFor} onThread={() => {}} onReaction={(id, emoji) => { void controller.react(id, emoji) }} onInspect={(id) => { void controller.inspect(id) }} t={t}/>}{state.threadPhase === 'loading' && <div className={css.center}><IconLoadingOutlineRegular size={20}/></div>}{state.threadPhase === 'error' && <div className={css.center} role="alert">{t('loadError')}<button type="button" onClick={() => { void controller.openThread(threadRoot) }}>{t('retry')}</button></div>}{state.threadPhase === 'ready' && state.threadEvents.filter(event => event.kind !== 7 && event.id !== threadRoot).map(event => <Entry key={event.id} event={event} reactions={reactionSummaries(state.threadEvents, event.id, detail.viewerUserId)} self={isSelf(event)} avatarUrl={avatarFor(event)} attachmentUrlFor={attachmentUrlFor} onThread={() => {}} onReaction={(id, emoji) => { void controller.react(id, emoji) }} onInspect={(id) => { void controller.inspect(id) }} t={t}/>)}</div><Composer state={state} controller={controller} t={t} threadRoot={threadRoot}/></>}
+        </div> : <><div className={css.threadScroll}>{root !== undefined && <Entry renderFactorySlot={renderFactorySlot} presented={presentedFor(root)} event={root} reactions={reactionSummaries(state.events, root.id, detail.viewerUserId)} self={isSelf(root)} avatarUrl={avatarFor(root)} attachmentUrlFor={attachmentUrlFor} onThread={() => {}} onReaction={(id, emoji) => { void controller.react(id, emoji) }} onInspect={(id) => { void controller.inspect(id) }} t={t}/>}{state.threadPhase === 'loading' && <div className={css.center}><IconLoadingOutlineRegular size={20}/></div>}{state.threadPhase === 'error' && <div className={css.center} role="alert">{t('loadError')}<button type="button" onClick={() => { void controller.openThread(threadRoot) }}>{t('retry')}</button></div>}{state.threadPhase === 'ready' && state.threadEvents.filter(event => event.kind !== 7 && event.id !== threadRoot).map(event => <Entry renderFactorySlot={renderFactorySlot} presented={presentedFor(event)} key={event.id} event={event} reactions={reactionSummaries(state.threadEvents, event.id, detail.viewerUserId)} self={isSelf(event)} avatarUrl={avatarFor(event)} attachmentUrlFor={attachmentUrlFor} onThread={() => {}} onReaction={(id, emoji) => { void controller.react(id, emoji) }} onInspect={(id) => { void controller.inspect(id) }} t={t}/>)}</div><Composer state={state} controller={controller} renderFactorySlot={renderFactorySlot} t={t} threadRoot={threadRoot}/></>}
       </aside>}
     </div>
   </main>

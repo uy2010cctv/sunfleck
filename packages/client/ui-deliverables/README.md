@@ -68,6 +68,8 @@ The Node half registers the static `ui:deliverable-file-references` system-promp
 
 Native opening uses an authenticated POST addressed by the viewed Session, event sequence, and original file index; the review tab's native open of a changed file uses the same coordinates. For a declaration the Host reads the viewed Session header with the event and passes its cwd, or the deployment workspace root when absent, to `workspaceFiles.stat`; for a changed file it passes the working directory the served summary carries. This uses the same composed filesystem as Sidebar previews and does not activate an Agent, including for child Sessions. Native actions require the canonical process path to map from a Host path back to that same process path. Providers without this mapping return 422, after which the review tab hides its native open; a same-named Host file is insufficient. The same configured desktop availability governs metadata and execution. Edits affect subsequent opens; deletion returns an error. No file-content copy or attachment is created. Plugin disposal cancels and awaits pending native-open requests.
 
+The root-scoped `deliverables.presented-card` factory renders the same file card outside a Session conversation, including collaboration replies. Its input identifies the source Session and recorded file coordinates; previews use that Session’s resource address through the existing right-Sidebar preview plugins. `deliverables.presented-card.actions` supplies the shared native menu and authenticated download controls.
+
 </details>
 
 -----

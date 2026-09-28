@@ -70,6 +70,12 @@
     },
     {
       "path": "../ui-session"
+    },
+    {
+      "path": "../ui-deliverables/tsconfig.client.json"
+    },
+    {
+      "path": "../ui-attachment"
     }
   ]
 }

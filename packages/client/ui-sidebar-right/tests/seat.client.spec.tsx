@@ -71,7 +71,7 @@ function transition(property = 'transform') {
 async function mountSeat(viewportWidth = 1440, canShow = true, entryCount = 0, opener = false, keepMounted = false) {
   const runtime = await SlotTestRuntime.create()
   runtimes.push(runtime)
-  const frame = { openRightbar: vi.fn(), closeRightbar: vi.fn() }
+  const frame = { openRightbar: vi.fn(), closeRightbar: vi.fn(), panelInfo: runtime.panelInfo }
   const pin = vi.fn<(address: string, signal: AbortSignal) => void>()
   runtime.ctx.provide('layout', frame as never)
   runtime.ctx.provide('resources', { pin } as never)
@@ -161,7 +161,8 @@ async function mountSeat(viewportWidth = 1440, canShow = true, entryCount = 0, o
   }
   return {
     runtime, feature, controller, instance, actions: instance.actions, layout,
-    open, selectSession, frame, pin, bodies, titles, hooks, view, arm, opened, registerPage, catalog,
+    open, selectSession, clearSession: () => { reference.release() }, frame, pin,
+    bodies, titles, hooks, view, arm, opened, registerPage, catalog,
   }
 }
 
@@ -306,6 +307,45 @@ describe('RightbarSeat presentation', () => {
     await act(async () => { h.controller.dock(paneId!) })
     expect(document.activeElement).toBe(input)
     expect(input.closest<HTMLElement>('[data-dockkit-pane]')?.dataset.dockkitPane).toBe(h.layout().activePaneId)
+  })
+
+  it('opens a source Session resource over a global panel and restores the workspace Sidebar on return', async () => {
+    const h = await mountSeat()
+    const workspaceTab = h.open('workspace.txt')
+    await act(async () => { await h.runtime.sessions.add({ id: OTHER }) })
+    const panel = 'enterprise-collaboration' as MainPanelId
+    act(() => { h.runtime.panelInfo.set({ activePanelId: panel }) })
+    expect(h.controller.mounted.getSnapshot()).toBeUndefined()
+    const address = `dsh-resource://file/session/${OTHER}/shared.html`
+    await act(async () => { h.controller.openResourceForSession(OTHER, address) })
+    expect(h.runtime.panelInfo.getSnapshot().activePanelId).toBe(panel)
+    expect(h.runtime.ctx.uiSession.adapter.current.getSnapshot().key).toBe(SESSION)
+    expect(h.controller.mounted.getSnapshot()).toBe(OTHER)
+    expect(h.controller.active()?.contentId).toBe(address)
+    const preview = h.controller.active()!
+    expect(h.bodies.get(preview.id)?.tab.visible).toBe(true)
+    act(() => { h.controller.close(preview.id) })
+    expect(h.controller.isExpanded()).toBe(false)
+    expect(h.controller.mounted.getSnapshot()).toBeUndefined()
+    expect(h.view.container.querySelector(`[data-sidebar-right-session="${OTHER}"]`)).toBeNull()
+    expect(h.runtime.panelInfo.getSnapshot().activePanelId).toBe(panel)
+    act(() => { h.runtime.panelInfo.set({ activePanelId: null }) })
+    expect(h.controller.mounted.getSnapshot()).toBe(SESSION)
+    expect(h.controller.active()?.id).toBe(workspaceTab.id)
+    expect(h.view.container.querySelector(`[data-sidebar-right-session="${OTHER}"]`)).toBeNull()
+  })
+
+  it('opens shared content without a selected workspace Session and withdraws its view on panel navigation', async () => {
+    const h = await mountSeat()
+    act(() => { h.clearSession() })
+    const panel = 'enterprise-collaboration' as MainPanelId
+    act(() => { h.runtime.panelInfo.set({ activePanelId: panel }) })
+    await act(async () => { h.controller.openResourceForSession(SESSION, 'dsh-resource://file/session/s-test/shared.png') })
+    expect(h.controller.mounted.getSnapshot()).toBe(SESSION)
+    expect(h.controller.active()?.title).toBe('shared.png')
+    act(() => { h.runtime.panelInfo.set({ activePanelId: 'another-panel' as MainPanelId }) })
+    expect(h.controller.mounted.getSnapshot()).toBeUndefined()
+    expect(h.view.container.querySelector('[data-sidebar-right-session]')).toBeNull()
   })
 
   it('hides for a global main panel and retains the Session sidebar state', async () => {

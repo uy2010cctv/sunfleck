@@ -49,6 +49,8 @@ kind: "package-reference"
 
 目录和文件适配器把应用信息与操作交给 [`OpenTargetButton`](src/client/OpenTargetButton.tsx)，由它统一管理菜单顺序、默认标记、图标、尺寸和操作反馈。文件标题栏和空态共用 `FileOpenTarget`，`OpenPathInjected.applications` 通过 [`open-path.ts`](src/client/open-path.ts) 查询 `session.workspacePathApplications`。打开操作使用 `session.openWorkspacePath`，Host 在启动前重新验证指定的关联应用。`FileRouteAction` 通过 `deliverables.file.actions` 和 `deliverables.review.file.actions` 为交付卡片和变更对比页提供同一控件；交付卡片也可提供经过认证的下载 URL，在 Host 没有桌面时仍可用。这些路由保留会话文件校验。目录适配器继续使用已有的应用列表路由，文件查询失败或不可用时无需增加平台专用的界面实现。
 
+根级 `deliverables.presented-card.actions` 扩展为会话对话之外的交付卡片提供同一文件控件；所属卡片传入来源会话的认证操作路由和下载路由。
+
 </details>
 
 -----

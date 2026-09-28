@@ -62,6 +62,8 @@ Enterprise Host frames are forwarded by the runtime's single stream owner. Each 
 
 Employee presentation comes from the published catalog release: name, position, department, capability labels, and immutable release version. These fields describe the employee; capability labels never grant tools or permissions. The employee's preset id remains its stable runtime identity.
 
+Room composers share the workspace capsule, control row and send action, with attachment upload and member mentions and no model or permission selectors. Pending and delivered file cards use the existing attachment and deliverables factories. Previews address the producing Session and keep the room visible. Signed reply revisions refresh file metadata; native closing coordinates from the full log associate declared files with their reply, including paginated and thread history.
+
 ## Ordinary-profile fallback
 
 Fallback activates only when `enterpriseEmployee.list` returns the explicit enterprise-unavailable response. Other transport, authorization, cursor, and server failures stay visible as failures. The fallback roster includes only declarations marked as employees; generic work modes stay in the mode picker. Starting a fallback employee requires an explicit Workspace choice.

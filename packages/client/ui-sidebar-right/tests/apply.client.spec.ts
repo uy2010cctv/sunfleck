@@ -63,7 +63,7 @@ async function boot(shortcuts: Partial<Shortcuts> = {}) {
       return () => { dictionaries.delete(ns) }
     }),
   }
-  const layout = { openRightbar: vi.fn(), closeRightbar: vi.fn() }
+  const layout = { openRightbar: vi.fn(), closeRightbar: vi.fn(), panelInfo: createSnapshotStore({ activePanelId: null }) }
   const resources = { pin: vi.fn<(address: string, signal: AbortSignal) => void>() }
   ctx.provide('slots', slots as never)
   ctx.provide('locale', locale as never)
