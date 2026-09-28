@@ -1,13 +1,22 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import { CollaborationRoom, reactionSummaries, stripReplyBoilerplate } from '../src/client/CollaborationRoom.tsx'
 import { CollaborationController, type RoomEvent } from '../src/client/collaboration-store.ts'
 import { zh } from '../src/client/collaboration-locales.ts'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-locale/client'
+import type { PropsRenderFactories } from '@deepseek-ai/dsh-client-ui-slots'
+import type { MenuViewInjected } from '@deepseek-ai/dsh-client-ui-input-trigger/client'
+import { MenuView } from '../../ui-input-trigger/src/client/MenuView.tsx'
+import { zh as menuZh } from '../../ui-input-trigger/src/client/locales.ts'
 
-afterEach(() => { cleanup(); vi.unstubAllGlobals() })
+const scrollDescriptor = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'scrollIntoView')
+afterEach(() => {
+  cleanup(); vi.unstubAllGlobals()
+  if (scrollDescriptor === undefined) Reflect.deleteProperty(HTMLElement.prototype, 'scrollIntoView')
+  else Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', scrollDescriptor)
+})
 const human: RoomEvent = { sequence: '1', id: 'human', pubkey: 'human-pubkey-very-long', created_at: 1, kind: 9, tags: [['h', 'room']], content: '请调研续约', sig: 'human-signature', author: { kind: 'human', id: 'u1', displayName: '张总' } }
 const colleague: RoomEvent = { ...human, sequence: '2', id: 'colleague', content: '我负责复核来源', author: { kind: 'human', id: 'u2', displayName: '陈经理' } }
 const research: RoomEvent = { ...human, sequence: '3', id: 'research', pubkey: 'research-pubkey-very-long', content: '交给数据 Bot 核对指标', author: { kind: 'employee', id: 'research-bot', displayName: '研究 Bot' }, sourceSessionId: 'execution-1' }
@@ -26,6 +35,85 @@ function setup(events: RoomEvent[] = [human, colleague, research, data, reaction
 }
 
 describe('shared room UI', () => {
+  it('shows attachment rejection beside its channel post without hiding it in execution details', () => {
+    const failure: RoomEvent = { ...human, id: 'attachment-failure', sequence: '40', kind: 41000,
+      author: { kind: 'service', id: 'attachment-admission', displayName: 'Attachment admission' },
+      content: 'Attachment delivery failed: INVALID_IMAGE', threadRoot: human.id,
+      tags: [['e', human.id], ['e', human.id, '', 'root'], ['dsh-attachment-error', 'INVALID_IMAGE', 'employee', 'research-bot']] }
+    const targeted = { ...human, tags: [['dsh-target', 'research-bot']] }
+    const { controller, state, t } = setup([targeted, failure])
+    const channel = { ...state, selection: { detail: { ...state.selection!.detail, kind: 'channel' as const } } }
+    render(<CollaborationRoom controller={controller} state={channel} t={t} />)
+    expect(screen.getByRole('alert').textContent).toBe('附件验证未通过，未交给研究 Bot')
+    expect(screen.queryByText('Attachment delivery failed: INVALID_IMAGE')).toBeNull()
+    expect(screen.queryByText('执行详情')).toBeNull()
+    expect(screen.queryByLabelText('正在回复')).toBeNull()
+    controller.dispose()
+  })
+  it('keeps main and thread file menus independent and consumes menu Escape before closing the thread', () => {
+    const { controller, state, t } = setup([])
+    vi.stubGlobal('ResizeObserver', class { observe(): void {} unobserve(): void {} disconnect(): void {} })
+    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', { configurable: true, value: vi.fn() })
+    const menuT = makeTranslate(menuZh)
+    const factory: PropsRenderFactories['renderFactorySlot'] = (name, props) => name === 'input-trigger.menu'
+      ? <MenuView {...props as MenuViewInjected} t={menuT} /> : null
+    const channel = { ...state, selection: { detail: { ...state.selection!.detail, kind: 'channel' as const }, threadRoot: human.id },
+      events: [human], threadRootEvent: human }
+    const close = vi.spyOn(controller, 'closeThread')
+    const view = render(<CollaborationRoom controller={controller} state={channel} t={t} renderFactorySlot={factory} />)
+    const thread = screen.getByRole('complementary', { name: '线程' })
+    const buttons = screen.getAllByRole('button', { name: '添加附件' })
+    const inputs = view.container.querySelectorAll<HTMLInputElement>('input[type="file"]')
+    const mainPicker = vi.spyOn(inputs[0]!, 'click')
+    const threadPicker = vi.spyOn(inputs[1]!, 'click')
+    fireEvent.click(within(thread).getByRole('button', { name: '添加附件' }))
+    fireEvent.keyDown(within(thread).getByRole('textbox', { name: '消息' }), { key: 'Escape' })
+    expect(close).not.toHaveBeenCalled()
+    expect(screen.queryByRole('listbox')).toBeNull()
+    fireEvent.click(within(thread).getByRole('button', { name: '添加附件' }))
+    fireEvent.keyDown(within(thread).getByRole('textbox', { name: '消息' }), { key: 'Enter' })
+    expect(threadPicker).toHaveBeenCalledTimes(1)
+    expect(mainPicker).not.toHaveBeenCalled()
+    fireEvent.click(within(thread).getByRole('button', { name: '添加附件' }))
+    fireEvent.pointerDown(buttons[0]!)
+    fireEvent.click(buttons[0]!)
+    expect(screen.getAllByRole('option')).toHaveLength(1)
+    expect(within(thread).queryByRole('listbox')).toBeNull()
+    fireEvent.click(screen.getAllByRole('button', { name: '@ 提及成员' })[0]!)
+    expect(screen.queryByRole('listbox')).toBeNull()
+    fireEvent.click(buttons[0]!)
+    fireEvent.change(screen.getAllByRole('textbox', { name: '消息' })[0]!, { target: { value: '@研', selectionStart: 2 } })
+    expect(screen.queryByRole('listbox')).toBeNull()
+    controller.dispose()
+  })
+  it('opens the workspace file menu before the picker and closes it without losing draft text', async () => {
+    const { controller, state, t } = setup([])
+    vi.stubGlobal('ResizeObserver', class { observe(): void {} unobserve(): void {} disconnect(): void {} })
+    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', { configurable: true, value: vi.fn() })
+    const menuT = makeTranslate(menuZh)
+    const factory: PropsRenderFactories['renderFactorySlot'] = (name, props) => name === 'input-trigger.menu'
+      ? <MenuView {...props as MenuViewInjected} t={menuT} /> : null
+    const view = render(<CollaborationRoom controller={controller} state={state} t={t} renderFactorySlot={factory} />)
+    const editor = screen.getByRole('textbox', { name: '消息' }) as HTMLTextAreaElement
+    fireEvent.change(editor, { target: { value: '保留草稿' } })
+    const fileInput = view.container.querySelector('input[type="file"]') as HTMLInputElement
+    const picker = vi.spyOn(fileInput, 'click')
+    fireEvent.click(screen.getByRole('button', { name: '添加附件' }))
+    expect(picker).not.toHaveBeenCalled()
+    const option = await screen.findByRole('option', { name: /文件/ })
+    fireEvent.mouseDown(option)
+    expect(picker).toHaveBeenCalledTimes(1)
+    fireEvent.click(screen.getByRole('button', { name: '添加附件' }))
+    fireEvent.keyDown(editor, { key: 'Escape' })
+    expect(screen.queryByRole('listbox', { name: '触发候选建议' })).toBeNull()
+    expect(editor.value).toBe('保留草稿')
+    fireEvent.click(screen.getByRole('button', { name: '添加附件' }))
+    expect(screen.getByRole('listbox', { name: '触发候选建议' })).toBeTruthy()
+    fireEvent.pointerDown(document.body)
+    expect(screen.queryByRole('listbox', { name: '触发候选建议' })).toBeNull()
+    expect(editor.value).toBe('保留草稿')
+    controller.dispose()
+  })
   it('keeps a reply reaction off the referenced root post', () => {
     const event = { ...reaction, tags: [['e', research.id], ['e', human.id, '', 'root']] }
     expect(reactionSummaries([event], research.id, 'u1')).toEqual([{ emoji: '👍', count: 1, mine: true }])
@@ -332,6 +420,21 @@ describe('shared room UI', () => {
     const file = new File(['x'], 'screen.png', { type: 'image/png' })
     fireEvent.paste(screen.getByRole('textbox', { name: '消息' }), { clipboardData: { files: [file] } })
     await waitFor(() => { expect(upload).toHaveBeenCalledWith(state.selection!.detail.id, file) })
+    controller.dispose()
+  })
+
+  it('keeps SVG uploads as generic files like the workspace composer', async () => {
+    const { controller, state, t } = setup([])
+    const upload = vi.spyOn(controller, 'uploadAttachment').mockResolvedValue({
+      attachmentId: 'svg', name: 'diagram.svg', mimeType: 'image/svg+xml', size: 6 })
+    const factory = vi.fn<PropsRenderFactories['renderFactorySlot']>(() => null)
+    render(<CollaborationRoom controller={controller} state={state} t={t} renderFactorySlot={factory} />)
+    const file = new File(['<svg/>'], 'diagram.svg', { type: 'image/svg+xml' })
+    fireEvent.change(document.querySelector('input[type="file"]')!, { target: { files: [file] } })
+    await waitFor(() => { expect(upload).toHaveBeenCalledWith(state.selection!.detail.id, file) })
+    expect(factory).toHaveBeenCalledWith('attachments.composer', expect.objectContaining({
+      attachments: [expect.objectContaining({ kind: 'file', file })],
+    }))
     controller.dispose()
   })
 

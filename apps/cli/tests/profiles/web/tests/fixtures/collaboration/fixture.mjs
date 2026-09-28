@@ -21,11 +21,28 @@ export function apply(ctx, config) {
     async *stream(options) {
       const userIndex = options.messages.findLastIndex(message => message.role === 'user' && message.source?.kind === 'user')
       const user = options.messages[userIndex]
-      const textInput = user?.content.filter(block => block.type === 'text').map(block => block.text).join('') ?? ''
+      const textInput = (user?.content.find(block => block.type === 'text')?.text ?? '').replace(/ \[attachment [^\n]*\]$/u, '')
+      const allTextInput = user?.content.filter(block => block.type === 'text').map(block => block.text).join('') ?? ''
+      const uploadRequest = textInput.endsWith('Fixture file delivery request.') || textInput.endsWith('Complete channels request.')
+      const uploadResults = options.messages.slice(userIndex).filter(message => message.role === 'tool')
+      if (uploadRequest && uploadResults.length === 0) {
+        const saved = /verbatim read-only copy saved at ("[^"\n]+")/u.exec(allTextInput)
+        if (saved === null) throw new Error('Native upload omitted its model-readable file path')
+        const callId = `fixture-upload-read-${user.source.rpcId}`
+        const args = JSON.stringify({ file_path: JSON.parse(saved[1]) })
+        yield { type: 'block-start', index: 0, blockType: 'tool-call' }
+        yield { type: 'tool-call-delta', index: 0, id: callId, name: 'read', argumentsDelta: args }
+        yield { type: 'block-end', index: 0, block: { type: 'tool-call', id: callId, name: 'read', arguments: args } }
+        yield { type: 'finish', reason: { kind: 'tool-calls' } }
+        return
+      }
+      if (uploadRequest && !JSON.stringify(uploadResults[0]).includes('Original ')) {
+        throw new Error('Employee file tool could not read the original room upload')
+      }
       if (textInput.endsWith('Fixture file delivery request.') && textInput.includes('call present with existing paths')) {
         const results = options.messages.slice(userIndex).filter(message => message.role === 'tool')
-        if (results.length < 2) {
-          const name = results.length === 0 ? 'write' : 'present'
+        if (results.length < 3) {
+          const name = results.length === 1 ? 'write' : 'present'
           const args = JSON.stringify(name === 'write'
             ? { file_path: 'room-report.txt', content: 'Shared fixture report.\n' }
             : { files: [{ path: 'room-report.txt', description: 'Shared room report' }] })
@@ -49,7 +66,7 @@ export function apply(ctx, config) {
         return
       }
       if ((textInput.endsWith('Complete channels request.') || textInput.endsWith('Colleague shared-room channels message.'))
-        && !options.messages.slice(userIndex).some(message => message.role === 'tool')) {
+        && options.messages.slice(userIndex).filter(message => message.role === 'tool').length < (uploadRequest ? 2 : 1)) {
         const sourceEventId = user.source.rpcId
         const callId = `fixture-post-${sourceEventId}`
         const args = JSON.stringify({ sourceEventId, content: 'Fixture threaded room post.', idempotencyKey: sourceEventId })

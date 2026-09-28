@@ -755,6 +755,9 @@ export class CollaborationService {
     if ((input.text.trim() === '' && (input.attachments?.length ?? 0) === 0) || input.text.length > 20_000) {
       throw new CollaborationError('invalid-text')
     }
+    if (row.teamDefinitionId !== undefined && (input.attachments?.length ?? 0) > 0) {
+      throw new CollaborationError('team-attachments-unavailable', 409)
+    }
     const attachments = await this.resolveAttachments(row, input)
     if (input.mentionedEmployeeIds?.some(id => !row.memberEmployeeIds.includes(id))) {
       throw new CollaborationError('employee-not-member', 404)

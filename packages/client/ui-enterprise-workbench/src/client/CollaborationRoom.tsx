@@ -4,10 +4,11 @@ import { createPortal } from 'react-dom'
 import type {} from '@deepseek-ai/dsh-client-ui-attachment/client'
 import type { DraftAttachmentId } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { PropsRenderFactories } from '@deepseek-ai/dsh-client-ui-slots'
+import { RoomAttachmentMenu } from './RoomAttachmentMenu.tsx'
 import { RoomPresentedFiles } from './RoomPresentedFiles.tsx'
 import { filesForRoomReply } from './room-presented-files.ts'
 import { channelThreadEvents, threadReplyItems } from './channel-threads.ts'
-import { ComposerCard, ComposerControlRow, ComposerSendButton, IconCloseOutlineRegular, IconLoadingOutlineRegular, IconReactionAddOutlineRegular, IconSearchOutlineRegular, IconUsersOutlineRegular, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
+import { ComposerCard, ComposerControlRow, ComposerSendButton, IconCloseOutlineRegular, IconPlusOutlineMedium, IconLoadingOutlineRegular, IconReactionAddOutlineRegular, IconSearchOutlineRegular, IconUsersOutlineRegular, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { CollaborationController, CollaborationState, RoomEvent, RoomPresentedFile } from './collaboration-store.ts'
 import type { CollaborationChoices } from './CollaborationNavigation.tsx'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-locale/client'
@@ -77,10 +78,23 @@ export function stripReplyBoilerplate(content: string): string {
   return stripped.trim() === '' ? content : stripped
 }
 
+interface AttachmentNotice { readonly id: string; readonly text: string }
+
+function attachmentFailureTag(event: RoomEvent): readonly string[] | undefined {
+  if (event.kind !== 41000 || event.author.kind !== 'service' || event.author.id !== 'attachment-admission') return undefined
+  const tag = event.tags.find(value => value[0] === 'dsh-attachment-error')
+  return tag?.length === 4 ? tag : undefined
+}
+
+function attachmentFailureSource(event: RoomEvent): string | undefined {
+  return event.tags.find(tag => tag[0] === 'e' && tag[3] !== 'root')?.[1]
+}
+
 function Entry({ event, reactions, self, avatarUrl, attachmentUrlFor, workflowDetails, working, threadReplies, presented,
   threadAvatarFor = () => undefined, onThread, onReaction, onInspect, renderFactorySlot, foldedPresented,
-  postLayout = false, onReply, t }: {
+  postLayout = false, onReply, attachmentNotices, t }: {
   readonly event: RoomEvent
+  readonly attachmentNotices?: readonly AttachmentNotice[] | undefined
   readonly postLayout?: boolean
   readonly onReply?: (() => void) | undefined
   readonly reactions: readonly ReactionSummary[]
@@ -206,6 +220,7 @@ function Entry({ event, reactions, self, avatarUrl, attachmentUrlFor, workflowDe
           <span className={css.fileName}>{file.name}</span>
           <span className={css.fileSize}>{humanSize(file.size)}</span>
         </a>))}</div>}
+      {attachmentNotices?.map(notice => <p key={notice.id} role="alert" className={css.error}>{notice.text}</p>)}
       {working !== undefined && working.length > 0 && <div className={css.workingChips}>{working.map(chip => (
         <span key={chip.employeeId} className={css.workingChip} aria-label={t('replying')}>
           {chip.avatarUrl !== undefined
@@ -290,6 +305,7 @@ function Composer({ state, controller, renderFactorySlot, t, threadRoot }: {
   const [draft, setDraft] = useState('')
   const [mentions, setMentions] = useState<string[]>([])
   const [peopleMentions, setPeopleMentions] = useState<string[]>([])
+  const [openAttachmentMenu, setOpenAttachmentMenu] = useState(false)
   const [openMentions, setOpenMentions] = useState(false)
   const [mentionQuery, setMentionQuery] = useState('')
   const [typedMention, setTypedMention] = useState(false)
@@ -308,7 +324,7 @@ function Composer({ state, controller, renderFactorySlot, t, threadRoot }: {
     for (const [id, url] of previews.current) if (!live.has(id)) { URL.revokeObjectURL(url); previews.current.delete(id) }
   }, [uploads])
   const detail = state.selection?.detail
-  useEffect(() => { setDraft(''); setMentions([]); setPeopleMentions([]); setUploads([]); setIntakeError(null) }, [detail?.id, threadRoot])
+  useEffect(() => { setDraft(''); setMentions([]); setPeopleMentions([]); setUploads([]); setIntakeError(null); setOpenAttachmentMenu(false) }, [detail?.id, threadRoot])
   useEffect(() => {
     if (!openMentions) return
     const onPointer = (event: MouseEvent): void => { if (!mentionWrap.current?.contains(event.target as Node)) setOpenMentions(false) }
@@ -338,7 +354,7 @@ function Composer({ state, controller, renderFactorySlot, t, threadRoot }: {
   // partial name after it; the button opens the same menu unfiltered.
   const refreshMentionQuery = (text: string, caret: number | null): void => {
     const match = /(?:^|\s)@([^\s@]*)$/.exec(text.slice(0, caret ?? text.length))
-    if (match !== null) { setMentionQuery(match[1] ?? ''); setTypedMention(true); setOpenMentions(true) }
+    if (match !== null) { setOpenAttachmentMenu(false); setMentionQuery(match[1] ?? ''); setTypedMention(true); setOpenMentions(true) }
     else if (typedMention) { setOpenMentions(false); setTypedMention(false) }
   }
   const insertMention = (name: string): void => {
@@ -385,7 +401,7 @@ function Composer({ state, controller, renderFactorySlot, t, threadRoot }: {
     setIntakeError(null)
     for (const file of files) {
       const key = `room-file-${uploadSequence.current++}` as DraftAttachmentId
-      const previewUrl = file.type.startsWith('image/') ? URL.createObjectURL(file) : undefined
+      const previewUrl = ['image/png', 'image/jpeg', 'image/webp', 'image/gif'].includes(file.type) ? URL.createObjectURL(file) : undefined
       if (previewUrl !== undefined) previews.current.set(key, previewUrl)
       const upload: PendingUpload = { key, file, status: 'uploading', ...(previewUrl === undefined ? {} : { previewUrl }) }
       setUploads(current => [...current, upload])
@@ -393,8 +409,15 @@ function Composer({ state, controller, renderFactorySlot, t, threadRoot }: {
     }
     if (fileInput.current !== null) fileInput.current.value = ''
   }
-  return <form ref={dropTarget} className={css.composer} onSubmit={(event) => { void send(event) }}>
+  const openFilePicker = (): void => { setOpenAttachmentMenu(false); fileInput.current?.click() }
+  return <form ref={dropTarget} className={css.composer} onKeyDownCapture={(event) => {
+    if (!openAttachmentMenu) return
+    if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); setOpenAttachmentMenu(false); input.current?.focus() }
+    else if (event.key === 'Enter' && !event.nativeEvent.isComposing) { event.preventDefault(); event.stopPropagation(); openFilePicker() }
+  }} onSubmit={(event) => { void send(event) }}>
     <ComposerCard>
+      <RoomAttachmentMenu open={openAttachmentMenu} fileLabel={t('attachFile')} sectionLabel={t('attachMenuTitle')}
+        onPick={openFilePicker} onDismiss={() => { setOpenAttachmentMenu(false) }} renderFactorySlot={renderFactorySlot} />
       {(mentions.length > 0 || peopleMentions.length > 0) && <div className={css.mentionChips}>{mentions.map((id) => {
         const member = detail.members.find(item => item.employeeId === id)
         return <button key={`employee:${id}`} type="button" onClick={() => { setMentions(mentions.filter(value => value !== id)) }} aria-label={`${t('removeMention')} ${member?.displayName ?? id}`}>@{member?.displayName ?? id} ×</button>
@@ -427,8 +450,11 @@ function Composer({ state, controller, renderFactorySlot, t, threadRoot }: {
         <input ref={fileInput} type="file" multiple hidden
           onChange={(event) => { pickFiles(Array.from(event.target.files ?? [])) }}/>
         <button type="button" className={css.attach} aria-label={t('attach')} title={t('attach')}
-          disabled={sending} onClick={() => { fileInput.current?.click() }}>＋</button>
-        <div ref={mentionWrap} className={css.mentionWrap}><button type="button" aria-expanded={openMentions} onClick={() => { setTypedMention(false); setMentionQuery(''); setOpenMentions(!openMentions) }}>{t('mentionMember')}</button>
+          aria-haspopup="listbox" aria-expanded={openAttachmentMenu} disabled={sending}
+          onMouseDown={(event) => { event.preventDefault() }}
+          onClick={() => { setOpenMentions(false); setOpenAttachmentMenu(!openAttachmentMenu); input.current?.focus() }}>
+          <IconPlusOutlineMedium size={14} /></button>
+        <div ref={mentionWrap} className={css.mentionWrap}><button type="button" aria-expanded={openMentions} onClick={() => { setOpenAttachmentMenu(false); setTypedMention(false); setMentionQuery(''); setOpenMentions(!openMentions) }}>{t('mentionMember')}</button>
           {openMentions && <div className={css.mentionMenu}>
             {allMatches && <div role="group" aria-label={t('mentionAll')}>
               <label className={css.menuAll}><input type="checkbox" checked={allSelected}
@@ -533,7 +559,8 @@ export function CollaborationRoom({ state, controller, loadChoices, renderFactor
     const node = scroll.current
     if (node !== null && atBottom.current && scrollBeforePrepend.current === undefined) node.scrollTop = node.scrollHeight
   }, [state.events.at(-1)?.sequence])
-  const timeline = useMemo(() => state.events.filter(event => event.kind !== 7), [state.events])
+  const timeline = useMemo(() => state.events.filter(event => event.kind !== 7
+    && attachmentFailureTag(event) === undefined), [state.events])
   const selected = state.selection
   // Same seed resolution as the workbench roster cards: profile seed, else the
   // employee id, so every digital employee shows the roster face, never a text
@@ -569,12 +596,16 @@ export function CollaborationRoom({ state, controller, loadChoices, renderFactor
       : filesForRoomReply([...state.events, ...state.threadEvents, ...state.searchResults,
         ...(state.threadRootEvent === undefined ? [] : [state.threadRootEvent])], event, files)
   }
+  const admissionFailures = useMemo(() => [...new Map([...state.events, ...state.threadEvents]
+    .filter(event => attachmentFailureTag(event) !== undefined).map(event => [event.id, event])).values()],
+  [state.events, state.threadEvents])
   const visibleThreadReplies = useMemo(() => {
     const thread = selected?.threadRoot
     if (thread === undefined || selected === null) return []
     const fetched = new Set(state.threadEvents.map(event => event.id))
     const records = channelThreadEvents([...state.events, ...state.threadEvents], selected.detail)
     const unique = new Map(records.filter(event => event.id !== thread
+      && attachmentFailureTag(event) === undefined
       && (event.threadRoot === thread || fetched.has(event.id))).map(event => [event.id, event]))
     return [...unique.values()].sort((left, right) => BigInt(left.sequence) < BigInt(right.sequence) ? -1 : 1)
   }, [selected?.threadRoot, selected?.detail, state.events, state.threadEvents])
@@ -674,6 +705,8 @@ export function CollaborationRoom({ state, controller, loadChoices, renderFactor
         const targets = event.tags.filter(tag => tag[0] === 'dsh-target' && tag[1] !== undefined)
           .map(tag => tag[1] as string)
         const active = targets.filter((id) => {
+          if (admissionFailures.some(failure => attachmentFailureSource(failure) === event.id
+            && attachmentFailureTag(failure)?.[2] === 'employee' && attachmentFailureTag(failure)?.[3] === id)) return false
           const answered = answeredSeq.get(id)
           return answered === undefined || BigInt(answered) < BigInt(event.sequence)
         })
@@ -689,13 +722,27 @@ export function CollaborationRoom({ state, controller, loadChoices, renderFactor
     }
     flushOrphans()
     return items
-  }, [channelTimeline, avatars, selected?.detail.kind, selected?.detail.members])
+  }, [channelTimeline, avatars, selected?.detail.kind, selected?.detail.members, admissionFailures])
   if (selected === null) return <main className={css.room}><div className={css.center}>
     {state.roomPhase === 'loading' ? <IconLoadingOutlineRegular size={20}/> : t(state.error === 'forbidden' ? 'forbidden' : state.roomPhase === 'error' ? 'loadError' : 'noSelection')}
   </div></main>
   const detail = selected.detail
   const avatarFor = (event: RoomEvent): string | undefined => event.author.kind === 'employee' ? avatars.get(event.author.id) : undefined
   const attachmentUrlFor = (attachmentId: string): string => controller.attachmentUrl(detail.id, attachmentId)
+
+  const noticeFor = (event: RoomEvent): AttachmentNotice => {
+    const tag = attachmentFailureTag(event)
+    const name = detail.members.find(member => member.employeeId === tag?.[3])?.displayName ?? t('attachmentRecipient')
+    return { id: event.id, text: t(tag?.[1] === 'model-does-not-support-images' ? 'attachmentModelUnsupported' : 'attachmentRejected', { name }) }
+  }
+  const noticesFor = (sourceId: string): readonly AttachmentNotice[] => admissionFailures
+    .filter(event => attachmentFailureSource(event) === sourceId).map(noticeFor)
+  const displayedIds = new Set(displayItems.map(item => item.event.id))
+  if (selected.threadRoot !== undefined) {
+    displayedIds.add(selected.threadRoot)
+    for (const event of visibleThreadReplies) if (event.kind === 9) displayedIds.add(event.id)
+  }
+  const detachedFailures = admissionFailures.filter(event => !displayedIds.has(attachmentFailureSource(event) ?? ''))
 
   const isSelf = (event: RoomEvent): boolean => event.author.kind === 'human' && event.author.id === detail.viewerUserId
   const threadRoot = selected.threadRoot
@@ -751,7 +798,7 @@ export function CollaborationRoom({ state, controller, loadChoices, renderFactor
                 return reply.sourceSessionId === undefined || files === undefined || files.length === 0 ? []
                   : [{ id: reply.id, sessionId: reply.sourceSessionId, files }]
               })
-              return <Entry postLayout={detail.kind === 'channel'} renderFactorySlot={renderFactorySlot} key={item.event.id} event={item.event}
+              return <Entry postLayout={detail.kind === 'channel'} renderFactorySlot={renderFactorySlot} key={item.event.id} event={item.event} attachmentNotices={noticesFor(item.event.id)}
                 foldedPresented={foldedPresented}
                 onReply={detail.kind === 'channel' && item.event.kind === 9 ? () => { void controller.openThread(item.event.threadRoot ?? item.event.id) } : undefined}
                 reactions={reactionSummaries(state.events, item.event.id, detail.viewerUserId)}
@@ -771,7 +818,9 @@ export function CollaborationRoom({ state, controller, loadChoices, renderFactor
           && event.threadRoot === undefined) && <ExecutionFacts
           events={channelTimeline.filter(event => event.kind !== 9 && event.kind !== 7 && event.threadRoot === undefined)}
           onInspect={(id) => { void controller.inspect(id) }} t={t}/>}
-        {state.error !== null && <p className={css.error} role="alert">{t(state.error === 'forbidden' ? 'forbidden' : 'requestFailed')}</p>}
+        {detachedFailures.map((event) => { const notice = noticeFor(event); return <p key={notice.id} role="alert" className={css.error}>{notice.text}</p> })}
+        {state.error !== null && <p className={css.error} role="alert">{t(state.error === 'team-attachments-unavailable' ? 'teamAttachmentsUnavailable'
+          : state.error === 'forbidden' ? 'forbidden' : 'requestFailed')}</p>}
         <Composer state={state} controller={controller} renderFactorySlot={renderFactorySlot} t={t}/>
       </div>
       {(showDetails || threadRoot !== undefined) && <aside className={`${css.side} ${detail.kind === 'channel' && threadRoot !== undefined ? css.threadPane : ''}`} aria-label={t(threadRoot === undefined ? 'roomDetails' : 'roomThread')} onKeyDown={(event) => {
@@ -797,7 +846,7 @@ export function CollaborationRoom({ state, controller, loadChoices, renderFactor
             {root !== undefined && <div className={css.threadRootPost}>
               <Entry postLayout={detail.kind === 'channel'} renderFactorySlot={renderFactorySlot} presented={presentedFor(root)}
                 event={root} reactions={reactionSummaries(state.events, root.id, detail.viewerUserId)} self={isSelf(root)}
-                avatarUrl={avatarFor(root)} attachmentUrlFor={attachmentUrlFor} onThread={() => {}}
+                avatarUrl={avatarFor(root)} attachmentUrlFor={attachmentUrlFor} attachmentNotices={noticesFor(root.id)} onThread={() => {}}
                 onReaction={(id, emoji) => { void controller.react(id, emoji) }} onInspect={(id) => { void controller.inspect(id) }} t={t}/>
             </div>}
             {state.threadOlderCursor != null && <button type="button" className={css.more} disabled={state.threadLoadingOlder}
@@ -824,7 +873,7 @@ export function CollaborationRoom({ state, controller, loadChoices, renderFactor
               })
               return <Entry postLayout={detail.kind === 'channel'} renderFactorySlot={renderFactorySlot}
                 presented={presentedFor(item.event)} foldedPresented={folded} workflowDetails={item.details}
-                key={item.event.id} event={item.event}
+                key={item.event.id} event={item.event} attachmentNotices={noticesFor(item.event.id)}
                 reactions={reactionSummaries(visibleThreadReplies, item.event.id, detail.viewerUserId)}
                 self={isSelf(item.event)} avatarUrl={avatarFor(item.event)} attachmentUrlFor={attachmentUrlFor}
                 onThread={() => {}} onReaction={(id, emoji) => { void controller.react(id, emoji) }}

@@ -20,6 +20,7 @@ import { projectId } from '@deepseek-ai/dsh-enterprise-project'
 import { RoomEventConflictError, type CollaborationRecord, type CollaborationSession,
   type RoomDispatchClaim, type RoomEvent } from '@deepseek-ai/dsh-enterprise-postgres'
 import { CollaborationService, CollaborationError, type CollaborationMessageInput } from './collaboration-service.ts'
+import { admitRoomPrompt, roomAttachmentFailureCode } from './collaboration-room-attachments.ts'
 import { findCollaborationRequest } from './collaboration-receipt.ts'
 import { CollaborationHttpHandler } from './collaboration-http.ts'
 import { CollaborationIdentity } from './collaboration-identity.ts'
@@ -188,7 +189,8 @@ export function composeCollaboration(ctx: Context, services: {
     },
     service: async (orgId, serviceId, roomId) => {
       const row = await store.get(orgId, roomId)
-      return serviceId === 'team' && row?.teamDefinitionId !== undefined
+      return (serviceId === 'attachment-admission' && row !== undefined)
+        || (serviceId === 'team' && row?.teamDefinitionId !== undefined)
     },
   })
   const scoped = <T>(actor: EnterprisePrincipal,
@@ -221,7 +223,11 @@ export function composeCollaboration(ctx: Context, services: {
     const rpcId = brandString<SessionRequestId>(input.messageId ?? randomUUID())
     const landed = () => hasSessionPromptRequest(agent, rpcId)
     if (landed()) return
-    const message = createUserMessage({ content: [{ type: 'text', text: input.text }], source: {
+    const admitted = roomAvailable && input.messageId !== undefined
+      ? await admitRoomPrompt(ctx, agent, actor, row, input.messageId, input.text,
+        attachmentId => service.attachment(actor, row.id, attachmentId))
+      : [{ type: 'text' as const, text: input.text }]
+    const message = createUserMessage({ content: admitted, source: {
       kind: 'user', rpcId, surfaceId: row.id, originActor: actor.userId,
       ...(input.topicId === undefined ? {} : { topicId: input.topicId }),
     } })
@@ -755,6 +761,25 @@ export function composeCollaboration(ctx: Context, services: {
       const receipt = await service.dispatchIngestPost(actor, row, event)
       return { outcome: receipt.delivered ? 'delivered' as const : 'skipped' as const, targets: [] }
     } catch (error) {
+      const attachmentFailure = roomAttachmentFailureCode(error)
+      if (attachmentFailure !== undefined && event.event.tags.some(tag => tag[0] === 'attachment')) {
+        const serviceId = 'attachment-admission'
+        const requestId = `attachment-failure:${claim.eventId}:${claim.targetKind}:${claim.targetId}`
+        if (await roomEvents.findByRequest(row.orgId, row.id, 'service', serviceId, requestId) === undefined) {
+          const threadRoot = row.kind === 'channel' ? event.threadRoot ?? event.event.id : undefined
+          const signed = await signer.signService({ orgId: row.orgId, serviceId }, row.id, {
+            type: 'workflow', content: `Attachment delivery failed for ${claim.targetId}: ${attachmentFailure}.`,
+            stepId: requestId, sourceEventId: event.event.id, createdAt: event.event.created_at,
+            attachmentFailure: { code: attachmentFailure, targetKind: claim.targetKind, targetId: claim.targetId },
+            ...(threadRoot === undefined ? {} : { threadRoot }),
+          })
+          await roomEvents.append({ orgId: row.orgId, surfaceId: row.id, event: signed,
+            authorKind: 'service', authorId: serviceId, requestId,
+            ...(threadRoot === undefined ? {} : { threadRoot }),
+          })
+        }
+        return { outcome: 'skipped' as const, targets: [] }
+      }
       if (error instanceof CollaborationError && (error.status === 403 || error.status === 404)) {
         return { outcome: 'skipped' as const, targets: [] }
       }

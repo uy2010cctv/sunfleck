@@ -3136,7 +3136,7 @@ export const inject = [
   'enterprisePostgres', 'enterpriseSecurity', 'enterpriseRequestContext', 'enterpriseCordis',
   'agentPresets', 'agents', 'sessions', 'sessionPersistence', 'sessionProjections',
   'loader', 'credentials', 'llm', 'sessionController', 'webServer',
-  'workspaceRegistry',
+  'workspaceRegistry', 'attachments',
 ]
 /** Deployment limits for shared-room model context and Bot handoffs. */
 export interface Config {

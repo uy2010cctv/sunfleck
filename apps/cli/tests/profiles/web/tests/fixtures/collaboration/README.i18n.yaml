@@ -3,5 +3,5 @@
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write apps/cli/tests/profiles/web/tests/fixtures/collaboration/README.md
 /collaboration-source-profile-fixture:
-  en: 3455af244dc4cfe8
-  zh: 3ee4bd38d6b92504
+  en: 7b74c30948b4bd91
+  zh: 33c34ce739357dab

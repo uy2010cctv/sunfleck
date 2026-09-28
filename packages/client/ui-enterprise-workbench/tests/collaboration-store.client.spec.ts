@@ -23,6 +23,15 @@ function controller(request: ReturnType<typeof fetcher>) {
 }
 
 describe('shared collaboration room', () => {
+  it('retains the explicit team attachment rejection for the composer notice', async () => {
+    const request = fetcher(Response.json(detail), Response.json({ items: [], nextCursor: null }),
+      Response.json({ error: 'team-attachments-unavailable' }, { status: 409 }))
+    const { value } = controller(request)
+    await value.select(surface.id)
+    expect(await value.send('文件', { attachments: [{ attachmentId: 'a', name: 'a.txt', mimeType: 'text/plain', size: 1 }] })).toBe(false)
+    expect(value.state.getSnapshot().error).toBe('team-attachments-unavailable')
+    value.dispose()
+  })
   it('keeps the authorized thread root when it is outside the loaded channel page', async () => {
     const request = fetcher(Response.json(detail), Response.json({ items: [], nextCursor: null }),
       Response.json({ items: [bot], root: human, nextCursor: bot.sequence }))

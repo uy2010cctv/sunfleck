@@ -236,7 +236,9 @@ function appendUnique(current: readonly RoomEvent[], incoming: readonly RoomEven
   return [...current, ...additions].sort((a, b) => a.sequence === b.sequence ? 0 : BigInt(a.sequence) < BigInt(b.sequence) ? -1 : 1)
 }
 class HttpFailure extends Error {
-  constructor(readonly status: number) { super(status === 401 || status === 403 ? 'forbidden' : status === 503 ? 'unavailable' : 'request-failed') }
+  constructor(readonly status: number, code?: 'team-attachments-unavailable') {
+    super(code ?? (status === 401 || status === 403 ? 'forbidden' : status === 503 ? 'unavailable' : 'request-failed'))
+  }
 }
 
 /** Controls the shared room timeline and preserves request identities across uncertain sends. */
@@ -296,7 +298,13 @@ export class CollaborationController {
       credentials: 'same-origin', signal,
       ...(body === undefined ? {} : { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }),
     })
-    if (!response.ok) throw new HttpFailure(response.status)
+    if (!response.ok) {
+      if (response.status === 409) {
+        const failure = record(await response.json())
+        if (failure['error'] === 'team-attachments-unavailable') throw new HttpFailure(response.status, failure['error'])
+      }
+      throw new HttpFailure(response.status)
+    }
     return response.json()
   }
   private cancelled(request: AbortController): boolean { return this.closed || request.signal.aborted }

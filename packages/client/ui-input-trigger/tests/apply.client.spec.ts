@@ -107,9 +107,11 @@ describe('apply', () => {
     const fiber = ctx.plugin({ inject: [...inject], apply })
     await fiber.await()
     expect(slots.entries('conversation.input.overlay')).toHaveLength(1)
+    expect(slots.snapshot('factory:input-trigger.menu')).toMatchObject([{ scope: 'root', name: 'input-trigger.menu' }])
 
     await fiber.dispose()
     expect(slots.entries('conversation.input.overlay')).toHaveLength(0)
+    expect(slots.snapshot('factory:input-trigger.menu')).toEqual([])
     expect(ctx.get('inputTriggers')).toBeUndefined()
   })
 })

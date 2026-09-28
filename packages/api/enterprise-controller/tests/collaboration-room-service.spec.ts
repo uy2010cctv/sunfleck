@@ -17,6 +17,7 @@ function fixture(record: CollaborationRecord = room,
   const read = new Map<string, string>()
   let permitted = true
   const service = new CollaborationService({
+    getAttachment: async () => ({ attachmentId: 'upload', name: 'notes.txt', mimeType: 'text/plain', size: 1, data: Buffer.from('x') }),
     get: async () => record, sessions: async () => sessions,
     list: async (_orgId: string, userId: string) => record.memberUserIds.includes(userId) ? [record] : [],
     bySession: async (id: string) => sessions.find(value => value.sessionId === id),
@@ -83,6 +84,16 @@ function fixture(record: CollaborationRecord = room,
   })
   return { service, events, routes, prompts, revoke: () => { permitted = false } }
 }
+
+describe('charter room attachment admission', () => {
+  it('rejects attachments before committing a signed charter post', async () => {
+    const app = fixture({ ...room, teamDefinitionId: 'team' })
+    await expect(app.service.message(alice, 'group', { text: 'read the upload', messageId: 'request',
+      attachments: [{ attachmentId: 'upload' }] })).rejects.toThrow('team-attachments-unavailable')
+    expect(app.events).toEqual([])
+    expect(app.prompts).toEqual([])
+  })
+})
 
 describe('one shared room timeline', () => {
   it('returns the authorized parent independently of a thread reply page', async () => {

@@ -7,3 +7,5 @@
 构建 Host 依赖、Client bundle 和 Web 前端后，执行 `DSH_TEST_POSTGRES_URL=postgresql://localhost/postgres pnpm exec vitest run apps/cli/tests/profiles/web/tests/collaboration-composition.integration.spec.ts`。未设置该环境变量时测试跳过。PostgreSQL 角色必须能创建和删除数据库，并能安装已有的 `vector` 扩展；主动执行测试时，权限不足会使测试失败。
 
 每次运行都会生成凭据、含独立 Session Schema 的唯一数据库、私有临时 Home 和 Workspace，并使用操作系统分配的回环端口。清理过程等待 WebSocket 和进程关闭，再只删除本次生成的数据库和临时目录。并行运行之间不共享夹具状态；不需要浏览器自动化或外部模型账号。
+
+群聊和频道上传文件（包括同事在频道线程中回复并提及另一员工的附件）转为原生文件引用；fixture 模型先用真实 `read` 工具读取其投影路径，再继续任务。组合测试检查原始存储字节与认证文件下载。损坏的 PNG 生成唯一签名拒绝记录，结束投递领取，并且不产生原生用户输入。

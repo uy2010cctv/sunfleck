@@ -9,6 +9,12 @@
   ],
   "references": [
     {
+      "path": "../../core/agent-default-model"
+    },
+    {
+      "path": "../../attachment/attachment"
+    },
+    {
       "path": "../../../vendor/cordis"
     },
     {

@@ -83,6 +83,20 @@ describe('custodial room signing identities', () => {
       .rejects.toThrow('room-event-reference-invalid')
   })
 
+  it('signs attachment rejection codes and targets without requesting Bot dispatch', async () => {
+    const signer = fixture().identity()
+    const source = await signer.signHuman(alice, 'room-1', { type: 'text', content: 'Inspect image' })
+    const failure = await signer.signService({ orgId: 'org-a', serviceId: 'git-webhook' }, 'room-1', {
+      type: 'workflow', content: 'Attachment rejected.', stepId: 'attachment-failure', sourceEventId: source.id,
+      threadRoot: source.id, attachmentFailure: { code: 'INVALID_IMAGE', targetKind: 'employee', targetId: 'research' },
+    })
+    expect(verifiedSignature(failure)).toBe(true)
+    expect(failure.tags).toContainEqual(['dsh-attachment-error', 'INVALID_IMAGE', 'employee', 'research'])
+    expect(failure.tags).toContainEqual(['e', source.id])
+    expect(failure.tags).toContainEqual(['e', source.id, '', 'root'])
+    expect(failure.tags.some(tag => tag[0] === 'dsh-target')).toBe(false)
+  })
+
   it('signs reactions with an event reference and rejects modified content', async () => {
     const { identity } = fixture()
     const signer = identity()

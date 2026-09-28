@@ -56,6 +56,8 @@ Channel Agent `room_post` responses retain the triggering post’s original thre
 
 Employee `tool/call` and `tool/result` events from room-triggered turns also produce signed room activity facts. In channels their signed root tags and stored thread parents match the triggering post’s original parent. These facts carry a bounded tool name, success or failure, and a native Session source cursor. Raw arguments, result content, and tool metadata remain only in the authorized native Session.
 
+Room uploads referenced by the exact triggering signed event become native file or image parts before the employee Session accepts the request. Admission rechecks current membership and matching stored metadata, stores files verbatim through the Workspace attachment provider, and applies its image validation and the selected model’s input modalities. Historical room-context attachment labels do not admit additional uploads. Invalid image input or an incompatible selected model produces one signed `attachment-admission` service fact with a `dsh-attachment-error` code, destination, and source event before settling dispatch; storage and transport failures remain retryable.
+
 Signed room routes carry their destinations into a PostgreSQL outbox in the same transaction as the event. Immediate delivery and restart recovery claim fenced leases, recheck current membership and Workspace access, and acknowledge only after the native Session has accepted the request. Workflow message triggers have a separate durable inbox; an unfinished trigger or committed approval is retried after restart. The channel detail view reads pending approval summaries and uses the approval's own CAS revision for Approve or Reject.
 
 The workflow trigger inbox captures the exact workflow revision when its signed room event commits, so replay never substitutes a later YAML edit. Workflow action and decision claims use fencing tokens. The dedicated GitHub route verifies the raw request and awaits the signed channel receipt before 202; a failed receipt returns 503 for provider retry. The saved approval verdict can resume under a currently authorized reviewer or, after reviewer revocation, under an authorized channel manager with a signed service attestation of the recorded decision.
@@ -78,6 +80,8 @@ Metadata operations add no model tokens. Each routed collaboration message enter
 None until a released employee starts an ordinary DSH Session.
 
 ## Known Limitations and Deferred Work
+
+Charter rooms reject attachment-bearing posts with `team-attachments-unavailable` before signing because TeamRun start and follow-up inputs accept text only. Ordinary employee rooms admit PNG, JPEG, WebP, and GIF as images; other media types, including SVG, remain verbatim files.
 
 - The first enterprise profile targets one organization and one PostgreSQL deployment.
 - Live enterprise invalidation events are not a substitute for reading the authoritative repository after reconnect.

@@ -39,6 +39,10 @@ declare module '@deepseek-ai/cordis' {
 }
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
+  interface SlotFactoryMap {
+    /** Workspace candidate menu with an owner-supplied store and pick actions. */
+    'input-trigger.menu': { scope: 'root'; props: MenuViewInjected; locale: 'slash.menu' }
+  }
   interface LocaleNamespaceMap {
     /** The candidate menu's copy: group titles keyed by source name, the pending row, and the listbox aria. */
     'slash.menu': MenuKey
@@ -60,6 +64,7 @@ export function apply(ctx: ClientContext): void {
   ctx.plugin(InputTriggerService)
   ctx.effect(() => ctx.locale.register(MENU_NS, { zh, en }), 'ui-input-trigger: menu dictionaries')
   ctx.inject(['slots', 'inputTriggers', 'sessions'], (scope: ClientContext) => {
+    scope.slots.registerFactory({ name: 'input-trigger.menu', scope: 'root', locale: MENU_NS }, MenuView)
     const inputTriggers = scope.inputTriggers
     const sessions = scope.sessions
     scope.slots.inject('conversation.input.overlay', () => scope.slots.register({

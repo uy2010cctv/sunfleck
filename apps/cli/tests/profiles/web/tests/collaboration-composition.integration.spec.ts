@@ -306,9 +306,15 @@ describe.skipIf(databaseUrl === undefined)('enterprise collaboration source Web 
             expect(await request(`/${id}/open`, {})).toMatchObject({ opened: false, reason: 'select-employee' })
             expect(await request(`/${id}/open`, { employeeId: 'fixture-assistant' })).toMatchObject({ opened: true })
           }
+          const attachmentBytes = Buffer.from(`Original ${kind} room upload.\n`)
+          const upload = await fetch(`${origin}/enterprise/surfaces/${id}/attachments?name=room-input.txt&type=text/plain`, {
+            method: 'POST', headers: { cookie, origin }, body: attachmentBytes, signal: test.signal,
+          })
+          expect(upload.status).toBe(201)
+          const attachment = record(await upload.json())
           const messageId = randomUUID()
           const message = { text: kind === 'groups' ? 'Fixture file delivery request.' : `Complete ${kind} request.`,
-            messageId, mentionedEmployeeIds: ['fixture-assistant'] }
+            messageId, mentionedEmployeeIds: ['fixture-assistant'], attachments: [{ attachmentId: attachment['attachmentId'] }] }
           const sent = await request(`/${id}/messages`, message)
           expect(sent['delivered']).toBe(true)
           expect(await request(`/${id}/messages`, message)).toEqual(sent)
@@ -337,8 +343,32 @@ describe.skipIf(databaseUrl === undefined)('enterprise collaboration source Web 
           expect(record((await request(`/by-session/${sessionId}`))['detail'])['id']).toBe(id)
           const unauthorized = await fetch(`${origin}/enterprise/surfaces/by-session/${sessionId}`, { signal: test.signal })
           expect(unauthorized.status).toBe(401)
-          const stream = await follow(origin, cookie, sessionId, test.signal)
+          const stream = await follow(origin, cookie, sessionId,
+            AbortSignal.any([test.signal, AbortSignal.timeout(15000)])).catch((error: unknown) => {
+            throw new Error(app!.diagnostics(), { cause: error })
+          })
           expect(stream).toContain(message.text)
+          const nativeInput = await database.query<{ data: { content: readonly Record<string, unknown>[] } }>(
+            "SELECT event_json::jsonb->'data' AS data FROM session_v4.dsh_session_events WHERE session_id=$1 AND event_type='user/message' AND event_json::jsonb->'data'->'source'->>'rpcId'=$2",
+            [sessionId, record(sent['event'])['id']])
+          expect(nativeInput.rows).toHaveLength(1)
+          const files = nativeInput.rows[0]!.data.content.filter(part => part['type'] === 'file')
+          expect(files).toHaveLength(1)
+          const fileRef = record(files[0]!['attachment'])
+          expect(fileRef).toMatchObject({ name: 'room-input.txt', bytes: attachmentBytes.length })
+          const digest = string(fileRef['attachmentId']).replace('sha256:', '')
+          const storedPath = join(root, 'home', 'attachments', 'v1', 'files', digest.slice(0, 2), digest, 'room-input.txt')
+          expect(await readFile(storedPath)).toEqual(attachmentBytes)
+          const download = await fetch(`${origin}/api/file?path=${encodeURIComponent(storedPath)}`, {
+            headers: { cookie }, signal: test.signal,
+          })
+          expect(download.status).toBe(200)
+          expect(Buffer.from(await download.arrayBuffer())).toEqual(attachmentBytes)
+          const readResult = await database.query<{ data: unknown }>(
+            "SELECT event_json::jsonb->'data' AS data FROM session_v4.dsh_session_events WHERE session_id=$1 AND event_type='tool/result' AND event_json::jsonb->'data'->'message'->>'toolCallId'=$2",
+            [sessionId, `fixture-upload-read-${string(record(sent['event'])['id'])}`])
+          expect(readResult.rows).toHaveLength(1)
+          expect(JSON.stringify(readResult.rows[0]!.data)).toContain(attachmentBytes.toString('utf8').trim())
           const values = projections(stream)
           expect(values['agentPreset']).toBe('standard')
           const pinned = record(values['enterpriseEmployeeRelease'])
@@ -351,7 +381,7 @@ describe.skipIf(databaseUrl === undefined)('enterprise collaboration source Web 
             const delivery = await database.query<{ data: { files: readonly { path: string }[] } }>(
               "SELECT event_json::jsonb->'data' AS data FROM session_v4.dsh_session_events WHERE session_id=$1 AND event_type='deliverables/presented' ORDER BY seq",
               [sessionId])
-            expect(delivery.rows).toHaveLength(1)
+            expect(delivery.rows, app.diagnostics()).toHaveLength(1)
             expect(delivery.rows[0]?.data.files).toEqual([{ path: 'room-report.txt', description: 'Shared room report' }])
             expect(await readFile(join(root, 'workspace', 'room-report.txt'), 'utf8')).toBe('Shared fixture report.\n')
             expect(stream).toContain('call present with existing paths')
@@ -381,9 +411,10 @@ describe.skipIf(databaseUrl === undefined)('enterprise collaboration source Web 
           }
           const rootEvent = record(sent['event'])
           assertSignature(rootEvent)
-          const colleagueMessage = { text: `Colleague shared-room ${kind} message.`, messageId: randomUUID(),
+          const colleagueMessage = { text: kind === 'channels' ? 'Complete channels request.' : `Colleague shared-room ${kind} message.`,
+            messageId: randomUUID(),
             mentionedEmployeeIds: ['fixture-reviewer'],
-            ...(kind === 'channels' ? { threadRoot: rootEvent['id'] } : {}),
+            ...(kind === 'channels' ? { threadRoot: rootEvent['id'], attachments: [{ attachmentId: attachment['attachmentId'] }] } : {}),
           }
           const colleagueReceipt = await request(`/${id}/messages`, colleagueMessage, colleagueCookie)
           expect(await request(`/${id}/messages`, colleagueMessage, colleagueCookie)).toEqual(colleagueReceipt)
@@ -400,6 +431,27 @@ describe.skipIf(databaseUrl === undefined)('enterprise collaboration source Web 
               return events.filter(event => record(event['author'])['kind'] === 'employee'
                 && event['content'] === 'Collaboration fixture completed the request.').length
             }, { timeout: test.task.timeout, message: app.diagnostics() }).toBe(2)
+            const reviewerBinding = await database.query<{ session_id: string; topic_id: string }>(
+              'SELECT session_id,topic_id FROM dsh_enterprise_collaboration_sessions WHERE surface_id=$1 AND employee_id=$2',
+              [id, 'fixture-reviewer'])
+            expect(reviewerBinding.rows).toHaveLength(1)
+            expect(reviewerBinding.rows[0]!.topic_id).toBe(rootEvent['id'])
+            const reviewerSessionId = reviewerBinding.rows[0]!.session_id
+            const replyInput = await database.query<{ data: { content: readonly Record<string, unknown>[]; source: unknown } }>(
+              "SELECT event_json::jsonb->'data' AS data FROM session_v4.dsh_session_events WHERE session_id=$1 AND event_type='user/message' AND event_json::jsonb->'data'->'source'->>'rpcId'=$2",
+              [reviewerSessionId, colleagueEvent['id']])
+            expect(replyInput.rows).toHaveLength(1)
+            expect(replyInput.rows[0]!.data.source).toMatchObject({ surfaceId: id,
+              originActor: 'fixture-colleague', topicId: rootEvent['id'] })
+            const replyFiles = replyInput.rows[0]!.data.content.filter(part => part['type'] === 'file')
+            expect(replyFiles).toHaveLength(1)
+            expect(replyFiles[0]!['attachment']).toEqual(fileRef)
+            expect(await readFile(storedPath)).toEqual(attachmentBytes)
+            const replyRead = await database.query<{ data: unknown }>(
+              "SELECT event_json::jsonb->'data' AS data FROM session_v4.dsh_session_events WHERE session_id=$1 AND event_type='tool/result' AND event_json::jsonb->'data'->'message'->>'toolCallId'=$2",
+              [reviewerSessionId, `fixture-upload-read-${string(colleagueEvent['id'])}`])
+            expect(replyRead.rows).toHaveLength(1)
+            expect(JSON.stringify(replyRead.rows[0]!.data)).toContain(attachmentBytes.toString('utf8').trim())
           }
           const page = items(await request(`/${id}/events`))
           for (const event of page) { assertSignature(event); expect(event['tags']).toContainEqual(['h', id]) }
@@ -620,6 +672,35 @@ describe.skipIf(databaseUrl === undefined)('enterprise collaboration source Web 
               record(event['author'])['id'] === 'fixture-reviewer'
               && BigInt(string(event['sequence'])) > BigInt(string(handoff['sequence']))),
             { timeout: test.task.timeout }).toBe(true)
+          }
+          if (kind === 'groups') {
+            const invalidUpload = await fetch(`${origin}/enterprise/surfaces/${id}/attachments?name=broken.png&type=image/png`, {
+              method: 'POST', headers: { cookie, origin }, body: Buffer.from('not a PNG'), signal: test.signal,
+            })
+            expect(invalidUpload.status).toBe(201)
+            const invalidAttachment = record(await invalidUpload.json())
+            const invalidSent = await request(`/${id}/messages`, { text: 'Inspect this malformed image.', messageId: randomUUID(),
+              mentionedEmployeeIds: ['fixture-assistant'], attachments: [{ attachmentId: invalidAttachment['attachmentId'] }] })
+            const invalidEventId = string(record(invalidSent['event'])['id'])
+            await expect.poll(async () => items(await request(`/${id}/events`)).some(event =>
+              string(event['content']).startsWith('Attachment delivery failed for fixture-assistant:')
+              && Array.isArray(event['tags']) && JSON.stringify(event['tags']).includes(invalidEventId)),
+            { timeout: 8000, message: app.diagnostics() }).toBe(true)
+            const failure = items(await request(`/${id}/events`)).filter(event =>
+              string(event['content']).startsWith('Attachment delivery failed for fixture-assistant:')
+              && JSON.stringify(event['tags']).includes(invalidEventId))
+            expect(failure).toHaveLength(1)
+            expect(record(failure[0]!['author'])).toMatchObject({ kind: 'service', id: 'attachment-admission' })
+            assertSignature(failure[0]!)
+            expect(failure[0]!['tags']).toContainEqual(['dsh-attachment-error', 'INVALID_IMAGE', 'employee', 'fixture-assistant'])
+            const settled = await database.query<{ state: string }>(
+              'SELECT state FROM dsh_enterprise_collaboration_dispatch WHERE surface_id=$1 AND event_id=$2 AND target_id=$3',
+              [id, invalidEventId, 'fixture-assistant'])
+            expect(settled.rows).toEqual([{ state: 'completed' }])
+            const rejectedInput = await database.query<{ count: string }>(
+              "SELECT count(*) FROM session_v4.dsh_session_events WHERE event_type='user/message' AND event_json::jsonb->'data'->'source'->>'rpcId'=$1",
+              [invalidEventId])
+            expect(rejectedInput.rows).toEqual([{ count: '0' }])
           }
           const store = database
           await expect.poll(async () => {
