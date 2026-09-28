@@ -143,3 +143,29 @@
 @media (prefers-reduced-motion: reduce) { .center svg { animation: none; } .typingDots i { animation: none; opacity: .7; } }
 
 .uploads { display: flex; flex-wrap: wrap; gap: 8px; padding: 0 16px; }
+
+/* Channel posts retain one reading direction for human and employee authors. */
+.channel { container: channel-room / inline-size; }
+.entryPost { align-items: flex-start; padding: 18px 6px; border-radius: 0; border-bottom: 1px solid var(--dsw-alias-border-l1); }
+.entryPost .entryBody { display: block; min-width: 0; text-align: start; }
+.entryPost .author { overflow-wrap: anywhere; }
+.entryPost .eventFooter { min-height: 28px; }
+.postReactions { display: flex; margin: 8px 0 4px; min-height: 28px; }
+.entryPost .reactionRow button { min-height: 28px; padding-inline: 7px; }
+.channel .threadChip { min-height: 32px; flex-wrap: wrap; margin-top: 6px; }
+.threadPane { flex: 0 0 48%; width: 48%; min-width: 320px; max-width: 680px; }
+.threadPane .entryPost { border-bottom: 0; padding-block: 10px; }
+.threadRootPost { border-bottom: 1px solid var(--dsw-alias-border-l1); margin-bottom: 16px; padding-bottom: 8px; }
+.threadReplyHeading { margin: 0 6px 6px; font-size: 12px; font-weight: 500; color: var(--dsw-alias-label-secondary); }
+.emptyThread { margin: 12px 6px; color: var(--dsw-alias-label-secondary); font-size: 13px; }
+@media (max-width: 780px) { .threadPane { position: static; inset: auto; box-shadow: none; width: 48%; } }
+@container channel-room (max-width: 760px) {
+  .layout:has(> .threadPane) > .primary { display: none; }
+  .threadPane { flex: 1; width: 100%; min-width: 0; max-width: none; border-left: 0; }
+}
+
+.historyError { margin: 10px 6px; font-size: 13px; color: var(--dsw-alias-state-error-primary); }
+.historyError button { margin-inline-start: 8px; }
+.channelExecution { max-height: min(30vh, 200px); overflow: auto; flex: none; margin: 6px 20px; color: var(--dsw-alias-label-secondary); font-size: 12px; }
+.channelExecution li { padding-block: 6px; }
+.channelExecution button { margin-inline-start: 8px; }

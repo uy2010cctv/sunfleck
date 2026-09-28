@@ -5,6 +5,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-attachment/client'
 import type { PropsRenderFactories } from '@deepseek-ai/dsh-client-ui-slots'
 import { RoomPresentedFiles } from './RoomPresentedFiles.tsx'
 import { filesForRoomReply } from './room-presented-files.ts'
+import { channelThreadEvents, threadReplyItems } from './channel-threads.ts'
 import { ComposerCard, ComposerControlRow, ComposerSendButton, IconCloseOutlineRegular, IconLoadingOutlineRegular, IconReactionAddOutlineRegular, IconSearchOutlineRegular, IconUsersOutlineRegular, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { CollaborationController, CollaborationState, RoomEvent, RoomPresentedFile } from './collaboration-store.ts'
 import type { CollaborationChoices } from './CollaborationNavigation.tsx'
@@ -37,7 +38,9 @@ export function reactionSummaries(events: readonly RoomEvent[], targetId: string
   viewerId?: string): readonly ReactionSummary[] {
   const latest = new Map<string, string>()
   for (const event of events) {
-    if (event.kind !== 7 || !event.tags.some(tag => tag[0] === 'e' && tag[1] === targetId)) continue
+    if (event.kind !== 7) continue
+    const target = event.tags.findLast(tag => tag[0] === 'e' && tag[3] !== 'root')?.[1]
+    if (target !== targetId) continue
     latest.set(event.author.id, event.content)
   }
   const groups = new Map<string, { count: number; mine: boolean }>()
@@ -74,8 +77,11 @@ export function stripReplyBoilerplate(content: string): string {
 }
 
 function Entry({ event, reactions, self, avatarUrl, attachmentUrlFor, workflowDetails, working, threadReplies, presented,
-  threadAvatarFor = () => undefined, onThread, onReaction, onInspect, renderFactorySlot, foldedPresented, t }: {
+  threadAvatarFor = () => undefined, onThread, onReaction, onInspect, renderFactorySlot, foldedPresented,
+  postLayout = false, onReply, t }: {
   readonly event: RoomEvent
+  readonly postLayout?: boolean
+  readonly onReply?: (() => void) | undefined
   readonly reactions: readonly ReactionSummary[]
   readonly self: boolean
   readonly avatarUrl: string | undefined
@@ -133,7 +139,7 @@ function Entry({ event, reactions, self, avatarUrl, attachmentUrlFor, workflowDe
     if (!pickerOpen) return
     const node = pickerRef.current
     const float = floatRef.current
-    const close = (): void => setPickerOpen(false)
+    const close = (): void => { setPickerOpen(false) }
     const onKey = (press: { key: string }): void => { if (press.key === 'Escape') setPickerOpen(false) }
     const onPointer = (down: Event): void => {
       const target = down.target
@@ -158,30 +164,31 @@ function Entry({ event, reactions, self, avatarUrl, attachmentUrlFor, workflowDe
   const workflow = event.kind !== 9
   const workflowStatus = event.tags.find(tag => tag[0] === 'status')?.[1]
   const time = new Date(event.created_at * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-  return <article className={`${css.entry} ${self ? css.entrySelf : ''} ${workflow ? css.workflow : ''}`} data-event-id={event.id}>
+  const reactionControls = event.kind === 9 ? <span className={`${css.reactionRow} ${postLayout ? css.postReactions : ''}`}>
+    {reactions.map(reaction => <button type="button" key={reaction.emoji} aria-label={`${reaction.emoji} ${reaction.count}`}
+      className={reaction.mine ? css.reactionMine : undefined}
+      onClick={() => { if (!reaction.mine) onReaction(event.id, reaction.emoji) }}>{reaction.emoji}{reaction.count > 1 ? ` ${reaction.count}` : ''}</button>)}
+    <span className={css.reactionWrap}>
+      <button type="button" aria-label={t('reactTo')} aria-expanded={pickerOpen}
+        ref={addReactionRef}
+        className={`${css.reactionAdd} ${mine === undefined ? css.reactionGhost : ''}`}
+        onClick={() => { if (pickerOpen) setPickerOpen(false); else openReactionPicker() }}>
+        {mine === undefined ? <IconReactionAddOutlineRegular size={14}/> : mine.emoji}</button>
+      {pickerOpen && createPortal(
+        <div ref={floatRef} className={css.emojiFloat}
+          style={pickerAnchor === undefined ? undefined : { top: pickerAnchor.top, left: pickerAnchor.left }}>
+          <emoji-picker ref={pickerRef} class={css.emojiPickerFloat}/>
+        </div>, document.body)}
+    </span>
+  </span> : null
+  return <article data-channel-post={postLayout || undefined} className={`${css.entry} ${postLayout ? css.entryPost : self ? css.entrySelf : ''} ${workflow ? css.workflow : ''}`} data-event-id={event.id}>
     {avatarUrl !== undefined
       ? <img className={`${css.avatar} ${event.author.kind === 'employee' ? css.bot : ''}`} src={avatarUrl}
         alt={event.author.displayName} loading="lazy" referrerPolicy="no-referrer"/>
       : <span className={`${css.avatar} ${event.author.kind === 'employee' ? css.bot : event.author.kind === 'service' ? css.service : ''}`} aria-hidden="true">{event.author.displayName.slice(0, 1)}</span>}
     <div className={css.entryBody}>
       <div className={css.meta}><span className={css.author}>{event.author.displayName}</span><span className={css.kind}>{t(event.author.kind === 'employee' ? 'botMember' : event.author.kind === 'service' ? 'serviceMember' : 'humanMember')}</span><time dateTime={new Date(event.created_at * 1000).toISOString()}>{time}</time>{workflow && <span className={css.kind}>{t('workflowEvent')}</span>}{workflowStatus !== undefined && <span className={css.kind}>{workflowStatus}</span>}
-        {event.kind === 9 && <span className={css.reactionRow}>
-          {reactions.map(reaction => <button type="button" key={reaction.emoji} aria-label={`${reaction.emoji} ${reaction.count}`}
-            className={reaction.mine ? css.reactionMine : undefined}
-            onClick={() => { if (!reaction.mine) onReaction(event.id, reaction.emoji) }}>{reaction.emoji}{reaction.count > 1 ? ` ${reaction.count}` : ''}</button>)}
-          <span className={css.reactionWrap}>
-            <button type="button" aria-label={t('reactTo')} aria-expanded={pickerOpen}
-              ref={addReactionRef}
-              className={`${css.reactionAdd} ${mine === undefined ? css.reactionGhost : ''}`}
-              onClick={() => { if (pickerOpen) setPickerOpen(false); else openReactionPicker() }}>
-              {mine === undefined ? <IconReactionAddOutlineRegular size={14}/> : mine.emoji}</button>
-            {pickerOpen && createPortal(
-              <div ref={floatRef} className={css.emojiFloat}
-                style={pickerAnchor === undefined ? undefined : { top: pickerAnchor.top, left: pickerAnchor.left }}>
-                <emoji-picker ref={pickerRef} class={css.emojiPickerFloat}/>
-              </div>, document.body)}
-          </span>
-        </span>}
+        {!postLayout && reactionControls}
       </div>
       {event.author.kind === 'employee'
         ? <div className={css.contentMarkdown}><MarkdownText text={stripReplyBoilerplate(event.content)} labels={markdownLabels}/></div>
@@ -212,10 +219,15 @@ function Entry({ event, reactions, self, avatarUrl, attachmentUrlFor, workflowDe
           <span className={css.detailMeta}>{detail.author.displayName} · {new Date(detail.created_at * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
           <span className={css.detailContent}>{detail.author.kind === 'employee' ? stripReplyBoilerplate(detail.content) : detail.content}</span>
         </li>)}</ul>
+        {postLayout && (() => {
+          const source = event.sourceSessionId ?? workflowDetails.find(detail => detail.sourceSessionId !== undefined)?.sourceSessionId
+          return source === undefined ? null : <button type="button" onClick={() => { onInspect(source) }}>{t('viewExecution')}</button>
+        })()}
       </details>}
+      {postLayout && reactionControls}
       {threadReplies !== undefined && threadReplies.length > 0 && (() => {
         const last = threadReplies[threadReplies.length - 1]
-        const stack = threadReplies.slice(-3).reverse()
+        const stack = [...new Map(threadReplies.map(reply => [`${reply.author.kind}:${reply.author.id}`, reply])).values()].slice(-3).reverse()
         if (last === undefined) return null
         return <button type="button" className={css.threadChip} onClick={() => { onThread(event.id) }}>
           <span className={css.threadStack}>{stack.map((reply) => {
@@ -225,15 +237,31 @@ function Entry({ event, reactions, self, avatarUrl, attachmentUrlFor, workflowDe
               : <img key={reply.id} className={css.threadAvatar} src={url} alt="" loading="lazy" referrerPolicy="no-referrer"/>
           })}</span>
           <span>{t('threadReplies', { count: threadReplies.length })}</span>
-          <span className={css.threadTime}>{new Date(last.created_at * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+          <span className={css.threadTime}>{t('lastReplyAt', { time: new Date(last.created_at * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) })}</span>
         </button>
       })()}
       {event.delivery === 'failed' && <p className={css.failure} role="status">{t('deliveryFailed')}</p>}
       <div className={css.eventFooter}>
-        {event.sourceSessionId !== undefined && <button type="button" onClick={() => { if (event.sourceSessionId !== undefined) onInspect(event.sourceSessionId) }}>{t('viewExecution')}</button>}
+        {onReply !== undefined && <button type="button" onClick={onReply}>{t('replyThread')}</button>}
+        {event.sourceSessionId !== undefined && !postLayout && <button type="button" onClick={() => { if (event.sourceSessionId !== undefined) onInspect(event.sourceSessionId) }}>{t('viewExecution')}</button>}
       </div>
     </div>
   </article>
+}
+
+/** Collapsed signed execution facts that do not constitute channel posts. */
+function ExecutionFacts({ events, onInspect, t }: {
+  readonly events: readonly RoomEvent[]
+  readonly onInspect: (sessionId: string) => void
+  readonly t: Copy
+}) {
+  return <details className={css.channelExecution}>
+    <summary>{t('workflowDetails')} · {events.length}</summary>
+    <ul>{events.map(event => <li key={event.id}><span>{event.author.displayName} · {event.content}</span>
+      {event.sourceSessionId !== undefined && <button type="button" onClick={() => {
+        if (event.sourceSessionId !== undefined) onInspect(event.sourceSessionId)
+      }}>{t('viewExecution')}</button>}</li>)}</ul>
+  </details>
 }
 
 /** One file being attached to the draft; uploads commit before the message referencing them. */
@@ -371,7 +399,8 @@ function Composer({ state, controller, renderFactorySlot, t, threadRoot }: {
       })}</div>}
       <textarea ref={input} value={draft}
         onChange={(event) => { setDraft(event.target.value); refreshMentionQuery(event.target.value, event.target.selectionStart) }}
-        onKeyDown={onKeyDown} placeholder={t(threadRoot === undefined ? 'roomPlaceholder' : 'threadPlaceholder')} aria-label={t('message')} disabled={sending} rows={2}/>
+        onKeyDown={onKeyDown} placeholder={threadRoot !== undefined ? t('threadPlaceholder')
+          : detail.kind === 'channel' ? t('channelPostPlaceholder', { name: detail.name }) : t('roomPlaceholder')} aria-label={t('message')} disabled={sending} rows={2}/>
       <ComposerControlRow className={css.composerActions}>
         <input ref={fileInput} type="file" multiple hidden
           onChange={(event) => { pickFiles(event.target.files) }}/>
@@ -424,6 +453,32 @@ export function CollaborationRoom({ state, controller, loadChoices, renderFactor
   const scroll = useRef<HTMLDivElement>(null)
   const scrollBeforePrepend = useRef<{ height: number; top: number }>()
   const atBottom = useRef(true)
+  const threadScroll = useRef<HTMLDivElement>(null)
+  const threadAtBottom = useRef(true)
+  const threadBeforePrepend = useRef<{ height: number; top: number }>()
+  const threadCloseButton = useRef<HTMLButtonElement>(null)
+  const threadOrigin = useRef<HTMLElement | null>(null)
+  const selectedThread = state.selection?.threadRoot
+  useEffect(() => {
+    if (selectedThread === undefined) {
+      if (threadOrigin.current?.isConnected) threadOrigin.current.focus({ preventScroll: true })
+      threadOrigin.current = null
+      return
+    }
+    threadOrigin.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    threadAtBottom.current = true
+    threadBeforePrepend.current = undefined
+    threadCloseButton.current?.focus({ preventScroll: true })
+  }, [selectedThread])
+  useLayoutEffect(() => {
+    const element = threadScroll.current
+    if (element === null) return
+    const before = threadBeforePrepend.current
+    if (before !== undefined) {
+      element.scrollTop = before.top + element.scrollHeight - before.height
+      threadBeforePrepend.current = undefined
+    } else if (threadAtBottom.current) element.scrollTop = element.scrollHeight
+  }, [selectedThread, state.threadEvents, state.threadPhase])
   const roomId = state.selection?.detail.id
   const latestSequence = state.events.at(-1)?.sequence
   useEffect(() => {
@@ -466,18 +521,19 @@ export function CollaborationRoom({ state, controller, loadChoices, renderFactor
   // Signed reply revisions invalidate empty or earlier delivery lists.
   const sourceRevisions = useMemo(() => {
     const revisions = new Map<string, string>()
-    for (const event of [...state.events, ...state.threadEvents, ...state.searchResults]) {
+    const rootEvents = state.threadRootEvent === undefined ? [] : [state.threadRootEvent]
+    for (const event of [...state.events, ...state.threadEvents, ...state.searchResults, ...rootEvents]) {
       if (event.kind === 9 && event.author.kind === 'employee' && event.sourceSessionId !== undefined) {
         const prior = revisions.get(event.sourceSessionId)
         if (prior === undefined || BigInt(event.sequence) > BigInt(prior)) revisions.set(event.sourceSessionId, event.sequence)
       }
     }
     return JSON.stringify([...revisions])
-  }, [state.events, state.threadEvents, state.searchResults])
+  }, [state.events, state.threadEvents, state.searchResults, state.threadRootEvent])
   const [presentedFiles, setPresentedFiles] = useState<ReadonlyMap<string, readonly RoomPresentedFile[]>>(new Map())
   useEffect(() => {
     let live = true
-    const revisions: readonly (readonly [string, string])[] = JSON.parse(sourceRevisions)
+    const revisions = JSON.parse(sourceRevisions) as readonly (readonly [string, string])[]
     for (const [sessionId, revision] of revisions) {
       void controller.presentedFiles(sessionId, revision)
         .then((files) => { if (live) setPresentedFiles(current => new Map(current).set(sessionId, files)) })
@@ -488,19 +544,35 @@ export function CollaborationRoom({ state, controller, loadChoices, renderFactor
   const presentedFor = (event: RoomEvent): readonly RoomPresentedFile[] | undefined => {
     const files = event.sourceSessionId === undefined ? undefined : presentedFiles.get(event.sourceSessionId)
     return files === undefined ? undefined
-      : filesForRoomReply([...state.events, ...state.threadEvents, ...state.searchResults], event, files)
+      : filesForRoomReply([...state.events, ...state.threadEvents, ...state.searchResults,
+        ...(state.threadRootEvent === undefined ? [] : [state.threadRootEvent])], event, files)
   }
+  const visibleThreadReplies = useMemo(() => {
+    const thread = selected?.threadRoot
+    if (thread === undefined || selected === null) return []
+    const fetched = new Set(state.threadEvents.map(event => event.id))
+    const records = channelThreadEvents([...state.events, ...state.threadEvents], selected.detail)
+    const unique = new Map(records.filter(event => event.id !== thread
+      && (event.threadRoot === thread || fetched.has(event.id))).map(event => [event.id, event]))
+    return [...unique.values()].sort((left, right) => BigInt(left.sequence) < BigInt(right.sequence) ? -1 : 1)
+  }, [selected?.threadRoot, selected?.detail, state.events, state.threadEvents])
+  const displayedThreadReplies = useMemo(() => selected?.detail.kind === 'channel'
+    ? threadReplyItems(visibleThreadReplies)
+    : visibleThreadReplies.filter(event => event.kind !== 7).map(event => ({ event, details: [] })),
+  [visibleThreadReplies, selected?.detail.kind])
   // Group one agent reply: the employee's tool/progress events fold into their
   // next signed answer as collapsed details; a mentioned employee without an
   // answer yet renders a working chip on the mentioning message. Orphan
   // progress events (agent stopped, or a new turn started) render standalone.
+  const channelTimeline = useMemo(() => selected === null ? timeline : channelThreadEvents(timeline, selected.detail),
+    [timeline, selected?.detail])
   const displayItems = useMemo(() => {
     const items: TimelineItem[] = []
     const pending = new Map<string, RoomEvent[]>()
     // The employee's last signed answer across the whole timeline decides
     // whether an earlier mention is still being worked on.
     const answeredSeq = new Map<string, string>()
-    for (const event of timeline) {
+    for (const event of channelTimeline) {
       if (event.author.kind === 'employee' && event.kind === 9) answeredSeq.set(event.author.id, event.sequence)
     }
     const members = new Map((selected?.detail.members ?? []).map(member => [member.employeeId, member.displayName]))
@@ -510,8 +582,8 @@ export function CollaborationRoom({ state, controller, loadChoices, renderFactor
     const threadReplies = new Map<string, RoomEvent[]>()
     const orphanThreads = new Map<string, RoomEvent[]>()
     if (isChannel) {
-      const rootIds = new Set(timeline.filter(event => event.threadRoot === undefined).map(event => event.id))
-      for (const event of timeline) {
+      const rootIds = new Set(channelTimeline.filter(event => event.threadRoot === undefined).map(event => event.id))
+      for (const event of channelTimeline) {
         if (event.threadRoot === undefined) continue
         const target = rootIds.has(event.threadRoot) ? threadReplies : orphanThreads
         const list = target.get(event.threadRoot) ?? []
@@ -530,7 +602,8 @@ export function CollaborationRoom({ state, controller, loadChoices, renderFactor
     // events and any further signed messages fold into it as details.
     const runAnswered = new Set<string>()
     const runAnswerItem = new Map<string, TimelineItem>()
-    for (const event of timeline) {
+    for (const event of channelTimeline) {
+      if (isChannel && event.kind !== 9 && event.kind !== 7 && event.threadRoot === undefined) continue
       if (isChannel && event.threadRoot !== undefined) {
         if (threadReplies.has(event.threadRoot)) continue
         const orphan = orphanThreads.get(event.threadRoot)
@@ -551,7 +624,7 @@ export function CollaborationRoom({ state, controller, loadChoices, renderFactor
       if (event.author.kind === 'employee') {
         const details = pending.get(event.author.id)
         pending.delete(event.author.id)
-        if (runAnswered.has(event.author.id)) {
+        if (!isChannel && runAnswered.has(event.author.id)) {
           // A further signed message from the same reply run folds into the
           // main answer instead of rendering as its own timeline row.
           const main = runAnswerItem.get(event.author.id)
@@ -563,7 +636,9 @@ export function CollaborationRoom({ state, controller, loadChoices, renderFactor
           continue
         }
         runAnswered.add(event.author.id)
-        const item: TimelineItem = { event, ...(details === undefined ? {} : { workflowDetails: details }) }
+        const replies = isChannel ? threadReplies.get(event.id)?.filter(reply => reply.kind === 9) : undefined
+        const item: TimelineItem = { event, ...(details === undefined ? {} : { workflowDetails: details }),
+          ...(replies === undefined ? {} : { threadReplies: replies }) }
         if (item.workflowDetails !== undefined) item.workflowDetails = [...item.workflowDetails]
         runAnswerItem.set(event.author.id, item)
         items.push(item)
@@ -587,12 +662,12 @@ export function CollaborationRoom({ state, controller, loadChoices, renderFactor
           })
         }
       }
-      const replies = isChannel ? threadReplies.get(event.id) : undefined
+      const replies = isChannel ? threadReplies.get(event.id)?.filter(reply => reply.kind === 9) : undefined
       items.push({ event, ...(working === undefined ? {} : { working }), ...(replies === undefined ? {} : { threadReplies: replies }) })
     }
     flushOrphans()
     return items
-  }, [timeline, avatars, selected?.detail.kind, selected?.detail.members])
+  }, [channelTimeline, avatars, selected?.detail.kind, selected?.detail.members])
   if (selected === null) return <main className={css.room}><div className={css.center}>
     {state.roomPhase === 'loading' ? <IconLoadingOutlineRegular size={20}/> : t(state.error === 'forbidden' ? 'forbidden' : state.roomPhase === 'error' ? 'loadError' : 'noSelection')}
   </div></main>
@@ -602,8 +677,10 @@ export function CollaborationRoom({ state, controller, loadChoices, renderFactor
 
   const isSelf = (event: RoomEvent): boolean => event.author.kind === 'human' && event.author.id === detail.viewerUserId
   const threadRoot = selected.threadRoot
-  const root = threadRoot === undefined ? undefined : [...state.events, ...state.searchResults].find(event => event.id === threadRoot)
-  return <main className={css.room}>
+  const root = threadRoot === undefined ? undefined : state.threadRootEvent
+    ?? [...state.events, ...state.searchResults].find(event => event.id === threadRoot)
+  return <main className={`${css.room} ${detail.kind === 'channel' ? css.channel : ''}`}>
+
     <header className={css.header}>
       <div className={css.heading}><span className={css.roomIcon}>{detail.kind === 'channel' ? '#' : <IconUsersOutlineRegular size={18}/>}</span><div><h1>{detail.name}</h1><p>{t(detail.kind === 'group' ? 'groups' : 'channels')} · {detail.memberCount} {t('memberCount')}</p></div></div>
       <div className={css.headerActions}>
@@ -617,7 +694,7 @@ export function CollaborationRoom({ state, controller, loadChoices, renderFactor
         {showSearch && state.searchPhase !== 'idle' ? <div className={css.scroll} role="region" aria-label={t('searchResults')}>
           {state.searchPhase === 'loading' && <div className={css.center}><IconLoadingOutlineRegular size={20}/></div>}
           {state.searchPhase === 'error' && <div className={css.center} role="alert">{t('searchFailed')}<button type="button" onClick={() => { void controller.search(searchInput) }}>{t('retry')}</button></div>}
-          {state.searchPhase === 'ready' && (state.searchResults.length === 0 ? <div className={css.center}>{t('noSearchResults')}</div> : state.searchResults.map(event => <Entry renderFactorySlot={renderFactorySlot} presented={presentedFor(event)} key={event.id} event={event} reactions={[]} self={isSelf(event)} avatarUrl={avatarFor(event)} attachmentUrlFor={attachmentUrlFor} onThread={(id) => { setShowSearch(false); void controller.openThread(id) }} onReaction={(id, emoji) => { void controller.react(id, emoji) }} onInspect={(id) => { void controller.inspect(id) }} t={t}/>))}
+          {state.searchPhase === 'ready' && (state.searchResults.length === 0 ? <div className={css.center}>{t('noSearchResults')}</div> : state.searchResults.map(event => <Entry postLayout={detail.kind === 'channel'} renderFactorySlot={renderFactorySlot} presented={presentedFor(event)} key={event.id} event={event} reactions={[]} self={isSelf(event)} avatarUrl={avatarFor(event)} attachmentUrlFor={attachmentUrlFor} onThread={(id) => { setShowSearch(false); void controller.openThread(id) }} onReaction={(id, emoji) => { void controller.react(id, emoji) }} onInspect={(id) => { void controller.inspect(id) }} t={t}/>))}
         </div> : <div ref={scroll} className={css.scroll} role="region" aria-label={t('roomTimeline')}
           onScroll={(event) => {
             const node = event.currentTarget
@@ -635,11 +712,15 @@ export function CollaborationRoom({ state, controller, loadChoices, renderFactor
             {displayItems.map((item) => {
               const { orphanThread } = item
               if (orphanThread !== undefined) {
-                const last = orphanThread.events[orphanThread.events.length - 1]
+                const replies = orphanThread.events.filter(event => event.kind === 9)
+                const last = replies.at(-1)
+                const authors = [...new Map(replies.map(reply => [`${reply.author.kind}:${reply.author.id}`, reply])).values()].slice(-3)
                 return <button type="button" key={item.event.id} className={css.threadChip}
                   onClick={() => { void controller.openThread(orphanThread.rootId) }}>
-                  <span>{t('threadReplies', { count: orphanThread.events.length })}</span>
-                  {last !== undefined && <span className={css.threadTime}>{new Date(last.created_at * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>}
+                  <span className={css.threadStack}>{authors.map(reply => <span key={reply.author.id} className={css.threadAvatar}
+                    aria-label={reply.author.displayName}>{reply.author.displayName.slice(0, 1)}</span>)}</span>
+                  <span>{t('threadReplies', { count: replies.length })}</span>
+                  {last !== undefined && <span className={css.threadTime}>{t('lastReplyAt', { time: new Date(last.created_at * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) })}</span>}
                 </button>
               }
               const presented = presentedFor(item.event)
@@ -648,8 +729,9 @@ export function CollaborationRoom({ state, controller, loadChoices, renderFactor
                 return reply.sourceSessionId === undefined || files === undefined || files.length === 0 ? []
                   : [{ id: reply.id, sessionId: reply.sourceSessionId, files }]
               })
-              return <Entry renderFactorySlot={renderFactorySlot} key={item.event.id} event={item.event}
+              return <Entry postLayout={detail.kind === 'channel'} renderFactorySlot={renderFactorySlot} key={item.event.id} event={item.event}
                 foldedPresented={foldedPresented}
+                onReply={detail.kind === 'channel' && item.event.kind === 9 ? () => { void controller.openThread(item.event.threadRoot ?? item.event.id) } : undefined}
                 reactions={reactionSummaries(state.events, item.event.id, detail.viewerUserId)}
                 self={isSelf(item.event)} avatarUrl={avatarFor(item.event)}
                 attachmentUrlFor={attachmentUrlFor} threadAvatarFor={authorId => avatars.get(authorId)}
@@ -663,11 +745,18 @@ export function CollaborationRoom({ state, controller, loadChoices, renderFactor
             })}
           </>}
         </div>}
+        {detail.kind === 'channel' && channelTimeline.some(event => event.kind !== 9 && event.kind !== 7
+          && event.threadRoot === undefined) && <ExecutionFacts
+          events={channelTimeline.filter(event => event.kind !== 9 && event.kind !== 7 && event.threadRoot === undefined)}
+          onInspect={(id) => { void controller.inspect(id) }} t={t}/>}
         {state.error !== null && <p className={css.error} role="alert">{t(state.error === 'forbidden' ? 'forbidden' : 'requestFailed')}</p>}
         <Composer state={state} controller={controller} renderFactorySlot={renderFactorySlot} t={t}/>
       </div>
-      {(showDetails || threadRoot !== undefined) && <aside className={css.side} aria-label={t(threadRoot === undefined ? 'roomDetails' : 'roomThread')}>
-        <div className={css.sideHeader}><h2>{t(threadRoot === undefined ? 'roomDetails' : 'roomThread')}</h2><button type="button" aria-label={t('closeDetails')} onClick={() => { if (threadRoot !== undefined) controller.closeThread(); else setShowDetails(false) }}><IconCloseOutlineRegular size={16}/></button></div>
+      {(showDetails || threadRoot !== undefined) && <aside className={`${css.side} ${detail.kind === 'channel' && threadRoot !== undefined ? css.threadPane : ''}`} aria-label={t(threadRoot === undefined ? 'roomDetails' : 'roomThread')} onKeyDown={(event) => {
+        if (threadRoot !== undefined && event.key === 'Escape' && !event.defaultPrevented
+          && event.currentTarget.querySelector('[aria-expanded="true"]') === null) { event.preventDefault(); controller.closeThread() }
+      }}>
+        <div className={css.sideHeader}><h2>{t(threadRoot === undefined ? 'roomDetails' : 'roomThread')}</h2><button ref={threadCloseButton} type="button" aria-label={t('closeDetails')} onClick={() => { if (threadRoot !== undefined) controller.closeThread(); else setShowDetails(false) }}><IconCloseOutlineRegular size={16}/></button></div>
         {threadRoot === undefined ? <div className={css.details}>
           {detail.kind === 'group' ? <CollaborationGroupDetails detail={detail}
             {...(detail.viewerIsAdmin ? { controller } : {})}
@@ -678,7 +767,51 @@ export function CollaborationRoom({ state, controller, loadChoices, renderFactor
           {detail.project !== undefined && <section><h3>{t('project')}</h3><p>{detail.project.name}</p></section>}
           {detail.kind === 'channel' && <><ChannelDecisionQueue key={`${detail.id}-decisions`} channelId={detail.id} t={t}/>
             <ChannelWorkflowEditor key={`${detail.id}-workflows`} channelId={detail.id} t={t}/></>}
-        </div> : <><div className={css.threadScroll}>{root !== undefined && <Entry renderFactorySlot={renderFactorySlot} presented={presentedFor(root)} event={root} reactions={reactionSummaries(state.events, root.id, detail.viewerUserId)} self={isSelf(root)} avatarUrl={avatarFor(root)} attachmentUrlFor={attachmentUrlFor} onThread={() => {}} onReaction={(id, emoji) => { void controller.react(id, emoji) }} onInspect={(id) => { void controller.inspect(id) }} t={t}/>}{state.threadPhase === 'loading' && <div className={css.center}><IconLoadingOutlineRegular size={20}/></div>}{state.threadPhase === 'error' && <div className={css.center} role="alert">{t('loadError')}<button type="button" onClick={() => { void controller.openThread(threadRoot) }}>{t('retry')}</button></div>}{state.threadPhase === 'ready' && state.threadEvents.filter(event => event.kind !== 7 && event.id !== threadRoot).map(event => <Entry renderFactorySlot={renderFactorySlot} presented={presentedFor(event)} key={event.id} event={event} reactions={reactionSummaries(state.threadEvents, event.id, detail.viewerUserId)} self={isSelf(event)} avatarUrl={avatarFor(event)} attachmentUrlFor={attachmentUrlFor} onThread={() => {}} onReaction={(id, emoji) => { void controller.react(id, emoji) }} onInspect={(id) => { void controller.inspect(id) }} t={t}/>)}</div><Composer state={state} controller={controller} renderFactorySlot={renderFactorySlot} t={t} threadRoot={threadRoot}/></>}
+        </div> : <>
+          <div className={css.threadScroll} ref={threadScroll} onScroll={() => {
+            const element = threadScroll.current
+            if (element !== null) threadAtBottom.current = element.scrollHeight - element.scrollTop - element.clientHeight < 80
+          }}>
+            {root !== undefined && <div className={css.threadRootPost}>
+              <Entry postLayout={detail.kind === 'channel'} renderFactorySlot={renderFactorySlot} presented={presentedFor(root)}
+                event={root} reactions={reactionSummaries(state.events, root.id, detail.viewerUserId)} self={isSelf(root)}
+                avatarUrl={avatarFor(root)} attachmentUrlFor={attachmentUrlFor} onThread={() => {}}
+                onReaction={(id, emoji) => { void controller.react(id, emoji) }} onInspect={(id) => { void controller.inspect(id) }} t={t}/>
+            </div>}
+            {state.threadOlderCursor != null && <button type="button" className={css.more} disabled={state.threadLoadingOlder}
+              onClick={() => {
+                const element = threadScroll.current
+                if (element !== null) threadBeforePrepend.current = { height: element.scrollHeight, top: element.scrollTop }
+                void controller.loadOlderThread()
+              }}>{t('loadOlder')}</button>}
+            {state.threadOlderError && <div className={css.historyError} role="alert">{t('loadError')}
+              <button type="button" onClick={() => { void controller.loadOlderThread() }}>{t('retry')}</button></div>}
+            <h3 className={css.threadReplyHeading}>{t('threadRepliesHeading')}</h3>
+            {state.threadPhase === 'loading' && <div className={css.center}><IconLoadingOutlineRegular size={20}/></div>}
+            {state.threadPhase === 'error' && <div className={css.center} role="alert">{t('loadError')}
+              <button type="button" onClick={() => { void controller.openThread(threadRoot) }}>{t('retry')}</button></div>}
+            {state.threadPhase === 'ready' && displayedThreadReplies.length === 0 && <p className={css.emptyThread}>{t('emptyThread')}</p>}
+            {state.threadPhase === 'ready' && displayedThreadReplies.map((item) => {
+              if (detail.kind === 'channel' && item.event.kind !== 9) return <ExecutionFacts key={item.event.id}
+                events={[item.event, ...item.details]}
+                onInspect={(id) => { void controller.inspect(id) }} t={t}/>
+              const folded = item.details.flatMap((reply) => {
+                const files = presentedFor(reply)
+                return reply.sourceSessionId === undefined || files === undefined || files.length === 0 ? []
+                  : [{ id: reply.id, sessionId: reply.sourceSessionId, files }]
+              })
+              return <Entry postLayout={detail.kind === 'channel'} renderFactorySlot={renderFactorySlot}
+                presented={presentedFor(item.event)} foldedPresented={folded} workflowDetails={item.details}
+                key={item.event.id} event={item.event}
+                reactions={reactionSummaries(visibleThreadReplies, item.event.id, detail.viewerUserId)}
+                self={isSelf(item.event)} avatarUrl={avatarFor(item.event)} attachmentUrlFor={attachmentUrlFor}
+                onThread={() => {}} onReaction={(id, emoji) => { void controller.react(id, emoji) }}
+                onInspect={(id) => { void controller.inspect(id) }} t={t}/>
+            })}
+          </div>
+          <Composer state={state} controller={controller} renderFactorySlot={renderFactorySlot} t={t} threadRoot={threadRoot}/>
+        </>}
+
       </aside>}
     </div>
   </main>

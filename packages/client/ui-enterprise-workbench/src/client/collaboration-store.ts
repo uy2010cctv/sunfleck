@@ -76,6 +76,10 @@ export interface CollaborationState {
   readonly olderCursor: string | null
   readonly threadEvents: readonly RoomEvent[]
   readonly threadPhase: 'idle' | 'loading' | 'ready' | 'error'
+  readonly threadRootEvent?: RoomEvent | undefined
+  readonly threadOlderCursor?: string | null | undefined
+  readonly threadLoadingOlder?: boolean | undefined
+  readonly threadOlderError?: boolean | undefined
   readonly searchResults: readonly RoomEvent[]
   readonly searchPhase: 'idle' | 'loading' | 'ready' | 'error'
   readonly busy: boolean
@@ -218,9 +222,10 @@ function roomEvent(value: unknown): RoomEvent {
     })(),
   }
 }
-function eventPage(value: unknown): { items: RoomEvent[]; nextCursor: string | null } {
+function eventPage(value: unknown): { items: RoomEvent[]; nextCursor: string | null; root?: RoomEvent } {
   const row = record(value)
-  return { items: array(row['items']).map(roomEvent), nextCursor: row['nextCursor'] === null ? null : string(row['nextCursor']) }
+  return { items: array(row['items']).map(roomEvent), nextCursor: row['nextCursor'] === null ? null : string(row['nextCursor']),
+    ...(row['root'] === undefined ? {} : { root: roomEvent(row['root']) }) }
 }
 /** Sequence sentinel for optimistic echoes; sorts after every real event. */
 const PENDING_SEQUENCE = '999999999999999999999'
@@ -237,11 +242,12 @@ class HttpFailure extends Error {
 /** Controls the shared room timeline and preserves request identities across uncertain sends. */
 export class CollaborationController {
   /** Observable authorized roster and selected room. */
-  readonly state = createSnapshotStore<CollaborationState>({ phase: 'idle', surfaces: [], selection: null, roomPhase: 'idle', events: [], olderCursor: null, threadEvents: [], threadPhase: 'idle', searchResults: [], searchPhase: 'idle', busy: false, creation: null, error: null })
+  readonly state = createSnapshotStore<CollaborationState>({ phase: 'idle', surfaces: [], selection: null, roomPhase: 'idle', events: [], olderCursor: null, threadEvents: [], threadRootEvent: undefined, threadOlderCursor: null, threadLoadingOlder: false, threadOlderError: false, threadPhase: 'idle', searchResults: [], searchPhase: 'idle', busy: false, creation: null, error: null })
   private selectionRequest: AbortController | undefined
   private rosterRequest: AbortController | undefined
   private pollRequest: AbortController | undefined
   private threadRequest: AbortController | undefined
+  private threadOlderRequest: AbortController | undefined
   private searchRequest: AbortController | undefined
   private closed = false
   private mainPanel: string | null = null
@@ -320,7 +326,7 @@ export class CollaborationController {
   private begin(): AbortController {
     this.selectionRequest?.abort()
     this.pollRequest?.abort()
-    this.threadRequest?.abort()
+    this.threadOlderRequest?.abort(); this.threadRequest?.abort()
     this.searchRequest?.abort()
     const request = new AbortController()
     this.selectionRequest = request
@@ -367,7 +373,7 @@ export class CollaborationController {
     this.begin().abort()
     this.acknowledgedSequences.clear()
     this.presentedCache.clear()
-    this.patch({ selection: null, roomPhase: 'idle', events: [], olderCursor: null, threadEvents: [], threadPhase: 'idle', searchResults: [], searchPhase: 'idle', busy: false, creation: null, creationProjectId: undefined, error: null })
+    this.patch({ selection: null, roomPhase: 'idle', events: [], olderCursor: null, threadEvents: [], threadRootEvent: undefined, threadOlderCursor: null, threadLoadingOlder: false, threadOlderError: false, threadPhase: 'idle', searchResults: [], searchPhase: 'idle', busy: false, creation: null, creationProjectId: undefined, error: null })
   }
 
   /** Observe native main-panel selection so late room responses cannot steal navigation. */
@@ -376,7 +382,7 @@ export class CollaborationController {
     if (panelId !== null && panelId !== 'enterprise-collaboration') {
       this.selectionRequest?.abort()
       this.pollRequest?.abort()
-      this.threadRequest?.abort()
+      this.threadOlderRequest?.abort(); this.threadRequest?.abort()
       this.searchRequest?.abort()
       this.patch({ busy: false })
     }
@@ -392,7 +398,7 @@ export class CollaborationController {
   /** Open the same shared timeline for every member and employee. */
   async select(id: string): Promise<void> {
     const request = this.begin()
-    this.patch({ busy: true, creation: null, error: null, roomPhase: 'loading', events: [], olderCursor: null, threadEvents: [], threadPhase: 'idle', searchResults: [], searchPhase: 'idle' })
+    this.patch({ busy: true, creation: null, error: null, roomPhase: 'loading', events: [], olderCursor: null, threadEvents: [], threadRootEvent: undefined, threadOlderCursor: null, threadLoadingOlder: false, threadOlderError: false, threadPhase: 'idle', searchResults: [], searchPhase: 'idle' })
     this.openRoom()
     try {
       const current = detail(await this.read(`/${encodeURIComponent(id)}`, request.signal))
@@ -472,10 +478,10 @@ export class CollaborationController {
   async openThread(root: string): Promise<void> {
     const selection = this.state.getSnapshot().selection
     if (selection === null) return
-    this.threadRequest?.abort()
+    this.threadOlderRequest?.abort(); this.threadRequest?.abort()
     const request = new AbortController()
     this.threadRequest = request
-    this.patch({ selection: { ...selection, threadRoot: root }, threadPhase: 'loading', threadEvents: [] })
+    this.patch({ selection: { ...selection, threadRoot: root }, threadPhase: 'loading', threadEvents: [], threadRootEvent: undefined, threadOlderCursor: null })
     await this.refreshThread(request)
   }
   private async refreshThread(provided?: AbortController): Promise<void> {
@@ -485,14 +491,39 @@ export class CollaborationController {
     if (provided === undefined) { this.threadRequest?.abort(); this.threadRequest = request }
     try {
       const page = eventPage(await this.read(`/${encodeURIComponent(selection.detail.id)}/events?threadRoot=${encodeURIComponent(selection.threadRoot)}&limit=100`, request.signal))
-      if (!this.cancelled(request) && this.state.getSnapshot().selection?.threadRoot === selection.threadRoot) this.patch({ threadEvents: page.items, threadPhase: 'ready' })
+      if (!this.cancelled(request) && this.state.getSnapshot().selection?.threadRoot === selection.threadRoot) {
+        const current = this.state.getSnapshot()
+        this.patch({ threadEvents: provided === undefined ? appendUnique(current.threadEvents, page.items) : page.items,
+          threadRootEvent: page.root, threadPhase: 'ready',
+          threadOlderCursor: provided === undefined && current.threadEvents.length > 100 ? current.threadOlderCursor
+            : page.items.length === 100 ? page.items[0]?.sequence ?? null : null })
+      }
     } catch (error) { if (!this.cancelled(request)) { if (!this.revoke(error)) this.patch({ threadPhase: 'error' }) } }
+  }
+  /** Load preceding signed replies without replacing the live thread page. */
+  async loadOlderThread(): Promise<void> {
+    const state = this.state.getSnapshot()
+    const selected = state.selection
+    if (selected?.threadRoot === undefined || state.threadOlderCursor == null || this.threadOlderRequest !== undefined) return
+    const request = new AbortController()
+    this.threadOlderRequest = request
+    this.patch({ threadLoadingOlder: true, threadOlderError: false })
+    try {
+      const page = eventPage(await this.read(`/${encodeURIComponent(selected.detail.id)}/events?threadRoot=${encodeURIComponent(selected.threadRoot)}&before=${encodeURIComponent(state.threadOlderCursor)}&limit=100`, request.signal))
+      if (this.cancelled(request) || this.state.getSnapshot().selection?.threadRoot !== selected.threadRoot) return
+      this.patch({ threadEvents: appendUnique(page.items, this.state.getSnapshot().threadEvents),
+        threadOlderCursor: page.items.length === 100 ? page.items[0]?.sequence ?? null : null })
+    } catch (error) {
+      if (!this.cancelled(request) && !this.revoke(error)) this.patch({ threadOlderError: true })
+    } finally {
+      if (this.threadOlderRequest === request) { this.threadOlderRequest = undefined; this.patch({ threadLoadingOlder: false }) }
+    }
   }
   /** Close the thread without changing the shared room timeline. */
   closeThread(): void {
-    this.threadRequest?.abort()
+    this.threadOlderRequest?.abort(); this.threadRequest?.abort()
     const selected = this.state.getSnapshot().selection
-    if (selected !== null) this.patch({ selection: { detail: selected.detail }, threadEvents: [], threadPhase: 'idle' })
+    if (selected !== null) this.patch({ selection: { detail: selected.detail }, threadEvents: [], threadRootEvent: undefined, threadOlderCursor: null, threadLoadingOlder: false, threadOlderError: false, threadPhase: 'idle' })
   }
 
   /** Search the authorized room event index. */
@@ -766,7 +797,7 @@ export class CollaborationController {
     this.selectionRequest?.abort()
     this.rosterRequest?.abort()
     this.pollRequest?.abort()
-    this.threadRequest?.abort()
+    this.threadOlderRequest?.abort(); this.threadRequest?.abort()
     this.searchRequest?.abort()
   }
 }

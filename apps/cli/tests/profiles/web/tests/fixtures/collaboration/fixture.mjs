@@ -48,6 +48,17 @@ export function apply(ctx, config) {
         yield { type: 'finish', reason: { kind: 'tool-calls' } }
         return
       }
+      if ((textInput.endsWith('Complete channels request.') || textInput.endsWith('Colleague shared-room channels message.'))
+        && !options.messages.slice(userIndex).some(message => message.role === 'tool')) {
+        const sourceEventId = user.source.rpcId
+        const callId = `fixture-post-${sourceEventId}`
+        const args = JSON.stringify({ sourceEventId, content: 'Fixture threaded room post.', idempotencyKey: sourceEventId })
+        yield { type: 'block-start', index: 0, blockType: 'tool-call' }
+        yield { type: 'tool-call-delta', index: 0, id: callId, name: 'room_post', argumentsDelta: args }
+        yield { type: 'block-end', index: 0, block: { type: 'tool-call', id: callId, name: 'room_post', arguments: args } }
+        yield { type: 'finish', reason: { kind: 'tool-calls' } }
+        return
+      }
       const text = textInput.endsWith('Draft fixture release notes for v1.2.3.')
         ? 'Fixture release notes draft for v1.2.3.' : 'Collaboration fixture completed the request.'
       yield { type: 'block-start', index: 0, blockType: 'text' }

@@ -169,20 +169,27 @@ export class CollaborationService {
    * @param actor - Authenticated human.
    * @param id - Room identity.
    * @param options - Bounded cursor and thread selection.
-   * @returns Signed room events and the next incremental cursor.
+   * @returns Signed room events, incremental cursors, and the parent for a valid thread selection.
+   * @throws A 404 error when the selected parent is absent, is not a text post, or is itself a reply.
    */
   async events(actor: EnterprisePrincipal, id: string, options: { readonly after?: string
     readonly before?: string
     readonly limit?: number
     readonly threadRoot?: string }): Promise<{ items: readonly CollaborationRoomEvent[]
     nextCursor: string | null
-    prevCursor: string | null }> {
+    prevCursor: string | null
+    root?: CollaborationRoomEvent }> {
     const row = await this.authorized(actor, id)
     const room = this.requireRoom()
     await room.reconcile?.(row)
+    const parent = options.threadRoot === undefined ? undefined : await room.get(row, options.threadRoot)
+    if (options.threadRoot !== undefined && (parent === undefined || parent.event.kind !== 9 || parent.threadRoot !== undefined)) {
+      throw new CollaborationError('thread-not-found', 404)
+    }
     const events = await room.list(row, options)
     return { items: await Promise.all(events.map(event => room.present(actor, row, event))),
-      nextCursor: events.at(-1)?.sequence ?? null, prevCursor: events[0]?.sequence ?? null }
+      nextCursor: events.at(-1)?.sequence ?? null, prevCursor: events[0]?.sequence ?? null,
+      ...(parent === undefined ? {} : { root: await room.present(actor, row, parent) }) }
   }
 
   /** Advance this human's room cursor to an exact event from the displayed room page.

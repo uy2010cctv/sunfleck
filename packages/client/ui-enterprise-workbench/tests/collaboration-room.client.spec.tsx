@@ -1,9 +1,10 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import { CollaborationRoom, reactionSummaries, stripReplyBoilerplate } from '../src/client/CollaborationRoom.tsx'
 import { CollaborationController, type RoomEvent } from '../src/client/collaboration-store.ts'
-import { zh, type CollaborationKey } from '../src/client/collaboration-locales.ts'
+import { zh } from '../src/client/collaboration-locales.ts'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-locale/client'
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals() })
@@ -20,11 +21,16 @@ function setup(events: RoomEvent[] = [human, colleague, research, data, reaction
     members: [{ employeeId: 'research-bot', displayName: '研究 Bot' }, { employeeId: 'data-bot', displayName: '数据 Bot' }], memberUserIds: ['u1', 'u2', 'u3'], dutyEmployeeIds: [], topics: [],
     viewerUserId: 'u1', viewerIsAdmin: false,
   } }, events })
-  const t: TranslateNS<'enterprise.collaboration'> = key => zh[key as CollaborationKey] ?? key
+  const t: TranslateNS<'enterprise.collaboration'> = makeTranslate(zh)
   return { controller, state: controller.state.getSnapshot(), t }
 }
 
 describe('shared room UI', () => {
+  it('keeps a reply reaction off the referenced root post', () => {
+    const event = { ...reaction, tags: [['e', research.id], ['e', human.id, '', 'root']] }
+    expect(reactionSummaries([event], research.id, 'u1')).toEqual([{ emoji: '👍', count: 1, mine: true }])
+    expect(reactionSummaries([event], human.id, 'u1')).toEqual([])
+  })
   it('acknowledges visible room events after rendering', async () => {
     const { controller, state, t } = setup([human])
     const acknowledge = vi.spyOn(controller, 'acknowledgeVisible').mockResolvedValue()
@@ -424,6 +430,35 @@ describe('shared room UI', () => {
     const openThread = vi.spyOn(controller, 'openThread').mockResolvedValue()
     fireEvent.click(screen.getByRole('button', { name: /条回复/ }))
     expect(openThread).toHaveBeenCalledWith('human')
+    controller.dispose()
+  })
+
+  it('keeps historical channel replies and tool facts in their persisted topic thread', () => {
+    const { controller, state, t } = setup()
+    const selected = state.selection
+    if (selected === null) throw new Error('room selection missing')
+    const oldReply = { ...research, content: 'Historical Bot reply' }
+    const tool = { ...oldReply, id: 'old-tool', sequence: '4', kind: 41000, content: 'Tool completed' }
+    const channel = { ...state, selection: { detail: { ...selected.detail, kind: 'channel' as const,
+      topicPolicy: 'thread' as const, topics: [{ id: human.id, title: human.content, state: 'open' as const,
+        destinations: [{ employeeId: 'research-bot', sessionId: 'execution-1' }] }] } }, events: [human, oldReply, tool] }
+    const view = render(<CollaborationRoom controller={controller} state={channel} t={t}/>)
+    expect(view.container.querySelectorAll('article')).toHaveLength(1)
+    expect(view.container.textContent).not.toContain('Historical Bot reply')
+    expect(view.container.textContent).not.toContain('Tool completed')
+    expect(screen.getByRole('button', { name: /1 条回复/ })).toBeTruthy()
+    controller.dispose()
+  })
+
+  it('lets a channel post without replies open its thread', () => {
+    const { controller, state, t } = setup()
+    const selected = state.selection
+    if (selected === null) throw new Error('room selection missing')
+    const open = vi.spyOn(controller, 'openThread').mockResolvedValue()
+    render(<CollaborationRoom controller={controller} state={{ ...state,
+      selection: { detail: { ...selected.detail, kind: 'channel' } }, events: [human] }} t={t}/>)
+    fireEvent.click(screen.getByRole('button', { name: '在线程中回复' }))
+    expect(open).toHaveBeenCalledWith(human.id)
     controller.dispose()
   })
 

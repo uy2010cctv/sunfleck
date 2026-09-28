@@ -64,6 +64,8 @@ Employee presentation comes from the published catalog release: name, position, 
 
 Room composers share the workspace capsule, control row and send action, with attachment upload and member mentions and no model or permission selectors. Pending and delivered file cards use the existing attachment and deliverables factories. Previews address the producing Session and keep the room visible. Signed reply revisions refresh file metadata; native closing coordinates from the full log associate declared files with their reply, including paginated and thread history.
 
+Channels use a left-aligned post list and a separate thread pane. Reply counts include signed text posts, and execution facts fold into their employee reply. Persisted topic destinations place historical unthreaded employee facts in their known thread without changing signed records. Thread pages load the authorized parent even outside the room page; narrow room containers show the thread as a single panel, and closing returns keyboard focus to the invoking control.
+
 ## Ordinary-profile fallback
 
 Fallback activates only when `enterpriseEmployee.list` returns the explicit enterprise-unavailable response. Other transport, authorization, cursor, and server failures stay visible as failures. The fallback roster includes only declarations marked as employees; generic work modes stay in the mode picker. Starting a fallback employee requires an explicit Workspace choice.

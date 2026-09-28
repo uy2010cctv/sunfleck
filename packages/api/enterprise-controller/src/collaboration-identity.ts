@@ -52,6 +52,7 @@ export type RoomSigningInput =
     readonly createdAt?: number }
   | { readonly type: 'workflow'
     readonly content: string
+    readonly threadRoot?: string
     readonly stepId: string
     readonly sourceEventId?: string
     readonly sourceCursor?: string
@@ -211,6 +212,7 @@ function eventTemplate(roomId: string, input: RoomSigningInput): { readonly kind
     case 'workflow':
       if (input.stepId.trim() === '') throw new Error('room-event-reference-invalid')
       tags.push(['dsh', 'workflow'], ['step', input.stepId])
+      if (input.threadRoot !== undefined) { validId(input.threadRoot); tags.push(['e', input.threadRoot, '', 'root']) }
       if (input.sourceEventId !== undefined) { validId(input.sourceEventId); tags.push(['e', input.sourceEventId]) }
       appendTargets(tags, input.targetEmployeeIds)
       appendSourceCursor(tags, input.sourceCursor)

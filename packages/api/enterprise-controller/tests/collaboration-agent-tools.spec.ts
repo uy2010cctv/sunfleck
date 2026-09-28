@@ -27,14 +27,14 @@ const verifiedSignature = (event: {
 const contexts: Context[] = []
 afterEach(async () => { for (const ctx of contexts.splice(0)) await ctx.fiber.dispose() })
 
-async function setup(maxHops = 2, initiallyBound = true) {
+async function setup(maxHops = 2, initiallyBound = true, kind: CollaborationRecord['kind'] = 'group') {
   const ctx = new Context()
   contexts.push(ctx)
   await mountAgentLoopTestDependencies(ctx)
   await ctx.plugin(AgentLoop, { agents: [] })
   const agent = await ctx.agentLoop.create(SessionId('room-bot-a'), { provider: 'mock', model: 'mock' })
   const other = await ctx.agentLoop.create(SessionId('private-bot'), { provider: 'mock', model: 'mock' })
-  const room: CollaborationRecord = { id: 'room-a', orgId: 'org-a', kind: 'group', name: 'Review', workspaceId: 'workspace',
+  const room: CollaborationRecord = { id: 'room-a', orgId: 'org-a', kind, name: 'Review', workspaceId: 'workspace',
     memberUserIds: ['alice'], memberEmployeeIds: ['bot-a', 'bot-b', 'bot-c'], dutyEmployeeIds: [] }
   let bound = initiallyBound
   const records = new Map<CredentialKey, CredentialRecord>(), keys = new Map<string, string>()
@@ -102,6 +102,26 @@ async function setup(maxHops = 2, initiallyBound = true) {
 }
 
 describe('shared room agent tools', () => {
+  it('keeps a channel root post and reply-to-reply under the signed original parent', async () => {
+    const app = await setup(2, true, 'channel')
+    const first = await app.call('room_post', { content: 'First reply', sourceEventId: app.initial.id,
+      idempotencyKey: 'root-reply' })
+    expect(first.isError).toBeFalsy()
+    const reply = app.events[1]!
+    expect(reply.threadRoot).toBe(app.initial.id)
+    expect(reply.event.tags).toContainEqual(['e', app.initial.id, '', 'root'])
+    expect(verifiedSignature(reply.event)).toBe(true)
+    app.agent.session.append('user/message', createUserMessage({ content: [{ type: 'text', text: reply.event.content }], source: {
+      kind: 'user', rpcId: brandString<SessionRequestId>(reply.event.id), surfaceId: app.room.id,
+    } }), { surfaceOp: 'append' })
+    const second = await app.call('room_post', { content: 'Second reply', sourceEventId: reply.event.id,
+      idempotencyKey: 'nested-reply' })
+    expect(second.isError).toBeFalsy()
+    expect(app.events[2]?.threadRoot).toBe(app.initial.id)
+    expect(app.events[2]?.event.tags).toContainEqual(['e', app.initial.id, '', 'root'])
+    expect(verifiedSignature(app.events[2]!.event)).toBe(true)
+  })
+
   it('publishes a verifiable Bot post before dispatch and exposes tools only in the bound Agent scope', async () => {
     const app = await setup()
     const result = await app.call('room_post', { content: 'Please check the draft.', sourceEventId: app.initial.id,
@@ -110,6 +130,8 @@ describe('shared room agent tools', () => {
     expect(app.events).toHaveLength(2)
     expect(verifiedSignature(app.events[1]!.event)).toBe(true)
     expect(app.events[1]!.event.tags).toContainEqual(['dsh-hop', '1'])
+    expect(app.events[1]?.threadRoot).toBeUndefined()
+    expect(app.events[1]!.event.tags.some(tag => tag[3] === 'root')).toBe(false)
     const source = app.agent.session.snapshotEvents().find(event => event.type === 'tool/call')
     expect(app.events[1]!.event.tags).toContainEqual(['dsh-source', `${app.agent.id}:${source?.seq}`])
     expect(app.events[1]?.sourceEventCursor).toBe(String(source?.seq))

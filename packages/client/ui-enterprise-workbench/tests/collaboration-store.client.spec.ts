@@ -23,6 +23,35 @@ function controller(request: ReturnType<typeof fetcher>) {
 }
 
 describe('shared collaboration room', () => {
+  it('keeps the authorized thread root when it is outside the loaded channel page', async () => {
+    const request = fetcher(Response.json(detail), Response.json({ items: [], nextCursor: null }),
+      Response.json({ items: [bot], root: human, nextCursor: bot.sequence }))
+    const { value } = controller(request)
+    await value.select(surface.id)
+    await value.openThread(human.id)
+    expect(value.state.getSnapshot().threadRootEvent).toEqual(human)
+    value.closeThread()
+    expect(value.state.getSnapshot().threadRootEvent).toBeUndefined()
+    value.dispose()
+  })
+
+  it('loads earlier thread replies with an exclusive cursor and retains the live page', async () => {
+    const recent = Array.from({ length: 100 }, (_, index) => ({ ...bot, id: `reply-${index}`, sequence: String(200 + index) }))
+    const earlier = { ...bot, id: 'earlier-reply', sequence: '199' }
+    const request = fetcher(Response.json(detail), Response.json({ items: [], nextCursor: null }),
+      Response.json({ items: recent, root: human, nextCursor: '299' }),
+      Response.json({ items: [earlier], root: human, nextCursor: '199' }))
+    const { value } = controller(request)
+    await value.select(surface.id)
+    await value.openThread(human.id)
+    expect(value.state.getSnapshot().threadOlderCursor).toBe('200')
+    await value.loadOlderThread()
+    expect(request.mock.calls.at(-1)?.[0]).toContain('before=200')
+    expect(value.state.getSnapshot().threadEvents).toHaveLength(101)
+    expect(value.state.getSnapshot().threadEvents[0]?.id).toBe(earlier.id)
+    expect(value.state.getSnapshot().threadOlderCursor).toBeNull()
+    value.dispose()
+  })
   it('refreshes delivery metadata when a source Session publishes another reply', async () => {
     const file = { path: '/workspace/test.txt', description: 'Test delivery', seq: 22, index: 0 }
     const request = fetcher(Response.json({ files: [] }), Response.json({ files: [file] }))

@@ -51,6 +51,8 @@ export interface RoomEventPageOptions {
   readonly before?: string
   readonly limit?: number
   readonly threadRoot?: string
+  /** Host-resolved native Sessions bound to the selected channel thread. */
+  readonly legacySourceSessionIds?: readonly string[]
 }
 
 /** One leased destination derived from a committed signed room event. */
@@ -608,7 +610,7 @@ export class PostgresRoomEventRepository {
   /** Read the latest page or a bounded page before/after an exclusive sequence.
    * @param orgId - Authorized organization.
    * @param surfaceId - Authorized room.
-   * @param options - Exclusive cursor, upper bound, and optional thread root.
+   * @param options - Exclusive cursor, upper bound, thread root, and Host-resolved historical source Sessions.
    * @returns Events in append order.
    */
   async list(orgId: string, surfaceId: string, options: RoomEventPageOptions = {}): Promise<readonly RoomEvent[]> {
@@ -619,11 +621,23 @@ export class PostgresRoomEventRepository {
     const limit = pageLimit(options.limit)
     const rows = await this.database.query<EventRow>(`SELECT e.* FROM dsh_enterprise_collaboration_events e
       JOIN dsh_enterprise_surface_directory d ON d.surface_id=e.surface_id AND d.org_id=e.org_id
+      JOIN dsh_enterprise_collaboration_config c ON c.surface_id=d.surface_id
       WHERE e.org_id=$1 AND e.surface_id=$2
         AND ($3::bigint IS NULL OR e.sequence ${forward ? '>' : '<'} $3::bigint)
-        AND ($4::text IS NULL OR e.thread_root=$4)
+        AND ($4::text IS NULL OR e.thread_root=$4
+          OR (e.thread_root IS NULL AND d.kind='channel' AND c.config_json->>'topicPolicy'='thread'
+            AND EXISTS (SELECT 1 FROM dsh_enterprise_collaboration_events target
+              JOIN dsh_enterprise_collaboration_sessions s
+                ON s.surface_id=target.surface_id AND s.session_id=target.source_session_id
+              WHERE target.org_id=e.org_id AND target.surface_id=e.surface_id
+                AND target.author_kind='employee' AND target.thread_root IS NULL
+                AND s.topic_id=$4 AND s.session_id=ANY($6::text[])
+                AND ((e.author_kind='employee' AND target.event_id=e.event_id)
+                  OR (e.author_kind='human' AND e.event_json->>'kind'='7'
+                    AND EXISTS (SELECT 1 FROM jsonb_array_elements(e.event_json->'tags') tag
+                      WHERE tag->>0='e' AND tag->>1=target.event_id AND COALESCE(tag->>3,'')<>'root'))))))
       ORDER BY e.sequence ${forward ? 'ASC' : 'DESC'} LIMIT $5`,
-    [orgId, surfaceId, boundary, options.threadRoot ?? null, limit])
+    [orgId, surfaceId, boundary, options.threadRoot ?? null, limit, options.legacySourceSessionIds ?? []])
     const events = rows.rows.map(parseRow)
     return forward ? events : events.reverse()
   }

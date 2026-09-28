@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { CollaborationService, type CollaborationDelivery, type CollaborationMessageInput,
-  type CollaborationRuntime } from '../src/collaboration-service.ts'
+import { CollaborationService, type CollaborationDelivery, type CollaborationMessageInput } from '../src/collaboration-service.ts'
 import type { CollaborationRecord, CollaborationSession, RoomEvent } from '@deepseek-ai/dsh-enterprise-postgres'
 import type { EnterprisePrincipal } from '@deepseek-ai/dsh-enterprise-governance'
 
@@ -40,9 +39,10 @@ function fixture(record: CollaborationRecord = room,
         events.push(event)
         return event
       },
-      list: async () => events,
-      get: async (_record: CollaborationRecord, eventId: string) =>
-        events.find(value => value.event.id === eventId),
+      list: async (_record: CollaborationRecord, options: { readonly threadRoot?: string }) =>
+        options.threadRoot === undefined ? events : events.filter(value => value.threadRoot === options.threadRoot),
+      get: async (record: CollaborationRecord, eventId: string) =>
+        events.find(value => value.surfaceId === record.id && value.event.id === eventId),
       react: async (_actor: EnterprisePrincipal, _record: CollaborationRecord,
         input: { eventId: string; emoji: string; requestId: string }) => {
         const event: RoomEvent = { orgId: 'org', surfaceId: 'group', sequence: String(events.length + 1),
@@ -62,6 +62,7 @@ function fixture(record: CollaborationRecord = room,
       search: async () => events,
       present: async (_actor: EnterprisePrincipal, _record: CollaborationRecord, event: RoomEvent) => ({
         ...event.event, sequence: event.sequence,
+        ...(event.threadRoot === undefined ? {} : { threadRoot: event.threadRoot }),
         author: { kind: event.authorKind, id: event.authorId, displayName: event.authorId } }),
       prompt: async (_record: CollaborationRecord, event: RoomEvent) => `Room source [${event.event.id}] ${event.event.content}`,
       ...(dispatchCommitted === undefined ? {} : { dispatchCommitted,
@@ -79,11 +80,36 @@ function fixture(record: CollaborationRecord = room,
       prompts.push({ employeeId: sessions.find(value => value.sessionId === id)?.employeeId ?? '',
         text: input.text, ...(input.messageId === undefined ? {} : { requestId: input.messageId }) })
     },
-  } as CollaborationRuntime)
+  })
   return { service, events, routes, prompts, revoke: () => { permitted = false } }
 }
 
 describe('one shared room timeline', () => {
+  it('returns the authorized parent independently of a thread reply page', async () => {
+    const app = fixture({ ...room, kind: 'channel' })
+    await app.service.message(alice, 'group', { text: 'Root outside page', messageId: 'root' })
+    const parent = app.events[0]!
+    app.events.push({ ...parent, sequence: '2', threadRoot: parent.event.id,
+      event: { ...parent.event, id: 'reply-event', content: 'Reply in page' } })
+    const page = await app.service.events(alice, 'group', { threadRoot: parent.event.id })
+    expect(page).toMatchObject({ root: { id: parent.event.id, content: 'Root outside page' },
+      items: [{ id: 'reply-event', threadRoot: parent.event.id }], nextCursor: '2', prevCursor: '2' })
+    expect(await app.service.events(alice, 'group', {})).not.toHaveProperty('root')
+    await expect(app.service.events(alice, 'group', { threadRoot: 'reply-event' }))
+      .rejects.toMatchObject({ code: 'thread-not-found', status: 404 })
+    await expect(app.service.events(alice, 'group', { threadRoot: 'missing-other-room-event' }))
+      .rejects.toMatchObject({ code: 'thread-not-found', status: 404 })
+    app.events.push({ ...parent, sequence: '3', event: { ...parent.event, id: 'reaction-event', kind: 7 } })
+    await expect(app.service.events(alice, 'group', { threadRoot: 'reaction-event' }))
+      .rejects.toMatchObject({ code: 'thread-not-found', status: 404 })
+    app.events.push({ ...parent, surfaceId: 'other-room', event: { ...parent.event, id: 'other-room-root' } })
+    await expect(app.service.events(alice, 'group', { threadRoot: 'other-room-root' }))
+      .rejects.toMatchObject({ code: 'thread-not-found', status: 404 })
+    app.revoke()
+    await expect(app.service.events(alice, 'group', { threadRoot: parent.event.id }))
+      .rejects.toMatchObject({ code: 'not-found', status: 404 })
+  })
+
   it('accepts two human posts without invoking a Bot', async () => {
     const app = fixture()
     expect(await app.service.message(alice, 'group', { text: 'Good morning', messageId: 'a1' })).toMatchObject({ delivered: true, targets: [] })

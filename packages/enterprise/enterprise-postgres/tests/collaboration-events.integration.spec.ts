@@ -103,6 +103,61 @@ describe.skipIf(url === undefined)('PostgreSQL signed room events', () => {
     expect(BigInt(third.sequence)).toBeGreaterThan(BigInt(reply.sequence))
   })
 
+  it('pages historical unthreaded employee facts only within the bound channel thread', async () => {
+    const channel = await db.collaboration.create({ orgId, workspaceId, kind: 'channel', name: 'Thread archive',
+      memberUserIds: [actorId], memberEmployeeIds: [], dutyEmployeeIds: [], topicPolicy: 'thread' })
+    const root = await db.roomEvents.append({ ...input('Archived root'), surfaceId: channel.id,
+      event: event('Archived root', channel.id) })
+    const employeeId = randomUUID(), sessionId = randomUUID(), unrelatedSessionId = randomUUID()
+    const employeeKey = generateSecretKey()
+    await db.roomEvents.ensureRoomActorKey({ orgId, actorKind: 'employee', actorId: employeeId, pubkey: getPublicKey(employeeKey) })
+    await db.collaboration.bind({ surfaceId: channel.id, topicId: root.event.id, employeeId, sessionId })
+    await db.collaboration.bind({ surfaceId: channel.id, topicId: 'other-topic', employeeId, sessionId: unrelatedSessionId })
+    const appendEmployee = async (content: string, sourceSessionId: string, cursor: string, kind = 9) => {
+      const signed = finalizeEvent({ created_at: 1, kind, content,
+        tags: [['h', channel.id], ['dsh-source', `${sourceSessionId}:${cursor}`]] }, employeeKey)
+      return db.roomEvents.append({ orgId, surfaceId: channel.id, authorKind: 'employee', authorId: employeeId,
+        sourceSessionId, sourceEventCursor: cursor, event: signed })
+    }
+    const legacy = await appendEmployee('Historical Bot reply', sessionId, '1')
+    const progress = await appendEmployee('Historical tool progress', sessionId, '2', 41000)
+    const otherTopic = await appendEmployee('Another topic', unrelatedSessionId, '1')
+    const reply = await db.roomEvents.append({ ...input('Signed thread reply'), surfaceId: channel.id,
+      event: event('Signed thread reply', channel.id, [['e', root.event.id, '', 'root']]), threadRoot: root.event.id })
+    await db.roomEvents.append({ ...input('Human source is not a Bot reply'), surfaceId: channel.id,
+      event: event('Human source is not a Bot reply', channel.id), sourceSessionId: sessionId, sourceEventCursor: '3' })
+    const appendReaction = async (content: string, targetId: string, marker?: 'root') => db.roomEvents.append({
+      orgId, surfaceId: channel.id, authorKind: 'human', authorId: actorId,
+      event: finalizeEvent({ created_at: 1, kind: 7, content,
+        tags: [['h', channel.id], marker === undefined ? ['e', targetId] : ['e', targetId, '', marker]] }, secretKey),
+    })
+    const oldReaction = await appendReaction('+', legacy.event.id)
+    await appendReaction('Other topic reaction', otherTopic.event.id)
+    await appendReaction('Root marker is not a reaction target', legacy.event.id, 'root')
+    const options = { threadRoot: root.event.id, legacySourceSessionIds: [sessionId, unrelatedSessionId] }
+    expect((await db.roomEvents.list(orgId, channel.id, { ...options, limit: 2 })).map(value => value.event.id))
+      .toEqual([reply.event.id, oldReaction.event.id])
+    expect((await db.roomEvents.list(orgId, channel.id, { ...options, after: root.sequence, limit: 1 })).map(value => value.event.id))
+      .toEqual([legacy.event.id])
+    expect((await db.roomEvents.list(orgId, channel.id, { ...options, before: reply.sequence, limit: 2 })).map(value => value.event.id))
+      .toEqual([legacy.event.id, progress.event.id])
+    expect((await db.roomEvents.list(orgId, channel.id, { threadRoot: root.event.id })).map(value => value.event.id))
+      .toEqual([reply.event.id])
+    expect(await db.roomEvents.getByEventId(orgId, channel.id, legacy.event.id)).toEqual(legacy)
+    expect(await db.roomEvents.getByEventId(orgId, channel.id, oldReaction.event.id)).toEqual(oldReaction)
+    expect(oldReaction.threadRoot).toBeUndefined()
+    expect(legacy.threadRoot).toBeUndefined()
+    expect(legacy.event.tags.some(tag => tag[3] === 'root')).toBe(false)
+    const groupSessionId = randomUUID()
+    await db.collaboration.bind({ surfaceId, topicId: root.event.id, employeeId, sessionId: groupSessionId })
+    await db.roomEvents.append({ orgId, surfaceId, authorKind: 'employee', authorId: employeeId,
+      sourceSessionId: groupSessionId, sourceEventCursor: '1', event: finalizeEvent({ created_at: 1, kind: 9,
+        content: 'Group stays flat', tags: [['h', surfaceId]] }, employeeKey) })
+    expect(await db.roomEvents.list(orgId, surfaceId, { ...options, legacySourceSessionIds: [groupSessionId] })).toEqual([])
+    expect(await db.roomEvents.list(otherOrgId, channel.id, options)).toEqual([])
+    expect(await db.roomEvents.list(orgId, otherSurfaceId, options)).toEqual([])
+  })
+
   it('persists each human read cursor and classifies signed posts without counting own messages', async () => {
     const own = await db.roomEvents.append(input('Own post'))
     const member = randomUUID()

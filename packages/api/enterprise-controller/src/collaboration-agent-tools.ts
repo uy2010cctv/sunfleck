@@ -167,10 +167,12 @@ export function installCollaborationAgentTools(ctx: Context, options: Collaborat
           const binding = await authorized(agent, exec.agent, args.sourceEventId)
           const targets = targetsFor(binding, args.targetEmployeeIds ?? [])
           const mentionedUserIds = humansFor(binding, args.mentionedUserIds ?? [])
+          const threadRoot = binding.source.threadRoot
+            ?? (binding.room.kind === 'channel' && binding.source.event.kind === 9 ? binding.source.event.id : undefined)
           const event = await signedPost(agent, binding, `room_post:${args.idempotencyKey}`, String(exec.callId), {
             type: 'text', content: args.content, sourceEventId: args.sourceEventId, hop: binding.hop, targetEmployeeIds: targets,
             ...(mentionedUserIds.length === 0 ? {} : { mentionedUserIds }),
-            ...(binding.source.threadRoot === undefined ? {} : { threadRoot: binding.source.threadRoot }),
+            ...(threadRoot === undefined ? {} : { threadRoot }),
           })
           exec.signal.throwIfAborted()
           const delivered = targets.length === 0 ? [] : await options.dispatchEmployeePost(binding.room, event, targets)

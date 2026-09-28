@@ -69,6 +69,20 @@ describe('custodial room signing identities', () => {
     expect(JSON.stringify({ human, bot })).not.toContain('secretHex')
   })
 
+  it('signs a workflow thread parent and rejects an invalid reference', async () => {
+    const signer = fixture().identity()
+    const root = await signer.signHuman(alice, 'room-1', { type: 'text', content: 'Root request' })
+    const event = await signer.signEmployee({ orgId: 'org-a', employeeId: 'research', sessionId: 'bound-session' },
+      'room-1', { type: 'workflow', content: 'Tool started.', stepId: 'tool:1', sourceEventId: root.id, threadRoot: root.id })
+    expect(event.kind).toBe(41000)
+    expect(event.tags).toContainEqual(['e', root.id, '', 'root'])
+    expect(event.tags).toContainEqual(['e', root.id])
+    expect(verifiedSignature(event)).toBe(true)
+    await expect(signer.signEmployee({ orgId: 'org-a', employeeId: 'research', sessionId: 'bound-session' },
+      'room-1', { type: 'workflow', content: 'Tool started.', stepId: 'tool:1', threadRoot: 'arbitrary-topic' }))
+      .rejects.toThrow('room-event-reference-invalid')
+  })
+
   it('signs reactions with an event reference and rejects modified content', async () => {
     const { identity } = fixture()
     const signer = identity()

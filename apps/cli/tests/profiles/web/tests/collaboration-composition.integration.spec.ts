@@ -7,7 +7,7 @@ import { join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { Pool } from 'pg'
 import WebSocket from 'ws'
-import { verifyEvent } from 'nostr-tools/pure'
+import { finalizeEvent, generateSecretKey, getPublicKey, verifyEvent } from 'nostr-tools/pure'
 import { describe, expect, it, type TestContext } from 'vitest'
 import { LOADER_SMOKE_TEST_TIMEOUT_MS, resolveExampleLaunch } from '@deepseek-ai/dsh-loader-smoke'
 import { PROCESS_SHUTDOWN_TIMEOUT_MS } from '../../../../src/process-shutdown.ts'
@@ -261,8 +261,10 @@ describe.skipIf(databaseUrl === undefined)('enterprise collaboration source Web 
           headers: { cookie: colleagueCookie }, signal: test.signal,
         })
         expect(colleagueProject.status).toBe(200)
-        expect(await colleagueProject.json()).toMatchObject({ workspaceId: projectWorkspaceId,
-          members: expect.arrayContaining([{ principalType: 'user', principalId: 'fixture-colleague' }]) })
+        const colleagueProjectDetail = record(await colleagueProject.json())
+        expect(colleagueProjectDetail).toMatchObject({ workspaceId: projectWorkspaceId })
+        expect(colleagueProjectDetail['members'])
+          .toEqual(expect.arrayContaining([{ principalType: 'user', principalId: 'fixture-colleague' }]))
         const projectSession = await rpc('session/create', { workspaceId: projectWorkspaceId }, colleagueCookie)
         expect(typeof projectSession['sessionId']).toBe('string')
         const items = (value: Record<string, unknown>): Record<string, unknown>[] => {
@@ -392,14 +394,28 @@ describe.skipIf(databaseUrl === undefined)('enterprise collaboration source Web 
             const page = items(await request(`/${id}/events`, undefined, colleagueCookie))
             return [...new Set(page.map(event => string(record(event['author'])['id'])))].sort()
           }, { timeout: test.task.timeout }).toEqual(['bootstrap-admin', 'fixture-assistant', 'fixture-colleague', 'fixture-reviewer'])
+          if (kind === 'channels') {
+            await expect.poll(async () => {
+              const events = items(await request(`/${id}/events`))
+              return events.filter(event => record(event['author'])['kind'] === 'employee'
+                && event['content'] === 'Collaboration fixture completed the request.').length
+            }, { timeout: test.task.timeout, message: app.diagnostics() }).toBe(2)
+          }
           const page = items(await request(`/${id}/events`))
           for (const event of page) { assertSignature(event); expect(event['tags']).toContainEqual(['h', id]) }
+          if (kind === 'groups') {
+            for (const event of page.filter(value => record(value['author'])['kind'] === 'employee')) {
+              expect(event['threadRoot']).toBeUndefined()
+              expect(event['tags']).not.toContainEqual(['e', rootEvent['id'], '', 'root'])
+            }
+          }
           expect(new Set(page.map(event => event['pubkey'])).size).toBe(4)
           expect(page.filter(event => event['id'] === colleagueEvent['id'])).toHaveLength(1)
           const reactionInput = { eventId: colleagueEvent['id'], emoji: '👍', requestId: randomUUID() }
           const reaction = record((await request(`/${id}/reactions`, reactionInput))['event'])
           expect((await request(`/${id}/reactions`, reactionInput))['event']).toEqual(reaction)
           expect(reaction['kind']).toBe(7)
+          if (kind === 'groups') expect(reaction['threadRoot']).toBeUndefined()
           assertSignature(reaction)
           expect(items(await request(`/${id}/search?q=${encodeURIComponent(colleagueMessage.text)}`))
             .map(event => event['id'])).toContain(colleagueEvent['id'])
@@ -408,7 +424,88 @@ describe.skipIf(databaseUrl === undefined)('enterprise collaboration source Web 
           if (kind === 'channels') {
             const thread = items(await request(`/${id}/events?threadRoot=${string(rootEvent['id'])}`))
             expect(thread.some(event => event['id'] === colleagueEvent['id'])).toBe(true)
-            expect(thread.filter(event => record(event['author'])['kind'] === 'employee').length).toBeGreaterThan(0)
+            const botEvents = page.filter(event => record(event['author'])['kind'] === 'employee')
+            expect(botEvents.filter(event => event['content'] === 'Fixture threaded room post.')).toHaveLength(2)
+            expect(botEvents.filter(event => event['content'] === 'Tool room_post started.')).toHaveLength(2)
+            expect(botEvents.filter(event => event['content'] === 'Tool room_post succeeded.')).toHaveLength(2)
+            expect(botEvents.filter(event => event['content'] === 'Collaboration fixture completed the request.')).toHaveLength(2)
+            for (const event of botEvents) {
+              expect(event['threadRoot']).toBe(rootEvent['id'])
+              expect(event['tags']).toContainEqual(['e', rootEvent['id'], '', 'root'])
+              expect(thread.map(value => value['id'])).toContain(event['id'])
+            }
+            expect(record((await request(`/${id}/events?threadRoot=${string(rootEvent['id'])}`))['root'])['id']).toBe(rootEvent['id'])
+            const persistedBotEvents = await database.query<{ thread_root: string; event_json: { tags: string[][] } }>(
+              'SELECT thread_root,event_json FROM dsh_enterprise_collaboration_events WHERE surface_id=$1 AND author_kind=$2', [id, 'employee'])
+            expect(persistedBotEvents.rows).toHaveLength(botEvents.length)
+            for (const event of persistedBotEvents.rows) {
+              expect(event.thread_root).toBe(rootEvent['id'])
+              expect(event.event_json.tags).toContainEqual(['e', rootEvent['id'], '', 'root'])
+            }
+            const legacyKey = generateSecretKey(), legacyAuthorId = `historical-${randomUUID()}`
+            await database.query('INSERT INTO dsh_enterprise_collaboration_actor_keys(org_id,actor_kind,actor_id,pubkey) VALUES($1,$2,$3,$4)',
+              ['collaboration-fixture', 'employee', legacyAuthorId, getPublicKey(legacyKey)])
+            const historical = ['Historical off-page reply.', 'Historical off-page tool progress.'].map((content, index) =>
+              finalizeEvent({ created_at: 1, kind: index === 0 ? 9 : 41000, content,
+                tags: [['h', id], ['dsh-source', `${sessionId}:historical-${index}`]] }, legacyKey))
+            const unrelated = finalizeEvent({ created_at: 1, kind: 9, content: 'Historical other-topic reply.',
+              tags: [['h', id], ['dsh-source', `unrelated-${randomUUID()}:1`]] }, legacyKey)
+            for (const [index, event] of [...historical, unrelated].entries()) {
+              await database.query(`INSERT INTO dsh_enterprise_collaboration_events
+                (org_id,surface_id,event_id,event_json,author_kind,author_id,source_session_id,source_event_cursor)
+                VALUES($1,$2,$3,$4,'employee',$5,$6,$7)`, ['collaboration-fixture', id, event.id, JSON.stringify(event),
+                legacyAuthorId, index < 2 ? sessionId : 'unrelated-session', `historical-${index}`])
+            }
+            expect(items(await request(`/${id}/events?limit=1`)).map(event => event['id'])).toEqual([unrelated.id])
+            const historicalHumanKey = generateSecretKey(), historicalHumanId = `historical-human-${randomUUID()}`
+            await database.query('INSERT INTO dsh_enterprise_collaboration_actor_keys(org_id,actor_kind,actor_id,pubkey) VALUES($1,$2,$3,$4)',
+              ['collaboration-fixture', 'human', historicalHumanId, getPublicKey(historicalHumanKey)])
+            const oldReaction = finalizeEvent({ created_at: 1, kind: 7, content: '+',
+              tags: [['h', id], ['e', historical[0]!.id]] }, historicalHumanKey)
+            const unrelatedReaction = finalizeEvent({ created_at: 1, kind: 7, content: '+',
+              tags: [['h', id], ['e', unrelated.id]] }, historicalHumanKey)
+            for (const event of [oldReaction, unrelatedReaction]) {
+              await database.query(`INSERT INTO dsh_enterprise_collaboration_events
+                (org_id,surface_id,event_id,event_json,author_kind,author_id)
+                VALUES($1,$2,$3,$4,'human',$5)`, ['collaboration-fixture', id, event.id, JSON.stringify(event), historicalHumanId])
+            }
+            const historicalThread = items(await request(`/${id}/events?threadRoot=${string(rootEvent['id'])}`))
+            expect(historicalThread.map(event => event['id'])).not.toContain(unrelated.id)
+            expect(historicalThread.map(event => event['id'])).not.toContain(unrelatedReaction.id)
+            const newReaction = record((await request(`/${id}/reactions`, { eventId: historical[0]!.id,
+              emoji: '👍', requestId: randomUUID() }))['event'])
+            expect(newReaction['threadRoot']).toBe(rootEvent['id'])
+            expect(newReaction['tags']).toContainEqual(['e', historical[0]!.id])
+            expect(newReaction['tags']).toContainEqual(['e', rootEvent['id'], '', 'root'])
+            assertSignature(newReaction)
+            const storedReaction = await database.query<{ thread_root: string }>(
+              'SELECT thread_root FROM dsh_enterprise_collaboration_events WHERE event_id=$1', [newReaction['id']])
+            expect(storedReaction.rows[0]?.thread_root).toBe(rootEvent['id'])
+            expect(items(await request(`/${id}/events?threadRoot=${string(rootEvent['id'])}`)).map(event => event['id']))
+              .toContain(newReaction['id'])
+            const otherTopicReaction = record((await request(`/${id}/reactions`, { eventId: unrelated.id,
+              emoji: '👍', requestId: randomUUID() }))['event'])
+            expect(otherTopicReaction['threadRoot']).toBeUndefined()
+            expect(items(await request(`/${id}/events?threadRoot=${string(rootEvent['id'])}`)).map(event => event['id']))
+              .not.toContain(otherTopicReaction['id'])
+            const historicalReactionView = historicalThread.find(event => event['id'] === oldReaction.id)
+            expect(historicalReactionView).toMatchObject({ threadRoot: rootEvent['id'], tags: oldReaction.tags })
+            assertSignature(historicalReactionView!)
+            for (const event of historical) {
+              const presented = historicalThread.find(value => value['id'] === event.id)
+              expect(presented).toMatchObject({ threadRoot: rootEvent['id'], content: event.content })
+              expect(presented!['tags']).toEqual(event.tags)
+              assertSignature(presented!)
+            }
+            const unchangedHistory = await database.query<{ thread_root: string | null; event_json: unknown }>(
+              'SELECT thread_root,event_json FROM dsh_enterprise_collaboration_events WHERE event_id=ANY($1)',
+              [[...historical, oldReaction, unrelatedReaction].map(event => event.id)])
+            expect(unchangedHistory.rows).toHaveLength(4)
+            for (const event of unchangedHistory.rows) {
+              expect(event.thread_root).toBeNull()
+              expect([...historical, oldReaction, unrelatedReaction].map(value => record(JSON.parse(JSON.stringify(value)))))
+                .toContainEqual(event.event_json)
+            }
             const yaml = [
               'version: 1', 'name: Fixture approval workflow', 'on:',
               '  - type: message', '    contains: fixture-approval-trigger', 'steps:',

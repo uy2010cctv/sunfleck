@@ -340,6 +340,8 @@ export function composeCollaboration(ctx: Context, services: {
     const source = (await Promise.all(triggers.map(id => roomEvents.getByEventId(row.orgId, row.id, id))))
       .find(value => value !== undefined)
     if (source === undefined) return
+    const threadRoot = row.kind === 'channel'
+      ? source.threadRoot ?? (source.event.kind === 9 ? source.event.id : undefined) : undefined
     const employeeId = binding.employeeId === '' && row.teamDefinitionId !== undefined
       ? (await teamRoster(row, history)).find(member => member.sessionId === binding.sessionId)?.employeeId
       : binding.employeeId
@@ -352,10 +354,11 @@ export function composeCollaboration(ctx: Context, services: {
       if (await roomEvents.findBySourceCursor(row.orgId, row.id, binding.sessionId, cursor) !== undefined) continue
       const signed = await signer.signEmployee({ orgId: row.orgId, employeeId, sessionId: binding.sessionId }, row.id,
         { type: 'workflow', content: fact.content, stepId: `tool:${binding.sessionId}:${fact.sourceSeq}`,
-          sourceEventId: source.event.id, sourceCursor: cursor })
+          sourceEventId: source.event.id, sourceCursor: cursor,
+          ...(threadRoot === undefined ? {} : { threadRoot }) })
       await roomEvents.append({ orgId: row.orgId, surfaceId: row.id, event: signed,
         authorKind: 'employee', authorId: employeeId, sourceSessionId: binding.sessionId,
-        sourceEventCursor: cursor })
+        sourceEventCursor: cursor, ...(threadRoot === undefined ? {} : { threadRoot }) })
     }
   }
   const projectTeamMemberTurn = async (memberSessionId: string, turn: number,
@@ -490,19 +493,37 @@ export function composeCollaboration(ctx: Context, services: {
         }
         const target = await roomEvents.getByEventId(row.orgId, row.id, input.eventId)
         if (target === undefined) throw new CollaborationError('event-not-found', 404)
+        let threadRoot = target.threadRoot
+        if (threadRoot === undefined && row.kind === 'channel' && row.topicPolicy === 'thread'
+          && target.event.kind === 9 && target.authorKind === 'employee' && target.sourceSessionId !== undefined) {
+          const binding = await store.bySession(target.sourceSessionId)
+          if (binding?.surfaceId === row.id) {
+            const parent = await roomEvents.getByEventId(row.orgId, row.id, binding.topicId)
+            if (parent?.event.kind === 9 && parent.threadRoot === undefined) threadRoot = parent.event.id
+          }
+        }
         const event = await signer.signHuman(actor, row.id, { type: 'reaction', content: input.emoji,
           requestId: input.requestId,
           targetEventId: target.event.id,
-          ...(target.threadRoot === undefined ? {} : { threadRoot: target.threadRoot }) })
+          ...(threadRoot === undefined ? {} : { threadRoot }) })
         try { return await roomEvents.append({ orgId: row.orgId, surfaceId: row.id, event,
           authorKind: 'human', authorId: actor.userId, requestId: input.requestId,
-          ...(target.threadRoot === undefined ? {} : { threadRoot: target.threadRoot }) }) }
+          ...(threadRoot === undefined ? {} : { threadRoot }) }) }
         catch (error) {
           if (error instanceof RoomEventConflictError) throw new CollaborationError('message-id-conflict', 409)
           throw error
         }
       },
-      list: (row, options) => roomEvents.list(row.orgId, row.id, options),
+      list: async (row, options) => {
+        const threadRoot = options.threadRoot
+        if (row.kind !== 'channel' || row.topicPolicy !== 'thread' || threadRoot === undefined) {
+          return roomEvents.list(row.orgId, row.id, options)
+        }
+        const legacySourceSessionIds = (await store.sessions(row.id))
+          .filter(binding => binding.topicId === threadRoot).map(binding => binding.sessionId)
+        const events = await roomEvents.list(row.orgId, row.id, { ...options, legacySourceSessionIds })
+        return events.map(event => event.threadRoot === undefined ? { ...event, threadRoot } : event)
+      },
       attention: (row, userId) => roomEvents.attention(row.orgId, row.id, userId),
       markRead: (row, userId, sequence) => roomEvents.markRead(row.orgId, row.id, userId, sequence),
       get: (row, eventId) => roomEvents.getByEventId(row.orgId, row.id, eventId),
