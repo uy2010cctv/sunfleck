@@ -1,6 +1,16 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for device-plane.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write docs/subsystems/device-plane.md
-device-plane.md: a5c2d68b52606b087ee20f686e3509d7a5d44d56
-device-plane.zh.md: d8beeb1147e648fe2f3852f343a5983591878030
+/device-plane:
+  en: 382e3c95dfb24ca4
+  zh: dca88a2fbfd17ef4
+/device-plane/architecture:
+  en: 95db856932405617
+  zh: 679e082d1a8a5946
+/device-plane/local-agent:
+  en: 4c71ee3f978365d1
+  zh: b1c478c803542f88
+/device-plane/safety-and-recovery:
+  en: 8fb7791903dbb1cb
+  zh: a04a4f55bd484ef2

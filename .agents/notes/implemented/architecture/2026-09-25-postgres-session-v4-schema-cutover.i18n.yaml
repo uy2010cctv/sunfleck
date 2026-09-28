@@ -1,6 +1,19 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-25-postgres-session-v4-schema-cutover.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-09-25-postgres-session-v4-schema-cutover.md
-2026-09-25-postgres-session-v4-schema-cutover.md: 647c5f23aaf455106bd0d5ca57bade97fd8f809a
-2026-09-25-postgres-session-v4-schema-cutover.zh.md: 595ad346627e13208cfd2ffdb5c63e3602b85248
+/agent-note-postgresql-session-v4-schema-cutover:
+  en: 77a18bf3cbcf91b9
+  zh: daaf90950b0c4d8e
+/agent-note-postgresql-session-v4-schema-cutover/problem:
+  en: 2025e9740d3b97c4
+  zh: d2d3d396f6a1d07e
+/agent-note-postgresql-session-v4-schema-cutover/decision:
+  en: 19b9ec86bd79ba95
+  zh: d7048754aceb9cff
+/agent-note-postgresql-session-v4-schema-cutover/alternatives-considered:
+  en: 729d2821bda59b4f
+  zh: 21439850e3b9de14
+/agent-note-postgresql-session-v4-schema-cutover/consequences:
+  en: 4d34dd1aeb83da90
+  zh: b48e4ecc76fbfa01

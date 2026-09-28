@@ -1,6 +1,19 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-14-sunfleck-browser-identity.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-14-sunfleck-browser-identity.md
-2026-09-14-sunfleck-browser-identity.md: a325b187201d798bf6aa00832d521177a8aaef3e
-2026-09-14-sunfleck-browser-identity.zh.md: f45a5f949e2506b5e66afc948069c41ce24434f6
+/agent-note-sunfleck-browser-identity:
+  en: edbf10931e25153f
+  zh: 4b68769dc8720d1d
+/agent-note-sunfleck-browser-identity/problem:
+  en: a79eab5610e8a080
+  zh: 7397933a0784dd52
+/agent-note-sunfleck-browser-identity/decision:
+  en: 2825e479cc0a0dae
+  zh: 15d0bbddb89f18c8
+/agent-note-sunfleck-browser-identity/alternatives-considered:
+  en: 97583787f322b15a
+  zh: 102b6e11c8faa53b
+/agent-note-sunfleck-browser-identity/consequences:
+  en: fd6f1022b36ee674
+  zh: 7de213b95479b3ae

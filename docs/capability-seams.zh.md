@@ -163,7 +163,6 @@ flowchart LR
   svc_sessionProjections["ctx.sessionProjections<br/>Session projection units"]
   pkg_session_projection_cache["session-projection-cache"]
   svc_sessionProjectionCache["ctx.sessionProjectionCache<br/>Persisted projection cache"]
-  pkg_subagent["subagent"]
   pkg_skill["skill"]
   svc_skills["ctx.skills<br/>Skill provider registry"]
   pkg_skill_badge["skill-badge"]
@@ -176,6 +175,8 @@ flowchart LR
   svc_agentLoop["ctx.agentLoop<br/>Concrete loop driver"]
   pkg_base["base"]
   pkg_sdk_minimal["sdk-minimal"]
+  pkg_schedule["schedule"]
+  svc_schedule["ctx.schedule<br/>Host scheduled messages"]
   pkg_goal["goal"]
   svc_goals["ctx.goals<br/>Same-session goal domain"]
   pkg_ssh["ssh"]
@@ -222,6 +223,7 @@ flowchart LR
   pkg_fs_observation_policy["fs-observation-policy"]
   pkg_compaction["compaction"]
   svc_compaction["ctx.compaction<br/>Compaction seam"]
+  pkg_subagent["subagent"]
   svc_subagents["ctx.subagents<br/>Subagent provider and continuation service"]
   pkg_subagent_spawn_in_process["subagent-spawn-in-process"]
   pkg_subagent_fork_in_process["subagent-fork-in-process"]
@@ -271,10 +273,60 @@ flowchart LR
   pkg_cordis_host_runner["cordis-host-runner"]
   svc_dynamicCordisRunner["ctx.dynamicCordisRunner<br/>Dynamic Cordis package host runner"]
   svc_cordisInspect["ctx.cordisInspect<br/>Dynamic Cordis inspect registry"]
+  pkg_enterprise_postgres["enterprise-postgres"]
+  svc_enterprisePostgres["ctx.enterprisePostgres<br/>Enterprise PostgreSQL composition"]
+  pkg_api_enterprise_controller["api-enterprise-controller"]
+  pkg_enterprise_cordis_runtime["enterprise-cordis-runtime"]
+  pkg_enterprise_auth_web["enterprise-auth-web"]
+  svc_enterpriseRequestContext["ctx.enterpriseRequestContext<br/>Enterprise request principal context"]
+  svc_enterpriseSecurity["ctx.enterpriseSecurity<br/>Enterprise authorization service"]
+  svc_enterpriseEmployeeController["ctx.enterpriseEmployeeController<br/>Enterprise employee controller"]
+  pkg_client_ui_enterprise_workbench["client-ui-enterprise-workbench"]
+  svc_enterpriseAssetController["ctx.enterpriseAssetController<br/>Enterprise capability asset controller"]
+  svc_enterpriseChannelBotInstaller["ctx.enterpriseChannelBotInstaller<br/>Enterprise channel Bot installer"]
+  svc_enterpriseChannelController["ctx.enterpriseChannelController<br/>Enterprise channel controller"]
+  svc_enterpriseDeviceController["ctx.enterpriseDeviceController<br/>Enterprise Device Plane controller"]
+  pkg_device_agent["device-agent"]
+  svc_enterpriseTeamController["ctx.enterpriseTeamController<br/>Enterprise fixed-team controller"]
+  svc_enterpriseTeamDefinitionController["ctx.enterpriseTeamDefinitionController<br/>Enterprise team charter controller"]
+  svc_enterpriseTeamRunController["ctx.enterpriseTeamRunController<br/>Enterprise TeamRun controller"]
+  svc_enterpriseTeamDecisionController["ctx.enterpriseTeamDecisionController<br/>Enterprise team decision controller"]
+  svc_enterpriseTeamAutonomyController["ctx.enterpriseTeamAutonomyController<br/>Enterprise autonomy controller"]
+  svc_enterpriseOperationController["ctx.enterpriseOperationController<br/>Enterprise operations controller"]
+  svc_enterpriseWorkController["ctx.enterpriseWorkController<br/>Enterprise goal-first work controller"]
+  pkg_employee_account["employee-account"]
+  svc_employeeAccounts["ctx.employeeAccounts<br/>Employee account service"]
+  pkg_enterprise_project["enterprise-project"]
+  svc_enterpriseProjects["ctx.enterpriseProjects<br/>Enterprise project service"]
+  pkg_enterprise_surface["enterprise-surface"]
+  svc_surfaces["ctx.surfaces<br/>Enterprise surface delivery service"]
+  pkg_enterprise_memory_context["enterprise-memory-context"]
+  svc_memoryConsolidation["ctx.memoryConsolidation<br/>Memory consolidation service"]
+  pkg_enterprise_cordis["enterprise-cordis"]
+  svc_enterpriseCordis["ctx.enterpriseCordis<br/>Enterprise Cordis governance"]
+  svc_cordisWorkspaceController["ctx.cordisWorkspaceController<br/>Enterprise Cordis workspace controller"]
+  pkg_client_ui_enterprise_governance["client-ui-enterprise-governance"]
+  svc_cordisReviewController["ctx.cordisReviewController<br/>Enterprise Cordis review controller"]
+  svc_cordisGovernanceController["ctx.cordisGovernanceController<br/>Enterprise Cordis governance controller"]
   pkg_agent --> svc_agents
   pkg_agent_default_model --> svc_agentDefaultModel
   pkg_agent_loop --> svc_agentLoop
   pkg_agent_preset_registry --> svc_agentPresets
+  pkg_api_enterprise_controller --> svc_cordisGovernanceController
+  pkg_api_enterprise_controller --> svc_cordisReviewController
+  pkg_api_enterprise_controller --> svc_cordisWorkspaceController
+  pkg_api_enterprise_controller --> svc_enterpriseAssetController
+  pkg_api_enterprise_controller --> svc_enterpriseChannelBotInstaller
+  pkg_api_enterprise_controller --> svc_enterpriseChannelController
+  pkg_api_enterprise_controller --> svc_enterpriseDeviceController
+  pkg_api_enterprise_controller --> svc_enterpriseEmployeeController
+  pkg_api_enterprise_controller --> svc_enterpriseOperationController
+  pkg_api_enterprise_controller --> svc_enterpriseTeamAutonomyController
+  pkg_api_enterprise_controller --> svc_enterpriseTeamController
+  pkg_api_enterprise_controller --> svc_enterpriseTeamDecisionController
+  pkg_api_enterprise_controller --> svc_enterpriseTeamDefinitionController
+  pkg_api_enterprise_controller --> svc_enterpriseTeamRunController
+  pkg_api_enterprise_controller --> svc_enterpriseWorkController
   pkg_api_gateway --> svc_typertGateway
   pkg_api_job_controller --> svc_jobController
   pkg_api_session_controller --> svc_sessionController
@@ -311,6 +363,14 @@ flowchart LR
   pkg_deepseek_account --> svc_deepseekAccount
   pkg_deepseek_account_platform --> svc_deepseekAccount
   pkg_deepseek_llm_api_extensions --> svc_deepseekLlmApiExtensions
+  pkg_employee_account --> svc_employeeAccounts
+  pkg_enterprise_auth_web --> svc_enterpriseRequestContext
+  pkg_enterprise_auth_web --> svc_enterpriseSecurity
+  pkg_enterprise_cordis --> svc_enterpriseCordis
+  pkg_enterprise_memory_context --> svc_memoryConsolidation
+  pkg_enterprise_postgres --> svc_enterprisePostgres
+  pkg_enterprise_project --> svc_enterpriseProjects
+  pkg_enterprise_surface --> svc_surfaces
   pkg_experimental_agent_team --> svc_agentTeams
   pkg_experimental_api_speech_to_text --> svc_speechController
   pkg_experimental_browser_use_chrome_devtools_mcp --> svc_browserUse
@@ -359,6 +419,7 @@ flowchart LR
   pkg_sandbox_local --> svc_sandbox
   pkg_sandbox_policy --> svc_sandboxPolicy
   pkg_sandbox_ssh --> svc_sandbox
+  pkg_schedule --> svc_schedule
   pkg_session --> svc_sessions
   pkg_session_log_deepseek --> svc_deepseekLlmApiExtensions
   pkg_session_persistence --> svc_sessionPersistence
@@ -443,7 +504,10 @@ flowchart LR
   svc_configEditor --> pkg_settings
   svc_connection --> pkg_api_gateway
   svc_connection --> pkg_host_frontend_static
+  svc_cordisGovernanceController --> pkg_client_ui_enterprise_governance
   svc_cordisInspect --> pkg_tool_cordis
+  svc_cordisReviewController --> pkg_client_ui_enterprise_governance
+  svc_cordisWorkspaceController --> pkg_client_ui_enterprise_governance
   svc_credentials --> pkg_api_settings_controller
   svc_credentials --> pkg_llm_deepseek
   svc_credentials --> pkg_llm_pi_ai
@@ -452,6 +516,29 @@ flowchart LR
   svc_deepseekLlmApiExtensions --> pkg_llm_deepseek
   svc_directoryPicker --> pkg_api_workspace_controller
   svc_dynamicCordisRunner --> pkg_tool_cordis
+  svc_employeeAccounts --> pkg_api_enterprise_controller
+  svc_enterpriseAssetController --> pkg_client_ui_enterprise_workbench
+  svc_enterpriseChannelBotInstaller --> pkg_api_enterprise_controller
+  svc_enterpriseChannelController --> pkg_client_ui_enterprise_workbench
+  svc_enterpriseCordis --> pkg_api_enterprise_controller
+  svc_enterpriseCordis --> pkg_enterprise_cordis_runtime
+  svc_enterpriseDeviceController --> pkg_client_ui_enterprise_workbench
+  svc_enterpriseDeviceController --> pkg_device_agent
+  svc_enterpriseEmployeeController --> pkg_client_ui_enterprise_workbench
+  svc_enterpriseOperationController --> pkg_client_ui_enterprise_workbench
+  svc_enterprisePostgres --> pkg_api_enterprise_controller
+  svc_enterprisePostgres --> pkg_enterprise_cordis_runtime
+  svc_enterpriseProjects --> pkg_api_enterprise_controller
+  svc_enterpriseRequestContext --> pkg_api_enterprise_controller
+  svc_enterpriseRequestContext --> pkg_api_gateway
+  svc_enterpriseSecurity --> pkg_api_enterprise_controller
+  svc_enterpriseSecurity --> pkg_api_gateway
+  svc_enterpriseTeamAutonomyController --> pkg_client_ui_enterprise_workbench
+  svc_enterpriseTeamController --> pkg_client_ui_enterprise_workbench
+  svc_enterpriseTeamDecisionController --> pkg_client_ui_enterprise_workbench
+  svc_enterpriseTeamDefinitionController --> pkg_client_ui_enterprise_workbench
+  svc_enterpriseTeamRunController --> pkg_client_ui_enterprise_workbench
+  svc_enterpriseWorkController --> pkg_client_ui_enterprise_workbench
   svc_fileReferences --> pkg_api_session_controller
   svc_fileUploads --> pkg_api_session_controller
   svc_fs --> pkg_tool_fs
@@ -470,6 +557,7 @@ flowchart LR
   svc_llm --> pkg_compaction_basic
   svc_lsp --> pkg_tool_lsp
   svc_mcpResources --> pkg_mcp_resources
+  svc_memoryConsolidation --> pkg_api_enterprise_controller
   svc_officeToPdf --> pkg_client_ui_sidebar_documentpreview
   svc_pluginManager --> pkg_plugin_manager
   svc_pluginManager --> pkg_ui_settings_plugin_inventory
@@ -492,7 +580,6 @@ flowchart LR
   svc_sessionProjectionCache --> pkg_api_session_controller
   svc_sessionProjectionCache --> pkg_session_query
   svc_sessionProjectionCache --> pkg_session_reference
-  svc_sessionProjectionCache --> pkg_subagent
   svc_sessionProjections --> pkg_api_session_controller
   svc_sessionProjections --> pkg_session_title
   svc_sessionProjections --> pkg_tool_todo
@@ -532,6 +619,7 @@ flowchart LR
   svc_subprocess --> pkg_subagent_claude_code
   svc_subprocess --> pkg_subagent_codex
   svc_subprocess --> pkg_terminal_bash
+  svc_surfaces --> pkg_api_enterprise_controller
   svc_systemPrompt --> pkg_agent_loop
   svc_systemPrompt --> pkg_tool_fs
   svc_systemPrompt --> pkg_tool_terminal
@@ -623,11 +711,12 @@ flowchart LR
 | `ctx.agentPresets` | `core` | [`agent-preset-registry`](../packages/preset/agent-preset-registry) | - | - | - | 立即挂载 YAML 声明的 preset 版本，把 Agent 和冷读取绑定到作用域内的贡献，并保留已替换的版本，直到最后一个使用者释放它。 |
 | `ctx.commands` | `core` | [`commands`](../packages/interaction/commands) | - | - | - | 插件注册直接面向人的命令，而不会把调用发送给模型。 |
 | `ctx.sessionProjections` | `core` | [`session-projection`](../packages/session/session-projection) | - | [`api-session-controller`](../packages/api/session-controller), [`tool-todo`](../packages/todo/tool-todo), [`session-title`](../packages/session/session-title) | - | 各领域注册由状态驱动的折叠单元；主动驱动过程维护每个会话的水位状态，Session controller 提供 baseline 并推送发生变化的值。 |
-| `ctx.sessionProjectionCache` | `core` | [`session-projection-cache`](../packages/session/session-projection-cache) | - | [`api-session-controller`](../packages/api/session-controller), [`session-query`](../packages/session-query/session-query), [`session-reference`](../packages/context/session-reference), [`subagent`](../packages/subagent/subagent) | - | 按会话持久保存投影单元状态的检查点（节流检查点，以及轮次／结束／分离时的必选检查点），并提供冷读取阶梯：缓存行加持久化尾部回放，因此列表读取永远不需要加载完整日志。 |
+| `ctx.sessionProjectionCache` | `core` | [`session-projection-cache`](../packages/session/session-projection-cache) | - | [`api-session-controller`](../packages/api/session-controller), [`session-query`](../packages/session-query/session-query), [`session-reference`](../packages/context/session-reference) | - | 按会话持久保存投影单元状态的检查点（节流检查点，以及轮次／结束／分离时的必选检查点），提供缓存投影视图，并加速 prepared Session 的投影恢复。 |
 | `ctx.skills` | `seam` | [`skill`](../packages/skill/skill) | [`skill-badge`](../packages/skill/skill-badge), [`skill-filesystem`](../packages/skill/skill-filesystem), [`skill-office`](../packages/skill/skill-office) | [`tool-skill`](../packages/skill/tool-skill) | - | 合并提供方的 skill（技能）目录；tool-skill 渲染会话前缀目录，并加载完整的 skill 正文。 |
 | `ctx.agents` | `core` | [`agent`](../packages/core/agent) | - | [`agent-loop`](../packages/core/agent-loop), [`acp`](../packages/acp/acp), [`subagent-in-process-driver`](../packages/subagent/subagent-in-process-driver) | - | 拥有实时 Agent 句柄、创建／恢复工厂 seam，以及进程本地的发起方传播。 |
 | `ctx.agentDefaultModel` | `core` | [`agent-default-model`](../packages/core/agent-default-model) | - | [`api-session-controller`](../packages/api/session-controller), [`headless`](../packages/bundle/headless) | - | Reads the default ModelSelection from volatile Config and saves selections through the profile editor. |
 | `ctx.agentLoop` | `bundle` | [`agent-loop`](../packages/core/agent-loop) | - | [`base`](../packages/bundle/base), [`sdk-minimal`](../packages/bundle/sdk-minimal) | - | 唯一的具体循环插件；扩展包依赖 dsh-agent 的事件和服务，而不依赖此包。 |
+| `ctx.schedule` | `core` | [`schedule`](../packages/schedule/schedule) | - | - | - | 独立于 Session 的加载状态存储任务，并将到期消息排入原 Session。 |
 | `ctx.goals` | `core` | [`goal`](../packages/goal/goal) | - | - | - | 从会话日志折叠带修订版本的目标状态，并将实时延续激活保留在进程本地。 |
 | `ctx.ssh` | `core` | [`ssh`](../packages/ssh/ssh) | - | [`fs-ssh`](../packages/ssh/fs-ssh), [`subprocess-ssh`](../packages/ssh/subprocess-ssh), [`sandbox-ssh`](../packages/ssh/sandbox-ssh) | - | 负责一条经过认证的 OpenSSH 连接、已安装辅助程序身份、独立程序流，以及配套远端提供方的断连清理。 |
 | `ctx.subprocess` | `seam` | [`subprocess`](../packages/subprocess/subprocess) | [`subprocess-local`](../packages/subprocess/subprocess-local), [`subprocess-ssh`](../packages/ssh/subprocess-ssh) | [`bash-local`](../packages/shell/bash-local), [`bash-sandbox`](../packages/shell/bash-sandbox), [`terminal-bash`](../packages/terminal/terminal-bash), [`lsp-stdio`](../packages/lsp/lsp-stdio), [`subagent-acp`](../packages/subagent/subagent-acp), [`subagent-codex`](../packages/subagent/subagent-codex), [`subagent-claude-code`](../packages/subagent/subagent-claude-code) | - | Bash 执行器、PTY shell 后端、LSP Host，以及进程外 ACP、Codex 和 Claude Code subagent 后端都通过 ctx.subprocess 执行 spawn；该服务负责进程坐标、进程树／会话生命周期、stdio 处置、终端机制和 kill 升级。 |
@@ -656,5 +745,28 @@ flowchart LR
 | `ctx.lsp` | `seam` | [`lsp`](../packages/lsp/lsp) | [`lsp-stdio`](../packages/lsp/lsp-stdio) | [`tool-lsp`](../packages/lsp/tool-lsp) | - | 提供方注册与选择，加上恰好四种操作的标准化查询执行；该 seam 不提供协议逃生口，后端必须转换为标准化请求和结果。 |
 | `ctx.dynamicCordisRunner` | `core` | [`cordis-host-runner`](../packages/extensions/cordis-host-runner) | - | [`tool-cordis`](../packages/extensions/tool-cordis) | - | 拥有内存定义注册表、Host 半的 vm 沙箱和 request-run 往返流程；浏览器页面通过其 Remote 命名空间在线访问同一服务。 |
 | `ctx.cordisInspect` | `core` | [`cordis-host-runner`](../packages/extensions/cordis-host-runner) | - | [`tool-cordis`](../packages/extensions/tool-cordis) | - | 注册 Host inspect 提供方、镜像 Client 提供方 manifest，并通过动态 Cordis 传输路由 Client 查询。 |
+| `ctx.enterprisePostgres` | `core` | [`enterprise-postgres`](../packages/enterprise/enterprise-postgres) | - | [`api-enterprise-controller`](../packages/api/enterprise-controller)、[`enterprise-cordis-runtime`](../packages/enterprise/enterprise-cordis-runtime) | - | 持有治理身份、运营与知识投影所用的企业 PostgreSQL 连接和迁移。 |
+| `ctx.enterpriseRequestContext` | `core` | [`enterprise-auth-web`](../packages/identity/enterprise-auth-web) | - | [`api-enterprise-controller`](../packages/api/enterprise-controller)、[`api-gateway`](../packages/api/gateway) | - | 在一次 Host 请求内携带已认证的企业主体，身份信息不进入浏览器负载。 |
+| `ctx.enterpriseSecurity` | `core` | [`enterprise-auth-web`](../packages/identity/enterprise-auth-web) | - | [`api-gateway`](../packages/api/gateway)、[`api-enterprise-controller`](../packages/api/enterprise-controller) | - | 认证浏览器会话、评估资源策略，并记录可归因的授权决策。 |
+| `ctx.enterpriseEmployeeController` | `core` | [`api-enterprise-controller`](../packages/api/enterprise-controller) | - | [`client-ui-enterprise-workbench`](../packages/client/ui-enterprise-workbench) | - | 发布不可变的员工版本，并通过认证的 Remote 方法暴露受治理的员工创作。 |
+| `ctx.enterpriseAssetController` | `core` | [`api-enterprise-controller`](../packages/api/enterprise-controller) | - | [`client-ui-enterprise-workbench`](../packages/client/ui-enterprise-workbench) | - | 持有企业能力资产的分版本读写。 |
+| `ctx.enterpriseChannelBotInstaller` | `core` | [`api-enterprise-controller`](../packages/api/enterprise-controller) | - | [`api-enterprise-controller`](../packages/api/enterprise-controller) | - | 执行仅限 Host 的提供商 Bot 安装，并使提供商凭据不进入浏览器状态。 |
+| `ctx.enterpriseChannelController` | `core` | [`api-enterprise-controller`](../packages/api/enterprise-controller) | - | [`client-ui-enterprise-workbench`](../packages/client/ui-enterprise-workbench) | - | 持有外部渠道接入的凭据化安装与生命周期。 |
+| `ctx.enterpriseDeviceController` | `core` | [`api-enterprise-controller`](../packages/api/enterprise-controller) | - | [`client-ui-enterprise-workbench`](../packages/client/ui-enterprise-workbench) | - | 暴露受治理的设备注册、配对与运行记录读取。 |
+| `ctx.enterpriseTeamController` | `core` | [`api-enterprise-controller`](../packages/api/enterprise-controller) | - | [`client-ui-enterprise-workbench`](../packages/client/ui-enterprise-workbench) | - | 持有团队运行的启动、取消与状态读取。 |
+| `ctx.enterpriseTeamDefinitionController` | `core` | [`api-enterprise-controller`](../packages/api/enterprise-controller) | - | [`client-ui-enterprise-workbench`](../packages/client/ui-enterprise-workbench) | - | 持有团队章程草稿的保存、发布与激活。 |
+| `ctx.enterpriseTeamRunController` | `core` | [`api-enterprise-controller`](../packages/api/enterprise-controller) | - | [`client-ui-enterprise-workbench`](../packages/client/ui-enterprise-workbench) | - | 持有团队运行记录与决策的认证读取。 |
+| `ctx.enterpriseTeamDecisionController` | `core` | [`api-enterprise-controller`](../packages/api/enterprise-controller) | - | [`client-ui-enterprise-workbench`](../packages/client/ui-enterprise-workbench) | - | 持有人工决策的列取与应答。 |
+| `ctx.enterpriseTeamAutonomyController` | `core` | [`api-enterprise-controller`](../packages/api/enterprise-controller) | - | [`client-ui-enterprise-workbench`](../packages/client/ui-enterprise-workbench) | - | 持有团队自治授权的读取与撤销。 |
+| `ctx.enterpriseOperationController` | `core` | [`api-enterprise-controller`](../packages/api/enterprise-controller) | - | [`client-ui-enterprise-workbench`](../packages/client/ui-enterprise-workbench) | - | 持有审批、工作记录与调度的企业运营读取和状态变更。 |
+| `ctx.enterpriseWorkController` | `core` | [`api-enterprise-controller`](../packages/api/enterprise-controller) | - | [`client-ui-enterprise-workbench`](../packages/client/ui-enterprise-workbench) | - | 持有目标优先的工作启动：解析目标、准备工作区，并把员工版本钉入会话。 |
+| `ctx.employeeAccounts` | `core` | [`employee-account`](../packages/enterprise/employee-account) | - | [`api-enterprise-controller`](../packages/api/enterprise-controller) | - | 持有员工的持久账号与活跃版本，供dm与记忆归因使用。 |
+| `ctx.enterpriseProjects` | `core` | [`enterprise-project`](../packages/enterprise/enterprise-project) | - | [`api-enterprise-controller`](../packages/api/enterprise-controller) | - | 持有受治理的项目、成员门禁与工作区供给。 |
+| `ctx.surfaces` | `seam` | [`enterprise-surface`](../packages/enterprise/enterprise-surface) | - | [`api-enterprise-controller`](../packages/api/enterprise-controller) | - | 持有企业群聊、频道与dm会话面，及成员、话题与签名房间事件。 |
+| `ctx.memoryConsolidation` | `core` | [`enterprise-memory-context`](../packages/context/enterprise-memory-context) | - | [`api-enterprise-controller`](../packages/api/enterprise-controller) | - | 周期性地把已批准记忆合并为更少的稳定条目。 |
+| `ctx.enterpriseCordis` | `core` | [`enterprise-cordis`](../packages/enterprise/enterprise-cordis) | - | [`enterprise-cordis-runtime`](../packages/enterprise/enterprise-cordis-runtime)、[`api-enterprise-controller`](../packages/api/enterprise-controller) | - | 持有企业 Cordis 插件的分版本目录与发布工作流。 |
+| `ctx.cordisWorkspaceController` | `core` | [`api-enterprise-controller`](../packages/api/enterprise-controller) | - | [`client-ui-enterprise-governance`](../packages/client/ui-enterprise-governance) | - | 暴露企业 Cordis 插件的认证读写与归档。 |
+| `ctx.cordisReviewController` | `core` | [`api-enterprise-controller`](../packages/api/enterprise-controller) | - | [`client-ui-enterprise-governance`](../packages/client/ui-enterprise-governance) | - | 持有企业 Cordis 插件的部门评审与组织发布。 |
+| `ctx.cordisGovernanceController` | `core` | [`api-enterprise-controller`](../packages/api/enterprise-controller) | - | [`client-ui-enterprise-governance`](../packages/client/ui-enterprise-governance) | - | 暴露企业 Cordis 组合的治理读取。 |
 
 维护模式：混合模式。服务从 Cordis 声明中发现；接口、实现和消费方角色在 `scripts/gen-doc-graphs.ts` 中分类，并设有完整性守卫。

@@ -25,7 +25,7 @@
   padding: 0 10px 0 8px;
   box-sizing: border-box;
   border: none;
-  border-radius: 12px;
+  border-radius: var(--dsw-radius-md);
   background: transparent;
   cursor: pointer;
   overflow: hidden;
@@ -89,7 +89,7 @@
   width: 800px;
   height: min(800px, calc(100vh - 2 * max(24px, var(--dsh-frame-top-clearance, 24px))));
   max-width: calc(100vw - 48px);
-  border-radius: 32px;
+  border-radius: var(--dsw-radius-panel);
   overflow: hidden;
   background: var(--dsw-alias-bg-layer-2);
   box-shadow: var(--dsw-elevation-prominent);
@@ -102,11 +102,8 @@
   --dsh-scrollbar-thumb-hover: var(--dsw-alias-scrollbar-hover-l2);
 }
 
-/* Enterprise governance contains split directory views and wide evidence
-   tables. It uses twice the standard desktop canvas, bounded by the same
-   viewport gutter; every other Settings section keeps the compact width. */
-.panelWide {
-  width: 1600px;
+.panel:focus {
+  outline: none;
 }
 
 /* Nav rail (figma .Setting-nav 501:29958): 188 wide, pad (12,22,12,0),
@@ -148,7 +145,7 @@
   padding: 9px 16px 9px 12px;
   box-sizing: border-box;
   border: none;
-  border-radius: 12px;
+  border-radius: var(--dsw-radius-md);
   background: transparent;
   cursor: pointer;
   font-family: inherit;
@@ -208,7 +205,7 @@
   margin-left: auto;
 }
 
-/* Close button (figma .Icon_container 501:29982): 28x28, r28, 14px glyph. */
+/* Compact close control. */
 .close {
   display: inline-flex;
   align-items: center;
@@ -217,7 +214,7 @@
   height: 28px;
   padding: 0;
   border: none;
-  border-radius: 28px;
+  border-radius: var(--dsw-radius-sm);
   background: transparent;
   cursor: pointer;
   color: var(--dsw-alias-label-primary);
@@ -245,65 +242,7 @@
   white-space: nowrap;
 }
 
-/* Small screens preserve the same Settings information architecture without
-   compressing the fixed desktop rail into the content. Sections become a
-   horizontal, keyboard-scrollable strip above one full-width content pane. */
-@media (max-width: 40rem) {
-  .overlay {
-    padding: 12px;
-    box-sizing: border-box;
-  }
-
-  .panel {
-    width: 100%;
-    height: 100%;
-    max-width: none;
-    flex-direction: column;
-    border-radius: 16px;
-    background: var(--dsw-alias-bg-base);
-  }
-
-  .nav {
-    width: 100%;
-    gap: 12px;
-    padding: 16px 12px 8px;
-    border-bottom: 0.5px solid var(--dsw-alias-border-l2);
-  }
-
-  .navTitle {
-    padding: 0 4px;
-  }
-
-  .navList {
-    flex-direction: row;
-    gap: 4px;
-    padding-bottom: 4px;
-    overflow-x: auto;
-    overscroll-behavior-inline: contain;
-  }
-
-  .navCell {
-    flex: none;
-    width: auto;
-    padding-inline: 10px;
-  }
-
-  .content {
-    min-height: 0;
-  }
-
-  .header {
-    height: 48px;
-    padding: 12px 10px 8px 16px;
-  }
-
-  .options {
-    padding: 0 16px 16px;
-  }
-}
-
-/* macOS: overlays covering the window drag bands must subtract themselves
-   (Electron app-regions are geometry, not stacking). */
-:global([data-platform='darwin']) .overlay {
-  -webkit-app-region: no-drag;
-}
+/* No app-region rule here: the overlay portals beside #root (SettingsRoot), so
+   ui-web base.css's `body > :not(#root)` subtraction covers it wherever it
+   overlaps a chrome row's drag — including above every column, which an in-root
+   overlay could not promise once a chrome row declares drag itself. */

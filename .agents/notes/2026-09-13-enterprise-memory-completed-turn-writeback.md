@@ -1,5 +1,7 @@
 # Enterprise memory completed-turn writeback
 
+English | [中文](2026-09-13-enterprise-memory-completed-turn-writeback.zh.md)
+
 The former automatic-memory path depended on the main Agent calling `remember_business_knowledge`. A completed answer could therefore contain durable business knowledge without producing any memory record.
 
 The enterprise memory context now captures the direct user text and final assistant answer at `agent/turn-stopping`, durably enqueues the bounded snapshot in PostgreSQL, and returns control before independent extraction begins. The extractor runs without tools, sees bounded active/pending memory in the same organization and department, and emits strict `skip`, `create`, or `conflict` candidates. Exact duplicates skip, high-confidence creates activate, and conflicts or lower-confidence statements remain pending.

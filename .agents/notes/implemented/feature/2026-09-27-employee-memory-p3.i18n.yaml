@@ -1,6 +1,25 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-27-employee-memory-p3.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-27-employee-memory-p3.md
-2026-09-27-employee-memory-p3.md: b483e66ecb74f15fbc3588e3612f2759df6ede52
-2026-09-27-employee-memory-p3.zh.md: e6a28bc93d7691e7ccecc63a27a256026dbc7705
+/agent-note-employee-memory-consolidation-and-project-distillation:
+  en: 9f5e5f597be0ee9c
+  zh: b816472dc2f12b95
+/agent-note-employee-memory-consolidation-and-project-distillation/problem:
+  en: b9d73de7c07337c9
+  zh: 27dfefce12b1e12f
+/agent-note-employee-memory-consolidation-and-project-distillation/decision:
+  en: 99119b132fdf87fd
+  zh: 13365ba32d9e60fb
+/agent-note-employee-memory-consolidation-and-project-distillation/alternatives-considered:
+  en: 9ed42260a9e4b85d
+  zh: 8e7f8d8fc61b356a
+/agent-note-employee-memory-consolidation-and-project-distillation/consequences:
+  en: 682965b89473f75d
+  zh: dba77d8676f87b84
+/agent-note-employee-memory-consolidation-and-project-distillation/testing:
+  en: 8470e507e9366810
+  zh: dd1a500d5773bb3a
+/agent-note-employee-memory-consolidation-and-project-distillation/deferred:
+  en: 5cdf906638f67ad8
+  zh: 9483b28048c0df8c

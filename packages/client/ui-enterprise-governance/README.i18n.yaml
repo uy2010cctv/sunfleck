@@ -1,6 +1,43 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/client/ui-enterprise-governance/README.md
-README.md: 94e35ef515bca160d6178f9d0d94fde567878237
-README.zh.md: 4ec4c0a3924ba731ef57552834b545d59faf4d03
+/:
+  en: f7b4ecae39459ae2
+  zh: 746771c60359d534
+/deepseek-ai-dsh-client-ui-enterprise-governance:
+  en: c029f64440fcc0dd
+  zh: 88842fb866592a2a
+/deepseek-ai-dsh-client-ui-enterprise-governance/summary:
+  en: d324013afe9ec7e0
+  zh: bd5f34276ad2363a
+/deepseek-ai-dsh-client-ui-enterprise-governance/table-of-contents:
+  en: b6e66ed089769c69
+  zh: fdd1bb9712cbd358
+/deepseek-ai-dsh-client-ui-enterprise-governance/package-details:
+  en: ea5acc127d7c7c24
+  zh: 34b81a3ffff7ea9e
+/deepseek-ai-dsh-client-ui-enterprise-governance/model-experience:
+  en: 215e7ba838619b7b
+  zh: 215e7ba838619b7b
+/deepseek-ai-dsh-client-ui-enterprise-governance/model-experience/governance-browser-surface:
+  en: 0363d620c89e3260
+  zh: 7dc87f10eae24222
+/deepseek-ai-dsh-client-ui-enterprise-governance/model-experience/governance-browser-surface/what-the-model-sees:
+  en: 8886efdd8b3df004
+  zh: 67bdb620ef3e226c
+/deepseek-ai-dsh-client-ui-enterprise-governance/model-experience/governance-browser-surface/token-effect:
+  en: a3928c36d5e428a6
+  zh: 41049872010d7335
+/deepseek-ai-dsh-client-ui-enterprise-governance/model-experience/governance-browser-surface/kv-cache-effect:
+  en: a4ff9149018ed329
+  zh: 4dc774206df7e86c
+/deepseek-ai-dsh-client-ui-enterprise-governance/known-limitations-and-deferred-work:
+  en: ad958e8171997a0b
+  zh: ed191f25a2ea2eeb
+/deepseek-ai-dsh-client-ui-enterprise-governance/known-limitations-and-deferred-work/dev-note:
+  en: e67f633dc6fe7773
+  zh: e88aeb617ffb74ea
+/deepseek-ai-dsh-client-ui-enterprise-governance/memory-activation:
+  en: d40c97ae596a1df9
+  zh: 7fa5f0afe408c78a

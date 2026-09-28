@@ -1,6 +1,22 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-17-knowledge-http-enterprise-auth.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-09-17-knowledge-http-enterprise-auth.md
-2026-09-17-knowledge-http-enterprise-auth.md: 2921337a191813f577acea03e6b0b262d39d330d
-2026-09-17-knowledge-http-enterprise-auth.zh.md: 8e9adf19cf65045ac400ee1a320858ce2c76a812
+/agent-note-knowledge-http-routes-require-enterprise-authorization:
+  en: 68056132232c9e26
+  zh: 0c5e068c9b2d3003
+/agent-note-knowledge-http-routes-require-enterprise-authorization/problem:
+  en: d34db621472cb74c
+  zh: 3768d191fe00d479
+/agent-note-knowledge-http-routes-require-enterprise-authorization/decision:
+  en: 7d9fe555ad3e01bf
+  zh: 5c53df94e6f19b7e
+/agent-note-knowledge-http-routes-require-enterprise-authorization/verification:
+  en: 9e12bc30afeeabbe
+  zh: e56161bc0b07f08d
+/agent-note-knowledge-http-routes-require-enterprise-authorization/alternatives-considered:
+  en: 854baa1cb1eb7b98
+  zh: ec614400862ea6ab
+/agent-note-knowledge-http-routes-require-enterprise-authorization/consequences:
+  en: 5cc2116854ce5c90
+  zh: 89a424e1eb07f642

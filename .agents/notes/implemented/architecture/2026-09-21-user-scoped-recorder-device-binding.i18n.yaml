@@ -1,6 +1,31 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-21-user-scoped-recorder-device-binding.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-09-21-user-scoped-recorder-device-binding.md
-2026-09-21-user-scoped-recorder-device-binding.md: a92b4cb6eba6e1194cc34e77295dcd2e7b1a32c8
-2026-09-21-user-scoped-recorder-device-binding.zh.md: 45eaae339d817561f145833fe55f41223bbfb2f8
+/agent-note-user-scoped-recorder-device-binding:
+  en: e708ba06b6d8cd78
+  zh: 84bbd415c11a409b
+/agent-note-user-scoped-recorder-device-binding/problem:
+  en: a147c280824eaf17
+  zh: e356febdef30d78c
+/agent-note-user-scoped-recorder-device-binding/decision:
+  en: d69da1f0a0c033fd
+  zh: bdf77c6f9504f5e4
+/agent-note-user-scoped-recorder-device-binding/device-records-and-authentication:
+  en: 76c0b8bcc9db2eaa
+  zh: 9ad7ce0350e2b79c
+/agent-note-user-scoped-recorder-device-binding/user-experience:
+  en: cdac3913f1dddcfd
+  zh: 1108ecdc804c3d26
+/agent-note-user-scoped-recorder-device-binding/migration:
+  en: 94a6df772ee1a603
+  zh: 347fe03a2b09b177
+/agent-note-user-scoped-recorder-device-binding/alternatives-considered:
+  en: 71966b199ac24e1f
+  zh: 6bbd2a89c5d9d551
+/agent-note-user-scoped-recorder-device-binding/verification:
+  en: 89d935fea98e523b
+  zh: ebeeb8270d5c6a4b
+/agent-note-user-scoped-recorder-device-binding/consequences:
+  en: 53062cf467b7cc68
+  zh: ac19e9e974174ef0

@@ -1,6 +1,19 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-25-agent-mode-and-employee-composition.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-09-25-agent-mode-and-employee-composition.md
-2026-09-25-agent-mode-and-employee-composition.md: 2355cb05d43438d7abc6f72f8c42e3f97fa14db8
-2026-09-25-agent-mode-and-employee-composition.zh.md: 7b68df7d6527a3364968edccbefda2ef7860984d
+/agent-note-agent-mode-and-employee-composition:
+  en: 042434602e39a1e6
+  zh: 1430c2ff1fe2d578
+/agent-note-agent-mode-and-employee-composition/problem:
+  en: a40653e21e62c498
+  zh: cba609f9905bfba5
+/agent-note-agent-mode-and-employee-composition/decision:
+  en: ac325e37ba17b036
+  zh: efa036ffab9e6af1
+/agent-note-agent-mode-and-employee-composition/alternatives-considered:
+  en: 89e49aca00bc4266
+  zh: d4a1b5b323653d12
+/agent-note-agent-mode-and-employee-composition/consequences:
+  en: 21cd717eabddaa96
+  zh: ceeca9b5b7427311

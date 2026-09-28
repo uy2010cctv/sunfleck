@@ -1,6 +1,40 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/governance/enterprise-governance/README.md
-README.md: 4e8800f5fe01b227da4bbfc4ebd911a62c493cb3
-README.zh.md: af349712c45e08ede59310bfeebe6dd5c357d81e
+/:
+  en: 11d6dfea19b88e86
+  zh: 515f2936f3452502
+/deepseek-ai-dsh-enterprise-governance:
+  en: 704e1007f6341b7f
+  zh: d8a86f975ec40a51
+/deepseek-ai-dsh-enterprise-governance/summary:
+  en: aa19a1ec56a818d4
+  zh: bbae03e970ebd6ac
+/deepseek-ai-dsh-enterprise-governance/table-of-contents:
+  en: b6e66ed089769c69
+  zh: fdd1bb9712cbd358
+/deepseek-ai-dsh-enterprise-governance/package-details:
+  en: 38565c31c89ce998
+  zh: d23c9823cf7bdc36
+/deepseek-ai-dsh-enterprise-governance/model-experience:
+  en: 215e7ba838619b7b
+  zh: 215e7ba838619b7b
+/deepseek-ai-dsh-enterprise-governance/model-experience/host-authorization-policy:
+  en: 1108d87de868abaf
+  zh: 4b80c848278d0173
+/deepseek-ai-dsh-enterprise-governance/model-experience/host-authorization-policy/what-the-model-sees:
+  en: 1ee117a93a6550d6
+  zh: 6d19bb6a3e2d475e
+/deepseek-ai-dsh-enterprise-governance/model-experience/host-authorization-policy/token-effect:
+  en: bffa61e868f9874f
+  zh: afc2978b78510b8b
+/deepseek-ai-dsh-enterprise-governance/model-experience/host-authorization-policy/kv-cache-effect:
+  en: fee2566f2a5de799
+  zh: b51832d0f465a231
+/deepseek-ai-dsh-enterprise-governance/known-limitations-and-deferred-work:
+  en: e3133c10b3ac1af8
+  zh: a6aca36443af132d
+/deepseek-ai-dsh-enterprise-governance/known-limitations-and-deferred-work/dev-note:
+  en: e67f633dc6fe7773
+  zh: e88aeb617ffb74ea

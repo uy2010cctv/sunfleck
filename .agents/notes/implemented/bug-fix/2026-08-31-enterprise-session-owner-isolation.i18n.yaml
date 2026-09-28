@@ -1,6 +1,19 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-08-31-enterprise-session-owner-isolation.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-08-31-enterprise-session-owner-isolation.md
-2026-08-31-enterprise-session-owner-isolation.md: 22722f4f514aee0b3f848c0bb2ded5777f3d5289
-2026-08-31-enterprise-session-owner-isolation.zh.md: 1fd67daf44ed41d0b4a65f09e9845b8fa55fde7b
+/agent-note-enterprise-session-owner-isolation:
+  en: 65a78f867e384cc9
+  zh: ba34e593258f7985
+/agent-note-enterprise-session-owner-isolation/problem:
+  en: cf9c47cd9b016f32
+  zh: c50efeeb297f738d
+/agent-note-enterprise-session-owner-isolation/decision:
+  en: c9e9dca91fc3cd3f
+  zh: 12b54a10d9070a1d
+/agent-note-enterprise-session-owner-isolation/alternatives-considered:
+  en: cf2f13717a5e5f2f
+  zh: 85c41f956945115c
+/agent-note-enterprise-session-owner-isolation/consequences:
+  en: 2d95c9a9ef7ba6b7
+  zh: 18350c5e899f44df

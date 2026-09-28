@@ -1,6 +1,19 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-05-enterprise-memory-actor-attribution.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-09-05-enterprise-memory-actor-attribution.md
-2026-09-05-enterprise-memory-actor-attribution.md: 45ef589ba5b5c0d6ddcb20adcc1b338c5b46c34d
-2026-09-05-enterprise-memory-actor-attribution.zh.md: 938e0b28848308219b1ebf8058bd0f7f54e81149
+/agent-note-enterprise-memory-actor-attribution-and-policy-gated-activation:
+  en: a6ba991f3965317c
+  zh: c813ca84b1ffb117
+/agent-note-enterprise-memory-actor-attribution-and-policy-gated-activation/problem:
+  en: a371f704fb6d154e
+  zh: 18dbb2c2580d02f4
+/agent-note-enterprise-memory-actor-attribution-and-policy-gated-activation/decision:
+  en: 0ac5e94f01a5da34
+  zh: 53539feaa105b000
+/agent-note-enterprise-memory-actor-attribution-and-policy-gated-activation/consequences:
+  en: 5093cf918a47b7f5
+  zh: efac1717c5e9193b
+/agent-note-enterprise-memory-actor-attribution-and-policy-gated-activation/alternatives-considered:
+  en: 592e409ab9be3035
+  zh: 0c7426370c2f5273

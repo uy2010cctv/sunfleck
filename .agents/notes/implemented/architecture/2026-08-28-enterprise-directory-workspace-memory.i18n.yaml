@@ -1,6 +1,22 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-08-28-enterprise-directory-workspace-memory.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-08-28-enterprise-directory-workspace-memory.md
-2026-08-28-enterprise-directory-workspace-memory.md: 481c11c6a22ba1525938efb120b5744a690adcb2
-2026-08-28-enterprise-directory-workspace-memory.zh.md: 9c3e013d5c4d4778b5405100b397115ac7198aa5
+/agent-note-enterprise-directory-workspace-compartments-and-reviewed-memory:
+  en: dd3f5eaf062cc863
+  zh: 75072408fdcacd07
+/agent-note-enterprise-directory-workspace-compartments-and-reviewed-memory/problem:
+  en: 6cf7f6d5b12435ff
+  zh: 5ba0e84d3f0bfd67
+/agent-note-enterprise-directory-workspace-compartments-and-reviewed-memory/decision:
+  en: 0498aa883e516678
+  zh: 5b2c2516c4525e95
+/agent-note-enterprise-directory-workspace-compartments-and-reviewed-memory/alternatives-considered:
+  en: 3ba3d65b4dc7ab5d
+  zh: ab3a8d3e582c43e6
+/agent-note-enterprise-directory-workspace-compartments-and-reviewed-memory/verification:
+  en: 44a75a697f458513
+  zh: 1a1b134ce3d95f90
+/agent-note-enterprise-directory-workspace-compartments-and-reviewed-memory/consequences:
+  en: f0206940b7c0ac58
+  zh: bb70e4fe1347d68b

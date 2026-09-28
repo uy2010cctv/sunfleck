@@ -8,12 +8,14 @@ const validYaml = 'version: 1\nname: Review\non:\n  - type: message\n    contain
 function setup(member = true, canManage = true) {
   const save = vi.fn(async () => ({ id: 'release', revision: 1, yaml: validYaml }))
   const list = vi.fn(async () => [{ id: 'release', revision: 1, yaml: validYaml }])
-  const pendingDecisions = vi.fn(async () => [{ approvalId: 'approval-1', revision: 1,
+  const pendingDecisions = vi.fn(async () => [{ approvalId: 'approval-1', revision: 1, workflowRevision: 1,
     yaml: 'version: 1\nname: Review\non:\n  - type: message\n    contains: review\nsteps:\n  - type: approval_request\n    summary: Approve release',
     nextStep: 1, requestedBy: 'alice', createdAt: 100, state: 'pending' as const }])
-  const detail = vi.fn(async () => {
+  const detail = vi.fn(async (_actor: unknown, _id: string) => {
     if (!member) throw new CollaborationError('not-found', 404)
-    return { kind: 'channel' as const, id: 'channel' }
+    return { id: 'channel', kind: 'channel' as const, name: 'Releases', memberCount: 1, workspaceId: 'workspace',
+      memberUserIds: ['alice'], members: [], topics: [], dutyEmployeeIds: [],
+      viewerUserId: 'alice', viewerIsAdmin: true }
   })
   const resolveDecision = vi.fn(async () => ({ state: 'approved' as const }))
   const handler = new ChannelWorkflowHttpHandler({

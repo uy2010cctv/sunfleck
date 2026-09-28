@@ -1,12 +1,16 @@
 // @vitest-environment jsdom
+import assert from 'node:assert/strict'
 import { Context, Service } from '@deepseek-ai/cordis'
 import { afterEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import { cleanup } from '@testing-library/react'
 import { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
+import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
+import type { ILayout, PanelInfo } from '@deepseek-ai/dsh-client-ui-layout/client'
 import { SlotRegistry } from '@deepseek-ai/dsh-client-ui-renderer/client'
 import { TestRemote, usePinnedBrowserLanguages } from '@deepseek-ai/dsh-client-test-runtime'
 import * as settings from '@deepseek-ai/dsh-client-ui-settings/client'
 import { apply, inject, NS, PANEL_ID } from '../src/client/index.ts'
+import type { MainPanelId } from '@deepseek-ai/dsh-client-ui-layout/client'
 import { PluginManagerPage } from '../src/client/PluginManagerPage.tsx'
 import { PluginsFooterButton } from '../src/client/PluginsFooterButton.tsx'
 import type { PluginManagerFace } from '../src/client/manager-store.ts'
@@ -16,7 +20,7 @@ afterEach(cleanup)
 
 async function bench() {
   const ctx = new Context()
-  const opened: string[] = []
+  const opened: Array<MainPanelId | null> = []
   onTestFinished(async () => { await ctx.fiber.dispose() })
   await ctx.plugin(SlotRegistry).await()
   const locale = new LocaleRuntime(ctx)
@@ -38,9 +42,15 @@ async function bench() {
       registries: vi.fn(() => Promise.resolve({ ok: true as const, value: { registry: null, fallbackRegistries: [], resolved: null } })),
     },
   })
-  ctx.provide('layout', { selectPanel: (id: string) => { opened.push(id) } } as never)
+  const panelInfo = createSnapshotStore<PanelInfo>({ activePanelId: null })
+  const selectPanel = vi.fn<ILayout['selectPanel']>((activePanelId) => {
+    opened.push(activePanelId)
+    panelInfo.set({ activePanelId })
+  })
+  ctx.provide('layout', { panelInfo, selectPanel, beginNavigation: () => new AbortController().signal,
+    toggleSidebar: vi.fn(), openRightbar: vi.fn(), closeRightbar: vi.fn() })
   await ctx.plugin(settings).await()
-  return { ctx, slots: ctx.get('slots') as SlotRegistry, locale, list, remote, opened }
+  return { ctx, slots: ctx.get('slots') as SlotRegistry, locale, list, remote, selectPanel, panelInfo, opened }
 }
 
 function declare(slots: SlotRegistry): () => void {
@@ -54,8 +64,28 @@ function declare(slots: SlotRegistry): () => void {
 }
 
 describe('ui-plugin-manager browser plugin', () => {
+  it('resets bundle selection when leaving Plugins and releases its panel observer with the registration', async () => {
+    const b = await bench()
+    const removeRoot = declare(b.slots)
+    await b.ctx.plugin({ inject: [...inject], apply }).await()
+    const entry = b.slots.entries('main')[0]!
+    assert(entry.store && 'create' in entry.store)
+    const navigation = entry.store.create()
+    b.ctx.pluginNavigation.openBundle('dsh-navigation-test')
+    expect(b.panelInfo.getSnapshot().activePanelId).toBe(PANEL_ID)
+    expect(navigation.getSnapshot()).toEqual({ view: { kind: 'package', name: 'dsh-navigation-test' } })
+    b.selectPanel(null)
+    expect(navigation.getSnapshot()).toEqual({ view: { kind: 'list' } })
+    b.selectPanel(PANEL_ID)
+    expect(navigation.getSnapshot()).toEqual({ view: { kind: 'list' } })
+    b.ctx.pluginNavigation.openBundle('dsh-navigation-test')
+    removeRoot()
+    b.selectPanel(null)
+    expect(navigation.getSnapshot()).toEqual({ view: { kind: 'package', name: 'dsh-navigation-test' } })
+  })
+
   it('declares only the services the page and its Remote methods use', () => {
-    expect(inject).toEqual(['slots', 'locale', 'layout', 'remote', 'remote.pluginManager', 'remote.pluginInventory', 'remote.pluginRegistryProbe', 'configForms'])
+    expect(inject).toEqual(['slots', 'locale', 'remote', 'remote.pluginManager', 'remote.pluginInventory', 'remote.pluginRegistryProbe', 'configForms', 'layout'])
   })
 
   it('registers the sidebar entry and its page, which reads the Host only once rendered and follows Host changes', async () => {
@@ -64,7 +94,11 @@ describe('ui-plugin-manager browser plugin', () => {
     const fiber = b.ctx.plugin({ inject: [...inject], apply })
     await fiber.await()
 
+    b.ctx.pluginNavigation.openBundle('dsh-navigation-test')
+    expect(b.selectPanel).toHaveBeenCalledWith(PANEL_ID)
     const entry = b.slots.entries('main')[0]!
+    assert(entry.store && 'create' in entry.store)
+    expect(entry.store.create().getSnapshot()).toEqual({ view: { kind: 'package', name: 'dsh-navigation-test' } })
     expect(entry.component).toBe(PluginManagerPage)
     expect(entry.options).toMatchObject({ key: PANEL_ID })
     expect(entry.locale).toBe(NS)
@@ -74,6 +108,7 @@ describe('ui-plugin-manager browser plugin', () => {
     expect(entry2.options).toMatchObject({ id: PANEL_ID, order: 0 })
     expect(entry2.locale).toBe(NS)
     const face2 = (entry2.inject as unknown as () => { open: () => void })()
+    b.opened.length = 0
     face2.open()
     expect(b.opened).toEqual([PANEL_ID])
     // The page declares the slots a plugin's configuration arrives through, and binds their projection beside its state.
@@ -111,6 +146,7 @@ describe('ui-plugin-manager browser plugin', () => {
     expect(face.hooks.pluginManager.getSnapshot().install.runs).toEqual([])
 
     await fiber.dispose()
+    expect(b.ctx.get('pluginNavigation')).toBeUndefined()
     expect(b.slots.entries('main')).toHaveLength(0)
     expect(b.slots.entries('settings.aux')).toHaveLength(0)
     b.remote.emit('plugin-manager/changed', [{ reason: 'install' }])

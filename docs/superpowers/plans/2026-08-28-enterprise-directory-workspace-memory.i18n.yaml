@@ -1,6 +1,28 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-08-28-enterprise-directory-workspace-memory.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write docs/superpowers/plans/2026-08-28-enterprise-directory-workspace-memory.md
-2026-08-28-enterprise-directory-workspace-memory.md: 864f497caa43d1317044030f34c188fd8f9cd3a9
-2026-08-28-enterprise-directory-workspace-memory.zh.md: 35399230a7636de75b3e2e45b661403277803a2f
+/enterprise-directory-workspace-and-memory-implementation-plan:
+  en: 8c92752247e74292
+  zh: d0ebd2a5e616d533
+/enterprise-directory-workspace-and-memory-implementation-plan/task-1-persist-the-enterprise-directory-and-workspace-grants:
+  en: f3db1f02e6700ece
+  zh: 37d350af9c1dbe12
+/enterprise-directory-workspace-and-memory-implementation-plan/task-2-add-privacy-reviewed-organizational-memory:
+  en: e3fb3b0e62059880
+  zh: a1cf448d08302275
+/enterprise-directory-workspace-and-memory-implementation-plan/task-3-provision-real-dsh-workspaces-and-enforce-visibility:
+  en: c6efe2812936a604
+  zh: a53ba543f2a740ab
+/enterprise-directory-workspace-and-memory-implementation-plan/task-4-inject-approved-department-and-enterprise-memory:
+  en: 6ae03bbebeab9179
+  zh: 89042d1d585d761b
+/enterprise-directory-workspace-and-memory-implementation-plan/task-5-expose-typed-administration-routes:
+  en: fa9e89ba75e3dcc0
+  zh: 5ca1c6ed0f50bf2b
+/enterprise-directory-workspace-and-memory-implementation-plan/task-6-build-the-governance-ui:
+  en: 9b00eafb7d8c035e
+  zh: 38464b2d74023c38
+/enterprise-directory-workspace-and-memory-implementation-plan/task-7-record-migrate-and-verify:
+  en: 59232655be3f78c3
+  zh: 9bbac09ef5d63a7e

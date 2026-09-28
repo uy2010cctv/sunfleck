@@ -1,6 +1,58 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/enterprise/enterprise-surface/README.md
-README.md: 7fc3371cc2461c3fc1a2ccfa1399360c8dd36284
-README.zh.md: dbfe8c1c0fa72ee05a0e27f3c8a6346cf3271f8e
+/:
+  en: 1ffb7919eaca78a0
+  zh: 8f971491993cdb59
+/deepseek-ai-dsh-enterprise-surface:
+  en: 025209a3be275231
+  zh: eb0ee57641912bad
+/deepseek-ai-dsh-enterprise-surface/summary:
+  en: c6ee44d44b92c62b
+  zh: 8e711456ba9e7de0
+/deepseek-ai-dsh-enterprise-surface/table-of-contents:
+  en: d152484eb41ac6b4
+  zh: 09388d293f9be9cb
+/deepseek-ai-dsh-enterprise-surface/use-this-package:
+  en: 43415c0483a845ad
+  zh: c8f6df5a045b359c
+/deepseek-ai-dsh-enterprise-surface/use-this-package/when-to-choose-it:
+  en: afff4b59d0215d7c
+  zh: edb80ead73a4fcd9
+/deepseek-ai-dsh-enterprise-surface/use-this-package/minimal-configuration:
+  en: 08614205eb9265ac
+  zh: 189ee1a60be3ebac
+/deepseek-ai-dsh-enterprise-surface/understand-the-implementation:
+  en: 42b15ac6321706aa
+  zh: cfcb757213648bd9
+/deepseek-ai-dsh-enterprise-surface/understand-the-implementation/design-concept:
+  en: 2a19f73e2926591b
+  zh: 7cb55b339ff419f3
+/deepseek-ai-dsh-enterprise-surface/understand-the-implementation/source-map:
+  en: 3bf51175fe42a014
+  zh: 96da5bafa6a773d1
+/deepseek-ai-dsh-enterprise-surface/further-exploration:
+  en: 1ce19cf4baebe79a
+  zh: 59a27c8a604270a1
+/deepseek-ai-dsh-enterprise-surface/model-experience:
+  en: 215e7ba838619b7b
+  zh: a311da3843709f90
+/deepseek-ai-dsh-enterprise-surface/model-experience/inbound-dm-delivery:
+  en: 6cde80f08125f46d
+  zh: d031504b02b15ae0
+/deepseek-ai-dsh-enterprise-surface/model-experience/inbound-dm-delivery/what-the-model-sees:
+  en: 3d9787c2ba98c716
+  zh: 51aecb9003032528
+/deepseek-ai-dsh-enterprise-surface/model-experience/inbound-dm-delivery/token-effect:
+  en: 1824e19922c7c225
+  zh: fb225b236936350d
+/deepseek-ai-dsh-enterprise-surface/model-experience/inbound-dm-delivery/kv-cache-effect:
+  en: 1e33c78c53b57bd4
+  zh: 75c9014f1158e039
+/deepseek-ai-dsh-enterprise-surface/known-limitations-and-deferred-work:
+  en: 7ea8088a3b0488b7
+  zh: f521ca2f80a08103
+/deepseek-ai-dsh-enterprise-surface/known-limitations-and-deferred-work/dev-note:
+  en: 60df7f8f8c1c5b03
+  zh: 33a177c924117874

@@ -1,6 +1,22 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-06-web-authenticated-recovery-page.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-09-06-web-authenticated-recovery-page.md
-2026-09-06-web-authenticated-recovery-page.md: b87de570cf554545075737dad1b978f5f146233b
-2026-09-06-web-authenticated-recovery-page.zh.md: 6749a235200ece384fef1fe10da82b084000687f
+/agent-note-web-authenticated-recovery-page:
+  en: 928cfc23c1a5b9c4
+  zh: 1b061fba9d3d12f4
+/agent-note-web-authenticated-recovery-page/problem:
+  en: 3f801f2a88a26074
+  zh: 5a0d1b724ce67201
+/agent-note-web-authenticated-recovery-page/decision:
+  en: 9d6fb741b21590b2
+  zh: c10a100b2a17896c
+/agent-note-web-authenticated-recovery-page/alternatives-considered:
+  en: cd6f3caf992a2904
+  zh: 8d6749818362cb46
+/agent-note-web-authenticated-recovery-page/consequences:
+  en: e9aecfadf1f35c64
+  zh: 4cfa5bac6141a7fe
+/agent-note-web-authenticated-recovery-page/testing:
+  en: 56ba4d18f038a7d7
+  zh: f8b643f71acef9ca

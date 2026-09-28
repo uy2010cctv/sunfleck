@@ -1,6 +1,40 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/enterprise/enterprise-postgres/README.md
-README.md: b079d3b51d5976005c5c42992ceb7223f8a85a89
-README.zh.md: 85464029720ecc49b747ed48e84695e5eea9c26c
+/:
+  en: cb62211d670d48d1
+  zh: 5c1a8253607efdd1
+/deepseek-ai-dsh-enterprise-postgres:
+  en: 6eb33b032b1e84b9
+  zh: 221c42b349675e5a
+/deepseek-ai-dsh-enterprise-postgres/summary:
+  en: c2d2dbfbb7ec12d9
+  zh: 12ce87f4f68a7b59
+/deepseek-ai-dsh-enterprise-postgres/table-of-contents:
+  en: b6e66ed089769c69
+  zh: fdd1bb9712cbd358
+/deepseek-ai-dsh-enterprise-postgres/package-details:
+  en: e0fee5ca04a6283e
+  zh: 9fc017472438cf87
+/deepseek-ai-dsh-enterprise-postgres/model-experience:
+  en: 215e7ba838619b7b
+  zh: 215e7ba838619b7b
+/deepseek-ai-dsh-enterprise-postgres/model-experience/enterprise-persistence-composition:
+  en: c628d312e469af83
+  zh: 379622ab221abe58
+/deepseek-ai-dsh-enterprise-postgres/model-experience/enterprise-persistence-composition/what-the-model-sees:
+  en: dcd0affe181996e5
+  zh: 22cc7bcba43ac105
+/deepseek-ai-dsh-enterprise-postgres/model-experience/enterprise-persistence-composition/token-effect:
+  en: 99c34bdd28e7fef0
+  zh: 65eb07d168c5e473
+/deepseek-ai-dsh-enterprise-postgres/model-experience/enterprise-persistence-composition/kv-cache-effect:
+  en: 085d7d448522023f
+  zh: c4daa78d4917fddc
+/deepseek-ai-dsh-enterprise-postgres/known-limitations-and-deferred-work:
+  en: c06184e4956f6376
+  zh: 9925b0fc58f1093c
+/deepseek-ai-dsh-enterprise-postgres/known-limitations-and-deferred-work/dev-note:
+  en: e67f633dc6fe7773
+  zh: e88aeb617ffb74ea

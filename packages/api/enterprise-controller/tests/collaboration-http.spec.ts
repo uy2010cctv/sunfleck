@@ -100,8 +100,11 @@ describe('collaboration HTTP request validation', () => {
   })
 
   it('uploads raw attachment bytes and serves them back to room members', async () => {
-    const uploadAttachment = vi.fn(async (): Promise<AttachmentRef> => ({ attachmentId: 'att-1', name: '报价.pdf', mimeType: 'application/pdf', size: 5 }))
-    const attachment = vi.fn(async (): Promise<AttachmentRef & { readonly data: Buffer }> =>
+    const uploadAttachment = vi.fn(async (_actor: unknown, _id: string,
+      upload: { name: string; mimeType: string; data: Buffer }): Promise<AttachmentRef> =>
+      ({ attachmentId: 'att-1', name: upload.name, mimeType: upload.mimeType, size: upload.data.length }))
+    const attachment = vi.fn(async (_actor: unknown, _id: string, _target: string):
+    Promise<AttachmentRef & { readonly data: Buffer }> =>
       ({ attachmentId: 'att-1', name: '报价.pdf', mimeType: 'application/pdf', size: 5, data: Buffer.from('bytes') }))
     const handler = new CollaborationHttpHandler({ uploadAttachment, attachment } as never, security as never)
     const uploaded = await handler.fetch(new Request(

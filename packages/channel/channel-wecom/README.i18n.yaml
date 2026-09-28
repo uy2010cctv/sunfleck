@@ -1,6 +1,43 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/channel/channel-wecom/README.md
-README.md: 640ad82489b370a1f875db4097d61bfa38ff0e2c
-README.zh.md: 27c5c557e7ad1b226593e142b33eb6bfc69dcc95
+/:
+  en: 02f1468389b22f12
+  zh: 7a3b36620b4dbdbb
+/deepseek-ai-dsh-channel-wecom:
+  en: 3194544009b6db7c
+  zh: 5b5733a1dbbc0ca1
+/deepseek-ai-dsh-channel-wecom/summary:
+  en: 6e992299d7465a0b
+  zh: 5fd44b1b6d7b0a5d
+/deepseek-ai-dsh-channel-wecom/table-of-contents:
+  en: b6e66ed089769c69
+  zh: fdd1bb9712cbd358
+/deepseek-ai-dsh-channel-wecom/package-details:
+  en: 8e5dfddc455d0634
+  zh: 7233ac8ed6ee201c
+/deepseek-ai-dsh-channel-wecom/reliability-boundary:
+  en: a530c1b78104ccb4
+  zh: e329cf5aa9068041
+/deepseek-ai-dsh-channel-wecom/model-experience:
+  en: 215e7ba838619b7b
+  zh: 215e7ba838619b7b
+/deepseek-ai-dsh-channel-wecom/model-experience/provider-wire-translation:
+  en: a5a3a64a14e989a7
+  zh: 8cad9ff82e1e06e0
+/deepseek-ai-dsh-channel-wecom/model-experience/provider-wire-translation/what-the-model-sees:
+  en: 8ac28f2d635bb831
+  zh: ad96bd07ca3a6edc
+/deepseek-ai-dsh-channel-wecom/model-experience/provider-wire-translation/token-effect:
+  en: b43a5647c6691b7b
+  zh: a16c4a11f9c0e33f
+/deepseek-ai-dsh-channel-wecom/model-experience/provider-wire-translation/kv-cache-effect:
+  en: bea4757759c7e55e
+  zh: a1779a3035c4c7ad
+/deepseek-ai-dsh-channel-wecom/known-limitations-and-deferred-work:
+  en: e95d7f29377157ef
+  zh: 3ff79b88e99e6597
+/deepseek-ai-dsh-channel-wecom/known-limitations-and-deferred-work/dev-note:
+  en: e67f633dc6fe7773
+  zh: e88aeb617ffb74ea

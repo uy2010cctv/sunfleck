@@ -1,6 +1,52 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/catalog/enterprise-catalog/README.md
-README.md: ea6b728425d350cea1765ca17346321fe171b355
-README.zh.md: 02d137b4774e51642818c9258e25ff4fdab015a0
+/:
+  en: ca7cbed47b011933
+  zh: 7627ef851fab2e27
+/deepseek-ai-dsh-enterprise-catalog:
+  en: 7f5e31ef5b7f395a
+  zh: 57a2a549936b26ce
+/deepseek-ai-dsh-enterprise-catalog/summary:
+  en: d6dc4f5f91af539e
+  zh: 320f90b7c05cb436
+/deepseek-ai-dsh-enterprise-catalog/table-of-contents:
+  en: b6e66ed089769c69
+  zh: fdd1bb9712cbd358
+/deepseek-ai-dsh-enterprise-catalog/package-details:
+  en: ce3aa357e8a9ec8a
+  zh: ce7fdc5286160929
+/deepseek-ai-dsh-enterprise-catalog/model-experience:
+  en: 215e7ba838619b7b
+  zh: a311da3843709f90
+/deepseek-ai-dsh-enterprise-catalog/model-experience/catalog-persistence:
+  en: 86c3bdfce611f8d5
+  zh: d56430791f00e490
+/deepseek-ai-dsh-enterprise-catalog/model-experience/catalog-persistence/what-the-model-sees:
+  en: 6b0b3bee7b3bf75c
+  zh: f67e2fb429062808
+/deepseek-ai-dsh-enterprise-catalog/model-experience/catalog-persistence/token-effect:
+  en: bf84111ca1d0ad47
+  zh: f2a8d0e92a1bf146
+/deepseek-ai-dsh-enterprise-catalog/model-experience/catalog-persistence/kv-cache-effect:
+  en: 444c8009ba05db1e
+  zh: b21a88a30ea08668
+/deepseek-ai-dsh-enterprise-catalog/model-experience/autonomous-capability-persistence:
+  en: 429539b0c798cb65
+  zh: fbcb0b09ddfabd2d
+/deepseek-ai-dsh-enterprise-catalog/model-experience/autonomous-capability-persistence/what-the-model-sees:
+  en: f50d59db2c97ca76
+  zh: 53e40ef988ce92f6
+/deepseek-ai-dsh-enterprise-catalog/model-experience/autonomous-capability-persistence/token-effect:
+  en: d28e0dd7f84b4959
+  zh: c78664bdcb8501c2
+/deepseek-ai-dsh-enterprise-catalog/model-experience/autonomous-capability-persistence/kv-cache-effect:
+  en: f8b9ec7bff7c970f
+  zh: 1b593d1896d0cbc9
+/deepseek-ai-dsh-enterprise-catalog/known-limitations-and-deferred-work:
+  en: 255f3510648f1520
+  zh: 78c668e42948ceff
+/deepseek-ai-dsh-enterprise-catalog/known-limitations-and-deferred-work/dev-note:
+  en: e67f633dc6fe7773
+  zh: e88aeb617ffb74ea

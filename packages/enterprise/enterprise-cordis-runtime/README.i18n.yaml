@@ -1,6 +1,40 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/enterprise/enterprise-cordis-runtime/README.md
-README.md: 0d50689f717d7eaeda599c780ea01924e8adeb6e
-README.zh.md: 23b6ed4e604292721b4f06734f486fecb580c25c
+/:
+  en: d10ee41a48e595e9
+  zh: 2e11e8c74a180d79
+/deepseek-ai-dsh-enterprise-cordis-runtime:
+  en: 93978585ac5257fd
+  zh: 97ac4f50241c8691
+/deepseek-ai-dsh-enterprise-cordis-runtime/summary:
+  en: cc0afdc2e1c24974
+  zh: fa690909cead413d
+/deepseek-ai-dsh-enterprise-cordis-runtime/table-of-contents:
+  en: 0d4d46360baea511
+  zh: fdd1bb9712cbd358
+/deepseek-ai-dsh-enterprise-cordis-runtime/package-details:
+  en: f8f05f727295d896
+  zh: 0ec873fbfda96354
+/deepseek-ai-dsh-enterprise-cordis-runtime/model-experience:
+  en: 215e7ba838619b7b
+  zh: a311da3843709f90
+/deepseek-ai-dsh-enterprise-cordis-runtime/model-experience/approved-dynamic-capabilities:
+  en: 6d16ff54983d6a32
+  zh: a9325a0e2ec9f989
+/deepseek-ai-dsh-enterprise-cordis-runtime/model-experience/approved-dynamic-capabilities/what-the-model-sees:
+  en: 097162bfa4f3b934
+  zh: ec0ec0a45b348016
+/deepseek-ai-dsh-enterprise-cordis-runtime/model-experience/approved-dynamic-capabilities/token-effect:
+  en: bb04910363feaa34
+  zh: 98ca82673c86d78b
+/deepseek-ai-dsh-enterprise-cordis-runtime/model-experience/approved-dynamic-capabilities/kv-cache-effect:
+  en: c8b194df4ba1b714
+  zh: 84245d7a70c03f74
+/deepseek-ai-dsh-enterprise-cordis-runtime/known-limitations-and-deferred-work:
+  en: 98c10b81e1b21e3e
+  zh: 3492b37bc096999a
+/deepseek-ai-dsh-enterprise-cordis-runtime/known-limitations-and-deferred-work/dev-note:
+  en: 0a1253c6f7b5e8b9
+  zh: 9f56528562c7c914

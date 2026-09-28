@@ -39,7 +39,7 @@ Known shipped presets offer mode details and usage examples in a read-only dialo
 <details>
 <summary>Implementation internals — click to expand</summary>
 
-`agentPresets/list` supplies the roster and the chooser policy, and `agentPresets/read` one declaration's YAML for the viewer; default and visibility changes write the `agent-presets` settings namespace. The picker, blank-session synchronization and read-only session label use recorded preset identities. Connection resets and settings updates refresh the roster.
+`agentPresets/list` supplies the roster and marks the current default, and `agentPresets/read` one declaration's YAML for the viewer; default changes write the `agent-preset-registry` settings namespace. The picker, blank-session synchronization and read-only session label use recorded preset identities. Connection resets and settings updates refresh the roster.
 
 </details>
 

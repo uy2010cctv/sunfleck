@@ -1,6 +1,58 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/enterprise/employee-account/README.md
-README.md: 00f99ce9124ca088ae350934da135b2904e28a7f
-README.zh.md: 9cc243bbfd724f96ab48a8ccd3b968a7987b63ac
+/:
+  en: 565f7af7ebf766c2
+  zh: 5e9619f5f5b1e695
+/deepseek-ai-dsh-employee-account:
+  en: 690fff84ecf9b623
+  zh: 744cd46ba33068db
+/deepseek-ai-dsh-employee-account/summary:
+  en: b2ec86bb4ab5ab3e
+  zh: 5556234fda2f6800
+/deepseek-ai-dsh-employee-account/table-of-contents:
+  en: d152484eb41ac6b4
+  zh: 09388d293f9be9cb
+/deepseek-ai-dsh-employee-account/use-this-package:
+  en: d5b770f47b3fc11e
+  zh: 7910830cf6eb66f6
+/deepseek-ai-dsh-employee-account/use-this-package/when-to-choose-it:
+  en: 0e53ed31c04119bb
+  zh: 31817969b2db256e
+/deepseek-ai-dsh-employee-account/use-this-package/minimal-configuration:
+  en: 19ce81e165a1643e
+  zh: e5a12d386903b634
+/deepseek-ai-dsh-employee-account/understand-the-implementation:
+  en: 42b15ac6321706aa
+  zh: 4ed0861911abaf5d
+/deepseek-ai-dsh-employee-account/understand-the-implementation/design-concept:
+  en: fa399a565244cb05
+  zh: 4b11a03be3fcaa43
+/deepseek-ai-dsh-employee-account/understand-the-implementation/source-map:
+  en: 88639cae06f29112
+  zh: d0cd0ab068ad51a6
+/deepseek-ai-dsh-employee-account/further-exploration:
+  en: cc3cfd6ddda7461c
+  zh: 62e7c97807895168
+/deepseek-ai-dsh-employee-account/model-experience:
+  en: 215e7ba838619b7b
+  zh: a311da3843709f90
+/deepseek-ai-dsh-employee-account/model-experience/employee-account-persistence:
+  en: 1bb49e2efb0dfb58
+  zh: 24073863b70564a5
+/deepseek-ai-dsh-employee-account/model-experience/employee-account-persistence/what-the-model-sees:
+  en: ac4be96c7a0c4656
+  zh: 1da03cc13349b5f2
+/deepseek-ai-dsh-employee-account/model-experience/employee-account-persistence/token-effect:
+  en: f276cd717a8b8e02
+  zh: 632d3c52e7d248e1
+/deepseek-ai-dsh-employee-account/model-experience/employee-account-persistence/kv-cache-effect:
+  en: 89b9baf5271569fb
+  zh: 3e25544f4acfba5f
+/deepseek-ai-dsh-employee-account/known-limitations-and-deferred-work:
+  en: 12cb6087d79f8976
+  zh: c15a2c6fcebe836a
+/deepseek-ai-dsh-employee-account/known-limitations-and-deferred-work/dev-note:
+  en: 8ac92461d9f9a483
+  zh: 56748e3c01355439

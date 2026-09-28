@@ -1,6 +1,25 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-02-channel-qr-binding.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write docs/superpowers/plans/2026-09-02-channel-qr-binding.md
-2026-09-02-channel-qr-binding.md: 94e27dfea0ac11912d049fd349aff98260122a2c
-2026-09-02-channel-qr-binding.zh.md: 39761334e25e70249b5db9611dad4ae51e024f00
+/official-channel-qr-binding-implementation-plan:
+  en: fada2b2a7dfb102d
+  zh: 78e8692532a279fa
+/official-channel-qr-binding-implementation-plan/task-1-provider-authorization-profiles:
+  en: d7eb112c46086aed
+  zh: 1ef5f2ad8218feb6
+/official-channel-qr-binding-implementation-plan/task-2-persist-verified-binding-evidence:
+  en: 15cfd6e83e9db54e
+  zh: 1f85108960805b84
+/official-channel-qr-binding-implementation-plan/task-3-authenticated-begin-complete-remote-flow:
+  en: 96c15a985eadabb5
+  zh: aecc04829ca25941
+/official-channel-qr-binding-implementation-plan/task-4-provider-specific-binding-workbench:
+  en: f6cb10d2661f5e1a
+  zh: 6c956d1d1f152a94
+/official-channel-qr-binding-implementation-plan/task-5-documentation-and-release-gates:
+  en: 38109c02a5bb7404
+  zh: 83e103398f6d9aaa
+/official-channel-qr-binding-implementation-plan/task-4b-independently-adopt-proven-staffdeck-channel-ux-concepts:
+  en: eb3457c731241590
+  zh: f1e8099fca898b07

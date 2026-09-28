@@ -1,0 +1,7 @@
+# Bilingual-pair consistency record for 2026-09-13-enterprise-memory-completed-turn-writeback.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/2026-09-13-enterprise-memory-completed-turn-writeback.md
+/enterprise-memory-completed-turn-writeback:
+  en: 80443f705b3ab1d1
+  zh: 25aa1c0eaaed38ee

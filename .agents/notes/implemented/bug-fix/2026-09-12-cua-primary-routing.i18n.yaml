@@ -1,6 +1,19 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-12-cua-primary-routing.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-09-12-cua-primary-routing.md
-2026-09-12-cua-primary-routing.md: 34365c5943b1b4f5f39dc7411f21401c33a982a5
-2026-09-12-cua-primary-routing.zh.md: c4c54fb62ee67aca9e89afdc4b9eb7ab9863cf13
+/agent-note-cua-primary-computer-use-routing:
+  en: 1f7efb6a59268c5e
+  zh: 131de836f0c91b1d
+/agent-note-cua-primary-computer-use-routing/problem:
+  en: e0b5b1b2e767eeb3
+  zh: 813539bfd234005a
+/agent-note-cua-primary-computer-use-routing/decision:
+  en: 2fc6642701a0dc7e
+  zh: 91aa55c71cc8dce4
+/agent-note-cua-primary-computer-use-routing/alternatives-considered:
+  en: 556fd4b7e2cde975
+  zh: f91a274230d39ee5
+/agent-note-cua-primary-computer-use-routing/consequences:
+  en: 560ca6a4eb2365eb
+  zh: e53ce035e5d3046b

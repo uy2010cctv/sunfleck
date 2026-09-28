@@ -1,6 +1,19 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-22-recorder-local-models-consolidation.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write docs/superpowers/plans/2026-09-22-recorder-local-models-consolidation.md
-2026-09-22-recorder-local-models-consolidation.md: 5c4753319ac7ad4e37f4bb75ec5549a0d1334504
-2026-09-22-recorder-local-models-consolidation.zh.md: ea5e0dd6a3bc234acf806c3b32cd7faa14292320
+/recorder-local-model-settings-consolidation-implementation-plan:
+  en: faef7dbc20b88dbb
+  zh: 55d80c5cb5d50400
+/recorder-local-model-settings-consolidation-implementation-plan/task-1-persist-the-memory-processing-route:
+  en: 529f0bfce1b4e3c2
+  zh: 2dd5bcb69d705b4c
+/recorder-local-model-settings-consolidation-implementation-plan/task-2-make-memory-processing-consume-the-persistent-route:
+  en: fd938e072bbdfeff
+  zh: fd80e2eb53af9d81
+/recorder-local-model-settings-consolidation-implementation-plan/task-3-merge-recorder-controls-into-local-models:
+  en: 9be3d76d6b45885e
+  zh: 400e32b14e9a0f47
+/recorder-local-model-settings-consolidation-implementation-plan/task-4-verify-document-and-deploy:
+  en: 23582c275acfe208
+  zh: 8818392194a4c85a

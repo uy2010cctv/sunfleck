@@ -1,6 +1,19 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-08-27-authenticated-enterprise-request-context.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-08-27-authenticated-enterprise-request-context.md
-2026-08-27-authenticated-enterprise-request-context.md: 06b77fb5a0995320c246092ca8ce10aedf126641
-2026-08-27-authenticated-enterprise-request-context.zh.md: c49432418c5e23ef8839d796aa2a7494a8a77a1b
+/agent-note-authenticated-enterprise-request-context:
+  en: 53fc2fb0918361cd
+  zh: 297c5ac4c7ada9b5
+/agent-note-authenticated-enterprise-request-context/problem:
+  en: 6320872a988e6158
+  zh: 17981927caca451f
+/agent-note-authenticated-enterprise-request-context/decision:
+  en: c628c04e2afbb7bc
+  zh: 16d97e8a8f63b07c
+/agent-note-authenticated-enterprise-request-context/alternatives-considered:
+  en: 1af00f438fbd158d
+  zh: 8162c0d7e9b0734e
+/agent-note-authenticated-enterprise-request-context/consequences:
+  en: abf501cb1e78c7f7
+  zh: fa11efc8cf816542

@@ -1,6 +1,22 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-12-device-browser-path.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-09-12-device-browser-path.md
-2026-09-12-device-browser-path.md: 2aaa46f5c3641333acf549220c55aedbb8cacf5a
-2026-09-12-device-browser-path.zh.md: 3f638357510f3b8934275e113f13f8e2a1dde7d4
+/agent-note-device-browser-executable-discovery:
+  en: bcc3b2e2717be28b
+  zh: 0427908e4df53ae0
+/agent-note-device-browser-executable-discovery/problem:
+  en: 88fabfe3f7e260cd
+  zh: 87a3eb6c0eef75e4
+/agent-note-device-browser-executable-discovery/decision:
+  en: b91afeb7bd92f4e0
+  zh: b36c43d17468b03f
+/agent-note-device-browser-executable-discovery/alternatives-considered:
+  en: 2ce4756862e42aad
+  zh: 15792150e6ed732d
+/agent-note-device-browser-executable-discovery/consequences:
+  en: 75f85758ad3902e1
+  zh: 585f5079ca842475
+/agent-note-device-browser-executable-discovery/verification:
+  en: e11322159676f10b
+  zh: 932ab3741fa753ad

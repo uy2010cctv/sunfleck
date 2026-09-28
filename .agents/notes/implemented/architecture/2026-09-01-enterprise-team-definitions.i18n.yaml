@@ -1,6 +1,22 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-01-enterprise-team-definitions.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-09-01-enterprise-team-definitions.md
-2026-09-01-enterprise-team-definitions.md: b137d2e73d0572e042dd036875244088f45c4383
-2026-09-01-enterprise-team-definitions.zh.md: f062f300054debb2e237655bd2aa427fb9d84777
+/agent-note-enterprise-team-definitions:
+  en: 45e2f25ea3cf919c
+  zh: 9baf2d6f9420b6fa
+/agent-note-enterprise-team-definitions/problem:
+  en: 27cd46121c030e6c
+  zh: 54a8ce18190ab910
+/agent-note-enterprise-team-definitions/decision:
+  en: d87f12b23a4b5218
+  zh: c5a1398d2fb4d1c1
+/agent-note-enterprise-team-definitions/alternatives-considered:
+  en: 15876b7dc6747138
+  zh: 432824d9ff72a748
+/agent-note-enterprise-team-definitions/consequences:
+  en: 4d4013b03ffcbeab
+  zh: 2dd60f38d46a2ef4
+/agent-note-enterprise-team-definitions/verification:
+  en: 0d685a33cc0e7592
+  zh: e5094cd88ce8c3e2

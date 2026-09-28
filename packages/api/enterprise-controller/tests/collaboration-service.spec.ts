@@ -2,6 +2,14 @@ import { describe, expect, it } from 'vitest'
 import { CollaborationService } from '../src/collaboration-service.ts'
 import type { CollaborationRecord, CollaborationSession, CollaborationTopic } from '@deepseek-ai/dsh-enterprise-postgres'
 
+/** One uploaded room attachment, matching the service's stored attachment shape. */
+interface RoomUpload {
+  readonly attachmentId: string
+  readonly name: string
+  readonly mimeType: string
+  readonly size: number
+}
+
 const actor = { orgId: 'org', userId: 'alice', roles: ['administrator'] as const }
 function setup(overrides: Partial<CollaborationRecord> = {}, room?: Record<string, unknown>) {
   const record: CollaborationRecord = { id: 'surface', orgId: 'org', kind: 'group', name: 'Support', workspaceId: 'shared', memberUserIds: ['alice', 'bob'], memberEmployeeIds: ['a', 'b'], dutyEmployeeIds: [], ...overrides }
@@ -175,9 +183,9 @@ describe('collaboration routing through native Sessions', () => {
     const committed: { readonly text: string; readonly attachments?: unknown }[] = []
     const fixture = setup({ adminUserId: 'alice' }, {
       appendHuman: async (_actor: unknown, _row: unknown, input: { text: string }, _dispatch: unknown,
-        attachments?: readonly unknown[]) => {
+        attachments?: readonly RoomUpload[]) => {
         committed.push({ text: input.text, attachments })
-        const tags = (attachments ?? []).map((file: { attachmentId: string; name: string; mimeType: string; size: number }) =>
+        const tags = (attachments ?? []).map(file =>
           ['attachment', file.attachmentId, file.name, file.mimeType, String(file.size)])
         return { event: { id: 'evt-1', kind: 9, content: input.text, tags }, sequence: '1' }
       },

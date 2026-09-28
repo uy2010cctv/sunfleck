@@ -1,6 +1,46 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/client/ui-enterprise-workbench/README.md
-README.md: a8d0d379abd61fa0c33ded888c452356e2429851
-README.zh.md: f67b7a17654b7275cef166542473fa6f8706ad6c
+/:
+  en: 6320ebf3600d136f
+  zh: 88b3c770d783fa7a
+/deepseek-ai-dsh-client-ui-enterprise-workbench:
+  en: df83c6201e1b50f8
+  zh: 381f077c87ffe9ee
+/deepseek-ai-dsh-client-ui-enterprise-workbench/summary:
+  en: dc38584812650d7b
+  zh: 6aedbbbc86012009
+/deepseek-ai-dsh-client-ui-enterprise-workbench/table-of-contents:
+  en: eae5e8fadfcabefe
+  zh: 99fc78f57fe76bbc
+/deepseek-ai-dsh-client-ui-enterprise-workbench/package-details:
+  en: 05fdfd946fa4364c
+  zh: 48ed1a2b963e3485
+/deepseek-ai-dsh-client-ui-enterprise-workbench/ordinary-profile-fallback:
+  en: 5548507e3d647047
+  zh: 26e9f0e55de2cbc5
+/deepseek-ai-dsh-client-ui-enterprise-workbench/security-boundary:
+  en: e7ba0d9f62a78f2e
+  zh: 823970d38186e4d0
+/deepseek-ai-dsh-client-ui-enterprise-workbench/model-experience:
+  en: 215e7ba838619b7b
+  zh: 215e7ba838619b7b
+/deepseek-ai-dsh-client-ui-enterprise-workbench/model-experience/browser-operations-projection:
+  en: 64eeab8c26999e0e
+  zh: fc66abe7771418f8
+/deepseek-ai-dsh-client-ui-enterprise-workbench/model-experience/browser-operations-projection/what-the-model-sees:
+  en: 2324fe17b6f8f4e0
+  zh: 00676f512cfdb255
+/deepseek-ai-dsh-client-ui-enterprise-workbench/model-experience/browser-operations-projection/token-effect:
+  en: 47cd25fa85533ede
+  zh: 9cc7c710a90961b2
+/deepseek-ai-dsh-client-ui-enterprise-workbench/model-experience/browser-operations-projection/kv-cache-effect:
+  en: e71131e473cc284b
+  zh: 25e8d42aa4b16131
+/deepseek-ai-dsh-client-ui-enterprise-workbench/known-limitations-and-deferred-work:
+  en: b16d8784c535a3e8
+  zh: 683b6ead473fd682
+/deepseek-ai-dsh-client-ui-enterprise-workbench/known-limitations-and-deferred-work/dev-note:
+  en: e67f633dc6fe7773
+  zh: e88aeb617ffb74ea

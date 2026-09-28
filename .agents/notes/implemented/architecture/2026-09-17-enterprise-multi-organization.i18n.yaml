@@ -1,6 +1,19 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-17-enterprise-multi-organization.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-09-17-enterprise-multi-organization.md
-2026-09-17-enterprise-multi-organization.md: 96daed6e4deeefa1a186860565c7a1e1d678e1b2
-2026-09-17-enterprise-multi-organization.zh.md: 4005fb7f1f8668a86de661f7ecfeb0792787ce5a
+/agent-note-enterprise-multi-organization-tenancy:
+  en: 8abe5f733d54a150
+  zh: 1f6c6887256b0e80
+/agent-note-enterprise-multi-organization-tenancy/problem:
+  en: 539eeb6e47e7796c
+  zh: 9228ecad6387e565
+/agent-note-enterprise-multi-organization-tenancy/decision:
+  en: a895d24212b4c77f
+  zh: 9273d303eed56ea0
+/agent-note-enterprise-multi-organization-tenancy/alternatives-considered:
+  en: f55bfe6e8e2d2a80
+  zh: 97557d1ac1c2d3c6
+/agent-note-enterprise-multi-organization-tenancy/consequences:
+  en: e86178bd7db2861b
+  zh: a3e69ff8f130556b

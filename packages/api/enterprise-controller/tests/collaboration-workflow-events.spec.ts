@@ -20,6 +20,7 @@ describe('signed channel workflow events', () => {
       reserve: async (run) => { const key = JSON.stringify(run); if (receipts.has(key)) return undefined; receipts.add(key); return 'claim-1' },
       state: async () => 'waiting-human',
       record: async () => {}, release: async () => {}, takeDecision: async () => undefined,
+      releaseDecision: async () => {},
     }
     const sign = vi.fn(async (_actor: unknown, _room: unknown, _content: string, _stepId: string,
       _source?: string, _targets?: readonly string[]): Promise<RoomNostrEvent> => ({

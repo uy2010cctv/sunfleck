@@ -1,6 +1,19 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-12-device-repair-idempotency.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-09-12-device-repair-idempotency.md
-2026-09-12-device-repair-idempotency.md: f23228836fcdde26546b34ff7316a88e50bb2b0d
-2026-09-12-device-repair-idempotency.zh.md: b00eeb69081099abf90e11aa51696a26836501e1
+/agent-note-idempotent-device-reconnect:
+  en: e1ce756ed7ad21c2
+  zh: 508825fa9eb3d580
+/agent-note-idempotent-device-reconnect/problem:
+  en: 387d4f03175ec17d
+  zh: 6a203a6deade67f0
+/agent-note-idempotent-device-reconnect/decision:
+  en: 8d4bce0821a1062d
+  zh: 6a296324676db251
+/agent-note-idempotent-device-reconnect/alternatives-considered:
+  en: b009da196eaffeae
+  zh: 710c2d034d56127b
+/agent-note-idempotent-device-reconnect/consequences:
+  en: bd9d112ed7831772
+  zh: c095f3260596a9c5

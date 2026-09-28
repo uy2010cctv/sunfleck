@@ -1,5 +1,6 @@
 import { setImmediate } from 'node:timers/promises'
 import { Context } from '@deepseek-ai/cordis'
+import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
 import { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type {
@@ -266,6 +267,7 @@ class FakeDirectoryPicker {
 }
 
 interface BenchOptions {
+  /** Locale the workspace service reads titles with; defaults to the deploy's own. */
   readonly language?: string
   readonly configureWorkspaces?: (workspaces: FakeWorkspaces) => void
   readonly workspaces?: WorkspaceSnapshot
@@ -284,7 +286,7 @@ function bench(options: BenchOptions = {}) {
     selectPanel: vi.fn(), retainMainPanels: vi.fn(),
     setSidebar: vi.fn(), toggleSidebar: vi.fn(), setViewportWidth: vi.fn(),
     setRightbar: vi.fn(), openRightbar: vi.fn(), closeRightbar: vi.fn(),
-  }, () => true)
+  }, () => true, createSnapshotStore({ activePanelId: null }))
   const selectPanel = vi.spyOn(layout, 'selectPanel')
   ctx.provide('layout', layout)
   ctx.effect(() => () => { layout.dispose() })
@@ -319,7 +321,7 @@ describe('UiWorkspaceService', () => {
     ['zh', '默认工作区', '默认工作区'],
     ['en', 'Default workspace', 'Default workspace'],
     ['fr', 'default-workspace', 'Default workspace'],
-  ])('prepares and selects the default Workspace after both startup baselines (%s)', async (language, directoryName, title) => {
+  ])('prepares and selects the default Workspace after both startup baselines (%s)', async (language, _directoryName, _title) => {
     const b = bench({ language, configureWorkspaces: (workspaces) => {
       workspaces.initializeDefault.mockImplementation(async () => {
         const item = workspace('default')
@@ -334,7 +336,7 @@ describe('UiWorkspaceService', () => {
     await vi.waitFor(() => {
       expect(b.sessions.retain).toHaveBeenCalledExactlyOnceWith(sid('created-default'), { source: 'mainView' })
     })
-    expect(b.workspaces.initializeDefault).toHaveBeenCalledExactlyOnceWith({ directoryName, title }, expect.any(AbortSignal))
+    expect(b.workspaces.initializeDefault).toHaveBeenCalledExactlyOnceWith(expect.any(AbortSignal))
     expect(b.sessions.create).toHaveBeenCalledWith({ workspaceId: wid('default') })
     expect(b.notify).not.toHaveBeenCalled()
   })
@@ -377,7 +379,7 @@ describe('UiWorkspaceService', () => {
     if (kind === 'session') b.uiWorkspace.openSession(sid('manual'))
     else if (kind === 'panel') b.layout.selectPanel('other-panel' as MainPanelId)
     else await b.ctx.fiber.dispose()
-    expect(b.workspaces.initializeDefault.mock.calls[0]![1]?.aborted).toBe(true)
+    expect(b.workspaces.initializeDefault.mock.calls[0]![0]?.aborted).toBe(true)
     pending.resolve(workspace('default'))
     await setImmediate()
     expect(b.sessions.create).not.toHaveBeenCalled()
@@ -745,6 +747,14 @@ describe('UiWorkspaceService', () => {
     await vi.waitFor(() => {
       expect(missingMember.sessions.create).toHaveBeenCalledWith({ workspaceId: wid('newer') })
     })
+  })
+
+  it('opens nothing when a New Session request has no Workspace to open', () => {
+    const b = bench()
+
+    b.uiWorkspace.startSession()
+
+    expect(b.selectPanel).toHaveBeenCalledWith(null)
   })
 
   it('releases a prepared Workspace target when synchronous preparation supersedes it', async () => {

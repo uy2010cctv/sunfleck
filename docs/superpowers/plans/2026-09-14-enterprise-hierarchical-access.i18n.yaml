@@ -1,6 +1,49 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-14-enterprise-hierarchical-access.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write docs/superpowers/plans/2026-09-14-enterprise-hierarchical-access.md
-2026-09-14-enterprise-hierarchical-access.md: 22c7f83e88df42b7451d0c119f40af5cb5039915
-2026-09-14-enterprise-hierarchical-access.zh.md: 6b201947b0090c04e2ac4d2d787657e86db5b4d1
+/enterprise-hierarchical-access-implementation-plan:
+  en: ffa87faa3bda942c
+  zh: 7d232a42048f1cc7
+/enterprise-hierarchical-access-implementation-plan/subproject-1-shared-hierarchy-policy:
+  en: d122297a009dd1ac
+  zh: 7bd2ca680e701cd7
+/enterprise-hierarchical-access-implementation-plan/subproject-1-shared-hierarchy-policy/task-1-define-actors-scopes-actions-and-decisions:
+  en: 5c857e7f0156b907
+  zh: 54fcb8b2bb9ee242
+/enterprise-hierarchical-access-implementation-plan/subproject-1-shared-hierarchy-policy/task-2-hydrate-human-principals-and-employee-service-identities:
+  en: ede7e6944207507f
+  zh: a56bfd75dd995e35
+/enterprise-hierarchical-access-implementation-plan/subproject-2-digital-employee-hierarchy:
+  en: 7fe05e2b2672f061
+  zh: 29cde0bd39a15eca
+/enterprise-hierarchical-access-implementation-plan/subproject-2-digital-employee-hierarchy/task-3-persist-employee-department-scope:
+  en: 8964073a5edd5e49
+  zh: dc28b99c2dfb5835
+/enterprise-hierarchical-access-implementation-plan/subproject-2-digital-employee-hierarchy/task-4-show-scope-and-denial-reasons-in-the-workbench:
+  en: d6d34f98e67858eb
+  zh: ea9340017bcbd3b4
+/enterprise-hierarchical-access-implementation-plan/subproject-3-memory-hierarchy:
+  en: 03638e9f215d7512
+  zh: b408ae89dcc3ff69
+/enterprise-hierarchical-access-implementation-plan/subproject-3-memory-hierarchy/task-5-authorize-memory-reads-and-lifecycle-changes:
+  en: d93a425f77c6ceea
+  zh: 03b110ff6238e964
+/enterprise-hierarchical-access-implementation-plan/subproject-4-channel-hierarchy:
+  en: 0a782b091d34cbed
+  zh: d440278c7e40e784
+/enterprise-hierarchical-access-implementation-plan/subproject-4-channel-hierarchy/task-6-bind-each-channel-to-an-employee-service-identity-and-department:
+  en: 7ec3d3a7f6b2e59e
+  zh: efdcee2d01214375
+/enterprise-hierarchical-access-implementation-plan/subproject-4-channel-hierarchy/task-7-update-the-im-adapter-contract:
+  en: 13677dece9c6969c
+  zh: 1fb5a3f3d032d3f1
+/enterprise-hierarchical-access-implementation-plan/subproject-5-migration-documentation-and-release-proof:
+  en: 0e6ea66fd8594bc8
+  zh: 705104cd7bfc6664
+/enterprise-hierarchical-access-implementation-plan/subproject-5-migration-documentation-and-release-proof/task-8-migrate-existing-resources-without-widening-access:
+  en: aca94196d50328ad
+  zh: 434625a537fdaa89
+/enterprise-hierarchical-access-implementation-plan/subproject-5-migration-documentation-and-release-proof/task-9-document-and-validate-the-final-behavior:
+  en: eb68110b273aa397
+  zh: 4e867ea61263eda9

@@ -1,6 +1,31 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-26-employee-surfaces-p2.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-26-employee-surfaces-p2.md
-2026-09-26-employee-surfaces-p2.md: 41b7c559b74d91a520f9f3a40759f91493b093ab
-2026-09-26-employee-surfaces-p2.zh.md: 8d30eb89ee87d3ad3f56844023ea0fc3cae3a73c
+/agent-note-employee-collaboration-surfaces:
+  en: 74ca8440113051be
+  zh: e75a667e2a27717e
+/agent-note-employee-collaboration-surfaces/problem:
+  en: 0a58824d7760980c
+  zh: d1e973dd5236a39a
+/agent-note-employee-collaboration-surfaces/decision:
+  en: af95cb76557e080e
+  zh: 6ec2413ad1e89e9e
+/agent-note-employee-collaboration-surfaces/deferred-deviations-d1-d5:
+  en: a1682e95bce645e2
+  zh: 466db438aa3fc6b6
+/agent-note-employee-collaboration-surfaces/smaller-recorded-choices:
+  en: 9634765b5d3eab4f
+  zh: 78aae09839d8a05b
+/agent-note-employee-collaboration-surfaces/alternatives-considered:
+  en: 5170b5636ebd8d6a
+  zh: 0fd3c9645938c3f3
+/agent-note-employee-collaboration-surfaces/testing:
+  en: aa7618eb17c173b7
+  zh: a3f3f0331648cf60
+/agent-note-employee-collaboration-surfaces/consequences:
+  en: ac31110f02a30e47
+  zh: 96d2000d6237805a
+/agent-note-employee-collaboration-surfaces/deferred:
+  en: 6d9201b9f32f0e76
+  zh: 03329a337e0e898b

@@ -153,7 +153,9 @@ export function apply(ctx: Context, config: Config = {}): void {
     directory: {
       workspace: async (workspaceId) => {
         const grant = await composition.identity.workspaceGrant(workspaceId)
-        return grant === undefined ? undefined : {
+        // Project workspaces have no owner or department Cordis scope.
+        if (grant === undefined || grant.kind === 'project') return undefined
+        return {
           workspaceId: grant.workspaceId, orgId: grant.orgId, kind: grant.kind,
           ...(grant.ownerUserId === undefined ? {} : { ownerUserId: grant.ownerUserId }),
           ...(grant.departmentId === undefined ? {} : { departmentId: grant.departmentId }),

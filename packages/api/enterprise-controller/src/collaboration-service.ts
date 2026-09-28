@@ -371,7 +371,8 @@ export class CollaborationService {
     & { readonly projectId?: string
       readonly teamDefinitionId?: string
       readonly executionSessionIds: readonly string[]
-      readonly prefs: RoomPrefs })[]> {
+      readonly prefs: RoomPrefs
+      readonly attention: { readonly newMessages: boolean; readonly mentions: boolean; readonly unread: number } })[]> {
     const rows = await this.store.list(actor.orgId, actor.userId)
     const visible = await Promise.all(rows.map(async row => await this.runtime.workspaceVisible(actor,
       row.workspaceId) ? row : undefined))

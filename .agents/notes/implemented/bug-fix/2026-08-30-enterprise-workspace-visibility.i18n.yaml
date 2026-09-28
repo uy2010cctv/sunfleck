@@ -1,6 +1,22 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-08-30-enterprise-workspace-visibility.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-08-30-enterprise-workspace-visibility.md
-2026-08-30-enterprise-workspace-visibility.md: 8bb9658cfd57f698dc24d42ff006f13b1dbb3ced
-2026-08-30-enterprise-workspace-visibility.zh.md: d6e24ac21bd70e89e8009a477b49092cf9d28ece
+/agent-note-enterprise-workspace-visibility-and-deletion:
+  en: e6f29e1f142f97f9
+  zh: 8a3cab95cd542ba7
+/agent-note-enterprise-workspace-visibility-and-deletion/problem:
+  en: 38c7f1b399e4d855
+  zh: 92a2666ef3b32d43
+/agent-note-enterprise-workspace-visibility-and-deletion/decision:
+  en: bfa8854921e3a64b
+  zh: 8a5336cd716f12e6
+/agent-note-enterprise-workspace-visibility-and-deletion/alternatives-considered:
+  en: b0890d31a7150012
+  zh: eabfcb320dd0f40c
+/agent-note-enterprise-workspace-visibility-and-deletion/consequences:
+  en: 04bf862424142742
+  zh: 75c83d24d59dc7ca
+/agent-note-enterprise-workspace-visibility-and-deletion/authenticated-stream-and-recovery-follow-up:
+  en: 90f8b2c7ad56d8f3
+  zh: 888b80e6cc35e6aa

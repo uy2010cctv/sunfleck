@@ -1,6 +1,58 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/enterprise/enterprise-project/README.md
-README.md: e6b6f3c6bcab90ce986b7ddaaa4f97e2c18b88b8
-README.zh.md: 502892e08b10cc6372dfffb83ccdc2ce75b4e16c
+/:
+  en: 4a51bb5105484850
+  zh: 6fc423679a3aa98c
+/deepseek-ai-dsh-enterprise-project:
+  en: cdc21b82d3f7f8b3
+  zh: 14d4edcc05b76941
+/deepseek-ai-dsh-enterprise-project/summary:
+  en: 40e66d4503e94179
+  zh: ce207217499d15a2
+/deepseek-ai-dsh-enterprise-project/table-of-contents:
+  en: d152484eb41ac6b4
+  zh: 09388d293f9be9cb
+/deepseek-ai-dsh-enterprise-project/use-this-package:
+  en: f2c9821ef1ca6199
+  zh: 7290593933f28f70
+/deepseek-ai-dsh-enterprise-project/use-this-package/when-to-choose-it:
+  en: efcaed9b564487eb
+  zh: 5c2fa53fe96cdc69
+/deepseek-ai-dsh-enterprise-project/use-this-package/minimal-configuration:
+  en: 0ca92142587f7e29
+  zh: 962be7f7c5606564
+/deepseek-ai-dsh-enterprise-project/understand-the-implementation:
+  en: 42b15ac6321706aa
+  zh: cfcb757213648bd9
+/deepseek-ai-dsh-enterprise-project/understand-the-implementation/design-concept:
+  en: acc4e19a3adee260
+  zh: ed60eb17e8a1d01e
+/deepseek-ai-dsh-enterprise-project/understand-the-implementation/source-map:
+  en: 2eb84259ce589fb8
+  zh: 95e84978a8fe9d9b
+/deepseek-ai-dsh-enterprise-project/further-exploration:
+  en: 75e73faf7ca47c09
+  zh: 38219be22066458a
+/deepseek-ai-dsh-enterprise-project/model-experience:
+  en: 215e7ba838619b7b
+  zh: a311da3843709f90
+/deepseek-ai-dsh-enterprise-project/model-experience/project-governance-persistence:
+  en: 51edcf84037e4a97
+  zh: 5705315f3dc137ea
+/deepseek-ai-dsh-enterprise-project/model-experience/project-governance-persistence/what-the-model-sees:
+  en: 34e1254e760f100c
+  zh: 975d4a6c7b1ecc93
+/deepseek-ai-dsh-enterprise-project/model-experience/project-governance-persistence/token-effect:
+  en: f276cd717a8b8e02
+  zh: 2314d945162eff4b
+/deepseek-ai-dsh-enterprise-project/model-experience/project-governance-persistence/kv-cache-effect:
+  en: 89b9baf5271569fb
+  zh: 41ccfcf60be7e79b
+/deepseek-ai-dsh-enterprise-project/known-limitations-and-deferred-work:
+  en: f12ec6cb7b175598
+  zh: 5689ed360d09cffe
+/deepseek-ai-dsh-enterprise-project/known-limitations-and-deferred-work/dev-note:
+  en: d907cf1eeeb3fb6e
+  zh: 5cfcdf3157b17cc9

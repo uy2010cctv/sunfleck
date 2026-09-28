@@ -1,6 +1,40 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/enterprise/device-plane/README.md
-README.md: 292299a09fbe645dcaa0967ab2630872e1ce92ac
-README.zh.md: b6d34e448683a1e600646044f659b83eea5381ab
+/:
+  en: 27e1f1c55bd70913
+  zh: a2fe3743b79c1ef3
+/deepseek-ai-dsh-enterprise-device-plane:
+  en: c4e20405b8b24f5a
+  zh: 386f80f5f1fcd5e9
+/deepseek-ai-dsh-enterprise-device-plane/summary:
+  en: 1d89cb79c64ca358
+  zh: e51a599c45d44f6c
+/deepseek-ai-dsh-enterprise-device-plane/table-of-contents:
+  en: 29c77d0e939d2815
+  zh: 5d1f7d06f22506b4
+/deepseek-ai-dsh-enterprise-device-plane/runtime-contract:
+  en: 209c6d50f44c1118
+  zh: 772b3942aab59143
+/deepseek-ai-dsh-enterprise-device-plane/dev-note:
+  en: 9ef206b03e5fe5ac
+  zh: 303a49f43b89ead2
+/deepseek-ai-dsh-enterprise-device-plane/model-experience:
+  en: 215e7ba838619b7b
+  zh: a311da3843709f90
+/deepseek-ai-dsh-enterprise-device-plane/model-experience/server-side-authority:
+  en: f2839232ffd3f7c3
+  zh: 14b631696009ac47
+/deepseek-ai-dsh-enterprise-device-plane/model-experience/server-side-authority/what-the-model-sees:
+  en: 6ba73e0371956bae
+  zh: eb3c9faa4d4b1326
+/deepseek-ai-dsh-enterprise-device-plane/model-experience/server-side-authority/token-effect:
+  en: 7eb554cf3ee886eb
+  zh: 69a22088afad05ee
+/deepseek-ai-dsh-enterprise-device-plane/model-experience/server-side-authority/kv-cache-effect:
+  en: b670c5e8a0f39457
+  zh: b5474a153324503f
+/deepseek-ai-dsh-enterprise-device-plane/known-limitations-and-deferred-work:
+  en: 5d2a38c19b99fc14
+  zh: 5b9b355f044f2ba3

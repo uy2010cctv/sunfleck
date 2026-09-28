@@ -1,6 +1,19 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-25-enterprise-project-and-surface-directory.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-09-25-enterprise-project-and-surface-directory.md
-2026-09-25-enterprise-project-and-surface-directory.md: eb98838187f8d6a6abc38e4a9b139addc89134e8
-2026-09-25-enterprise-project-and-surface-directory.zh.md: 769a85c32e7c5be434801e87cec21a2ac26abaae
+/agent-note-enterprise-project-and-surface-directory-in-postgresql:
+  en: ed59aa17fc14247f
+  zh: aeeb7887a1e8e3f9
+/agent-note-enterprise-project-and-surface-directory-in-postgresql/problem:
+  en: b40c2718a9a5446d
+  zh: 2e504eb9a76d7bd4
+/agent-note-enterprise-project-and-surface-directory-in-postgresql/decision:
+  en: 3ba61c130a952d46
+  zh: 7d0f595dbb31f48c
+/agent-note-enterprise-project-and-surface-directory-in-postgresql/alternatives-considered:
+  en: 9dd07b47dbfe0c28
+  zh: c92899db003df4b0
+/agent-note-enterprise-project-and-surface-directory-in-postgresql/consequences:
+  en: 993d62b768d20e68
+  zh: 5ea0c5870abd462a

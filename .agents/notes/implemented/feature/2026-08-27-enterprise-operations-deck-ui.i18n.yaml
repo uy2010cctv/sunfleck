@@ -1,6 +1,37 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-08-27-enterprise-operations-deck-ui.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-27-enterprise-operations-deck-ui.md
-2026-08-27-enterprise-operations-deck-ui.md: 843863dc5e0934791d8e4faf475fd000b0e3cea6
-2026-08-27-enterprise-operations-deck-ui.zh.md: 4718189a174fdcbcf42c2bf2ecbbecd95eb8222f
+/agent-note-enterprise-operations-deck-uses-authenticated-read-models:
+  en: 01f1d69531ece570
+  zh: 9368fcc2ffedc1d9
+/agent-note-enterprise-operations-deck-uses-authenticated-read-models/problem:
+  en: b9a8270bc41bce5b
+  zh: 55728dc595b07419
+/agent-note-enterprise-operations-deck-uses-authenticated-read-models/decision:
+  en: e1901f3c659c05d5
+  zh: b2d1ed357523c9ce
+/agent-note-enterprise-operations-deck-uses-authenticated-read-models/direction-contract:
+  en: c3a0f638c9dda9ec
+  zh: c3a0f638c9dda9ec
+/agent-note-enterprise-operations-deck-uses-authenticated-read-models/direction-contract/form:
+  en: 6fe5e3112cdbb2da
+  zh: e1b6401487d504aa
+/agent-note-enterprise-operations-deck-uses-authenticated-read-models/direction-contract/type:
+  en: 3de1df1172355f07
+  zh: 3db3114e5d855f50
+/agent-note-enterprise-operations-deck-uses-authenticated-read-models/direction-contract/material:
+  en: b2cae54bd31458b5
+  zh: e0f96190fc484483
+/agent-note-enterprise-operations-deck-uses-authenticated-read-models/direction-contract/ground:
+  en: 203c5a8b044cef98
+  zh: 6c3df260049be409
+/agent-note-enterprise-operations-deck-uses-authenticated-read-models/direction-contract/first-viewport:
+  en: a3e453a7ab94ca24
+  zh: 920625132d793dae
+/agent-note-enterprise-operations-deck-uses-authenticated-read-models/alternatives-considered:
+  en: 7b333f132785b3ca
+  zh: 492c86c832b2da5e
+/agent-note-enterprise-operations-deck-uses-authenticated-read-models/consequences:
+  en: 8e9e79a47426623b
+  zh: 7e78825b3d4bda6a

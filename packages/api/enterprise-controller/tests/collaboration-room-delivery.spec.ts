@@ -42,7 +42,7 @@ describe('shared room execution input', () => {
       { type: 'assistant/message', seq: 9, data: { turn: 1, message: { content: [{ type: 'reasoning', text: 'private' },
         { type: 'text', text: 'Here is the answer' }] } } },
       { type: 'turn/end', seq: 10, data: { turn: 1, reason: { kind: 'completed' } } },
-    ]
+    ] as const
     expect(roomTurnPost(events, 1)).toEqual({ text: 'Here is the answer', sourceSeq: 9 })
   })
 

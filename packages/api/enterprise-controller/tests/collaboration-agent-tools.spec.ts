@@ -12,6 +12,18 @@ import { verifyEvent } from 'nostr-tools/pure'
 import { CollaborationIdentity } from '../src/collaboration-identity.ts'
 import { installCollaborationAgentTools } from '../src/collaboration-agent-tools.ts'
 
+/** nostr-tools accepts mutable tag arrays; signed room events keep them readonly. */
+const verifiedSignature = (event: {
+  readonly id: string
+  readonly pubkey: string
+  readonly created_at: number
+  readonly kind: number
+  readonly content: string
+  readonly sig: string
+  readonly tags: readonly (readonly string[])[]
+}): boolean => verifyEvent({ ...event, tags: event.tags.map(tag => [...tag]) })
+
+
 const contexts: Context[] = []
 afterEach(async () => { for (const ctx of contexts.splice(0)) await ctx.fiber.dispose() })
 
@@ -96,7 +108,7 @@ describe('shared room agent tools', () => {
       idempotencyKey: 'post-1', targetEmployeeIds: ['bot-b'] })
     expect(result.isError).toBeFalsy()
     expect(app.events).toHaveLength(2)
-    expect(verifyEvent(app.events[1]!.event)).toBe(true)
+    expect(verifiedSignature(app.events[1]!.event)).toBe(true)
     expect(app.events[1]!.event.tags).toContainEqual(['dsh-hop', '1'])
     const source = app.agent.session.snapshotEvents().find(event => event.type === 'tool/call')
     expect(app.events[1]!.event.tags).toContainEqual(['dsh-source', `${app.agent.id}:${source?.seq}`])
@@ -121,7 +133,7 @@ describe('shared room agent tools', () => {
       idempotencyKey: 'mention-alice', mentionedUserIds: ['alice'] })
     expect(result.isError).toBeFalsy()
     expect(app.events[1]?.event.tags).toContainEqual(['dsh-mention', 'alice'])
-    expect(verifyEvent(app.events[1]!.event)).toBe(true)
+    expect(verifiedSignature(app.events[1]!.event)).toBe(true)
     const rejected = await app.call('room_post', { content: 'Private ping', sourceEventId: app.initial.id,
       idempotencyKey: 'mention-outsider', mentionedUserIds: ['outsider'] })
     expect(rejected.isError).toBe(true)

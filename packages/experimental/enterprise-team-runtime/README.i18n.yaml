@@ -1,6 +1,46 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/experimental/enterprise-team-runtime/README.md
-README.md: f919eefb3d6c627d9378a98b06dfa583bffaf429
-README.zh.md: 126855537f742d8b25d809d89e0e8ef04117b284
+/:
+  en: bef547bb452e80b8
+  zh: 5be7f79e8477b77f
+/deepseek-ai-dsh-experimental-enterprise-team-runtime:
+  en: cfcc636bf3cbd9a5
+  zh: bd3b46f1f00f9729
+/deepseek-ai-dsh-experimental-enterprise-team-runtime/summary:
+  en: fe30a3ae128f1988
+  zh: 8988edaa1c166b18
+/deepseek-ai-dsh-experimental-enterprise-team-runtime/table-of-contents:
+  en: d8bc365cc1071148
+  zh: da61300a75d236e2
+/deepseek-ai-dsh-experimental-enterprise-team-runtime/use-this-package:
+  en: 051265f38a754bd4
+  zh: b6f052f9f794c225
+/deepseek-ai-dsh-experimental-enterprise-team-runtime/runtime-behavior:
+  en: 95380f4d1da2b96e
+  zh: 648ac13bf455fd9f
+/deepseek-ai-dsh-experimental-enterprise-team-runtime/further-exploration:
+  en: 2203e15620582bd0
+  zh: 8108c31d4f4c93cb
+/deepseek-ai-dsh-experimental-enterprise-team-runtime/model-experience:
+  en: 215e7ba838619b7b
+  zh: a311da3843709f90
+/deepseek-ai-dsh-experimental-enterprise-team-runtime/model-experience/team-runtime-context:
+  en: 283000767b68ddc5
+  zh: 686a663b2a5b8530
+/deepseek-ai-dsh-experimental-enterprise-team-runtime/model-experience/team-runtime-context/what-the-model-sees:
+  en: fb6b7460c884094a
+  zh: e41334188f60b866
+/deepseek-ai-dsh-experimental-enterprise-team-runtime/model-experience/team-runtime-context/token-effect:
+  en: 2a2150d49fb75b7e
+  zh: 1fa4d71150906537
+/deepseek-ai-dsh-experimental-enterprise-team-runtime/model-experience/team-runtime-context/kv-cache-effect:
+  en: 3e79434a3162ca7c
+  zh: d41dc8fb468feb30
+/deepseek-ai-dsh-experimental-enterprise-team-runtime/known-limitations-and-deferred-work:
+  en: 7a20b9612eb37d6a
+  zh: 84a9ca721d091bf8
+/deepseek-ai-dsh-experimental-enterprise-team-runtime/known-limitations-and-deferred-work/dev-note:
+  en: e67f633dc6fe7773
+  zh: e88aeb617ffb74ea

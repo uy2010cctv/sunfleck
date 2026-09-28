@@ -1,6 +1,19 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-25-digital-employee-and-agent-mode-ownership.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-09-25-digital-employee-and-agent-mode-ownership.md
-2026-09-25-digital-employee-and-agent-mode-ownership.md: 0a9c884e6f7fa9bf31dd795ef3a3f1cf4cdfc4de
-2026-09-25-digital-employee-and-agent-mode-ownership.zh.md: e2d0fb5c3958091257969ec1423ca2514c1b675c
+/agent-note-digital-employee-and-agent-mode-ownership:
+  en: 71d04852ad79fb09
+  zh: 93eba1dc3a8d6253
+/agent-note-digital-employee-and-agent-mode-ownership/problem:
+  en: 0a150e4041f9be82
+  zh: 0566b6fe743aec91
+/agent-note-digital-employee-and-agent-mode-ownership/decision:
+  en: 08a02b1c89298e28
+  zh: 132d3701defb797b
+/agent-note-digital-employee-and-agent-mode-ownership/alternatives-considered:
+  en: aede6bed90ef79a2
+  zh: 64195f22886920ca
+/agent-note-digital-employee-and-agent-mode-ownership/consequences:
+  en: 32a75d229b0c0d9c
+  zh: 5f5131563a3790a1

@@ -1,6 +1,37 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-24-employee-memory-p1.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-24-employee-memory-p1.md
-2026-09-24-employee-memory-p1.md: 841e65b2d2974a5f1c4bcc93a01a5715c14feb20
-2026-09-24-employee-memory-p1.zh.md: 82cc57f8496e5a494221042f70e7df1dbddd77c0
+/agent-note-employee-memory-across-sessions:
+  en: 8c2f2830c409498a
+  zh: a571f7651608e882
+/agent-note-employee-memory-across-sessions/problem:
+  en: 3a15bc62191ea104
+  zh: ffa00967e249ea84
+/agent-note-employee-memory-across-sessions/decision:
+  en: c6695766ee6a5860
+  zh: e77efb14b48c23e3
+/agent-note-employee-memory-across-sessions/private-writes-and-scope-aware-privacy:
+  en: 383aec8de2d9386d
+  zh: bc496c76e8736e4f
+/agent-note-employee-memory-across-sessions/recall-injection:
+  en: bd3026648f200056
+  zh: 7a76a0c6abbd6b8d
+/agent-note-employee-memory-across-sessions/memory-tools:
+  en: ce0e324cad113fe2
+  zh: 33e8460a934d5728
+/agent-note-employee-memory-across-sessions/governance:
+  en: fa0c87ab93e9a9dd
+  zh: 8271cb1ec1f5dbaf
+/agent-note-employee-memory-across-sessions/alternatives-considered:
+  en: 589d503d7f32d468
+  zh: 13d85391d4866832
+/agent-note-employee-memory-across-sessions/testing:
+  en: efcce431bf759cc2
+  zh: 2ae3a8830dffba9b
+/agent-note-employee-memory-across-sessions/consequences:
+  en: 072305f1ea53feeb
+  zh: 132879ea300b8c88
+/agent-note-employee-memory-across-sessions/deferred:
+  en: de970f4440e1a0a5
+  zh: b9319e6007a5e51b

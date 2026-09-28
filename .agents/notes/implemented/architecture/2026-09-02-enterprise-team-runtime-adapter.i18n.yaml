@@ -1,6 +1,25 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-02-enterprise-team-runtime-adapter.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-09-02-enterprise-team-runtime-adapter.md
-2026-09-02-enterprise-team-runtime-adapter.md: 4ba6711828955650c768d943ed9959d272739fe1
-2026-09-02-enterprise-team-runtime-adapter.zh.md: 9be29f43ab4324cf864db040bf2fa027a16e6118
+/agent-note-enterprise-teamrun-over-the-agent-teams-session-log:
+  en: eb2853d20170de45
+  zh: c7faa5aa578f486c
+/agent-note-enterprise-teamrun-over-the-agent-teams-session-log/problem:
+  en: 5730434e03b11b14
+  zh: 466c28ced2d6d581
+/agent-note-enterprise-teamrun-over-the-agent-teams-session-log/decision:
+  en: 77bdceb8029e0c74
+  zh: ccd17783f25eda41
+/agent-note-enterprise-teamrun-over-the-agent-teams-session-log/recovery-and-ownership:
+  en: 65e77b96b24bf8f6
+  zh: f4fb2823149a4ab2
+/agent-note-enterprise-teamrun-over-the-agent-teams-session-log/alternatives-considered:
+  en: fc6cb16ed676aa29
+  zh: 0bd75346c51e9d2f
+/agent-note-enterprise-teamrun-over-the-agent-teams-session-log/verification:
+  en: f843dc5d264557d3
+  zh: f6786caac7390f3f
+/agent-note-enterprise-teamrun-over-the-agent-teams-session-log/consequences:
+  en: 8bea80b37ab3fa8c
+  zh: 69ce56bdb8093d87

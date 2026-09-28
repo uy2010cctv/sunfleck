@@ -1,6 +1,37 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for human-agent-teams.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write docs/user/guide/human-agent-teams.md
-human-agent-teams.md: d46e539c9f0db7e4cde32857e778856d979c314a
-human-agent-teams.zh.md: ea98ebffdfd5a0d658196198557db6c0e1059bc9
+/human-agent-team-operating-model-proposal:
+  en: 579a6ec2a9b8a58b
+  zh: 928beedba8987959
+/human-agent-team-operating-model-proposal/proposal-status:
+  en: 59966bfc1f7b91eb
+  zh: 390c66ab5aaae824
+/human-agent-team-operating-model-proposal/proposed-lifecycle:
+  en: c24071512b5965d0
+  zh: 17191249c8710900
+/human-agent-team-operating-model-proposal/proposed-lifecycle/1-charter-and-definition:
+  en: 2c22dac13bc824f2
+  zh: 11f0405b54eff60e
+/human-agent-team-operating-model-proposal/proposed-lifecycle/2-launch-in-the-source-checkout-enterprise-profile:
+  en: 65cfd58ab8e98f84
+  zh: 315a5cf43097e17b
+/human-agent-team-operating-model-proposal/proposed-lifecycle/3-coordination-and-verification:
+  en: 024d52f820799e2a
+  zh: 3447afd786cad19d
+/human-agent-team-operating-model-proposal/proposed-lifecycle/4-human-decisions-and-handoff:
+  en: a43756b0b5da8148
+  zh: b16c0b80656f2662
+/human-agent-team-operating-model-proposal/proposed-lifecycle/5-review-and-grant-evolution:
+  en: 87f13680ad269ce0
+  zh: d1c6c6d0db2211d4
+/human-agent-team-operating-model-proposal/proposed-trust-levels:
+  en: 2922d57b1760ec5e
+  zh: 6ec84e3e92cb1f1f
+/human-agent-team-operating-model-proposal/channel-settings-and-delivery-boundary:
+  en: 28b36ea78b95e1a6
+  zh: d19a79cab0417373
+/human-agent-team-operating-model-proposal/continue:
+  en: bcae2a0c22fc7d32
+  zh: 34134b543d0111ef

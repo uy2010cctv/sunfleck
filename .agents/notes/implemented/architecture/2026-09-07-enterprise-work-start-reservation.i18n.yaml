@@ -1,6 +1,19 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-07-enterprise-work-start-reservation.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-09-07-enterprise-work-start-reservation.md
-2026-09-07-enterprise-work-start-reservation.md: cf0dce52d114a59dd1d73243687be4e203448f16
-2026-09-07-enterprise-work-start-reservation.zh.md: 58c55e9bb4a99f539442ab37574208d7cd2f3ef1
+/agent-note-enterprise-work-start-reservation:
+  en: a706428345ca60e6
+  zh: c2a97aab9469b790
+/agent-note-enterprise-work-start-reservation/problem:
+  en: 3458dd0a6a866a94
+  zh: 2976cca0d9847fa5
+/agent-note-enterprise-work-start-reservation/decision:
+  en: 13bb2ed1ffa34fdd
+  zh: b5d80baaefcf6a66
+/agent-note-enterprise-work-start-reservation/alternatives-considered:
+  en: 23a74dfac3370f86
+  zh: 06fb7b5cc357871d
+/agent-note-enterprise-work-start-reservation/consequences:
+  en: c6fa84b54a4ccda4
+  zh: 73d426c5253e4786

@@ -1,6 +1,19 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-22-present-source-file-download.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-22-present-source-file-download.md
-2026-09-22-present-source-file-download.md: 9f1181800ffafe443fef853cd96c2c6ca1c97864
-2026-09-22-present-source-file-download.zh.md: ce21f85ae894dc776420779cc5535d9c366c3d84
+/agent-note-download-presented-source-files:
+  en: b6b361b5b6ede54d
+  zh: e081fd4257c60c2f
+/agent-note-download-presented-source-files/problem:
+  en: 4cad4ffce1eb169c
+  zh: 007126cff50f98c3
+/agent-note-download-presented-source-files/decision:
+  en: 7e2293878a350421
+  zh: 35833fcf3465a003
+/agent-note-download-presented-source-files/alternatives-considered:
+  en: f4f69bf728a312b2
+  zh: 1ce8b8cbe4755361
+/agent-note-download-presented-source-files/consequences:
+  en: 96bd6c433451ccf1
+  zh: 58ecd40f7182b1eb

@@ -43,7 +43,7 @@ kind: "package-reference"
 |---|---|---|
 | `default` | 必填 | 未显式指定时使用的 preset ID |
 
-Web 内置定义来自 `dsh-web-app` bundle。定义使用普通插件行；注册表不扫描目录，也不接受 preset 路径。`agent-preset-registry` 条目的 volatile 字段 `selectedDefault` 与 `modeSelectionEnabled` 保留用户默认值和选择器可见性；隐藏选择器时使用部署 `default`。
+Web 内置定义来自 `dsh-web-app` bundle。定义使用普通插件行；注册表不扫描目录，也不接受 preset 路径。`agent-preset-registry` 条目的 volatile 字段 `selectedDefault` 保留用户默认值，新会话优先使用它而不是部署 `default`。profile patch 仍可能带有已废弃的 `modeSelectionEnabled` 字段；注册表未声明该字段，既不读取也不重写它。
 
 名册把目录中已发布的员工声明标记为 `kind: employee`，并携带不可变发布版本信息。此类声明仍可作为运行时 preset 执行，但不能成为通用新任务默认值；旧的员工默认值会解析为部署的工作方式默认值。Agent 保留的运行时版本会报告实际挂载的员工发布版本，企业控制器在空白 Session 选择完成后记录该版本。
 

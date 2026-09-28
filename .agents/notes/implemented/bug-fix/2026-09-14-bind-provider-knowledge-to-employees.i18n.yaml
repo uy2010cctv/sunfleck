@@ -1,6 +1,22 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-14-bind-provider-knowledge-to-employees.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-09-14-bind-provider-knowledge-to-employees.md
-2026-09-14-bind-provider-knowledge-to-employees.md: f8587725ec62ec166568aae767a1793aac80bc0b
-2026-09-14-bind-provider-knowledge-to-employees.zh.md: 436b1d07fa87c9e265e902d82416a98e1bbef286
+/agent-note-bind-provider-knowledge-to-employees:
+  en: df2cd81d8a640729
+  zh: 09114105fddd2ddb
+/agent-note-bind-provider-knowledge-to-employees/problem:
+  en: 33055a89b13c090f
+  zh: c63abcad81716ef8
+/agent-note-bind-provider-knowledge-to-employees/decision:
+  en: 90c2dee3f216611c
+  zh: a2d74464f02dc719
+/agent-note-bind-provider-knowledge-to-employees/alternatives-considered:
+  en: c2ec87037e99a6e0
+  zh: cd8386feeb8c2595
+/agent-note-bind-provider-knowledge-to-employees/consequences:
+  en: cb97d12caeec30c4
+  zh: 6e51d11522f4f264
+/agent-note-bind-provider-knowledge-to-employees/verification:
+  en: 402755cb87bcae67
+  zh: 08faacd12a501cfe

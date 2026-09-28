@@ -1,6 +1,43 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/identity/enterprise-identity-postgres/README.md
-README.md: de04a241f8dcce950b267fee8556552b193315aa
-README.zh.md: 161fa60ce9ed45a8054a45a5f00b62ee95c4f99a
+/:
+  en: d1df71c4f92698da
+  zh: 991362d5e7dc0fdc
+/deepseek-ai-dsh-enterprise-identity-postgres:
+  en: 7d626cf01f915fe7
+  zh: 212c44af4523fa73
+/deepseek-ai-dsh-enterprise-identity-postgres/summary:
+  en: e1581246ec7a1200
+  zh: 697660eeaa7e1459
+/deepseek-ai-dsh-enterprise-identity-postgres/table-of-contents:
+  en: b6e66ed089769c69
+  zh: fdd1bb9712cbd358
+/deepseek-ai-dsh-enterprise-identity-postgres/package-details:
+  en: 1441bcd78f7da614
+  zh: 7b3fd8352f36ea6b
+/deepseek-ai-dsh-enterprise-identity-postgres/migration:
+  en: 6266729170e3472b
+  zh: 2a61c8149556f5b4
+/deepseek-ai-dsh-enterprise-identity-postgres/model-experience:
+  en: 215e7ba838619b7b
+  zh: 215e7ba838619b7b
+/deepseek-ai-dsh-enterprise-identity-postgres/model-experience/identity-persistence:
+  en: d53d1bf1a46d72b1
+  zh: e83b16b6a95fbc4f
+/deepseek-ai-dsh-enterprise-identity-postgres/model-experience/identity-persistence/what-the-model-sees:
+  en: fafb9eb1ea10e1c3
+  zh: 8c8d2a34ab6e0c4d
+/deepseek-ai-dsh-enterprise-identity-postgres/model-experience/identity-persistence/token-effect:
+  en: 10384faa56592602
+  zh: bd0ff2f28cb7709b
+/deepseek-ai-dsh-enterprise-identity-postgres/model-experience/identity-persistence/kv-cache-effect:
+  en: 0157671876782983
+  zh: aec37063ef57a780
+/deepseek-ai-dsh-enterprise-identity-postgres/known-limitations-and-deferred-work:
+  en: f81fc2aa5807a47d
+  zh: 0eecbaa6ee16fb2a
+/deepseek-ai-dsh-enterprise-identity-postgres/known-limitations-and-deferred-work/dev-note:
+  en: e67f633dc6fe7773
+  zh: e88aeb617ffb74ea

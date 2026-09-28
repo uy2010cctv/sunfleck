@@ -1,6 +1,22 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-14-visible-employee-capability-bindings.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-09-14-visible-employee-capability-bindings.md
-2026-09-14-visible-employee-capability-bindings.md: cfe730fb06348f9a5fc9fb46bd1b6e503d010d00
-2026-09-14-visible-employee-capability-bindings.zh.md: 2408054b6fbd5084561556f8df329a07118868d2
+/agent-note-visible-employee-capability-bindings:
+  en: a56c3bba45516d29
+  zh: 40e2659c17c795ec
+/agent-note-visible-employee-capability-bindings/problem:
+  en: 6a032cc0512d5709
+  zh: c77b0fdbcdd32dd7
+/agent-note-visible-employee-capability-bindings/decision:
+  en: f57128ebf0a1cab8
+  zh: 7028dec162cc904c
+/agent-note-visible-employee-capability-bindings/alternatives-considered:
+  en: 22d9795f97959940
+  zh: 62c7e67282fb6691
+/agent-note-visible-employee-capability-bindings/consequences:
+  en: 6c7f94f587ce31d0
+  zh: 1d7d2ac5901db357
+/agent-note-visible-employee-capability-bindings/verification:
+  en: 705953ecf109cb31
+  zh: 14916f12b43f075c

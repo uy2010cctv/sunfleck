@@ -1,6 +1,22 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-14-idempotent-employee-publish-reconciliation.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-09-14-idempotent-employee-publish-reconciliation.md
-2026-09-14-idempotent-employee-publish-reconciliation.md: 892356b2c0eb5ae1e2b4e619b4877202880ff20e
-2026-09-14-idempotent-employee-publish-reconciliation.zh.md: 1412536076384f7b0d8d2739c8831e89a573a64d
+/agent-note-idempotent-employee-publish-reconciliation:
+  en: 5b308659d9861ed2
+  zh: b599de880a12300b
+/agent-note-idempotent-employee-publish-reconciliation/problem:
+  en: cfed249fa9301fc1
+  zh: db3cd487d557441c
+/agent-note-idempotent-employee-publish-reconciliation/decision:
+  en: 0661d33af2886f99
+  zh: 295adf714468e372
+/agent-note-idempotent-employee-publish-reconciliation/alternatives-considered:
+  en: 9fe4c27b7e2868dc
+  zh: 6470c5c8c7c312b0
+/agent-note-idempotent-employee-publish-reconciliation/consequences:
+  en: 07f183518c9ea589
+  zh: 884e8a450b8eb33a
+/agent-note-idempotent-employee-publish-reconciliation/verification:
+  en: ca2e36b39acea0d8
+  zh: e5bbfc0d3a7075ae

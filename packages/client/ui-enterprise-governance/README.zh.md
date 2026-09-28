@@ -46,7 +46,7 @@ Enterprise login gate and identity, role, asset-policy, and audit administration
 
 无；打开或编辑治理状态不组装提供方请求。
 
-## Known Limitations and Deferred Work
+## 已知限制与延期工作
 
 - 首个 UI 使用中文运营文案；可通过 Locale Dictionary 扩展，无需修改 Host 策略。
 - 只有已配置的 Provider 才显示外部 SSO 按钮。
@@ -60,3 +60,9 @@ Enterprise login gate and identity, role, asset-policy, and audit administration
 无。
 
 </details>
+
+## 记忆激活
+
+已确认的手动条目使用「保存并激活」。常规 Agent 知识自动激活；待处理通道仅在异常或已有提案时出现。激活的记忆可以停用而不删除其审计历史。
+
+自动捕获面板报告持久化的已完成轮次发件箱，不暴露复制的会话快照。已完成与跳过的工作保持紧凑；失败任务显示原因并提供重试入口。冲突候选继续走现有的异常审核通道。

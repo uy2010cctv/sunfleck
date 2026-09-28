@@ -1,6 +1,40 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/identity/enterprise-identity/README.md
-README.md: b2de05181bfe89947aedec8d89c4ee8090d842d5
-README.zh.md: 3fe1eb2ee51a954e0147dde5ab4537891ba32b19
+/:
+  en: 2a7e7a67fc0699c8
+  zh: 7592c78171f8d412
+/deepseek-ai-dsh-enterprise-identity:
+  en: 9eac3cd497c8168c
+  zh: 7f371eb9aa739916
+/deepseek-ai-dsh-enterprise-identity/summary:
+  en: 00988a5568aab784
+  zh: 65f56a786ad3bac5
+/deepseek-ai-dsh-enterprise-identity/table-of-contents:
+  en: b6e66ed089769c69
+  zh: fdd1bb9712cbd358
+/deepseek-ai-dsh-enterprise-identity/package-details:
+  en: e9cde0b8af715427
+  zh: 177dc6048f4bb576
+/deepseek-ai-dsh-enterprise-identity/model-experience:
+  en: 215e7ba838619b7b
+  zh: 215e7ba838619b7b
+/deepseek-ai-dsh-enterprise-identity/model-experience/identity-persistence:
+  en: d53d1bf1a46d72b1
+  zh: e83b16b6a95fbc4f
+/deepseek-ai-dsh-enterprise-identity/model-experience/identity-persistence/what-the-model-sees:
+  en: b35e4b932e4eeef0
+  zh: 5814cc17c8cdaee7
+/deepseek-ai-dsh-enterprise-identity/model-experience/identity-persistence/token-effect:
+  en: 4aa39e954d2c479e
+  zh: 6062ae1139393cdd
+/deepseek-ai-dsh-enterprise-identity/model-experience/identity-persistence/kv-cache-effect:
+  en: b308d52ba966a07c
+  zh: 8caad73473dc6c42
+/deepseek-ai-dsh-enterprise-identity/known-limitations-and-deferred-work:
+  en: 7f85f9f7d008ad46
+  zh: d6ebbd90490acbe5
+/deepseek-ai-dsh-enterprise-identity/known-limitations-and-deferred-work/dev-note:
+  en: e67f633dc6fe7773
+  zh: e88aeb617ffb74ea

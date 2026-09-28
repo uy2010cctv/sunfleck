@@ -1,6 +1,25 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-27-enterprise-collaboration-release.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write docs/superpowers/specs/2026-09-27-enterprise-collaboration-release.md
-2026-09-27-enterprise-collaboration-release.md: 86eccafcb47b631ca892be3202778fccbb96751a
-2026-09-27-enterprise-collaboration-release.zh.md: 98ae0ada3767853b3c86ffab1b697f284aa671b1
+/enterprise-collaboration-release-notes-2026-09-27:
+  en: 4881d43597bd2b12
+  zh: 5e683a32f5fd4453
+/enterprise-collaboration-release-notes-2026-09-27/group-administration:
+  en: 65ac76888b4d2886
+  zh: 0a6c6502900d8d87
+/enterprise-collaboration-release-notes-2026-09-27/room-messaging-parity:
+  en: 3399e20c25ff1764
+  zh: de3f6dcd07968963
+/enterprise-collaboration-release-notes-2026-09-27/shell-adjustments:
+  en: d31af10aa3e74a0c
+  zh: 891c0d43d550f722
+/enterprise-collaboration-release-notes-2026-09-27/fixes:
+  en: 0da439ba7c06f78c
+  zh: f5c20cd631a4d637
+/enterprise-collaboration-release-notes-2026-09-27/operations-note:
+  en: d03246388820cd16
+  zh: 55e0b877f4416720
+/enterprise-collaboration-release-notes-2026-09-27/commits:
+  en: dc4c9cb7fb1b07af
+  zh: b4152b9f3f7ae1f6

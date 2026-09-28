@@ -1,6 +1,64 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/context/enterprise-memory-context/README.md
-README.md: 2718a8e1ce8704256d5d144147c4838acd1c9ae7
-README.zh.md: 70337b9ad14f6ab408cc246a64a3e37497d5e521
+/:
+  en: 9c0a2ac59da7c5c7
+  zh: 9496767400d82605
+/deepseek-ai-dsh-enterprise-memory-context:
+  en: fa410dfa650e0aec
+  zh: 612a6bbb7ad8a621
+/deepseek-ai-dsh-enterprise-memory-context/summary:
+  en: d159d0236ad37855
+  zh: 7fc0e67f5b7edb84
+/deepseek-ai-dsh-enterprise-memory-context/table-of-contents:
+  en: b6e66ed089769c69
+  zh: fdd1bb9712cbd358
+/deepseek-ai-dsh-enterprise-memory-context/package-details:
+  en: 7bdbf52178253b57
+  zh: 8db0c1a9e1ac16fc
+/deepseek-ai-dsh-enterprise-memory-context/memory-activation:
+  en: e7d550c41a97e52c
+  zh: efa8042c40d504f2
+/deepseek-ai-dsh-enterprise-memory-context/completed-turn-writeback:
+  en: 4d3ea1dbb8a41394
+  zh: 609c3a21bde72727
+/deepseek-ai-dsh-enterprise-memory-context/memory-consolidation:
+  en: 0fe0c92b3bbb2ca8
+  zh: 9cb5dd0447db3fe2
+/deepseek-ai-dsh-enterprise-memory-context/project-memory-tools-and-archival-distillation:
+  en: f65bcced7e773142
+  zh: 871dc648ff1c4934
+/deepseek-ai-dsh-enterprise-memory-context/model-experience:
+  en: 215e7ba838619b7b
+  zh: 215e7ba838619b7b
+/deepseek-ai-dsh-enterprise-memory-context/model-experience/approved-enterprise-memory:
+  en: 41d6c5589b18a1ff
+  zh: f24d416f79b09fef
+/deepseek-ai-dsh-enterprise-memory-context/model-experience/approved-enterprise-memory/what-the-model-sees:
+  en: 2a8000e022e46464
+  zh: e5ae89bc24433409
+/deepseek-ai-dsh-enterprise-memory-context/model-experience/approved-enterprise-memory/token-effect:
+  en: 9312106e9bed6c56
+  zh: 00a77c0a93929246
+/deepseek-ai-dsh-enterprise-memory-context/model-experience/approved-enterprise-memory/kv-cache-effect:
+  en: 3d35a93059caaffb
+  zh: 14a3ce870c2ec8d1
+/deepseek-ai-dsh-enterprise-memory-context/model-experience/employee-self-learning:
+  en: 3426f8cf65d23ae6
+  zh: 1808a112b34b87c3
+/deepseek-ai-dsh-enterprise-memory-context/model-experience/employee-self-learning/what-the-model-sees:
+  en: da1304ecdaaebc37
+  zh: b24f1a7d676304d1
+/deepseek-ai-dsh-enterprise-memory-context/model-experience/employee-self-learning/token-effect:
+  en: 2981fdc0e23f028b
+  zh: df1cd579c31b3604
+/deepseek-ai-dsh-enterprise-memory-context/model-experience/employee-self-learning/kv-cache-effect:
+  en: 2cbaaba7de785958
+  zh: adb8917c79d294fa
+/deepseek-ai-dsh-enterprise-memory-context/known-limitations-and-deferred-work:
+  en: 4f1a5b30fc5c9a61
+  zh: 5a4b3e7a2abf5ecc
+/deepseek-ai-dsh-enterprise-memory-context/known-limitations-and-deferred-work/dev-note:
+  en: ccad9366107b0e42
+  zh: ea7245181c8c49ce

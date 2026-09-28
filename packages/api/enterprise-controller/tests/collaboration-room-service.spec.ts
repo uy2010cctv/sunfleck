@@ -41,14 +41,17 @@ function fixture(record: CollaborationRecord = room,
         return event
       },
       list: async () => events,
-      roomPrefs: async () => new Map(),
-      setRoomPrefs: async (_surfaceId: string, _userId: string,
-        patch: { pinned?: boolean; starred?: boolean; muted?: boolean }) =>
-        ({ pinned: patch.pinned ?? false, starred: patch.starred ?? false, muted: patch.muted ?? false }),
-      roomPrefs: async () => new Map(),
-      setRoomPrefs: async (_surfaceId: string, _userId: string,
-        patch: { pinned?: boolean; starred?: boolean; muted?: boolean }) =>
-        ({ pinned: patch.pinned ?? false, starred: patch.starred ?? false, muted: patch.muted ?? false }),
+      get: async (_record: CollaborationRecord, eventId: string) =>
+        events.find(value => value.event.id === eventId),
+      react: async (_actor: EnterprisePrincipal, _record: CollaborationRecord,
+        input: { eventId: string; emoji: string; requestId: string }) => {
+        const event: RoomEvent = { orgId: 'org', surfaceId: 'group', sequence: String(events.length + 1),
+          authorKind: 'human', authorId: 'alice', requestId: input.requestId,
+          event: { id: `event-${events.length + 1}`, pubkey: 'key', sig: 'sig', created_at: 1,
+            kind: 9, tags: [], content: input.emoji } }
+        events.push(event)
+        return event
+      },
       attention: async (_record: CollaborationRecord, userId: string) => {
         const unread = events.filter(value => BigInt(value.sequence) > BigInt(read.get(userId) ?? '0')
           && !(value.authorKind === 'human' && value.authorId === userId) && value.event.kind === 9)
@@ -65,10 +68,17 @@ function fixture(record: CollaborationRecord = room,
         replayedTargets: async () => [{ sessionId: 'existing-session', employeeId: 'research' }] }),
     },
     refreshWorkspace: () => {}, workspaceVisible: async () => permitted,
+    memberWorkspaceVisible: async () => permitted,
+    project: async () => undefined, projectActive: async () => true, team: async () => undefined,
+    record: async () => {}, teamSession: async () => undefined,
+    ingest: async () => ({ delivered: false, reason: 'unused' }),
+    teamMessage: async () => ({ delivered: false, reason: 'unused' }),
     employee: async (_actor, id) => ({ employeeId: id, displayName: id === 'research' ? 'Research' : 'Data', releaseId: `release-${id}` }),
     createSession: async (_actor: EnterprisePrincipal, input: { sessionId: string }) => input.sessionId,
-    prompt: async (_actor: EnterprisePrincipal, id: string, _record: CollaborationRecord, input: CollaborationMessageInput) => { prompts.push({ employeeId: sessions.find(value => value.sessionId === id)?.employeeId ?? '',
-      text: input.text, requestId: input.messageId }) },
+    prompt: async (_actor: EnterprisePrincipal, id: string, _record: CollaborationRecord, input: CollaborationMessageInput) => {
+      prompts.push({ employeeId: sessions.find(value => value.sessionId === id)?.employeeId ?? '',
+        text: input.text, ...(input.messageId === undefined ? {} : { requestId: input.messageId }) })
+    },
   } as CollaborationRuntime)
   return { service, events, routes, prompts, revoke: () => { permitted = false } }
 }

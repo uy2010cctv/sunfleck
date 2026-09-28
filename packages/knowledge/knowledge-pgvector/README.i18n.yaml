@@ -1,6 +1,40 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/knowledge/knowledge-pgvector/README.md
-README.md: b98fe8cd1fdf7cb5b8f23bf92155b8d0ccc9e1df
-README.zh.md: 23d22cbebe0283b0861004153e181d2865605897
+/:
+  en: 721e75acf37621ea
+  zh: e02faf7811ac995a
+/deepseek-ai-dsh-knowledge-pgvector:
+  en: fd475b81872d722b
+  zh: 1d9e2529de0aa1be
+/deepseek-ai-dsh-knowledge-pgvector/summary:
+  en: 0804bd9790c72217
+  zh: de6949bbdf5f15bf
+/deepseek-ai-dsh-knowledge-pgvector/table-of-contents:
+  en: b6e66ed089769c69
+  zh: fdd1bb9712cbd358
+/deepseek-ai-dsh-knowledge-pgvector/package-details:
+  en: ae830299671134bf
+  zh: ee9dd5be3afe0e24
+/deepseek-ai-dsh-knowledge-pgvector/model-experience:
+  en: 215e7ba838619b7b
+  zh: a311da3843709f90
+/deepseek-ai-dsh-knowledge-pgvector/model-experience/knowledge-retrieval:
+  en: b907cf1cb1cec2a1
+  zh: 08e49473dc4a07ca
+/deepseek-ai-dsh-knowledge-pgvector/model-experience/knowledge-retrieval/what-the-model-sees:
+  en: a071757446447eb4
+  zh: bff1a1a4b09a5282
+/deepseek-ai-dsh-knowledge-pgvector/model-experience/knowledge-retrieval/token-effect:
+  en: 580cad2c975bafa8
+  zh: cf936243946a886e
+/deepseek-ai-dsh-knowledge-pgvector/model-experience/knowledge-retrieval/kv-cache-effect:
+  en: dadeb8b514f42e57
+  zh: 2386bf53206048b7
+/deepseek-ai-dsh-knowledge-pgvector/known-limitations-and-deferred-work:
+  en: 1315bcb4dfdc3f4e
+  zh: ac07c3e793a39d29
+/deepseek-ai-dsh-knowledge-pgvector/known-limitations-and-deferred-work/dev-note:
+  en: e67f633dc6fe7773
+  zh: e88aeb617ffb74ea

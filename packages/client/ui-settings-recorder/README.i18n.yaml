@@ -1,6 +1,43 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/client/ui-settings-recorder/README.md
-README.md: 6a95d9dcc417e43e889be939a871ecf87ddb537e
-README.zh.md: 16e154a0a9834d4d2654eca16047d41cf9539334
+/:
+  en: e585e278b6bf6aee
+  zh: c4c8c349e2c2d18c
+/deepseek-ai-dsh-client-ui-settings-recorder:
+  en: e86c578caefd1df9
+  zh: 95e89f4dd0cac446
+/deepseek-ai-dsh-client-ui-settings-recorder/summary:
+  en: 5992e569c19f7857
+  zh: 714b673e8461eebf
+/deepseek-ai-dsh-client-ui-settings-recorder/table-of-contents:
+  en: d152484eb41ac6b4
+  zh: ce40cab8e7534137
+/deepseek-ai-dsh-client-ui-settings-recorder/use-this-package:
+  en: 3195fe39b59764cd
+  zh: 1562f3cabce85015
+/deepseek-ai-dsh-client-ui-settings-recorder/use-this-package/when-to-choose-it:
+  en: 2901438b340dd2a5
+  zh: 1799b13cbbd6d386
+/deepseek-ai-dsh-client-ui-settings-recorder/use-this-package/minimal-configuration:
+  en: 9a508add4ec01630
+  zh: bdef5f7eed7d27e4
+/deepseek-ai-dsh-client-ui-settings-recorder/understand-the-implementation:
+  en: a664a003b39e8211
+  zh: 0d3cc96a709f9c4b
+/deepseek-ai-dsh-client-ui-settings-recorder/further-exploration:
+  en: 35938c562a5f89bb
+  zh: 555e26c1bceffc7d
+/deepseek-ai-dsh-client-ui-settings-recorder/model-experience:
+  en: 5ba2657dd94e57e5
+  zh: 9142b04975d80ff7
+/deepseek-ai-dsh-client-ui-settings-recorder/model-experience/kv-cache-effect:
+  en: 0ddfe1ff03381987
+  zh: 67836bafc9cb24f6
+/deepseek-ai-dsh-client-ui-settings-recorder/known-limitations-and-deferred-work:
+  en: 493c89bb8617d21f
+  zh: 69083c0ac0468d61
+/deepseek-ai-dsh-client-ui-settings-recorder/known-limitations-and-deferred-work/dev-note:
+  en: 1ebf2945c373ed9d
+  zh: 8d9848f79ce82607

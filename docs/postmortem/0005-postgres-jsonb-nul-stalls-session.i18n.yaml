@@ -1,6 +1,31 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 0005-postgres-jsonb-nul-stalls-session.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write docs/postmortem/0005-postgres-jsonb-nul-stalls-session.md
-0005-postgres-jsonb-nul-stalls-session.md: d23c451e639c3f57db8faac0a204e0c84da3e198
-0005-postgres-jsonb-nul-stalls-session.zh.md: 804c9832f631f4142dc8815eb1581f6cdc074130
+/post-mortem-0005-postgresql-jsonb-rejected-one-valid-event-and-stalled-the-session:
+  en: 0df2d27c3baf6dff
+  zh: 914723e21246c70a
+/post-mortem-0005-postgresql-jsonb-rejected-one-valid-event-and-stalled-the-session/executive-summary:
+  en: 631cc8eab4da7416
+  zh: fb7597a349bb2c0d
+/post-mortem-0005-postgresql-jsonb-rejected-one-valid-event-and-stalled-the-session/summary:
+  en: 0c692ed789f6106b
+  zh: 1eddeadec9a607bb
+/post-mortem-0005-postgresql-jsonb-rejected-one-valid-event-and-stalled-the-session/impact:
+  en: f97839a7077cd6b7
+  zh: 9699d4d3c6a94a6e
+/post-mortem-0005-postgresql-jsonb-rejected-one-valid-event-and-stalled-the-session/timeline:
+  en: 2cc45047a064c6c7
+  zh: 56fa1fe1b5093ef9
+/post-mortem-0005-postgresql-jsonb-rejected-one-valid-event-and-stalled-the-session/root-cause:
+  en: cf422cb76c6c713c
+  zh: 0287a9b45f141684
+/post-mortem-0005-postgresql-jsonb-rejected-one-valid-event-and-stalled-the-session/guardrails-added:
+  en: 07dc892cc0e750eb
+  zh: a0ea7d718638501c
+/post-mortem-0005-postgresql-jsonb-rejected-one-valid-event-and-stalled-the-session/verification:
+  en: cb6a01a2ee939121
+  zh: 32717438663a71fb
+/post-mortem-0005-postgresql-jsonb-rejected-one-valid-event-and-stalled-the-session/lessons:
+  en: b8762d2997ccd82c
+  zh: be3958de9e414a72

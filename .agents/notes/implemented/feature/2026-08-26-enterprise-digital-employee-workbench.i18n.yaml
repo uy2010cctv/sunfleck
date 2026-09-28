@@ -1,6 +1,40 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-08-26-enterprise-digital-employee-workbench.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-26-enterprise-digital-employee-workbench.md
-2026-08-26-enterprise-digital-employee-workbench.md: 92cd2c0cdb01d5d78e16d432fde912f9205e3a78
-2026-08-26-enterprise-digital-employee-workbench.zh.md: 31b8a2bd0b143295dd64b04ff45ee25724aa8e4b
+/agent-note-enterprise-digital-employee-workbench:
+  en: 1e64e3fcb35472b5
+  zh: 2a2946f931ffc8d9
+/agent-note-enterprise-digital-employee-workbench/problem:
+  en: dcc1b48fcaf708ad
+  zh: 7434cd546431f836
+/agent-note-enterprise-digital-employee-workbench/decision:
+  en: 8f4df4eae23aa932
+  zh: ed8646956997b361
+/agent-note-enterprise-digital-employee-workbench/preset-metadata:
+  en: d1fd24d577334611
+  zh: 3899640d83224019
+/agent-note-enterprise-digital-employee-workbench/managed-employee-creation:
+  en: 2392aed656cd1037
+  zh: f11c8718d7d9e71d
+/agent-note-enterprise-digital-employee-workbench/staffdeck-provenance-boundary:
+  en: a765ee8a1fd6d900
+  zh: 9a0c1d4537d6242e
+/agent-note-enterprise-digital-employee-workbench/multi-user-boundary:
+  en: 77d75e970788f328
+  zh: 0a0bee82bb2d235d
+/agent-note-enterprise-digital-employee-workbench/channel-kernel:
+  en: bd0f4f4a71712a59
+  zh: adb79ed9269a0160
+/agent-note-enterprise-digital-employee-workbench/enterprise-governance-kernel:
+  en: ba7a00c55e177644
+  zh: 98e0d8dce71aa06d
+/agent-note-enterprise-digital-employee-workbench/authenticated-enterprise-deployment:
+  en: d21784498232ba19
+  zh: fb65a3dca6d2166d
+/agent-note-enterprise-digital-employee-workbench/alternatives-considered:
+  en: 45519c4d6d2872b2
+  zh: 4525a32b30cc86a2
+/agent-note-enterprise-digital-employee-workbench/consequences:
+  en: 81cc1b0b1b0d2b29
+  zh: 5e570da775a02f93

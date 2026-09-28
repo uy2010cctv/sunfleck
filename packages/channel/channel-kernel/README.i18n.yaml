@@ -1,6 +1,40 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/channel/channel-kernel/README.md
-README.md: 9160413e83d3a484b714800a939cd0b64a7ce7ac
-README.zh.md: a4020b25419b363c511a1c177aa95bad5e3ffceb
+/:
+  en: 1435e86fe690e5a3
+  zh: 3a156dc384f74abe
+/deepseek-ai-dsh-channel-kernel:
+  en: 4018bce09dd5704a
+  zh: 53bb5b7220eb1665
+/deepseek-ai-dsh-channel-kernel/summary:
+  en: 8b32e03f66e62030
+  zh: 6d8c737afd5f1585
+/deepseek-ai-dsh-channel-kernel/table-of-contents:
+  en: b6e66ed089769c69
+  zh: fdd1bb9712cbd358
+/deepseek-ai-dsh-channel-kernel/package-details:
+  en: e6b3cbf5eb83c1f4
+  zh: eaff581541fed5d1
+/deepseek-ai-dsh-channel-kernel/model-experience:
+  en: 215e7ba838619b7b
+  zh: 215e7ba838619b7b
+/deepseek-ai-dsh-channel-kernel/model-experience/host-channel-policy:
+  en: 3f0cc2a194cb73e9
+  zh: 5633b750923a769e
+/deepseek-ai-dsh-channel-kernel/model-experience/host-channel-policy/what-the-model-sees:
+  en: 9fb0c4d91c47c448
+  zh: af5d7ce3a155d628
+/deepseek-ai-dsh-channel-kernel/model-experience/host-channel-policy/token-effect:
+  en: 5713313a0533613c
+  zh: 487bb510bd204004
+/deepseek-ai-dsh-channel-kernel/model-experience/host-channel-policy/kv-cache-effect:
+  en: 52e28c9d4673d685
+  zh: a8c36bfb0ed0f617
+/deepseek-ai-dsh-channel-kernel/known-limitations-and-deferred-work:
+  en: 18ff625c8c522cb9
+  zh: 3cee9cd3d580a6cc
+/deepseek-ai-dsh-channel-kernel/known-limitations-and-deferred-work/dev-note:
+  en: e67f633dc6fe7773
+  zh: e88aeb617ffb74ea

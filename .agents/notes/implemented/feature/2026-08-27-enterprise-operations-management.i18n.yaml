@@ -1,6 +1,22 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-08-27-enterprise-operations-management.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-27-enterprise-operations-management.md
-2026-08-27-enterprise-operations-management.md: 4b6c1b8b9bdcf81fac79f5de104c9bd31bb44e8e
-2026-08-27-enterprise-operations-management.zh.md: b80f425f3baefbd15d49eba8b5dd6f30d29bb80c
+/agent-note-organization-scoped-operations-management:
+  en: 0480ba72dff24c43
+  zh: 25926742068086ca
+/agent-note-organization-scoped-operations-management/problem:
+  en: 32870cd8a2211335
+  zh: 58da7b67439b751c
+/agent-note-organization-scoped-operations-management/decision:
+  en: b3147fe47d23d6c5
+  zh: f8d6faad65b13c94
+/agent-note-organization-scoped-operations-management/alternatives-considered:
+  en: 5189976fe3fd7690
+  zh: f1b635af68ad0a5f
+/agent-note-organization-scoped-operations-management/verification:
+  en: b1d590160f5ac8a2
+  zh: 444d5b37a901d1f8
+/agent-note-organization-scoped-operations-management/consequences:
+  en: 1f27641f4db7f672
+  zh: 808c0d6952864a21

@@ -1,6 +1,19 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-22-recorder-memory-timeline-index.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-22-recorder-memory-timeline-index.md
-2026-09-22-recorder-memory-timeline-index.md: 16b4e525913d04edddb5fa44d7614dbc7e0c0d37
-2026-09-22-recorder-memory-timeline-index.zh.md: ffde171c517ef221c7ff8f353b2f4e7611413cd4
+/agent-note-indexed-recorder-memory-timeline:
+  en: e73600a5c7a950a6
+  zh: cd73009144061674
+/agent-note-indexed-recorder-memory-timeline/problem:
+  en: deef988223bb48c9
+  zh: 2a052a0f6806b051
+/agent-note-indexed-recorder-memory-timeline/decision:
+  en: 883ba3d05a902d32
+  zh: af2a4117bd0f741a
+/agent-note-indexed-recorder-memory-timeline/alternatives-considered:
+  en: a3843d796f0afebf
+  zh: d51f6a4b274e52ed
+/agent-note-indexed-recorder-memory-timeline/consequences:
+  en: 7a908465b5efd05d
+  zh: 1615e44a69102324

@@ -1,6 +1,19 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-08-27-postgresql-production-composition.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write docs/superpowers/plans/2026-08-27-postgresql-production-composition.md
-2026-08-27-postgresql-production-composition.md: c8c6d56cdd239e96431920f26687be62c795220f
-2026-08-27-postgresql-production-composition.zh.md: 8d771d9f71a80813537e9e3185fe1cf5273f9f2e
+/postgresql-production-composition-implementation-plan:
+  en: b7cfe197e596610b
+  zh: a7ee8cbb2a44e89b
+/postgresql-production-composition-implementation-plan/task-1-postgresql-connection-and-schema-composition:
+  en: c37965334a686966
+  zh: 43b57e4711d37a87
+/postgresql-production-composition-implementation-plan/task-2-async-identity-security-boundary:
+  en: fd8f4a84e2e6988a
+  zh: b8c9ffea81d6fe79
+/postgresql-production-composition-implementation-plan/task-3-production-overlay-configuration:
+  en: 5e1213ad0b623e8c
+  zh: 6e6311b4196531ba
+/postgresql-production-composition-implementation-plan/task-4-runtime-recovery-and-verification:
+  en: 072a9d4d361d9cd8
+  zh: 0aece714692a6f9f

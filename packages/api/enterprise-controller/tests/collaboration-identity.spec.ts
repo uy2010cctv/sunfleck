@@ -3,6 +3,18 @@ import { verifyEvent } from 'nostr-tools/pure'
 import type { CredentialKey, CredentialRecord } from '@deepseek-ai/dsh-credentials'
 import { CollaborationIdentity } from '../src/collaboration-identity.ts'
 
+/** nostr-tools accepts mutable tag arrays; signed room events keep them readonly. */
+const verifiedSignature = (event: {
+  readonly id: string
+  readonly pubkey: string
+  readonly created_at: number
+  readonly kind: number
+  readonly content: string
+  readonly sig: string
+  readonly tags: readonly (readonly string[])[]
+}): boolean => verifyEvent({ ...event, tags: event.tags.map(tag => [...tag]) })
+
+
 const alice = { orgId: 'org-a', userId: 'alice', roles: ['member'] as const }
 const bob = { orgId: 'org-a', userId: 'bob', roles: ['member'] as const }
 
@@ -48,8 +60,8 @@ describe('custodial room signing identities', () => {
     const human = await signer.signHuman(alice, 'room-1', { type: 'text', content: 'Please research this.' })
     const bot = await signer.signEmployee({ orgId: 'org-a', employeeId: 'research', sessionId: 'bound-session' },
       'room-1', { type: 'text', content: 'I found the source.', threadRoot: human.id })
-    expect(verifyEvent(human)).toBe(true)
-    expect(verifyEvent(bot)).toBe(true)
+    expect(verifiedSignature(human)).toBe(true)
+    expect(verifiedSignature(bot)).toBe(true)
     expect(human.pubkey).not.toBe(bot.pubkey)
     expect(human.kind).toBe(9)
     expect(human.tags).toContainEqual(['h', 'room-1'])
@@ -64,10 +76,10 @@ describe('custodial room signing identities', () => {
     const reaction = await signer.signHuman(bob, 'room-1', { type: 'reaction', content: '+', targetEventId: target.id })
     expect(reaction.kind).toBe(7)
     expect(reaction.tags).toContainEqual(['e', target.id])
-    expect(verifyEvent(reaction)).toBe(true)
+    expect(verifiedSignature(reaction)).toBe(true)
     const tampered = { id: reaction.id, pubkey: reaction.pubkey, created_at: reaction.created_at,
       kind: reaction.kind, tags: reaction.tags.map(tag => [...tag]), content: '-', sig: reaction.sig }
-    expect(verifyEvent(tampered)).toBe(false)
+    expect(verifiedSignature(tampered)).toBe(false)
   })
 
   it('signs explicit human mentions into the immutable room event', async () => {
@@ -75,7 +87,7 @@ describe('custodial room signing identities', () => {
       type: 'text', content: 'Please review', mentionedUserIds: ['bob'], requestId: 'mention-1',
     })
     expect(signed.tags).toContainEqual(['dsh-mention', 'bob'])
-    expect(verifyEvent(signed)).toBe(true)
+    expect(verifiedSignature(signed)).toBe(true)
   })
 
   it('refuses a human actor substitution and an unbound employee session', async () => {
@@ -118,8 +130,8 @@ describe('custodial room signing identities', () => {
     expect(handoff).toMatchObject({ kind: 41001, tags: [['h', 'room-1'], ['dsh', 'handoff'], ['task', 'task-1'],
       ['target', 'editor']] })
     expect(workflow.pubkey).not.toBe(handoff.pubkey)
-    expect(verifyEvent(workflow)).toBe(true)
-    expect(verifyEvent(handoff)).toBe(true)
+    expect(verifiedSignature(workflow)).toBe(true)
+    expect(verifiedSignature(handoff)).toBe(true)
     await expect(signer.signService({ orgId: 'org-a', serviceId: 'untrusted' },
       'room-1', { type: 'workflow', content: 'Forged', stepId: 'release-notes' })).rejects.toThrow('room-actor-forbidden')
   })
@@ -137,8 +149,8 @@ describe('custodial room signing identities', () => {
     expect(text.tags).toContainEqual(['dsh-hop', '2'])
     expect(handoff.tags).toContainEqual(['e', text.id])
     expect(handoff.tags).toContainEqual(['dsh-hop', '3'])
-    expect(verifyEvent(text)).toBe(true)
-    expect(verifyEvent(handoff)).toBe(true)
+    expect(verifiedSignature(text)).toBe(true)
+    expect(verifiedSignature(handoff)).toBe(true)
   })
 
   it('rejects malformed Bot source ids and hop counts before signing', async () => {
@@ -166,8 +178,8 @@ describe('custodial room signing identities', () => {
     expect(dataFirst.tags).toEqual([['h', 'room-1'], ['dsh-target', 'data'], ['dsh-target', 'editor']])
     expect(editorFirst.tags).toEqual([['h', 'room-1'], ['dsh-target', 'editor'], ['dsh-target', 'data']])
     expect(dataFirst.id).not.toBe(editorFirst.id)
-    expect(verifyEvent(dataFirst)).toBe(true)
-    expect(verifyEvent(editorFirst)).toBe(true)
+    expect(verifiedSignature(dataFirst)).toBe(true)
+    expect(verifiedSignature(editorFirst)).toBe(true)
   })
 
   it('refuses empty, duplicate, and oversized Bot target lists', async () => {
@@ -192,8 +204,8 @@ describe('custodial room signing identities', () => {
     expect(second.tags).toContainEqual(['dsh-source', 'bound-session:42'])
     expect(first.id).not.toBe(second.id)
     expect(replay.id).toBe(first.id)
-    expect(verifyEvent(first)).toBe(true)
-    expect(verifyEvent(second)).toBe(true)
+    expect(verifiedSignature(first)).toBe(true)
+    expect(verifiedSignature(second)).toBe(true)
   })
 
   it('binds human target and route decisions to the signed event', async () => {
@@ -207,7 +219,7 @@ describe('custodial room signing identities', () => {
     const tampered = { id: routed.id, pubkey: routed.pubkey, created_at: routed.created_at,
       kind: routed.kind, tags: routed.tags.filter(tag => tag[0] !== 'dsh-route').map(tag => [...tag]),
       content: routed.content, sig: routed.sig }
-    expect(verifyEvent(tampered)).toBe(false)
+    expect(verifiedSignature(tampered)).toBe(false)
     await expect(signer.signHuman(alice, 'room-1',
       { type: 'text', content: 'Ambiguous', route: 'team', targetEmployeeIds: ['research'] }))
       .rejects.toThrow('room-event-route-invalid')

@@ -1,6 +1,16 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-22-recorder-local-models-consolidation.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write docs/recorder-sync/2026-09-22-recorder-local-models-consolidation.md
-2026-09-22-recorder-local-models-consolidation.md: fdba6df3a472193a21e80c1555b01a133b140528
-2026-09-22-recorder-local-models-consolidation.zh.md: 13ca6f2415bea4380bf506cd3684024b7615b4c1
+/recorder-local-model-settings-consolidation:
+  en: 75f7e8f504990b5f
+  zh: f56ea38a380eb860
+/recorder-local-model-settings-consolidation/delivered-state:
+  en: 748ae55eab7c07dd
+  zh: f4060f5c3a05ab36
+/recorder-local-model-settings-consolidation/persistence-and-execution:
+  en: 490624c4b49011e7
+  zh: 53c46b30857aa130
+/recorder-local-model-settings-consolidation/deployment-and-verification:
+  en: 77faea0b3012a906
+  zh: 6d4920288b31eee9

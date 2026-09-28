@@ -38,7 +38,10 @@ export class SidebarTabRegistry {
 }
 
 function Attention({ source }: { readonly source: HostObservable<boolean> }): ReactNode {
-  const visible = useSyncExternalStore(source.subscribe, source.getSnapshot)
+  const visible = useSyncExternalStore(
+    listener => source.subscribe(listener),
+    () => source.getSnapshot(),
+  )
   return visible ? <span className={css.attention} data-attention aria-hidden="true"/> : null
 }
 

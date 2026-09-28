@@ -1,27 +1,27 @@
-# 2026-09-21 录音增量三层记忆加工记录
+# 2026-09-21 Incremental three-layer memory processing for the recorder
 
-时间：2026-09-21。
+English | [中文](2026-09-21-incremental-memory-processing.zh.md)
 
-## 流程
+## Flow
 
-47 的持久 worker 在原文入库读回成功后，按用户汇总尚未加工的新段，附带最近两分钟上下文调用 DSH `/recorder-memory/process`。处理成功后才将 `org_id + user_id + segment_id` 写入 `processed_v1`；网络、模型或入库失败均不确认，下轮重试。
+After a raw transcript is stored and read back successfully, 47's durable worker summarizes the user's not-yet-processed new segments with the last two minutes of context and calls DSH `/recorder-memory/process`. Only after processing succeeds does it write `org_id + user_id + segment_id` into `processed_v1`; network, model, or storage failures stay unacknowledged and retry on the next round.
 
-## 模型与规则
+## Model and rules
 
-- 复用 DSH 已配置路由 `zai-coding-cn / glm-5.3-flash`，专用加工调用使用 low reasoning、1024 输出 token 与 15 秒总超时。
-- 录音文本被标记为不可信证据，不能作为执行指令。
-- 输出只允许 `episode` / `semantic` / `behavioral`，每条必须引用真实 `evidenceSegmentIds`。
-- 行为层至少需要一条 `speaker=self` 证据；否则服务端丢弃该输出。
-- 证据不足时持久化 `layer: processing-status` / `status: no-new-memory`，并记录本轮新段 ID。
-- 每轮输出绑定 `input_version` 摘要；相同输入重试返回已有文档。
+- Reuses the configured DSH route `zai-coding-cn / glm-5.3-flash`; the dedicated processing call uses low reasoning, 1024 output tokens, and a 15-second total timeout.
+- Recorder text is marked untrusted evidence and must never be treated as instructions.
+- Output allows only `episode` / `semantic` / `behavioral`; each item must reference real `evidenceSegmentIds`.
+- The behavioral layer requires at least one `speaker=self` evidence; otherwise the server drops the output.
+- Insufficient evidence persists `layer: processing-status` / `status: no-new-memory` and records the round's new segment ids.
+- Each round's output binds an `input_version` digest; retrying identical input returns the existing document.
 
-## 验证
+## Verification
 
-- 解析器、证据约束、行为层本人限制、HTTP 鉴权、用户范围、知识工具与时间范围主题排序共 29 项针对性测试通过，TypeScript 检查和正式构建通过。
-- worker 4 项测试通过，覆盖两分钟上下文、新段标记、复合幂等键与无归属数据隔离。
-- 隔离测试用户的真实 GLM 调用在 8.34 秒内返回 HTTP 200，生成 behavioral 记忆，包含原文段 ID 和 0.9 置信度。
-- 真实用户的模糊短段“没钱上。”返回加工完成且无新增记忆，没有生成事实或待办。
+- 29 targeted tests passed covering the parser, evidence constraints, behavioral self-limit, HTTP auth, user scoping, knowledge tools, and time-range topic ordering; TypeScript check and the formal build pass.
+- 4 worker tests passed covering the two-minute context, new-segment marking, composite idempotency keys, and unowned-data isolation.
+- A real GLM call for an isolated test user returned HTTP 200 in 8.34 s, produced a behavioral memory, and included source segment ids with 0.9 confidence.
+- A real user's vague short segment returned "processed with no new memory", producing no facts or todos.
 
-## 运行边界
+## Operating boundary
 
-历史已确认的原文段已预置加工游标，本次发布不会对旧库突然发起大量模型调用。从发布后的新非空语音段开始自动加工。
+Historically confirmed raw segments are pre-seeded with processing cursors, so this release will not suddenly fire a burst of model calls at the old store. Automatic processing starts from new non-empty voice segments after release.

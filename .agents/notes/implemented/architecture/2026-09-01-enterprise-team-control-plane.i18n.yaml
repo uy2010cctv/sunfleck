@@ -1,6 +1,22 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-01-enterprise-team-control-plane.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-09-01-enterprise-team-control-plane.md
-2026-09-01-enterprise-team-control-plane.md: ca0fa7c86edc31d1f49b6f4c8e78dae0c0757442
-2026-09-01-enterprise-team-control-plane.zh.md: 959f5794660579b902625b2760694d4778d4c5fc
+/agent-note-enterprise-team-control-plane:
+  en: ddda7696cdc50211
+  zh: 70c015f34d4c945a
+/agent-note-enterprise-team-control-plane/problem:
+  en: 921af9d45faece56
+  zh: 62572d7b02a6a80c
+/agent-note-enterprise-team-control-plane/decision:
+  en: d2b95e5fde8c26da
+  zh: 43b3d2a429c2768a
+/agent-note-enterprise-team-control-plane/alternatives-considered:
+  en: 4b83ef64a1da5dc1
+  zh: eaf4f3ac01049e6a
+/agent-note-enterprise-team-control-plane/consequences:
+  en: 65068e69d0bd7fcb
+  zh: 349d4494e921694f
+/agent-note-enterprise-team-control-plane/verification:
+  en: ee7386d414b4c13c
+  zh: 29d5312d1961ba51

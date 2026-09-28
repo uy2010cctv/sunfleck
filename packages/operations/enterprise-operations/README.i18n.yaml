@@ -1,6 +1,43 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/operations/enterprise-operations/README.md
-README.md: 71c1685c2e505c6e646a9f99d07d1c72566b84b4
-README.zh.md: 94787d54e7afe935e846d818a1444f526863e5a7
+/:
+  en: 401f64ebbeb3e5c9
+  zh: fff36906963db3d3
+/deepseek-ai-dsh-enterprise-operations:
+  en: 4eaa5afdfb1416c5
+  zh: ddb680bb445afc64
+/deepseek-ai-dsh-enterprise-operations/summary:
+  en: 008d01a99d682fcf
+  zh: c8bda3cd0623b6f4
+/deepseek-ai-dsh-enterprise-operations/table-of-contents:
+  en: b6e66ed089769c69
+  zh: fdd1bb9712cbd358
+/deepseek-ai-dsh-enterprise-operations/package-details:
+  en: 8318461a9b7d93b0
+  zh: 47cfbaf77a04d72b
+/deepseek-ai-dsh-enterprise-operations/host-api-service-contract:
+  en: dfc57c268582d40c
+  zh: 7f302e3863fa6662
+/deepseek-ai-dsh-enterprise-operations/model-experience:
+  en: 215e7ba838619b7b
+  zh: 215e7ba838619b7b
+/deepseek-ai-dsh-enterprise-operations/model-experience/operation-projections:
+  en: 60e923e417532747
+  zh: 1adade65024e4e38
+/deepseek-ai-dsh-enterprise-operations/model-experience/operation-projections/what-the-model-sees:
+  en: 40a1b8b7d6b7e96a
+  zh: 1656e78893b37ea5
+/deepseek-ai-dsh-enterprise-operations/model-experience/operation-projections/token-effect:
+  en: 234aa250c908e45d
+  zh: 50bbab545da5ebbf
+/deepseek-ai-dsh-enterprise-operations/model-experience/operation-projections/kv-cache-effect:
+  en: 9592ceeb5012bff6
+  zh: a399c87e94c71df7
+/deepseek-ai-dsh-enterprise-operations/known-limitations-and-deferred-work:
+  en: ced69938ea270378
+  zh: aee68e2d09be7f78
+/deepseek-ai-dsh-enterprise-operations/known-limitations-and-deferred-work/dev-note:
+  en: e67f633dc6fe7773
+  zh: e88aeb617ffb74ea

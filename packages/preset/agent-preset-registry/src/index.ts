@@ -54,7 +54,6 @@ export class AgentPresetRegistry extends TypertRemoteService {
   static Config = z.object({
     default: z.string().required(),
     selectedDefault: z.string().volatile(),
-    modeSelectionEnabled: z.boolean().default(true).volatile(),
   })
   private readonly owner: Context
   private readonly definitions = new Map<string, Definition>()
@@ -73,8 +72,13 @@ export class AgentPresetRegistry extends TypertRemoteService {
     })
   }
 
-  /** Default preset for a subsequently created session. */
-  get defaultId(): string { return this.policy().defaultId }
+  /** Default preset for a subsequently created session; a digital employee is never the new-task default. */
+  get defaultId(): string {
+    const selected = this.config.selectedDefault.get()
+    return selected !== undefined && this.definitions.has(selected)
+      && this.definitions.get(selected)?.config.kind !== 'employee'
+      ? selected : this.config.default
+  }
 
   /** Gate request-visible presets while allowing a deployment to preserve internal Session replay.
    * @param policy - Returns whether the current caller may use or inspect one preset.
@@ -91,15 +95,6 @@ export class AgentPresetRegistry extends TypertRemoteService {
   private missing(id: string): RemoteError {
     return new RemoteError('agent-preset/not-found', `Unknown agent preset: ${id}`,
       { agentPreset: id, available: this.accessPolicy === undefined ? [...this.definitions.keys()] : [] })
-  }
-
-  private policy(): { enabled: boolean; defaultId: string } {
-    const enabled = this.config.modeSelectionEnabled.get()
-    const selected = enabled ? this.config.selectedDefault.get() : undefined
-    const defaultId = selected !== undefined && this.definitions.has(selected)
-      && this.definitions.get(selected)?.config.kind !== 'employee'
-      ? selected : this.config.default
-    return { enabled, defaultId }
   }
 
   /** Register and eagerly load a definition; activation failure remains visible in the roster.
@@ -200,16 +195,15 @@ export class AgentPresetRegistry extends TypertRemoteService {
     return rows.sort((a, b) => (a.order ?? Infinity) - (b.order ?? Infinity) || a.id.localeCompare(b.id))
   }
 
-  /** Read the selection roster and chooser policy.
-   * @returns Current presets, default and chooser policy.
+  /** Read the selection roster.
+   * @returns Current presets, each marked when it is the default.
    */
   @Remote('list')
   async remoteExportList(): Promise<AgentPresetRoster> {
-    const policy = this.policy()
+    const defaultId = this.defaultId
     const visible = await Promise.all((await this.list()).map(async row => await this.allowed(row.id) ? row : undefined))
     return { presets: visible.filter((row): row is AgentPreset => row !== undefined)
-      .map(row => ({ ...row, kind: row.kind ?? 'mode', isDefault: row.id === policy.defaultId })),
-    modeSelectionEnabled: policy.enabled }
+      .map(row => ({ ...row, kind: row.kind ?? 'mode', isDefault: row.id === defaultId })) }
   }
 
   /** Resolve an identity without starting an Agent.

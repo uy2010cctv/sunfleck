@@ -8,7 +8,7 @@ describe('durable channel workflow schedule polling', () => {
     const stageDue = vi.fn(async () => 1)
     const takeDue = vi.fn(async () => due)
     const completeDue = vi.fn(async () => undefined)
-    const deliver = vi.fn(async () => { throw new Error('temporary delivery') })
+    const deliver = vi.fn(async (_orgId: string, _due: unknown): Promise<void> => { throw new Error('temporary delivery') })
     const scheduler = new ChannelWorkflowScheduler({ dueOrganizations: async () => ['org'],
       ledger: () => ({ stageDue, takeDue, completeDue }), deliver })
     expect(await scheduler.tick(2, 10)).toEqual({ delivered: 0, failed: 1 })

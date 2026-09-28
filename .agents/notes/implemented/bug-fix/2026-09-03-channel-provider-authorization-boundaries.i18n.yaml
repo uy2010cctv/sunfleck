@@ -1,6 +1,22 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-03-channel-provider-authorization-boundaries.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-09-03-channel-provider-authorization-boundaries.md
-2026-09-03-channel-provider-authorization-boundaries.md: 016fca22357dc7652721bd99d6f398aa61e43bca
-2026-09-03-channel-provider-authorization-boundaries.zh.md: 192fef46d184e133660eeb6125f7b5e89b282ca7
+/agent-note-channel-providers-keep-distinct-authorization-prerequisites-and-intent-grants:
+  en: de28b094f6a0a2ab
+  zh: 4bc50ee95a3e8065
+/agent-note-channel-providers-keep-distinct-authorization-prerequisites-and-intent-grants/problem:
+  en: 1571d2c44e580a50
+  zh: 007d3cfa97402c70
+/agent-note-channel-providers-keep-distinct-authorization-prerequisites-and-intent-grants/decision:
+  en: e61e23f75514a12b
+  zh: dd73703479d5a2fe
+/agent-note-channel-providers-keep-distinct-authorization-prerequisites-and-intent-grants/verification:
+  en: 096631aad54559a2
+  zh: 33619555dd99ed6b
+/agent-note-channel-providers-keep-distinct-authorization-prerequisites-and-intent-grants/alternatives-considered:
+  en: 7cb1403a4e3ec281
+  zh: 2984dbf073b55208
+/agent-note-channel-providers-keep-distinct-authorization-prerequisites-and-intent-grants/consequences:
+  en: b533ea7390a1088e
+  zh: a5db373100c016c3

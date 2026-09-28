@@ -1,6 +1,19 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-08-28-agent-auto-memory.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write docs/superpowers/plans/2026-08-28-agent-auto-memory.md
-2026-08-28-agent-auto-memory.md: 238331e167bd0e683b38da14aa4618f6de2d4784
-2026-08-28-agent-auto-memory.zh.md: 85d9fa0a9c369c4c72ce33701b666d45518166bd
+/agent-auto-memory-implementation-plan:
+  en: 7b4fa521e54b0398
+  zh: 3416f9b9f41b32be
+/agent-auto-memory-implementation-plan/task-1-auto-memory-contract-tests:
+  en: 59254d9cf748c187
+  zh: 13cb4f2f7948df27
+/agent-auto-memory-implementation-plan/task-2-model-facing-tool-and-scope-resolver:
+  en: bdd1ef3d3bd5df64
+  zh: c619070006552e31
+/agent-auto-memory-implementation-plan/task-3-enterprise-composition-and-governance-projection:
+  en: bb6a0b68fba06595
+  zh: 80c20a0e1e412c4d
+/agent-auto-memory-implementation-plan/task-4-release-verification:
+  en: 1310a18f61d9a9e1
+  zh: b299c890e9d2bfe8

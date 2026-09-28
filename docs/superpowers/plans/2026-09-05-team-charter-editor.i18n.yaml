@@ -1,6 +1,16 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-05-team-charter-editor.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write docs/superpowers/plans/2026-09-05-team-charter-editor.md
-2026-09-05-team-charter-editor.md: 2fb65c4f09e05115f3779be0653ea8c9de0f05af
-2026-09-05-team-charter-editor.zh.md: fb949933e92381f1740eab3371d06c2a2f659ee3
+/team-charter-editor-implementation-plan:
+  en: 0323bfc4b6b3681e
+  zh: da86a6564befb394
+/team-charter-editor-implementation-plan/task-1-wire-the-typed-team-definition-mutation:
+  en: 16d15a37346f19c8
+  zh: 05c904aa43448899
+/team-charter-editor-implementation-plan/task-2-build-the-create-and-improve-charter-flow:
+  en: e105976aabd99d77
+  zh: 5cf37ed8ae03a12a
+/team-charter-editor-implementation-plan/task-3-verify-ux-contracts-and-deployment:
+  en: 72b44fae1faa5515
+  zh: 7afdebd15ad7c9db

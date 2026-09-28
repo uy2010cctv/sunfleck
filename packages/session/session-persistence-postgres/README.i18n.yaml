@@ -1,6 +1,49 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/session/session-persistence-postgres/README.md
-README.md: c3622b88de3cad05a3f928876cab8f7fc2ef0369
-README.zh.md: d97293c340772184c7f32481bb4fff5f8a92ed2f
+/:
+  en: caf351434a683a93
+  zh: 6e4ca9465258fd39
+/deepseek-ai-dsh-session-persistence-postgres:
+  en: f3b3b0ca5130b9fd
+  zh: 61730dce58cb8e03
+/deepseek-ai-dsh-session-persistence-postgres/summary:
+  en: 375af58285dab1eb
+  zh: 61334dd12ab717a4
+/deepseek-ai-dsh-session-persistence-postgres/table-of-contents:
+  en: b6e66ed089769c69
+  zh: fdd1bb9712cbd358
+/deepseek-ai-dsh-session-persistence-postgres/package-details:
+  en: 99cd82db233c1a5a
+  zh: 48815f160f6ad3c0
+/deepseek-ai-dsh-session-persistence-postgres/storage-model:
+  en: 7cc90cd43970182f
+  zh: 0eda22c22fffb071
+/deepseek-ai-dsh-session-persistence-postgres/configuration:
+  en: c31febd6623bd1db
+  zh: 950c693eb42244d2
+/deepseek-ai-dsh-session-persistence-postgres/configuration/live-session-durability:
+  en: 40bba4325ed49b7d
+  zh: 7da8e2f3a1bb6aed
+/deepseek-ai-dsh-session-persistence-postgres/model-experience:
+  en: 215e7ba838619b7b
+  zh: 215e7ba838619b7b
+/deepseek-ai-dsh-session-persistence-postgres/model-experience/resumed-conversation-history:
+  en: 062875aab7f3f138
+  zh: c5980374260eaf5a
+/deepseek-ai-dsh-session-persistence-postgres/model-experience/resumed-conversation-history/what-the-model-sees:
+  en: 2e71cac94e631ffd
+  zh: bdedb6da748202f4
+/deepseek-ai-dsh-session-persistence-postgres/model-experience/resumed-conversation-history/token-effect:
+  en: b3fada40f481436f
+  zh: 551fe689a2f74f02
+/deepseek-ai-dsh-session-persistence-postgres/model-experience/resumed-conversation-history/kv-cache-effect:
+  en: c50b332fa1562ce3
+  zh: 1b34ea130159e36a
+/deepseek-ai-dsh-session-persistence-postgres/known-limitations-and-deferred-work:
+  en: 22a4e41cf21b07d6
+  zh: 6c87a6909e61430e
+/deepseek-ai-dsh-session-persistence-postgres/known-limitations-and-deferred-work/dev-note:
+  en: e67f633dc6fe7773
+  zh: e88aeb617ffb74ea

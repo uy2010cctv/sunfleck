@@ -1,6 +1,13 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for enterprise-deployment.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write docs/enterprise-deployment.md
-enterprise-deployment.md: 20ec2d05cf79a400fef417926b0f12596b6b6ea9
-enterprise-deployment.zh.md: 7101779ae9eedc6338b95028561585e3d9f593f9
+/enterprise-security-deployment:
+  en: b1c3e50f9c400eea
+  zh: 325801f34a754cc1
+/enterprise-security-deployment/sso-configuration:
+  en: d4dec222c7aa1dbe
+  zh: 578c2e85af3441a3
+/enterprise-security-deployment/deployment-modes:
+  en: 31a2404a64e04bc0
+  zh: ff35ed6402f2a07c

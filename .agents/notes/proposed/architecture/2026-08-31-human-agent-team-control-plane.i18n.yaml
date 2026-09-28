@@ -1,6 +1,43 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-08-31-human-agent-team-control-plane.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/proposed/architecture/2026-08-31-human-agent-team-control-plane.md
-2026-08-31-human-agent-team-control-plane.md: 01f86e0556d315d6a827dfc7007346aef66471e2
-2026-08-31-human-agent-team-control-plane.zh.md: 24adcf6a12fbd33e3163a812c554134c7876e870
+/agent-note-human-agent-team-definition-and-run-control-plane:
+  en: 393a8ff9403653a8
+  zh: 8acd3cb027db6fce
+/agent-note-human-agent-team-definition-and-run-control-plane/problem:
+  en: e972d3d57b38adf0
+  zh: cfd6b9380e76d9f8
+/agent-note-human-agent-team-definition-and-run-control-plane/proposal:
+  en: 14651bbf918d05da
+  zh: 375080307737afb9
+/agent-note-human-agent-team-definition-and-run-control-plane/proposal/delivery-sequence:
+  en: 6947b7448d8b2a50
+  zh: bc5dbd85677fb4ac
+/agent-note-human-agent-team-definition-and-run-control-plane/proposal/team-definition-and-teamrun:
+  en: 3f6aa6653294c11d
+  zh: 38aa7be634cec914
+/agent-note-human-agent-team-definition-and-run-control-plane/proposal/state-ownership-and-projection:
+  en: a2562a75917fc39a
+  zh: e69d55af58bd7c8b
+/agent-note-human-agent-team-definition-and-run-control-plane/proposal/human-and-agent-actors:
+  en: 1457a934aee564b9
+  zh: 886c1c8b0a3f9dfd
+/agent-note-human-agent-team-definition-and-run-control-plane/proposal/trust-grants-and-verification:
+  en: 5c48329b442317b7
+  zh: a2b7a4ac3fcdacb2
+/agent-note-human-agent-team-definition-and-run-control-plane/proposal/human-attention-and-decisions:
+  en: 4f12f0ae91be4a67
+  zh: 20f1564a10542b90
+/agent-note-human-agent-team-definition-and-run-control-plane/proposal/channels-are-adapters:
+  en: 051a421ce48cd8a1
+  zh: bb45da5a4570d7ed
+/agent-note-human-agent-team-definition-and-run-control-plane/alternatives-considered:
+  en: 2e0f2bb95ecaa3eb
+  zh: c592db5b12c25831
+/agent-note-human-agent-team-definition-and-run-control-plane/acceptance-criteria:
+  en: 707f74f673579122
+  zh: 0b6344a77b8850e0
+/agent-note-human-agent-team-definition-and-run-control-plane/risks:
+  en: 5943e0e0bc2eee71
+  zh: 056cde91cccbda8b

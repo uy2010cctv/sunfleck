@@ -1,6 +1,28 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-01-enterprise-human-agent-team-runtime.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write docs/superpowers/plans/2026-09-01-enterprise-human-agent-team-runtime.md
-2026-09-01-enterprise-human-agent-team-runtime.md: 854b12b6fe596da51a47d87f20ca16851fb79af2
-2026-09-01-enterprise-human-agent-team-runtime.zh.md: 8b6851dcefab052a2c53f9d94a3239cce3e1b842
+/enterprise-human-agent-team-runtime-implementation-plan:
+  en: ad76567b014bb68b
+  zh: e8196da7925e1a1c
+/enterprise-human-agent-team-runtime-implementation-plan/task-1-extend-the-agent-teams-durable-domain:
+  en: 30ea53e43fb69423
+  zh: c23a42c28ffd37b2
+/enterprise-human-agent-team-runtime-implementation-plan/task-2-carry-immutable-employee-composition-into-continuable-teammates:
+  en: 6c63bf833b83ddd3
+  zh: 75f4289c133db9bc
+/enterprise-human-agent-team-runtime-implementation-plan/task-3-add-exact-release-lookup-and-detached-request-execution:
+  en: 6f5b3f257c988a0d
+  zh: 63f2e81e00886a82
+/enterprise-human-agent-team-runtime-implementation-plan/task-4-implement-the-enterprise-runtime-driver:
+  en: 1536dada45cf5877
+  zh: 7e30be5e2ed16819
+/enterprise-human-agent-team-runtime-implementation-plan/task-5-compose-only-the-enterprise-profile-and-require-the-driver:
+  en: 68e8baff27e3221d
+  zh: 2829d4b4c9bef2a2
+/enterprise-human-agent-team-runtime-implementation-plan/task-6-document-exact-capability-and-limitations:
+  en: d22dd9681037814e
+  zh: 57016c6b23af896d
+/enterprise-human-agent-team-runtime-implementation-plan/task-7-generate-verify-self-review-and-commit:
+  en: ceeaa8a3e1515afc
+  zh: 7505239c8390ec21

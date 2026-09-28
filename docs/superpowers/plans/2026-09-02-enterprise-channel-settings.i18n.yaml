@@ -1,6 +1,22 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-02-enterprise-channel-settings.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write docs/superpowers/plans/2026-09-02-enterprise-channel-settings.md
-2026-09-02-enterprise-channel-settings.md: 4b79e6d4faac0846dad4fbb446d0f6cf3826cbbf
-2026-09-02-enterprise-channel-settings.zh.md: 050d636d68a1a17262cf8bc65bf53f533019c78d
+/enterprise-channel-settings-implementation-plan:
+  en: b66f83ba6face3fa
+  zh: c8b04cfcdda3e7ee
+/enterprise-channel-settings-implementation-plan/task-1-define-the-channel-management-contract:
+  en: 67b13221b89d0539
+  zh: fad5300d34671f73
+/enterprise-channel-settings-implementation-plan/task-2-persist-channel-settings-with-cas-and-idempotency:
+  en: f817503213c65da2
+  zh: 73ed5796ad01dafa
+/enterprise-channel-settings-implementation-plan/task-3-expose-authenticated-remote-management:
+  en: 2135da7a229405ad
+  zh: 9b86d8a8a7c6fd27
+/enterprise-channel-settings-implementation-plan/task-4-build-the-channel-settings-workbench-page:
+  en: b75049e0e4559870
+  zh: 9bf557e8173a65d4
+/enterprise-channel-settings-implementation-plan/task-5-document-and-verify:
+  en: 2d21a5f5458ca717
+  zh: d12557414302a762

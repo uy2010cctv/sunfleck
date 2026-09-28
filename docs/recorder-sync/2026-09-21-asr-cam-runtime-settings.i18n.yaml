@@ -1,6 +1,22 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-21-asr-cam-runtime-settings.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write docs/recorder-sync/2026-09-21-asr-cam-runtime-settings.md
-2026-09-21-asr-cam-runtime-settings.md: c18a90503b18a32997f91c3e9e771dfcbf51178a
-2026-09-21-asr-cam-runtime-settings.zh.md: 59ce6b34ac874078c22eb0384a5e1981a0ee81ec
+/recorder-asr-and-cam-runtime-settings-record:
+  en: 3c17de7fc8961335
+  zh: 68fb0eaf659ca6ee
+/recorder-asr-and-cam-runtime-settings-record/objective:
+  en: 43aa11316a5a46de
+  zh: 6c054617b4aa4fa5
+/recorder-asr-and-cam-runtime-settings-record/changes:
+  en: 9850af69c877b6ab
+  zh: 1af10b22cffa01be
+/recorder-asr-and-cam-runtime-settings-record/endpoints:
+  en: 14fb695422a7eea2
+  zh: 0d811ac76c1f3f5c
+/recorder-asr-and-cam-runtime-settings-record/verification:
+  en: fcb361e39e437b81
+  zh: 524184cff97b5c7b
+/recorder-asr-and-cam-runtime-settings-record/live-validation-remaining:
+  en: 26158b06615e98e3
+  zh: cd5fc977e60e0632

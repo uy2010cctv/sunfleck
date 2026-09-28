@@ -1,0 +1,19 @@
+# Bilingual-pair consistency record for 2026-09-21-incremental-memory-processing.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/recorder-sync/2026-09-21-incremental-memory-processing.md
+/2026-09-21-incremental-three-layer-memory-processing-for-the-recorder:
+  en: a642f6d376c585da
+  zh: 8c73106d60870987
+/2026-09-21-incremental-three-layer-memory-processing-for-the-recorder/flow:
+  en: 9827ff815db76d77
+  zh: 76e44fb8fd10c37f
+/2026-09-21-incremental-three-layer-memory-processing-for-the-recorder/model-and-rules:
+  en: 491059bdc2807c2c
+  zh: b0fb7d66def84161
+/2026-09-21-incremental-three-layer-memory-processing-for-the-recorder/verification:
+  en: bc38786262764cf8
+  zh: 338abbbac81e1565
+/2026-09-21-incremental-three-layer-memory-processing-for-the-recorder/operating-boundary:
+  en: 329850209853806f
+  zh: e9b75364ad908aad

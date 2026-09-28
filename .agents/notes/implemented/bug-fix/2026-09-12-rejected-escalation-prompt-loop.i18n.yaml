@@ -1,6 +1,19 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-12-rejected-escalation-prompt-loop.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-09-12-rejected-escalation-prompt-loop.md
-2026-09-12-rejected-escalation-prompt-loop.md: e490cdbdcd7284a3ada8dd78724707ee376fba59
-2026-09-12-rejected-escalation-prompt-loop.zh.md: 5c9d30a8ad1a886a7faf0ca49493754b5a3ef2fa
+/agent-note-rejected-escalation-prompt-loop:
+  en: 4b7d7ecb97e2ab86
+  zh: d1519fbb588669b4
+/agent-note-rejected-escalation-prompt-loop/problem:
+  en: cd9d0031b26fe65d
+  zh: 1285f9578a67d2c5
+/agent-note-rejected-escalation-prompt-loop/decision:
+  en: eea50644ea52daae
+  zh: 97164327801a28fa
+/agent-note-rejected-escalation-prompt-loop/alternatives-considered:
+  en: a5964116ae148822
+  zh: f4c9b4fbbaa2654b
+/agent-note-rejected-escalation-prompt-loop/consequences:
+  en: dcc9244954af3995
+  zh: 54d53f9d0323456c

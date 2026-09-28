@@ -1,0 +1,7 @@
+# Bilingual-pair consistency record for 2026-09-13-enterprise-memory-exceptions.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/2026-09-13-enterprise-memory-exceptions.md
+/enterprise-memory-automatic-activation-with-exception-handling:
+  en: 186a82f909699524
+  zh: b51ed52d8064a0aa

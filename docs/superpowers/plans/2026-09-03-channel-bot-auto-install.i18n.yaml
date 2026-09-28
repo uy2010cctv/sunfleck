@@ -1,6 +1,25 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-03-channel-bot-auto-install.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write docs/superpowers/plans/2026-09-03-channel-bot-auto-install.md
-2026-09-03-channel-bot-auto-install.md: 7783977a93909c2bc7e46e5414830bc44c78ab6a
-2026-09-03-channel-bot-auto-install.zh.md: dcbd531c040604e02ea9df318bac2cfb75c2c77c
+/channel-bot-auto-install-implementation-plan:
+  en: 209500290d2138ad
+  zh: ec73da061afae691
+/channel-bot-auto-install-implementation-plan/task-1-provider-installer-contract-and-signed-session:
+  en: 894a1ad24a4bae5f
+  zh: 96ebcca0d4d99ed1
+/channel-bot-auto-install-implementation-plan/task-2-automatic-channel-derivation-and-persistence:
+  en: d1c9c8d1623eaac4
+  zh: b6bd67460c92a350
+/channel-bot-auto-install-implementation-plan/task-3-browser-callback-and-scan-only-ux:
+  en: 784cb63e20ebefe6
+  zh: 14f61a3bd20c9de4
+/channel-bot-auto-install-implementation-plan/task-4-documentation-build-and-local-deployment:
+  en: 02f31aae4463c7f3
+  zh: 24807479243700a3
+/channel-bot-auto-install-implementation-plan/task-5-native-feishu-device-authorization-flow:
+  en: fb3cfb73b3480a3a
+  zh: 8b2c76c7a6041088
+/channel-bot-auto-install-implementation-plan/task-6-native-tencent-wecom-and-wechat-qr-flows:
+  en: 421f5a2d54610023
+  zh: 9535648a624467b5

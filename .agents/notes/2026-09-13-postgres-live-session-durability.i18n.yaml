@@ -1,0 +1,7 @@
+# Bilingual-pair consistency record for 2026-09-13-postgres-live-session-durability.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/2026-09-13-postgres-live-session-durability.md
+/postgresql-live-session-durability-repair:
+  en: 23cf2e9fae75fc86
+  zh: 0b4d613d30015a68

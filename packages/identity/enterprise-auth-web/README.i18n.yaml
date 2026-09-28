@@ -1,6 +1,40 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/identity/enterprise-auth-web/README.md
-README.md: d3cdb4545b9ccb10a41f62896b099d77837f7b1f
-README.zh.md: 74901612f20d37dfe9d7f2ee44c6f60c41af94ab
+/:
+  en: e1d18cfaab71193c
+  zh: 68ca760238374cf7
+/deepseek-ai-dsh-enterprise-auth-web:
+  en: f5859765ae5af256
+  zh: 431a747e2724b460
+/deepseek-ai-dsh-enterprise-auth-web/summary:
+  en: f676c73ab703d910
+  zh: 8765c2eaae43fa96
+/deepseek-ai-dsh-enterprise-auth-web/table-of-contents:
+  en: b6e66ed089769c69
+  zh: fdd1bb9712cbd358
+/deepseek-ai-dsh-enterprise-auth-web/package-details:
+  en: f3df11b31d2c9e76
+  zh: bd34c38fd1adb83a
+/deepseek-ai-dsh-enterprise-auth-web/model-experience:
+  en: 215e7ba838619b7b
+  zh: 215e7ba838619b7b
+/deepseek-ai-dsh-enterprise-auth-web/model-experience/host-security-boundary:
+  en: 8644e792445b7702
+  zh: 8a9dea45f807e5ce
+/deepseek-ai-dsh-enterprise-auth-web/model-experience/host-security-boundary/what-the-model-sees:
+  en: e8c88b8ae5113669
+  zh: 12f35b4574f4e1c1
+/deepseek-ai-dsh-enterprise-auth-web/model-experience/host-security-boundary/token-effect:
+  en: 6dcc75731083dba3
+  zh: 9ebd3fc05c33c120
+/deepseek-ai-dsh-enterprise-auth-web/model-experience/host-security-boundary/kv-cache-effect:
+  en: 3727f9e7aa701dfd
+  zh: e66d73b8d23caab7
+/deepseek-ai-dsh-enterprise-auth-web/known-limitations-and-deferred-work:
+  en: 889d15d2ad3b13b4
+  zh: a734c4363341242f
+/deepseek-ai-dsh-enterprise-auth-web/known-limitations-and-deferred-work/dev-note:
+  en: e67f633dc6fe7773
+  zh: e88aeb617ffb74ea

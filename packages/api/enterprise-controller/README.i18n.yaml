@@ -1,6 +1,40 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/api/enterprise-controller/README.md
-README.md: bb7cd420b26756017e84ba8afc1b3c037a209cf7
-README.zh.md: ef20e2e4cdf52991d7db523c609e399116f2ac42
+/:
+  en: a0d0585c9c144622
+  zh: 191b099120a7ba9d
+/enterprise-controller:
+  en: ab7510ff21918f8d
+  zh: 24bdcd28f95eff19
+/enterprise-controller/summary:
+  en: 39e39e6fa2373a06
+  zh: e5ef2e76005e77ed
+/enterprise-controller/table-of-contents:
+  en: 4e53164159b5ce41
+  zh: 89582dc0294d0776
+/enterprise-controller/use-this-package:
+  en: b5cfdf0b3733648f
+  zh: e7f583c23418b3d4
+/enterprise-controller/model-experience:
+  en: 215e7ba838619b7b
+  zh: a311da3843709f90
+/enterprise-controller/model-experience/enterprise-control-apis:
+  en: 2bc8b2a9c83795e7
+  zh: b5bec15bb79b9294
+/enterprise-controller/model-experience/enterprise-control-apis/what-the-model-sees:
+  en: 2c98ab80b41e2aff
+  zh: ca7575b70020bc77
+/enterprise-controller/model-experience/enterprise-control-apis/token-effect:
+  en: 2c70a0419337dc5f
+  zh: 64c3fb129c791e28
+/enterprise-controller/model-experience/enterprise-control-apis/kv-cache-effect:
+  en: 365703d6f9a23384
+  zh: 7e0495d4fff60f38
+/enterprise-controller/known-limitations-and-deferred-work:
+  en: ec00606b6f977133
+  zh: 770352cb18c99aa4
+/enterprise-controller/known-limitations-and-deferred-work/dev-note:
+  en: d2906ba087d8e852
+  zh: 148f969cbc0e5ef7

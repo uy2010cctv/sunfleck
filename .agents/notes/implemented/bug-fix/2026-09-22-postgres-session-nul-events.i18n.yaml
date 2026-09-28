@@ -1,6 +1,19 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-22-postgres-session-nul-events.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-09-22-postgres-session-nul-events.md
-2026-09-22-postgres-session-nul-events.md: 275bf03a0d4429cc464f24216bc24cbce2c68cbd
-2026-09-22-postgres-session-nul-events.zh.md: 29d110770e7a26740c27a0519c34192bc234a739
+/agent-note-preserve-nul-containing-session-events-in-postgresql:
+  en: fb092b9416df3029
+  zh: 7156882983f19789
+/agent-note-preserve-nul-containing-session-events-in-postgresql/problem:
+  en: 2c8913512f65415f
+  zh: 408b37966f94a354
+/agent-note-preserve-nul-containing-session-events-in-postgresql/decision:
+  en: 734a0596b19716ee
+  zh: 1722c326fde1b47e
+/agent-note-preserve-nul-containing-session-events-in-postgresql/alternatives-considered:
+  en: 8a68bd98f37d8271
+  zh: 8fcf93be76cc66a4
+/agent-note-preserve-nul-containing-session-events-in-postgresql/consequences:
+  en: 4ba4488137d47fb8
+  zh: 23e52db4585a1d84

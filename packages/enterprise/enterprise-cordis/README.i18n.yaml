@@ -1,6 +1,40 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/enterprise/enterprise-cordis/README.md
-README.md: 69af430250d77fc46fede3c145de9a1c8fe0797e
-README.zh.md: 5eba7c49aac0f6201cdd095394be79ea45b15bf3
+/:
+  en: 1c003b9706eb4bfc
+  zh: 6550ca0c8ce639d0
+/deepseek-ai-dsh-enterprise-cordis:
+  en: 49c15704651460eb
+  zh: f159012c5bf77e3b
+/deepseek-ai-dsh-enterprise-cordis/summary:
+  en: e21a1a27562295e0
+  zh: 008eade2259faf86
+/deepseek-ai-dsh-enterprise-cordis/table-of-contents:
+  en: 0d4d46360baea511
+  zh: fdd1bb9712cbd358
+/deepseek-ai-dsh-enterprise-cordis/package-details:
+  en: 25740d80c1511ac9
+  zh: 2cbe0fb572b9fb1f
+/deepseek-ai-dsh-enterprise-cordis/model-experience:
+  en: 215e7ba838619b7b
+  zh: a311da3843709f90
+/deepseek-ai-dsh-enterprise-cordis/model-experience/governed-extension-metadata:
+  en: b2a8c4c90fc07ab0
+  zh: 3151f9504ec312b7
+/deepseek-ai-dsh-enterprise-cordis/model-experience/governed-extension-metadata/what-the-model-sees:
+  en: 389488fd23195229
+  zh: e5736881a428e56d
+/deepseek-ai-dsh-enterprise-cordis/model-experience/governed-extension-metadata/token-effect:
+  en: f1da64f7003bcb58
+  zh: 7a2a3c0d24eb107b
+/deepseek-ai-dsh-enterprise-cordis/model-experience/governed-extension-metadata/kv-cache-effect:
+  en: fed938753f21f033
+  zh: d889c4e5b461ed81
+/deepseek-ai-dsh-enterprise-cordis/known-limitations-and-deferred-work:
+  en: fe3ff2022c76be70
+  zh: 73339910d2e3188b
+/deepseek-ai-dsh-enterprise-cordis/known-limitations-and-deferred-work/dev-note:
+  en: 0a1253c6f7b5e8b9
+  zh: 9f56528562c7c914

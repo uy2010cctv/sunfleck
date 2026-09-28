@@ -1,6 +1,22 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-08-29-enterprise-cordis-distribution.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-08-29-enterprise-cordis-distribution.md
-2026-08-29-enterprise-cordis-distribution.md: 59c4802aefe8054277e690839b1be86ab7027f23
-2026-08-29-enterprise-cordis-distribution.zh.md: c4d3f4b026c6a6cef33ad4517b796ea28065f369
+/agent-note-enterprise-cordis-distribution:
+  en: 8d265981b0d638f7
+  zh: f8dd6176b17f6a25
+/agent-note-enterprise-cordis-distribution/problem:
+  en: 46abd3c69ad1410b
+  zh: 3e7a616bd494e5c2
+/agent-note-enterprise-cordis-distribution/decision:
+  en: 95d7245d263ec3ae
+  zh: 523f708e9ba7e984
+/agent-note-enterprise-cordis-distribution/verification:
+  en: e590c496337bdc6d
+  zh: 6fd0ce64e7dc5a0c
+/agent-note-enterprise-cordis-distribution/alternatives-considered:
+  en: d978a33de7889454
+  zh: 4192d3f6f59f0c7d
+/agent-note-enterprise-cordis-distribution/consequences:
+  en: 023341fc98c253b1
+  zh: d43d81bdf448929d

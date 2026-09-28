@@ -1,6 +1,22 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-07-durable-enterprise-work-start.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-07-durable-enterprise-work-start.md
-2026-09-07-durable-enterprise-work-start.md: f4bcc98495940dca37e325aca4794c3d467046b6
-2026-09-07-durable-enterprise-work-start.zh.md: 974da93a767161f1ead643bd41b45a0538a31530
+/agent-note-durable-enterprise-work-start:
+  en: 859f169df49aa240
+  zh: 29dcf68809d7818d
+/agent-note-durable-enterprise-work-start/problem:
+  en: eea099bdc95e0a17
+  zh: 45b58e6b49b92807
+/agent-note-durable-enterprise-work-start/decision:
+  en: 8476e2f9b476b11a
+  zh: d329b904fbda776e
+/agent-note-durable-enterprise-work-start/verification:
+  en: 78d08981dc39b9d2
+  zh: f710ed0f1cf0e06e
+/agent-note-durable-enterprise-work-start/alternatives-considered:
+  en: 028cb397588e0be1
+  zh: 3dc87d8e231cc099
+/agent-note-durable-enterprise-work-start/consequences:
+  en: 209b51981f75d83b
+  zh: a94f2a807e969219

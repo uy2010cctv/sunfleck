@@ -1,6 +1,40 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/identity/enterprise-sso/README.md
-README.md: a6ac40b14cd11b9aa712271bcee6cba438f4eae8
-README.zh.md: e973ad444a939fdf36585bef816caf1a7df8b22e
+/:
+  en: 1f244db1cd801a11
+  zh: 82d4d2822a86cb80
+/deepseek-ai-dsh-enterprise-sso:
+  en: 931106955ebdee03
+  zh: 496ad50fe70124cf
+/deepseek-ai-dsh-enterprise-sso/summary:
+  en: 62c47f90aee3c0c2
+  zh: 083ec1ac6b80afe6
+/deepseek-ai-dsh-enterprise-sso/table-of-contents:
+  en: b6e66ed089769c69
+  zh: fdd1bb9712cbd358
+/deepseek-ai-dsh-enterprise-sso/package-details:
+  en: 8ed7206ace7ad56a
+  zh: e2b3916053c46a29
+/deepseek-ai-dsh-enterprise-sso/model-experience:
+  en: 215e7ba838619b7b
+  zh: 215e7ba838619b7b
+/deepseek-ai-dsh-enterprise-sso/model-experience/authentication-adapters:
+  en: 329d45cb5854a055
+  zh: 2bdcab3c438d0f6f
+/deepseek-ai-dsh-enterprise-sso/model-experience/authentication-adapters/what-the-model-sees:
+  en: 64388d8e07c294ef
+  zh: cb3e6e07424eacde
+/deepseek-ai-dsh-enterprise-sso/model-experience/authentication-adapters/token-effect:
+  en: 567984c7a43747cf
+  zh: 2f499f192c8cc49f
+/deepseek-ai-dsh-enterprise-sso/model-experience/authentication-adapters/kv-cache-effect:
+  en: 526e673cf2ce9ccb
+  zh: 13150132092f2891
+/deepseek-ai-dsh-enterprise-sso/known-limitations-and-deferred-work:
+  en: 3dadd8016416c42c
+  zh: dd5ff43f0db60988
+/deepseek-ai-dsh-enterprise-sso/known-limitations-and-deferred-work/dev-note:
+  en: e67f633dc6fe7773
+  zh: e88aeb617ffb74ea

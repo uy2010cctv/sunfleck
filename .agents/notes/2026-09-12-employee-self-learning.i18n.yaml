@@ -1,6 +1,7 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-12-employee-self-learning.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/2026-09-12-employee-self-learning.md
-2026-09-12-employee-self-learning.md: 59279f95d0da660cf23c93a6dc0e318a382db5f9
-2026-09-12-employee-self-learning.zh.md: bd8d3cddd4e6b44291e5f2035e16abf1af5973c7
+/employee-self-learning-implementation-plan:
+  en: cb5452b9f9dfbd74
+  zh: 93291c8e33505e4f
