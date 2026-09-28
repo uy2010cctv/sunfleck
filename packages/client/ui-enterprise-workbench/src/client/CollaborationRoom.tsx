@@ -67,10 +67,11 @@ export function stripReplyBoilerplate(content: string): string {
   return stripped.trim() === '' ? content : stripped
 }
 
-function Entry({ event, reactions, avatarUrl, attachmentUrlFor, workflowDetails, working, threadReplies, presented,
+function Entry({ event, reactions, self, avatarUrl, attachmentUrlFor, workflowDetails, working, threadReplies, presented,
   threadAvatarFor = () => undefined, onThread, onReaction, onInspect, t }: {
   readonly event: RoomEvent
   readonly reactions: readonly ReactionSummary[]
+  readonly self: boolean
   readonly avatarUrl: string | undefined
   readonly attachmentUrlFor: (attachmentId: string) => string
   readonly workflowDetails?: readonly RoomEvent[]
@@ -149,7 +150,7 @@ function Entry({ event, reactions, avatarUrl, attachmentUrlFor, workflowDetails,
   const workflow = event.kind !== 9
   const workflowStatus = event.tags.find(tag => tag[0] === 'status')?.[1]
   const time = new Date(event.created_at * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-  return <article className={`${css.entry} ${workflow ? css.workflow : ''}`} data-event-id={event.id}>
+  return <article className={`${css.entry} ${self ? css.entrySelf : ''} ${workflow ? css.workflow : ''}`} data-event-id={event.id}>
     {avatarUrl !== undefined
       ? <img className={`${css.avatar} ${event.author.kind === 'employee' ? css.bot : ''}`} src={avatarUrl}
         alt={event.author.displayName} loading="lazy" referrerPolicy="no-referrer"/>
@@ -562,6 +563,7 @@ export function CollaborationRoom({ state, controller, loadChoices, t }: {
   const avatarFor = (event: RoomEvent): string | undefined => event.author.kind === 'employee' ? avatars.get(event.author.id) : undefined
   const attachmentUrlFor = (attachmentId: string): string => controller.attachmentUrl(detail.id, attachmentId)
 
+  const isSelf = (event: RoomEvent): boolean => event.author.kind === 'human' && event.author.id === detail.viewerUserId
   const threadRoot = selected.threadRoot
   const root = threadRoot === undefined ? undefined : [...state.events, ...state.searchResults].find(event => event.id === threadRoot)
   return <main className={css.room}>
@@ -578,7 +580,7 @@ export function CollaborationRoom({ state, controller, loadChoices, t }: {
         {showSearch && state.searchPhase !== 'idle' ? <div className={css.scroll} role="region" aria-label={t('searchResults')}>
           {state.searchPhase === 'loading' && <div className={css.center}><IconLoadingOutlineRegular size={20}/></div>}
           {state.searchPhase === 'error' && <div className={css.center} role="alert">{t('searchFailed')}<button type="button" onClick={() => { void controller.search(searchInput) }}>{t('retry')}</button></div>}
-          {state.searchPhase === 'ready' && (state.searchResults.length === 0 ? <div className={css.center}>{t('noSearchResults')}</div> : state.searchResults.map(event => <Entry key={event.id} event={event} reactions={[]} avatarUrl={avatarFor(event)} attachmentUrlFor={attachmentUrlFor} onThread={(id) => { setShowSearch(false); void controller.openThread(id) }} onReaction={(id, emoji) => { void controller.react(id, emoji) }} onInspect={(id) => { void controller.inspect(id) }} t={t}/>))}
+          {state.searchPhase === 'ready' && (state.searchResults.length === 0 ? <div className={css.center}>{t('noSearchResults')}</div> : state.searchResults.map(event => <Entry key={event.id} event={event} reactions={[]} self={isSelf(event)} avatarUrl={avatarFor(event)} attachmentUrlFor={attachmentUrlFor} onThread={(id) => { setShowSearch(false); void controller.openThread(id) }} onReaction={(id, emoji) => { void controller.react(id, emoji) }} onInspect={(id) => { void controller.inspect(id) }} t={t}/>))}
         </div> : <div ref={scroll} className={css.scroll} role="region" aria-label={t('roomTimeline')}
           onScroll={(event) => {
             const node = event.currentTarget
@@ -597,7 +599,7 @@ export function CollaborationRoom({ state, controller, loadChoices, t }: {
               const presented = item.event.sourceSessionId === undefined ? undefined : presentedFor(item.event.sourceSessionId)
               return <Entry key={item.event.id} event={item.event}
                 reactions={reactionSummaries(state.events, item.event.id, detail.viewerUserId)}
-                avatarUrl={avatarFor(item.event)}
+                self={isSelf(item.event)} avatarUrl={avatarFor(item.event)}
                 attachmentUrlFor={attachmentUrlFor} threadAvatarFor={authorId => avatars.get(authorId)}
                 {...(item.workflowDetails === undefined ? {} : { workflowDetails: item.workflowDetails })}
                 {...(item.working === undefined ? {} : { working: item.working })}
@@ -624,7 +626,7 @@ export function CollaborationRoom({ state, controller, loadChoices, t }: {
           {detail.project !== undefined && <section><h3>{t('project')}</h3><p>{detail.project.name}</p></section>}
           {detail.kind === 'channel' && <><ChannelDecisionQueue key={`${detail.id}-decisions`} channelId={detail.id} t={t}/>
             <ChannelWorkflowEditor key={`${detail.id}-workflows`} channelId={detail.id} t={t}/></>}
-        </div> : <><div className={css.threadScroll}>{root !== undefined && <Entry event={root} reactions={reactionSummaries(state.events, root.id, detail.viewerUserId)} avatarUrl={avatarFor(root)} attachmentUrlFor={attachmentUrlFor} onThread={() => {}} onReaction={(id, emoji) => { void controller.react(id, emoji) }} onInspect={(id) => { void controller.inspect(id) }} t={t}/>}{state.threadPhase === 'loading' && <div className={css.center}><IconLoadingOutlineRegular size={20}/></div>}{state.threadPhase === 'error' && <div className={css.center} role="alert">{t('loadError')}<button type="button" onClick={() => { void controller.openThread(threadRoot) }}>{t('retry')}</button></div>}{state.threadPhase === 'ready' && state.threadEvents.filter(event => event.kind !== 7 && event.id !== threadRoot).map(event => <Entry key={event.id} event={event} reactions={reactionSummaries(state.threadEvents, event.id, detail.viewerUserId)} avatarUrl={avatarFor(event)} attachmentUrlFor={attachmentUrlFor} onThread={() => {}} onReaction={(id, emoji) => { void controller.react(id, emoji) }} onInspect={(id) => { void controller.inspect(id) }} t={t}/>)}</div><Composer state={state} controller={controller} t={t} threadRoot={threadRoot}/></>}
+        </div> : <><div className={css.threadScroll}>{root !== undefined && <Entry event={root} reactions={reactionSummaries(state.events, root.id, detail.viewerUserId)} self={isSelf(root)} avatarUrl={avatarFor(root)} attachmentUrlFor={attachmentUrlFor} onThread={() => {}} onReaction={(id, emoji) => { void controller.react(id, emoji) }} onInspect={(id) => { void controller.inspect(id) }} t={t}/>}{state.threadPhase === 'loading' && <div className={css.center}><IconLoadingOutlineRegular size={20}/></div>}{state.threadPhase === 'error' && <div className={css.center} role="alert">{t('loadError')}<button type="button" onClick={() => { void controller.openThread(threadRoot) }}>{t('retry')}</button></div>}{state.threadPhase === 'ready' && state.threadEvents.filter(event => event.kind !== 7 && event.id !== threadRoot).map(event => <Entry key={event.id} event={event} reactions={reactionSummaries(state.threadEvents, event.id, detail.viewerUserId)} self={isSelf(event)} avatarUrl={avatarFor(event)} attachmentUrlFor={attachmentUrlFor} onThread={() => {}} onReaction={(id, emoji) => { void controller.react(id, emoji) }} onInspect={(id) => { void controller.inspect(id) }} t={t}/>)}</div><Composer state={state} controller={controller} t={t} threadRoot={threadRoot}/></>}
       </aside>}
     </div>
   </main>
