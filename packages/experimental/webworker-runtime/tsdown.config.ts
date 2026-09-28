@@ -56,6 +56,7 @@ const moduleProxyPlugin = {
  */
 export default defineConfig([{
   entry: ['src/index.ts'],
+  tsconfig: 'tsconfig.host.json',
   outDir: 'lib',
   format: ['esm'],
   platform: 'neutral',
@@ -68,6 +69,7 @@ export default defineConfig([{
   // assembly, bundled whole — a worker served from a static URL can fetch no
   // sibling chunk.
   entry: ['src/worker.ts'],
+  tsconfig: 'tsconfig.host.json',
   outDir: 'lib',
   format: ['esm'],
   platform: 'browser',
@@ -85,6 +87,7 @@ export default defineConfig([{
   // loaded through, so it cannot be loaded by it. Workspace peers stay external
   // so the page keeps one instance of each.
   entry: ['src/client/index.ts'],
+  tsconfig: 'tsconfig.client.json',
   outDir: 'lib',
   format: ['esm'],
   platform: 'browser',
