@@ -309,14 +309,23 @@ describe.skipIf(databaseUrl === undefined)('enterprise collaboration source Web 
           const sent = await request(`/${id}/messages`, message)
           expect(sent['delivered']).toBe(true)
           expect(await request(`/${id}/messages`, message)).toEqual(sent)
-          const targets = sent['targets']
-          if (!Array.isArray(targets)) throw new Error('delivery has no destinations')
-          const sessionId = string(record(targets[0])['sessionId'])
+          expect(sent['targets']).toEqual([])
+          await expect.poll(async () => {
+            const response = await fetch(`${origin}/enterprise/surfaces`, { signal: test.signal,
+              headers: { cookie, origin } })
+            const rows: unknown = await response.json()
+            if (!Array.isArray(rows)) throw new Error('room execution directory is not an array')
+            const row = record(rows.map(record).find(entry => entry['id'] === id))
+            return Array.isArray(row['executionSessionIds']) && row['executionSessionIds'].length > 0
+          }, { timeout: test.task.timeout, message: app.diagnostics() }).toBe(true)
           const executionDirectory = await fetch(`${origin}/enterprise/surfaces`, { signal: test.signal,
             headers: { cookie, origin } })
           expect(executionDirectory.status).toBe(200)
           const executionRows: unknown = await executionDirectory.json()
           if (!Array.isArray(executionRows)) throw new Error('room execution directory is not an array')
+          const sessionIds = record(executionRows.map(record).find(entry => entry['id'] === id))['executionSessionIds']
+          if (!Array.isArray(sessionIds)) throw new Error('room execution directory omitted Session ids')
+          const sessionId = string(sessionIds[0])
           expect(record(executionRows.map(record).find(entry => entry['id'] === id))['executionSessionIds'])
             .toContain(sessionId)
           expect(await request(`/${id}/open`, { employeeId: 'fixture-assistant',

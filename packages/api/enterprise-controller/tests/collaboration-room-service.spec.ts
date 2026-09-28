@@ -127,7 +127,7 @@ describe('one shared room timeline', () => {
     await expect(app.service.markRead(alice, 'group', '2')).rejects.toMatchObject({ code: 'not-found' })
   })
 
-  it('returns the original native target on a completed outbox retry without dispatching again', async () => {
+  it('returns the signed acceptance receipt on retry without waiting for native dispatch', async () => {
     let calls = 0
     const app = fixture(room, async () => {
       calls++
@@ -138,7 +138,10 @@ describe('one shared room timeline', () => {
     const first = await app.service.message(alice, 'group', input)
     const second = await app.service.message(alice, 'group', input)
     expect(second).toEqual(first)
-    expect(calls).toBe(2)
+    expect(first).toMatchObject({ delivered: true, targets: [], event: { id: 'event-1' } })
+    expect(calls).toBe(0)
     expect(app.events).toHaveLength(1)
+    await app.service.dispatchSignedEvent(alice, 'group', 'event-1')
+    expect(calls).toBe(1)
   })
 })

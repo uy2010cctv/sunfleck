@@ -23,6 +23,28 @@ function controller(request: ReturnType<typeof fetcher>) {
 }
 
 describe('shared collaboration room', () => {
+  it('polls the committed cursor while a pending or failed local echo remains visible', async () => {
+    const posting = Promise.withResolvers<Response>()
+    const request = vi.fn(async (url: string) => {
+      if (url.endsWith('/messages')) return posting.promise
+      if (url.includes('/events')) return Response.json({ items: [human], nextCursor: human.sequence })
+      return Response.json(detail)
+    })
+    const { value } = controller(request)
+    await value.select(surface.id)
+    value.setMainPanel('enterprise-collaboration')
+    const pending = value.send('Another request')
+    try {
+      await value.poll()
+      expect(request.mock.calls.at(-1)?.[0]).toBe(`/enterprise/surfaces/${surface.id}/events?after=${human.sequence}&limit=100`)
+    } finally {
+      posting.resolve(new Response(null, { status: 502 }))
+      await pending
+    }
+    await value.poll()
+    expect(request.mock.calls.at(-1)?.[0]).toBe(`/enterprise/surfaces/${surface.id}/events?after=${human.sequence}&limit=100`)
+    value.dispose()
+  })
   it('coalesces background roster refreshes while the previous request is pending', async () => {
     let resolveFirst: ((response: Response) => void) | undefined
     const request = vi.fn(async () => await new Promise<Response>((resolve) => { resolveFirst = resolve }))

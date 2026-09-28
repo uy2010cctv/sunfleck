@@ -430,7 +430,7 @@ export class CollaborationController {
     if (id === undefined || state.roomPhase !== 'ready' || this.pollRequest !== undefined || this.mainPanel !== 'enterprise-collaboration') return
     const request = new AbortController()
     this.pollRequest = request
-    const latest = state.events.at(-1)?.sequence
+    const latest = state.events.findLast(event => event.delivery !== 'pending' && event.delivery !== 'failed')?.sequence
     try {
       const query = latest === undefined ? '?limit=100' : `?after=${encodeURIComponent(latest)}&limit=100`
       const page = eventPage(await this.read(`/${encodeURIComponent(id)}/events${query}`, request.signal))
@@ -518,8 +518,7 @@ export class CollaborationController {
     const messageId = this.pendingMessage.id
     const request = new AbortController()
     this.patch({ busy: true, error: null })
-    // Optimistic echo: the request also drives the agent dispatch chain, so
-    // show the post immediately and reconcile with the signed event on return.
+    // Reconcile the local echo with the persisted signed acceptance receipt.
     const viewerId = selected.detail.viewerUserId
     const viewerName = selected.detail.humanMembers?.find(member => member.userId === viewerId)?.displayName ?? viewerId
     const echo: RoomEvent = {
@@ -552,7 +551,7 @@ export class CollaborationController {
       if (this.state.getSnapshot().selection?.detail.id === selected.detail.id) {
         const dropPending = (events: readonly RoomEvent[]): RoomEvent[] => events.filter(item => item.id !== echo.id)
         this.patch({
-          busy: false,
+          busy: false, error: null,
           events: appendUnique(dropPending(this.state.getSnapshot().events), [posted]),
           ...(options.threadRoot === undefined ? {}
             : { threadEvents: appendUnique(dropPending(this.state.getSnapshot().threadEvents), [posted]) }),

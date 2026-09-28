@@ -778,9 +778,13 @@ export class CollaborationService {
     await room.committed?.(actor, row, committed)
     const event = await room.present(actor, row, committed)
     if (room.dispatchCommitted !== undefined) {
-      const delivery = await room.dispatchCommitted(actor, row, committed)
-      const replayed = dispatch.targets.length > 0 || dispatch.route === 'team'
-        ? await room.replayedTargets?.(row, committed, dispatch) ?? [] : []
+      // appendHuman commits both the signed post and its outbox destinations.
+      // The recovery worker owns native delivery; Session activation does not
+      // delay the human's persisted-message receipt.
+      const delivery = input.sourceSessionId === undefined ? { delivered: true as const, targets: [] }
+        : await room.dispatchCommitted(actor, row, committed)
+      const replayed = input.sourceSessionId === undefined ? []
+        : await room.replayedTargets?.(row, committed, dispatch) ?? []
       const targets = [...new Map([...(delivery.delivered ? delivery.targets : []), ...replayed]
         .map(target => [target.sessionId, target])).values()]
       return { delivered: true, event, targets,
