@@ -59,8 +59,9 @@ export function WorkspaceFilesPanel({
   useWorkspaceFiles, useSessions, close, listLevel, t,
 }: WorkspaceFilesPanelProps) {
   const open = useWorkspaceFiles(state => state.open)
-  const sessionId = useSessions(state => state.current)
-  const cwd = useSessions(state => state.current ? state.byId[state.current]?.cwd : undefined)
+  const session = useSessions(state => Object.values(state.byId).find(row => (row.retainedBy.mainView ?? 0) > 0))
+  const sessionId = session?.id
+  const cwd = session?.cwd
   // Tree state: expanded directory keys (relative to cwd, '' = root), the
   // children cache per key, and which keys are mid-scan.
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set())
