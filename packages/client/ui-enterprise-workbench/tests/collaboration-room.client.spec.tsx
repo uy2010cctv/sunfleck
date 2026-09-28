@@ -402,6 +402,22 @@ describe('shared room UI', () => {
     controller.dispose()
   })
 
+  it('summarizes channel threads whose triggering message is older than the loaded page', () => {
+    const { controller, state, t } = setup()
+    const selected = state.selection
+    if (selected === null) throw new Error('room selection missing')
+    // The root reply is not on the loaded page: only the thread replies are.
+    const orphanReply: RoomEvent = { ...research, id: 'reply-1', threadRoot: 'event-gone', content: '已收到协作消息。' }
+    const channel = { ...state, selection: { detail: { ...selected.detail, kind: 'channel' as const } }, events: [orphanReply] }
+    const view = render(<CollaborationRoom controller={controller} state={channel} t={t}/>)
+    // The reply must not render as a full channel timeline post.
+    expect(view.container.querySelectorAll('article')).toHaveLength(0)
+    const openThread = vi.spyOn(controller, 'openThread').mockResolvedValue()
+    fireEvent.click(screen.getByRole('button', { name: /条回复/ }))
+    expect(openThread).toHaveBeenCalledWith('event-gone')
+    controller.dispose()
+  })
+
   it('folds a follow-up signed message from the same reply run into the main answer', () => {
     const { controller, state, t } = setup()
     const selected = state.selection

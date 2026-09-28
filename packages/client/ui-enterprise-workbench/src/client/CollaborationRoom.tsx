@@ -58,6 +58,8 @@ interface TimelineItem {
   readonly working?: readonly WorkingChip[]
   /** In channels, agent replies that belong to this message's thread. */
   readonly threadReplies?: readonly RoomEvent[]
+  /** In channels, a thread whose triggering message is older than the loaded page. */
+  readonly orphanThread?: { readonly rootId: string; readonly events: readonly RoomEvent[] }
 }
 
 /** Drop the model-generated reply meta prefix (回复/回应 variants) from an employee answer.
@@ -483,13 +485,15 @@ export function CollaborationRoom({ state, controller, loadChoices, t }: {
     // claim human and agent replies alike so the main timeline stays root-only.
     const isChannel = (selected?.detail.kind ?? 'group') === 'channel'
     const threadReplies = new Map<string, RoomEvent[]>()
+    const orphanThreads = new Map<string, RoomEvent[]>()
     if (isChannel) {
       const rootIds = new Set(timeline.filter(event => event.threadRoot === undefined).map(event => event.id))
       for (const event of timeline) {
-        if (event.threadRoot === undefined || !rootIds.has(event.threadRoot)) continue
-        const list = threadReplies.get(event.threadRoot) ?? []
+        if (event.threadRoot === undefined) continue
+        const target = rootIds.has(event.threadRoot) ? threadReplies : orphanThreads
+        const list = target.get(event.threadRoot) ?? []
         list.push(event)
-        threadReplies.set(event.threadRoot, list)
+        target.set(event.threadRoot, list)
       }
     }
     const flushOrphans = (): void => {
@@ -504,7 +508,17 @@ export function CollaborationRoom({ state, controller, loadChoices, t }: {
     const runAnswered = new Set<string>()
     const runAnswerItem = new Map<string, TimelineItem>()
     for (const event of timeline) {
-      if (isChannel && event.threadRoot !== undefined && threadReplies.has(event.threadRoot)) continue
+      if (isChannel && event.threadRoot !== undefined) {
+        if (threadReplies.has(event.threadRoot)) continue
+        const orphan = orphanThreads.get(event.threadRoot)
+        if (orphan !== undefined) {
+          // The triggering message is older than the loaded page: the thread
+          // still stays out of the channel timeline and renders as one chip.
+          if (orphan[0]?.id !== event.id) continue
+          items.push({ event, orphanThread: { rootId: event.threadRoot, events: orphan } })
+          continue
+        }
+      }
       if (event.author.kind === 'employee' && event.kind !== 9) {
         const list = pending.get(event.author.id) ?? []
         list.push(event)
@@ -596,6 +610,15 @@ export function CollaborationRoom({ state, controller, loadChoices, t }: {
             }}>{t('loadOlder')}</button>}
             {timeline.length === 0 && <div className={css.center}>{t('emptyRoom')}</div>}
             {displayItems.map((item) => {
+              const { orphanThread } = item
+              if (orphanThread !== undefined) {
+                const last = orphanThread.events[orphanThread.events.length - 1]
+                return <button type="button" key={item.event.id} className={css.threadChip}
+                  onClick={() => { void controller.openThread(orphanThread.rootId) }}>
+                  <span>{t('threadReplies', { count: orphanThread.events.length })}</span>
+                  {last !== undefined && <span className={css.threadTime}>{new Date(last.created_at * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>}
+                </button>
+              }
               const presented = item.event.sourceSessionId === undefined ? undefined : presentedFor(item.event.sourceSessionId)
               return <Entry key={item.event.id} event={item.event}
                 reactions={reactionSummaries(state.events, item.event.id, detail.viewerUserId)}
