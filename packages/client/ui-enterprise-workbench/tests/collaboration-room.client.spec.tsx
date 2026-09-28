@@ -320,6 +320,21 @@ describe('shared room UI', () => {
     controller.dispose()
   })
 
+  it('uploads pasted files through the same attachment intake as picked files', async () => {
+    const { controller, state, t } = setup([])
+    const upload = vi.spyOn(controller, 'uploadAttachment').mockResolvedValue({
+      attachmentId: 'pasted', name: 'screen.png', mimeType: 'image/png', size: 1 })
+    render(<CollaborationRoom controller={controller} state={state} t={t}/>)
+    vi.stubGlobal('URL', class extends URL {
+      static override createObjectURL(): string { return 'blob:preview' }
+      static override revokeObjectURL(): void {}
+    })
+    const file = new File(['x'], 'screen.png', { type: 'image/png' })
+    fireEvent.paste(screen.getByRole('textbox', { name: '消息' }), { clipboardData: { files: [file] } })
+    await waitFor(() => { expect(upload).toHaveBeenCalledWith(state.selection!.detail.id, file) })
+    controller.dispose()
+  })
+
   it('attaches files, uploads them before send, and renders signed attachments', async () => {
     const { controller, state, t } = setup([])
     const upload = vi.spyOn(controller, 'uploadAttachment').mockResolvedValue({

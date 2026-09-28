@@ -2,6 +2,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
 import { createPortal } from 'react-dom'
 import type {} from '@deepseek-ai/dsh-client-ui-attachment/client'
+import type { DraftAttachmentId } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { PropsRenderFactories } from '@deepseek-ai/dsh-client-ui-slots'
 import { RoomPresentedFiles } from './RoomPresentedFiles.tsx'
 import { filesForRoomReply } from './room-presented-files.ts'
@@ -266,8 +267,9 @@ function ExecutionFacts({ events, onInspect, t }: {
 
 /** One file being attached to the draft; uploads commit before the message referencing them. */
 interface PendingUpload {
-  readonly key: string
+  readonly key: DraftAttachmentId
   readonly file: File
+  readonly previewUrl?: string
   readonly status: 'uploading' | 'ready' | 'error'
   readonly ref?: { attachmentId: string; name: string; mimeType: string; size: number }
 }
@@ -292,12 +294,21 @@ function Composer({ state, controller, renderFactorySlot, t, threadRoot }: {
   const [mentionQuery, setMentionQuery] = useState('')
   const [typedMention, setTypedMention] = useState(false)
   const [uploads, setUploads] = useState<PendingUpload[]>([])
+  const [intakeError, setIntakeError] = useState<string | null>(null)
   const [sending, setSending] = useState(false)
   const input = useRef<HTMLTextAreaElement>(null)
   const mentionWrap = useRef<HTMLDivElement>(null)
   const fileInput = useRef<HTMLInputElement>(null)
+  const dropTarget = useRef<HTMLFormElement>(null)
+  const uploadSequence = useRef(0)
+  const previews = useRef(new Map<DraftAttachmentId, string>())
+  useEffect(() => () => { for (const url of previews.current.values()) URL.revokeObjectURL(url); previews.current.clear() }, [])
+  useEffect(() => {
+    const live = new Set(uploads.map(upload => upload.key))
+    for (const [id, url] of previews.current) if (!live.has(id)) { URL.revokeObjectURL(url); previews.current.delete(id) }
+  }, [uploads])
   const detail = state.selection?.detail
-  useEffect(() => { setDraft(''); setMentions([]); setPeopleMentions([]); setUploads([]) }, [detail?.id, threadRoot])
+  useEffect(() => { setDraft(''); setMentions([]); setPeopleMentions([]); setUploads([]); setIntakeError(null) }, [detail?.id, threadRoot])
   useEffect(() => {
     if (!openMentions) return
     const onPointer = (event: MouseEvent): void => { if (!mentionWrap.current?.contains(event.target as Node)) setOpenMentions(false) }
@@ -322,7 +333,7 @@ function Composer({ state, controller, renderFactorySlot, t, threadRoot }: {
     setPeopleMentions([...detail.memberUserIds])
   }
   const readyAttachments = uploads.flatMap(upload => upload.status === 'ready' && upload.ref !== undefined ? [upload.ref] : [])
-  const uploadPending = uploads.some(upload => upload.status === 'uploading')
+  const uploadPending = uploads.some(upload => upload.status !== 'ready')
   // Typing @ right before the caret summons the member picker filtered by the
   // partial name after it; the button opens the same menu unfiltered.
   const refreshMentionQuery = (text: string, caret: number | null): void => {
@@ -368,42 +379,53 @@ function Composer({ state, controller, renderFactorySlot, t, threadRoot }: {
       .then((ref) => { setUploads(current => current.map(item => item.key === upload.key ? { ...item, status: 'ready' as const, ref } : item)) })
       .catch(() => { setUploads(current => current.map(item => item.key === upload.key ? { ...item, status: 'error' as const } : item)) })
   }
-  const pickFiles = (files: FileList | null): void => {
-    for (const file of Array.from(files ?? [])) {
-      const upload: PendingUpload = { key: `${file.name}:${file.size}:${Date.now()}:${Math.random()}`, file, status: 'uploading' }
+  const pickFiles = (files: readonly File[], directories?: ReadonlySet<File>): void => {
+    if (sending) return
+    if (directories !== undefined && directories.size > 0) { setIntakeError(t('attachDirectoryUnsupported')); return }
+    setIntakeError(null)
+    for (const file of files) {
+      const key = `room-file-${uploadSequence.current++}` as DraftAttachmentId
+      const previewUrl = file.type.startsWith('image/') ? URL.createObjectURL(file) : undefined
+      if (previewUrl !== undefined) previews.current.set(key, previewUrl)
+      const upload: PendingUpload = { key, file, status: 'uploading', ...(previewUrl === undefined ? {} : { previewUrl }) }
       setUploads(current => [...current, upload])
       uploadFile(upload)
     }
     if (fileInput.current !== null) fileInput.current.value = ''
   }
-  return <form className={css.composer} onSubmit={(event) => { void send(event) }}>
+  return <form ref={dropTarget} className={css.composer} onSubmit={(event) => { void send(event) }}>
     <ComposerCard>
-      {(mentions.length > 0 || peopleMentions.length > 0 || uploads.length > 0) && <div className={css.mentionChips}>{mentions.map((id) => {
+      {(mentions.length > 0 || peopleMentions.length > 0) && <div className={css.mentionChips}>{mentions.map((id) => {
         const member = detail.members.find(item => item.employeeId === id)
         return <button key={`employee:${id}`} type="button" onClick={() => { setMentions(mentions.filter(value => value !== id)) }} aria-label={`${t('removeMention')} ${member?.displayName ?? id}`}>@{member?.displayName ?? id} ×</button>
       })}{peopleMentions.map((id) => {
         const member = people.find(item => item.userId === id)
         return <button key={`human:${id}`} type="button" onClick={() => { setPeopleMentions(peopleMentions.filter(value => value !== id)) }} aria-label={`${t('removeMention')} ${member?.displayName ?? id}`}>@{member?.displayName ?? id} ×</button>
       })}</div>}
-      {uploads.length > 0 && <div className={css.uploads}>{uploads.map((upload) => {
-        const remove = (): void => { setUploads(current => current.filter(item => item.key !== upload.key)) }
-        const retry = (): void => { uploadFile(upload) }
-        const fallback = <span className={css.uploadChip} data-status={upload.status}>
-          {upload.file.name}
-          {upload.status === 'error' && <button type="button" onClick={retry}>{t('retry')}</button>}
-          <button type="button" aria-label={`${t('removeAttachment')} ${upload.file.name}`} onClick={remove}>×</button>
-        </span>
-        return <div key={upload.key}>{renderFactorySlot === undefined ? fallback
-          : renderFactorySlot('attachments.pending-file-card', { name: upload.file.name, bytes: upload.file.size,
-            state: upload.status, onRemove: remove, onRetry: retry }, { fallback })}</div>
-      })}</div>}
+      {renderFactorySlot === undefined ? <div className={css.uploads}>{uploads.map(upload => <span key={upload.key}>
+        {upload.file.name}{upload.status === 'error' && <button type="button" onClick={() => { uploadFile(upload) }}>{t('retry')}</button>}<button type="button" aria-label={`${t('removeAttachment')} ${upload.file.name}`}
+          onClick={() => { setUploads(current => current.filter(item => item.key !== upload.key)) }}>×</button>
+      </span>)}</div> : renderFactorySlot('attachments.composer', {
+        attachments: uploads.map(upload => upload.previewUrl === undefined
+          ? { kind: 'file' as const, id: upload.key, file: upload.file }
+          : { kind: 'image' as const, id: upload.key, file: upload.file, previewUrl: upload.previewUrl }),
+        uploads: Object.fromEntries(uploads.map(upload => [upload.key, { status: upload.status }])),
+        canAcceptDrop: !sending, dropTarget, onAddFiles: pickFiles,
+        onRemoveAttachment: (id) => { setUploads(current => current.filter(item => item.key !== id)) },
+        onRetryFile: (id) => { const upload = uploads.find(item => item.key === id); if (upload !== undefined) uploadFile(upload) },
+      })}
+      {intakeError !== null && <div role="alert">{intakeError}</div>}
       <textarea ref={input} value={draft}
         onChange={(event) => { setDraft(event.target.value); refreshMentionQuery(event.target.value, event.target.selectionStart) }}
+        onPaste={(event) => {
+          const files = Array.from(event.clipboardData.files)
+          if (files.length > 0) { event.preventDefault(); pickFiles(files) }
+        }}
         onKeyDown={onKeyDown} placeholder={threadRoot !== undefined ? t('threadPlaceholder')
           : detail.kind === 'channel' ? t('channelPostPlaceholder', { name: detail.name }) : t('roomPlaceholder')} aria-label={t('message')} disabled={sending} rows={2}/>
       <ComposerControlRow className={css.composerActions}>
         <input ref={fileInput} type="file" multiple hidden
-          onChange={(event) => { pickFiles(event.target.files) }}/>
+          onChange={(event) => { pickFiles(Array.from(event.target.files ?? [])) }}/>
         <button type="button" className={css.attach} aria-label={t('attach')} title={t('attach')}
           disabled={sending} onClick={() => { fileInput.current?.click() }}>＋</button>
         <div ref={mentionWrap} className={css.mentionWrap}><button type="button" aria-expanded={openMentions} onClick={() => { setTypedMention(false); setMentionQuery(''); setOpenMentions(!openMentions) }}>{t('mentionMember')}</button>

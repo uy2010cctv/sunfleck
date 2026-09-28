@@ -51,6 +51,8 @@ Trajectory 附件行使用 48px 方形缩略图，完整缩放图片而不裁剪
 
 插件通过 `ctx.slots.inject` 等待 `conversation.input.attachments`、`conversation.message.images`、`conversation.trajectory.images` 与 `tool.call.images`。随后它注册 composer rail、文档拖放目标、供 Chat、Trajectory 与工具结果共用的历史图片 gallery，以及原图灯箱。呈现组件仅依赖 props：slot 持有方提供附件数据、图片加载、回调与语言包翻译器；包入口不导出任何组件。
 
+根级 `attachments.composer` 工厂向房间和线程输入框提供同一有序附件栏、图片预览和拖拽入口。持有方传入上传状态和可选的拖拽元素，使拖入线程的文件只进入该草稿。上传图片保留预览，并显示等待或重试控件。
+
 根级 `attachments.pending-file-card` 工厂让其他输入框（包括协作房间）呈现同一待发送文件卡片。持有方提供文件名、字节大小、上传状态、可选进度及移除／重试回调；浏览器 File 对象和上传请求由持有方管理。工厂使用共享 conversation 语言标签。
 
 | 文件 | 职责 |

@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react'
 import type {
-  ComposerAttachment, ComposerAttachmentsProps, ComposerImageAttachment,
+  ComposerAttachment, ComposerAttachmentsProps, ComposerAttachmentsOwnerProps, ComposerImageAttachment,
 } from '@deepseek-ai/dsh-client-ui-conversation/client'
-import { IconCloseFillRegular } from '@deepseek-ai/dsh-client-ui-primitives'
+import { IconCloseFillRegular, IconLoadingOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
 import { AttachmentRail } from '../AttachmentRail.tsx'
 import type { AttachmentRailItem } from '../AttachmentRail.tsx'
 import { DropOverlay } from '../DropOverlay.tsx'
@@ -17,10 +17,18 @@ interface ComposerRailItem extends AttachmentRailItem {
   attachment: ComposerAttachment
 }
 
+/** Shared attachment presentation with owner-managed upload state and optional local drop area. */
+export interface AttachmentComposerInput extends Omit<ComposerAttachmentsOwnerProps, 'uploads'> {
+  /** Upload presentation keyed by draft id; receipts remain with the upload owner. */
+  uploads: Readonly<Record<string, { readonly status: 'uploading' | 'ready' | 'error'; readonly loaded?: number; readonly total?: number }>>
+  /** Limit drag intake to this composer when several composers are visible. */
+  dropTarget?: RefObject<HTMLElement> | undefined
+}
+
 /** Draft image previews, pending-file cards, drop target, and original-image preview. */
 export function ComposerAttachments({
-  attachments, canAcceptDrop, onAddFiles, onRemoveAttachment, uploads, onRetryFile, dropLimits, t,
-}: ComposerAttachmentsProps) {
+  attachments, canAcceptDrop, onAddFiles, onRemoveAttachment, uploads, onRetryFile, dropLimits, dropTarget, t,
+}: AttachmentComposerInput & Pick<ComposerAttachmentsProps, 't'>) {
   const [preview, setPreview] = useState<ComposerImageAttachment | null>(null)
   const [dragActive, setDragActive] = useState(false)
   const dragDepth = useRef(0)
@@ -30,8 +38,8 @@ export function ComposerAttachments({
   }, [attachments, preview])
 
   useEffect(() => {
-    return installDocumentDropEvents(canAcceptDrop, onAddFiles, dragDepth, setDragActive)
-  }, [canAcceptDrop, onAddFiles])
+    return installDocumentDropEvents(canAcceptDrop, onAddFiles, dragDepth, setDragActive, dropTarget)
+  }, [canAcceptDrop, onAddFiles, dropTarget])
 
   const railItems = useMemo<ComposerRailItem[]>(() => attachments.map(attachment => ({
     id: attachment.id,
@@ -63,7 +71,7 @@ export function ComposerAttachments({
                       ? 'uploading'
                       : upload.status === 'ready' ? 'ready' : 'error'}
                     {...upload?.status === 'uploading' && upload.total !== undefined && upload.total > 0
-                      ? { progress: upload.loaded / upload.total }
+                      ? { progress: (upload.loaded ?? 0) / upload.total }
                       : {}}
                     labels={fileCardLabels(t, attachment.file.name)}
                     onRemove={() => { onRemoveAttachment(attachment.id) }}
@@ -81,6 +89,11 @@ export function ComposerAttachments({
                   >
                     <img src={attachment.previewUrl} alt={attachment.file.name || t('image.pending')} />
                   </button>
+                  {uploads[attachment.id]?.status === 'uploading' && <span className={css.imageStatus}
+                    role="status" aria-label={t('file.uploading')}><IconLoadingOutlineRegular size={16} /></span>}
+                  {uploads[attachment.id]?.status === 'error' && <button type="button" className={css.imageStatus}
+                    aria-label={t('file.retry', { name: attachment.file.name })}
+                    onClick={() => { onRetryFile(attachment.id) }}>{t('file.uploadFailed')}</button>}
                   <button
                     type="button"
                     className={css.remove}

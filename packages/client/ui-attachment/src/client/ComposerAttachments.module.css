@@ -12,6 +12,21 @@
   height: 64px;
 }
 
+.imageStatus {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 4px;
+  border: 0;
+  border-radius: var(--dsw-radius-xl);
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+  font-size: 12px;
+}
+
+button.imageStatus { cursor: pointer; }
+
 .thumbnail {
   width: 64px;
   height: 64px;

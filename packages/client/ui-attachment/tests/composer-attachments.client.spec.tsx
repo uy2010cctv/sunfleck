@@ -88,6 +88,32 @@ function props(overrides: Partial<ComposerAttachmentsOwnerProps> = {}): Composer
 }
 
 describe('ComposerAttachments', () => {
+  it('keeps drops inside the targeted composer when a thread composer is also mounted', () => {
+    const onMain = vi.fn()
+    const onThread = vi.fn()
+    const main = document.createElement('form')
+    const thread = document.createElement('form')
+    document.body.append(main, thread)
+    const view = render(<>
+      <ComposerAttachments {...props({ onAddFiles: onMain })} dropTarget={{ current: main }} />
+      <ComposerAttachments {...props({ onAddFiles: onThread })} dropTarget={{ current: thread }} />
+    </>)
+    const file = new File(['hello'], 'test.txt', { type: 'text/plain' })
+    fireEvent.drop(thread, { dataTransfer: { types: ['Files'], files: [file], items: [] } })
+    expect(onThread).toHaveBeenCalledWith([file], new Set())
+    expect(onMain).not.toHaveBeenCalled()
+    view.unmount()
+    main.remove(); thread.remove()
+  })
+
+  it('shows retry for a failed uploaded image without discarding its preview', () => {
+    const retry = vi.fn()
+    const view = render(<ComposerAttachments {...props({ attachments: [attachment('image')], onRetryFile: retry })}
+      uploads={{ image: { status: 'error' } }} />)
+    fireEvent.click(view.getByRole('button', { name: '重试上传 image.png' }))
+    expect(retry).toHaveBeenCalledWith('image')
+    expect(view.getByAltText('image.png')).toBeTruthy()
+  })
   it('accepts file drops anywhere on the document and keeps non-file drags native', () => {
     const onAddFiles = vi.fn()
     const view = render(<ComposerAttachments {...props({

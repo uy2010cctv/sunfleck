@@ -1,5 +1,6 @@
 /** Document drag-and-drop listeners owned by one mounted attachment view. */
 import type { ComposerAttachmentsProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
+import type { RefObject } from 'react'
 
 /**
  * Members of a drop that are directories. The `File` a directory drop yields
@@ -25,6 +26,7 @@ function droppedDirectories(dataTransfer: DataTransfer, files: readonly File[]):
  * @param onAddFiles - attachment intake callback.
  * @param dragDepth - the view's retained nested-drag counter.
  * @param setDragActive - publish whether a file drag is active.
+ * @param dropTarget - restrict intake to this element; omission accepts document-wide drops.
  * @returns cleanup for exactly these listeners.
  */
 export function installDocumentDropEvents(
@@ -32,8 +34,10 @@ export function installDocumentDropEvents(
   onAddFiles: ComposerAttachmentsProps['onAddFiles'],
   dragDepth: { current: number },
   setDragActive: (active: boolean) => void,
+  dropTarget?: RefObject<HTMLElement>,
 ): () => void {
   const fileTransfer = (event: globalThis.DragEvent): DataTransfer | null => {
+    if (dropTarget !== undefined && (!(event.target instanceof Node) || !dropTarget.current?.contains(event.target))) return null
     const dataTransfer = event.dataTransfer
     if (dataTransfer === null || !dataTransfer.types.includes('Files')) return null
     return dataTransfer
@@ -63,6 +67,7 @@ export function installDocumentDropEvents(
     if ((event.target === document.documentElement || event.target === document.body) && leftViewport) reset()
   }
   const onDrop = (event: globalThis.DragEvent): void => {
+    if (event.dataTransfer?.types.includes('Files')) reset()
     const dataTransfer = fileTransfer(event)
     if (dataTransfer === null) return
     event.preventDefault()

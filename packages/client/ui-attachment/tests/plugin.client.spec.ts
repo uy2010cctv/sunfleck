@@ -31,6 +31,9 @@ describe('attachment plugin', () => {
   it('registers all entries and removes them with the plugin fiber', async () => {
     const { ctx, fiber } = await bench()
     expect(inject).toEqual(['slots'])
+    expect(ctx.slots.snapshot('factory:attachments.composer')).toMatchObject([{
+      scope: 'root', name: 'attachments.composer',
+    }])
     expect(ctx.slots.snapshot('factory:attachments.pending-file-card')).toMatchObject([{
       scope: 'root', name: 'attachments.pending-file-card',
     }])
@@ -53,6 +56,7 @@ describe('attachment plugin', () => {
 
     await fiber.dispose()
     expect(ctx.slots.snapshot('factory:attachments.pending-file-card')).toEqual([])
+    expect(ctx.slots.snapshot('factory:attachments.composer')).toEqual([])
 
     expect(ctx.slots.entries('conversation.input.attachments')).toHaveLength(0)
     expect(ctx.slots.entries('conversation.message.images')).toHaveLength(0)
