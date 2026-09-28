@@ -51,6 +51,27 @@ export const IconSearchOutlineMedium = (props: IconProps) => (
   <IconSearchOutlineArtwork {...props} strokeWidth={ICON_MEDIUM_STROKE} />
 )
 
+const IconReactionAddOutlineArtwork = ({ size = 16, className, strokeWidth }: WeightedIconProps) => (
+  <svg width={size} height={size} className={className} viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" strokeWidth={strokeWidth}>
+    <path d="M10.9 8.7434C10.9 11.7399 8.49648 13.9586 5.69993 13.9586C2.90339 13.9586 0.5 11.7399 0.5 8.72434C0.5 5.75878 2.90339 3.5 5.69993 3.5C6.2 3.5 6.7 3.57 7.15 3.7" stroke="currentColor" strokeLinecap="round" />
+    <path d="M4.3 7.4C4.52175 7.4 4.7 7.22141 4.7 7C4.7 6.77859 4.52175 6.6 4.3 6.6C4.07825 6.6 3.9 6.77859 3.9 7C3.9 7.22141 4.07825 7.4 4.3 7.4Z" fill="currentColor" />
+    <path d="M7.1 7.4C7.32175 7.4 7.5 7.22141 7.5 7C7.5 6.77859 7.32175 6.6 7.1 6.6C6.87825 6.6 6.7 6.77859 6.7 7C6.7 7.22141 6.87825 7.4 7.1 7.4Z" fill="currentColor" />
+    <path d="M3.3 9.3C3.8 10.2 4.6 10.7 5.7 10.7C6.8 10.7 7.6 10.2 8.1 9.3" stroke="currentColor" strokeLinecap="round" />
+    <path d="M13 1.5V6.5" stroke="currentColor" strokeLinecap="round" />
+    <path d="M10.5 4H15.5" stroke="currentColor" strokeLinecap="round" />
+  </svg>
+)
+
+/** Regular one-pixel IconReactionAddOutline artwork. */
+export const IconReactionAddOutlineRegular = (props: IconProps) => (
+  <IconReactionAddOutlineArtwork {...props} strokeWidth={ICON_REGULAR_STROKE} />
+)
+
+/** Medium IconReactionAddOutline artwork with a 1.3px stroke. */
+export const IconReactionAddOutlineMedium = (props: IconProps) => (
+  <IconReactionAddOutlineArtwork {...props} strokeWidth={ICON_MEDIUM_STROKE} />
+)
+
 /** Regular one-pixel IconGlobeOutline artwork. */
 export const IconGlobeOutlineRegular = (props: IconProps) => (
   <GlobeOutlineArtwork {...props} strokeWidth={ICON_REGULAR_STROKE} />

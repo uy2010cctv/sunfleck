@@ -31,7 +31,8 @@
 .reactionAdd { opacity: 0; transition: opacity 100ms ease; }
 .entry:hover .reactionAdd, .reactionAdd[aria-expanded='true'] { opacity: 1; }
 .reactionGhost { border: 1.5px dashed var(--dsw-alias-border-l2) !important; }
-.emojiPicker { position: absolute; z-index: 8; bottom: calc(100% + 8px); right: 0; max-width: min(90vw, 420px); border-radius: 10px; box-shadow: var(--dsw-elevation-panel); }
+.emojiFloat { position: fixed; z-index: 60; }
+.emojiPickerFloat { max-width: min(90vw, 420px); border-radius: 10px; box-shadow: var(--dsw-elevation-panel); }
 .meta { position: relative; }
 .author { color: var(--dsw-alias-label-primary); font-size: 13px; font-weight: 500; }
 .kind { color: var(--dsw-alias-label-secondary); }
@@ -60,6 +61,8 @@
 .menuAll label, .menuAll { display: flex; align-items: center; gap: 8px; padding: 4px 2px; cursor: pointer; }
 .menuAllLabel { font-weight: 600; color: #32cd32; }
 .menuAllHint { color: var(--dsw-alias-label-secondary); font-size: 11px; }
+.menuRow { display: flex; align-items: center; gap: 8px; padding: 2px; }
+.menuRow label { flex: 1; min-width: 0; }
 .menuAvatar { display: inline-grid; place-items: center; width: 22px; height: 22px; flex: none; border-radius: 50%; object-fit: cover; background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-label-primary); font-size: 11px; }
 .attachments { display: flex; gap: 8px; flex-wrap: wrap; margin: 6px 0; }
 .workingChips { display: flex; gap: 6px; flex-wrap: wrap; margin: 6px 0 2px; }

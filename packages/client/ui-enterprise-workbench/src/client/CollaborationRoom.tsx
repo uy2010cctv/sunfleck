@@ -1,6 +1,7 @@
 /** Shared group/channel room in the existing SUNFLECK main panel. */
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
-import { IconCloseOutlineRegular, IconLoadingOutlineRegular, IconSearchOutlineRegular, IconSendOutlineRegular, IconUsersOutlineRegular, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
+import { createPortal } from 'react-dom'
+import { IconCloseOutlineRegular, IconLoadingOutlineRegular, IconReactionAddOutlineRegular, IconSearchOutlineRegular, IconSendOutlineRegular, IconUsersOutlineRegular, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { CollaborationController, CollaborationState, RoomEvent, RoomPresentedFile } from './collaboration-store.ts'
 import type { CollaborationChoices } from './CollaborationNavigation.tsx'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-locale/client'
@@ -84,11 +85,27 @@ function Entry({ event, reactions, avatarUrl, attachmentUrlFor, workflowDetails,
 }) {
   const [pickerOpen, setPickerOpen] = useState(false)
   const pickerRef = useRef<HTMLElement | null>(null)
+  const floatRef = useRef<HTMLDivElement | null>(null)
+  const addReactionRef = useRef<HTMLButtonElement | null>(null)
+  const [pickerAnchor, setPickerAnchor] = useState<{ top: number; left: number } | undefined>(undefined)
   const markdownLabels: MarkdownLabels = {
     code: { copyLabel: t('markdownCopy'), copiedLabel: t('markdownCopied') },
     footnotes: t('markdownFootnotes'),
   }
   const mine = reactions.find(reaction => reaction.mine)
+  const openReactionPicker = (): void => {
+    const rect = addReactionRef.current?.getBoundingClientRect()
+    if (rect !== undefined) {
+      const width = Math.min(globalThis.innerWidth - 16, 380)
+      const height = 430
+      const left = Math.min(Math.max(8, rect.right - width), globalThis.innerWidth - width - 8)
+      const below = rect.bottom + 8
+      setPickerAnchor(globalThis.innerHeight - below > height || rect.top < height
+        ? { top: below, left }
+        : { top: Math.max(8, rect.top - height - 8), left })
+    }
+    setPickerOpen(true)
+  }
   useEffect(() => {
     if (!pickerOpen) return
     const node = pickerRef.current
@@ -103,6 +120,32 @@ function Entry({ event, reactions, avatarUrl, attachmentUrlFor, workflowDetails,
     node.addEventListener('emoji-click', onPick)
     return () => { node.removeEventListener('emoji-click', onPick) }
   }, [pickerOpen, event.id, onReaction])
+  useEffect(() => {
+    if (!pickerOpen) return
+    const node = pickerRef.current
+    const float = floatRef.current
+    const close = (): void => setPickerOpen(false)
+    const onKey = (press: { key: string }): void => { if (press.key === 'Escape') setPickerOpen(false) }
+    const onPointer = (down: Event): void => {
+      const target = down.target
+      // The toggle button owns the open/close decision; picker and float own picks.
+      if (target instanceof Node
+        && ((node !== null && node.contains(target)) || (float !== null && float.contains(target))
+          || (addReactionRef.current !== null && addReactionRef.current.contains(target)))) return
+      setPickerOpen(false)
+    }
+    // The picker anchors to the triggering row; scrolling detaches it.
+    let owner: Element | null = addReactionRef.current
+    while (owner !== null && getComputedStyle(owner).overflow !== 'auto' && getComputedStyle(owner).overflowY !== 'auto') owner = owner.parentElement
+    owner?.addEventListener('scroll', close, { once: true })
+    document.addEventListener('pointerdown', onPointer, true)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      owner?.removeEventListener('scroll', close)
+      document.removeEventListener('pointerdown', onPointer, true)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [pickerOpen])
   const workflow = event.kind !== 9
   const workflowStatus = event.tags.find(tag => tag[0] === 'status')?.[1]
   const time = new Date(event.created_at * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
@@ -118,10 +161,16 @@ function Entry({ event, reactions, avatarUrl, attachmentUrlFor, workflowDetails,
             className={reaction.mine ? css.reactionMine : undefined}
             onClick={() => { if (!reaction.mine) onReaction(event.id, reaction.emoji) }}>{reaction.emoji}{reaction.count > 1 ? ` ${reaction.count}` : ''}</button>)}
           <span className={css.reactionWrap}>
-            <button type="button" aria-label={t('reactTo')}
+            <button type="button" aria-label={t('reactTo')} aria-expanded={pickerOpen}
+              ref={addReactionRef}
               className={`${css.reactionAdd} ${mine === undefined ? css.reactionGhost : ''}`}
-              onClick={() => { setPickerOpen(!pickerOpen) }}>{mine === undefined ? '🙂' : mine.emoji}</button>
-            {pickerOpen && <emoji-picker ref={pickerRef} class={css.emojiPicker}/>}
+              onClick={() => { if (pickerOpen) setPickerOpen(false); else openReactionPicker() }}>
+              {mine === undefined ? <IconReactionAddOutlineRegular size={14}/> : mine.emoji}</button>
+            {pickerOpen && createPortal(
+              <div ref={floatRef} className={css.emojiFloat}
+                style={pickerAnchor === undefined ? undefined : { top: pickerAnchor.top, left: pickerAnchor.left }}>
+                <emoji-picker ref={pickerRef} class={css.emojiPickerFloat}/>
+              </div>, document.body)}
           </span>
         </span>}
       </div>
