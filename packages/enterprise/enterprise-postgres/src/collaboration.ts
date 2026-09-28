@@ -133,16 +133,10 @@ export async function migrateCollaboration(database: EnterprisePostgresDatabase)
   await database.transaction(async (tx) => {
     await tx.query('SELECT pg_advisory_xact_lock($1)', [0x4453434f])
     await tx.query('CREATE TABLE IF NOT EXISTS dsh_enterprise_collaboration_meta (version INTEGER NOT NULL)')
-    // Idempotent on every boot and before any version short-cut: room
-    // attachments and per-user preferences are additive storage, so these
-    // additions need no version bump.
-    await tx.query(attachmentsTable)
-    await tx.query(prefsTable)
     const version = (await tx.query<{ version: number }>('SELECT version FROM dsh_enterprise_collaboration_meta')).rows[0]?.version
     if (version !== undefined && version !== 1 && version !== 2 && version !== 3 && version !== 4) {
       throw new Error(`unsupported collaboration schema version ${version}`)
     }
-    if (version === 4) return
     if (version === undefined) {
       await tx.query(`CREATE TABLE dsh_enterprise_collaboration_config (
       surface_id TEXT PRIMARY KEY REFERENCES dsh_enterprise_surface_directory(surface_id) ON DELETE CASCADE,
@@ -160,6 +154,11 @@ export async function migrateCollaboration(database: EnterprisePostgresDatabase)
       PRIMARY KEY(surface_id,topic_id,employee_id))`)
       await tx.query('INSERT INTO dsh_enterprise_collaboration_meta(version) VALUES (1)')
     }
+    // Additive tables depend on the base room configuration and must also
+    // exist when a version-4 database resumes.
+    await tx.query(attachmentsTable)
+    await tx.query(prefsTable)
+    if (version === 4) return
     if (version === undefined || version === 1) {
       await tx.query(`CREATE TABLE dsh_enterprise_collaboration_actor_keys (
       org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,

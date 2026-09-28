@@ -108,12 +108,12 @@ describe.skipIf(url === undefined)('PostgreSQL signed room events', () => {
     const member = randomUUID()
     await db.database.query('INSERT INTO users(id,org_id,username,display_name,disabled) VALUES($1,$2,$1,$1,false)', [member, orgId])
     await db.database.query('INSERT INTO dsh_enterprise_collaboration_members(surface_id,user_id) VALUES($1,$2)', [surfaceId, member])
-    expect(await db.roomEvents.attention(orgId, surfaceId, actorId)).toEqual({ newMessages: false, mentions: false })
-    expect(await db.roomEvents.attention(orgId, surfaceId, member)).toEqual({ newMessages: true, mentions: false })
+    expect(await db.roomEvents.attention(orgId, surfaceId, actorId)).toEqual({ newMessages: false, mentions: false, unread: 0 })
+    expect(await db.roomEvents.attention(orgId, surfaceId, member)).toEqual({ newMessages: true, mentions: false, unread: 1 })
     expect(await db.roomEvents.markRead(orgId, otherSurfaceId, member, own.sequence)).toBe(false)
     expect(await db.roomEvents.markRead(orgId, surfaceId, member, own.sequence)).toBe(true)
     expect(await new PostgresRoomEventRepository(db.database).attention(orgId, surfaceId, member))
-      .toEqual({ newMessages: false, mentions: false })
+      .toEqual({ newMessages: false, mentions: false, unread: 0 })
     const memberKey = generateSecretKey()
     await db.roomEvents.ensureRoomActorKey({ orgId, actorKind: 'human', actorId: member, pubkey: getPublicKey(memberKey) })
     const tagged = finalizeEvent({ created_at: Math.floor(Date.now() / 1000), kind: 9,
@@ -121,10 +121,10 @@ describe.skipIf(url === undefined)('PostgreSQL signed room events', () => {
     const reply = await db.roomEvents.append({ orgId, surfaceId, authorKind: 'human', authorId: member,
       event: { id: tagged.id, pubkey: tagged.pubkey, created_at: tagged.created_at, kind: tagged.kind,
         tags: tagged.tags, content: tagged.content, sig: tagged.sig } })
-    expect(await db.roomEvents.attention(orgId, surfaceId, actorId)).toEqual({ newMessages: true, mentions: true })
+    expect(await db.roomEvents.attention(orgId, surfaceId, actorId)).toEqual({ newMessages: true, mentions: true, unread: 1 })
     await db.roomEvents.markRead(orgId, surfaceId, actorId, reply.sequence)
     await db.roomEvents.markRead(orgId, surfaceId, actorId, own.sequence)
-    expect(await db.roomEvents.attention(orgId, surfaceId, actorId)).toEqual({ newMessages: false, mentions: false })
+    expect(await db.roomEvents.attention(orgId, surfaceId, actorId)).toEqual({ newMessages: false, mentions: false, unread: 0 })
     const employeeKey = generateSecretKey()
     await db.roomEvents.ensureRoomActorKey({ orgId, actorKind: 'employee', actorId: 'assistant',
       pubkey: getPublicKey(employeeKey) })
@@ -133,7 +133,7 @@ describe.skipIf(url === undefined)('PostgreSQL signed room events', () => {
     await db.roomEvents.append({ orgId, surfaceId, authorKind: 'employee', authorId: 'assistant',
       event: { id: botPost.id, pubkey: botPost.pubkey, created_at: botPost.created_at, kind: botPost.kind,
         tags: botPost.tags, content: botPost.content, sig: botPost.sig } })
-    expect(await db.roomEvents.attention(orgId, surfaceId, actorId)).toEqual({ newMessages: true, mentions: false })
+    expect(await db.roomEvents.attention(orgId, surfaceId, actorId)).toEqual({ newMessages: true, mentions: false, unread: 1 })
     await db.database.query('DELETE FROM dsh_enterprise_collaboration_members WHERE surface_id=$1 AND user_id=$2', [surfaceId, member])
     expect(await db.roomEvents.markRead(orgId, surfaceId, member, own.sequence)).toBe(false)
   })
@@ -146,6 +146,7 @@ describe.skipIf(url === undefined)('PostgreSQL signed room events', () => {
     try {
       await isolated.query('CREATE TABLE organizations(id TEXT PRIMARY KEY)')
       await isolated.query('CREATE TABLE dsh_enterprise_surface_directory(surface_id TEXT PRIMARY KEY,org_id TEXT NOT NULL)')
+      await isolated.query('CREATE TABLE dsh_enterprise_collaboration_config(surface_id TEXT PRIMARY KEY)')
       await isolated.query('CREATE TABLE dsh_enterprise_collaboration_members(surface_id TEXT NOT NULL,user_id TEXT NOT NULL,PRIMARY KEY(surface_id,user_id))')
       await isolated.query('CREATE TABLE dsh_enterprise_collaboration_events(sequence BIGINT PRIMARY KEY,org_id TEXT NOT NULL,surface_id TEXT NOT NULL,event_json JSONB NOT NULL)')
       await isolated.query('CREATE TABLE dsh_enterprise_collaboration_meta(version INTEGER NOT NULL)')
