@@ -214,16 +214,16 @@ describe('shared room UI', () => {
     controller.dispose()
   })
 
-  it('right-aligns the viewer posts and renders employee avatars from their published profile', () => {
+  it('keeps every post on the shared left rail and renders employee avatars from their published profile', () => {
     const { controller, state, t } = setup()
     const selected = state.selection
     if (selected === null) throw new Error('room selection missing')
     const seeded = { ...state, selection: { detail: { ...selected.detail,
       members: [{ employeeId: 'research-bot', displayName: '研究 Bot', avatarSeed: 'seed-bot' }, { employeeId: 'data-bot', displayName: '数据 Bot' }] } } }
     const { container } = render(<CollaborationRoom controller={controller} state={seeded} t={t}/>)
-    const own = [...container.querySelectorAll('article')].filter(node => node.className.includes('entrySelf'))
-    expect(own).toHaveLength(1)
-    expect(own[0]!.textContent).toContain('张总')
+    // The viewer's own posts share the timeline rail with employees and humans.
+    expect([...container.querySelectorAll('article')].filter(node => node.className.includes('entrySelf'))).toHaveLength(0)
+    expect(screen.getByText('张总')).toBeTruthy()
     const avatars = [...container.querySelectorAll('img')].map(node => node.getAttribute('src'))
     // The research Bot appears twice (post + handoff) and the data Bot once.
     expect(avatars).toHaveLength(3)
