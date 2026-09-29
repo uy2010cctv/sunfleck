@@ -502,6 +502,46 @@ describe('shared room UI', () => {
     controller.dispose()
   })
 
+  it('reuses the agent working chip for a channel thread reply until that thread receives an answer', () => {
+    const { controller, state, t } = setup([human])
+    const selected = state.selection
+    if (selected === null) throw new Error('room selection missing')
+    const threadMessage: RoomEvent = { ...human, id: 'thread-human', sequence: '2', threadRoot: human.id,
+      content: '@研究 Bot 请处理', tags: [...human.tags, ['dsh-target', 'research-bot']] }
+    const channel = { ...state,
+      selection: { detail: { ...selected.detail, kind: 'channel' as const }, threadRoot: human.id },
+      events: [human], threadRootEvent: human, threadEvents: [threadMessage], threadPhase: 'ready' as const }
+    render(<CollaborationRoom controller={controller} state={channel} t={t}/>)
+    const thread = screen.getByRole('complementary', { name: '线程' })
+    const status = within(thread).getByLabelText('正在回复')
+    expect(status).toBeTruthy()
+    expect(status.querySelector('img')?.getAttribute('src')).toContain('seed=research-bot')
+
+    const answer: RoomEvent = { ...research, id: 'thread-answer', sequence: '3', threadRoot: human.id }
+    cleanup()
+    render(<CollaborationRoom controller={controller} state={{ ...channel, threadEvents: [threadMessage, answer] }} t={t}/>)
+    expect(within(screen.getByRole('complementary', { name: '线程' })).queryByLabelText('正在回复')).toBeNull()
+    controller.dispose()
+  })
+
+  it('keeps the thread root working through an unrelated thread answer and clears it after attachment rejection', () => {
+    const targeted = { ...human, tags: [...human.tags, ['dsh-target', 'research-bot']] }
+    const otherAnswer = { ...research, id: 'other-answer', sequence: '40', threadRoot: 'another-thread' }
+    const { controller, state, t } = setup([targeted, otherAnswer])
+    const channel = { ...state, selection: { detail: { ...state.selection!.detail, kind: 'channel' as const }, threadRoot: human.id },
+      threadRootEvent: targeted, threadPhase: 'ready' as const }
+    const view = render(<CollaborationRoom controller={controller} state={channel} t={t} />)
+    const thread = screen.getByRole('complementary', { name: '线程' })
+    expect(within(thread).getByLabelText('正在回复').textContent).toContain('研究 Bot')
+    const failure: RoomEvent = { ...human, id: 'rejected', sequence: '41', kind: 41000, threadRoot: human.id,
+      author: { kind: 'service', id: 'attachment-admission', displayName: 'Attachment admission' },
+      tags: [['e', human.id], ['dsh-attachment-error', 'INVALID_IMAGE', 'employee', 'research-bot']] }
+    view.rerender(<CollaborationRoom controller={controller} state={{ ...channel, threadEvents: [failure] }} t={t} />)
+    expect(within(thread).queryByLabelText('正在回复')).toBeNull()
+    expect(within(thread).getByRole('alert').textContent).toContain('研究 Bot')
+    controller.dispose()
+  })
+
   it('expands @ ALL to every member mention and inserts the token', async () => {
     const { controller, state, t } = setup([])
     const selected = state.selection

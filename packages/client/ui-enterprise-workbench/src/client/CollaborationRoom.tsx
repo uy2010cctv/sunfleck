@@ -58,6 +58,34 @@ export function reactionSummaries(events: readonly RoomEvent[], targetId: string
 /** Employee identity chip shown on the triggering message while the agent works. */
 export interface WorkingChip { readonly employeeId: string; readonly displayName: string; readonly avatarUrl?: string }
 
+function answerSequences(events: readonly RoomEvent[]): ReadonlyMap<string, string> {
+  const answered = new Map<string, string>()
+  for (const event of events) {
+    if (event.author.kind === 'employee' && event.kind === 9) answered.set(event.author.id, event.sequence)
+  }
+  return answered
+}
+
+function workingChipsFor(event: RoomEvent, answered: ReadonlyMap<string, string>,
+  members: ReadonlyMap<string, string>, avatars: ReadonlyMap<string, string>,
+  admissionFailures: readonly RoomEvent[]): readonly WorkingChip[] | undefined {
+  if (event.author.kind !== 'human') return undefined
+  const targets = event.tags.filter(tag => tag[0] === 'dsh-target' && tag[1] !== undefined)
+    .map(tag => tag[1]).filter((id): id is string => id !== undefined)
+  const active = targets.filter((id) => {
+    if (admissionFailures.some(failure => attachmentFailureSource(failure) === event.id
+      && attachmentFailureTag(failure)?.[2] === 'employee' && attachmentFailureTag(failure)?.[3] === id)) return false
+    const answer = answered.get(id)
+    return answer === undefined || BigInt(answer) < BigInt(event.sequence)
+  })
+  if (active.length === 0) return undefined
+  return active.map((id) => {
+    const avatarUrl = avatars.get(id)
+    return { employeeId: id, displayName: members.get(id) ?? id,
+      ...(avatarUrl === undefined ? {} : { avatarUrl }) }
+  })
+}
+
 /** One rendered timeline row: the event plus any grouped agent execution state. */
 interface TimelineItem {
   readonly event: RoomEvent
@@ -613,6 +641,9 @@ export function CollaborationRoom({ state, controller, loadChoices, renderFactor
     ? threadReplyItems(visibleThreadReplies)
     : visibleThreadReplies.filter(event => event.kind !== 7).map(event => ({ event, details: [] })),
   [visibleThreadReplies, selected?.detail.kind])
+  const memberNames = useMemo(() => new Map((selected?.detail.members ?? []).map(member =>
+    [member.employeeId, member.displayName] as const)), [selected?.detail.members])
+  const threadAnswerSequences = useMemo(() => answerSequences(visibleThreadReplies), [visibleThreadReplies])
   // Group one agent reply: the employee's tool/progress events fold into their
   // next signed answer as collapsed details; a mentioned employee without an
   // answer yet renders a working chip on the mentioning message. Orphan
@@ -624,11 +655,7 @@ export function CollaborationRoom({ state, controller, loadChoices, renderFactor
     const pending = new Map<string, RoomEvent[]>()
     // The employee's last signed answer across the whole timeline decides
     // whether an earlier mention is still being worked on.
-    const answeredSeq = new Map<string, string>()
-    for (const event of channelTimeline) {
-      if (event.author.kind === 'employee' && event.kind === 9) answeredSeq.set(event.author.id, event.sequence)
-    }
-    const members = new Map((selected?.detail.members ?? []).map(member => [member.employeeId, member.displayName]))
+    const answeredSeq = answerSequences(channelTimeline)
     // In channels every reply belongs to the thread of the message it answers:
     // claim human and agent replies alike so the main timeline stays root-only.
     const isChannel = (selected?.detail.kind ?? 'group') === 'channel'
@@ -700,29 +727,13 @@ export function CollaborationRoom({ state, controller, loadChoices, renderFactor
       flushOrphans()
       runAnswered.clear()
       runAnswerItem.clear()
-      let working: readonly WorkingChip[] | undefined
-      if (event.author.kind === 'human') {
-        const targets = event.tags.filter(tag => tag[0] === 'dsh-target' && tag[1] !== undefined)
-          .map(tag => tag[1] as string)
-        const active = targets.filter((id) => {
-          if (admissionFailures.some(failure => attachmentFailureSource(failure) === event.id
-            && attachmentFailureTag(failure)?.[2] === 'employee' && attachmentFailureTag(failure)?.[3] === id)) return false
-          const answered = answeredSeq.get(id)
-          return answered === undefined || BigInt(answered) < BigInt(event.sequence)
-        })
-        if (active.length > 0) {
-          working = active.map((id) => {
-            const avatarUrl = avatars.get(id)
-            return { employeeId: id, displayName: members.get(id) ?? id, ...(avatarUrl === undefined ? {} : { avatarUrl }) }
-          })
-        }
-      }
+      const working = workingChipsFor(event, answeredSeq, memberNames, avatars, admissionFailures)
       const replies = isChannel ? threadReplies.get(event.id)?.filter(reply => reply.kind === 9) : undefined
       items.push({ event, ...(working === undefined ? {} : { working }), ...(replies === undefined ? {} : { threadReplies: replies }) })
     }
     flushOrphans()
     return items
-  }, [channelTimeline, avatars, selected?.detail.kind, selected?.detail.members, admissionFailures])
+  }, [channelTimeline, avatars, selected?.detail.kind, memberNames, admissionFailures])
   if (selected === null) return <main className={css.room}><div className={css.center}>
     {state.roomPhase === 'loading' ? <IconLoadingOutlineRegular size={20}/> : t(state.error === 'forbidden' ? 'forbidden' : state.roomPhase === 'error' ? 'loadError' : 'noSelection')}
   </div></main>
@@ -748,6 +759,8 @@ export function CollaborationRoom({ state, controller, loadChoices, renderFactor
   const threadRoot = selected.threadRoot
   const root = threadRoot === undefined ? undefined : state.threadRootEvent
     ?? [...state.events, ...state.searchResults].find(event => event.id === threadRoot)
+  const rootWorking = root === undefined ? undefined
+    : workingChipsFor(root, threadAnswerSequences, memberNames, avatars, admissionFailures)
   return <main className={`${css.room} ${detail.kind === 'channel' ? css.channel : ''}`}>
 
     <header className={css.header}>
@@ -847,6 +860,7 @@ export function CollaborationRoom({ state, controller, loadChoices, renderFactor
               <Entry postLayout={detail.kind === 'channel'} renderFactorySlot={renderFactorySlot} presented={presentedFor(root)}
                 event={root} reactions={reactionSummaries(state.events, root.id, detail.viewerUserId)} self={isSelf(root)}
                 avatarUrl={avatarFor(root)} attachmentUrlFor={attachmentUrlFor} attachmentNotices={noticesFor(root.id)} onThread={() => {}}
+                {...(rootWorking === undefined ? {} : { working: rootWorking })}
                 onReaction={(id, emoji) => { void controller.react(id, emoji) }} onInspect={(id) => { void controller.inspect(id) }} t={t}/>
             </div>}
             {state.threadOlderCursor != null && <button type="button" className={css.more} disabled={state.threadLoadingOlder}
@@ -871,9 +885,11 @@ export function CollaborationRoom({ state, controller, loadChoices, renderFactor
                 return reply.sourceSessionId === undefined || files === undefined || files.length === 0 ? []
                   : [{ id: reply.id, sessionId: reply.sourceSessionId, files }]
               })
+              const working = workingChipsFor(item.event, threadAnswerSequences, memberNames, avatars, admissionFailures)
               return <Entry postLayout={detail.kind === 'channel'} renderFactorySlot={renderFactorySlot}
                 presented={presentedFor(item.event)} foldedPresented={folded} workflowDetails={item.details}
                 key={item.event.id} event={item.event} attachmentNotices={noticesFor(item.event.id)}
+                {...(working === undefined ? {} : { working })}
                 reactions={reactionSummaries(visibleThreadReplies, item.event.id, detail.viewerUserId)}
                 self={isSelf(item.event)} avatarUrl={avatarFor(item.event)} attachmentUrlFor={attachmentUrlFor}
                 onThread={() => {}} onReaction={(id, emoji) => { void controller.react(id, emoji) }}
