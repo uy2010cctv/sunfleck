@@ -127,3 +127,5 @@ None.
 </details>
 
 **Runtime invariant:** No companion is published. Every page and frame is checked against the addressed durable Session.
+
+`session.capabilities({ sessionId })` reads the existing Agent’s scoped tool schemas, or the last recorded request catalog for a cold Session, without resuming an Agent. It includes native and nested PTC attempt counts and observed tools no longer offered. Exact configured MCP and subagent identities are available only for live registrations. The response excludes schemas, arguments, results, transport settings, and credentials; registration is not connection-health evidence. Cold reads reuse SessionQuery’s existing observation cache; this endpoint does not scan event arrays per request or change the framework’s cold-log preparation.

@@ -70,6 +70,8 @@ Room details share one information and membership layout for groups and channels
 
 Team governance starts with the charter list. Creating a charter groups team purpose, members, and acceptance/access rules; missing activation requirements are listed explicitly. Saved drafts show their stored revision, while an unselected or unavailable active charter has no editable launch fields. Fixed-team compatibility rows are collapsed and exclude governed-team projections. Draft and publication retries preserve the original idempotency key, so a committed write with a lost response is not submitted as a new command.
 
+The Tools capability category reads the authorized native Session catalog and `session.capabilities` for the selected source. It shows current scoped registrations when an Agent already exists, or the latest recorded catalog and native/PTC call attempts without activating an Agent. Tool type, exact MCP identity, configured ACP integration, availability and usage are separate facts; registration does not verify connection health, and old logs may lack integration identity. Source changes cancel earlier reads and suppress their late results; failed reads clear stale metadata and expose retry. Runtime entries remain separate from managed tool assets and never create duplicate asset records.
+
 ## Ordinary-profile fallback
 
 Fallback activates only when `enterpriseEmployee.list` returns the explicit enterprise-unavailable response. Other transport, authorization, cursor, and server failures stay visible as failures. The fallback roster includes only declarations marked as employees; generic work modes stay in the mode picker. Starting a fallback employee requires an explicit Workspace choice.

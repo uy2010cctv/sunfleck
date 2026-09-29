@@ -1,0 +1,16 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`shows real runtime names, exact connection identity and calls without creating an asset > MCP runtime identity and attempts 1`] = `
+[
+  {
+    "labels": [
+      "MCP",
+      "server__name · search/records",
+      " · search/records",
+      "已注册",
+      "调用 2 次",
+    ],
+    "name": "mcp__opaque",
+  },
+]
+`;

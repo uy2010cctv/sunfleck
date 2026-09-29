@@ -219,8 +219,15 @@ export interface ToolOutputDefinition {
   presentationMeta?(args: unknown, value: JsonValue): JsonValue
 }
 
+/** Exact configured integration identity, excluded from model schemas. */
+export type ToolIntegration =
+  | { readonly kind: 'mcp'; readonly name: string; readonly rawName?: string }
+  | { readonly kind: 'subagent'; readonly name: string; readonly protocol?: 'acp' }
+
 /** A registered tool: its schema plus the execution function. */
 export interface ToolDefinition extends ToolSchema {
+  /** Display-only configured integration identity; absence supplies no identity evidence. */
+  readonly integration?: ToolIntegration
   /** Mandatory canonical output declaration. */
   readonly output: ToolOutputDefinition
   /**

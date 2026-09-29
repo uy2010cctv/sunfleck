@@ -323,6 +323,7 @@ export function apply(ctx: Context): void {
     rollbackEmployee: releaseId => controller.rollbackEmployee(releaseId),
     closeEmployeeEditor: () => { controller.closeEmployeeEditor() },
     startEmployee: (id, workspaceId) => controller.startEmployee(id, workspaceId),
+    readRuntimeCapabilities: (sessionId, signal) => controller.readRuntimeCapabilities(sessionId, signal),
     readWorkspaceDefault: async (workspaceId) => {
       const result = await ctx.remote.enterpriseWork.workspaceDefault({ workspaceId })
       if (!result.ok) throw new Error(result.error.message)

@@ -222,3 +222,5 @@ Start independent subagent delegations together in one assistant message and con
 无。
 
 </details>
+
+注册工具的仅展示集成身份来自其配置提供方名称与显式声明的协议。

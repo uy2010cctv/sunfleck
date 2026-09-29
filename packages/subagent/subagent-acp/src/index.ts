@@ -144,6 +144,7 @@ function resolveCwd(configured: string | undefined, request: SubagentStartReques
  * `persona` (the service rejects a request needing any before `start` runs).
  */
 class AcpProvider implements SubagentProvider {
+  readonly protocol = 'acp' as const
   readonly capabilities: SubagentCapabilities = {
     agentOptions: false,
     outputSchema: false,

@@ -1,5 +1,6 @@
 /** Session Remote owner: cold reads, explicit Agent commands, and live control state. */
 
+import { capabilityProjection, readSessionCapabilities } from './capabilities.ts'
 import { hostname } from 'node:os'
 import { resolve } from 'node:path'
 import type { Agent } from '@deepseek-ai/dsh-agent'
@@ -29,6 +30,8 @@ import { SessionSkillCatalog } from './skill-catalog.ts'
 import { SessionMediaReferences } from './media-references.ts'
 import { ArchivedSessionGate } from './archived-session-gate.ts'
 import type {
+  SessionCapabilitiesRequest,
+  SessionCapabilitiesValue,
   ModelCatalog,
   SessionWorkspacePathApplication,
   SessionAttachmentRequest,
@@ -108,6 +111,7 @@ export class SessionController extends TypertRemoteService {
     'sessions',
     'sessionProjections',
     'sessionQuery',
+    'tools',
     'typert',
     'workspaceRegistry',
   ]
@@ -136,6 +140,7 @@ export class SessionController extends TypertRemoteService {
   constructor(ctx: Context, config: Config, internals: SessionControllerInternals = {}) {
     super(ctx, 'sessionController', { namespace: 'session' })
     installModelSelectionProjection(ctx)
+    ctx.effect(() => ctx.sessionProjections.register(capabilityProjection), 'session-controller: capability projection')
     this.agents = new ApiSessionAgentController(ctx)
     this.commands = new SessionCommandController(ctx, this.agents, process.cwd())
     ctx.effect(() => ctx.fileUploads.registerAgentResolver(async (sessionId) => {
@@ -480,6 +485,17 @@ export class SessionController extends TypertRemoteService {
   @Remote({ mode: 'stream' })
   follow(request: SessionFollowRequest, signal: AbortSignal): AsyncIterable<SessionFollowFrame> {
     return this.history.follow(request, signal)
+  }
+
+  /**
+   * Read scoped tool registrations and historical attempts without activating an Agent.
+   * @param request - existing Session identity.
+   * @param signal - cancellation for cold persistence reads.
+   * @returns metadata-only tool inventory; registrations do not establish connection health.
+   */
+  @Remote('capabilities')
+  capabilities(request: SessionCapabilitiesRequest, signal: AbortSignal): Promise<SessionCapabilitiesValue> {
+    return readSessionCapabilities(this.ctx, request, signal)
   }
 
   /**

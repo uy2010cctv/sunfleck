@@ -2,6 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { useEffect, type ReactNode } from 'react'
+import { SessionId } from '@deepseek-ai/dsh-session/types'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import { EnterpriseTrigger } from '../src/client/EnterpriseTrigger.tsx'
 import {
@@ -118,6 +119,8 @@ function workbenchProps(overrides: Partial<EnterpriseWorkbenchProps> & {
   const { state: _state, ...rest } = overrides
   return {
     useEnterprise: select => select(state),
+    useSessions: select => select({ phase: 'ready', ids: [], byId: {}, projectionsBySession: {} }),
+    readRuntimeCapabilities: vi.fn(async sessionId => ({ sessionId, live: false, catalogAt: null, tools: [] })),
     useWorkspaces: select => select({
       items: [{ workspaceId: 'workspace-1', title: '采购部', path: '/business/procurement', sessionIds: [],
         createdAt: '2026-08-26T00:00:00.000Z', updatedAt: '2026-08-26T00:00:00.000Z' }],
@@ -1749,6 +1752,24 @@ describe('EnterpriseWorkbench', () => {
     expect(openEmployeeDraft).not.toHaveBeenCalled()
     fireEvent.click(screen.getByRole('button', { name: '编辑采购专员' }))
     expect(openEmployeeDraft).toHaveBeenCalledWith('buyer')
+  })
+
+  it('shows actual runtime tools in the tool category alongside managed assets', async () => {
+    const sourceId = SessionId('source-tools')
+    const readRuntimeCapabilities = vi.fn(async (sessionId: Parameters<EnterpriseWorkbenchProps['readRuntimeCapabilities']>[0]) => ({
+      sessionId, live: true, catalogAt: 10, tools: [{ name: 'read', description: 'Read files', availability: 'registered' as const, calls: 2, lastUsedAt: 10 }],
+    }))
+    render(<EnterpriseWorkbench {...workbenchProps({
+      state: { mode: 'enterprise', page: 'assets' }, readRuntimeCapabilities,
+      useSessions: select => select({ phase: 'ready', ids: [sourceId], byId: {
+        [sourceId]: { id: sourceId, displayTitle: '工具运行记录', running: false, blank: false, updatedAt: 10, retainedBy: { mainView: 1 } },
+      }, projectionsBySession: {} }),
+    })} />)
+    expect(readRuntimeCapabilities).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: /工具.*MCP/u }))
+    expect(await screen.findByText('read')).toBeDefined()
+    expect(screen.getByRole('heading', { name: '自建工具资产' })).toBeDefined()
+    expect(screen.getByRole('button', { name: /工具.*1 项/u })).toBeDefined()
   })
 
   it('uses structured asset bindings and release selectors as the primary path', () => {

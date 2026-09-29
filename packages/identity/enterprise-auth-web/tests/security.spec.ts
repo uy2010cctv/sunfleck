@@ -424,7 +424,7 @@ describe('EnterpriseSecurity', () => {
     Object.assign(repository, { collaborationSessionAccess: async (input: { orgId: string; userId: string; sessionId: string }) =>
       input.sessionId === 'shared-session' ? { orgId: 'org-a', workspaceId: 'collab-workspace', member: membership && input.orgId === 'org-a' && input.userId === 'member-1' } : undefined })
     const member = security.loginLocal('org-a', 'member', 'enterprise-password')!.principal
-    for (const endpoint of ['session.history', 'session.page', 'session.follow', 'session.prompt']) {
+    for (const endpoint of ['session.history', 'session.page', 'session.follow', 'session.projections', 'session.capabilities', 'session.prompt']) {
       expect(await security.authorizeApiAsync(member, endpoint, { sessionId: 'shared-session' })).toMatchObject({ allowed: true })
       expect(await security.authorizeApiAsync(member, endpoint, { sessionId: 'private-session' })).toMatchObject({ allowed: false })
       expect(await security.authorizeApiAsync({ ...member, orgId: 'org-b' }, endpoint, { sessionId: 'shared-session' })).toMatchObject({ allowed: false })

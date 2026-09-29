@@ -14,6 +14,8 @@ import type { WorkspaceId } from '@deepseek-ai/dsh-workspace/types'
 
 declare module '@deepseek-ai/dsh-session-projection/types' {
   interface SessionProjectionStateMap {
+    /** Tool metadata and attempt counters reconstructed from committed events. */
+    capabilityCatalog: SessionCapabilityCatalog
     /** Host state persisted for cold Session list summaries. */
     sessionListMetadata: SessionListMetadata
     /** Host state for the boot-constant image-limit view. */
@@ -22,6 +24,8 @@ declare module '@deepseek-ai/dsh-session-projection/types' {
     modelSelection: ModelSelectionProjectionState
   }
   interface SessionProjectionMap {
+    /** Recorded tool inventory without input or output data. */
+    capabilityCatalog: SessionCapabilityCatalog
     /** Persisted facts used to summarize a Session without activating it. */
     sessionListMetadata: SessionListMetadata
     /** Image-intake limits enforced by the Session prompt endpoint. */
@@ -635,3 +639,35 @@ export type SessionProjectionValue = JsonValue
 
 /** Application metadata returned by the serving desktop for one file. */
 export type SessionWorkspacePathApplication = NativeFileApplication
+
+/** Session identity for a read-only capability inventory. */
+export interface SessionCapabilitiesRequest {
+  readonly sessionId: SessionId
+}
+
+/** Exact configured integration identity, never inferred from a public tool name. */
+export type SessionCapabilityIntegration =
+  | { readonly kind: 'mcp'; readonly name: string; readonly rawName?: string }
+  | { readonly kind: 'subagent'; readonly name: string; readonly protocol?: 'acp' }
+
+/** Tool registration or historical usage evidence; registration does not establish connection health. */
+export interface SessionCapabilityTool {
+  readonly name: string
+  readonly description: string
+  readonly availability: 'registered' | 'last-request' | 'observed'
+  readonly calls: number
+  readonly lastUsedAt: number | null
+  readonly integration?: SessionCapabilityIntegration
+}
+
+/** Metadata-only recorded tool catalog. */
+export interface SessionCapabilityCatalog {
+  readonly catalogAt: number | null
+  readonly tools: readonly SessionCapabilityTool[]
+}
+
+/** Read-only capability inventory for one existing Session. */
+export interface SessionCapabilitiesValue extends SessionCapabilityCatalog {
+  readonly sessionId: SessionId
+  readonly live: boolean
+}

@@ -777,6 +777,7 @@ describe('dsh-subagent-acp', () => {
 
   it('rejects a pre-aborted request through the registered provider before cwd resolution', async () => {
     const ctx = await setup()
+    expect(ctx.subagents.getProvider('acp')?.protocol).toBe('acp')
     const controller = new AbortController()
     controller.abort()
     const parent = { id: 'parent', session: { header: {} } } as unknown as Agent

@@ -208,3 +208,5 @@ You are a delegated subagent: your permission scope was fixed when you were star
 - **host-user 投递**——未来的 host 适配器需要具体的经认证交互，该 seam 才能获得用户投递能力。
 
 </details>
+
+提供方可声明 `protocol: "acp"` 用于只读能力发现。消费方不得从提供方名称推断协议。

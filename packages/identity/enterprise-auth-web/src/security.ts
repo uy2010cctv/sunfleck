@@ -107,7 +107,7 @@ function syncValue<T>(value: T | Promise<T>, operation: string): T {
 const SESSION_READ = new Set([
   'host.describe', 'host.listDirectory', 'events.mux', 'events.host',
   'session.list', 'session.search', 'session.history', 'session.page', 'session.follow', 'session.control',
-  'session.models', 'session.attachment',
+  'session.models', 'session.attachment', 'session.projections', 'session.capabilities',
   'session.modelCatalog',
   'skill.list', 'subagent.list', 'subagent.history', 'workspace.list', 'downloads.sessionLog',
   // Legacy aliases kept for direct callers; the wire RPC registry uses the
@@ -117,7 +117,7 @@ const SESSION_READ = new Set([
 ])
 const SHARED_SESSION_ENDPOINTS = new Set([
   'session.history', 'session.page', 'session.follow', 'session.control', 'session.models',
-  'session.modelCatalog', 'session.attachment', 'downloads.sessionLog', 'session.prompt',
+  'session.modelCatalog', 'session.attachment', 'session.projections', 'session.capabilities', 'downloads.sessionLog', 'session.prompt',
   'sessions.history', 'sessions.models', 'sessions.attachment', 'sessions.prompt',
 ])
 const SESSION_WRITE = new Set([

@@ -1,5 +1,6 @@
 /** Pure enterprise projection over existing DSH Preset, Session, and Workspace facts. */
 
+import type { SessionCapabilitiesValue } from '@deepseek-ai/dsh-api-session-controller/types'
 import type { ClientRemote, PluginInventorySnapshot, SessionId } from '@deepseek-ai/dsh-api-remotes/client'
 import type {
   EnterpriseApproval, EnterpriseAsset, EnterpriseAssetKind,
@@ -309,7 +310,7 @@ export interface EnterpriseWorkbenchState {
 /** Generated Remote namespaces consumed by the enterprise projection. */
 export interface EnterpriseWorkbenchRemote {
   readonly agentPresets: ClientRemote['agentPresets']
-  readonly session: Pick<ClientRemote['session'], 'modelCatalog'>
+  readonly session: Pick<ClientRemote['session'], 'modelCatalog' | 'capabilities'>
   readonly enterpriseEmployees: ClientRemote['enterpriseEmployee']
   readonly enterpriseAssets: ClientRemote['enterpriseAsset']
   readonly enterpriseTeams: ClientRemote['enterpriseTeam']
@@ -673,6 +674,15 @@ export class EnterpriseWorkbenchController {
   setEmployeeFilters(filters: EnterpriseEmployeeFilters): void {
     this.employeeRequestGeneration++
     this.store.set({ ...this.store.getSnapshot(), employeeFilters: filters })
+  }
+
+  /** Read one authorized Session's tool metadata without starting work.
+   * @param sessionId - Source Session from the native catalog.
+   * @param signal - Cancellation owned by the inventory view.
+   * @returns Runtime registrations and recorded call statistics.
+   */
+  async readRuntimeCapabilities(sessionId: SessionId, signal?: AbortSignal): Promise<SessionCapabilitiesValue> {
+    return valueOf(await this.api.session.capabilities({ sessionId }, signal))
   }
 
   /** Toggle workbench visibility. */

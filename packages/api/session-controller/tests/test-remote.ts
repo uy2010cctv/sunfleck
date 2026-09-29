@@ -294,6 +294,9 @@ function installControllers(
       retirePrompt: () => {},
     } as never)
   }
+  if (ctx.get('tools') === undefined) {
+    ctx.provide('tools', { schemas: () => [], get: () => undefined } as never)
+  }
   installSessionReadTestServices(ctx)
   const cwd = vi.spyOn(process, 'cwd').mockReturnValue(defaults.cwd)
   let controller: SessionController

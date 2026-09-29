@@ -342,6 +342,8 @@ export interface SubagentRun {
  * settlement or cleanup to a sibling.
  */
 export interface SubagentProvider {
+  /** Explicit external protocol identity for capability discovery. */
+  readonly protocol?: 'acp'
   /** Unique registry name (e.g. `spawn`, `fork`, `acp`). */
   readonly name: string
   /** The start-time features this provider supports (see {@link SubagentCapabilities}). */

@@ -79,3 +79,5 @@ None; rejected calls never reach a model request and allowed calls preserve thei
 None.
 
 </details>
+
+Session capability and projection reads require `session.read` and the same current shared-session membership checks as history reads.

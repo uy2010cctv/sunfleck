@@ -208,3 +208,5 @@ This Dev Note is working context for maintainers: open questions and undecided d
 - **Host-user delivery** — a future host adapter needs a concrete authenticated interaction before the seam gains a user delivery capability.
 
 </details>
+
+Providers may declare `protocol: "acp"` for read-only capability discovery. Consumers must not infer protocols from provider names.

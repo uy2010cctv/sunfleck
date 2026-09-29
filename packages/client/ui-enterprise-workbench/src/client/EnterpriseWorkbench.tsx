@@ -32,6 +32,8 @@ import type {
   EnterpriseWorkRecord, WorkRecordState,
 } from './store.ts'
 import css from './EnterpriseWorkbench.module.css'
+import { RuntimeToolsPane } from './RuntimeToolsPane.tsx'
+import type { SessionCapabilitiesValue } from '@deepseek-ai/dsh-api-session-controller/types'
 import { StartWorkPanel } from './StartWorkPanel.tsx'
 import { ProjectSpace } from './projects.tsx'
 import {
@@ -55,6 +57,7 @@ export interface EnterpriseWorkbenchInjected {
   rollbackEmployee: (releaseId: string) => Promise<void>
   closeEmployeeEditor: () => void
   startEmployee: (employeeId: string, workspaceId: string) => Promise<void>
+  readRuntimeCapabilities: (sessionId: SessionId, signal?: AbortSignal) => Promise<SessionCapabilitiesValue>
   readWorkspaceDefault: (workspaceId: string) => Promise<import('@deepseek-ai/dsh-api-enterprise-controller/types').WorkspaceEmployeeDefaultView>
   saveWorkspaceDefault: (input: import('@deepseek-ai/dsh-api-enterprise-controller/types').WorkspaceEmployeeDefaultSaveRequest) => Promise<import('@deepseek-ai/dsh-api-enterprise-controller/types').WorkspaceEmployeeDefaultView>
   loadEmployees: () => Promise<boolean>
@@ -814,12 +817,13 @@ function SchedulesPage({ page, releases, api, busy, onDirty, t }: { page: Enterp
   </section>
 }
 
-function AssetsPage({ page, cordisCount, api, busy, onDirty, openExtensions, renderKnowledgeAssets, t }: { page: EnterprisePageState<EnterpriseAsset>; cordisCount: number; api: EnterpriseWorkbenchInjected; busy: boolean; onDirty: () => void; openExtensions: () => void; renderKnowledgeAssets: EnterpriseWorkbenchProps['renderSlot']; t: Translate }) {
+function AssetsPage({ page, cordisCount, useSessions, api, busy, onDirty, openExtensions, renderKnowledgeAssets, t }: { page: EnterprisePageState<EnterpriseAsset>; cordisCount: number; useSessions: EnterpriseWorkbenchProps['useSessions']; api: EnterpriseWorkbenchInjected; busy: boolean; onDirty: () => void; openExtensions: () => void; renderKnowledgeAssets: EnterpriseWorkbenchProps['renderSlot']; t: Translate }) {
   const [creating, setCreating] = useState(false)
   const [name, setName] = useState('')
   const [kind, setKind] = useState<ManagedAssetKind>('sop')
   const [summary, setSummary] = useState('')
   const [content, setContent] = useState('')
+  const [runtimeToolCount, setRuntimeToolCount] = useState<number | null>(null)
   const [providerKnowledgeCount, setProviderKnowledgeCount] = useState<number | null>(0)
   const managedAssets = page.items.filter(asset => MANAGED_ASSET_KINDS.includes(asset.kind as ManagedAssetKind))
   const filteredAssets = managedAssets.filter(asset => asset.kind === kind)
@@ -830,6 +834,7 @@ function AssetsPage({ page, cordisCount, api, busy, onDirty, openExtensions, ren
     ...counts,
     knowledge: providerKnowledgeCount === null ? '—' : counts.knowledge + providerKnowledgeCount,
     cordis: cordisCount,
+    tool: runtimeToolCount === null ? '—' : counts.tool + runtimeToolCount,
   }
   const filteredPage = { ...page, items: filteredAssets }
   const createButton = <button type="button" className={css.primaryButton} onClick={() => { setCreating(true) }}><IconPlusOutlineRegular size={16}/>{t('asset.create')}</button>
@@ -859,6 +864,8 @@ function AssetsPage({ page, cordisCount, api, busy, onDirty, openExtensions, ren
         summaryOnly: kind !== 'knowledge', refreshKey: page.phase, onCountChange: setProviderKnowledgeCount,
       }, { fallback: kind === 'knowledge' ? <>{createForm}{assetList}</> : null })}
     </div>
+    {kind === 'tool' && <RuntimeToolsPane enabled useSessions={useSessions} read={api.readRuntimeCapabilities} openRecord={api.openRecord} onCountChange={setRuntimeToolCount} t={t}/>}
+    {kind === 'tool' && <div className={css.sectionHead}><div><h3>{t('runtimeTools.custom')}</h3><p>{t('runtimeTools.customHelp')}</p></div></div>}
     {kind !== 'knowledge' && <>{createForm}{assetList}</>}
   </section>
 }
@@ -1989,7 +1996,7 @@ export function EnterpriseWorkbench(props: EnterpriseWorkbenchProps) {
         {page === 'approvals' && <ApprovalsPage page={state.approvals} api={api} busy={mutationBusy} t={props.t} />}
         {page === 'attention' && <TeamAttentionPage page={teamDecisions} runs={teamRuns} definitions={teamDefinitions} api={api} busy={mutationBusy} t={props.t} />}
         {page === 'schedules' && <SchedulesPage page={state.schedules} releases={state.releases} api={api} busy={mutationBusy} onDirty={() => { setLocalFormDirty(true) }} t={props.t} />}
-        {page === 'assets' && <AssetsPage page={state.assets} cordisCount={cordisExtensionCount(state)} api={api} busy={mutationBusy} onDirty={() => { setLocalFormDirty(true) }} openExtensions={() => { requestPage('extensions') }} renderKnowledgeAssets={props.renderSlot} t={props.t} />}
+        {page === 'assets' && <AssetsPage page={state.assets} cordisCount={cordisExtensionCount(state)} useSessions={props.useSessions} api={api} busy={mutationBusy} onDirty={() => { setLocalFormDirty(true) }} openExtensions={() => { requestPage('extensions') }} renderKnowledgeAssets={props.renderSlot} t={props.t} />}
         {page === 'teams' && <>
           <TeamControlPanel definitions={teamDefinitions} runs={teamRuns} decisions={teamDecisions} autonomy={teamAutonomy} workspaces={workspaces} releases={state.releases} api={api} busy={mutationBusy} onDirty={() => { setLocalFormDirty(true) }} onClean={() => { setLocalFormDirty(false) }} openCollaboration={() => { requestPage('projects') }} t={props.t}/>
           <LegacyTeamsDisclosure initiallyOpen={false} count={legacyTeams.items.length} t={props.t}>

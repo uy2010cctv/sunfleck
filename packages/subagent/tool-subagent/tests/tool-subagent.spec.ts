@@ -74,6 +74,8 @@ describe('dsh-tool-subagent', () => {
 
   it('registers a `subagent` tool that delegates to the configured provider and returns its output', async () => {
     const ctx = await setup({ provider: 'mock' }, { reply: 'child says hi' })
+    expect(ctx.tools.get('subagent')?.integration).toEqual({ kind: 'subagent', name: 'mock' })
+    expect(ctx.tools.schemas().find(schema => schema.name === 'subagent')).not.toHaveProperty('integration')
     const result = await callSubagent(ctx, {
       description: 'do a thing',
       prompt: 'go research X',

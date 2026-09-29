@@ -222,3 +222,5 @@ These limits define what this tool does not return or enforce; they are current 
 None.
 
 </details>
+
+The registered tool’s display-only integration identity names its configured provider and explicitly declared protocol.

@@ -2214,6 +2214,7 @@ describe('defineTool / schema DSL', () => {
     const tool = defineTool({
       name: 'typed-echo',
       description: 'A typed echo tool',
+      integration: { kind: 'subagent', name: 'configured-provider', protocol: 'acp' },
       parameters: {
         text: { type: 'string', required: true },
         uppercase: { type: 'boolean' },
@@ -2230,6 +2231,7 @@ describe('defineTool / schema DSL', () => {
     })
 
     ctx.tools.register(tool)
+    expect(ctx.tools.get('typed-echo')?.integration).toEqual({ kind: 'subagent', name: 'configured-provider', protocol: 'acp' })
     expect(ctx.tools.schemas()).toEqual([{
       name: 'typed-echo',
       description: 'A typed echo tool',

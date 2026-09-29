@@ -378,6 +378,7 @@ export function apply(ctx: Context, config: Config, session?: Session): void {
             : '')
       const disposeTool = runtimeCtx.tools.register(defineTool({
         name: toolName,
+        integration: { kind: 'subagent', name: subagentProvider.name, ...(subagentProvider.protocol === undefined ? {} : { protocol: subagentProvider.protocol }) },
         description: wording.description + (backgroundEnabled
           // The completion notice is the continuation service's own behavior, not
           // a separately installed capability, so this promise holds whenever the

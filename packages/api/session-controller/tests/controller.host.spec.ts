@@ -16,8 +16,8 @@ const defaults = {
 }
 
 describe('SessionController facade', () => {
-  it('does not require the Tools service', () => {
-    expect(SessionController.inject).not.toContain('tools')
+  it('requires the Tools service for scoped capability reads', () => {
+    expect(SessionController.inject).toContain('tools')
   })
 
   it('owns Host service methods and publishes Agent lifecycle projections', async () => {
@@ -53,6 +53,7 @@ describe('SessionController facade', () => {
       retirePrompt: () => {},
     } as never)
     const controller = createSessionTestController(ctx, defaults)
+    expect(ctx.get('tools')).toBeDefined()
     const status = vi.fn()
     const failure = vi.fn()
     const activity = vi.fn()

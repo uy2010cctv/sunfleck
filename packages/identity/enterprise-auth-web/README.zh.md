@@ -79,3 +79,5 @@ Web 插件接受部署方提供的 `EnterpriseIdentityStore` 实现。`databaseP
 无。
 
 </details>
+
+Session 能力与投影读取要求 `session.read`，并采用与历史读取相同的当前共享会话成员检查。

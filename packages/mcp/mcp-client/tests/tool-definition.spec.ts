@@ -22,11 +22,13 @@ describe('MCP result callback adaptation', () => {
         structuredContent: { window: 7 },
       }))
       ctx.tools.register(createMcpToolDefinition(ctx, {
-        name: 'native_window', rawName: 'window', description: 'Read the selected window.',
+        name: 'native_window', serverName: 'server__identity', rawName: 'window', description: 'Read the selected window.',
         inputSchema: { type: 'object', properties: { window: { type: 'integer' } } },
         outputSchema: { type: 'object', properties: { window: { type: 'integer' } }, required: ['window'] },
         call,
       }))
+      expect(ctx.tools.get('native_window')?.integration).toEqual({ kind: 'mcp', name: 'server__identity', rawName: 'window' })
+      expect(ctx.tools.schemas()[0]).not.toHaveProperty('integration')
       const signal = new AbortController().signal
       const result = await ctx.tools.execute({
         name: 'native_window', callId: ToolCallId('window-call'), arguments: { window: 7 }, signal,
@@ -63,4 +65,19 @@ describe('MCP result callback adaptation', () => {
       }
     },
   )
+})
+
+it('retains exact MCP names when the public name is normalized or contains separators', async () => {
+  const { publicToolName } = await import('../src/tools.ts')
+  const ctx = new Context()
+  const serverName = 'server__namespace'
+  const rawName = 'path/with__separators/' + 'x'.repeat(70)
+  const name = publicToolName(serverName, rawName)
+  const tool = createMcpToolDefinition(ctx, {
+    name, serverName, rawName, description: '', inputSchema: { type: 'object' },
+    call: async () => ({ content: [] }),
+  })
+  expect(name.length).toBeLessThanOrEqual(64)
+  expect(tool.integration).toEqual({ kind: 'mcp', name: serverName, rawName })
+  await ctx.fiber.dispose()
 })

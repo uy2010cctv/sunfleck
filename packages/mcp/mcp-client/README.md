@@ -228,3 +228,5 @@ This Dev Note is working context for maintainers: open design questions and dire
 - The pinned MCP SDK is still evolving; a breaking upstream change requires updating the bridge.
 
 </details>
+
+Registered tools retain exact configured server and upstream tool names in display-only integration metadata; public names are never parsed to recover identity.

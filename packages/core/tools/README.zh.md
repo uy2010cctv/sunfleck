@@ -245,3 +245,5 @@ Program-only SDK bindings:
 无。
 
 </details>
+
+`ToolDefinition.integration` 可携带仅用于展示的 MCP 或子 Agent 身份。`defineTool` 保留该字段；模型 schema 不包含它。

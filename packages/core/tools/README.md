@@ -245,3 +245,5 @@ These limits define when the registry needs special care. They are current packa
 None.
 
 </details>
+
+`ToolDefinition.integration` carries optional display-only MCP or subagent identity. `defineTool` preserves it; model schemas exclude it.
