@@ -68,6 +68,8 @@ Channels use a left-aligned post list and a separate thread pane. Reply counts i
 
 Room details share one information and membership layout for groups and channels. Administrator-only edits and eligible-member search use protected room endpoints; other members can leave through a confirmed action. Removal and archive confirmations retain inputs on failure. Channel duty selection uses only current employees, and workflows/approvals stay in a separate expandable section. Archiving keeps history stored.
 
+Team governance starts with the charter list. Creating a charter groups team purpose, members, and acceptance/access rules; missing activation requirements are listed explicitly. Saved drafts show their stored revision, while an unselected or unavailable active charter has no editable launch fields. Fixed-team compatibility rows are collapsed and exclude governed-team projections. Draft and publication retries preserve the original idempotency key, so a committed write with a lost response is not submitted as a new command.
+
 ## Ordinary-profile fallback
 
 Fallback activates only when `enterpriseEmployee.list` returns the explicit enterprise-unavailable response. Other transport, authorization, cursor, and server failures stay visible as failures. The fallback roster includes only declarations marked as employees; generic work modes stay in the mode picker. Starting a fallback employee requires an explicit Workspace choice.

@@ -2040,10 +2040,9 @@ export class EnterpriseWorkbenchController {
     expectedRevision: number
   }): Promise<EnterpriseTeamDefinition | undefined> {
     let saved: EnterpriseTeamDefinition | undefined
+    const request = { ...input, idempotencyKey: mutationKey('team-definition-draft') }
     const success = await this.runMutation('team-definition-draft', async () => {
-      saved = valueOf(await this.api.enterpriseTeamDefinitions.draft({
-        ...input, idempotencyKey: mutationKey('team-definition-draft'),
-      }))
+      saved = valueOf(await this.api.enterpriseTeamDefinitions.draft(request))
       return saved
     }, () => this.refreshTeamDefinitions(), undefined,
     () => this.reloadPageConflict('teamDefinitions', () => this.refreshTeamDefinitions()))
@@ -2056,10 +2055,9 @@ export class EnterpriseWorkbenchController {
    */
   async publishTeamDefinitionDraft(input: { teamId: string; expectedRevision: number }): Promise<EnterpriseTeamDefinition | undefined> {
     let published: EnterpriseTeamDefinition | undefined
+    const request = { ...input, idempotencyKey: mutationKey('team-definition-publish') }
     const success = await this.runMutation('team-definition-publish', async () => {
-      published = valueOf(await this.api.enterpriseTeamDefinitions.publish({
-        ...input, idempotencyKey: mutationKey('team-definition-publish'),
-      }))
+      published = valueOf(await this.api.enterpriseTeamDefinitions.publish(request))
       return published
     }, () => this.refreshTeamDefinitions(), undefined,
     () => this.reloadPageConflict('teamDefinitions', () => this.refreshTeamDefinitions()))

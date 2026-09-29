@@ -958,9 +958,10 @@ function teamRunDot(state: EnterpriseTeamRun['state']): 'done' | 'error' | 'ongo
   return 'ongoing'
 }
 
-function CharterEditor({ definition, newerDefinition, releases, api, busy, onDirty, onClean, close, loadNewer, t }: {
+function CharterEditor({ definition, newerDefinition, catalog, releases, api, busy, onDirty, onClean, close, loadNewer, t }: {
   definition?: EnterpriseTeamDefinition
   newerDefinition?: EnterpriseTeamDefinition
+  catalog: readonly EnterpriseTeamDefinition[]
   releases: readonly EnterpriseEmployeeRelease[]
   api: EnterpriseWorkbenchInjected
   busy: boolean
@@ -995,6 +996,11 @@ function CharterEditor({ definition, newerDefinition, releases, api, busy, onDir
   const [roleEdits, setRoleEdits] = useState(() => [...(definition?.roles ?? [])])
   const [dirty, setDirty] = useState(false)
   const [savedDraft, setSavedDraft] = useState<EnterpriseTeamDefinition | null>(definition?.state === 'draft' ? definition : null)
+  const catalogDraft = catalog.find(item => item.teamId === teamId && (item.state === 'draft' || item.state === 'needs-charter'))
+  const currentDraft = (catalogDraft?.revision ?? -1) > (savedDraft?.revision ?? -1) ? catalogDraft : savedDraft
+  const submitting = useRef(false)
+  const [saving, setSaving] = useState(false)
+  const working = busy || saving
   const mark = (): void => { setDirty(true); onDirty() }
   const requestClose = (): void => {
     if (dirty && !window.confirm(t('team.charter.discardConfirm'))) return
@@ -1005,92 +1011,114 @@ function CharterEditor({ definition, newerDefinition, releases, api, busy, onDir
     loadNewer()
   }
   const rubricRefs = rubrics.split('\n').map(value => value.trim()).filter(Boolean)
-  const canActivate = name.trim() !== '' && northStar.trim() !== '' && ownerUserId.trim() !== '' && leader !== ''
-    && (!verifierRequired || (verifier !== '' && rubricRefs.length > 0))
-    && (visibility !== 'restricted' || allowedUserIds.length > 0)
-    && roleEdits.every(role => role.roleId.trim() !== '' && role.name.trim() !== '' && role.responsibility.trim() !== '')
+  const limitsValid = [openDecisionLimit, workInProgressLimit].every(value => value === '' || (Number.isInteger(Number(value)) && Number(value) > 0))
+  const missingRequirements = [
+    ...(name.trim() === '' ? [t('team.charter.missingName')] : []),
+    ...(northStar.trim() === '' ? [t('team.charter.missingGoal')] : []),
+    ...(ownerUserId.trim() === '' ? [t('team.charter.missingOwner')] : []),
+    ...(leader === '' ? [t('team.charter.missingLeader')] : []),
+    ...(verifierRequired && (verifier === '' || verifier === leader) ? [t('team.charter.missingVerifier')] : []),
+    ...(verifierRequired && rubricRefs.length === 0 ? [t('team.charter.missingRubrics')] : []),
+    ...(visibility === 'restricted' && allowedUserIds.length === 0 ? [t('team.charter.missingViewers')] : []),
+    ...(!limitsValid ? [t('team.charter.invalidLimits')] : []),
+    ...(!roleEdits.every(role => role.roleId.trim() !== '' && role.name.trim() !== '' && role.responsibility.trim() !== '')
+      || new Set(roleEdits.map(role => role.roleId)).size !== roleEdits.length ? [t('team.charter.missingRoles')] : []),
+  ]
+  const canActivate = missingRequirements.length === 0
   const save = async (activate: boolean): Promise<void> => {
-    if (activate && savedDraft !== null && !dirty) {
-      const published = await api.publishTeamDefinitionDraft({ teamId, expectedRevision: savedDraft.revision })
-      if (published !== undefined) { close() }
-      return
-    }
-    const existingRoleByActor = new Map((definition?.roster ?? []).map(member => [
-      member.actor.kind === 'human' ? `human:${member.actor.userId}` : `agent:${member.actor.employeeReleaseId}`,
-      member.roleId,
-    ]))
-    const ownerActor = ownerUserId.trim() === '' ? [] : [{
-      actor: { kind: 'human' as const, userId: ownerUserId.trim() },
-      roleId: existingRoleByActor.get(`human:${ownerUserId.trim()}`) ?? 'owner',
-    }]
-    const otherHumans = (definition?.roster ?? []).filter(member => member.actor.kind === 'human'
-      && member.actor.userId !== ownerUserId.trim())
-    const agentRoster = [
-      ...(leader === '' ? [] : [{ actor: { kind: 'agent' as const, employeeReleaseId: leader }, roleId: existingRoleByActor.get(`agent:${leader}`) ?? 'lead' }]),
-      ...members.filter(id => id !== leader && id !== verifier).map(employeeReleaseId => ({ actor: { kind: 'agent' as const, employeeReleaseId }, roleId: existingRoleByActor.get(`agent:${employeeReleaseId}`) ?? 'member' })),
-      ...(verifier === '' || verifier === leader ? [] : [{ actor: { kind: 'agent' as const, employeeReleaseId: verifier }, roleId: 'verifier' }]),
-    ]
-    const roster = [...ownerActor, ...otherHumans, ...agentRoster]
-    const rolesById = new Map(roleEdits.map(role => [role.roleId, role]))
-    const defaults = new Map([
-      ['owner', { roleId: 'owner', name: t('team.charter.roleOwner'), responsibility: t('team.charter.roleOwnerResponsibility') }],
-      ['lead', { roleId: 'lead', name: t('team.charter.roleLead'), responsibility: t('team.charter.roleLeadResponsibility') }],
-      ['member', { roleId: 'member', name: t('team.charter.roleMember'), responsibility: t('team.charter.roleMemberResponsibility') }],
-      ['verifier', { roleId: 'verifier', name: t('team.charter.roleVerifier'), responsibility: t('team.charter.roleVerifierResponsibility') }],
-    ])
-    for (const member of roster) if (!rolesById.has(member.roleId)) {
-      const fallback = defaults.get(member.roleId)
-      if (fallback !== undefined) rolesById.set(member.roleId, fallback)
-    }
-    const baseDefinition = savedDraft ?? definition
-    const preservedAttention = { ...baseDefinition?.attentionPolicy }
-    delete preservedAttention.openDecisionLimit
-    delete preservedAttention.workInProgressLimit
-    const draft = await api.saveTeamDefinitionDraft({
-      teamId, name: name.trim(), northStar: northStar.trim(), ownerUserId: ownerUserId.trim(),
-      ...(departmentId.trim() === '' ? {} : { departmentId: departmentId.trim() }), visibility,
-      ...(visibility === 'restricted' ? { allowedUserIds } : {}), leaderEmployeeReleaseId: leader,
-      roster, roles: [...rolesById.values()], verificationPolicy: { ...baseDefinition?.verificationPolicy, verifierRequired, rubricRefs, highRiskHumanReviewRequired: true },
-      attentionPolicy: {
-        ...preservedAttention,
-        decisionQueue: 'centralized',
-        ...(Number(openDecisionLimit) > 0 ? { openDecisionLimit: Number(openDecisionLimit) } : {}),
-        ...(Number(workInProgressLimit) > 0 ? { workInProgressLimit: Number(workInProgressLimit) } : {}),
-      },
-      approvalPolicy: { ...baseDefinition?.approvalPolicy, highRiskApprovalRequired: true }, state: canActivate ? 'draft' : 'needs-charter', expectedRevision: baseDefinition?.revision ?? 0,
-    })
-    if (draft === undefined) return
-    setSavedDraft(draft)
-    setDirty(false)
-    onClean()
-    if (activate) {
-      const published = await api.publishTeamDefinitionDraft({ teamId, expectedRevision: draft.revision })
-      if (published !== undefined) close()
-    }
+    if (submitting.current || working) return
+    submitting.current = true; setSaving(true)
+    try {
+      if (activate && currentDraft != null && !dirty) {
+        const published = await api.publishTeamDefinitionDraft({ teamId, expectedRevision: currentDraft.revision })
+        if (published !== undefined) { close() }
+        return
+      }
+      const existingRoleByActor = new Map((definition?.roster ?? []).map(member => [
+        member.actor.kind === 'human' ? `human:${member.actor.userId}` : `agent:${member.actor.employeeReleaseId}`,
+        member.roleId,
+      ]))
+      const ownerActor = ownerUserId.trim() === '' ? [] : [{
+        actor: { kind: 'human' as const, userId: ownerUserId.trim() },
+        roleId: existingRoleByActor.get(`human:${ownerUserId.trim()}`) ?? 'owner',
+      }]
+      const otherHumans = (definition?.roster ?? []).filter(member => member.actor.kind === 'human'
+        && member.actor.userId !== ownerUserId.trim())
+      const agentRoster = [
+        ...(leader === '' ? [] : [{ actor: { kind: 'agent' as const, employeeReleaseId: leader }, roleId: existingRoleByActor.get(`agent:${leader}`) ?? 'lead' }]),
+        ...members.filter(id => id !== leader && id !== verifier).map(employeeReleaseId => ({ actor: { kind: 'agent' as const, employeeReleaseId }, roleId: existingRoleByActor.get(`agent:${employeeReleaseId}`) ?? 'member' })),
+        ...(verifier === '' || verifier === leader ? [] : [{ actor: { kind: 'agent' as const, employeeReleaseId: verifier }, roleId: 'verifier' }]),
+      ]
+      const roster = [...ownerActor, ...otherHumans, ...agentRoster]
+      const rolesById = new Map(roleEdits.map(role => [role.roleId, role]))
+      const defaults = new Map([
+        ['owner', { roleId: 'owner', name: t('team.charter.roleOwner'), responsibility: t('team.charter.roleOwnerResponsibility') }],
+        ['lead', { roleId: 'lead', name: t('team.charter.roleLead'), responsibility: t('team.charter.roleLeadResponsibility') }],
+        ['member', { roleId: 'member', name: t('team.charter.roleMember'), responsibility: t('team.charter.roleMemberResponsibility') }],
+        ['verifier', { roleId: 'verifier', name: t('team.charter.roleVerifier'), responsibility: t('team.charter.roleVerifierResponsibility') }],
+      ])
+      for (const member of roster) if (!rolesById.has(member.roleId)) {
+        const fallback = defaults.get(member.roleId)
+        if (fallback !== undefined) rolesById.set(member.roleId, fallback)
+      }
+      const baseDefinition = currentDraft ?? definition
+      const preservedAttention = { ...baseDefinition?.attentionPolicy }
+      delete preservedAttention.openDecisionLimit
+      delete preservedAttention.workInProgressLimit
+      const draft = await api.saveTeamDefinitionDraft({
+        teamId, name: name.trim(), northStar: northStar.trim(), ownerUserId: ownerUserId.trim(),
+        ...(departmentId.trim() === '' ? {} : { departmentId: departmentId.trim() }), visibility,
+        ...(visibility === 'restricted' ? { allowedUserIds } : {}), leaderEmployeeReleaseId: leader,
+        roster, roles: [...rolesById.values()], verificationPolicy: { ...baseDefinition?.verificationPolicy, verifierRequired, rubricRefs, highRiskHumanReviewRequired: true },
+        attentionPolicy: {
+          ...preservedAttention,
+          decisionQueue: 'centralized',
+          ...(Number(openDecisionLimit) > 0 ? { openDecisionLimit: Number(openDecisionLimit) } : {}),
+          ...(Number(workInProgressLimit) > 0 ? { workInProgressLimit: Number(workInProgressLimit) } : {}),
+        },
+        approvalPolicy: { ...baseDefinition?.approvalPolicy, highRiskApprovalRequired: true }, state: canActivate ? 'draft' : 'needs-charter', expectedRevision: baseDefinition?.revision ?? 0,
+      })
+      if (draft === undefined) return
+      setSavedDraft(draft)
+      setDirty(false)
+      onClean()
+      if (activate) {
+        const published = await api.publishTeamDefinitionDraft({ teamId, expectedRevision: draft.revision })
+        if (published !== undefined) close()
+      }
+    } finally { submitting.current = false; setSaving(false) }
   }
   return <form className={css.charterEditor} aria-labelledby="charter-editor-title" onSubmit={(event) => { event.preventDefault(); if (canActivate) void save(true) }}>
     {newerDefinition !== undefined && <div className={css.charterRevisionNotice} role="status"><span><strong>{t('team.charter.newerRevision')}</strong>{t('team.charter.newerRevisionHelp', { revision: newerDefinition.revision })}</span><button type="button" className={css.secondaryButton} onClick={requestLoadNewer}>{t('team.charter.loadServer')}</button></div>}
     <div className={css.charterEditorHeader}><div><span>{t(definition === undefined ? 'team.charter.createEyebrow' : 'team.charter.improveEyebrow')}</span><h3 id="charter-editor-title">{t(definition === undefined ? 'team.charter.createTitle' : 'team.charter.improveTitle')}</h3><p>{t('team.charter.editorHelp')}</p></div><button type="button" className={css.secondaryButton} onClick={requestClose}>{t('cancel')}</button></div>
     <div className={css.charterEditorGrid}>
-      <label>{t('team.name')}<input autoFocus required disabled={busy} value={name} onChange={(event) => { setName(event.target.value); mark() }} placeholder={t('team.charter.namePlaceholder')}/></label>
+      <h4 className={css.charterStep}>{t('team.charter.stepBasics')}</h4>
+      <label>{t('team.name')}<input autoFocus required disabled={working} value={name} onChange={(event) => { setName(event.target.value); mark() }} placeholder={t('team.charter.namePlaceholder')}/></label>
       <label>{t('team.charter.owner')}{people.length > 0
-        ? <select required disabled={busy} value={ownerUserId} onChange={(event) => { setOwnerUserId(event.target.value); mark() }}><option value="">{t('team.charter.ownerPlaceholder')}</option>{ownerUserId !== '' && !people.some(person => person.id === ownerUserId) && <option value={ownerUserId}>{ownerUserId}</option>}{people.map(person => <option key={person.id} value={person.id}>{person.name}</option>)}</select>
-        : <input required disabled={busy} value={ownerUserId} onChange={(event) => { setOwnerUserId(event.target.value); mark() }} placeholder={t('team.charter.ownerManual')}/>}</label>
-      <label className={css.fullField}>{t('team.charter.northStar')}<textarea aria-label={t('team.charter.northStar')} rows={3} required disabled={busy} value={northStar} onChange={(event) => { setNorthStar(event.target.value); mark() }} placeholder={t('team.charter.northStarPlaceholder')}/><small>{t('team.charter.northStarHelp')}</small></label>
-      <label>{t('team.charter.visibility')}<select value={visibility} disabled={busy} onChange={(event) => { setVisibility(event.target.value as EnterpriseTeamDefinition['visibility']); mark() }}><option value="organization">{t('team.charter.visibilityOrganization')}</option><option value="private">{t('team.charter.visibilityPrivate')}</option><option value="restricted">{t('team.charter.visibilityRestricted')}</option></select></label>
+        ? <select required disabled={working} value={ownerUserId} onChange={(event) => { setOwnerUserId(event.target.value); mark() }}><option value="">{t('team.charter.ownerPlaceholder')}</option>{ownerUserId !== '' && !people.some(person => person.id === ownerUserId) && <option value={ownerUserId}>{ownerUserId}</option>}{people.map(person => <option key={person.id} value={person.id}>{person.name}</option>)}</select>
+        : <input required disabled={working} value={ownerUserId} onChange={(event) => { setOwnerUserId(event.target.value); mark() }} placeholder={t('team.charter.ownerManual')}/>}</label>
+      <label className={css.fullField}>{t('team.charter.northStar')}<textarea aria-label={t('team.charter.northStar')} rows={3} required disabled={working} value={northStar} onChange={(event) => { setNorthStar(event.target.value); mark() }} placeholder={t('team.charter.northStarPlaceholder')}/><small>{t('team.charter.northStarHelp')}</small></label>
+      <h4 className={css.charterStep}>{t('team.charter.stepMembers')}</h4>
+      <label className={css.fullField}>{t('team.charter.leader')}<select required value={leader} disabled={working} onChange={(event) => { const value = event.target.value; setLeader(value); setMembers(current => current.filter(id => id !== value)); if (verifier === value) setVerifier(''); mark() }}><option value="">{t('team.charter.leaderPlaceholder')}</option>{selectableReleases.map(release => <option key={release.releaseId} value={release.releaseId}>{t('startWork.employeeNamed', { name: releaseName(release), version: release.version })}</option>)}</select></label>
+      {roleEdits.length > 0 && <fieldset className={`${css.fullField} ${css.charterRoles}`}><legend>{t('team.charter.roles')}</legend><p>{t('team.charter.rolesHelp')}</p><div>{roleEdits.map((role, index) => <div key={role.roleId || String(index)}><label>{t('team.charter.roleName', { role: role.roleId })}<input value={role.name} disabled={working} onChange={(event) => { setRoleEdits(current => current.map((item, itemIndex) => itemIndex === index ? { ...item, name: event.target.value } : item)); mark() }}/></label><label>{t('team.charter.roleResponsibility', { role: role.name || role.roleId })}<input aria-label={t('team.charter.roleResponsibility', { role: role.name || role.roleId })} value={role.responsibility} disabled={working} onChange={(event) => { setRoleEdits(current => current.map((item, itemIndex) => itemIndex === index ? { ...item, responsibility: event.target.value } : item)); mark() }} placeholder={t('team.charter.roleResponsibilityPlaceholder')}/></label></div>)}</div></fieldset>}
+      <fieldset className={css.charterRosterPicker}><legend>{t('team.charter.members')}</legend><p>{t('team.charter.membersHelp')}</p><div>{selectableReleases.filter(release => release.releaseId !== leader && release.releaseId !== verifier).map(release => <label key={release.releaseId}><input type="checkbox" checked={members.includes(release.releaseId)} disabled={working} onChange={(event) => { setMembers(current => event.target.checked ? [...current, release.releaseId] : current.filter(id => id !== release.releaseId)); mark() }}/><span><strong>{releaseName(release)}</strong><small>{t('version.short', { version: release.version })}</small></span></label>)}</div></fieldset>
+      <fieldset className={css.charterRosterPicker}><legend>{t('team.charter.verifier')}</legend><p>{t('team.charter.verifierHelp')}</p><div><label><input type="radio" name="team-charter-verifier" checked={verifier === ''} disabled={working} onChange={() => { setVerifier(''); mark() }}/><span><strong>{t('team.charter.verifierNone')}</strong></span></label>{selectableReleases.filter(release => release.releaseId !== leader).map(release => <label key={release.releaseId}><input type="radio" name="team-charter-verifier" aria-label={t('team.charter.verifierAria', { name: releaseName(release) })} checked={verifier === release.releaseId} disabled={working} onChange={() => { setVerifier(release.releaseId); setMembers(current => current.filter(id => id !== release.releaseId)); mark() }}/><span><strong>{releaseName(release)}</strong><small>{t('version.short', { version: release.version })}</small></span></label>)}</div></fieldset>
+      <h4 className={css.charterStep}>{t('team.charter.stepRules')}</h4>
+      <label className={css.fullField}>{t('team.charter.rubrics')}<textarea aria-label={t('team.charter.rubrics')} rows={3} disabled={working || !verifierRequired} value={rubrics} onChange={(event) => { setRubrics(event.target.value); mark() }} placeholder={t('team.charter.rubricsPlaceholder')}/><small>{t('team.charter.rubricsHelp')}</small></label>
+      <div className={`${css.fullField} ${css.charterSwitches}`}><label><input type="checkbox" checked={verifierRequired} disabled={working} onChange={(event) => { setVerifierRequired(event.target.checked); mark() }}/><span><strong>{t('team.charter.verifierRequired')}</strong><small>{t('team.charter.verifierRequiredHelp')}</small></span></label><label data-enforced="true"><input type="checkbox" checked readOnly disabled/><span><strong>{t('team.charter.highRisk')}</strong><small>{t('team.charter.highRiskHelp')}</small></span></label></div>
+      <label>{t('team.charter.visibility')}<select value={visibility} disabled={working} onChange={(event) => { setVisibility(event.target.value as EnterpriseTeamDefinition['visibility']); mark() }}><option value="organization">{t('team.charter.visibilityOrganization')}</option><option value="private">{t('team.charter.visibilityPrivate')}</option><option value="restricted">{t('team.charter.visibilityRestricted')}</option></select></label>
       <label>{t('team.charter.department')}{departments.length > 0
-        ? <select disabled={busy} value={departmentId} onChange={(event) => { setDepartmentId(event.target.value); mark() }}><option value="">{t('team.charter.departmentPlaceholder')}</option>{departmentId !== '' && !departments.some(department => department.id === departmentId) && <option value={departmentId}>{departmentId}</option>}{departments.map(department => <option key={department.id} value={department.id}>{department.name}</option>)}</select>
-        : <input disabled={busy} value={departmentId} onChange={(event) => { setDepartmentId(event.target.value); mark() }} placeholder={t('team.charter.departmentManual')}/>}</label>
-      {visibility === 'restricted' && <fieldset className={`${css.fullField} ${css.charterRosterPicker}`}><legend>{t('team.charter.allowedUsers')}</legend><p>{t('team.charter.allowedUsersHelp')}</p>{people.length > 0 ? <div>{people.map(person => <label key={person.id}><input type="checkbox" checked={allowedUserIds.includes(person.id)} disabled={busy} onChange={(event) => { setAllowedUserIds(current => event.target.checked ? [...current, person.id] : current.filter(id => id !== person.id)); mark() }}/><span><strong>{person.name}</strong></span></label>)}</div> : <label className={css.fullField}><span className={css.visuallyHidden}>{t('team.charter.allowedUsers')}</span><textarea rows={2} disabled={busy} value={allowedUserIds.join('\n')} onChange={(event) => { setAllowedUserIds(event.target.value.split('\n').map(value => value.trim()).filter(Boolean)); mark() }} placeholder={t('team.charter.allowedUsersPlaceholder')}/></label>}</fieldset>}
-      <label className={css.fullField}>{t('team.charter.leader')}<select required value={leader} disabled={busy} onChange={(event) => { const value = event.target.value; setLeader(value); setMembers(current => current.filter(id => id !== value)); if (verifier === value) setVerifier(''); mark() }}><option value="">{t('team.charter.leaderPlaceholder')}</option>{selectableReleases.map(release => <option key={release.releaseId} value={release.releaseId}>{t('startWork.employeeNamed', { name: releaseName(release), version: release.version })}</option>)}</select></label>
-      {roleEdits.length > 0 && <fieldset className={`${css.fullField} ${css.charterRoles}`}><legend>{t('team.charter.roles')}</legend><p>{t('team.charter.rolesHelp')}</p><div>{roleEdits.map((role, index) => <div key={role.roleId || String(index)}><label>{t('team.charter.roleName', { role: role.roleId })}<input value={role.name} disabled={busy} onChange={(event) => { setRoleEdits(current => current.map((item, itemIndex) => itemIndex === index ? { ...item, name: event.target.value } : item)); mark() }}/></label><label>{t('team.charter.roleResponsibility', { role: role.name || role.roleId })}<input aria-label={t('team.charter.roleResponsibility', { role: role.name || role.roleId })} value={role.responsibility} disabled={busy} onChange={(event) => { setRoleEdits(current => current.map((item, itemIndex) => itemIndex === index ? { ...item, responsibility: event.target.value } : item)); mark() }} placeholder={t('team.charter.roleResponsibilityPlaceholder')}/></label></div>)}</div></fieldset>}
-      <fieldset className={css.charterRosterPicker}><legend>{t('team.charter.members')}</legend><p>{t('team.charter.membersHelp')}</p><div>{selectableReleases.filter(release => release.releaseId !== leader && release.releaseId !== verifier).map(release => <label key={release.releaseId}><input type="checkbox" checked={members.includes(release.releaseId)} disabled={busy} onChange={(event) => { setMembers(current => event.target.checked ? [...current, release.releaseId] : current.filter(id => id !== release.releaseId)); mark() }}/><span><strong>{releaseName(release)}</strong><small>{t('version.short', { version: release.version })}</small></span></label>)}</div></fieldset>
-      <fieldset className={css.charterRosterPicker}><legend>{t('team.charter.verifier')}</legend><p>{t('team.charter.verifierHelp')}</p><div><label><input type="radio" name="team-charter-verifier" checked={verifier === ''} disabled={busy} onChange={() => { setVerifier(''); mark() }}/><span><strong>{t('team.charter.verifierNone')}</strong></span></label>{selectableReleases.filter(release => release.releaseId !== leader).map(release => <label key={release.releaseId}><input type="radio" name="team-charter-verifier" aria-label={t('team.charter.verifierAria', { name: releaseName(release) })} checked={verifier === release.releaseId} disabled={busy} onChange={() => { setVerifier(release.releaseId); setMembers(current => current.filter(id => id !== release.releaseId)); mark() }}/><span><strong>{releaseName(release)}</strong><small>{t('version.short', { version: release.version })}</small></span></label>)}</div></fieldset>
-      <label className={css.fullField}>{t('team.charter.rubrics')}<textarea aria-label={t('team.charter.rubrics')} rows={3} disabled={busy || !verifierRequired} value={rubrics} onChange={(event) => { setRubrics(event.target.value); mark() }} placeholder={t('team.charter.rubricsPlaceholder')}/><small>{t('team.charter.rubricsHelp')}</small></label>
-      <div className={`${css.fullField} ${css.charterSwitches}`}><label><input type="checkbox" checked={verifierRequired} disabled={busy} onChange={(event) => { setVerifierRequired(event.target.checked); mark() }}/><span><strong>{t('team.charter.verifierRequired')}</strong><small>{t('team.charter.verifierRequiredHelp')}</small></span></label><label data-enforced="true"><input type="checkbox" checked readOnly disabled/><span><strong>{t('team.charter.highRisk')}</strong><small>{t('team.charter.highRiskHelp')}</small></span></label></div>
-      <details className={`${css.fullField} ${css.charterAdvanced}`}><summary>{t('team.charter.advanced')}</summary><div><label>{t('team.charter.decisionLimit')}<input type="number" min="1" disabled={busy} value={openDecisionLimit} onChange={(event) => { setOpenDecisionLimit(event.target.value); mark() }}/></label><label>{t('team.charter.wipLimit')}<input type="number" min="1" disabled={busy} value={workInProgressLimit} onChange={(event) => { setWorkInProgressLimit(event.target.value); mark() }}/></label></div></details>
+        ? <select disabled={working} value={departmentId} onChange={(event) => { setDepartmentId(event.target.value); mark() }}><option value="">{t('team.charter.departmentPlaceholder')}</option>{departmentId !== '' && !departments.some(department => department.id === departmentId) && <option value={departmentId}>{departmentId}</option>}{departments.map(department => <option key={department.id} value={department.id}>{department.name}</option>)}</select>
+        : <input disabled={working} value={departmentId} onChange={(event) => { setDepartmentId(event.target.value); mark() }} placeholder={t('team.charter.departmentManual')}/>}</label>
+      {visibility === 'restricted' && <fieldset className={`${css.fullField} ${css.charterRosterPicker}`}><legend>{t('team.charter.allowedUsers')}</legend><p>{t('team.charter.allowedUsersHelp')}</p>{people.length > 0 ? <div>{people.map(person => <label key={person.id}><input type="checkbox" checked={allowedUserIds.includes(person.id)} disabled={working} onChange={(event) => { setAllowedUserIds(current => event.target.checked ? [...current, person.id] : current.filter(id => id !== person.id)); mark() }}/><span><strong>{person.name}</strong></span></label>)}</div> : <label className={css.fullField}><span className={css.visuallyHidden}>{t('team.charter.allowedUsers')}</span><textarea rows={2} disabled={working} value={allowedUserIds.join('\n')} onChange={(event) => { setAllowedUserIds(event.target.value.split('\n').map(value => value.trim()).filter(Boolean)); mark() }} placeholder={t('team.charter.allowedUsersPlaceholder')}/></label>}</fieldset>}
+      <details className={`${css.fullField} ${css.charterAdvanced}`}><summary>{t('team.charter.advanced')}</summary><div><label>{t('team.charter.decisionLimit')}<input type="number" min="1" disabled={working} value={openDecisionLimit} onChange={(event) => { setOpenDecisionLimit(event.target.value); mark() }}/></label><label>{t('team.charter.wipLimit')}<input type="number" min="1" disabled={working} value={workInProgressLimit} onChange={(event) => { setWorkInProgressLimit(event.target.value); mark() }}/></label></div></details>
     </div>
-    <div className={css.charterEditorActions}><span>{leader === '' ? t('team.charter.releaseRequired') : canActivate ? t('team.charter.ready') : t('team.charter.incomplete')}</span><div><button type="button" className={css.secondaryButton} disabled={busy || name.trim() === '' || leader === ''} onClick={() => { void save(false) }}>{t('team.charter.saveDraft')}</button><button type="submit" className={css.primaryButton} disabled={busy || !canActivate}>{t('team.charter.activate')}</button></div></div>
+    {currentDraft != null && <p className={css.charterSaved} role="status">{t('team.charter.saved', { revision: currentDraft.revision })}{dirty && <span>{t('team.charter.unsaved')}</span>}</p>}
+    {missingRequirements.length > 0 && <section className={css.charterReadiness} aria-label={t('team.charter.requirements')}>
+      <strong>{t('team.charter.requirements')}</strong><ul>{missingRequirements.map(message => <li key={message}>{message}</li>)}</ul>
+      <p>{t('team.charter.draftHelp')}</p>
+    </section>}
+    <div className={css.charterEditorActions}><span>{leader === '' ? t('team.charter.releaseRequired') : canActivate ? t('team.charter.ready') : t('team.charter.incomplete')}</span><div><button type="button" className={css.secondaryButton} disabled={working || name.trim() === '' || leader === '' || !limitsValid} onClick={() => { void save(false) }}>{t('team.charter.saveDraft')}</button><button type="submit" className={css.primaryButton} disabled={working || !canActivate}>{t('team.charter.activate')}</button></div></div>
   </form>
 }
 
@@ -1129,12 +1157,12 @@ function TeamControlPanel({ definitions, runs, decisions, autonomy, workspaces, 
       </div>
     </header>
     {editing !== null
-      ? <CharterEditor key={editing === 'new' ? 'new' : `${editing.teamId}:${editing.revision}`} {...(editing === 'new' ? {} : { definition: editing })} {...(newerDefinition === undefined ? {} : { newerDefinition })} releases={releases} api={api} busy={busy} onDirty={onDirty} onClean={onClean} close={() => { setEditing(null); onClean() }} loadNewer={() => { if (newerDefinition !== undefined) setEditing(newerDefinition) }} t={t}/>
-      : <div className={css.teamCommandGrid}>
+      ? <CharterEditor key={editing === 'new' ? 'new' : `${editing.teamId}:${editing.revision}`} {...(editing === 'new' ? {} : { definition: editing })} {...(newerDefinition === undefined ? {} : { newerDefinition })} catalog={definitions.items} releases={releases} api={api} busy={busy} onDirty={onDirty} onClean={onClean} close={() => { setEditing(null); onClean() }} loadNewer={() => { if (newerDefinition !== undefined) setEditing(newerDefinition) }} t={t}/>
+      : <div className={css.teamCommandGrid} data-ready={activeDefinitions.length > 0}>
         <section className={css.teamCharters} aria-labelledby="team-charters-title">
           <div className={css.sectionHead}><div><h3 id="team-charters-title">{t('team.charters')}</h3><p>{t('team.chartersHelp')}</p></div><div className={css.charterListActions}><span>{definitions.items.length}</span><button type="button" className={css.primaryButton} disabled={busy} onClick={() => { setEditing('new') }}><IconPlusOutlineRegular size={16}/>{t('team.charter.new')}</button></div></div>
           {definitions.items.length === 0
-            ? <p className={css.quietText}>{t('team.chartersEmpty')}</p>
+            ? <ActionableEmpty title={t('team.chartersEmptyTitle')} description={t('team.chartersEmpty')}/>
             : <div className={css.charterList}>{definitions.items.map((item) => {
               const isSelected = teamId === item.teamId
               const humanCount = item.roster.filter(member => member.actor.kind === 'human').length
@@ -1145,7 +1173,7 @@ function TeamControlPanel({ definitions, runs, decisions, autonomy, workspaces, 
               </article>
             })}</div>}
         </section>
-        <form className={css.teamLaunch} onSubmit={(event) => {
+        {activeDefinitions.length > 0 && <form className={css.teamLaunch} onSubmit={(event) => {
           event.preventDefault()
           if (selected === undefined) return
           void api.startTeamRun({ teamId: selected.teamId, expectedTeamRevision: selected.revision, workspaceId, prompt })
@@ -1154,12 +1182,12 @@ function TeamControlPanel({ definitions, runs, decisions, autonomy, workspaces, 
           {selected === undefined
             ? <div className={css.launchEmpty}><strong>{t('team.launchEmptyTitle')}</strong><span>{t('team.launchEmptyBody')}</span></div>
             : <div className={css.launchNorthStar}><small>{t('team.northStar')}</small><strong>{selected.northStar}</strong><div><span>{t('team.releaseFence', { revision: selected.revision })}</span><span>{t('team.rosterCount', { count: selected.roster.length })}</span><span>{t('team.verificationSummary', { count: selected.verificationPolicy.rubricRefs?.length ?? 0 })}</span></div></div>}
-          <label>{t('team.workspace')}<select required value={workspaceId} onChange={(event) => { setWorkspaceId(event.target.value) }}><option value="">{t('team.workspacePlaceholder')}</option>{workspaces.items.map(workspace => <option key={workspace.workspaceId} value={workspace.workspaceId}>{workspace.title}</option>)}</select></label>
-          <label className={css.fullField}>{t('team.objective')}<textarea required rows={4} value={prompt} onChange={(event) => { setPrompt(event.target.value) }} placeholder={t('team.objectivePlaceholder')}/></label>
-          <button className={css.primaryButton} type="submit" disabled={busy || selected === undefined || workspaceId === '' || prompt.trim() === ''}>{t('team.startRun')}</button>
-        </form>
+          {selected !== undefined && <><label>{t('team.workspace')}<select required value={workspaceId} onChange={(event) => { setWorkspaceId(event.target.value) }}><option value="">{t('team.workspacePlaceholder')}</option>{workspaces.items.map(workspace => <option key={workspace.workspaceId} value={workspace.workspaceId}>{workspace.title}</option>)}</select></label>
+            <label className={css.fullField}>{t('team.objective')}<textarea required rows={4} value={prompt} onChange={(event) => { setPrompt(event.target.value) }} placeholder={t('team.objectivePlaceholder')}/></label>
+            <button className={css.primaryButton} type="submit" disabled={busy || selected === undefined || workspaceId === '' || prompt.trim() === ''}>{t('team.startRun')}</button></>}
+        </form>}
       </div>}
-    <section className={css.teamRooms} aria-labelledby="team-runs-title">
+    {(runs.items.length > 0 || activeDefinitions.length > 0) && <section className={css.teamRooms} aria-labelledby="team-runs-title">
       <div className={css.sectionHead}><div><h3 id="team-runs-title">{t('team.rooms')}</h3><p>{t('team.roomsHelp')}</p></div><span>{visibleRuns.length}</span></div>
       {visibleRuns.length === 0 ? <p className={css.quietText}>{t('team.roomsEmpty')}</p> : <div className={css.teamRunSpine}>{visibleRuns.map((run) => {
         const definition = definitions.items.find(item => item.teamId === run.teamId)
@@ -1168,7 +1196,7 @@ function TeamControlPanel({ definitions, runs, decisions, autonomy, workspaces, 
         return <article className={css.teamRoomRow} data-state={run.state} key={run.runId}><span className={css.teamRunDot}><StateDot state={teamRunDot(run.state)}/></span><div className={css.teamRunMain}><div className={css.teamRunTitle}><strong>{definition?.name ?? t('team.unnamed')}</strong><span>{t(`team.runState.${run.state}`)}</span>{runDecisions > 0 && <button type="button" onClick={() => { api.setPage('attention') }}>{t('team.decisionBadge', { count: runDecisions })}</button>}</div><p>{definition?.northStar ?? t('team.objectiveFallback')}</p><small>{t('team.roomEvidence', { members: run.rosterSnapshot.length, decisions: runDecisions, grants })} · {formatDate(run.updatedAt)}</small></div><div className={css.inlineActions}>{run.rootSessionId !== undefined && <button type="button" className={css.primaryButton} onClick={() => { api.openRecord(run.rootSessionId as SessionId) }}>{t('team.openRoom')}</button>}{!['completed', 'failed', 'cancelled'].includes(run.state) && <button type="button" className={css.secondaryButton} disabled={busy} onClick={() => { void api.cancelTeamRun(run) }}>{t('team.cancelRun')}</button>}</div></article>
       })}</div>}
       {openDecisionCount > 0 && <button type="button" className={css.attentionLink} onClick={() => { api.setPage('attention') }}>{t('team.openAttention', { count: openDecisionCount })}</button>}
-    </section>
+    </section>}
   </section>
 }
 
@@ -1883,6 +1911,7 @@ export function EnterpriseWorkbench(props: EnterpriseWorkbenchProps) {
   const teamAutonomy = compatibleState.teamAutonomy ?? emptyControlPage
   const channels = compatibleState.channels ?? emptyControlPage
   const devices = compatibleState.devices ?? emptyControlPage
+  const legacyTeams = { ...state.teams, items: state.teams.items.filter(item => !teamDefinitions.items.some(definition => definition.teamId === item.teamId)) }
   const [localFormDirty, setLocalFormDirty] = useState(false)
   const mutationBusy = state.mutationPhase === 'running'
   const dirty = state.employeeEditor?.dirty === true || localFormDirty
@@ -1963,8 +1992,8 @@ export function EnterpriseWorkbench(props: EnterpriseWorkbenchProps) {
         {page === 'assets' && <AssetsPage page={state.assets} cordisCount={cordisExtensionCount(state)} api={api} busy={mutationBusy} onDirty={() => { setLocalFormDirty(true) }} openExtensions={() => { requestPage('extensions') }} renderKnowledgeAssets={props.renderSlot} t={props.t} />}
         {page === 'teams' && <>
           <TeamControlPanel definitions={teamDefinitions} runs={teamRuns} decisions={teamDecisions} autonomy={teamAutonomy} workspaces={workspaces} releases={state.releases} api={api} busy={mutationBusy} onDirty={() => { setLocalFormDirty(true) }} onClean={() => { setLocalFormDirty(false) }} openCollaboration={() => { requestPage('projects') }} t={props.t}/>
-          <LegacyTeamsDisclosure initiallyOpen={teamDefinitions.items.length === 0} count={state.teams.items.length} t={props.t}>
-            <TeamsPage embedded page={state.teams} releases={state.releases} api={api} busy={mutationBusy} onDirty={() => { setLocalFormDirty(true) }} t={props.t} />
+          <LegacyTeamsDisclosure initiallyOpen={false} count={legacyTeams.items.length} t={props.t}>
+            <TeamsPage embedded page={legacyTeams} releases={state.releases} api={api} busy={mutationBusy} onDirty={() => { setLocalFormDirty(true) }} t={props.t} />
           </LegacyTeamsDisclosure>
         </>}
         {page === 'channels' && <ChannelsPage page={channels} releases={state.releases} api={api} busy={mutationBusy} renderEmployeeChannels={props.renderSlot} t={props.t}/>}

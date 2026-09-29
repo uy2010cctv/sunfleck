@@ -1,5 +1,7 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
+exports[`EnterpriseWorkbench > explains charter activation requirements and hides unusable launch controls > charter activation checklist 1`] = `"启用前还需完成填写团队名称填写团队长期目标选择团队负责人选择已发布的领队数字员工选择核验数字员工填写至少一条验收标准可先保存草稿，再继续完善；草稿不能启动团队工作。"`;
+
 exports[`EnterpriseWorkbench > presents the roster as a StaffDeck-inspired employee gallery without technical metadata > employee directory hierarchy 1`] = `
 [
   "员工名册",

@@ -1211,3 +1211,12 @@
 
 .rosterHeading { display: flex; align-items: baseline; gap: var(--dse-space-xs); flex-wrap: wrap; }
 .rosterHeading > span { color: var(--dse-color-muted); font-size: 0.8125rem; font-variant-numeric: tabular-nums; }
+
+.teamCommandGrid[data-ready='false'] { grid-template-columns: minmax(0, 1fr); }
+.charterStep { grid-column: 1 / -1; margin: var(--dse-space-sm) 0 0; padding-block-end: var(--dse-space-xs); border-block-end: 1px solid var(--dse-color-border-subtle); font-size: 0.9375rem; font-weight: 500; }
+.charterReadiness { border: 1px solid var(--dse-color-border); border-radius: var(--dse-radius-control); padding: var(--dse-space-sm); color: var(--dse-color-ink); }
+.charterReadiness strong { font-weight: 500; font-size: 0.8125rem; }
+.charterReadiness ul { display: grid; gap: var(--dse-space-3xs); margin-block: var(--dse-space-xs); padding-inline-start: 1.25rem; font-size: 0.8125rem; }
+.charterReadiness p { margin: 0; color: var(--dse-color-muted); font-size: 0.8125rem; line-height: 1.5; }
+.charterSaved { display: flex; flex-wrap: wrap; gap: var(--dse-space-xs); margin: 0; color: var(--dse-color-accent); font-size: 0.8125rem; }
+.charterSaved span { color: var(--dse-color-muted); }

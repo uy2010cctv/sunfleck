@@ -1129,3 +1129,26 @@ describe('EnterpriseWorkbenchController edits, mutations, and events', () => {
     })
   })
 })
+
+
+describe('charter mutation recovery', () => {
+  it.each(['draft', 'publish'] as const)('reuses the %s request identity after a lost response', async (kind) => {
+    const write = vi.fn().mockRejectedValueOnce(new Error('response lost')).mockImplementation(() => ok({ teamId: 'charter-retry', revision: 1 }))
+    const base = controllerApi()
+    const api = controllerApi({ enterpriseTeamDefinitions: { ...base.enterpriseTeamDefinitions, [kind]: write } })
+    const services = controllerServices()
+    const controller = new EnterpriseWorkbenchController(api as never, services.sessions as never, services.workspaces as never, () => {})
+    if (kind === 'publish') await controller.publishTeamDefinitionDraft({ teamId: 'charter-retry', expectedRevision: 1 })
+    else await controller.saveTeamDefinitionDraft({
+      teamId: 'charter-retry', name: 'Test charter', northStar: 'Check recovery', ownerUserId: 'owner',
+      visibility: 'private', leaderEmployeeReleaseId: 'lead', roster: [], roles: [],
+      verificationPolicy: { verifierRequired: true, rubricRefs: [], highRiskHumanReviewRequired: true },
+      attentionPolicy: { decisionQueue: 'centralized' }, approvalPolicy: { highRiskApprovalRequired: true }, expectedRevision: 0,
+    })
+    expect(controller.store.getSnapshot().mutationPhase).toBe('error')
+    await controller.retryMutation()
+    expect(write).toHaveBeenCalledTimes(2)
+    expect(write.mock.calls[1]?.[0]).toEqual(write.mock.calls[0]?.[0])
+    expect(controller.store.getSnapshot().mutationPhase).toBe('idle')
+  })
+})

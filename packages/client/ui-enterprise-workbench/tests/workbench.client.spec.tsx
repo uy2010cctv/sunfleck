@@ -1394,6 +1394,27 @@ describe('EnterpriseWorkbench', () => {
     expect(respondTeamDecision).toHaveBeenCalledWith(expect.objectContaining({ decisionId: 'decision-a' }), '批准')
   })
 
+  it('explains charter activation requirements and hides unusable launch controls', () => {
+    render(<EnterpriseWorkbench {...workbenchProps({ state: { mode: 'enterprise', page: 'teams' } })} />)
+    expect(screen.queryByRole('textbox', { name: '本次工作目标' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: '新建章程' }))
+    expect(screen.getByRole('region', { name: '启用前还需完成' })).toBeDefined()
+    expect(screen.getByRole('region', { name: '启用前还需完成' }).textContent).toMatchSnapshot('charter activation checklist')
+    expect(screen.getByText('选择核验数字员工')).toBeDefined()
+    expect(screen.getByText('填写至少一条验收标准')).toBeDefined()
+    expect(screen.getByRole('button', { name: '保存并启用' })).toHaveProperty('disabled', true)
+  })
+
+  it('rejects fractional work limits before sending a draft mutation', () => {
+    const saveTeamDefinitionDraft = vi.fn()
+    render(<EnterpriseWorkbench {...workbenchProps({ state: { mode: 'enterprise', page: 'teams' }, saveTeamDefinitionDraft })} />)
+    fireEvent.click(screen.getByRole('button', { name: '新建章程' }))
+    fireEvent.change(screen.getByLabelText(zh['team.charter.decisionLimit']), { target: { value: '1.5' } })
+    expect(screen.getByText('工作量限制必须为正整数')).toBeDefined()
+    expect(screen.getByRole('button', { name: '保存草稿' })).toHaveProperty('disabled', true)
+    expect(saveTeamDefinitionDraft).not.toHaveBeenCalled()
+  })
+
   it('creates a charter draft without exposing internal JSON or ids', async () => {
     const saveTeamDefinitionDraft = vi.fn((input: Parameters<EnterpriseWorkbenchProps['saveTeamDefinitionDraft']>[0]) => Promise.resolve({
       ...input, orgId: 'org-a', revision: 1, createdAt: 1, updatedAt: 1,
@@ -1415,6 +1436,7 @@ describe('EnterpriseWorkbench', () => {
     fireEvent.click(screen.getByRole('button', { name: '保存草稿' }))
 
     await waitFor(() => { expect(saveTeamDefinitionDraft).toHaveBeenCalledOnce() })
+    expect(await screen.findByText('草稿已保存（版本 1）')).toBeDefined()
     expect(saveTeamDefinitionDraft).toHaveBeenCalledWith(expect.objectContaining({
       teamId: expect.stringMatching(/^team-/u) as unknown, name: '采购协同组', ownerUserId: 'owner-1',
       state: 'needs-charter', expectedRevision: 0,
@@ -1756,6 +1778,7 @@ describe('EnterpriseWorkbench', () => {
         snapshot: { profile: { name: '询价' }, bindings: [] }, publishedBy: 'u', publishedAt: 1,
       }],
     }, saveTeam } as never)} />)
+    fireEvent.click(screen.getByText(zh['team.legacyTitle']))
     fireEvent.click(screen.getByRole('button', { name: '新建团队' }))
     expect(screen.getByRole('radio', { name: '选择采购为领队' })).toBeDefined()
     expect(screen.getByRole('checkbox', { name: '选择询价为成员' })).toBeDefined()
@@ -2122,6 +2145,7 @@ describe('EnterpriseWorkbench', () => {
     rerender(<EnterpriseWorkbench {...workbenchProps({
       state: { mode: 'enterprise', page: 'teams', releases }, saveTeam,
     } as never)} />)
+    fireEvent.click(screen.getByText(zh['team.legacyTitle']))
     fireEvent.click(screen.getByRole('button', { name: '新建团队' }))
     fireEvent.change(screen.getByLabelText('团队名称'), { target: { value: '采购协同组' } })
     fireEvent.click(screen.getByRole('radio', { name: '选择采购主管为领队' }))
@@ -2152,6 +2176,7 @@ describe('EnterpriseWorkbench', () => {
       ] }, saveTeam,
     } as never)} />)
 
+    fireEvent.click(screen.getByText(zh['team.legacyTitle']))
     fireEvent.click(screen.getByRole('button', { name: '新建团队' }))
     expect(screen.getAllByRole('radio')).toHaveLength(2)
     expect(screen.getAllByRole('checkbox')).toHaveLength(2)
@@ -2345,6 +2370,7 @@ describe('EnterpriseWorkbench', () => {
           state: { mode: 'enterprise', page: testCase.page, releases }, setPage,
           [testCase.callback]: save,
         } as never)} />)
+        if (testCase.page === 'teams') fireEvent.click(screen.getByText(zh['team.legacyTitle']))
         fireEvent.click(screen.getByRole('button', { name: testCase.create }))
         if (testCase.page === 'schedules') {
           fireEvent.change(screen.getByLabelText(zh['schedule.name']), { target: { value: '日报' } })
