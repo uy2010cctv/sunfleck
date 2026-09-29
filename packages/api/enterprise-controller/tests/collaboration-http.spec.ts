@@ -99,6 +99,19 @@ describe('collaboration HTTP request validation', () => {
     expect(removeMembers).toHaveBeenCalledWith(expect.objectContaining({ userId: 'member' }), 'group', { userIds: ['alice'] })
   })
 
+  it('routes protected member choices and validates explicit channel duty selection', async () => {
+    const getMemberOptions = vi.fn(async () => ({ people: [], employees: [] }))
+    const setDuty = vi.fn(async () => ({ id: 'channel', dutyEmployeeIds: [] }))
+    const handler = new CollaborationHttpHandler({ getMemberOptions, setDuty } as never, security as never)
+    const base = 'https://dsh/enterprise/surfaces/channel'
+    expect((await handler.fetch(new Request(`${base}/member-options`))).status).toBe(200)
+    expect(getMemberOptions).toHaveBeenCalledWith(expect.objectContaining({ userId: 'member' }), 'channel')
+    expect((await handler.fetch(new Request(`${base}/duty`, { method: 'POST', body: '{}' }))).status).toBe(400)
+    expect(setDuty).not.toHaveBeenCalled()
+    expect((await handler.fetch(new Request(`${base}/duty`, { method: 'POST', body: JSON.stringify({ employeeIds: [] }) }))).status).toBe(200)
+    expect(setDuty).toHaveBeenCalledWith(expect.anything(), 'channel', [])
+  })
+
   it('uploads raw attachment bytes and serves them back to room members', async () => {
     const uploadAttachment = vi.fn(async (_actor: unknown, _id: string,
       upload: { name: string; mimeType: string; data: Buffer }): Promise<AttachmentRef> =>

@@ -714,6 +714,53 @@ describe.skipIf(databaseUrl === undefined)('enterprise collaboration source Web 
             }
           }, { timeout: test.task.timeout }).toEqual({ userMessages: 1, assistant: true, completed: true })
         }
+        for (const kind of ['groups', 'channels']) {
+          const managed = await request(`/${kind}`, { name: `Managed ${kind}`, workspaceId: app.ready.workspaceId,
+            memberEmployeeIds: ['fixture-assistant'], memberUserIds: ['fixture-colleague'],
+            ...(kind === 'channels' ? { topicPolicy: 'thread', respondPolicy: 'mention_duty', dutyEmployeeIds: [] } : {}) })
+          const id = string(managed['id'])
+          expect(await request(`/${id}/rename`, { name: `Renamed ${kind}` })).toMatchObject({ name: `Renamed ${kind}` })
+          const choices = await request(`/${id}/member-options`)
+          const employeeChoices = choices['employees']
+          if (!Array.isArray(employeeChoices)) throw new Error('member choices omitted employees')
+          expect(employeeChoices.map(record).some(employee => employee['id'] === 'fixture-reviewer' && typeof employee['name'] === 'string')).toBe(true)
+          const peopleChoices = choices['people']
+          if (!Array.isArray(peopleChoices)) throw new Error('member choices omitted people')
+          expect(peopleChoices.map(record).some(person => person['id'] === 'fixture-colleague')).toBe(false)
+          for (const [operation, body] of [['rename', { name: 'Forbidden' }], ['members/add', { memberEmployeeIds: ['fixture-reviewer'] }],
+            ['dissolve', {}], ['duty', { employeeIds: [] }]] as const) {
+            const denied = await fetch(`${origin}/enterprise/surfaces/${id}/${operation}`, { method: 'POST', signal: test.signal,
+              headers: { cookie: colleagueCookie, origin, 'content-type': 'application/json' }, body: JSON.stringify(body) })
+            expect(denied.status).toBe(403)
+          }
+          const choicesDenied = await fetch(`${origin}/enterprise/surfaces/${id}/member-options`, {
+            headers: { cookie: colleagueCookie }, signal: test.signal })
+          expect(choicesDenied.status).toBe(403)
+          await database.query('INSERT INTO organizations(id,name) VALUES($1,$2) ON CONFLICT DO NOTHING', ['foreign-fixture', 'Foreign fixture'])
+          const foreign = await database.query<{ org_id: string }>('UPDATE dsh_enterprise_surface_directory SET org_id=$2 WHERE surface_id=$1 RETURNING org_id',
+            [id, 'foreign-fixture'])
+          expect(foreign.rows).toHaveLength(1)
+          const foreignDenied = await fetch(`${origin}/enterprise/surfaces/${id}/member-options`, { headers: { cookie }, signal: test.signal })
+          expect(foreignDenied.status).toBe(404)
+          await database.query('UPDATE dsh_enterprise_surface_directory SET org_id=$2 WHERE surface_id=$1', [id, 'collaboration-fixture'])
+          expect(await request(`/${id}/members/add`, { memberEmployeeIds: ['fixture-reviewer'] })).toMatchObject({ memberCount: 4 })
+          if (kind === 'channels') {
+            expect(await request(`/${id}/duty`, { employeeIds: ['fixture-reviewer'] })).toMatchObject({ dutyEmployeeIds: ['fixture-reviewer'] })
+          }
+          expect(await request(`/${id}/members/remove`, { memberEmployeeIds: ['fixture-reviewer'] })).toMatchObject({ dutyEmployeeIds: [] })
+          const sent = await request(`/${id}/messages`, { text: 'Preserve archived content.', mentionedEmployeeIds: [], messageId: randomUUID() })
+          expect(sent['delivered']).toBe(true)
+          expect(await request(`/${id}/leave`, {}, colleagueCookie)).toEqual({ id, left: true })
+          const leftDenied = await fetch(`${origin}/enterprise/surfaces/${id}`, { headers: { cookie: colleagueCookie }, signal: test.signal })
+          expect(leftDenied.status).toBe(404)
+          expect((await request(`/${id}/members/add`, { memberUserIds: ['fixture-colleague'] }))['memberUserIds']).toContain('fixture-colleague')
+          expect((await request(`/${id}/members/remove`, { memberUserIds: ['fixture-colleague'] }))['memberUserIds']).not.toContain('fixture-colleague')
+          expect(await request(`/${id}/dissolve`, {})).toEqual({ id, archived: true })
+          const archivedDenied = await fetch(`${origin}/enterprise/surfaces/${id}`, { headers: { cookie }, signal: test.signal })
+          expect(archivedDenied.status).toBe(404)
+          const stored = await database.query<{ count: string }>('SELECT count(*) FROM dsh_enterprise_collaboration_events WHERE surface_id=$1', [id])
+          expect(Number(stored.rows[0]?.count)).toBeGreaterThan(0)
+        }
         await adminRequest('PATCH', '/auth/admin/users/fixture-colleague', { departmentIds: [], expectedRevision: 1 })
         for (const id of roomIds) {
           const denied = await fetch(`${origin}/enterprise/surfaces/${id}/events`, {

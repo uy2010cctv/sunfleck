@@ -1,0 +1,34 @@
+.panel { min-width: 0; }
+.panel .section { padding-bottom: 18px; margin-bottom: 18px; border-bottom: 1px solid var(--dsw-alias-border-l1); }
+.heading, .infoRow, .dutyRow { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.panel .heading { margin-bottom: 12px; }
+.panel .heading h3, .panel .endSection h3 { margin: 0; font-size: 13px; font-weight: 500; color: var(--dsw-alias-label-primary); }
+.heading h3 span { margin-left: 4px; color: var(--dsw-alias-label-secondary); }
+.infoRow + .infoRow { margin-top: 16px; }
+.infoRow > div { min-width: 0; flex: 1; }
+.label { color: var(--dsw-alias-label-secondary); font-size: 12px; line-height: 1.5; }
+.panel .name { margin-top: 4px; color: var(--dsw-alias-label-primary); font-size: 14px; overflow-wrap: anywhere; }
+.panel .description { margin-top: 6px; color: var(--dsw-alias-label-secondary); line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
+.panel .members { margin: 0; padding: 0; list-style: none; }
+.panel .members li { display: flex; align-items: center; gap: 8px; min-height: 40px; padding: 4px 0; }
+.panel .avatar { flex: none; display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-label-secondary); font-size: 12px; }
+.panel .memberName { flex: 1; min-width: 0; overflow-wrap: anywhere; color: var(--dsw-alias-label-primary); font-size: 13px; }
+.panel .badge { flex: none; color: var(--dsw-alias-state-business-primary); font-size: 11px; }
+.dutyRow { margin-top: 12px; }
+.panel .endSection { border: 0; margin: 0; padding: 0; }
+.endSection > button { margin-top: 12px; width: 100%; }
+.danger { color: var(--dsw-alias-state-error-primary); }
+.dialog { width: min(460px, 100%); max-height: 100%; }
+.dialogContent { min-height: 0; overflow: auto; }
+.dialogBody { display: grid; gap: 16px; min-width: 0; padding: 0; }
+.dialogBody p { margin: 0; font-size: 13px; line-height: 1.6; overflow-wrap: anywhere; }
+.dialogBody textarea { box-sizing: border-box; width: 100%; border: 1px solid var(--dsw-alias-border-l2); border-radius: var(--dsw-radius-lg); padding: 10px 12px; background: var(--dsw-alias-bg-layer-1); color: var(--dsw-alias-label-primary); font: inherit; resize: vertical; }
+.choices { display: grid; gap: 4px; max-height: min(320px, 45vh); overflow: auto; padding: 4px; }
+.choices label { display: flex; align-items: center; gap: 10px; min-height: 38px; padding: 4px 8px; border-radius: var(--dsw-radius-md); color: var(--dsw-alias-label-primary); font-size: 13px; cursor: pointer; }
+.choices label:hover { background: var(--dsw-alias-interactive-bg-hover); }
+.choices label span { min-width: 0; overflow-wrap: anywhere; }
+.choices input { flex: none; accent-color: var(--dsw-alias-state-business-primary); }
+.center { display: grid; place-items: center; gap: 12px; min-height: 120px; text-align: center; }
+.empty { min-height: 72px; display: grid; place-items: center; color: var(--dsw-alias-label-secondary); }
+.error { color: var(--dsw-alias-state-error-primary); }
+@media (max-width: 480px) { .choices { max-height: 35vh; } }

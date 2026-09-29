@@ -66,6 +66,8 @@ Room composers share the workspace capsule, control row and send action, with at
 
 Channels use a left-aligned post list and a separate thread pane. Reply counts include signed text posts, and execution facts fold into their employee reply. A targeted Human post in either the room or a thread shows the same employee avatar and replying indicator until that employee's signed answer arrives in the same conversation scope. Persisted topic destinations place historical unthreaded employee facts in their known thread without changing signed records. Thread pages load the authorized parent even outside the room page; narrow room containers show the thread as a single panel, and closing returns keyboard focus to the invoking control.
 
+Room details share one information and membership layout for groups and channels. Administrator-only edits and eligible-member search use protected room endpoints; other members can leave through a confirmed action. Removal and archive confirmations retain inputs on failure. Channel duty selection uses only current employees, and workflows/approvals stay in a separate expandable section. Archiving keeps history stored.
+
 ## Ordinary-profile fallback
 
 Fallback activates only when `enterpriseEmployee.list` returns the explicit enterprise-unavailable response. Other transport, authorization, cursor, and server failures stay visible as failures. The fallback roster includes only declarations marked as employees; generic work modes stay in the mode picker. Starting a fallback employee requires an explicit Workspace choice.

@@ -59,7 +59,7 @@ None; provider request caching is outside the database composition.
 ## Known Limitations and Deferred Work
 
 - The browser Host API still needs an application-specific composition to expose catalog and operations methods; this package only provides the durable services.
-- The legacy surface directory remains available for roster reads. The collaboration repository adds member-scoped group/channel persistence; the enterprise controller owns authorized native Session routing. Employee inbox and token inbound delivery still require their separately composed runtime.
+- The legacy surface directory remains available for roster reads. The collaboration repository adds member-scoped group/channel persistence with archive retention and atomic employee roster/duty updates; the enterprise controller owns authorized native Session routing. Employee inbox and token inbound delivery still require their separately composed runtime.
 - Collaboration bootstrap creates base room tables before attachment and preference foreign keys. These additive tables are also checked when a version-4 database resumes.
 - SQLite-to-PostgreSQL data migration for legacy Session logs remains a separate controlled operation.
 

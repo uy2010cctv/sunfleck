@@ -36,6 +36,7 @@ export class CollaborationHttpHandler {
           const value = await this.service.bySession(principal, operation)
           return value === undefined ? failure(404, 'not-found') : Response.json(value)
         }
+        if (operation === 'member-options' && target === undefined) return Response.json(await this.service.getMemberOptions(principal, id))
         if (operation === undefined) return Response.json(await this.service.detail(principal, id))
         if (target === undefined && operation === 'events') {
           const params = new URL(request.url).searchParams
@@ -131,6 +132,11 @@ export class CollaborationHttpHandler {
       }
       if (operation === 'dissolve') {
         return Response.json(await this.service.dissolve(principal, id))
+      }
+      if (operation === 'duty') {
+        const employeeIds = stringArrayField(body, 'employeeIds')
+        if (employeeIds === undefined) return failure(400, 'invalid-body')
+        return Response.json(await this.service.setDuty(principal, id, employeeIds))
       }
       if (operation === 'rename') {
         const name = stringField(body, 'name')

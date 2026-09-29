@@ -10,7 +10,6 @@ import { filesForRoomReply } from './room-presented-files.ts'
 import { channelThreadEvents, threadReplyItems } from './channel-threads.ts'
 import { ComposerCard, ComposerControlRow, ComposerSendButton, IconCloseOutlineRegular, IconPlusOutlineMedium, IconLoadingOutlineRegular, IconReactionAddOutlineRegular, IconSearchOutlineRegular, IconUsersOutlineRegular, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { CollaborationController, CollaborationState, RoomEvent, RoomPresentedFile } from './collaboration-store.ts'
-import type { CollaborationChoices } from './CollaborationNavigation.tsx'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-locale/client'
 import { ChannelWorkflowEditor } from './ChannelWorkflowEditor.tsx'
 import { ChannelDecisionQueue } from './ChannelDecisionQueue.tsx'
@@ -516,10 +515,9 @@ function Composer({ state, controller, renderFactorySlot, t, threadRoot }: {
 }
 
 /** One shared timeline for people and Bots, with a room context and thread rail. */
-export function CollaborationRoom({ state, controller, loadChoices, renderFactorySlot, t }: {
+export function CollaborationRoom({ state, controller, renderFactorySlot, t }: {
   readonly state: CollaborationState
   readonly controller: CollaborationController
-  readonly loadChoices?: () => Promise<CollaborationChoices>
   readonly renderFactorySlot?: PropsRenderFactories['renderFactorySlot'] | undefined
   readonly t: Copy
 }) {
@@ -842,15 +840,12 @@ export function CollaborationRoom({ state, controller, loadChoices, renderFactor
       }}>
         <div className={css.sideHeader}><h2>{t(threadRoot === undefined ? 'roomDetails' : 'roomThread')}</h2><button ref={threadCloseButton} type="button" aria-label={t('closeDetails')} onClick={() => { if (threadRoot !== undefined) controller.closeThread(); else setShowDetails(false) }}><IconCloseOutlineRegular size={16}/></button></div>
         {threadRoot === undefined ? <div className={css.details}>
-          {detail.kind === 'group' ? <CollaborationGroupDetails detail={detail}
-            {...(detail.viewerIsAdmin ? { controller } : {})}
-            {...(loadChoices === undefined ? {} : { loadChoices })} t={t}/>
-            : <><section><h3>{t('people')}</h3><p>{detail.memberUserIds.length} {t('humanMembers')}</p></section>
-              <section><h3>{t('employees')}</h3>{detail.members.length === 0 ? <p>{t('emptyEmployees')}</p> : <ul>{detail.members.map(member => <li key={member.employeeId}>{member.displayName}{detail.dutyEmployeeIds.includes(member.employeeId) && <span>{t('onDuty')}</span>}</li>)}</ul>}</section></>}
+          <CollaborationGroupDetails key={detail.id} detail={detail} controller={controller} t={t}/>
           {detail.team !== undefined && <section><h3>{t('team')}</h3><p>{detail.team.name}</p></section>}
           {detail.project !== undefined && <section><h3>{t('project')}</h3><p>{detail.project.name}</p></section>}
-          {detail.kind === 'channel' && <><ChannelDecisionQueue key={`${detail.id}-decisions`} channelId={detail.id} t={t}/>
-            <ChannelWorkflowEditor key={`${detail.id}-workflows`} channelId={detail.id} t={t}/></>}
+          {detail.kind === 'channel' && <details className={css.channelAutomation}><summary>{t('channelAutomation')}</summary>
+            <ChannelDecisionQueue key={`${detail.id}-decisions`} channelId={detail.id} t={t}/>
+            <ChannelWorkflowEditor key={`${detail.id}-workflows`} channelId={detail.id} t={t}/></details>}
         </div> : <>
           <div className={css.threadScroll} ref={threadScroll} onScroll={() => {
             const element = threadScroll.current

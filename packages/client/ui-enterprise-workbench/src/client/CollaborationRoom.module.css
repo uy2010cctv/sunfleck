@@ -169,3 +169,7 @@
 .channelExecution { max-height: min(30vh, 200px); overflow: auto; flex: none; margin: 6px 20px; color: var(--dsw-alias-label-secondary); font-size: 12px; }
 .channelExecution li { padding-block: 6px; }
 .channelExecution button { margin-inline-start: 8px; }
+
+.channelAutomation { margin-top: 18px; border-top: 1px solid var(--dsw-alias-border-l1); padding-top: 16px; }
+.channelAutomation > summary { cursor: pointer; color: var(--dsw-alias-label-primary); font-size: 13px; font-weight: 500; padding-block: 4px; }
+.channelAutomation > section { margin-top: 16px; }

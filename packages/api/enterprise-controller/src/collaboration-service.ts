@@ -27,7 +27,7 @@ export interface CollaborationDetail {
   readonly dutyEmployeeIds: readonly string[]
   /** The authenticated human, so clients can distinguish their own posts. */
   readonly viewerUserId: string
-  /** Whether the authenticated human administers this group. */
+  /** Whether the authenticated human administers this room. */
   readonly viewerIsAdmin: boolean
   readonly adminUserId?: string
   readonly announcement?: string
@@ -38,6 +38,11 @@ export interface CollaborationDetail {
     readonly goal: string }
   readonly team?: { readonly id: string
     readonly name: string }
+}
+/** Minimal eligible roster choices for room administrators. */
+export interface CollaborationMemberOptions {
+  readonly people: readonly { readonly id: string; readonly name: string }[]
+  readonly employees: readonly { readonly id: string; readonly name: string; readonly avatarSeed?: string }[]
 }
 /** Explicit destination selection; omitted values never choose an arbitrary group employee. */
 export interface CollaborationOpenInput { readonly topicId?: string
@@ -66,7 +71,7 @@ export interface CollaborationMessageInput {
 }
 /** Upload limits for one room attachment and one message's attachment count. */
 export const ROOM_ATTACHMENT_LIMITS = { maxBytes: 20 * 1024 * 1024, maxPerMessage: 8, maxNameLength: 200 } as const
-/** Explicit member ids for one group membership change; omitted kinds stay unchanged. */
+/** Explicit member ids for one room membership change; omitted kinds stay unchanged. */
 export interface CollaborationMemberChange {
   readonly employeeIds?: readonly string[]
   readonly userIds?: readonly string[]
@@ -136,6 +141,12 @@ export interface CollaborationRuntime {
   refreshWorkspace(workspaceId: string): void
   workspaceVisible(actor: EnterprisePrincipal, workspaceId: string): Promise<boolean>
   memberWorkspaceVisible(orgId: string, userId: string, workspaceId: string): Promise<boolean>
+  /** List active Workspace humans and actor-authorized released employees.
+   * @param actor - Authenticated human.
+   * @param workspaceId - Current room Workspace.
+   * @returns Minimal roster choices, including existing members.
+   */
+  memberOptions(actor: EnterprisePrincipal, workspaceId: string): Promise<CollaborationMemberOptions>
   employee(actor: EnterprisePrincipal, employeeId: string): Promise<CollaborationEmployee | undefined>
   project(actor: EnterprisePrincipal, id: string): Promise<CollaborationDetail['project']>
   /** A new room may join only a member-visible active project. */
@@ -494,103 +505,131 @@ export class CollaborationService {
     }
   }
 
-  /** Rename a group as its creating administrator.
-   * @param actor - Authenticated group administrator.
-   * @param id - Group identity.
+  /** Rename a room as its creating administrator.
+   * @param actor - Authenticated room administrator.
+   * @param id - Room identity.
    * @param name - New stored name.
    * @returns Refreshed detail.
    */
   async rename(actor: EnterprisePrincipal, id: string, name: string): Promise<CollaborationDetail> {
-    await this.requireGroupAdmin(actor, id)
+    await this.requireRoomAdmin(actor, id)
     const trimmed = name.trim()
     if (trimmed === '' || trimmed.length > 120) throw new CollaborationError('invalid-name')
     if (!await this.store.rename(actor.orgId, id, trimmed)) throw new CollaborationError('not-found', 404)
     return this.detail(actor, id)
   }
 
-  /** Replace the group announcement as its creating administrator; empty text removes the notice.
-   * @param actor - Authenticated group administrator.
-   * @param id - Group identity.
+  /** Replace the room announcement as its creating administrator; empty text removes the notice.
+   * @param actor - Authenticated room administrator.
+   * @param id - Room identity.
    * @param text - Announcement text.
    * @returns Refreshed detail.
    */
   async setAnnouncement(actor: EnterprisePrincipal, id: string, text: string): Promise<CollaborationDetail> {
-    await this.requireGroupAdmin(actor, id)
+    await this.requireRoomAdmin(actor, id)
     const trimmed = text.trim()
     if (trimmed.length > 2000) throw new CollaborationError('invalid-announcement')
     await this.store.setAnnouncement(id, trimmed === '' ? undefined : trimmed)
     return this.detail(actor, id)
   }
 
-  /** Add human and employee members to a group as its creating administrator.
-   * @param actor - Authenticated group administrator.
-   * @param id - Group identity.
+  /** Add human and employee members to a room as its creating administrator.
+   * @param actor - Authenticated room administrator.
+   * @param id - Room identity.
    * @param input - Explicit human and published employee ids.
-   * @returns Refreshed detail.
+   * @returns Refreshed detail; ineligible candidates reject with 409.
    */
   async addMembers(actor: EnterprisePrincipal, id: string,
     input: CollaborationMemberChange): Promise<CollaborationDetail> {
-    const row = await this.requireGroupAdmin(actor, id)
+    const row = await this.requireRoomAdmin(actor, id)
     const employeeIds = [...new Set(input.employeeIds ?? [])], userIds = [...new Set(input.userIds ?? [])]
     if (employeeIds.length === 0 && userIds.length === 0) throw new CollaborationError('invalid-members')
     for (const employeeId of employeeIds) {
-      if (!await this.runtime.employee(actor, employeeId)) throw new CollaborationError('employee-unavailable', 404)
+      if (!await this.runtime.employee(actor, employeeId)) throw new CollaborationError('employee-unavailable', 409)
     }
     for (const userId of userIds) {
       if (!await this.runtime.memberWorkspaceVisible(actor.orgId, userId, row.workspaceId)) {
-        throw new CollaborationError('member-workspace-forbidden', 403)
+        throw new CollaborationError('member-workspace-forbidden', 409)
       }
     }
     await this.store.addMembers(id, { employeeIds, userIds })
     return this.detail(actor, id)
   }
 
-  /** Remove human and employee members from a group as its creating administrator.
-   * @param actor - Authenticated group administrator.
-   * @param id - Group identity.
+  /** Remove human and employee members from a room as its creating administrator.
+   * @param actor - Authenticated room administrator.
+   * @param id - Room identity.
    * @param input - Explicit human and employee ids; absent ids stay absent.
    * @returns Refreshed detail.
    */
   async removeMembers(actor: EnterprisePrincipal, id: string,
     input: CollaborationMemberChange): Promise<CollaborationDetail> {
-    const row = await this.requireGroupAdmin(actor, id)
+    const row = await this.requireRoomAdmin(actor, id)
     const employeeIds = [...new Set(input.employeeIds ?? [])], userIds = [...new Set(input.userIds ?? [])]
     if (employeeIds.length === 0 && userIds.length === 0) throw new CollaborationError('invalid-members')
-    if (row.adminUserId !== undefined && userIds.includes(row.adminUserId)) throw new CollaborationError('group-admin-removal')
+    if (row.adminUserId !== undefined && userIds.includes(row.adminUserId)) throw new CollaborationError('room-admin-removal')
     await this.store.removeMembers(id, { employeeIds, userIds })
     return this.detail(actor, id)
   }
 
-  /** Remove the authenticated member from one group; the recorded administrator cannot leave.
-   * @param actor - Authenticated group member.
-   * @param id - Group identity.
-   * @returns Refreshed detail.
+  /** Remove the authenticated member from one room; the recorded administrator cannot leave.
+   * @param actor - Authenticated room member.
+   * @param id - Room identity.
+   * @returns Membership removal receipt.
    */
-  async leave(actor: EnterprisePrincipal, id: string): Promise<CollaborationDetail> {
+  async leave(actor: EnterprisePrincipal, id: string): Promise<{ readonly id: string; readonly left: true }> {
     const row = await this.authorized(actor, id)
-    if (row.kind !== 'group') throw new CollaborationError('group-only')
-    if (row.adminUserId === actor.userId) throw new CollaborationError('group-admin-leave')
+    if (row.adminUserId === actor.userId) throw new CollaborationError('room-admin-leave')
     await this.store.removeMembers(id, { employeeIds: [], userIds: [actor.userId] })
-    return this.detail(actor, id)
+    return { id, left: true }
   }
 
-  /** Dissolve one group as its recorded administrator; content stays stored (archived).
-   * @param actor - Authenticated group administrator.
-   * @param id - Group identity.
-   * @returns The detail of the archived group.
+  /** Dissolve one room as its recorded administrator; content stays stored (archived).
+   * @param actor - Authenticated room administrator.
+   * @param id - Room identity.
+   * @returns Archive receipt.
    */
-  async dissolve(actor: EnterprisePrincipal, id: string): Promise<CollaborationDetail> {
-    await this.requireGroupAdmin(actor, id)
+  async dissolve(actor: EnterprisePrincipal, id: string): Promise<{ readonly id: string; readonly archived: true }> {
+    await this.requireRoomAdmin(actor, id)
     if (!await this.store.archive(actor.orgId, id)) throw new CollaborationError('not-found', 404)
-    return this.detail(actor, id)
+    return { id, archived: true }
   }
 
-  /** Authorize one group administration request by its recorded creating human. */
-  private async requireGroupAdmin(actor: EnterprisePrincipal, id: string): Promise<CollaborationRecord> {
+  /** Authorize one room administration request by its recorded creating human. */
+  private async requireRoomAdmin(actor: EnterprisePrincipal, id: string): Promise<CollaborationRecord> {
     const row = await this.authorized(actor, id)
-    if (row.kind !== 'group') throw new CollaborationError('group-only')
-    if (row.adminUserId !== actor.userId) throw new CollaborationError('group-admin-required', 403)
+    if (row.adminUserId !== actor.userId) throw new CollaborationError('room-admin-required', 403)
     return row
+  }
+
+  /** List workspace-visible humans and released employees outside the current roster.
+   * @param actor - Current room administrator.
+   * @param id - Room identity.
+   * @returns Minimal eligible roster choices.
+   */
+  async getMemberOptions(actor: EnterprisePrincipal, id: string): Promise<CollaborationMemberOptions> {
+    const row = await this.requireRoomAdmin(actor, id)
+    const options = await this.runtime.memberOptions(actor, row.workspaceId)
+    return { people: options.people.filter(person => !row.memberUserIds.includes(person.id)),
+      employees: options.employees.filter(employee => !row.memberEmployeeIds.includes(employee.id)) }
+  }
+
+  /** Replace a channel's explicit duty selection with current authorized employees.
+   * @param actor - Current channel administrator.
+   * @param id - Channel identity.
+   * @param employeeIds - Selected current employee members; empty clears duty.
+   * @returns Refreshed channel detail; stale or unavailable employees reject with 409.
+   */
+  async setDuty(actor: EnterprisePrincipal, id: string, employeeIds: readonly string[]): Promise<CollaborationDetail> {
+    const row = await this.requireRoomAdmin(actor, id)
+    if (row.kind !== 'channel') throw new CollaborationError('channel-only')
+    const ids = [...new Set(employeeIds)]
+    for (const employeeId of ids) {
+      if (!row.memberEmployeeIds.includes(employeeId)) throw new CollaborationError('employee-not-member', 409)
+      if (!await this.runtime.employee(actor, employeeId)) throw new CollaborationError('employee-unavailable', 409)
+    }
+    if (!await this.store.setDuty(id, ids)) throw new CollaborationError('employee-not-member', 409)
+    return this.detail(actor, id)
   }
 
   /** Open an existing topic or an explicitly selected group employee.

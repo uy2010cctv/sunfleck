@@ -659,22 +659,39 @@ export class CollaborationController {
     }
   }
 
-  /** Rename a group as its creating administrator. */
+  /** Read eligible members for a room administered by the current user. */
+  async getMemberOptions(id: string): Promise<{ people: readonly { id: string; name: string }[]
+    employees: readonly { id: string; name: string; avatarSeed?: string }[] }> {
+    const request = new AbortController()
+    const row = record(await this.read(`/${encodeURIComponent(id)}/member-options`, request.signal))
+    const choices = (value: unknown): readonly { id: string; name: string }[] => array(value).map((item) => {
+      const entry = record(item)
+      return { id: string(entry['id']), name: string(entry['name']) }
+    })
+    return { people: choices(row['people']), employees: choices(row['employees']) }
+  }
+
+  /** Replace channel duty employees after current room-administrator validation. */
+  setDuty(id: string, employeeIds: readonly string[]): Promise<boolean> {
+    return this.mutateRoom(id, '/duty', { employeeIds: [...employeeIds] })
+  }
+
+  /** Rename a room as its creating administrator. */
   rename(id: string, name: string): Promise<boolean> {
     return this.mutateRoom(id, '/rename', { name })
   }
 
-  /** Replace the group announcement as its creating administrator; empty text removes the notice. */
+  /** Replace the room announcement as its creating administrator; empty text removes the notice. */
   setAnnouncement(id: string, text: string): Promise<boolean> {
     return this.mutateRoom(id, '/announcement', { text })
   }
 
-  /** Add human and employee members to a group as its creating administrator. */
+  /** Add human and employee members to a room as its creating administrator. */
   addMembers(id: string, memberEmployeeIds: readonly string[], memberUserIds: readonly string[]): Promise<boolean> {
     return this.mutateRoom(id, '/members/add', { memberEmployeeIds: [...memberEmployeeIds], memberUserIds: [...memberUserIds] })
   }
 
-  /** Remove human and employee members from a group as its creating administrator. */
+  /** Remove human and employee members from a room as its creating administrator. */
   removeMembers(id: string, memberEmployeeIds: readonly string[], memberUserIds: readonly string[]): Promise<boolean> {
     return this.mutateRoom(id, '/members/remove', { memberEmployeeIds: [...memberEmployeeIds], memberUserIds: [...memberUserIds] })
   }
@@ -773,12 +790,12 @@ export class CollaborationController {
     }
   }
 
-  /** Remove the signed-in member from one group; the roster drops the room. */
+  /** Remove the signed-in member from one room; the roster drops the room. */
   async leaveRoom(id: string): Promise<boolean> {
     return this.endRoom(id, '/leave')
   }
 
-  /** Dissolve one group as its administrator; the room archives and disappears from active lists. */
+  /** Dissolve one room as its administrator; the room archives and disappears from active lists. */
   async dissolveRoom(id: string): Promise<boolean> {
     return this.endRoom(id, '/dissolve')
   }

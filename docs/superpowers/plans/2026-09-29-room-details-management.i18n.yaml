@@ -1,0 +1,16 @@
+# Bilingual-pair consistency record for 2026-09-29-room-details-management.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/superpowers/plans/2026-09-29-room-details-management.md
+/unified-room-details-management-plan:
+  en: 23b876e39c8e33c4
+  zh: c150d189b736fcd2
+/unified-room-details-management-plan/server:
+  en: 12c0b9b0e10e1cd2
+  zh: c6985fc1062c9f56
+/unified-room-details-management-plan/client:
+  en: 6f3c639ca32ea80b
+  zh: a86532759fc0d5ba
+/unified-room-details-management-plan/delivery:
+  en: 2d3718123f2158b6
+  zh: 7ab6391ae6c8e04c

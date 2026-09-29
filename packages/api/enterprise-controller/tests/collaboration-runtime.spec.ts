@@ -165,3 +165,50 @@ describe('collaboration persisted TeamRun lookup', () => {
     } finally { await app.ctx.fiber.dispose() }
   })
 })
+
+describe('room member choices from current identity and releases', () => {
+  it('returns only active Workspace people and actor-authorized published employees', async () => {
+    const ctx = new Context()
+    ctx.provide('enterprisePostgres' as never, {
+      collaboration: { get: async () => ({ id: 'group', orgId: 'org', name: 'Group', kind: 'group', workspaceId: 'shared',
+        adminUserId: 'alice', memberUserIds: ['alice'], memberEmployeeIds: ['existing'], dutyEmployeeIds: [] }) },
+      identity: {
+        listUsers: async () => [
+          { id: 'alice', displayName: 'Alice', disabled: false }, { id: 'bob', displayName: 'Bob', disabled: false },
+          { id: 'disabled', displayName: 'Disabled', disabled: true }, { id: 'outsider', displayName: 'Outsider', disabled: false },
+        ],
+        listWorkspaceGrants: async (input: { userId: string }) => input.userId === 'outsider' ? [] : [{ workspaceId: 'shared' }],
+      },
+      catalog: {
+        listDrafts: async () => ({ items: ['existing', 'published', 'draft', 'denied', 'unreleased'].map(presetId => ({ presetId })) }),
+        getDraft: async (id: string) => ({ status: id === 'draft' ? 'draft' : 'published', profile: { name: id, avatarSeed: 'seed' } }),
+        listReleases: async (id: string) => id === 'unreleased' ? [] : [{ releaseId: 'release', version: 1 }],
+      },
+    } as never)
+    ctx.provide('enterpriseSecurity' as never, {
+      authenticateCookieAsync: async () => actor,
+      authorizeResourceAsync: async () => ({ allowed: true }), auditApiResourceAsync: async () => {},
+      authorizeApiAsync: async (_actor: unknown, _operation: string, input: { presetId?: string }) => ({ allowed: input.presetId !== 'denied' }),
+    } as never)
+    const handler = composeCollaboration(ctx, { operations: () => { throw new Error('not needed') }, teams: () => { throw new Error('not needed') },
+      limits: { roomContextCharacters: 6000, roomContextEvents: 24, maxBotHops: 2 } })
+    try {
+      const response = await handler.fetch(new Request('https://dsh/enterprise/surfaces/group/member-options'))
+      expect(response.status).toBe(200)
+      expect(await response.json()).toEqual({ people: [{ id: 'bob', name: 'Bob' }],
+        employees: [{ id: 'published', name: 'published', avatarSeed: 'seed' }] })
+      for (const userId of ['disabled', 'outsider', 'foreign']) {
+        const rejected = await handler.fetch(new Request('https://dsh/enterprise/surfaces/group/members/add', {
+          method: 'POST', body: JSON.stringify({ memberUserIds: [userId] }),
+        }))
+        expect(rejected.status).toBe(409)
+      }
+      for (const employeeId of ['draft', 'denied', 'unreleased']) {
+        const rejected = await handler.fetch(new Request('https://dsh/enterprise/surfaces/group/members/add', {
+          method: 'POST', body: JSON.stringify({ memberEmployeeIds: [employeeId] }),
+        }))
+        expect(rejected.status).toBe(409)
+      }
+    } finally { await ctx.fiber.dispose() }
+  })
+})

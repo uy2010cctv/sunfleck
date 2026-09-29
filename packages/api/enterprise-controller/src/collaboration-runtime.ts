@@ -598,8 +598,33 @@ export function composeCollaboration(ctx: Context, services: {
     } : undefined,
     refreshWorkspace: (workspaceId) => { ctx.emit('workspace/visibility-changed', brandString<WorkspaceId>(workspaceId)) },
     workspaceVisible: async (actor, id) => (await security.authorizeApiAsync(actor, 'session.create', { workspaceId: id })).allowed,
-    memberWorkspaceVisible: async (orgId, userId, workspaceId) => (await database.identity.listWorkspaceGrants({ orgId,
-      userId })).some(grant => grant.workspaceId === workspaceId),
+    memberWorkspaceVisible: async (orgId, userId, workspaceId) => {
+      const user = (await database.identity.listUsers(orgId)).find(candidate => candidate.id === userId)
+      return user !== undefined && !user.disabled && (await database.identity.listWorkspaceGrants({ orgId, userId }))
+        .some(grant => grant.workspaceId === workspaceId)
+    },
+    memberOptions: async (actor, workspaceId) => {
+      const users = (await database.identity.listUsers(actor.orgId)).filter(user => !user.disabled)
+      const people = []
+      for (const user of users) {
+        if ((await database.identity.listWorkspaceGrants({ orgId: actor.orgId, userId: user.id }))
+          .some(grant => grant.workspaceId === workspaceId)) people.push({ id: user.id, name: user.displayName })
+      }
+      const employees = []
+      let cursor: string | undefined
+      do {
+        const page = await database.catalog.listDrafts({ orgId: actor.orgId, limit: 100,
+          ...(actor.roles.includes('administrator') ? { includeAllVisible: true } : { viewerUserId: actor.userId }),
+          ...(cursor === undefined ? {} : { cursor }) })
+        for (const draft of page.items) {
+          const available = await employee(actor, draft.presetId)
+          if (available !== undefined) employees.push({ id: available.employeeId, name: available.displayName,
+            ...(available.avatarSeed === undefined ? {} : { avatarSeed: available.avatarSeed }) })
+        }
+        cursor = page.nextCursor
+      } while (cursor !== undefined)
+      return { people, employees }
+    },
     humanMembers: async (_actor, row) => {
       const users = await database.identity.listUsers(row.orgId)
       return row.memberUserIds.map(userId => ({ userId,

@@ -240,6 +240,7 @@ export class PostgresCollaborationRepository {
   /** @param database - Shared enterprise database. */
   constructor(private readonly database: EnterprisePostgresDatabase) {}
 
+  // oxlint-disable-next-line typescript/no-unnecessary-type-parameters -- Each SQL caller declares its selected result fields.
   private async query<Row extends Record<string, unknown>>(text: string,
     values: readonly unknown[]): Promise<{ rows: Row[]; rowCount: number | null }> {
     return this.database.query<Row>(text, values)
@@ -301,7 +302,7 @@ export class PostgresCollaborationRepository {
     const members = await this.query<{ user_id: string }>('SELECT user_id FROM dsh_enterprise_collaboration_members WHERE surface_id=$1 ORDER BY user_id', [id])
     return { id, orgId, kind: row.kind, name: row.name, ...parseCollaborationConfig(row.config_json),
       memberUserIds: members.rows.map(member => member.user_id),
-      ...(row.archived_at === null || row.archived_at === undefined ? {} : { archivedAt: Number(row.archived_at) }) }
+      ...(row.archived_at === null ? {} : { archivedAt: Number(row.archived_at) }) }
   }
 
   /** Archive one conversation; its content stays stored but it leaves the active lists.
@@ -375,11 +376,31 @@ export class PostgresCollaborationRepository {
     const row = (await tx.query<{ config_json: unknown }>(
       'SELECT config_json FROM dsh_enterprise_collaboration_config WHERE surface_id=$1 FOR UPDATE', [surfaceId])).rows[0]
     if (row === undefined) throw new Error('collaboration configuration is missing')
-    const employeeIds = [...new Set(next(parseCollaborationConfig(row.config_json).memberEmployeeIds))]
+    const config = parseCollaborationConfig(row.config_json)
+    const employeeIds = [...new Set(next(config.memberEmployeeIds))]
+    const dutyEmployeeIds = config.dutyEmployeeIds.filter(id => employeeIds.includes(id))
     await tx.query(`UPDATE dsh_enterprise_collaboration_config
-      SET config_json = jsonb_set(config_json,'{memberEmployeeIds}',$2::jsonb) WHERE surface_id=$1`,
-    [surfaceId, JSON.stringify(employeeIds)])
+      SET config_json = config_json || $2::jsonb WHERE surface_id=$1`,
+    [surfaceId, JSON.stringify({ memberEmployeeIds: employeeIds, dutyEmployeeIds })])
     await tx.query('UPDATE dsh_enterprise_surface_directory SET member_count=$2 WHERE surface_id=$1', [surfaceId, employeeIds.length])
+  }
+
+  /** Store duty only while every selected employee remains in the locked channel roster.
+   * @param surfaceId - Authorized channel identity.
+   * @param employeeIds - Explicit duty selection.
+   * @returns Whether all selected employees were current channel members.
+   */
+  async setDuty(surfaceId: string, employeeIds: readonly string[]): Promise<boolean> {
+    return this.database.transaction(async (tx) => {
+      const row = (await tx.query<{ config_json: unknown }>(
+        'SELECT config_json FROM dsh_enterprise_collaboration_config WHERE surface_id=$1 FOR UPDATE', [surfaceId])).rows[0]
+      if (row === undefined) return false
+      const config = parseCollaborationConfig(row.config_json)
+      if (employeeIds.some(id => !config.memberEmployeeIds.includes(id))) return false
+      await tx.query('UPDATE dsh_enterprise_collaboration_config SET config_json=config_json || $2::jsonb WHERE surface_id=$1',
+        [surfaceId, JSON.stringify({ dutyEmployeeIds: [...new Set(employeeIds)] })])
+      return true
+    })
   }
 
   /** List topic state with its native transcript binding.
