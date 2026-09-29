@@ -781,21 +781,21 @@
 .teamCharters .sectionHead p,
 .teamRooms .sectionHead p { max-inline-size: 62ch; margin-block-start: var(--dse-space-3xs); color: var(--dse-color-muted); font-size: 0.75rem; line-height: 1.5; }
 .charterList { border-block-start: 1px solid var(--dse-color-border); }
-.charterRow { inline-size: 100%; min-inline-size: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: stretch; border-block-end: 1px solid var(--dse-color-border-subtle); background: transparent; transition: background-color var(--dse-duration-short) var(--dse-ease-out); }
+.charterRow { inline-size: 100%; min-inline-size: 0; display: grid; grid-template-columns: minmax(0, 1fr); align-items: stretch; border-block-end: 1px solid var(--dse-color-border-subtle); background: transparent; transition: background-color var(--dse-duration-short) var(--dse-ease-out); }
 .charterRow:hover { background: var(--dsw-alias-interactive-bg-hover); }
 .charterRow[data-selected='true'] { background: var(--dse-color-accent-soft); }
-.charterSelect { min-inline-size: 0; display: grid; grid-template-columns: minmax(9rem, .75fr) minmax(14rem, 1.4fr) auto; gap: var(--dse-space-xs); align-items: center; padding: var(--dse-space-sm) var(--dse-space-xs); border: 0; background: transparent; color: var(--dse-color-ink); font: inherit; text-align: start; cursor: pointer; }
+.charterSelect { min-inline-size: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--dse-space-xs); align-items: center; padding: var(--dse-space-sm) var(--dse-space-xs); border: 0; background: transparent; color: var(--dse-color-ink); font: inherit; text-align: start; cursor: pointer; }
 .charterSelect:disabled { cursor: default; opacity: .72; }
 .charterIdentity,
 .charterNorthStar { min-inline-size: 0; display: grid; gap: var(--dse-space-3xs); }
-.charterIdentity strong { overflow-wrap: anywhere; font-size: 0.875rem; }
+.charterIdentity strong { overflow-wrap: anywhere; font-size: 0.875rem; font-weight: 500; }
 .charterIdentity small,
 .charterNorthStar small,
 .charterRoster { color: var(--dse-color-muted); font-size: 0.6875rem; }
-.charterNorthStar span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.8125rem; }
+.charterNorthStar span { overflow-wrap: anywhere; white-space: normal; font-size: 0.8125rem; line-height: 1.5; }
 .charterRoster { white-space: nowrap; }
-.charterRowActions { display: flex; align-items: center; gap: var(--dse-space-2xs); padding-inline-end: var(--dse-space-xs); }
-.charterRowActions > span { color: var(--dse-color-accent); font-size: 0.75rem; font-weight: 650; white-space: nowrap; }
+.charterRowActions { display: flex; align-items: center; justify-content: space-between; gap: var(--dse-space-2xs); padding: 0 var(--dse-space-xs) var(--dse-space-xs); }
+.charterRowActions > span { color: var(--dse-color-accent); font-size: 0.75rem; font-weight: 500; white-space: nowrap; }
 .charterListActions { display: flex; align-items: center; gap: var(--dse-space-xs); }
 .charterListActions > span { color: var(--dse-color-muted); font-size: .75rem; font-variant-numeric: tabular-nums; }
 .charterListActions .primaryButton { min-block-size: 34px; padding-inline: var(--dse-space-xs); }
