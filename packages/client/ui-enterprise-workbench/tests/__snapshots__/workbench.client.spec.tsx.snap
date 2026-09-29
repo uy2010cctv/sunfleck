@@ -1,0 +1,8 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`EnterpriseWorkbench > presents the roster as a StaffDeck-inspired employee gallery without technical metadata > employee directory hierarchy 1`] = `
+[
+  "员工名册",
+  "采购专员",
+]
+`;

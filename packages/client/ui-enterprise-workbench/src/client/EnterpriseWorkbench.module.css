@@ -233,43 +233,6 @@
 .searchField input { min-inline-size: 0; flex: 1; border: 0; outline: 0; background: transparent; color: var(--dse-color-ink); font: inherit; font-size: 0.875rem; }
 .searchField input::placeholder { color: var(--dse-color-muted); opacity: 1; }
 
-.advancedFilters { position: relative; flex: none; }
-.advancedFilters > summary {
-  min-block-size: 36px;
-  display: flex;
-  align-items: center;
-  padding-inline: var(--dse-space-xs);
-  border: 1px solid var(--dse-color-border);
-  border-radius: var(--dse-radius-control);
-  background: var(--dse-color-surface);
-  color: var(--dse-color-muted);
-  font-size: 0.75rem;
-  cursor: pointer;
-  list-style: none;
-}
-.advancedFilters > summary::-webkit-details-marker { display: none; }
-.advancedFilters > summary:hover { background: var(--dsw-alias-interactive-bg-hover-solid); color: var(--dse-color-ink); }
-.advancedFilters > summary:focus-visible { outline: 2px solid var(--dse-color-focus); outline-offset: 2px; }
-.advancedFilters > div {
-  position: absolute;
-  inset-block-start: calc(100% + var(--dse-space-2xs));
-  inset-inline-end: 0;
-  z-index: 2;
-  inline-size: min(30rem, calc(100vw - 2rem));
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: var(--dse-space-xs);
-  padding: var(--dse-space-sm);
-  border: 1px solid var(--dse-color-border);
-  border-radius: var(--dse-radius-card);
-  background: var(--dse-color-surface-raised);
-  box-shadow: 0 12px 32px color-mix(in srgb, var(--dse-color-ink) 14%, transparent);
-}
-.advancedFilters label { display: flex; min-inline-size: 0; flex-direction: column; gap: var(--dse-space-3xs); color: var(--dse-color-muted); font-size: 0.75rem; }
-.advancedFilters input,
-.advancedFilters select { min-inline-size: 0; min-block-size: 38px; padding-inline: var(--dse-space-xs); border: 1px solid var(--dse-color-border); border-radius: var(--dse-radius-control); background: var(--dse-color-surface); color: var(--dse-color-ink); font: inherit; }
-.advancedFilters button { align-self: end; }
-
 .employeeTabs {
   display: flex;
   gap: var(--dse-space-3xs);
@@ -279,7 +242,7 @@
 }
 .employeeTabs button { min-block-size: 42px; flex: none; padding-inline: var(--dse-space-xs); border: 0; border-block-end: 2px solid transparent; background: transparent; color: var(--dse-color-muted); font: inherit; font-size: 0.8125rem; cursor: pointer; }
 .employeeTabs button:hover { color: var(--dse-color-ink); }
-.employeeTabs button[aria-selected='true'] { border-block-end-color: var(--dse-color-accent); color: var(--dse-color-ink); font-weight: 650; }
+.employeeTabs button[aria-selected='true'] { border-block-end-color: var(--dse-color-accent); color: var(--dse-color-ink); font-weight: 500; }
 .employeeTabs button:focus-visible { outline: 2px solid var(--dse-color-focus); outline-offset: -2px; }
 
 .body {
@@ -1092,8 +1055,6 @@
   .galleryIntro { flex-direction: column; gap: var(--dse-space-2xs); }
   .galleryControls { flex-wrap: wrap; }
   .searchField { flex-basis: 100%; }
-  .advancedFilters { margin-inline-start: auto; }
-  .advancedFilters > div { position: fixed; inset-inline: var(--dse-space-sm); inset-block-start: 8rem; inline-size: auto; grid-template-columns: minmax(0, 1fr); }
   .employeeCard { padding: var(--dse-space-sm); }
   .employeeActions { justify-content: stretch; }
   .employeeActions button { flex: 1; }
@@ -1184,3 +1145,69 @@
 .boundAssets span { color: var(--dse-color-muted); font-size: 0.75rem; }
 .boundAssets button { flex: none; }
 @media (max-width: 36rem) { .bindingPicker { flex-wrap: wrap; } .bindingPicker label { flex-basis: 100%; } }
+
+/* Employee browsing keeps dispatch and Workspace settings secondary. */
+.rosterContext {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--dse-space-xs);
+  margin-block-end: var(--dse-space-sm);
+  color: var(--dse-color-muted);
+  font-size: 0.8125rem;
+}
+.rosterContext > label { display: flex; align-items: center; gap: var(--dse-space-xs); min-inline-size: 0; }
+.rosterContext select, .rosterFilters select, .rosterFilters input {
+  min-inline-size: 0;
+  max-inline-size: 100%;
+  min-block-size: 38px;
+  padding-inline: var(--dse-space-xs);
+  border: 1px solid var(--dse-color-border);
+  border-radius: var(--dse-radius-control);
+  color: var(--dse-color-ink);
+  background: var(--dse-color-surface);
+  font: inherit;
+}
+.rosterContext > label select { inline-size: min(22rem, 55vw); }
+.rosterSettings summary, .rosterFilters summary {
+  display: inline-flex;
+  align-items: center;
+  min-block-size: 38px;
+  padding-inline: var(--dse-space-xs);
+  border: 1px solid var(--dse-color-border);
+  border-radius: var(--dse-radius-control);
+  color: var(--dse-color-muted);
+  background: var(--dse-color-surface);
+  font-size: 0.8125rem;
+  cursor: pointer;
+}
+.rosterSettings summary:focus-visible, .rosterFilters summary:focus-visible,
+.rosterContext select:focus-visible, .rosterFilters select:focus-visible, .rosterFilters input:focus-visible {
+  outline: 2px solid var(--dse-color-focus);
+  outline-offset: 2px;
+}
+.rosterSettings[open], .rosterFilters[open] { flex-basis: 100%; }
+.rosterSettingsBody, .rosterFilters > div {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: var(--dse-space-xs);
+  margin-block-start: var(--dse-space-xs);
+  padding: var(--dse-space-sm);
+  border: 1px solid var(--dse-color-border);
+  border-radius: var(--dse-radius-control);
+}
+.rosterSettingsBody p { flex-basis: 100%; margin: 0; line-height: 1.5; }
+.rosterSettingsBody label, .rosterFilters label { display: flex; flex-direction: column; gap: var(--dse-space-3xs); color: var(--dse-color-muted); font-size: 0.8125rem; min-inline-size: 0; }
+.employeeGallery .galleryIntroActions { flex-wrap: wrap; }
+.employeeGallery .galleryControls { flex-wrap: wrap; }
+.employeeGallery .searchField { flex: 1; inline-size: auto; }
+@media (max-width: 640px) {
+  .rosterContext > label { flex-basis: 100%; }
+  .rosterContext > label select { flex: 1; inline-size: auto; }
+  .rosterSettingsBody label, .rosterFilters label { flex: 1 1 100%; }
+  .employeeGallery .galleryIntroActions { inline-size: 100%; }
+}
+
+.rosterHeading { display: flex; align-items: baseline; gap: var(--dse-space-xs); flex-wrap: wrap; }
+.rosterHeading > span { color: var(--dse-color-muted); font-size: 0.8125rem; font-variant-numeric: tabular-nums; }

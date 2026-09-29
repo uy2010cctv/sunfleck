@@ -1647,6 +1647,32 @@ describe('EnterpriseWorkbench', () => {
     expect(optimizeEmployeePrompt).toHaveBeenCalledTimes(1)
   })
 
+  it('puts the employee roster first and keeps goal dispatch behind an explicit entry', () => {
+    render(<EnterpriseWorkbench {...workbenchProps({ state: { mode: 'enterprise' } })} />)
+    expect(screen.getByRole('heading', { name: '员工名册' })).toBeDefined()
+    expect(screen.queryByRole('textbox', { name: '工作目标' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: '按目标派工' }))
+    const objective = screen.getByRole('textbox', { name: '工作目标' })
+    fireEvent.change(objective, { target: { value: '检查合同' } })
+    fireEvent.click(screen.getByRole('button', { name: '按目标派工' }))
+    expect(screen.queryByRole('textbox', { name: '工作目标' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: '按目标派工' }))
+    expect(screen.getByRole('textbox', { name: '工作目标' })).toHaveProperty('value', '检查合同')
+  })
+
+  it('keeps Workspace defaults separate from roster search and starting employee conversations', async () => {
+    render(<EnterpriseWorkbench {...workbenchProps({
+      state: { mode: 'enterprise' },
+      readWorkspaceDefault: vi.fn(async () => ({ workspaceId: 'workspace-1', employeeId: null,
+        revision: 0, unavailable: false, manageable: true })),
+    })} />)
+    await screen.findByText('默认员工设置')
+    expect(screen.getByText('默认员工设置').closest('details')?.open).toBe(false)
+    fireEvent.click(screen.getByText('默认员工设置'))
+    expect(screen.getByRole('combobox', { name: '默认数字员工' })).toBeDefined()
+    expect(screen.getByRole('button', { name: '保存默认值' })).toBeDefined()
+  })
+
   it('presents the roster as a StaffDeck-inspired employee gallery without technical metadata', () => {
     render(<EnterpriseWorkbench {...workbenchProps({
       state: {
@@ -1667,7 +1693,7 @@ describe('EnterpriseWorkbench', () => {
       } as never,
     })} />)
 
-    expect(screen.getByRole('heading', { name: '选择数字员工' })).toBeDefined()
+    expect(screen.getByRole('heading', { name: '员工名册' })).toBeDefined()
     expect(screen.getByPlaceholderText('搜索数字员工名称、岗位或部门')).toBeDefined()
     expect(screen.getByRole('tab', { name: '所有员工' }).getAttribute('aria-selected')).toBe('true')
     expect(screen.getByRole('tab', { name: '已发布' })).toBeDefined()
@@ -1677,6 +1703,7 @@ describe('EnterpriseWorkbench', () => {
       'https://api.dicebear.com/10.x/lorelei/svg?seed=opaque-avatar-seed',
     )
     expect(screen.getByText('帮助员工准备采购需求和审批材料。')).toBeDefined()
+    expect(within(screen.getByRole('region', { name: '员工名册' })).getAllByRole('heading').map(node => node.textContent)).toMatchSnapshot('employee directory hierarchy')
     expect(screen.getByText('1 SOP')).toBeDefined()
     expect(screen.getByText('1 知识')).toBeDefined()
     expect(screen.getByRole('button', { name: '与采购专员发起对话' })).toBeDefined()
@@ -2422,6 +2449,7 @@ describe('EnterpriseWorkbench', () => {
       state: { mode: 'enterprise', releases: [{ releaseId: 'release-buyer', presetId: 'buyer', orgId: 'org-a', version: 2, digest: 'digest', snapshot: { profile: { name: '采购专员' }, bindings: [] }, publishedBy: 'user-a', publishedAt: 1 }] },
     } as never)} />)
 
+    fireEvent.click(screen.getByRole('button', { name: '按目标派工' }))
     fireEvent.change(screen.getByLabelText('工作目标'), { target: { value: '核验本周供应商报价' } })
     fireEvent.click(screen.getByRole('button', { name: '开始工作' }))
 
@@ -2441,6 +2469,7 @@ describe('EnterpriseWorkbench', () => {
       .mockResolvedValueOnce({ kind: 'needs-workspace-selection', availableWorkspaceIds: ['workspace-1'] })
       .mockResolvedValueOnce({ kind: 'needs-selection', workspaceId: 'workspace-1', availableEmployeeReleaseIds: [] })
     render(<EnterpriseWorkbench {...workbenchProps({ prepareWork, startPreparedWork: vi.fn(), state: { mode: 'enterprise' } } as never)} />)
+    fireEvent.click(screen.getByRole('button', { name: '按目标派工' }))
     fireEvent.change(screen.getByLabelText('工作目标'), { target: { value: '准备采购周报' } })
     fireEvent.click(screen.getByRole('button', { name: '开始工作' }))
     await screen.findByRole('button', { name: '采购部' })
@@ -2456,6 +2485,7 @@ describe('EnterpriseWorkbench', () => {
       .mockResolvedValueOnce({ kind: 'needs-selection', workspaceId: 'workspace-1', availableEmployeeReleaseIds: ['release-buyer'] })
       .mockResolvedValueOnce({ kind: 'ready', workspaceId: 'workspace-1', employeeReleaseId: 'release-buyer' })
     render(<EnterpriseWorkbench {...workbenchProps({ prepareWork, startPreparedWork: vi.fn(() => Promise.resolve({ sessionId: 'session-created', workspaceId: 'workspace-1', employeeReleaseId: 'release-buyer', executionSummary: 'Ready.' })), state: { mode: 'enterprise', releases: [release] } } as never)} />)
+    fireEvent.click(screen.getByRole('button', { name: '按目标派工' }))
     fireEvent.change(screen.getByLabelText('工作目标'), { target: { value: '准备采购周报' } })
     fireEvent.click(screen.getByRole('button', { name: '开始工作' }))
     await screen.findByRole('button', { name: '采购专员 · v2' })
@@ -2469,6 +2499,7 @@ describe('EnterpriseWorkbench', () => {
     const release = { releaseId: 'release-internal-42', presetId: 'buyer', orgId: 'org-a', version: 2, digest: 'digest', snapshot: { profile: {}, bindings: [] }, publishedBy: 'user-a', publishedAt: 1 }
     const prepareWork = vi.fn(() => Promise.resolve({ kind: 'needs-selection', workspaceId: 'workspace-1', availableEmployeeReleaseIds: ['release-internal-42'] }))
     const { rerender } = render(<EnterpriseWorkbench {...workbenchProps({ prepareWork, state: { mode: 'enterprise', releases: [release] } } as never)} />)
+    fireEvent.click(screen.getByRole('button', { name: '按目标派工' }))
     fireEvent.change(screen.getByLabelText('工作目标'), { target: { value: '准备采购周报' } })
     fireEvent.click(screen.getByRole('button', { name: '开始工作' }))
     await screen.findByRole('button', { name: '数字员工 · 版本 2' })
@@ -2484,6 +2515,7 @@ describe('EnterpriseWorkbench', () => {
   it('keeps a failed preparation recoverable with retry', async () => {
     const prepareWork = vi.fn().mockRejectedValueOnce(new Error('network unavailable')).mockResolvedValueOnce({ kind: 'needs-workspace-selection', availableWorkspaceIds: [] })
     render(<EnterpriseWorkbench {...workbenchProps({ prepareWork, startPreparedWork: vi.fn(), state: { mode: 'enterprise' } } as never)} />)
+    fireEvent.click(screen.getByRole('button', { name: '按目标派工' }))
     fireEvent.change(screen.getByLabelText('工作目标'), { target: { value: '准备采购周报' } })
     fireEvent.click(screen.getByRole('button', { name: '开始工作' }))
     await screen.findByRole('alert')
@@ -2498,6 +2530,7 @@ describe('EnterpriseWorkbench', () => {
       .mockResolvedValueOnce({ kind: 'ready', workspaceId: 'workspace-1', employeeReleaseId: 'release-safe' })
     const startPreparedWork = vi.fn(() => Promise.reject(internalFailure))
     render(<EnterpriseWorkbench {...workbenchProps({ prepareWork, startPreparedWork, state: { mode: 'enterprise' } } as never)} />)
+    fireEvent.click(screen.getByRole('button', { name: '按目标派工' }))
     fireEvent.change(screen.getByLabelText('工作目标'), { target: { value: '准备采购周报' } })
     fireEvent.click(screen.getByRole('button', { name: '开始工作' }))
     const prepareError = await screen.findByRole('alert')
@@ -2520,6 +2553,7 @@ describe('EnterpriseWorkbench', () => {
     const startPreparedWork = vi.fn<EnterpriseWorkbenchProps['startPreparedWork']>(() => Promise.reject(new Error('start unavailable')))
     render(<EnterpriseWorkbench {...workbenchProps({ prepareWork, startPreparedWork, state: { mode: 'enterprise' } } as never)} />)
 
+    fireEvent.click(screen.getByRole('button', { name: '按目标派工' }))
     fireEvent.change(screen.getByLabelText('工作目标'), { target: { value: '准备采购周报' } })
     fireEvent.click(screen.getByRole('button', { name: '开始工作' }))
     await screen.findByRole('alert')

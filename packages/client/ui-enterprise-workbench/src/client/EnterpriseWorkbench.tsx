@@ -532,14 +532,16 @@ function EmployeeKnowledgeCount({ presetId, nativeCount, refreshKey, renderSlot,
   </span>
 }
 
-function EmployeesPage({ state, workspaces, api, guardDirty, renderEmployeeKnowledgeBindings, t }: {
+function EmployeesPage({ state, workspaces, api, guardDirty, renderEmployeeKnowledgeBindings, startWork, t }: {
   state: EnterpriseWorkbenchState
   workspaces: WorkspaceSnapshot
   api: EnterpriseWorkbenchInjected
   guardDirty: (action: () => void) => void
   renderEmployeeKnowledgeBindings: EnterpriseWorkbenchProps['renderSlot']
+  startWork: ReactNode
   t: Translate
 }) {
+  const [showGoal, setShowGoal] = useState(false)
   const filters = state.employeeFilters
   const people = useDirectory('/auth/admin/users')
   const [search, setSearch] = useState(filters.search ?? '')
@@ -583,23 +585,30 @@ function EmployeesPage({ state, workspaces, api, guardDirty, renderEmployeeKnowl
   />
   return <section className={css.employeeGallery} aria-labelledby="employees-page-title">
     <div className={css.galleryIntro}>
-      <div><h2 id="employees-page-title">{t('employees.heading')}</h2><p>{t('employees.intro')}</p></div>
-      <div className={css.galleryIntroActions}><span>{t('employees.count', { count: state.employees.items.length })}</span><button type="button" className={css.primaryButton} onClick={api.createEmployeeDraft}><IconPlusOutlineRegular size={16}/>{t('employees.create')}</button></div>
+      <div><div className={css.rosterHeading}><h2 id="employees-page-title">{t('employees.heading')}</h2><span>{t('employees.count', { count: state.employees.items.length })}</span></div><p>{t('employees.intro')}</p></div>
+      <div className={css.galleryIntroActions}><button type="button" className={css.secondaryButton} aria-expanded={showGoal} aria-controls="employee-goal-dispatch" onClick={() => { setShowGoal(value => !value) }}>{t('employees.goalDispatch')}</button><button type="button" className={css.primaryButton} onClick={api.createEmployeeDraft}><IconPlusOutlineRegular size={16}/>{t('employees.create')}</button></div>
     </div>
-    <div className={css.galleryControls}>
+    <div id="employee-goal-dispatch" hidden={!showGoal}>{startWork}</div>
+    <div className={css.rosterContext}>
       <label>{t('workspaceDefault.workspace')}<select value={startWorkspaceId} onChange={(event) => { setStartWorkspaceId(event.target.value) }}>
         <option value="">{t('workspaceDefault.chooseWorkspace')}</option>
         {workspaces.items.map(workspace => <option key={workspace.workspaceId} value={workspace.workspaceId}>{workspace.title}</option>)}
       </select></label>
-      {workspaceDefault?.manageable && <label>{t('workspaceDefault.employee')}<select value={chosenDefault} onChange={(event) => { setChosenDefault(event.target.value) }}>
-        <option value="">{t('workspaceDefault.none')}</option>
-        {latestEmployeeReleases(state.releases).map(release => <option key={release.presetId} value={release.presetId}>{releaseName(release)}</option>)}
-      </select></label>}
-      {workspaceDefault?.manageable && <button type="button" className={css.secondaryButton} onClick={() => {
-        void api.saveWorkspaceDefault({ workspaceId: startWorkspaceId, employeeId: chosenDefault || null, expectedRevision: workspaceDefault.revision })
-          .then((value) => { setWorkspaceDefault(value); setDefaultError(undefined) })
-          .catch(() => { setDefaultError(t('workspaceDefault.saveFailed')) })
-      }}>{t('workspaceDefault.save')}</button>}
+      {workspaceDefault?.manageable && <details className={css.rosterSettings}>
+        <summary>{t('employees.defaultSettings')}</summary>
+        <div className={css.rosterSettingsBody}>
+          <p>{t('employees.defaultSettingsHelp')}</p>
+          <label>{t('workspaceDefault.employee')}<select value={chosenDefault} onChange={(event) => { setChosenDefault(event.target.value) }}>
+            <option value="">{t('workspaceDefault.none')}</option>
+            {latestEmployeeReleases(state.releases).map(release => <option key={release.presetId} value={release.presetId}>{releaseName(release)}</option>)}
+          </select></label>
+          <button type="button" className={css.secondaryButton} onClick={() => {
+            void api.saveWorkspaceDefault({ workspaceId: startWorkspaceId, employeeId: chosenDefault || null, expectedRevision: workspaceDefault.revision })
+              .then((value) => { setWorkspaceDefault(value); setDefaultError(undefined) })
+              .catch(() => { setDefaultError(t('workspaceDefault.saveFailed')) })
+          }}>{t('workspaceDefault.save')}</button>
+        </div>
+      </details>}
       {workspaceDefault?.unavailable && <span role="status">{t('workspaceDefault.unavailable')}</span>}
       {defaultError !== undefined && <span role="alert">{defaultError}</span>}
     </div>
@@ -610,7 +619,7 @@ function EmployeesPage({ state, workspaces, api, guardDirty, renderEmployeeKnowl
         <input value={search} placeholder={t('filters.searchPlaceholder')} onChange={(event) => { setSearch(event.target.value) }}/>
       </label>
       <button type="submit" className={css.secondaryButton}>{t('filters.searchAction')}</button>
-      <details className={css.advancedFilters}>
+      <details className={css.rosterFilters}>
         <summary>{t('filters.more')}</summary>
         <div>
           <label>{t('filters.visibility')}<select value={visibility} onChange={(event) => { setVisibility(event.target.value as EnterpriseVisibility | '') }}><option value="">{t('filters.all')}</option><option value="organization">{t(VISIBILITY_KEYS.organization)}</option><option value="private">{t(VISIBILITY_KEYS.private)}</option><option value="restricted">{t(VISIBILITY_KEYS.restricted)}</option></select></label>
@@ -1944,7 +1953,7 @@ export function EnterpriseWorkbench(props: EnterpriseWorkbenchProps) {
       <nav className={css.nav} aria-label={props.t('nav.aria')}>{NAV_GROUPS.map(group => <div className={css.navGroup} key={group.label}><span>{props.t(group.label)}</span>{group.items.map(([id, key]) => <button type="button" key={id} aria-current={page === id ? 'page' : undefined} onClick={() => { requestPage(id) }}>{props.t(key)}</button>)}</div>)}</nav>
       <main className={css.main}>
         {partial && <div className={css.notice} role="status">{props.t('partial')}</div>}
-        {page === 'employees' && <><StartWorkPanel workspaces={workspaces} releases={state.releases} prepareWork={props.prepareWork} startPreparedWork={props.startPreparedWork} onStarted={(sessionId) => { props.openRecord(sessionId as SessionId); props.close() }} t={props.t}/><EmployeesPage state={state} workspaces={workspaces} api={api} guardDirty={guardDirty} renderEmployeeKnowledgeBindings={props.renderSlot} t={props.t} /></>}
+        {page === 'employees' && <EmployeesPage state={state} workspaces={workspaces} api={api} guardDirty={guardDirty} renderEmployeeKnowledgeBindings={props.renderSlot} startWork={<StartWorkPanel workspaces={workspaces} releases={state.releases} prepareWork={props.prepareWork} startPreparedWork={props.startPreparedWork} onStarted={(sessionId) => { props.openRecord(sessionId as SessionId); props.close() }} t={props.t}/>} t={props.t} />}
         {page === 'projects' && <ProjectSpace projects={state.projects} surfaces={state.surfaces} workspaces={workspaces.items.map(item => ({ id: item.workspaceId, name: item.title }))} loadProjects={props.loadProjects} loadSurfaces={props.loadSurfaces} createProject={props.createProject} selectProject={props.selectProject} addProjectMember={props.addProjectMember} archiveProject={props.archiveProject} openRoom={props.openCollaboration} createRoom={props.createCollaboration} openGovernance={() => { requestPage('teams') }} t={props.t}/>}
         {page === 'devices' && <DevicesPage page={devices} api={api} busy={mutationBusy} t={props.t}/>}
         {page === 'work-records' && <WorkRecordsPage page={state.workRecords} releases={state.releases} update={props.updateWorkRecord} busy={mutationBusy} t={props.t} />}
