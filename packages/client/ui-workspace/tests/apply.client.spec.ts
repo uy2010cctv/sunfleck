@@ -62,7 +62,9 @@ async function bench() {
   }))
   const rename = vi.fn(async () => ({}))
   const selectPanel = vi.fn()
-  ctx.provide('layout', { selectPanel, beginNavigation: () => new AbortController().signal })
+  ctx.provide('layout', { selectPanel, beginNavigation: () => new AbortController().signal,
+    panelInfo: createSnapshotStore({ activePanelId: null }),
+  })
   const search = vi.fn(async () => ({
     ok: true as const,
     value: { items: [{ sessionId: 'session' as never, snippet: 'match' }], hasMore: false },
@@ -121,7 +123,7 @@ async function bench() {
     refreshProjections: vi.fn(() => Promise.resolve()),
     fork,
   } as never)
-  ctx.provide('uiSession', { sessionStatus: {
+  ctx.provide('uiSession', { setMainViewVisible: vi.fn(), sessionStatus: {
     getSnapshot: () => new Map(), subscribe: () => () => {},
   } } as never)
   const pickDirectory = vi.fn(() => Promise.resolve({ ok: true as const, value: '/projects/picked' }))

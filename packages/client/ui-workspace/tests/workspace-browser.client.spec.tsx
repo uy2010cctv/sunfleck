@@ -842,7 +842,7 @@ describe('WorkspaceBrowser', () => {
     expectRows(5)
   })
 
-  it('reveals a hidden session when live running status starts and folds it when the run ends', () => {
+  it('keeps an unread completion visible until the Session is read', () => {
     const items = Array.from({ length: 12 }, (_, index) => summary(`session-${index + 1}`, 12 - index))
     const b = mount({
       useSessions: hook(sessionState(items)),
@@ -863,6 +863,15 @@ describe('WorkspaceBrowser', () => {
         running: false, pendingInteraction: undefined, completionUnread: true,
       }]])),
     })
+    expect(screen.getByText('session-12')).toBeTruthy()
+    expect(screen.getByText('新消息')).toBeTruthy()
+    expect(screen.getByRole('button', { name: '展开其余 6 个会话' })).toBeTruthy()
+    rerender(b, {
+      useSessionStatus: hook<SessionStatusSnapshot>(new Map([[sid('session-12'), {
+        running: false, pendingInteraction: undefined, completionUnread: false,
+      }]])),
+    })
+    expect(screen.queryByText('新消息')).toBeNull()
     expect(screen.queryByText('session-12')).toBeNull()
     expect(screen.getByRole('button', { name: '展开其余 7 个会话' })).toBeTruthy()
   })

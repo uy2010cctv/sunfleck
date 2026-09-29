@@ -542,6 +542,23 @@ describe('UiSession status', () => {
     expect(service.sessionStatus.getSnapshot().get(id)?.completionUnread).toBe(true)
   })
 
+  it('keeps completion unread while the retained main Session is covered by another panel', () => {
+    const ctx = new Context()
+    const bench = createSessionsBench(ctx)
+    const id = sessionId('covered-main')
+    bench.binding(id)
+    const service = createUiSession(ctx, bench)
+    bench.setMainView(id, 1)
+    service.setMainViewVisible(false)
+    bench.emitStatus(id, true)
+    bench.emitStatus(id, false)
+    expect(service.sessionStatus.getSnapshot().get(id)?.completionUnread).toBe(true)
+    bench.list.update((draft) => { draft.byId[id]!.displayTitle = 'Updated' })
+    expect(service.sessionStatus.getSnapshot().get(id)?.completionUnread).toBe(true)
+    service.setMainViewVisible(true)
+    expect(service.sessionStatus.getSnapshot().get(id)?.completionUnread).toBe(false)
+  })
+
   it('records non-main completions and lets main-view activity acknowledge them', () => {
     const ctx = new Context()
     const bench = createSessionsBench(ctx)

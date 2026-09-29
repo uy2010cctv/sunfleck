@@ -499,6 +499,7 @@ export function SearchResultItem({ result, currentId, onOpen, onUnarchive, t }: 
           )}
         </span>
         <span className={css.searchResultTitle}>{result.title}</span>
+        {result.completed && !result.archived && <span className={css.unreadBadge}>{t('row.newMessage')}</span>}
         {result.archived && (
           <span className={css.rowActions}>
             <Tooltip label={t('actions.unarchive')} side="bottom" align="end" delayMs={500}>
@@ -645,6 +646,7 @@ export function SessionNodeItem({
       >
         {title}
       </span>
+      {node.completed && !row.archived && !row.blank && <span className={css.unreadBadge}>{t('row.newMessage')}</span>}
       {/* A blank New Session row is a provisional placeholder: nothing has
           happened in it yet, so a "now" timestamp and the row verbs
           (rename/fork/archive) would all act on content that does not

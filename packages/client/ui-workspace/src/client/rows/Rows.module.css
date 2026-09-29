@@ -422,3 +422,14 @@
     transition: none;
   }
 }
+
+.unreadBadge {
+  flex: none;
+  border-radius: var(--dsw-radius-md);
+  padding: 1px 4px;
+  color: var(--dsw-alias-state-business-primary);
+  background: var(--dsw-alias-interactive-bg-hover);
+  font-size: var(--dsh-content-font-size-minor, 11px);
+  font-weight: 500;
+  white-space: nowrap;
+}

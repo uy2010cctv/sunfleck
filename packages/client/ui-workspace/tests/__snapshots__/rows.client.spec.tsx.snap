@@ -1,0 +1,84 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`workspace browser rows > shows the green done dot only on a finished, unviewed session (live activity wins the slot) > unread completed Workspace Session 1`] = `
+<div>
+  <span
+    class="_root_27042b"
+  >
+    <div
+      aria-selected="false"
+      class="_sessionRow_f6b5c6"
+      data-row-key="session:s1"
+      draggable="false"
+      role="treeitem"
+    >
+      <span
+        class="_slot_f6b5c6"
+      >
+        <span
+          aria-hidden="true"
+          class="_dot_106763"
+          data-state="done"
+          style="width: 10px; height: 10px;"
+        />
+        <span
+          class="_visuallyHidden_f6b5c6"
+        >
+          已完成
+        </span>
+      </span>
+      <span
+        class="_title_f6b5c6"
+      >
+        One
+      </span>
+      <span
+        class="_unreadBadge_f6b5c6"
+      >
+        新消息
+      </span>
+      <span
+        class="_time_f6b5c6"
+      >
+        刚刚
+      </span>
+      <span
+        class="_rowActions_f6b5c6"
+      >
+        <span
+          class="_root_dd774c"
+        >
+          <button
+            aria-label="会话“One”的操作"
+            class="_iconButton_f6b5c6"
+            type="button"
+          >
+            <svg
+              aria-hidden="true"
+              fill="none"
+              height="16"
+              stroke-width="1"
+              viewBox="0 0 16 16"
+              width="16"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path
+                d="M3 9C3.55228 9 4 8.55228 4 8C4 7.44772 3.55228 7 3 7C2.44772 7 2 7.44772 2 8C2 8.55228 2.44772 9 3 9Z"
+                fill="currentColor"
+              />
+              <path
+                d="M8 9C8.55228 9 9 8.55228 9 8C9 7.44772 8.55228 7 8 7C7.44772 7 7 7.44772 7 8C7 8.55228 7.44772 9 8 9Z"
+                fill="currentColor"
+              />
+              <path
+                d="M13 9C13.5523 9 14 8.55228 14 8C14 7.44772 13.5523 7 13 7C12.4477 7 12 7.44772 12 8C12 8.55228 12.4477 9 13 9Z"
+                fill="currentColor"
+              />
+            </svg>
+          </button>
+        </span>
+      </span>
+    </div>
+  </span>
+</div>
+`;

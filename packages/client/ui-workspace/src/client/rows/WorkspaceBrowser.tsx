@@ -55,14 +55,14 @@ const SEARCH_QUERY_MAX_CODE_UNITS = 500
 /** Idle Session rows visible per Workspace before the local overflow control. */
 const COLLAPSED_SESSION_LIMIT = 5
 
-/** Keep provisional and running rows outside the idle-session quota, including parents with running children. */
+/** Keep provisional, active, and unread completed rows outside the idle-session quota. */
 function collapsedSessionRows(sessions: readonly SessionNode[], limit = COLLAPSED_SESSION_LIMIT): {
   rows: readonly SessionNode[]
   hiddenCount: number
 } {
   let idleCount = 0
   const rows = sessions.filter((session) => {
-    if (session.blank || session.running || session.runningSubagentCount > 0) return true
+    if (session.blank || session.running || session.runningSubagentCount > 0 || session.completed) return true
     if (idleCount >= limit) return false
     idleCount += 1
     return true

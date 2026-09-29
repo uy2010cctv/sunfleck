@@ -261,6 +261,14 @@ export function apply(ctx: Context): void {
     createWorkspace: input => workspaces.create(input),
     hooks: { directoryFlow: pickerFlowSource },
   })
+  ctx.effect(() => {
+    const updateVisibility = () => {
+      ctx.uiSession.setMainViewVisible(ctx.layout.panelInfo.getSnapshot().activePanelId === null)
+    }
+    updateVisibility()
+    const release = ctx.layout.panelInfo.subscribe(updateVisibility)
+    return () => { release(); ctx.uiSession.setMainViewVisible(true) }
+  }, 'ui-workspace: main Session completion visibility')
   const workspaceAttention = workspaceCompletionAttention(ctx.uiSession.sessionStatus, sessions.list, uiWorkspace.hiddenSessionIds)
   ctx.effect(() => uiWorkspace.navigationTabs.register({
     id: 'workspace', order: 100, title: () => ctx.locale.bind(NS)('section.workspaces'),

@@ -348,6 +348,8 @@ describe('workspace browser rows', () => {
     // Completed while unviewed: the green done dot.
     const done = renderRow({ completed: true })
     expect(done.container.querySelector('[data-state="done"]')).not.toBeNull()
+    expect(done.getByText('新消息')).toBeTruthy()
+    expect(done.container).toMatchSnapshot('unread completed Workspace Session')
     done.unmount()
     // Running wins the slot: the animated ongoing dot, no done dot.
     const running = renderRow({ completed: true, running: true })

@@ -61,6 +61,8 @@ Session rows render the runtime's live `pendingInteraction` classification: appr
 
 ### Active Schedule markers
 
+Unread completed Sessions show a **New message** badge beside the title and keep their row visible outside the collapsed idle-row quota. The left Workspace tab shows a reminder dot until all unread completions have been viewed. A retained Session covered by a global panel remains unread; opening its Conversation acknowledges it.
+
 Grouped and flat Session rows show a clock mark when the Session has active scheduled tasks. It is an occupant of the row's `sidebar.session.row.leading` seat, so it renders only on a row whose primary status is idle and never beside the row's own status dot; an archived row keeps that cell blank, and a search result has no leading seat and shows no mark. It is not a button, has no tab stop, and a press on its area does not open the row. The mark's own read and the meaning of its active-task condition belong to [ui-schedule](../ui-schedule/README.md).
 
 -----

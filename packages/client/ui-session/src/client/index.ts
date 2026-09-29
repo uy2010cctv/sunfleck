@@ -285,6 +285,7 @@ export class UiSession extends Service {
   private readonly completionUnread = new Set<SessionId>()
   private statusSnapshot: SessionStatusSnapshot = new Map()
   private readonly statusListeners = new Set<() => void>()
+  private mainViewVisible = true
   private mainRetainId: SessionId | undefined
   private disposeMainRetain = (): void => {}
   private active = true
@@ -513,8 +514,17 @@ export class UiSession extends Service {
     this.publishStatus()
   }
 
+  /** Update whether the selected Session is visible in the central panel.
+   * @param visible - False while a global panel covers the retained Session.
+   */
+  setMainViewVisible(visible: boolean): void {
+    if (this.mainViewVisible === visible) return
+    this.mainViewVisible = visible
+    this.reconcileStatus()
+  }
+
   private isMain(sessionId: SessionId): boolean {
-    return (this.sessions.list.getSnapshot().byId[sessionId]?.retainedBy.mainView ?? 0) > 0
+    return this.mainViewVisible && (this.sessions.list.getSnapshot().byId[sessionId]?.retainedBy.mainView ?? 0) > 0
   }
 
   private publishStatus(): void {
