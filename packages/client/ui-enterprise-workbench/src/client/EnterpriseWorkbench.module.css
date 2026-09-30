@@ -724,7 +724,8 @@
 .extensionSource summary { inline-size: fit-content; color: var(--dse-color-muted); font-size: 0.75rem; cursor: pointer; }
 .extensionSource > p { margin: var(--dse-space-3xs) 0; color: var(--dse-color-muted); font-family: var(--dse-font-code); font-size: 0.6875rem; overflow-wrap: anywhere; }
 .extensionSource pre { max-block-size: 18rem; margin: var(--dse-space-xs) 0 0; padding: var(--dse-space-xs); overflow: auto; border-radius: var(--dse-radius-control); background: var(--dse-color-surface-raised); color: var(--dse-color-ink); font-family: var(--dse-font-code); font-size: 0.6875rem; line-height: 1.55; white-space: pre-wrap; }
-.extensionReviewActions { display: grid; grid-template-columns: minmax(12rem, 1fr); gap: var(--dse-space-2xs); align-items: end; }
+.extensionReviewActions { display: flex; flex-wrap: wrap; align-items: end; gap: var(--dse-space-2xs); }
+.extensionReviewActions label { flex: 1 1 16rem; }
 .extensionReviewGroup { border-block-end: 1px solid var(--dse-color-border); }
 .extensionReviewEntry { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--dse-space-xs); padding-block: var(--dse-space-sm); }
 .extensionReviewHistory { padding-block-end: var(--dse-space-sm); }
@@ -1064,7 +1065,6 @@
   .extensionSource,
   .extensionReviewActions,
   .extensionRow > .inlineActions { grid-column: 1 / -1; }
-  .extensionReviewActions { grid-template-columns: minmax(12rem, 1fr) auto auto auto; }
   .channelRow { grid-template-columns: minmax(0, 1fr) auto; }
   .channelIdentity, .channelBindingGuide, .channelTransportGuide, .channelBindingBanner, .connectionPath, .channelBindingEvidence, .channelIntentRow { grid-column: 1 / -1; }
   .channelActions { grid-column: 2; }
