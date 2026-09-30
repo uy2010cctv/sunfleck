@@ -5,6 +5,7 @@ import { useEffect, type ReactNode } from 'react'
 import { SessionId } from '@deepseek-ai/dsh-session/types'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import { EnterpriseTrigger } from '../src/client/EnterpriseTrigger.tsx'
+import { ScheduleTrigger } from '../src/client/ScheduleTrigger.tsx'
 import {
   EnterpriseWorkbench, type EnterpriseWorkbenchProps,
 } from '../src/client/EnterpriseWorkbench.tsx'
@@ -179,6 +180,19 @@ describe('EnterpriseTrigger', () => {
     rerender(<EnterpriseTrigger wide={false} open toggle={toggle} t={t} />)
     expect(screen.queryByText(zh['trigger.label'])).toBeNull()
     expect(screen.getByRole('button', { name: zh['trigger.close'] })).toBeDefined()
+  })
+})
+
+describe('ScheduleTrigger', () => {
+  it('opens scheduled-task management from both sidebar widths', () => {
+    const openSchedules = vi.fn()
+    const { rerender } = render(<ScheduleTrigger wide openSchedules={openSchedules} t={t} />)
+    fireEvent.click(screen.getByRole('button', { name: zh['nav.schedules'] }))
+    expect(openSchedules).toHaveBeenCalledTimes(1)
+    rerender(<ScheduleTrigger wide={false} openSchedules={openSchedules} t={t} />)
+    expect(screen.queryByText(zh['nav.schedules'])).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: zh['nav.schedules'] }))
+    expect(openSchedules).toHaveBeenCalledTimes(2)
   })
 })
 

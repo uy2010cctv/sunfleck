@@ -19,6 +19,8 @@ Enterprise digital-employee roster and operations workbench over DSH runtime fac
 
 The sidebar entry and workbench heading display Lichen Agent using the supplied two-part logo and embedded Tourney lettering. Functional navigation and descriptive copy retain their digital-employee terminology. The font ships under its [SIL Open Font License](LICENSES/tourney-OFL.txt).
 
+The sidebar scheduled-task shortcut sits below Cordis Plugin and opens the existing workbench Schedules page. It refreshes the task list when the workbench is already loaded; that page owns task creation, pause, resume, and archive actions.
+
 The employee editor lists bound capability names and revisions per category. Already-bound assets remain selectable and are marked explicitly; updating a revision replaces the previous reference, and removing a binding changes only the local draft until Save and Publish. Category counts show bindings; catalog loading, errors, empty categories, and fully bound categories have separate messages.
 
 Provider-owned knowledge bases use the `enterprise.employee-knowledge-bindings` slot inside the Knowledge category. The provider stores base references under the employee Preset id and reports the bound count to the category card; it does not copy documents into the enterprise asset catalog. Conversation controls and retrieval scope remain owned by the knowledge provider.

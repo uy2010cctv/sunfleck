@@ -13,6 +13,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-workspace/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import { EnterpriseTrigger } from './EnterpriseTrigger.tsx'
+import { ScheduleTrigger } from './ScheduleTrigger.tsx'
 import { EnterpriseWorkbench } from './EnterpriseWorkbench.tsx'
 import { EmployeeSeat } from './EmployeeSeat.tsx'
 import type { EnterpriseWorkbenchInjected } from './EnterpriseWorkbench.tsx'
@@ -410,6 +411,20 @@ export function apply(ctx: Context): void {
     locale: NS,
     inject: triggerInjected,
   }, EnterpriseTrigger))
+  ctx.slots.inject('sidebar.footer.action', () => ctx.slots.register({
+    name: 'sidebar.footer.action',
+    id: 'enterprise-schedules',
+    order: 1000,
+    locale: NS,
+    inject: () => ({
+      openSchedules: () => {
+        const state = controller.store.getSnapshot()
+        controller.setPage('schedules')
+        controller.open()
+        if (state.phase === 'ready' && state.mode === 'enterprise') void controller.refreshSchedules()
+      },
+    }),
+  }, ScheduleTrigger))
   ctx.slots.inject('shell.overlay', () => ctx.slots.register({
     name: 'shell.overlay',
     id: 'enterprise-workbench',
@@ -425,6 +440,7 @@ export function apply(ctx: Context): void {
 }
 
 export type { EnterpriseTriggerProps } from './EnterpriseTrigger.tsx'
+export type { ScheduleTriggerProps } from './ScheduleTrigger.tsx'
 export type { EnterpriseWorkbenchProps, EnterpriseWorkbenchInjected } from './EnterpriseWorkbench.tsx'
 export {
   deriveEnterpriseView, EnterpriseWorkbenchController,
