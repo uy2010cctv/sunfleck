@@ -2351,6 +2351,7 @@ describe('EnterpriseWorkbench', () => {
     expect(within(dialog).queryByRole('navigation', { name: '管理台导航' })).toBeNull()
     fireEvent.click(within(dialog).getByRole('button', { name: '新建定时任务' }))
     expect(within(dialog).getByLabelText('任务名称')).toBeDefined()
+    expect(within(dialog).queryByText('还没有定时任务')).toBeNull()
     fireEvent.click(within(dialog).getByRole('button', { name: '关闭' }))
     expect(close).toHaveBeenCalledOnce()
   })
