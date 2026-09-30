@@ -437,7 +437,7 @@ describe('EnterpriseWorkbench', () => {
     } as never)} />)
 
     expect(screen.getByText('订单校验')).toBeDefined()
-    fireEvent.click(screen.getByText('查看源码'))
+    fireEvent.click(screen.getByText('版本详情与源码'))
     expect(screen.getByText('return { apply() {} }')).toBeDefined()
     fireEvent.click(screen.getByRole('button', { name: '停止供新会话使用' }))
     expect(stopExtension).toHaveBeenCalledWith(expect.objectContaining({ bindingId: 'binding-1' }), zh['extensions.stopReason'])

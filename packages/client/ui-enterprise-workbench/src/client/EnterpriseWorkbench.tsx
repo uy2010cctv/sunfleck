@@ -1803,11 +1803,13 @@ function ExtensionGroupCard({ versions, section, binding, reviews, allPackages, 
           {t('extensions.versionOption', { version: version.version, name: version.name })}
         </option>)}
       </select></label>
-      <span>{t('extensions.author', { user: selected.authoredBy })}</span>
     </div>
     {selected !== headline && <p className={css.extensionSelectedPurpose}>{selected.purpose}</p>}
-    <div className={css.extensionCapabilities}>{selected.manifest.provides.map(capability => <span key={capability}>{capability}</span>)}</div>
-    <details className={css.extensionSource}><summary>{t('extensions.source')}</summary><p>{selected.pluginId} · {t('extensions.version', { version: selected.version })}</p>{selected.hostCode !== undefined && <pre>{selected.hostCode}</pre>}{selected.clientCode !== undefined && <pre>{selected.clientCode}</pre>}</details>
+    <details className={css.extensionSource}><summary>{t('extensions.source')}</summary>
+      <p>{selected.pluginId} · {t('extensions.version', { version: selected.version })} · {t('extensions.author', { user: selected.authoredBy })}</p>
+      <div className={css.extensionCapabilities}>{selected.manifest.provides.map(capability => <span key={capability}>{capability}</span>)}</div>
+      {selected.hostCode !== undefined && <pre>{selected.hostCode}</pre>}{selected.clientCode !== undefined && <pre>{selected.clientCode}</pre>}
+    </details>
     <div className={css.extensionPluginActions}>
       {section === EXTENSION_SECTION.archived && <button type="button" className={css.primaryButton} disabled={busy}
         onClick={() => { void api.restoreExtension(headline) }}>{t('extensions.restore')}</button>}
