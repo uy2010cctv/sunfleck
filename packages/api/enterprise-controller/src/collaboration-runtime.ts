@@ -834,6 +834,11 @@ export function composeCollaboration(ctx: Context, services: {
   }
   if (roomAvailable) roomTools = installCollaborationAgentTools(ctx, {
     roomEvents, identity: signer, maxHops: services.limits.maxBotHops, dispatchEmployeePost,
+    memberEmployees: async row => Promise.all(row.memberEmployeeIds.map(async (employeeId) => {
+      const draft = await database.catalog.getDraft(employeeId, row.orgId)
+      const displayName = draft?.profile['displayName'] ?? draft?.profile['name']
+      return { employeeId, displayName: typeof displayName === 'string' ? displayName : employeeId }
+    })),
     resolveAgentRoom: async (agent) => {
       const sessionId = String(agent.id)
       const binding = await store.bySession(sessionId)

@@ -5,6 +5,7 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { CollaborationRecord, PostgresRoomEventRepository, RoomEvent } from '@deepseek-ai/dsh-enterprise-postgres'
 import type { CollaborationIdentity, RoomSigningInput } from './collaboration-identity.ts'
+import { roomMentionTargets } from './collaboration-room-delivery.ts'
 
 /** Current authorized native employee destination. */
 export interface RoomAgentBinding {
@@ -17,6 +18,8 @@ export interface CollaborationAgentToolOptions {
   readonly identity: Pick<CollaborationIdentity, 'signEmployee'>
   readonly maxHops: number
   readonly resolveAgentRoom: (agent: Agent) => Promise<RoomAgentBinding | undefined>
+  readonly memberEmployees: (room: CollaborationRecord) => Promise<readonly { readonly employeeId: string
+    readonly displayName: string }[]>
   readonly dispatchEmployeePost: (room: CollaborationRecord, event: RoomEvent,
     employeeIds: readonly string[]) => Promise<readonly { sessionId: string; employeeId: string }[]>
 }
@@ -148,10 +151,10 @@ export function installCollaborationAgentTools(ctx: Context, options: Collaborat
     try {
       disposers.push(agent.ctx.tools.register(defineTool({
         name: 'room_post',
-        description: 'Post a signed message to this shared room. Address human members with mentionedUserIds and optionally request other member employees by exact ids. The source must be the latest received room event; the Host enforces the chain hop budget. Reuse the action key for retries.',
+        description: 'Post a signed message to this shared room. @ALL or @member display name wakes current Bot colleagues; targetEmployeeIds can address exact Bot ids. Use mentionedUserIds for human members. Reuse the action key for retries.',
         parameters: {
           ...messageParameters,
-          targetEmployeeIds: { type: 'array', items: { type: 'string' }, description: 'Other room employee ids to request after the message commits. Omit to post without waking another employee.' },
+          targetEmployeeIds: { type: 'array', items: { type: 'string' }, description: 'Exact Bot member ids to wake. If omitted, @ALL or @display name in content selects current Bot members. Pass [] to post without waking Bots.' },
           mentionedUserIds: { type: 'array', items: { type: 'string' }, description: 'Human room member ids explicitly addressed by this post. Omit when no human is addressed.' },
         },
         output: {
@@ -165,7 +168,10 @@ export function installCollaborationAgentTools(ctx: Context, options: Collaborat
           exec.signal.throwIfAborted()
           requireText(args.content); requireText(args.idempotencyKey)
           const binding = await authorized(agent, exec.agent, args.sourceEventId)
-          const targets = targetsFor(binding, args.targetEmployeeIds ?? [])
+          const targets = targetsFor(binding, args.targetEmployeeIds
+            ?? (args.content.includes('@')
+              ? roomMentionTargets(args.content, binding.employeeId, binding.room.memberEmployeeIds,
+                await options.memberEmployees(binding.room)) : []))
           const mentionedUserIds = humansFor(binding, args.mentionedUserIds ?? [])
           const threadRoot = binding.source.threadRoot
             ?? (binding.room.kind === 'channel' && binding.source.event.kind === 9 ? binding.source.event.id : undefined)

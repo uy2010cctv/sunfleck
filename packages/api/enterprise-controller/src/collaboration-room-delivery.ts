@@ -66,12 +66,25 @@ export function roomRecipients(post: RoomEvent, memberIds: readonly string[],
   if (post.authorKind !== 'employee') return []
   const hop = Number(post.event.tags.find(tag => tag[0] === 'dsh-hop')?.[1] ?? '0')
   if (!Number.isSafeInteger(hop) || hop >= maxHops) return []
-  return employees.filter(employee => memberIds.includes(employee.employeeId) && employee.employeeId !== post.authorId
-    && new RegExp(`@${escapeRegExp(employee.displayName)}(?=$|[\\s@\\p{P}\\p{S}])`, 'iu').test(post.event.content))
-    .map(employee => employee.employeeId)
+  return roomMentionTargets(post.event.content, post.authorId, memberIds, employees)
 }
 
 function escapeRegExp(value: string): string { return value.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&') }
+
+/** Resolve explicit text mentions against the current Bot roster without waking the author.
+ * @param content - Text that will be signed into the room event.
+ * @param authorId - Posting employee.
+ * @param memberIds - Current room employee ids.
+ * @param employees - Current member display names.
+ * @returns Unique addressed employee ids in roster order.
+ */
+export function roomMentionTargets(content: string, authorId: string, memberIds: readonly string[],
+  employees: readonly { readonly employeeId: string; readonly displayName: string }[]): string[] {
+  const all = /@ALL(?=$|[\s@\p{P}\p{S}])/iu.test(content)
+  return employees.filter(employee => memberIds.includes(employee.employeeId) && employee.employeeId !== authorId
+    && (all || new RegExp(`@${escapeRegExp(employee.displayName)}(?=$|[\\s@\\p{P}\\p{S}])`, 'iu').test(content)))
+    .map(employee => employee.employeeId)
+}
 
 /** Stable native source cursor for a projected Bot post.
  * @param sessionId - Native execution Session.

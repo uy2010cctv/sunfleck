@@ -84,6 +84,11 @@ async function setup(maxHops = 2, initiallyBound = true, kind: CollaborationReco
   const tools = installCollaborationAgentTools(ctx, {
     roomEvents, identity, maxHops,
     resolveAgentRoom: async candidate => bound && candidate === agent ? { room, employeeId: 'bot-a' } : undefined,
+    memberEmployees: async () => [
+      { employeeId: 'bot-a', displayName: 'Research' },
+      { employeeId: 'bot-b', displayName: 'Data' },
+      { employeeId: 'bot-c', displayName: 'Editor' },
+    ],
     dispatchEmployeePost: async (_room, event, targets) => {
       expect(events.some(item => item.event.id === event.event.id)).toBe(true)
       delivered.push([...targets]); return targets.map(employeeId => ({ sessionId: `session-${employeeId}`, employeeId }))
@@ -137,6 +142,37 @@ describe('shared room agent tools', () => {
     expect(app.events[1]?.sourceEventCursor).toBe(String(source?.seq))
     expect(app.delivered).toEqual([['bot-b']])
     expect((await app.call('room_post', {}, app.other)).isError).toBe(true)
+  })
+  it('wakes current colleagues addressed by name or ALL in an employee post', async () => {
+    const app = await setup()
+    const result = await app.call('room_post', { content: '@ALL Please share ideas. @Data prepare the numbers.',
+      sourceEventId: app.initial.id, idempotencyKey: 'brainstorm' })
+    expect(result.isError).toBeFalsy()
+    expect(app.events[1]?.event.tags).toContainEqual(['dsh-target', 'bot-b'])
+    expect(app.events[1]?.event.tags).toContainEqual(['dsh-target', 'bot-c'])
+    expect(app.events[1]?.event.tags).not.toContainEqual(['dsh-target', 'bot-a'])
+    expect(app.delivered).toEqual([['bot-b', 'bot-c']])
+  })
+  it('does not infer destinations from ordinary colleague names', async () => {
+    const app = await setup()
+    const result = await app.call('room_post', { content: 'Data and Editor will review later.',
+      sourceEventId: app.initial.id, idempotencyKey: 'status' })
+    expect(result.isError).toBeFalsy()
+    expect(app.delivered).toEqual([])
+  })
+  it('wakes only the explicitly named current Bot member', async () => {
+    const app = await setup()
+    const result = await app.call('room_post', { content: '@Data, please bring the metrics.',
+      sourceEventId: app.initial.id, idempotencyKey: 'metrics' })
+    expect(result.isError).toBeFalsy()
+    expect(app.delivered).toEqual([['bot-b']])
+  })
+  it('lets an explicit empty target list suppress textual mentions', async () => {
+    const app = await setup()
+    const result = await app.call('room_post', { content: '@ALL Status only.', sourceEventId: app.initial.id,
+      idempotencyKey: 'status-all', targetEmployeeIds: [] })
+    expect(result.isError).toBeFalsy()
+    expect(app.delivered).toEqual([])
   })
   it('rejects a removed caller, a nonmember target, and a forged source before posting', async () => {
     const app = await setup()

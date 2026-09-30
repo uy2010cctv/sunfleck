@@ -50,6 +50,11 @@ describe('shared room execution input', () => {
       [{ employeeId: 'research', displayName: 'Research' }], 2)).toEqual([])
     expect(roomRecipients(event('3', 'research', '@Data loop', [['dsh-hop', '2']]), members,
       [{ employeeId: 'data', displayName: 'Data' }], 2)).toEqual([])
+    expect(roomRecipients(event('4', 'research', '@ALL discuss', [['dsh-hop', '1']]), members,
+      [{ employeeId: 'research', displayName: 'Research' }, { employeeId: 'data', displayName: 'Data' },
+        { employeeId: 'editor', displayName: 'Editor' }], 2)).toEqual(['data', 'editor'])
+    expect(roomRecipients(event('5', 'research', '@ALLiance is our name', [['dsh-hop', '1']]), members,
+      [{ employeeId: 'data', displayName: 'Data' }], 2)).toEqual([])
   })
 
   it('builds one persistent projection cursor from a native Session event', () => {
