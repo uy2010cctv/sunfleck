@@ -2309,6 +2309,24 @@ describe('EnterpriseWorkbench', () => {
     })
   })
 
+  it('shows the scheduled-task shortcut as a focused dialog over the current conversation', () => {
+    const close = vi.fn()
+    render(<EnterpriseWorkbench {...workbenchProps({
+      state: { mode: 'enterprise', page: 'schedules', scheduleDialogOpen: true,
+        schedules: { phase: 'ready', items: [], error: null }, releases: [{
+          releaseId: 'release-buyer', presetId: 'buyer', orgId: 'o', version: 2, digest: 'd',
+          snapshot: { profile: { name: '采购专员' }, bindings: [] }, publishedBy: 'u', publishedAt: 1,
+        }] }, close,
+    } as never)} />)
+    const dialog = screen.getByRole('dialog', { name: '定时任务' })
+    expect(within(dialog).getByRole('button', { name: '新建定时任务' })).toBeDefined()
+    expect(within(dialog).queryByRole('navigation', { name: '管理台导航' })).toBeNull()
+    fireEvent.click(within(dialog).getByRole('button', { name: '新建定时任务' }))
+    expect(within(dialog).getByLabelText('任务名称')).toBeDefined()
+    fireEvent.click(within(dialog).getByRole('button', { name: '关闭' }))
+    expect(close).toHaveBeenCalledOnce()
+  })
+
   it('creates capability assets and teams without asking users for internal IDs or JSON', async () => {
     const saveAssetVersion = vi.fn((_input: Parameters<EnterpriseWorkbenchProps['saveAssetVersion']>[0]) => Promise.resolve(true))
     const saveTeam = vi.fn((_input: Parameters<EnterpriseWorkbenchProps['saveTeam']>[0]) => Promise.resolve(true))

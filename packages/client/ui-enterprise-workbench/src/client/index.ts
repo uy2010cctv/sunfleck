@@ -417,12 +417,7 @@ export function apply(ctx: Context): void {
     order: 1000,
     locale: NS,
     inject: () => ({
-      openSchedules: () => {
-        const state = controller.store.getSnapshot()
-        controller.setPage('schedules')
-        controller.open()
-        if (state.phase === 'ready' && state.mode === 'enterprise') void controller.refreshSchedules()
-      },
+      openSchedules: () => { controller.openSchedules() },
     }),
   }, ScheduleTrigger))
   ctx.slots.inject('shell.overlay', () => ctx.slots.register({

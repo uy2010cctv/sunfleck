@@ -26,6 +26,13 @@ function declarations(selector: string): Map<string, string> | undefined {
 }
 
 describe('SidebarRoot.module.css', () => {
+  it('pairs Cordis and scheduled tasks in the wide footer while keeping rail targets full size', () => {
+    expect(declarations('.settingsArea:has([data-dsh-schedule-trigger])')?.get('display')).toBe('grid')
+    expect(declarations('.settingsArea:has([data-dsh-schedule-trigger])')?.get('grid-template-columns'))
+      .toBe('minmax(0, 1.25fr) minmax(0, 0.75fr)')
+    expect(declarations('.collapsed .settingsArea:has([data-dsh-schedule-trigger])')?.get('display')).toBe('flex')
+  })
+
   it('shares and cancels the wide shell trailing padding structurally', () => {
     const root = declarations('.root')
     expect(root?.get('--dsh-sidebar-inline-padding')).toBe('12px')

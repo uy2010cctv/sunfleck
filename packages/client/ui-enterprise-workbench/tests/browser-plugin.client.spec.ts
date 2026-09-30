@@ -379,7 +379,11 @@ describe('enterprise workbench browser plugin', () => {
     const enterprise = hooks.enterprise
     if (typeof enterprise !== 'object' || enterprise === null || !('getSnapshot' in enterprise)
       || typeof enterprise.getSnapshot !== 'function') throw new Error('enterprise state missing')
-    expect(enterprise.getSnapshot()).toMatchObject({ open: true, page: 'schedules' })
+    expect(enterprise.getSnapshot()).toMatchObject({ open: true, page: 'schedules', scheduleDialogOpen: true })
+    const close = workbench?.['close']
+    if (typeof close !== 'function') throw new Error('enterprise close action missing')
+    close()
+    expect(enterprise.getSnapshot()).toMatchObject({ open: false, page: 'employees', scheduleDialogOpen: false })
   })
 
   it('waits for parent slot declarations when browser plugins load concurrently', async () => {

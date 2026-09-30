@@ -8,7 +8,7 @@ import {
   IconApiOutlineMedium, IconCheckOutlineRegular, IconChecklistOutlineMedium, IconCloseOutlineRegular,
   IconContextInjectionOutlineRegular, IconCordisPluginOutlineMedium, IconEditOutlineRegular, IconPlayOutlineRegular,
   IconRefreshOutlineRegular, IconPlusOutlineRegular, IconSearchOutlineRegular, IconSkillOutlineRegular, IconSparkleRegular,
-  IconUserOutlineRegular, IconWarningOutlineRegular, StateDot,
+  IconUserOutlineRegular, IconWarningOutlineRegular, Modal, StateDot,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { InjectFace, PropsLocale, PropsRenderSlots, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { SessionId } from '@deepseek-ai/dsh-api-remotes/client'
@@ -779,7 +779,7 @@ function ApprovalsPage({ page, api, busy, t }: { page: EnterprisePageState<Enter
   return <section aria-labelledby="approvals-page-title"><div className={css.sectionHead}><h2 id="approvals-page-title">{t('nav.approvals')}</h2><span>{page.items.length}</span></div><PageBoundary page={page} t={t} empty={<ActionableEmpty title={t('approval.emptyTitle')} description={t('approval.emptyBody')}/>}><div className={css.rows}>{page.items.map(item => <div className={css.row} key={item.approvalId}><div><strong>{t(APPROVAL_KIND_KEYS[item.kind])}</strong><span>{t(APPROVAL_STATE_KEYS[item.state])} · {formatDate(item.updatedAt)}</span></div>{item.state === 'pending' && <div className={css.inlineActions}><button className={css.primaryButton} type="button" disabled={busy} onClick={() => { void api.transitionApproval(item, 'approved') }}>{t('approval.approve')}</button><button className={css.secondaryButton} type="button" disabled={busy} onClick={() => { void api.transitionApproval(item, 'rejected') }}>{t('approval.reject')}</button><button className={css.secondaryButton} type="button" disabled={busy} onClick={() => { void api.cancelApproval(item) }}>{t('approval.cancel')}</button></div>}</div>)}</div></PageBoundary></section>
 }
 
-function SchedulesPage({ page, releases, api, busy, onDirty, t }: { page: EnterprisePageState<EnterpriseSchedule>; releases: readonly EnterpriseEmployeeRelease[]; api: EnterpriseWorkbenchInjected; busy: boolean; onDirty: () => void; t: Translate }) {
+function SchedulesPage({ page, releases, api, busy, onDirty, t, compact = false }: { page: EnterprisePageState<EnterpriseSchedule>; releases: readonly EnterpriseEmployeeRelease[]; api: EnterpriseWorkbenchInjected; busy: boolean; onDirty: () => void; t: Translate; compact?: boolean }) {
   const [creating, setCreating] = useState(false)
   const [name, setName] = useState('')
   const [target, setTarget] = useState('')
@@ -789,9 +789,11 @@ function SchedulesPage({ page, releases, api, busy, onDirty, t }: { page: Enterp
   const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone
   const canCreate = releases.length > 0
   const goEmployees = <button type="button" className={css.primaryButton} onClick={() => { api.setPage('employees') }}>{t('prerequisite.goEmployees')}</button>
-  return <section className={css.managementPage} aria-labelledby="schedules-page-title">
-    <ManagementHeader id="schedules-page-title" title={t('nav.schedules')} description={t('schedule.description')} count={page.items.length}
-      action={page.items.length === 0 ? undefined : canCreate ? <button type="button" className={css.primaryButton} onClick={() => { setCreating(true) }}><IconPlusOutlineRegular size={16}/>{t('schedule.create')}</button> : goEmployees}/>
+  const createButton = <button type="button" className={css.primaryButton} onClick={() => { setCreating(true) }}><IconPlusOutlineRegular size={16}/>{t('schedule.create')}</button>
+  return <section className={css.managementPage} aria-labelledby={compact ? undefined : 'schedules-page-title'} aria-label={compact ? t('nav.schedules') : undefined}>
+    {compact ? page.items.length > 0 && canCreate && <div className={css.scheduleDialogActions}>{createButton}</div>
+      : <ManagementHeader id="schedules-page-title" title={t('nav.schedules')} description={t('schedule.description')} count={page.items.length}
+        action={page.items.length === 0 ? undefined : canCreate ? createButton : goEmployees}/>}
     {!canCreate && <ActionableEmpty title={t('schedule.prerequisiteTitle')} description={t('schedule.prerequisiteBody')} action={goEmployees}/>}
     {canCreate && creating && <form className={css.guidedForm} onSubmit={(event) => {
       event.preventDefault()
@@ -2079,8 +2081,19 @@ export function EnterpriseWorkbench(props: EnterpriseWorkbenchProps) {
       return success
     },
   }
+  const mutationNotice = state.mutationError === null ? null : <div className={css.mutationError} role="alert" aria-label={props.t('mutation.errorAria')}><IconWarningOutlineRegular size={18} /><span>{state.mutationPhase === 'conflict' ? props.t('mutation.conflict') : state.mutationError}</span>{state.mutationPhase === 'conflict' ? <button type="button" onClick={() => { void props.resolveMutationConflict() }}>{props.t('mutation.reload')}</button> : <button type="button" onClick={() => { void props.retryMutation() }}>{props.t('mutation.retry')}</button>}<button type="button" onClick={props.dismissMutationError}>{props.t('mutation.dismiss')}</button></div>
+  if (state.scheduleDialogOpen) return <Modal open title={props.t('nav.schedules')} closeLabel={props.t('close')}
+    description={props.t('schedule.description')} onClose={requestClose}
+    className={css.scheduleDialog ?? ''} contentClassName={css.scheduleDialogContent ?? ''}>
+    {mutationNotice}
+    {state.phase === 'loading' && state.mode === null && <div className={css.loading} role="status">{props.t('loading')}</div>}
+    {state.phase === 'error' && <div className={css.error} role="alert"><span>{state.error}</span><button type="button" onClick={() => { void props.refresh() }}>{props.t('retry')}</button></div>}
+    {state.mode === 'fallback' && <div className={css.error} role="status"><span>{props.t('schedule.unavailable')}</span></div>}
+    {state.phase !== 'error' && state.mode === 'enterprise' && <SchedulesPage compact page={state.schedules} releases={state.releases}
+      api={api} busy={mutationBusy} onDirty={() => { setLocalFormDirty(true) }} t={props.t}/>}
+  </Modal>
   return <section ref={dialogRef} className={css.workbench} role="dialog" aria-modal="true" aria-label={props.t('title')} onKeyDown={onKeyDown}><header className={css.header}><div><h1><EnterpriseBrand heading label={props.t('title')} /></h1><p>{props.t('subtitle')}</p></div><div className={css.headerActions}><button type="button" className={css.iconButton} aria-label={props.t('refresh')} onClick={() => { void props.refresh() }}><IconRefreshOutlineRegular size={16} /></button><button ref={closeRef} type="button" className={css.iconButton} aria-label={props.t('close')} onClick={requestClose}><IconCloseOutlineRegular size={16} /></button></div></header>
-    {state.mutationError !== null && <div className={css.mutationError} role="alert" aria-label={props.t('mutation.errorAria')}><IconWarningOutlineRegular size={18} /><span>{state.mutationPhase === 'conflict' ? props.t('mutation.conflict') : state.mutationError}</span>{state.mutationPhase === 'conflict' ? <button type="button" onClick={() => { void props.resolveMutationConflict() }}>{props.t('mutation.reload')}</button> : <button type="button" onClick={() => { void props.retryMutation() }}>{props.t('mutation.retry')}</button>}<button type="button" onClick={props.dismissMutationError}>{props.t('mutation.dismiss')}</button></div>}
+    {mutationNotice}
     {state.phase === 'loading' && state.mode === null && <div className={css.loading} role="status"><span className={css.skeleton} />{props.t('loading')}</div>}
     {state.phase === 'error' && <div className={css.error} role="alert"><IconWarningOutlineRegular size={18} /><span>{state.error}</span><button type="button" onClick={() => { void props.refresh() }}>{props.t('retry')}</button></div>}
     {state.phase !== 'error' && state.error !== null && <div className={css.error} role="alert"><IconWarningOutlineRegular size={18}/><span>{state.error}</span></div>}

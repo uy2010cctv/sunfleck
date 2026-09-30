@@ -33,6 +33,24 @@
 .workbench ::-webkit-scrollbar { inline-size: 10px; block-size: 10px; }
 .workbench ::-webkit-scrollbar-thumb { background: var(--dse-color-border); border: 2px solid var(--dse-color-canvas); border-radius: var(--dse-radius-control); }
 
+.scheduleDialog {
+  inline-size: min(48rem, 100%);
+  max-block-size: 100%;
+  padding-block-end: 0;
+}
+
+.scheduleDialogContent {
+  min-block-size: 0;
+  overflow-y: auto;
+  padding-block-end: var(--dse-space-md);
+}
+
+.scheduleDialogActions {
+  display: flex;
+  justify-content: flex-end;
+  margin-block-end: var(--dse-space-sm);
+}
+
 .header {
   flex: none;
   min-block-size: 72px;

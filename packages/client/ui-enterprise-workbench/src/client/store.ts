@@ -270,6 +270,7 @@ export interface EnterpriseEmployeeEditorState {
 /** Browser lifecycle for the enterprise workbench. */
 export interface EnterpriseWorkbenchState {
   readonly open: boolean
+  readonly scheduleDialogOpen?: boolean
   readonly phase: 'idle' | 'loading' | 'ready' | 'error'
   readonly mode: 'enterprise' | 'fallback' | null
   readonly page: EnterpriseWorkbenchPage
@@ -500,6 +501,7 @@ const REVIEW_REASON = 'reviewed in the employee workbench'
 
 const INITIAL_STATE: EnterpriseWorkbenchState = {
   open: false,
+  scheduleDialogOpen: false,
   phase: 'idle',
   mode: null,
   page: 'employees',
@@ -648,7 +650,7 @@ export class EnterpriseWorkbenchController {
   /** Open the workbench, loading its roster on first use. */
   open(): void {
     const state = this.store.getSnapshot()
-    this.store.set({ ...state, open: true })
+    this.store.set({ ...state, open: true, scheduleDialogOpen: false })
     if (state.phase === 'idle') void this.refresh()
     else this.recompute()
   }
@@ -657,7 +659,8 @@ export class EnterpriseWorkbenchController {
   close(): void {
     this.editorGeneration++
     const state = this.store.getSnapshot()
-    this.store.set({ ...state, open: false, busyEmployee: null })
+    this.store.set({ ...state, open: false, scheduleDialogOpen: false,
+      page: state.scheduleDialogOpen ? 'employees' : state.page, busyEmployee: null })
   }
 
   /** Change the overlay-local page. Dirty-editor confirmation stays in the view layer.
@@ -665,7 +668,15 @@ export class EnterpriseWorkbenchController {
    */
   setPage(page: EnterpriseWorkbenchPage): void {
     if (page !== this.store.getSnapshot().page) this.editorGeneration++
-    this.store.set({ ...this.store.getSnapshot(), page })
+    this.store.set({ ...this.store.getSnapshot(), page, scheduleDialogOpen: false })
+  }
+
+  /** Open task management without replacing the current conversation or entering the full workbench. */
+  openSchedules(): void {
+    const state = this.store.getSnapshot()
+    this.store.set({ ...state, open: true, page: 'schedules', scheduleDialogOpen: true })
+    if (state.phase === 'idle') void this.refresh()
+    else if (state.phase === 'ready' && state.mode === 'enterprise') void this.refreshSchedules()
   }
 
   /** Replace server-side roster filters; the next refresh starts from the first cursor.

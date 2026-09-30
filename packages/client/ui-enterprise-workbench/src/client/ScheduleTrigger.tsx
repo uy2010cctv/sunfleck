@@ -15,7 +15,7 @@ export interface ScheduleTriggerProps {
 export function ScheduleTrigger({ wide, openSchedules, t }: ScheduleTriggerProps) {
   const label = t('nav.schedules')
   return <Tooltip label={label} delayMs={500} disabled={wide}>
-    <button type="button" className={css.trigger} aria-label={label} onClick={openSchedules}>
+    <button type="button" className={css.trigger} data-dsh-schedule-trigger="" aria-label={label} onClick={openSchedules}>
       <IconAlarmClockOutlineRegular size={wide ? 16 : 18}/>
       {wide && <span>{label}</span>}
     </button>

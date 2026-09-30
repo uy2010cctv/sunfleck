@@ -591,6 +591,27 @@
   flex-direction: column;
 }
 
+/* The scheduled-task shortcut shares Cordis Plugin's footer row when both are present. */
+.settingsArea:has([data-dsh-schedule-trigger]) {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(0, 0.75fr);
+  column-gap: var(--dse-space-2xs);
+}
+
+.settingsArea:has([data-dsh-schedule-trigger]) > [data-slot='sidebar.footer.action'] > :first-child,
+.settingsArea:has([data-dsh-schedule-trigger]) > [data-slot='sidebar.settings'] > * {
+  grid-column: 1 / -1;
+}
+
+.settingsArea:has([data-dsh-schedule-trigger]) > [data-slot='sidebar.footer.action'] > [data-dsh-schedule-trigger] {
+  grid-column: 2;
+  grid-row: 2;
+}
+
+.settingsArea:has([data-dsh-schedule-trigger]) > [data-slot='sidebar.footer.action'] > div:nth-child(2) button > span:last-child {
+  display: none;
+}
+
 .collapsed .footArea {
   align-items: center;
 }
@@ -601,6 +622,11 @@
   align-items: center;
   justify-content: center;
   width: auto;
+}
+
+.collapsed .settingsArea:has([data-dsh-schedule-trigger]) {
+  display: flex;
+  flex-direction: column;
 }
 
 @media (prefers-reduced-motion: reduce) {
