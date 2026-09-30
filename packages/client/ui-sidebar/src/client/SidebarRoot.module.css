@@ -606,6 +606,9 @@
 .settingsArea:has([data-dsh-schedule-trigger]) > [data-slot='sidebar.footer.action'] > [data-dsh-schedule-trigger] {
   grid-column: 2;
   grid-row: 2;
+  align-self: end;
+  min-block-size: 42px;
+  block-size: 42px;
 }
 
 .settingsArea:has([data-dsh-schedule-trigger]) > [data-slot='sidebar.footer.action'] > div:nth-child(2) button > span:last-child {
@@ -627,6 +630,12 @@
 .collapsed .settingsArea:has([data-dsh-schedule-trigger]) {
   display: flex;
   flex-direction: column;
+}
+
+.collapsed .settingsArea:has([data-dsh-schedule-trigger]) > [data-slot='sidebar.footer.action'] > [data-dsh-schedule-trigger] {
+  min-block-size: 36px;
+  block-size: 36px;
+  align-self: center;
 }
 
 @media (prefers-reduced-motion: reduce) {

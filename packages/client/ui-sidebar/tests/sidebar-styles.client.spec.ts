@@ -30,6 +30,8 @@ describe('SidebarRoot.module.css', () => {
     expect(declarations('.settingsArea:has([data-dsh-schedule-trigger])')?.get('display')).toBe('grid')
     expect(declarations('.settingsArea:has([data-dsh-schedule-trigger])')?.get('grid-template-columns'))
       .toBe('minmax(0, 1.25fr) minmax(0, 0.75fr)')
+    expect(declarations(".settingsArea:has([data-dsh-schedule-trigger]) > [data-slot='sidebar.footer.action'] > [data-dsh-schedule-trigger]")?.get('align-self'))
+      .toBe('end')
     expect(declarations('.collapsed .settingsArea:has([data-dsh-schedule-trigger])')?.get('display')).toBe('flex')
   })
 
