@@ -390,7 +390,7 @@ export class EnterpriseCordisService {
   /**
    * Activate a personal Workspace Package using revision compare-and-swap.
    * @param input - principal, Workspace, Package, revision, and idempotency data.
-   * @returns updated personal binding.
+   * @returns personal binding, unchanged when the requested Package is already active.
    */
   async activatePersonal(input: {
     principal: EnterpriseCordisPrincipal
@@ -417,6 +417,7 @@ export class EnterpriseCordisService {
       if ((current?.revision ?? 0) !== input.expectedRevision) {
         throw new EnterpriseCordisError('revision-conflict', 'Cordis binding revision conflict')
       }
+      if (current?.activePackageId === input.packageId && !current.disabled) return current
       const value: CordisScopeBinding = {
         bindingId: current?.bindingId ?? this.randomId('cordis-binding'),
         orgId: input.principal.orgId, scope, pluginId: input.pluginId, activePackageId: input.packageId,
@@ -519,8 +520,8 @@ export class EnterpriseCordisService {
   }
 
   /** Submit an existing owner-private version in a department Workspace without activating it for members.
-   * @param input - owner, Workspace, saved version, and idempotency key.
-   * @returns pending department review.
+   * @param input - owner, Workspace, saved version, and request key; the source Package identifies one review.
+   * @returns the existing review for that immutable version, or a new pending review.
    */
   async submitSavedDepartment(input: {
     principal: EnterpriseCordisPrincipal
@@ -528,17 +529,17 @@ export class EnterpriseCordisService {
     packageId: string
     idempotencyKey: string
   }): Promise<CordisReviewRequest> {
-    return this.idempotent(input.principal, 'submit-saved-department', input.idempotencyKey, async () => {
-      const stored = await this.repository.package(input.packageId)
-      if (stored === undefined || stored.orgId !== input.principal.orgId
-        || stored.scope.type !== 'personal-workspace'
-        || stored.scope.workspaceId !== input.workspaceId
-        || stored.scope.ownerUserId !== input.principal.userId) {
-        throw new EnterpriseCordisError('package-not-found', 'Private Cordis package was not found')
-      }
-      if ((await this.repository.archiveForScope(stored.orgId, archiveScopeKey(stored.scope), stored.pluginId))?.archived) {
-        throw new EnterpriseCordisError('plugin-archived', 'Restore the private Plugin before submitting it')
-      }
+    const stored = await this.repository.package(input.packageId)
+    if (stored === undefined || stored.orgId !== input.principal.orgId
+      || stored.scope.type !== 'personal-workspace'
+      || stored.scope.workspaceId !== input.workspaceId
+      || stored.scope.ownerUserId !== input.principal.userId) {
+      throw new EnterpriseCordisError('package-not-found', 'Private Cordis package was not found')
+    }
+    if ((await this.repository.archiveForScope(stored.orgId, archiveScopeKey(stored.scope), stored.pluginId))?.archived) {
+      throw new EnterpriseCordisError('plugin-archived', 'Restore the private Plugin before submitting it')
+    }
+    return this.idempotent(input.principal, 'submit-saved-department', `package:${input.packageId}`, async () => {
       const source = await this.hydrate(stored)
       const draft: CordisPackageDraft = {
         pluginId: source.pluginId, dynamicPackageId: source.dynamicPackageId,
@@ -628,7 +629,7 @@ export class EnterpriseCordisService {
   }
 
   /**
-   * Approve a Package for department use or return it to its author.
+   * Approve a pending Package for department use or return it to its author.
    * @param input - principal, review transition, reason, CAS revision, and idempotency data.
    * @returns updated review request.
    */
@@ -645,7 +646,7 @@ export class EnterpriseCordisService {
       const review = await this.review(input)
       if (review.revision !== input.expectedRevision) throw new EnterpriseCordisError('revision-conflict', 'Cordis review revision conflict')
       if (review.packageId !== input.packageId) throw new EnterpriseCordisError('review-package-mismatch', 'Review package mismatch')
-      if (review.status !== 'pending' && review.status !== 'changes-requested') {
+      if (review.status !== 'pending') {
         throw new EnterpriseCordisError('review-state-invalid', `Cannot review ${review.status}`)
       }
       const next: CordisReviewRequest = {
@@ -674,7 +675,7 @@ export class EnterpriseCordisService {
   }
 
   /**
-   * Publish a validated department Package as the organization binding.
+   * Publish a department-approved Package as the organization binding.
    * @param input - principal, review Package, CAS revision, and idempotency data.
    * @returns publication result and organization binding.
    */
@@ -689,6 +690,9 @@ export class EnterpriseCordisService {
       const review = await this.review(input)
       if (review.revision !== input.expectedRevision) throw new EnterpriseCordisError('revision-conflict', 'Cordis review revision conflict')
       if (review.packageId !== input.packageId) throw new EnterpriseCordisError('review-package-mismatch', 'Review package mismatch')
+      if (review.status !== 'approved-department') {
+        throw new EnterpriseCordisError('review-state-invalid', `Cannot publish ${review.status}`)
+      }
       const storedPackage = await this.repository.package(input.packageId)
       const pkg = storedPackage === undefined ? undefined : await this.hydrate(storedPackage)
       if (pkg === undefined) throw new EnterpriseCordisError('package-not-found', 'Cordis package was not found')
@@ -757,7 +761,7 @@ export class EnterpriseCordisService {
   /**
    * Stop a binding within the caller's governed scope.
    * @param input - principal, binding, reason, CAS revision, and idempotency data.
-   * @returns disabled binding.
+   * @returns disabled binding, unchanged when it is already disabled.
    */
   async stopBinding(input: {
     principal: EnterpriseCordisPrincipal
@@ -775,6 +779,7 @@ export class EnterpriseCordisService {
       if (current.revision !== input.expectedRevision) {
         throw new EnterpriseCordisError('revision-conflict', 'Cordis binding revision conflict')
       }
+      if (current.disabled) return current
       const next: CordisScopeBinding = {
         ...current, disabled: true, disabledReason: input.reason.trim(),
         revision: current.revision + 1, updatedAt: this.now(),
@@ -788,7 +793,7 @@ export class EnterpriseCordisService {
   /**
    * Roll a private binding to an older Package or resume a governed binding's approved Package.
    * @param input - principal, binding, Package, reason, CAS revision, and idempotency data.
-   * @returns updated binding.
+   * @returns binding, unchanged when the requested Package is already active.
    */
   async rollbackBinding(input: {
     principal: EnterpriseCordisPrincipal
@@ -817,6 +822,7 @@ export class EnterpriseCordisService {
         || (current.scope.type !== 'personal-workspace' && pkg.packageId !== current.activePackageId)) {
         throw new EnterpriseCordisError('package-not-found', 'Rollback package was not found')
       }
+      if (!current.disabled && current.activePackageId === pkg.packageId) return current
       const { disabledReason: _disabledReason, ...enabled } = current
       const next: CordisScopeBinding = {
         ...enabled, activePackageId: pkg.packageId, disabled: false, activatedBy: input.principal.userId,

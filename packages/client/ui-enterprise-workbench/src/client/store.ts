@@ -2183,6 +2183,7 @@ export class EnterpriseWorkbenchController {
     onConflict: () => Promise<unknown> | void = () => {},
   ): Promise<boolean> {
     const execute = async (): Promise<boolean> => {
+      if (this.store.getSnapshot().mutationPhase === 'running') return false
       const attemptId = ++this.mutationAttemptId
       const before = this.store.getSnapshot()
       this.retryMutationAction = execute
@@ -2220,7 +2221,8 @@ export class EnterpriseWorkbenchController {
 
   /** Retry the most recent contained mutation failure. */
   async retryMutation(): Promise<void> {
-    if (this.store.getSnapshot().mutationPhase === 'conflict') return
+    if (this.store.getSnapshot().mutationPhase === 'conflict'
+      || this.store.getSnapshot().mutationPhase === 'running') return
     await this.retryMutationAction?.()
   }
 

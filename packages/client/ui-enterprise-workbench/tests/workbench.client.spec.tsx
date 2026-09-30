@@ -439,9 +439,9 @@ describe('EnterpriseWorkbench', () => {
     expect(screen.getByText('订单校验')).toBeDefined()
     fireEvent.click(screen.getByText('查看源码'))
     expect(screen.getByText('return { apply() {} }')).toBeDefined()
-    fireEvent.click(screen.getByRole('button', { name: '停止' }))
+    fireEvent.click(screen.getByRole('button', { name: '停止供新会话使用' }))
     expect(stopExtension).toHaveBeenCalledWith(expect.objectContaining({ bindingId: 'binding-1' }), zh['extensions.stopReason'])
-    fireEvent.click(screen.getByRole('button', { name: '待我审核' }))
+    fireEvent.click(screen.getByRole('button', { name: '审核与发布' }))
     fireEvent.change(screen.getByLabelText('审核原因'), { target: { value: '已验证' } })
     fireEvent.click(screen.getByRole('button', { name: '批准部门启用' }))
     expect(reviewExtension).toHaveBeenCalledWith(expect.objectContaining({ reviewId: 'review-1' }), 'approve', '已验证')
@@ -470,12 +470,127 @@ describe('EnterpriseWorkbench', () => {
       }, activateExtension, archiveExtension, submitExtensionForDepartment,
     } as never)} />)
     expect(screen.getByText('私有助手')).toBeDefined()
-    fireEvent.click(screen.getByRole('button', { name: '启用此版本' }))
+    fireEvent.click(screen.getByRole('button', { name: '启用所选版本' }))
     expect(activateExtension).toHaveBeenCalledWith(expect.objectContaining({ packageId: 'package-saved' }), undefined)
-    fireEvent.click(screen.getByRole('button', { name: '删除' }))
+    fireEvent.click(screen.getByRole('button', { name: '移入回收站' }))
     expect(archiveExtension).toHaveBeenCalledWith(expect.objectContaining({ packageId: 'package-saved' }))
     fireEvent.click(screen.getByRole('button', { name: '提交部门审核' }))
     expect(submitExtensionForDepartment).toHaveBeenCalledWith(expect.objectContaining({ packageId: 'package-saved' }))
+  })
+
+  it('groups immutable versions under one private Plugin and offers each lifecycle action once', () => {
+    const activateExtension = vi.fn(() => Promise.resolve())
+    const rollbackExtension = vi.fn(() => Promise.resolve())
+    const stopExtension = vi.fn(() => Promise.resolve())
+    const archiveExtension = vi.fn(() => Promise.resolve())
+    const submitExtensionForDepartment = vi.fn(() => Promise.resolve())
+    const version = (number: number) => ({
+      packageId: `package-${number}`, orgId: 'org-a', pluginId: 'orders-1', dynamicPackageId: `pkg-${number}`,
+      version: number, scope: { type: 'personal-workspace', workspaceId: 'workspace-1', ownerUserId: 'user-1' },
+      canSubmitDepartment: true, name: `订单校验 v${number}`, purpose: `第 ${number} 版规则。`,
+      hostCode: `return { apply() { /* v${number} */ } }`,
+      manifest: { apiVersion: 'dsh-plugin/v1', runtime: 'isolated-realm', provides: ['tool:validate_order'], capabilities: [] },
+      artifactRef: `artifact://orders/${number}`, validationReportRef: `report://orders/${number}`,
+      authoredBy: 'user-1', sourceDigest: 'a'.repeat(64), createdAt: number,
+    })
+    const binding = {
+      bindingId: 'binding-1', orgId: 'org-a', pluginId: 'orders-1', activePackageId: 'package-3',
+      scope: version(3).scope, generation: 3, revision: 3, activatedBy: 'user-1', disabled: false,
+      trustLevel: 'isolated', updatedAt: 3, canManage: true,
+    }
+    const view = render(<EnterpriseWorkbench {...workbenchProps({
+      state: { mode: 'enterprise', page: 'extensions', extensionWorkspaceId: 'workspace-1',
+        extensions: { phase: 'ready', error: null, items: [version(1), version(2), version(3)] },
+        extensionBindings: [binding], extensionReviews: { phase: 'ready', error: null, items: [] } },
+      activateExtension, rollbackExtension, stopExtension, archiveExtension, submitExtensionForDepartment,
+    } as never)} />)
+
+    expect(view.container.querySelectorAll('[data-extension-plugin]')).toHaveLength(1)
+    expect(screen.getByText('订单校验 v3')).toBeDefined()
+    expect(screen.getAllByRole('button', { name: '停止供新会话使用' })).toHaveLength(1)
+    expect(screen.getAllByRole('button', { name: '移入回收站' })).toHaveLength(1)
+    expect(screen.getAllByRole('button', { name: '提交部门审核' })).toHaveLength(1)
+    expect([...view.container.querySelectorAll('[data-extension-plugin]')].map(card => ({
+      title: card.querySelector('h3')?.textContent,
+      versions: [...card.querySelectorAll('option')].map(option => option.textContent),
+      actions: [...card.querySelectorAll('button')].map(button => button.textContent),
+    }))).toMatchSnapshot('grouped extension versions and actions')
+    const picker = screen.getByRole('combobox', { name: '查看订单校验 v3的版本' })
+    expect(picker.querySelectorAll('option')).toHaveLength(3)
+    fireEvent.change(picker, { target: { value: 'package-1' } })
+    expect(screen.getByText('第 1 版规则。')).toBeDefined()
+    fireEvent.click(screen.getByRole('button', { name: '回退到 v1' }))
+    expect(rollbackExtension).toHaveBeenCalledWith(expect.objectContaining({ bindingId: 'binding-1' }),
+      'package-1', zh['extensions.rollbackReason'])
+    expect(activateExtension).not.toHaveBeenCalled()
+  })
+
+  it('shows the newest saved version when a binding is stopped and identifies the previous selection', () => {
+    const version = (number: number) => ({
+      packageId: `package-${number}`, orgId: 'org-a', pluginId: 'private-1', dynamicPackageId: `pkg-${number}`,
+      version: number, scope: { type: 'personal-workspace', workspaceId: 'workspace-1', ownerUserId: 'user-1' },
+      name: `私有助手 v${number}`, purpose: `版本 ${number}`, hostCode: 'return { apply() {} }',
+      manifest: { apiVersion: 'dsh-plugin/v1', runtime: 'isolated-realm', provides: [], capabilities: [] },
+      artifactRef: `artifact://${number}`, validationReportRef: `report://${number}`,
+      authoredBy: 'user-1', sourceDigest: 'a'.repeat(64), createdAt: number,
+    })
+    render(<EnterpriseWorkbench {...workbenchProps({ state: {
+      mode: 'enterprise', page: 'extensions', extensions: {
+        phase: 'ready', error: null, items: [version(1), version(2)],
+      }, extensionBindings: [{ bindingId: 'binding-1', orgId: 'org-a', pluginId: 'private-1',
+        activePackageId: 'package-1', scope: version(1).scope, generation: 1, revision: 2,
+        activatedBy: 'user-1', disabled: true, trustLevel: 'isolated', updatedAt: 2, canManage: true,
+      }],
+    } } as never)} />)
+
+    expect(screen.getByRole('heading', { name: '私有助手 v2' })).toBeDefined()
+    expect(screen.getByText('上次启用 v1')).toBeDefined()
+    expect(screen.getByRole('button', { name: '启用所选版本' })).toBeDefined()
+    expect(screen.queryByRole('button', { name: '停止供新会话使用' })).toBeNull()
+  })
+
+  it('shows review actions only in the matching review state', () => {
+    const reviewExtension = vi.fn(() => Promise.resolve())
+    const review = { reviewId: 'review-1', orgId: 'org-a', departmentId: 'dept-a',
+      pluginId: 'orders-1', packageId: 'package-1', sourceSessionId: 'session-1',
+      submittedBy: 'user-1', status: 'pending', revision: 1, createdAt: 1, updatedAt: 1 }
+    const props = (status: string) => workbenchProps({
+      state: { mode: 'enterprise', page: 'extensions',
+        extensionReviews: { phase: 'ready', error: null, items: [{ ...review, status }] } },
+      reviewExtension,
+    } as never)
+    const view = render(<EnterpriseWorkbench {...props('pending')} />)
+    fireEvent.click(screen.getByRole('button', { name: '审核与发布' }))
+    expect(screen.getByRole('button', { name: '批准部门启用' })).toBeDefined()
+    expect(screen.queryByRole('button', { name: '发布到全组织' })).toBeNull()
+    view.rerender(<EnterpriseWorkbench {...props('approved-department')} />)
+    expect(screen.queryByRole('button', { name: '批准部门启用' })).toBeNull()
+    expect(screen.queryByRole('button', { name: '退回作者' })).toBeNull()
+    expect(screen.getByRole('button', { name: '发布到全组织' })).toBeDefined()
+    view.rerender(<EnterpriseWorkbench {...props('changes-requested')} />)
+    expect(screen.queryByRole('button', { name: '批准部门启用' })).toBeNull()
+    expect(screen.queryByRole('button', { name: '发布到全组织' })).toBeNull()
+    view.rerender(<EnterpriseWorkbench {...props('published-organization')} />)
+    expect(screen.queryByRole('button', { name: '发布到全组织' })).toBeNull()
+  })
+
+  it('keeps review reasons on the review where they were entered', () => {
+    const review = (reviewId: string) => ({
+      reviewId, orgId: 'org-a', departmentId: 'dept-a', pluginId: reviewId,
+      packageId: `package-${reviewId}`, sourceSessionId: 'session-1', submittedBy: 'user-1',
+      status: 'pending', revision: 1, createdAt: 1, updatedAt: 1,
+    })
+    render(<EnterpriseWorkbench {...workbenchProps({ state: {
+      mode: 'enterprise', page: 'extensions', extensionReviews: {
+        phase: 'ready', error: null, items: [review('first'), review('second')],
+      },
+    } } as never)} />)
+    fireEvent.click(screen.getByRole('button', { name: '审核与发布' }))
+    const reasons = screen.getAllByRole('textbox', { name: '审核原因' })
+    fireEvent.change(reasons[0]!, { target: { value: '已核验第一项' } })
+    const approvals = screen.getAllByRole('button', { name: '批准部门启用' })
+    expect(approvals[0]?.hasAttribute('disabled')).toBe(false)
+    expect(approvals[1]?.hasAttribute('disabled')).toBe(true)
   })
 
   it('restores a private Plugin from the recycle bin without activating it', () => {
@@ -492,8 +607,8 @@ describe('EnterpriseWorkbench', () => {
     }, restoreExtension } as never)} />)
     fireEvent.click(screen.getByRole('button', { name: '回收站' }))
     expect(screen.getByText('归档助手')).toBeDefined()
-    expect(screen.getByText('已删除，可恢复')).toBeDefined()
-    expect(screen.queryByRole('button', { name: '启用此版本' })).toBeNull()
+    expect(screen.getByText('回收站中，可恢复')).toBeDefined()
+    expect(screen.queryByRole('button', { name: '启用所选版本' })).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: '恢复' }))
     expect(restoreExtension).toHaveBeenCalledWith(expect.objectContaining({ packageId: 'archived-1' }))
   })
@@ -565,8 +680,9 @@ describe('EnterpriseWorkbench', () => {
     } as never)} />)
     fireEvent.click(screen.getByRole('button', { name: '组织扩展' }))
     expect(screen.getByText('组织助手')).toBeDefined()
-    expect(screen.getByText('对新 Session 生效')).toBeDefined()
-    expect(screen.queryByRole('button', { name: '停止' })).toBeNull()
+    expect(screen.getByText('全组织')).toBeDefined()
+    expect(screen.getByText('新会话可用')).toBeDefined()
+    expect(screen.queryByRole('button', { name: '停止供新会话使用' })).toBeNull()
   })
 
   it('shows authorized pending department source in the Department tab without activation actions', () => {
@@ -595,7 +711,7 @@ describe('EnterpriseWorkbench', () => {
     expect(screen.getByText('部门共享助手')).toBeDefined()
     expect(screen.getByText('待审源码')).toBeDefined()
     expect(within(screen.getByText('待审源码').closest('article')!).getByText('待审核')).toBeDefined()
-    expect(screen.queryByRole('button', { name: '停止' })).toBeNull()
+    expect(screen.queryByRole('button', { name: '停止供新会话使用' })).toBeNull()
   })
 
   it('provides local management navigation and opens the employee draft editor from the roster', () => {

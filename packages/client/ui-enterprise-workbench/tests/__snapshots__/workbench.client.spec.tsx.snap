@@ -2,6 +2,24 @@
 
 exports[`EnterpriseWorkbench > explains charter activation requirements and hides unusable launch controls > charter activation checklist 1`] = `"启用前还需完成填写团队名称填写团队长期目标选择团队负责人选择已发布的领队数字员工选择核验数字员工填写至少一条验收标准可先保存草稿，再继续完善；草稿不能启动团队工作。"`;
 
+exports[`EnterpriseWorkbench > groups immutable versions under one private Plugin and offers each lifecycle action once > grouped extension versions and actions 1`] = `
+[
+  {
+    "actions": [
+      "提交部门审核",
+      "停止供新会话使用",
+      "移入回收站",
+    ],
+    "title": "订单校验 v3",
+    "versions": [
+      "v3 · 订单校验 v3",
+      "v2 · 订单校验 v2",
+      "v1 · 订单校验 v1",
+    ],
+  },
+]
+`;
+
 exports[`EnterpriseWorkbench > presents the roster as a StaffDeck-inspired employee gallery without technical metadata > employee directory hierarchy 1`] = `
 [
   "员工名册",

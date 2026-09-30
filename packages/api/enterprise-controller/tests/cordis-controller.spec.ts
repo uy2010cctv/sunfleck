@@ -123,7 +123,7 @@ describe('enterprise Cordis Remote controllers', () => {
     expect(app.auditApiAsync).toHaveBeenCalled()
   })
 
-  it('supports manager assignment, department review, and direct organization publication', async () => {
+  it('supports manager assignment, department approval, and organization publication', async () => {
     const app = await setup()
     await app.requestContext.run(admin, () => app.governance.setDepartmentManagers({
       departmentId: 'dept-a', managerUserIds: ['manager-1'], expectedRevision: 0,
@@ -133,9 +133,17 @@ describe('enterprise Cordis Remote controllers', () => {
       workspaceId: 'department-1', sourceSessionId: 'session-1', draft,
       idempotencyKey: 'submit-1',
     }))
-    const published = await app.requestContext.run(manager, () => app.review.publishOrganization({
+    await expect(app.requestContext.run(manager, () => app.review.publishOrganization({
       reviewId: submitted.reviewId, pluginId: submitted.pluginId, packageId: submitted.packageId,
-      expectedRevision: submitted.revision, idempotencyKey: 'publish-1',
+      expectedRevision: submitted.revision, idempotencyKey: 'publish-too-soon',
+    }))).rejects.toThrow('Cannot publish pending')
+    const approved = await app.requestContext.run(manager, () => app.review.approveDepartment({
+      reviewId: submitted.reviewId, pluginId: submitted.pluginId, packageId: submitted.packageId,
+      expectedRevision: submitted.revision, reason: 'Validated.', idempotencyKey: 'approve-1',
+    }))
+    const published = await app.requestContext.run(manager, () => app.review.publishOrganization({
+      reviewId: approved.reviewId, pluginId: approved.pluginId, packageId: approved.packageId,
+      expectedRevision: approved.revision, idempotencyKey: 'publish-1',
     }))
 
     expect(published.status).toBe('published-organization')

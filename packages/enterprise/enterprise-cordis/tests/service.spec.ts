@@ -465,9 +465,14 @@ describe('EnterpriseCordisService', () => {
       principal: member, workspaceId: 'department-1', draft, sourceSessionId: 'session-1',
       idempotencyKey: 'submit-1',
     })
-    const published = await cordis.publishOrganization({
+    const approved = await cordis.reviewDepartment({
       principal: manager, reviewId: submitted.reviewId, packageId: submitted.packageId,
-      expectedRevision: submitted.revision, idempotencyKey: 'publish-1',
+      action: 'approve_department', reason: 'Validated.', expectedRevision: submitted.revision,
+      idempotencyKey: 'disable-approve',
+    })
+    const published = await cordis.publishOrganization({
+      principal: manager, reviewId: approved.reviewId, packageId: approved.packageId,
+      expectedRevision: approved.revision, idempotencyKey: 'publish-1',
     })
     const disabled = await cordis.emergencyDisable({
       principal: admin, bindingId: published.organizationBinding.bindingId,
@@ -574,15 +579,99 @@ describe('EnterpriseCordisService', () => {
     })])
   })
 
+  it('returns the same department review when one saved version is submitted again', async () => {
+    const cordis = service()
+    const saved = await cordis.savePersonal({
+      principal: member, workspaceId: 'department-1', draft, idempotencyKey: 'repeat-save',
+    })
+    const first = await cordis.submitSavedDepartment({
+      principal: member, workspaceId: 'department-1', packageId: saved.packageId,
+      idempotencyKey: 'repeat-submit-first',
+    })
+    const repeated = await cordis.submitSavedDepartment({
+      principal: member, workspaceId: 'department-1', packageId: saved.packageId,
+      idempotencyKey: 'repeat-submit-second',
+    })
+
+    expect(repeated.reviewId).toBe(first.reviewId)
+    expect(await cordis.listReviews({ principal: member })).toHaveLength(1)
+    expect((await cordis.listWorkspace({ principal: member, workspaceId: 'department-1' })).packages)
+      .toHaveLength(2)
+  })
+
+  it('does not advance binding revisions for an already selected state', async () => {
+    const cordis = service()
+    const saved = await cordis.savePersonal({
+      principal: member, workspaceId: 'personal-1', draft, idempotencyKey: 'state-save',
+    })
+    const active = await cordis.activatePersonal({
+      principal: member, workspaceId: 'personal-1', pluginId: saved.pluginId,
+      packageId: saved.packageId, expectedRevision: 0, idempotencyKey: 'state-active',
+    })
+    const activeAgain = await cordis.activatePersonal({
+      principal: member, workspaceId: 'personal-1', pluginId: saved.pluginId,
+      packageId: saved.packageId, expectedRevision: active.revision, idempotencyKey: 'state-active-again',
+    })
+    const stopped = await cordis.stopBinding({
+      principal: member, bindingId: active.bindingId, expectedRevision: activeAgain.revision,
+      reason: 'Paused.', idempotencyKey: 'state-stop',
+    })
+    const stoppedAgain = await cordis.stopBinding({
+      principal: member, bindingId: active.bindingId, expectedRevision: stopped.revision,
+      reason: 'Paused again.', idempotencyKey: 'state-stop-again',
+    })
+    const resumed = await cordis.rollbackBinding({
+      principal: member, bindingId: active.bindingId, packageId: saved.packageId,
+      expectedRevision: stoppedAgain.revision, reason: 'Resume.', idempotencyKey: 'state-resume',
+    })
+    const resumedAgain = await cordis.rollbackBinding({
+      principal: member, bindingId: active.bindingId, packageId: saved.packageId,
+      expectedRevision: resumed.revision, reason: 'Resume again.', idempotencyKey: 'state-resume-again',
+    })
+
+    expect([active.revision, activeAgain.revision, stopped.revision,
+      stoppedAgain.revision, resumed.revision, resumedAgain.revision]).toEqual([1, 1, 2, 2, 3, 3])
+  })
+
+  it('publishes only an approved review once', async () => {
+    const cordis = service()
+    const submitted = await cordis.submitDepartment({
+      principal: member, workspaceId: 'department-1', draft,
+      sourceSessionId: 'source-session', idempotencyKey: 'publish-state-submit',
+    })
+    await expect(cordis.publishOrganization({
+      principal: manager, reviewId: submitted.reviewId, packageId: submitted.packageId,
+      expectedRevision: submitted.revision, idempotencyKey: 'publish-while-pending',
+    })).rejects.toMatchObject({ code: 'review-state-invalid' })
+    const approved = await cordis.reviewDepartment({
+      principal: manager, reviewId: submitted.reviewId, packageId: submitted.packageId,
+      action: 'approve_department', reason: 'Reviewed.', expectedRevision: submitted.revision,
+      idempotencyKey: 'publish-state-approve',
+    })
+    const published = await cordis.publishOrganization({
+      principal: manager, reviewId: approved.reviewId, packageId: approved.packageId,
+      expectedRevision: approved.revision, idempotencyKey: 'publish-state-first',
+    })
+    await expect(cordis.publishOrganization({
+      principal: manager, reviewId: published.reviewId, packageId: published.packageId,
+      expectedRevision: published.revision, idempotencyKey: 'publish-state-repeat',
+    })).rejects.toMatchObject({ code: 'review-state-invalid' })
+  })
+
   it('only lets an administrator promote an organization binding trust level', async () => {
     const cordis = service()
     const submitted = await cordis.submitDepartment({
       principal: member, workspaceId: 'department-1', draft, sourceSessionId: 'session-1',
       idempotencyKey: 'trust-submit',
     })
-    const published = await cordis.publishOrganization({
+    const approved = await cordis.reviewDepartment({
       principal: manager, reviewId: submitted.reviewId, packageId: submitted.packageId,
-      expectedRevision: submitted.revision, idempotencyKey: 'trust-publish',
+      action: 'approve_department', reason: 'Validated.', expectedRevision: submitted.revision,
+      idempotencyKey: 'trust-approve',
+    })
+    const published = await cordis.publishOrganization({
+      principal: manager, reviewId: approved.reviewId, packageId: approved.packageId,
+      expectedRevision: approved.revision, idempotencyKey: 'trust-publish',
     })
     await expect(cordis.setTrust({
       principal: manager, bindingId: published.organizationBinding.bindingId, trustLevel: 'trusted-in-process',

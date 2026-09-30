@@ -120,6 +120,8 @@
 .extensionTabs button:focus-visible,
 .extensionWorkspace select:focus-visible,
 .extensionWorkspace button:focus-visible,
+.extensionVersionRow select:focus-visible,
+.extensionQuietAction:focus-visible,
 .extensionReviewActions input:focus-visible,
 .extensionSource summary:focus-visible {
   outline: 2px solid var(--dse-color-focus);
@@ -688,10 +690,27 @@
 .extensionTabs { display: flex; gap: var(--dse-space-3xs); margin-block: var(--dse-space-xs) var(--dse-space-sm); overflow-x: auto; border-block-end: 1px solid var(--dse-color-border); }
 .extensionTabs button { min-block-size: 40px; flex: none; padding-inline: var(--dse-space-xs); border: 0; border-block-end: 2px solid transparent; background: transparent; color: var(--dse-color-muted); font: inherit; font-size: 0.75rem; cursor: pointer; }
 .extensionTabs button:hover { color: var(--dse-color-ink); }
-.extensionTabs button[aria-current='page'] { border-block-end-color: var(--dse-color-accent); color: var(--dse-color-accent); font-weight: 650; }
+.extensionTabs button[aria-current='page'] { border-block-end-color: var(--dse-color-accent); color: var(--dse-color-accent); font-weight: 500; }
+.extensionSectionNote { margin: 0 0 var(--dse-space-xs); color: var(--dse-color-muted); font-size: 0.8125rem; line-height: 1.5; }
 .extensionList { border-block-start: 1px solid var(--dse-color-border); }
 .extensionRow { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--dse-space-xs); padding-block: var(--dse-space-sm); border-block-end: 1px solid var(--dse-color-border); }
-.extensionRow[data-active='true'] .extensionIdentity > strong { color: var(--dse-color-accent); }
+.extensionPlugin { display: grid; gap: var(--dse-space-xs); padding-block: var(--dse-space-sm); border-block-end: 1px solid var(--dse-color-border); }
+.extensionPluginHeader { display: flex; justify-content: space-between; align-items: flex-start; gap: var(--dse-space-sm); }
+.extensionPluginHeader .extensionIdentity { flex: 1; }
+.extensionPluginHeader h3 { margin: 0; color: var(--dse-color-ink); font-size: 0.875rem; font-weight: 500; line-height: 1.4; }
+.extensionStatus { flex: none; max-inline-size: 12rem; padding: var(--dse-space-3xs) var(--dse-space-2xs); border-radius: var(--dse-radius-control); background: var(--dse-color-surface-raised); color: var(--dse-color-ink); font-size: 0.75rem; text-align: end; }
+.extensionPlugin[data-active='true'] .extensionStatus { color: var(--dse-color-accent); }
+.extensionPluginFacts { display: flex; flex-wrap: wrap; gap: var(--dse-space-2xs); color: var(--dse-color-muted); font-size: 0.75rem; }
+.extensionPluginFacts span + span::before { content: '·'; margin-inline-end: var(--dse-space-2xs); }
+.extensionVersionRow { display: flex; align-items: end; gap: var(--dse-space-sm); }
+.extensionVersionRow label { display: flex; flex: 1; min-inline-size: 0; flex-direction: column; gap: var(--dse-space-3xs); color: var(--dse-color-muted); font-size: 0.75rem; }
+.extensionVersionRow select { min-inline-size: 0; min-block-size: 38px; padding-inline: var(--dse-space-xs); border: 1px solid var(--dse-color-border); border-radius: var(--dse-radius-control); background: var(--dse-color-surface); color: var(--dse-color-ink); font: inherit; }
+.extensionVersionRow > span { color: var(--dse-color-muted); font-size: 0.75rem; }
+.extensionSelectedPurpose { margin: 0; font-size: 0.8125rem; line-height: 1.5; }
+.extensionPluginActions { display: flex; align-items: center; flex-wrap: wrap; gap: var(--dse-space-2xs); }
+.extensionQuietAction { margin-inline-start: auto; min-block-size: 36px; padding-inline: var(--dse-space-xs); border: 0; background: transparent; color: var(--dse-color-muted); cursor: pointer; font: inherit; font-size: 0.75rem; }
+.extensionQuietAction:hover { color: var(--dse-color-ink); text-decoration: underline; }
+.extensionQuietAction:disabled { cursor: default; opacity: .55; }
 .extensionIdentity { min-inline-size: 0; }
 .extensionIdentity > strong,
 .extensionIdentity > span { display: block; }
@@ -704,8 +723,15 @@
 .extensionMeta span { padding: var(--dse-space-3xs) var(--dse-space-2xs); border-radius: 6px; background: var(--dse-color-surface-raised); color: var(--dse-color-muted); font-size: 0.6875rem; }
 .extensionSource { min-inline-size: 0; }
 .extensionSource summary { inline-size: fit-content; color: var(--dse-color-muted); font-size: 0.75rem; cursor: pointer; }
+.extensionSource > p { margin: var(--dse-space-3xs) 0; color: var(--dse-color-muted); font-family: var(--dse-font-code); font-size: 0.6875rem; overflow-wrap: anywhere; }
 .extensionSource pre { max-block-size: 18rem; margin: var(--dse-space-xs) 0 0; padding: var(--dse-space-xs); overflow: auto; border-radius: var(--dse-radius-control); background: var(--dse-color-surface-raised); color: var(--dse-color-ink); font-family: var(--dse-font-code); font-size: 0.6875rem; line-height: 1.55; white-space: pre-wrap; }
 .extensionReviewActions { display: grid; grid-template-columns: minmax(12rem, 1fr); gap: var(--dse-space-2xs); align-items: end; }
+@media (max-width: 42rem) {
+  .extensionPluginHeader,
+  .extensionVersionRow { flex-direction: column; align-items: stretch; }
+  .extensionStatus { align-self: flex-start; }
+  .extensionQuietAction { margin-inline-start: 0; }
+}
 
 .recordList { border-block-start: 1px solid var(--dse-color-border); }
 .record {

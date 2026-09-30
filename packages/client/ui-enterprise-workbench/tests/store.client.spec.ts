@@ -336,6 +336,22 @@ describe('EnterpriseWorkbenchController enterprise read models', () => {
     expect(controller.store.getSnapshot().extensionWorkspaceId).toBeUndefined()
   })
 
+  it('sends one Workspace extension mutation while its first request is pending', async () => {
+    const base = controllerApi()
+    let finish!: (value: { result: { ok: true; value: object } }) => void
+    const stop = vi.fn(() => new Promise<{ result: { ok: true; value: object } }>((resolve) => { finish = resolve }))
+    const controller = new EnterpriseWorkbenchController(controllerApi({
+      cordisWorkspace: { ...base.cordisWorkspace, stop },
+    }) as never, controllerServices().sessions as never, controllerServices().workspaces as never, () => {})
+    const binding = { bindingId: 'binding-1', pluginId: 'orders-1', revision: 1 }
+
+    const first = controller.stopExtension(binding as never, 'Pause.')
+    const second = controller.stopExtension(binding as never, 'Pause.')
+    expect(stop).toHaveBeenCalledOnce()
+    finish({ result: { ok: true, value: {} } })
+    await Promise.all([first, second])
+  })
+
   it('submits an owner-private department Workspace version through the review remote', async () => {
     const base = controllerApi()
     const submitSaved = vi.fn(() => ok({ reviewId: 'review-1', status: 'pending' }))
@@ -618,7 +634,7 @@ describe('EnterpriseWorkbenchController edits, mutations, and events', () => {
     expect(controller.store.getSnapshot().employees.items.map(item => item.presetId)).toEqual(['new-result'])
   })
 
-  it('lets only the latest mutation attempt update global mutation state', async () => {
+  it('blocks another mutation while an approval transition is pending', async () => {
     let resolveFirst!: (value: Awaited<ReturnType<typeof ok>>) => void
     const transitionApproval = vi.fn(() => new Promise<Awaited<ReturnType<typeof ok>>>((resolve) => { resolveFirst = resolve }))
     const saveSchedule = vi.fn(() => Promise.reject(new Error('latest failed')))
@@ -633,8 +649,9 @@ describe('EnterpriseWorkbenchController edits, mutations, and events', () => {
     resolveFirst(await ok({}))
     await first
 
+    expect(saveSchedule).not.toHaveBeenCalled()
     expect(controller.store.getSnapshot()).toMatchObject({
-      mutationPhase: 'error', mutationError: 'latest failed', retryAction: 'schedule-save',
+      mutationPhase: 'idle', mutationError: null, retryAction: null,
     })
   })
 
