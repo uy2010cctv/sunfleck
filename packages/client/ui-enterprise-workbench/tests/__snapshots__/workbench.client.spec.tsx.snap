@@ -20,6 +20,13 @@ exports[`EnterpriseWorkbench > groups immutable versions under one private Plugi
 ]
 `;
 
+exports[`EnterpriseWorkbench > groups newer pending and earlier approved reviews for one Plugin > review grouped by plugin and department 1`] = `
+{
+  "current": "board-1dept-a · 待审核提交人：user-1Jan 1, 08:00 AM审核原因批准部门启用退回作者",
+  "history": "历史审核 1 条",
+}
+`;
+
 exports[`EnterpriseWorkbench > presents the roster as a StaffDeck-inspired employee gallery without technical metadata > employee directory hierarchy 1`] = `
 [
   "员工名册",

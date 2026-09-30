@@ -593,6 +593,51 @@ describe('EnterpriseWorkbench', () => {
     expect(approvals[1]?.hasAttribute('disabled')).toBe(true)
   })
 
+  it('groups newer pending and earlier approved reviews for one Plugin', () => {
+    const review = (reviewId: string, status: string, updatedAt: number) => ({
+      reviewId, orgId: 'org-a', departmentId: 'dept-a', pluginId: 'board-1',
+      packageId: `package-${reviewId}`, sourceSessionId: 'session-1', submittedBy: 'user-1',
+      status, revision: 1, createdAt: updatedAt, updatedAt,
+    })
+    const view = render(<EnterpriseWorkbench {...workbenchProps({ state: {
+      mode: 'enterprise', page: 'extensions', extensionReviews: { phase: 'ready', error: null,
+        items: [review('approved', 'approved-department', 1), review('pending', 'pending', 2)] },
+    } } as never)} />)
+    fireEvent.click(screen.getByRole('button', { name: '审核与发布' }))
+
+    expect(view.container.querySelectorAll('[data-extension-review-group]')).toHaveLength(1)
+    const group = view.container.querySelector('[data-extension-review-group]')
+    if (group === null) throw new Error('extension review group is missing')
+    const history = group.querySelector('details')
+    if (history === null) throw new Error('review history is missing')
+    expect(history.open).toBe(false)
+    expect(group.querySelector(':scope > div button')?.textContent).toBe('批准部门启用')
+    expect({
+      current: group.querySelector(':scope > div')?.textContent?.replace(/\s+/gu, ' ').trim(),
+      history: history.querySelector('summary')?.textContent,
+    }).toMatchSnapshot('review grouped by plugin and department')
+    fireEvent.click(screen.getByText('历史审核 1 条'))
+    expect(history.open).toBe(true)
+    expect(history.querySelector('button')?.textContent).toBe('发布到全组织')
+  })
+
+  it('clears the draft reason when a newer review replaces the visible request', () => {
+    const review = (reviewId: string, updatedAt: number) => ({
+      reviewId, orgId: 'org-a', departmentId: 'dept-a', pluginId: 'board-1',
+      packageId: `package-${reviewId}`, sourceSessionId: 'session-1', submittedBy: 'user-1',
+      status: 'pending', revision: 1, createdAt: updatedAt, updatedAt,
+    })
+    const props = (items: readonly ReturnType<typeof review>[]) => workbenchProps({ state: {
+      mode: 'enterprise', page: 'extensions', extensionReviews: { phase: 'ready', error: null, items },
+    } } as never)
+    const view = render(<EnterpriseWorkbench {...props([review('old', 1)])} />)
+    fireEvent.click(screen.getByRole('button', { name: '审核与发布' }))
+    fireEvent.change(screen.getByRole('textbox', { name: '审核原因' }), { target: { value: '仅适用于旧审核' } })
+
+    view.rerender(<EnterpriseWorkbench {...props([review('old', 1), review('new', 2)])} />)
+    expect(screen.getAllByRole('textbox', { name: '审核原因' })[0]).toHaveProperty('value', '')
+  })
+
   it('restores a private Plugin from the recycle bin without activating it', () => {
     const restoreExtension = vi.fn(() => Promise.resolve())
     render(<EnterpriseWorkbench {...workbenchProps({ state: {

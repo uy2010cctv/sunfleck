@@ -1837,6 +1837,34 @@ function ExtensionGroupCard({ versions, section, binding, reviews, allPackages, 
   </article>
 }
 
+function ExtensionReviewEntry({ review, packages, departmentName, api, busy, t }: {
+  review: CordisReviewRequest
+  packages: readonly CordisPackageVersion[]
+  departmentName: string
+  api: EnterpriseWorkbenchInjected
+  busy: boolean
+  t: Translate
+}) {
+  const [reason, setReason] = useState('')
+  const pkg = packages.find(item => item.packageId === review.packageId)
+  return <div className={css.extensionReviewEntry}>
+    <div className={css.extensionIdentity}><strong>{pkg?.name ?? review.pluginId}</strong>
+      <span>{departmentName} · {t(`extensions.review.${review.status}`)}{pkg === undefined ? '' : ` · ${t('extensions.version', { version: pkg.version })}`}</span>
+      {review.reason !== undefined && <p>{review.reason}</p>}
+    </div>
+    <div className={css.extensionMeta}><span>{t('extensions.submittedBy', { user: review.submittedBy })}</span><span>{formatDate(review.updatedAt)}</span></div>
+    {(review.status === 'pending' || review.status === 'approved-department') && <div className={css.extensionReviewActions}>
+      {review.status === 'pending' && <label>{t('extensions.reason')}<input value={reason} onChange={(event) => { setReason(event.target.value) }} /></label>}
+      {review.status === 'pending' && <button type="button" className={css.primaryButton} disabled={busy || reason.trim() === ''}
+        onClick={() => { void api.reviewExtension(review, 'approve', reason) }}>{t('extensions.approve')}</button>}
+      {review.status === 'pending' && <button type="button" className={css.secondaryButton} disabled={busy || reason.trim() === ''}
+        onClick={() => { void api.reviewExtension(review, 'return', reason) }}>{t('extensions.return')}</button>}
+      {review.status === 'approved-department' && <button type="button" className={css.primaryButton} disabled={busy}
+        onClick={() => { void api.reviewExtension(review, 'publish', reason) }}>{t('extensions.publish')}</button>}
+    </div>}
+  </div>
+}
+
 function ExtensionsPage({ state, workspaces, api, busy, t }: {
   state: EnterpriseWorkbenchState
   workspaces: WorkspaceSnapshot
@@ -1845,7 +1873,6 @@ function ExtensionsPage({ state, workspaces, api, busy, t }: {
   t: Translate
 }) {
   const [section, setSection] = useState<ExtensionSection>(EXTENSION_SECTION.personal)
-  const [reviewReasons, setReviewReasons] = useState<Record<string, string>>({})
   const departments = useDirectory('/auth/departments')
   const formalPlugins = state.formalPlugins.items.filter(plugin =>
     plugin.installSource !== undefined || plugin.protectedProfile === true)
@@ -1889,6 +1916,16 @@ function ExtensionsPage({ state, workspaces, api, busy, t }: {
   const groups = [...grouped].map(([key, versions]) => ({
     key, versions: versions.toSorted((left, right) => right.version - left.version),
   })).sort((left, right) => (right.versions[0]?.createdAt ?? 0) - (left.versions[0]?.createdAt ?? 0))
+  const groupedReviews = new Map<string, CordisReviewRequest[]>()
+  for (const review of state.extensionReviews.items) {
+    const key = `${review.pluginId}:${review.departmentId}`
+    const rows = groupedReviews.get(key) ?? []
+    rows.push(review)
+    groupedReviews.set(key, rows)
+  }
+  const reviewGroups = [...groupedReviews].map(([key, rows]) => ({
+    key, rows: rows.toSorted((left, right) => right.updatedAt - left.updatedAt),
+  })).sort((left, right) => (right.rows[0]?.updatedAt ?? 0) - (left.rows[0]?.updatedAt ?? 0))
   const tabs: readonly [ExtensionSection, EnterpriseWorkbenchKey][] = [
     [EXTENSION_SECTION.running, 'extensions.running'], [EXTENSION_SECTION.personal, 'extensions.personal'],
     [EXTENSION_SECTION.department, 'extensions.department'], [EXTENSION_SECTION.organization, 'extensions.organization'],
@@ -1937,21 +1974,17 @@ function ExtensionsPage({ state, workspaces, api, busy, t }: {
       </div></PageBoundary>
       : section === EXTENSION_SECTION.reviews
         ? <PageBoundary page={state.extensionReviews} t={t}><div className={css.extensionList}>
-          {state.extensionReviews.items.map((review) => {
-            const reason = reviewReasons[review.reviewId] ?? ''
-            return <article className={css.extensionRow} key={review.reviewId}>
-              <div className={css.extensionIdentity}><strong>{state.extensions.items.find(pkg => pkg.packageId === review.packageId)?.name ?? review.pluginId}</strong><span>{departments.find(department => department.id === review.departmentId)?.name ?? review.departmentId} · {t(`extensions.review.${review.status}`)}</span>
-                {review.reason !== undefined && <p>{review.reason}</p>}</div>
-              <div className={css.extensionMeta}><span>{t('extensions.submittedBy', { user: review.submittedBy })}</span><span>{formatDate(review.updatedAt)}</span></div>
-              {(review.status === 'pending' || review.status === 'approved-department') && <div className={css.extensionReviewActions}>
-                {review.status === 'pending' && <label>{t('extensions.reason')}<input value={reason} onChange={(event) => { setReviewReasons(current => ({ ...current, [review.reviewId]: event.target.value })) }} /></label>}
-                {review.status === 'pending' && <button type="button" className={css.primaryButton} disabled={busy || reason.trim() === ''}
-                  onClick={() => { void api.reviewExtension(review, 'approve', reason) }}>{t('extensions.approve')}</button>}
-                {review.status === 'pending' && <button type="button" className={css.secondaryButton} disabled={busy || reason.trim() === ''}
-                  onClick={() => { void api.reviewExtension(review, 'return', reason) }}>{t('extensions.return')}</button>}
-                {review.status === 'approved-department' && <button type="button" className={css.primaryButton} disabled={busy}
-                  onClick={() => { void api.reviewExtension(review, 'publish', reason) }}>{t('extensions.publish')}</button>}
-              </div>}
+          {reviewGroups.map(({ key, rows }) => {
+            const current = rows[0]
+            if (current === undefined) return null
+            const departmentName = departments.find(department => department.id === current.departmentId)?.name ?? current.departmentId
+            return <article className={css.extensionReviewGroup} key={key} data-extension-review-group={current.pluginId}>
+              <ExtensionReviewEntry key={current.reviewId} review={current} packages={state.extensions.items} departmentName={departmentName} api={api} busy={busy} t={t}/>
+              {rows.length > 1 && <details className={css.extensionReviewHistory}>
+                <summary>{t('extensions.reviewHistory', { count: rows.length - 1 })}</summary>
+                {rows.slice(1).map(review => <ExtensionReviewEntry key={review.reviewId} review={review}
+                  packages={state.extensions.items} departmentName={departmentName} api={api} busy={busy} t={t}/>)}
+              </details>}
             </article>
           })}
         </div></PageBoundary>
