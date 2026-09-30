@@ -131,6 +131,35 @@ function sameScope(left: CordisPluginScope, right: CordisPluginScope): boolean {
   return false
 }
 
+/** Select one runnable version per Plugin, giving the most specific authorized scope precedence.
+ * @param bindings - Visible active scope bindings or pinned generation entries.
+ * @returns one deterministically selected binding for each Plugin.
+ */
+export function effectiveCordisBindings<T extends Pick<CordisScopeBinding, 'pluginId' | 'scope' | 'generation' | 'bindingId'>>(
+  bindings: readonly T[],
+): T[] {
+  const priority = (scope: CordisPluginScope): number => {
+    switch (scope.type) {
+      case 'session': return 4
+      case 'personal-workspace': return 3
+      case 'department': return 2
+      case 'organization': return 1
+    }
+  }
+  const selected = new Map<string, T>()
+  for (const binding of bindings) {
+    const previous = selected.get(binding.pluginId)
+    if (previous === undefined || priority(binding.scope) > priority(previous.scope)
+      || (priority(binding.scope) === priority(previous.scope)
+        && (binding.generation > previous.generation
+          || binding.generation === previous.generation
+            && binding.bindingId.localeCompare(previous.bindingId) > 0))) {
+      selected.set(binding.pluginId, binding)
+    }
+  }
+  return [...selected.values()].sort((left, right) => left.pluginId.localeCompare(right.pluginId))
+}
+
 function digest(draft: CordisPackageDraft): string {
   return createHash('sha256').update(JSON.stringify({
     pluginId: draft.pluginId, dynamicPackageId: draft.dynamicPackageId,
@@ -868,11 +897,11 @@ export class EnterpriseCordisService {
     const projection = await this.listWorkspace({ principal: input.principal, workspaceId: input.workspaceId })
     const value: CordisSessionGeneration = {
       sessionId: input.sessionId, orgId: input.principal.orgId, workspaceId: input.workspaceId,
-      entries: projection.bindings.filter(binding => !binding.disabled).map(binding => ({
+      entries: effectiveCordisBindings(projection.bindings.filter(binding => !binding.disabled)).map(binding => ({
         pluginId: binding.pluginId, packageId: binding.activePackageId,
         bindingId: binding.bindingId, generation: binding.generation, scope: binding.scope,
         trustLevel: binding.trustLevel,
-      })).sort((left, right) => left.pluginId.localeCompare(right.pluginId)),
+      })),
       createdAt: this.now(),
     }
     await this.repository.putSessionGeneration(value)

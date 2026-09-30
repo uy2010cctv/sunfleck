@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { scopeOf } from '@deepseek-ai/dsh-scope'
 import { ApprovalRequestId } from '../src/index.ts'
 import type {
   ApprovalRequestId as ApprovalRequestIdType, CordisDynamicPluginId,
@@ -48,6 +49,34 @@ function define(
 }
 
 describe('dynamic runner definitions', () => {
+  it('runs the same dynamic tool in two Agent sessions without a global registration collision', async () => {
+    const { ctx, runner } = await setup()
+    const host = `return { name: 'shared-tool', inject: ['tools'], apply(ctx) {
+      harness.registerTool(ctx, harness.defineTool({
+        name: 'shared_tool', description: 'Read this session.', parameters: {},
+        output: { schema: { type: 'json' }, render: () => [] },
+        async execute() { return { ok: true } },
+      }))
+    } }`
+    const first = runner.restoreApproved({
+      sessionId: AGENT_A.id, idPrefix: 'first', name: 'first', purpose: 'First.', code: { host },
+    })
+    const second = runner.restoreApproved({
+      sessionId: AGENT_B.id, idPrefix: 'other', name: 'second', purpose: 'Second.', code: { host },
+    })
+
+    expect(await runner.run(AGENT_A, first.pluginId, first.packageId, 'run'))
+      .toMatchObject({ ok: true, status: 'running' })
+    expect(await runner.run(AGENT_B, second.pluginId, second.packageId, 'run'))
+      .toMatchObject({ ok: true, status: 'running' })
+    expect(ctx.tools.get('shared_tool', scopeOf(AGENT_A.ctx))).toBeDefined()
+    expect(ctx.tools.get('shared_tool', scopeOf(AGENT_B.ctx))).toBeDefined()
+    expect(ctx.tools.get('shared_tool')).toBeUndefined()
+    ctx.emit('agent/disposed', { agent: AGENT_A })
+    expect(runner.inventory().filter(row => row.agentId === AGENT_A.id)).toEqual([])
+    expect(runner.inventory().filter(row => row.agentId === AGENT_B.id)).toHaveLength(1)
+  })
+
   it('restores a previously approved Client Package without opening a second approval', async () => {
     const harness = await setup()
     const restored = harness.runner.restoreApproved({

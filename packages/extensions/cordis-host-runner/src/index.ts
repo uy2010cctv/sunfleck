@@ -122,6 +122,7 @@ export interface DynamicCordisSnapshotRow {
 }
 
 interface ActivationPlan {
+  agent: Agent
   plugin: DynamicCordisPlugin
   definition: DynamicCordisDefinition
   mode: CordisDynamicRunMode
@@ -141,6 +142,7 @@ export class DynamicCordisRunnerService extends TypertRemoteService {
   private readonly starting = new Map<CordisDynamicPluginId, Promise<DynamicCordisHostHalfResult>>()
   private readonly resolved: ResolvedConfig
   private group: Fiber | undefined
+  private readonly restoredGroups = new WeakMap<Agent, Fiber>()
 
   /** Create the service under the Host composition. */
   constructor(ctx: Context, config: Config) {
@@ -148,6 +150,21 @@ export class DynamicCordisRunnerService extends TypertRemoteService {
     this.rootCtx = ctx
     this.resolved = config as ResolvedConfig
     this.inspectRegistry = new CordisInspectRegistryService(ctx)
+    ctx.on('agent/disposed', ({ agent }) => {
+      const plugins = this.registry.ofSession(agent.id)
+        .filter(plugin => [...plugin.packages.values()].some(pkg => pkg.restoredForAgent === true))
+      for (const plugin of plugins) {
+        this.cancelPending(plugin.pluginId, `agent "${agent.id}" was disposed`)
+        this.registry.delete(plugin.pluginId)
+      }
+      void Promise.allSettled(plugins.map(plugin => this.retract(plugin))).then((results) => {
+        for (const result of results) {
+          if (result.status === 'rejected') {
+            ctx.logger.warn(`Cordis Session plugin disposal failed: ${String(result.reason)}`)
+          }
+        }
+      })
+    })
   }
 
   /**
@@ -230,6 +247,7 @@ export class DynamicCordisRunnerService extends TypertRemoteService {
     const definition = plugin.packages.get(receipt.packageId)
     if (definition === undefined) throw new Error(`restored dynamic package "${receipt.packageId}" disappeared`)
     definition.execution = request.execution ?? 'isolated-realm'
+    definition.restoredForAgent = true
     return receipt
   }
 
@@ -836,7 +854,7 @@ export class DynamicCordisRunnerService extends TypertRemoteService {
     if (!allowActiveAttach && this.starting.has(pluginId)) {
       return { ok: false, response: { ok: false, reason: 'transition-in-flight', message: `plugin "${pluginId}" is already starting` } }
     }
-    return { ok: true, plugin, definition, mode }
+    return { ok: true, agent, plugin, definition, mode }
   }
 
   private activate(
@@ -858,7 +876,7 @@ export class DynamicCordisRunnerService extends TypertRemoteService {
     allowActiveAttach: boolean,
     attempt: DynamicCordisRunAttempt,
   ): Promise<DynamicCordisHostHalfResult> {
-    const { plugin, definition, mode } = plan
+    const { agent, plugin, definition, mode } = plan
     if (allowActiveAttach
       && plugin.run?.packageId === definition.packageId
       && plugin.run.pluginRunId === attempt.pluginRunId) {
@@ -882,7 +900,8 @@ export class DynamicCordisRunnerService extends TypertRemoteService {
       ...requestId === undefined ? {} : { startedForRequest: requestId },
     }
     if (definition.hostCode !== undefined) {
-      const failure = await this.startHost(plugin, definition.hostCode, definition.execution, run)
+      const failure = await this.startHost(agent, plugin, definition.hostCode, definition.execution,
+        definition.restoredForAgent === true, run)
       if (failure !== undefined) return { ok: false, ...failure }
     }
     plugin.run = run
@@ -913,9 +932,11 @@ export class DynamicCordisRunnerService extends TypertRemoteService {
   }
 
   private async startHost(
+    agent: Agent,
     plugin: DynamicCordisPlugin,
     hostCode: string,
     execution: DynamicCordisDefinition['execution'],
+    restoredForAgent: boolean,
     run: DynamicCordisRun,
   ): Promise<CordisErrorDetails | undefined> {
     const handle = (method: unknown, fn: unknown): (() => void) => {
@@ -938,7 +959,7 @@ export class DynamicCordisRunnerService extends TypertRemoteService {
           : 'the Host half must return a Plugin function or an object with apply(ctx)')
       }
       run.fiber = await startHostHalf(
-        this.requireGroup(),
+        this.requireGroup(agent, restoredForAgent),
         evaluated,
         (error) => { this.steerGuardFailure(plugin, run, 'Host', errorDetails(error)) },
         execution === 'trusted-in-process',
@@ -1267,9 +1288,17 @@ export class DynamicCordisRunnerService extends TypertRemoteService {
     return plugin?.sessionId === agent.id ? plugin : undefined
   }
 
-  private requireGroup(): Fiber {
-    this.group ??= this.rootCtx.plugin({ name: 'cordis-dynamic', apply: () => {} })
-    return this.group
+  private requireGroup(agent: Agent, restoredForAgent: boolean): Fiber {
+    if (!restoredForAgent) {
+      this.group ??= this.rootCtx.plugin({ name: 'cordis-dynamic', apply: () => {} })
+      return this.group
+    }
+    let group = this.restoredGroups.get(agent)
+    if (group === undefined) {
+      group = agent.ctx.plugin({ name: 'cordis-dynamic', apply: () => {} })
+      this.restoredGroups.set(agent, group)
+    }
+    return group
   }
 }
 

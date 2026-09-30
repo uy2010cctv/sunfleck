@@ -21,7 +21,7 @@ kind: "package-reference"
 <a id="package-details"></a>
 ## 包详情
 
-运行时解析 Session 所有者和企业 Workspace grant，固定 Session generation，恢复已批准的动态 Package。它提供 `cordis_define`、`cordis_run`、`cordis_inspect_self`、`cordis_stop` 和 `cordis_undefine` 管理当前 Session 的 Plugin，并另有受治理的保存与审核工具；上游 `tool-cordis` 保留独立的只读 API 检查工具。个人 Workspace 中成功执行 `cordis_define` 会保存私有版本；部门 Workspace 中则提交不可变版本供负责人审核，不会直接建立共享绑定。删除 Session 内的临时 Plugin 不会删除已保存或待审版本。会话插件面板显示当前 Session 运行中的 Plugin，企业扩展页显示已保存版本、审核与治理绑定。浏览器请求不能扩大 Package 的作用范围。
+运行时解析 Session 所有者和企业 Workspace grant，固定 Session generation，恢复已批准的动态 Package。历史 generation 若包含重叠绑定，恢复时每个 Plugin 只选择一个版本，不修改已存记录。后续 Package 恢复失败时，运行时撤销本次已建立的全部定义；Agent 销毁时清理运行定义，以便恢复后的 Agent 再次加载。它提供 `cordis_define`、`cordis_run`、`cordis_inspect_self`、`cordis_stop` 和 `cordis_undefine` 管理当前 Session 的 Plugin，并另有受治理的保存与审核工具；上游 `tool-cordis` 保留独立的只读 API 检查工具。个人 Workspace 中成功执行 `cordis_define` 会保存私有版本；部门 Workspace 中则提交不可变版本供负责人审核，不会直接建立共享绑定。删除 Session 内的临时 Plugin 不会删除已保存或待审版本。会话插件面板显示当前 Session 运行中的 Plugin，企业扩展页显示已保存版本、审核与治理绑定。浏览器请求不能扩大 Package 的作用范围。
 
 ## 模型体验
 

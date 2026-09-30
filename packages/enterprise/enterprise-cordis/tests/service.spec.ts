@@ -263,8 +263,9 @@ describe('EnterpriseCordisService', () => {
     expect(repeated).toEqual(saved)
     expect(saved).toMatchObject({
       pluginId: 'orders-1', version: 1, scope: { type: 'personal-workspace', workspaceId: 'personal-1', ownerUserId: 'member-1' },
-      authoredBy: 'member-1', sourceDigest: expect.stringMatching(/^[a-f0-9]{64}$/),
+      authoredBy: 'member-1',
     })
+    expect(saved.sourceDigest).toMatch(/^[a-f0-9]{64}$/)
     expect(binding).toMatchObject({
       scope: { type: 'personal-workspace', workspaceId: 'personal-1', ownerUserId: 'member-1' },
       pluginId: 'orders-1', activePackageId: saved.packageId, generation: 1, revision: 1,
@@ -415,14 +416,15 @@ describe('EnterpriseCordisService', () => {
     const saved = await cordis.savePersonal({
       principal: member, workspaceId: 'personal-1', draft, idempotencyKey: 'gated-save',
     })
-    expect(await repository.validationReport(saved.validationReportRef)).toMatchObject({
-      packageId: saved.packageId, status: 'passed',
-      checks: expect.arrayContaining([expect.objectContaining({ id: 'isolation', status: 'passed' })]),
+    const report = await repository.validationReport(saved.validationReportRef)
+    expect(report).toMatchObject({ packageId: saved.packageId, status: 'passed' })
+    expect(report?.checks).toContainEqual({
+      id: 'isolation', status: 'passed', message: 'User package uses an isolated runtime.',
     })
     expect(await repository.package(saved.packageId)).not.toHaveProperty('hostCode')
-    expect(await repository.artifact(saved.artifactRef)).toMatchObject({
-      artifactRef: saved.artifactRef, orgId: 'org-a', digest: expect.stringMatching(/^[a-f0-9]{64}$/),
-    })
+    const artifact = await repository.artifact(saved.artifactRef)
+    expect(artifact).toMatchObject({ artifactRef: saved.artifactRef, orgId: 'org-a' })
+    expect(artifact?.digest).toMatch(/^[a-f0-9]{64}$/)
     expect((await cordis.listWorkspace({ principal: member, workspaceId: 'personal-1' })).packages)
       .toEqual([expect.objectContaining({ packageId: saved.packageId, hostCode: draft.hostCode })])
     expect(events).toEqual(['enterprise/cordis-package-saved'])
@@ -541,6 +543,35 @@ describe('EnterpriseCordisService', () => {
     expect(repeated).toEqual(pinned)
     expect(pinned.entries).toEqual([expect.objectContaining({ packageId: first.packageId, generation: 1 })])
     expect(nextSession.entries).toEqual([expect.objectContaining({ packageId: second.packageId, generation: 2 })])
+  })
+
+  it('pins one effective binding when private and department versions share a plugin identity', async () => {
+    const cordis = service()
+    const saved = await cordis.savePersonal({
+      principal: member, workspaceId: 'department-1', draft, idempotencyKey: 'overlap-private',
+    })
+    const privateBinding = await cordis.activatePersonal({
+      principal: member, workspaceId: 'department-1', pluginId: saved.pluginId,
+      packageId: saved.packageId, expectedRevision: 0, idempotencyKey: 'overlap-activate',
+    })
+    const review = await cordis.submitSavedDepartment({
+      principal: member, workspaceId: 'department-1', packageId: saved.packageId,
+      idempotencyKey: 'overlap-submit',
+    })
+    const approved = await cordis.reviewDepartment({
+      principal: manager, reviewId: review.reviewId, packageId: review.packageId,
+      action: 'approve_department', reason: 'Shared after review.',
+      expectedRevision: review.revision, idempotencyKey: 'overlap-review',
+    })
+    expect(approved.status).toBe('approved-department')
+
+    const pinned = await cordis.pinSessionGeneration({
+      principal: member, workspaceId: 'department-1', sessionId: 'overlap-session',
+    })
+    expect(pinned.entries).toEqual([expect.objectContaining({
+      pluginId: saved.pluginId, packageId: privateBinding.activePackageId,
+      scope: { type: 'personal-workspace', workspaceId: 'department-1', ownerUserId: 'member-1' },
+    })])
   })
 
   it('only lets an administrator promote an organization binding trust level', async () => {

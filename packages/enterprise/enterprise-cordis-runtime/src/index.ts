@@ -11,6 +11,7 @@ import {
   EnterpriseCordisService,
   FilesystemEnterpriseCordisArtifactStore,
   InMemoryEnterpriseCordisArtifactStore,
+  effectiveCordisBindings,
 } from '@deepseek-ai/dsh-enterprise-cordis'
 import type {} from '@deepseek-ai/dsh-enterprise-auth-web'
 import type {} from '@deepseek-ai/dsh-enterprise-postgres'
@@ -123,20 +124,34 @@ async function restoreWorkspaceGeneration(
   const generation = await service.pinSessionGeneration({
     principal, workspaceId: grant.workspaceId, sessionId: String(agent.id),
   })
-  for (const entry of generation.entries) {
-    const pkg = await service.packageSource(entry.packageId)
-    if (pkg === undefined) throw new Error(`enterprise Cordis Package ${entry.packageId} is missing`)
-    const defined = ctx.dynamicCordisRunner.restoreApproved({
-      sessionId: agent.id, idPrefix: 'ent', name: pkg.name, purpose: pkg.purpose,
-      execution: entry.scope.type === 'organization' && entry.trustLevel === 'trusted-in-process'
-        ? 'trusted-in-process' : 'isolated-realm',
-      code: {
-        ...(pkg.hostCode === undefined ? {} : { host: pkg.hostCode }),
-        ...(pkg.clientCode === undefined ? {} : { client: pkg.clientCode }),
-      },
-    })
-    const started = await ctx.dynamicCordisRunner.run(agent, defined.pluginId, defined.packageId, 'run')
-    if (!started.ok) throw new Error(`restoring ${entry.pluginId} failed: ${started.message}`)
+  const restored: ReturnType<typeof CordisDynamicPluginId>[] = []
+  try {
+    for (const entry of effectiveCordisBindings(generation.entries)) {
+      const pkg = await service.packageSource(entry.packageId)
+      if (pkg === undefined) throw new Error(`enterprise Cordis Package ${entry.packageId} is missing`)
+      const defined = ctx.dynamicCordisRunner.restoreApproved({
+        sessionId: agent.id, idPrefix: 'ent', name: pkg.name, purpose: pkg.purpose,
+        execution: entry.scope.type === 'organization' && entry.trustLevel === 'trusted-in-process'
+          ? 'trusted-in-process' : 'isolated-realm',
+        code: {
+          ...(pkg.hostCode === undefined ? {} : { host: pkg.hostCode }),
+          ...(pkg.clientCode === undefined ? {} : { client: pkg.clientCode }),
+        },
+      })
+      restored.push(defined.pluginId)
+      const started = await ctx.dynamicCordisRunner.run(agent, defined.pluginId, defined.packageId, 'run')
+      if (!started.ok) throw new Error(`restoring ${entry.pluginId} failed: ${started.message}`)
+    }
+  } catch (error) {
+    const cleanupErrors: unknown[] = []
+    for (const pluginId of restored.reverse()) {
+      try { await ctx.dynamicCordisRunner.undefine(agent, pluginId) }
+      catch (cleanupError) { cleanupErrors.push(cleanupError) }
+    }
+    if (cleanupErrors.length > 0) {
+      throw new AggregateError([error, ...cleanupErrors], 'Cordis restoration and rollback failed')
+    }
+    throw error
   }
 }
 
@@ -324,6 +339,7 @@ export function apply(ctx: Context, config: Config = {}): void {
     return next()
   })
   const restores = new Map<string, Promise<void>>()
+  ctx.on('agent/disposed', ({ agent }) => { restores.delete(String(agent.id)) })
   ctx.on('system-prompt/assemble', async (_assembly, context, next) => {
     const agent = context.agent
     if (agent !== undefined) {

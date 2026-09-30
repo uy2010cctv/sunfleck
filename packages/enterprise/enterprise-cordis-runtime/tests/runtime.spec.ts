@@ -10,14 +10,16 @@ import {
 import { EnterpriseRequestContext } from '@deepseek-ai/dsh-enterprise-auth-web'
 import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
+import { createScope } from '@deepseek-ai/dsh-scope'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import * as runtime from '../src/index.ts'
 
-function agent(id = 'session-1', cwd = '/managed/personal'): Agent {
+function agent(id = 'session-1', cwd = '/managed/personal', ctx?: Context): Agent {
   const sessionId = SessionId(id)
   const session = Session.create(sessionId, [], { version: 4, id: sessionId, createdAt: 1, cwd, isSeeded: false })
-  return { id: sessionId, session, steer() {}, inject() {} } as unknown as Agent
+  return { id: sessionId, session, ctx: ctx === undefined ? undefined : createScope(ctx, {}).ctx,
+    steer() {}, inject() {} } as unknown as Agent
 }
 
 async function setup() {
@@ -90,7 +92,7 @@ describe('enterprise Cordis runtime tools', () => {
 
   it('keeps Session-local dynamic Package activation available in the enterprise profile', async () => {
     const app = await setup()
-    const owner = agent('session-runner')
+    const owner = agent('session-runner', '/managed/personal', app.ctx)
     const defined = app.ctx.dynamicCordisRunner.define({
       sessionId: owner.id, plugin: { kind: 'new', idPrefix: 'run' },
       name: 'Run helper', purpose: 'Exercise the retained Session tool.',
@@ -105,7 +107,7 @@ describe('enterprise Cordis runtime tools', () => {
 
   it('inspects, stops, and removes a Session-local Plugin through enterprise tools', async () => {
     const app = await setup()
-    const owner = agent('session-lifecycle')
+    const owner = agent('session-lifecycle', '/managed/personal', app.ctx)
     const defined = app.ctx.dynamicCordisRunner.define({
       sessionId: owner.id, plugin: { kind: 'new', idPrefix: 'life' },
       name: 'Lifecycle helper', purpose: 'Exercise Session control.',
@@ -123,7 +125,7 @@ describe('enterprise Cordis runtime tools', () => {
 
   it('persists and activates an inspected dynamic Package in the personal Workspace', async () => {
     const app = await setup()
-    const owner = agent()
+    const owner = agent('session-1', '/managed/personal', app.ctx)
     const defined = app.ctx.dynamicCordisRunner.define({
       sessionId: owner.id, plugin: { kind: 'new', idPrefix: 'ord' },
       name: 'Order helper', purpose: 'Validate order fields.',
@@ -163,7 +165,7 @@ describe('enterprise Cordis runtime tools', () => {
 
   it('pins and restores an active Workspace Generation for a new Session', async () => {
     const app = await setup()
-    const author = agent('session-author')
+    const author = agent('session-author', '/managed/personal', app.ctx)
     const defined = app.ctx.dynamicCordisRunner.define({
       sessionId: author.id, plugin: { kind: 'new', idPrefix: 'sav' },
       name: 'Saved helper', purpose: 'Remain available after restart.',
@@ -174,19 +176,91 @@ describe('enterprise Cordis runtime tools', () => {
       pluginId: defined.pluginId, packageId: defined.packageId,
     }, author))
 
-    const restored = agent('session-restored')
+    const restored = agent('session-restored', '/managed/personal', app.ctx)
     await app.requestContext.run(principal, () => app.ctx.systemPrompt.assemble({ agent: restored }))
     const first = app.ctx.dynamicCordisRunner.inventory().filter(row => row.agentId === restored.id)
     await app.requestContext.run(principal, () => app.ctx.systemPrompt.assemble({ agent: restored }))
     const repeated = app.ctx.dynamicCordisRunner.inventory().filter(row => row.agentId === restored.id)
 
-    expect(first).toEqual([expect.objectContaining({
-      activeRun: expect.objectContaining({ packageId: expect.any(String) }),
-      packages: [expect.objectContaining({ name: 'Saved helper' })],
-    })])
+    expect(first).toHaveLength(1)
+    expect(first[0]?.activeRun?.packageId).toBeDefined()
+    expect(first[0]?.packages[0]?.name).toBe('Saved helper')
     expect(repeated).toHaveLength(1)
-    expect(await app.cordis.sessionGeneration(String(restored.id))).toEqual(expect.objectContaining({
-      entries: [expect.objectContaining({ packageId: expect.stringContaining('cordis-package-') })],
-    }))
+    const generation = await app.cordis.sessionGeneration(String(restored.id))
+    expect(generation?.entries).toHaveLength(1)
+    expect(generation?.entries[0]?.packageId).toContain('cordis-package-')
+    app.ctx.emit('agent/disposed', { agent: restored })
+    expect(app.ctx.dynamicCordisRunner.inventory().filter(row => row.agentId === restored.id)).toEqual([])
+    const resumed = agent('session-restored', '/managed/personal', app.ctx)
+    await app.requestContext.run(principal, () => app.ctx.systemPrompt.assemble({ agent: resumed }))
+    expect(app.ctx.dynamicCordisRunner.inventory().filter(row => row.agentId === resumed.id)).toHaveLength(1)
+  })
+
+  it('rolls back every restored definition when a later saved Plugin fails', async () => {
+    const app = await setup()
+    const source = `return { name: 'duplicate-tool', inject: ['tools'], apply(ctx) {
+      harness.registerTool(ctx, harness.defineTool({
+        name: 'shared_saved_tool', description: 'Read saved state.', parameters: {},
+        output: { schema: { type: 'json' }, render: () => [] },
+        async execute() { return { ok: true } },
+      }))
+    } }`
+    for (const pluginId of ['first-saved', 'second-saved']) {
+      const pkg = await app.ctx.enterpriseCordis.savePersonal({
+        principal, workspaceId: 'personal-1', idempotencyKey: `save-${pluginId}`,
+        draft: {
+          pluginId, dynamicPackageId: pluginId, name: pluginId, purpose: 'Exercise rollback.',
+          hostCode: source, artifactRef: `draft://${pluginId}`, validationReportRef: `validation://${pluginId}`,
+          manifest: { apiVersion: 'dsh-plugin/v1', runtime: 'isolated-realm',
+            provides: [`dynamic-cordis:${pluginId}`], capabilities: [],
+            license: 'LicenseRef-Proprietary', dependencies: [] },
+        },
+      })
+      await app.ctx.enterpriseCordis.activatePersonal({
+        principal, workspaceId: 'personal-1', pluginId, packageId: pkg.packageId,
+        expectedRevision: 0, idempotencyKey: `activate-${pluginId}`,
+      })
+    }
+    const restored = agent('session-new', '/managed/personal', app.ctx)
+
+    await expect(app.requestContext.run(principal, () => app.ctx.systemPrompt.assemble({ agent: restored })))
+      .rejects.toThrow('shared_saved_tool')
+    expect(app.ctx.dynamicCordisRunner.inventory().filter(row => row.agentId === restored.id)).toEqual([])
+  })
+
+  it('restores one version from a historical generation with overlapping scope entries', async () => {
+    const app = await setup()
+    const pkg = await app.ctx.enterpriseCordis.savePersonal({
+      principal, workspaceId: 'personal-1', idempotencyKey: 'historical-save',
+      draft: {
+        pluginId: 'historical-plugin', dynamicPackageId: 'historical-source',
+        name: 'Historical helper', purpose: 'Resume after restart.',
+        hostCode: 'return { name: "historical-helper", apply(ctx) { void ctx } }',
+        artifactRef: 'draft://historical', validationReportRef: 'validation://historical',
+        manifest: { apiVersion: 'dsh-plugin/v1', runtime: 'isolated-realm',
+          provides: ['dynamic-cordis:historical-plugin'], capabilities: [],
+          license: 'LicenseRef-Proprietary', dependencies: [] },
+      },
+    })
+    const binding = await app.ctx.enterpriseCordis.activatePersonal({
+      principal, workspaceId: 'personal-1', pluginId: pkg.pluginId,
+      packageId: pkg.packageId, expectedRevision: 0, idempotencyKey: 'historical-activate',
+    })
+    await app.cordis.putSessionGeneration({
+      sessionId: 'session-new', orgId: 'org-a', workspaceId: 'personal-1', createdAt: 1,
+      entries: [
+        { pluginId: pkg.pluginId, packageId: pkg.packageId,
+          bindingId: 'legacy-shared', generation: 1,
+          scope: { type: 'organization', organizationId: 'org-a' }, trustLevel: 'isolated' },
+        { pluginId: pkg.pluginId, packageId: pkg.packageId,
+          bindingId: binding.bindingId, generation: binding.generation,
+          scope: binding.scope, trustLevel: binding.trustLevel },
+      ],
+    })
+    const restored = agent('session-new', '/managed/personal', app.ctx)
+    await app.requestContext.run(principal, () => app.ctx.systemPrompt.assemble({ agent: restored }))
+    expect(app.ctx.dynamicCordisRunner.inventory().filter(row => row.agentId === restored.id))
+      .toHaveLength(1)
+    expect((await app.cordis.sessionGeneration('session-new'))?.entries).toHaveLength(2)
   })
 })

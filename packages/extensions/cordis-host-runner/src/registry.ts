@@ -47,6 +47,8 @@ export interface DynamicCordisDefinition {
   clientCode?: string
   /** Host execution substrate. User-authored definitions are always isolated. */
   execution: 'isolated-realm' | 'trusted-in-process'
+  /** Persisted enterprise versions register Host contributions in their owning Agent scope. */
+  restoredForAgent?: true
 }
 
 /** Stable plugin instance containing immutable package versions. */

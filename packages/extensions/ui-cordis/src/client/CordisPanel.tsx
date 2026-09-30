@@ -189,8 +189,6 @@ export function CordisPanel({
     loaded,
   ) === 'running').length
 
-  if (all.length === 0) return null
-
   const runAction = async (pluginId: CordisDynamicPluginId, action: () => Promise<void | { ok: boolean; message?: string }>) => {
     if (pending.has(pluginId)) return
     setPending(currentPending => new Set(currentPending).add(pluginId))

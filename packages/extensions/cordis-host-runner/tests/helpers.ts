@@ -3,6 +3,7 @@ import Timer from '@deepseek-ai/cordis-plugin-timer'
 import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry from '@deepseek-ai/dsh-tools'
+import { createScope } from '@deepseek-ai/dsh-scope'
 import type { ToolDefinition, ToolExecutionResult } from '@deepseek-ai/dsh-tools'
 import type { CordisDynamicPluginId } from '../src/types.ts'
 import type { Agent } from '@deepseek-ai/dsh-agent'
@@ -53,6 +54,8 @@ interface Harness {
  */
 export async function setup(config?: Config): Promise<Harness> {
   const ctx = new Context()
+  Object.assign(AGENT_A, { ctx: createScope(ctx, {}).ctx })
+  Object.assign(AGENT_B, { ctx: createScope(ctx, {}).ctx })
   await ctx.plugin(Timer)
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRegistry)
