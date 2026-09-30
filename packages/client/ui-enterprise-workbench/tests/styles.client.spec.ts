@@ -14,6 +14,12 @@ describe('enterprise theme aliases', () => {
 })
 
 describe('enterprise workbench responsive shell', () => {
+  it('lets the schedule dialog form fill its card without content-box input overflow', () => {
+    const css = readFileSync(WORKBENCH, 'utf8')
+    expect(css).toMatch(/\.scheduleDialog,\s*\.scheduleDialog \*\s*\{[^}]*box-sizing:\s*border-box/su)
+    expect(css).toMatch(/\.scheduleDialog \.managementPage\s*\{[^}]*inline-size:\s*100%/su)
+  })
+
   it('keeps every workbench control inside its grid track with scoped border-box sizing', () => {
     const css = readFileSync(WORKBENCH, 'utf8')
     expect(css).toContain(`.workbench,

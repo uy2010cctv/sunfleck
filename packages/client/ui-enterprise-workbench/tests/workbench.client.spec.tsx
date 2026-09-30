@@ -2284,16 +2284,18 @@ describe('EnterpriseWorkbench', () => {
     const saveSchedule = vi.fn((_input: Parameters<EnterpriseWorkbenchProps['saveSchedule']>[0]) => Promise.resolve(true))
     render(<EnterpriseWorkbench {...workbenchProps({
       state: {
-        mode: 'enterprise', page: 'schedules', releases: [{
-          releaseId: 'release-buyer', presetId: 'buyer', orgId: 'o', version: 2, digest: 'd',
-          snapshot: { profile: { name: '采购专员' }, bindings: [] }, publishedBy: 'u', publishedAt: 1,
-        }],
+        mode: 'enterprise', page: 'schedules', releases: [
+          { releaseId: 'release-buyer-v1', presetId: 'buyer', orgId: 'o', version: 1, digest: 'd1',
+            snapshot: { profile: { name: '采购专员', avatarSeed: 'buyer-avatar' }, bindings: [] }, publishedBy: 'u', publishedAt: 1 },
+          { releaseId: 'release-buyer-v2', presetId: 'buyer', orgId: 'o', version: 2, digest: 'd2',
+            snapshot: { profile: { name: '采购专员', avatarSeed: 'buyer-avatar' }, bindings: [] }, publishedBy: 'u', publishedAt: 2 },
+        ],
       }, saveSchedule,
     } as never)} />)
 
     fireEvent.click(screen.getByRole('button', { name: '新建定时任务' }))
+    expect(screen.getByRole('button', { name: '执行员工' }).textContent).toContain('采购专员')
     fireEvent.change(screen.getByLabelText('任务名称'), { target: { value: '每日供应商跟进' } })
-    fireEvent.change(screen.getByLabelText('执行员工'), { target: { value: 'release-buyer' } })
     fireEvent.change(screen.getByLabelText('任务说明'), { target: { value: '汇总逾期供应商并给出跟进清单' } })
     fireEvent.change(screen.getByLabelText('执行频率'), { target: { value: 'weekdays' } })
     fireEvent.change(screen.getByLabelText('执行时间'), { target: { value: '09:30' } })
@@ -2303,10 +2305,36 @@ describe('EnterpriseWorkbench', () => {
     const savedSchedule = saveSchedule.mock.calls[0]![0]
     expect(savedSchedule.scheduleId).toMatch(/^schedule-/u)
     expect(savedSchedule).toMatchObject({
-      target: { kind: 'employee', employeeReleaseId: 'release-buyer' },
+      target: { kind: 'employee', employeeReleaseId: 'release-buyer-v2' },
       rule: '30 9 * * 1-5',
       input: { prompt: '汇总逾期供应商并给出跟进清单' },
     })
+  })
+
+  it('lists each employee once with an avatar and selects that employee latest release', async () => {
+    const saveSchedule = vi.fn((_input: Parameters<EnterpriseWorkbenchProps['saveSchedule']>[0]) => Promise.resolve(true))
+    const release = (presetId: string, version: number, avatarSeed: string) => ({
+      releaseId: `${presetId}-v${version}`, presetId, orgId: 'o', version, digest: `d${version}`,
+      snapshot: { profile: { name: presetId === 'nova' ? 'Nova' : 'FAMA', avatarSeed }, bindings: [] },
+      publishedBy: 'u', publishedAt: version,
+    })
+    render(<EnterpriseWorkbench {...workbenchProps({ state: { mode: 'enterprise', page: 'schedules',
+      releases: [release('nova', 1, 'nova-old'), release('fama', 1, 'fama-avatar'), release('nova', 3, 'nova-new'), release('fama', 2, 'fama-new')],
+    }, saveSchedule } as never)} />)
+    fireEvent.click(screen.getByRole('button', { name: '新建定时任务' }))
+    expect(screen.getByRole('button', { name: '执行员工' }).querySelector('img')?.getAttribute('src')).toContain('nova-new')
+    fireEvent.click(screen.getByRole('button', { name: '执行员工' }))
+    const options = screen.getAllByRole('menuitem')
+    expect(options.map(option => option.textContent)).toEqual(['Nova', 'FAMA'])
+    expect(options[0]?.querySelector('img')?.getAttribute('src')).toContain('nova-new')
+    expect(options[1]?.querySelector('img')?.getAttribute('src')).toContain('fama-new')
+    fireEvent.click(screen.getByRole('menuitem', { name: 'FAMA' }))
+    expect(screen.getByRole('button', { name: '执行员工' }).querySelector('img')?.getAttribute('src')).toContain('fama-new')
+    fireEvent.change(screen.getByLabelText('任务名称'), { target: { value: '每日检查' } })
+    fireEvent.change(screen.getByLabelText('任务说明'), { target: { value: '检查指标' } })
+    fireEvent.click(screen.getByRole('button', { name: '保存定时任务' }))
+    await waitFor(() => { expect(saveSchedule).toHaveBeenCalledOnce() })
+    expect(saveSchedule.mock.calls[0]?.[0].target).toEqual({ kind: 'employee', employeeReleaseId: 'fama-v2' })
   })
 
   it('shows the scheduled-task shortcut as a focused dialog over the current conversation', () => {

@@ -39,6 +39,17 @@
   padding-block-end: 0;
 }
 
+.scheduleDialog,
+.scheduleDialog * {
+  box-sizing: border-box;
+}
+
+.scheduleDialog .managementPage {
+  inline-size: 100%;
+  max-inline-size: none;
+  margin-inline: 0;
+}
+
 .scheduleDialogContent {
   min-block-size: 0;
   overflow-y: auto;
@@ -50,6 +61,17 @@
   justify-content: flex-end;
   margin-block-end: var(--dse-space-sm);
 }
+
+.scheduleEmployeeField { display: flex; min-inline-size: 0; flex-direction: column; gap: var(--dse-space-3xs); color: var(--dse-color-muted); font-size: 0.75rem; }
+.scheduleEmployeeMenu { display: block; min-inline-size: 0; inline-size: 100%; }
+.scheduleEmployeeTrigger { inline-size: 100%; min-inline-size: 0; min-block-size: 38px; display: flex; align-items: center; gap: var(--dse-space-2xs); padding: var(--dse-space-3xs) var(--dse-space-xs); border: 1px solid var(--dse-color-border); border-radius: var(--dse-radius-control); background: var(--dse-color-surface-raised); color: var(--dse-color-ink); font: inherit; font-size: 0.8125rem; cursor: pointer; }
+.scheduleEmployeeTrigger > span:nth-child(2) { flex: 1; min-inline-size: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: start; }
+.scheduleEmployeeTrigger:hover { background: var(--dsw-alias-interactive-bg-hover-solid); }
+.scheduleEmployeeTrigger:focus-visible { outline: 2px solid var(--dse-color-focus); outline-offset: 2px; }
+.scheduleEmployeeTrigger:disabled { opacity: 0.55; cursor: not-allowed; }
+.scheduleEmployeeAvatar { display: inline-grid; flex: none; place-items: center; inline-size: 24px; block-size: 24px; }
+.scheduleEmployeeAvatar .avatarImage { inline-size: 24px; block-size: 24px; border-radius: var(--dse-radius-control); }
+.scheduleEmployeeList { min-inline-size: min(18rem, calc(100vw - 3rem)); }
 
 .header {
   flex: none;

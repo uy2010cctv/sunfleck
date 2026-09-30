@@ -6,9 +6,9 @@ import { EnterpriseBrand } from './EnterpriseBrand.tsx'
 import { dicebearAvatarUrl } from './avatar.ts'
 import {
   IconApiOutlineMedium, IconCheckOutlineRegular, IconChecklistOutlineMedium, IconCloseOutlineRegular,
-  IconContextInjectionOutlineRegular, IconCordisPluginOutlineMedium, IconEditOutlineRegular, IconPlayOutlineRegular,
+  IconChevronDownOutlineRegular, IconContextInjectionOutlineRegular, IconCordisPluginOutlineMedium, IconEditOutlineRegular, IconPlayOutlineRegular,
   IconRefreshOutlineRegular, IconPlusOutlineRegular, IconSearchOutlineRegular, IconSkillOutlineRegular, IconSparkleRegular,
-  IconUserOutlineRegular, IconWarningOutlineRegular, Modal, StateDot,
+  IconUserOutlineRegular, IconWarningOutlineRegular, Menu, Modal, StateDot,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { InjectFace, PropsLocale, PropsRenderSlots, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { SessionId } from '@deepseek-ai/dsh-api-remotes/client'
@@ -782,12 +782,16 @@ function ApprovalsPage({ page, api, busy, t }: { page: EnterprisePageState<Enter
 function SchedulesPage({ page, releases, api, busy, onDirty, t, compact = false }: { page: EnterprisePageState<EnterpriseSchedule>; releases: readonly EnterpriseEmployeeRelease[]; api: EnterpriseWorkbenchInjected; busy: boolean; onDirty: () => void; t: Translate; compact?: boolean }) {
   const [creating, setCreating] = useState(false)
   const [name, setName] = useState('')
-  const [target, setTarget] = useState('')
+  const [targetEmployeeId, setTargetEmployeeId] = useState('')
+  const [employeeMenuOpen, setEmployeeMenuOpen] = useState(false)
   const [instructions, setInstructions] = useState('')
   const [frequency, setFrequency] = useState<'daily' | 'weekdays' | 'weekly'>('daily')
   const [time, setTime] = useState('09:00')
   const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone
-  const canCreate = releases.length > 0
+  const employees = latestEmployeeReleases(releases)
+  const selectedEmployee = employees.find(release => release.presetId === targetEmployeeId) ?? employees[0]
+  const target = selectedEmployee?.releaseId ?? ''
+  const canCreate = employees.length > 0
   const goEmployees = <button type="button" className={css.primaryButton} onClick={() => { api.setPage('employees') }}>{t('prerequisite.goEmployees')}</button>
   const createButton = <button type="button" className={css.primaryButton} onClick={() => { setCreating(true) }}><IconPlusOutlineRegular size={16}/>{t('schedule.create')}</button>
   return <section className={css.managementPage} aria-labelledby={compact ? undefined : 'schedules-page-title'} aria-label={compact ? t('nav.schedules') : undefined}>
@@ -802,12 +806,25 @@ function SchedulesPage({ page, releases, api, busy, onDirty, t, compact = false 
         timezone, rule: scheduleRule(frequency, time), input: { name, prompt: instructions },
         nextRunAt: null, expectedRevision: 0,
       })
-      void success.then((saved) => { if (saved) { setCreating(false); setName(''); setTarget(''); setInstructions('') } })
+      void success.then((saved) => { if (saved) { setCreating(false); setName(''); setTargetEmployeeId(''); setInstructions('') } })
     }}>
       <div className={css.formTitle}><div><h3>{t('schedule.create')}</h3><p>{t('schedule.formHelp')}</p></div><button type="button" className={css.secondaryButton} onClick={() => { setCreating(false) }}>{t('cancel')}</button></div>
       <div className={css.formGrid}>
         <label>{t('schedule.name')}<input required disabled={busy} value={name} onChange={(event) => { setName(event.target.value); onDirty() }}/></label>
-        <label>{t('schedule.employee')}<select required disabled={busy} value={target} onChange={(event) => { setTarget(event.target.value); onDirty() }}><option value="">{t('schedule.selectEmployee')}</option>{releases.map(release => <option key={release.releaseId} value={release.releaseId}>{releaseName(release)} {t('version.short', { version: release.version })}</option>)}</select></label>
+        <div className={css.scheduleEmployeeField}><span>{t('schedule.employee')}</span><Menu open={employeeMenuOpen} portal
+          className={css.scheduleEmployeeMenu} listClassName={css.scheduleEmployeeList}
+          anchor={<button type="button" className={css.scheduleEmployeeTrigger} aria-label={t('schedule.employee')}
+            aria-haspopup="menu" aria-expanded={employeeMenuOpen} disabled={busy}
+            onClick={() => { setEmployeeMenuOpen(open => !open) }}>
+            {selectedEmployee !== undefined && <span className={css.scheduleEmployeeAvatar} aria-hidden="true"><EmployeeAvatar name={releaseName(selectedEmployee)} seed={recordText(selectedEmployee.snapshot.profile, 'avatarSeed') || selectedEmployee.presetId} t={t}/></span>}
+            <span>{selectedEmployee === undefined ? t('schedule.selectEmployee') : releaseName(selectedEmployee)}</span>
+            <IconChevronDownOutlineRegular size={14}/>
+          </button>}
+          items={employees.map(release => ({ id: release.presetId, label: releaseName(release),
+            icon: <span className={css.scheduleEmployeeAvatar} aria-hidden="true"><EmployeeAvatar name={releaseName(release)} seed={recordText(release.snapshot.profile, 'avatarSeed') || release.presetId} t={t}/></span> }))}
+          selectedId={selectedEmployee?.presetId}
+          onSelect={(id) => { setTargetEmployeeId(id); setEmployeeMenuOpen(false); onDirty() }}
+          onClose={() => { setEmployeeMenuOpen(false) }}/></div>
         <label className={css.fullField}>{t('schedule.instructions')}<textarea required rows={4} disabled={busy} value={instructions} onChange={(event) => { setInstructions(event.target.value); onDirty() }}/></label>
         <label>{t('schedule.frequency')}<select disabled={busy} value={frequency} onChange={(event) => { setFrequency(event.target.value as typeof frequency); onDirty() }}><option value="daily">{t('schedule.daily')}</option><option value="weekdays">{t('schedule.weekdays')}</option><option value="weekly">{t('schedule.weekly')}</option></select></label>
         <label>{t('schedule.time')}<input type="time" required disabled={busy} value={time} onChange={(event) => { setTime(event.target.value); onDirty() }}/></label>

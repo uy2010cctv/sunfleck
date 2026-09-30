@@ -21,6 +21,8 @@ The sidebar entry and workbench heading display Lichen Agent using the supplied 
 
 The sidebar scheduled-task shortcut shares a row with Cordis Plugin and opens a centered task dialog over the current conversation. The dialog reuses the workbench's scheduled-task creation, pause, resume, and archive actions, and refreshes its list when the enterprise read model is already loaded. The full workbench retains its Schedules page.
 
+The schedule form fills the dialog width and lists each employee once with an avatar. Selecting an employee uses its latest published release when the task is saved; existing tasks retain their recorded release id.
+
 The employee editor lists bound capability names and revisions per category. Already-bound assets remain selectable and are marked explicitly; updating a revision replaces the previous reference, and removing a binding changes only the local draft until Save and Publish. Category counts show bindings; catalog loading, errors, empty categories, and fully bound categories have separate messages.
 
 Provider-owned knowledge bases use the `enterprise.employee-knowledge-bindings` slot inside the Knowledge category. The provider stores base references under the employee Preset id and reports the bound count to the category card; it does not copy documents into the enterprise asset catalog. Conversation controls and retrieval scope remain owned by the knowledge provider.
