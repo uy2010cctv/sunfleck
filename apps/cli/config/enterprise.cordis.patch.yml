@@ -21,6 +21,11 @@
 - id: connection
   inject: [webRuntime, enterpriseSecurity, enterpriseRequestContext]
 
+# This Web deployment uses enterprise login. The account browser plugin runs
+# only in Desktop but would otherwise preload its onboarding artwork here.
+- id: ui-settings-account
+  disabled: true
+
 - id: plugin-inventory
   config:
     profileManifestPath: !!js dshHomePath('profiles/web/package.json')

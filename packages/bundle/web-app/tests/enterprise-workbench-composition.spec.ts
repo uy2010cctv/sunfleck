@@ -12,6 +12,7 @@ const ENTERPRISE_OVERLAY = fileURLToPath(new URL('../../../../apps/cli/config/en
 interface PatchRow {
   id?: string
   name?: string
+  disabled?: boolean
   inject?: string[]
   config?: Record<string, unknown>
   insert?: PatchRow[]
@@ -22,6 +23,15 @@ function readEnterpriseOverlay(): PatchRow[] {
 }
 
 describe('enterprise workbench Web composition', () => {
+  it('omits Desktop-only account onboarding art from the enterprise Web startup graph', () => {
+    const overlay = readEnterpriseOverlay()
+    expect(overlay.find(row => row.id === 'ui-settings-account')?.disabled).toBe(true)
+    const ordinary = load(readFileSync(`${PACKAGE_ROOT}/cordis.patch.yml`, 'utf8'),
+      { schema: entryListSchema }) as PatchRow[]
+    expect(ordinary.flatMap(row => row.insert ?? []).find(row => row.id === 'ui-settings-account')?.disabled)
+      .not.toBe(true)
+  })
+
   it('mounts the enterprise browser plugin', () => {
     const rows = load(
       readFileSync(`${PACKAGE_ROOT}/cordis.patch.yml`, 'utf8'),
