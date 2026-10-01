@@ -69,7 +69,7 @@ The workflow trigger inbox captures the exact workflow revision when its signed 
 
 #### What the model sees
 
-Collaboration delivery records the authenticated message as `user/message` in the selected native Session. Employee mention and duty routing use the same Agent preset and Session history as ordinary work. In a Bot `room_post`, exact `@display name` and `@ALL` mentions resolve against current room employees and wake the addressed colleagues after the signed post commits; an explicit `targetEmployeeIds` list takes precedence, including an empty list that suppresses Bot dispatch. The posting Bot never wakes itself, and the signed hop limit bounds subsequent Bot requests. The bounded room input asks employees to create requested file deliverables and call `present` before their final reply; external messaging requires an explicit request.
+Collaboration delivery records the authenticated message as `user/message` in the selected native Session. Employee mention and duty routing use the same Agent preset and Session history as ordinary work. In a Bot `room_post`, exact `@display name`, `@ALL`, and line-start Chinese assignments such as `给 Name：` resolve against current room employees and wake the addressed colleagues after the signed post commits; an explicit `targetEmployeeIds` list takes precedence, including an empty list that suppresses Bot dispatch. Ordinary name references do not wake employees. The posting Bot never wakes itself, and the signed hop limit bounds subsequent Bot requests. The bounded room input asks employees to create requested file deliverables and call `present` before their final reply; external messaging requires an explicit request.
 
 #### Token effect
 

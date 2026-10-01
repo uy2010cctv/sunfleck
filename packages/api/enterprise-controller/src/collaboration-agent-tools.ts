@@ -169,9 +169,8 @@ export function installCollaborationAgentTools(ctx: Context, options: Collaborat
           requireText(args.content); requireText(args.idempotencyKey)
           const binding = await authorized(agent, exec.agent, args.sourceEventId)
           const targets = targetsFor(binding, args.targetEmployeeIds
-            ?? (args.content.includes('@')
-              ? roomMentionTargets(args.content, binding.employeeId, binding.room.memberEmployeeIds,
-                await options.memberEmployees(binding.room)) : []))
+            ?? roomMentionTargets(args.content, binding.employeeId, binding.room.memberEmployeeIds,
+              await options.memberEmployees(binding.room)))
           const mentionedUserIds = humansFor(binding, args.mentionedUserIds ?? [])
           const threadRoot = binding.source.threadRoot
             ?? (binding.room.kind === 'channel' && binding.source.event.kind === 9 ? binding.source.event.id : undefined)

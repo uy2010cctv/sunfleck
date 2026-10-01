@@ -71,7 +71,7 @@ export function roomRecipients(post: RoomEvent, memberIds: readonly string[],
 
 function escapeRegExp(value: string): string { return value.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&') }
 
-/** Resolve explicit text mentions against the current Bot roster without waking the author.
+/** Resolve direct addresses against the current Bot roster without waking the author.
  * @param content - Text that will be signed into the room event.
  * @param authorId - Posting employee.
  * @param memberIds - Current room employee ids.
@@ -82,7 +82,8 @@ export function roomMentionTargets(content: string, authorId: string, memberIds:
   employees: readonly { readonly employeeId: string; readonly displayName: string }[]): string[] {
   const all = /@ALL(?=$|[\s@\p{P}\p{S}])/iu.test(content)
   return employees.filter(employee => memberIds.includes(employee.employeeId) && employee.employeeId !== authorId
-    && (all || new RegExp(`@${escapeRegExp(employee.displayName)}(?=$|[\\s@\\p{P}\\p{S}])`, 'iu').test(content)))
+    && (all || new RegExp(`@${escapeRegExp(employee.displayName)}(?=$|[\\s@\\p{P}\\p{S}])`, 'iu').test(content)
+      || new RegExp(`(?:^|\\n)[\\s\\p{P}\\p{S}]{0,8}(?:给|请)\\s*${escapeRegExp(employee.displayName)}(?=$|[\\s\\p{P}\\p{S}])`, 'iu').test(content)))
     .map(employee => employee.employeeId)
 }
 

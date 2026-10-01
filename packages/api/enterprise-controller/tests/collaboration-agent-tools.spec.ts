@@ -167,6 +167,17 @@ describe('shared room agent tools', () => {
     expect(result.isError).toBeFalsy()
     expect(app.delivered).toEqual([['bot-b']])
   })
+  it('wakes current colleagues addressed in Chinese assignment lines', async () => {
+    const app = await setup()
+    const result = await app.call('room_post', {
+      content: '📍 给 Data（分析）：请给一条结论。\n📍 给 Editor（编辑）：请给一条建议。',
+      sourceEventId: app.initial.id, idempotencyKey: 'brainstorm-assignments',
+    })
+    expect(result.isError).toBeFalsy()
+    expect(app.events[1]?.event.tags).toContainEqual(['dsh-target', 'bot-b'])
+    expect(app.events[1]?.event.tags).toContainEqual(['dsh-target', 'bot-c'])
+    expect(app.delivered).toEqual([['bot-b', 'bot-c']])
+  })
   it('lets an explicit empty target list suppress textual mentions', async () => {
     const app = await setup()
     const result = await app.call('room_post', { content: '@ALL Status only.', sourceEventId: app.initial.id,

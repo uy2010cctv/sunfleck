@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { roomPrompt, roomRecipients, roomSourceCursor, roomTurnPost, roomTurnTriggers,
+import { roomMentionTargets, roomPrompt, roomRecipients, roomSourceCursor, roomTurnPost, roomTurnTriggers,
   releasedRoomEmployee, roomToolFact } from '../src/collaboration-room-delivery.ts'
 import type { RoomEvent } from '@deepseek-ai/dsh-enterprise-postgres'
 
@@ -55,6 +55,19 @@ describe('shared room execution input', () => {
         { employeeId: 'editor', displayName: 'Editor' }], 2)).toEqual(['data', 'editor'])
     expect(roomRecipients(event('5', 'research', '@ALLiance is our name', [['dsh-hop', '1']]), members,
       [{ employeeId: 'data', displayName: 'Data' }], 2)).toEqual([])
+  })
+  it('selects only current members from direct Chinese assignment lines', () => {
+    const members = [
+      { employeeId: 'nova', displayName: 'Nova' },
+      { employeeId: 'frisk', displayName: 'frisk' },
+      { employeeId: 'finance', displayName: '财务大王' },
+      { employeeId: 'kiiv', displayName: 'Kiiv' },
+    ]
+    const content = '📍 给 frisk（法人助理）：请给一条建议。\n📍 给 Kiiv：请给一条建议。\n📍 给 财务大王（财务）：请给一条建议。'
+    expect(roomMentionTargets(content, 'nova', ['nova', 'frisk', 'finance'], members))
+      .toEqual(['frisk', 'finance'])
+    expect(roomMentionTargets('提案中提到了 frisk 和财务大王。', 'nova', ['nova', 'frisk', 'finance'], members))
+      .toEqual([])
   })
 
   it('builds one persistent projection cursor from a native Session event', () => {
