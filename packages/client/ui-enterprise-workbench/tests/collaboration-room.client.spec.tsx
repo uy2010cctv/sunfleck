@@ -657,6 +657,18 @@ describe('shared room UI', () => {
     controller.dispose()
   })
 
+  it('shows a scheduled Agent reply as a new group message after an earlier Agent answer', () => {
+    const { controller, state, t } = setup()
+    const main: RoomEvent = { ...research, id: 'main', sequence: '300', content: '任务已创建' }
+    const scheduled: RoomEvent = { ...research, id: 'scheduled', sequence: '301',
+      tags: [['h', 'room'], ['dsh-schedule']], content: '定时任务验收完成' }
+    const { container } = render(<CollaborationRoom controller={controller}
+      state={{ ...state, events: [human, main, scheduled] }} t={t}/>)
+    expect(container.querySelectorAll('article')).toHaveLength(3)
+    expect(screen.getByText('定时任务验收完成')).toBeDefined()
+    controller.dispose()
+  })
+
   it('keeps delivery cards visible when their owning follow-up reply is folded', async () => {
     const { controller, state, t } = setup()
     vi.spyOn(controller, 'presentedFiles').mockResolvedValue([{ path: '/workspace/follow-up.txt', seq: 20,

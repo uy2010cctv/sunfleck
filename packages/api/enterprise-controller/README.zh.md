@@ -48,7 +48,7 @@ kind: "package-reference"
 
 共享房间事件签名为每个组织的人类、数字员工或服务主体使用独立的服务器托管 NIP-01 密钥。私钥保存在 `ctx.credentials` 记录中；PostgreSQL 将主体绑定到首个公钥，私钥丢失或变化时拒绝签名。签名前检查当前房间访问权和员工 Session 绑定。用户自行持有密钥并签名的流程尚未实现，因此人类签名目前由服务器托管。签名事件格式不表示已支持外部 Nostr Relay 客户端。
 
-群聊和频道从 `GET /enterprise/surfaces/:id/events` 与 `.../search` 读取同一条签名房间时间线。认证后的发帖和表情先落库再派发给 Bot；原生执行 Session 记录房间来源编号和有界的模型可见房间历史。Bot 回复、任务交接、TeamRun 事实及人类决策以核实后的作者身份回到房间。绑定群聊的员工 Session 可以创建 Host 定时任务；认证后的 `GET /enterprise/surfaces/:id/schedules` 只列出本群现有员工的活动任务，群管理员可通过 `.../schedules/delete` 删除指定任务。Host Schedule 唤醒的工作完成后，服务端重新核对当前群成员与工作区权限，再将员工回复签名写回原群。频道管理员通过 `/enterprise/channel-workflows` 保存版本化的声明式 YAML。消息和表情触发器消费已落库的房间事件；定时触发器使用 PostgreSQL 租约回执。精确路径 `/enterprise/channel-workflows/github` 需要配置 GitHub 密钥引用，验签后将匹配的 tag、代码评审、合并或 Webhook 来源事件持久化，再返回 202。工作流步骤生成签名房间事实并复用企业审批；后续动作等待人类作出决定。
+群聊和频道从 `GET /enterprise/surfaces/:id/events` 与 `.../search` 读取同一条签名房间时间线。认证后的发帖和表情先落库再派发给 Bot；原生执行 Session 记录房间来源编号和有界的模型可见房间历史。Bot 回复、任务交接、TeamRun 事实及人类决策以核实后的作者身份回到房间。绑定群聊的员工 Session 可以创建 Host 定时任务；认证后的 `GET /enterprise/surfaces/:id/schedules` 只列出本群现有员工的活动任务，群管理员可通过 `.../schedules/delete` 删除指定任务。Host Schedule 唤醒的工作完成后，服务端重新核对当前群成员与工作区权限，再将带 `dsh-schedule` 标记的员工签名回复写回原群。频道管理员通过 `/enterprise/channel-workflows` 保存版本化的声明式 YAML。消息和表情触发器消费已落库的房间事件；定时触发器使用 PostgreSQL 租约回执。精确路径 `/enterprise/channel-workflows/github` 需要配置 GitHub 密钥引用，验签后将匹配的 tag、代码评审、合并或 Webhook 来源事件持久化，再返回 202。工作流步骤生成签名房间事实并复用企业审批；后续动作等待人类作出决定。
 
 频道 Agent 的 `room_post` 回复保留触发消息的原始线程父消息，回复已有回复时也沿用该父消息。`GET /enterprise/surfaces/:id/events?threadRoot=...` 独立于回复分页，以 `root` 返回有权限读取的签名父消息；父消息不存在、不是文本消息，或将回复当作父消息时返回 404。采用线程主题策略的频道，还将绑定到该根消息的原生 Session 中历史未分线程的员工记录及针对这些记录的人类回应纳入回复页；响应视图带有父消息，签名事件与存储记录保持不变。对历史文本回复的新回应，通过目标消息的原生 Session 绑定解析父消息，并将其写入签名及存储。
 

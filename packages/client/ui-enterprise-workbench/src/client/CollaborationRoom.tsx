@@ -700,6 +700,10 @@ export function CollaborationRoom({ state, controller, renderFactorySlot, t }: {
         continue
       }
       if (event.author.kind === 'employee') {
+        if (!isChannel && event.tags.some(tag => tag[0] === 'dsh-schedule')) {
+          runAnswered.delete(event.author.id)
+          runAnswerItem.delete(event.author.id)
+        }
         const details = pending.get(event.author.id)
         pending.delete(event.author.id)
         if (!isChannel && runAnswered.has(event.author.id)) {

@@ -304,6 +304,7 @@ export function composeCollaboration(ctx: Context, services: {
       const event = await signer.signEmployee({ orgId: row.orgId, employeeId,
         sessionId: binding.sessionId }, row.id, { type: 'text', content: result.text,
         sourceCursor: cursor,
+        ...(!signedSource ? { scheduled: true } : {}),
         .../^[0-9a-f]{64}$/u.test(binding.topicId) ? { threadRoot: binding.topicId } : {} })
       posted = await roomEvents.append({ orgId: row.orgId, surfaceId: row.id, event,
         authorKind: 'employee', authorId: employeeId, sourceSessionId: binding.sessionId,

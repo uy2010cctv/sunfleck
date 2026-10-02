@@ -69,6 +69,18 @@ describe('custodial room signing identities', () => {
     expect(JSON.stringify({ human, bot })).not.toContain('secretHex')
   })
 
+  it('marks a Host-projected scheduled Bot reply in its signed event', async () => {
+    const signed = await fixture().identity().signEmployee({
+      orgId: 'org-a', employeeId: 'research', sessionId: 'bound-session',
+    }, 'room-1', { type: 'text', content: 'Daily summary', scheduled: true,
+      sourceCursor: 'bound-session:42' })
+    expect(signed.tags).toContainEqual(['dsh-schedule'])
+    expect(verifiedSignature(signed)).toBe(true)
+    await expect(fixture().identity().signHuman(alice, 'room-1', {
+      type: 'text', content: 'Forged reminder', scheduled: true, sourceCursor: 'bound-session:42',
+    })).rejects.toThrow('room-event-schedule-author-invalid')
+  })
+
   it('signs a workflow thread parent and rejects an invalid reference', async () => {
     const signer = fixture().identity()
     const root = await signer.signHuman(alice, 'room-1', { type: 'text', content: 'Root request' })

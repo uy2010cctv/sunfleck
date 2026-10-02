@@ -34,6 +34,8 @@ export interface RoomAttachmentTag {
 export type RoomSigningInput =
   | { readonly type: 'text'
     readonly content: string
+    /** Host-projected reply from a completed Schedule turn. */
+    readonly scheduled?: boolean
     readonly threadRoot?: string
     readonly sourceEventId?: string
     readonly sourceCursor?: string
@@ -184,6 +186,7 @@ function eventTemplate(roomId: string, input: RoomSigningInput): { readonly kind
   switch (input.type) {
     case 'text':
       if (input.threadRoot !== undefined) { validId(input.threadRoot); tags.push(['e', input.threadRoot, '', 'root']) }
+      if (input.scheduled && input.sourceCursor === undefined) throw new Error('room-event-schedule-source-required')
       appendBotSource(tags, input)
       appendTargets(tags, input.targetEmployeeIds)
       if (input.mentionedUserIds !== undefined) {
@@ -194,6 +197,7 @@ function eventTemplate(roomId: string, input: RoomSigningInput): { readonly kind
         for (const userId of input.mentionedUserIds) tags.push(['dsh-mention', userId])
       }
       appendSourceCursor(tags, input.sourceCursor)
+      if (input.scheduled) tags.push(['dsh-schedule'])
       appendAttachments(tags, input.attachments)
       if (input.route !== undefined) {
         const route: string = input.route
@@ -286,6 +290,9 @@ export class CollaborationIdentity {
   }
 
   private async sign(address: SigningAddress, roomId: string, input: RoomSigningInput): Promise<RoomNostrEvent> {
+    if (input.type === 'text' && input.scheduled && address.actorKind !== 'employee') {
+      throw new Error('room-event-schedule-author-invalid')
+    }
     const credentialId = createHash('sha256').update(JSON.stringify([address.orgId, address.actorKind, address.actorId]))
       .digest('hex')
     const recordKey = credentialKey('api-enterprise-controller', `actor-${credentialId}`)
