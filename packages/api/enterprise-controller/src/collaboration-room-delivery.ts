@@ -7,15 +7,18 @@ import type { RoomEvent } from '@deepseek-ai/dsh-enterprise-postgres'
  * @param current - Event that triggered this employee turn.
  * @param limits - Deployment-configured event and character ceilings.
  * @param names - Current authorized display names keyed by actor kind and id.
+ * @param groupSchedules - Whether this room can use the Host Schedule service.
  * @returns One bounded native user message with source ids.
  */
 export function roomPrompt(roomName: string, events: readonly RoomEvent[], current: RoomEvent,
-  limits: { readonly characters: number; readonly events: number }, names: ReadonlyMap<string, string> = new Map()): string {
+  limits: { readonly characters: number; readonly events: number }, names: ReadonlyMap<string, string> = new Map(),
+  groupSchedules = false): string {
   if (!Number.isSafeInteger(limits.characters) || limits.characters < 500
     || !Number.isSafeInteger(limits.events) || limits.events < 1) throw new Error('invalid room context limits')
   const header = `Shared room: ${roomName.slice(0, 80)}\nRead these signed room events in order. Each [id] is an auditable source event. Reply in the room as yourself.\n`
     + 'For requested files, create them and call present with existing paths before your final reply for room members to open or download. '
     + 'Reply here; external messaging requires an explicit request.\n'
+    + (groupSchedules ? 'For this group, use schedule_create for timed work; replies return here. Do not install cron.\n' : '')
   const currentLine = line(current, names)
   const ceiling = limits.characters
   const tailBudget = ceiling - header.length - 2
@@ -110,7 +113,8 @@ export type RoomTurnEvent =
     readonly data: { readonly turn: number } }
   | { readonly type: 'user/message'
     readonly seq: number
-    readonly data: { readonly source?: { readonly surfaceId?: string
+    readonly data: { readonly source?: { readonly kind?: string
+      readonly surfaceId?: string
       readonly rpcId?: string } } }
 
 /** Select the last user-visible reply or one stable failure marker from a completed native turn.
@@ -147,6 +151,19 @@ export function roomTurnTriggers(events: readonly RoomTurnEvent[], turn: number,
   return events.filter(event => event.type === 'user/message' && event.seq > start.seq && event.seq < end.seq
     && event.data.source?.surfaceId === surfaceId && /^[0-9a-f]{64}$/u.test(event.data.source.rpcId ?? ''))
     .map(event => event.type === 'user/message' ? event.data.source?.rpcId ?? '' : '')
+}
+
+/** Detect a Host reminder consumed by one completed native turn.
+ * @param events - Native turn and user records in sequence order.
+ * @param turn - Completed native turn.
+ * @returns Whether the Host Schedule service supplied an input within this turn.
+ */
+export function roomTurnScheduleSource(events: readonly RoomTurnEvent[], turn: number): boolean {
+  const start = events.findLast(event => event.type === 'turn/start' && event.data.turn === turn)
+  const end = events.findLast(event => event.type === 'turn/end' && event.data.turn === turn)
+  if (start === undefined || end === undefined) return false
+  return events.some(event => event.type === 'user/message' && event.seq > start.seq && event.seq < end.seq
+    && event.data.source?.kind === 'schedule')
 }
 
 /** Exact published employee selection folded from a native Session log. */

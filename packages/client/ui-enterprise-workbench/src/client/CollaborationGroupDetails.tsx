@@ -4,6 +4,7 @@ import { Button, Input, Modal, IconLoadingOutlineRegular, IconSearchOutlineRegul
 import type { CollaborationController, CollaborationDetail } from './collaboration-store.ts'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-locale/client'
 import { dicebearAvatarUrl } from './avatar.ts'
+import { CollaborationGroupSchedules } from './CollaborationGroupSchedules.tsx'
 import css from './RoomManagementDetails.module.css'
 
 type Copy = TranslateNS<'enterprise.collaboration'>
@@ -115,6 +116,7 @@ export function CollaborationGroupDetails({ detail, controller, t }: {
         {admin && <Button size="sm" disabled={detail.members.length === 0} onClick={() => { open({ kind: 'duty' }) }}>{t('editDuty')}</Button>}
       </div>}
     </section>
+    {!channel && <CollaborationGroupSchedules groupId={detail.id} canManage={admin} t={t}/>}
     <section className={css.endSection}>
       <h3>{t('roomActions')}</h3><p className={css.description}>{t(admin ? 'archiveRoomHint' : 'leaveRoomHint')}</p>
       <Button variant="outline" className={css.danger} onClick={() => { open({ kind: 'end' }) }}>{endLabel}</Button>

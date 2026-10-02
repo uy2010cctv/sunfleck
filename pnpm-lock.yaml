@@ -1187,6 +1187,9 @@ importers:
       '@deepseek-ai/dsh-persona':
         specifier: workspace:^
         version: link:../../preset/persona
+      '@deepseek-ai/dsh-schedule':
+        specifier: workspace:*
+        version: link:../../schedule/schedule
       '@deepseek-ai/dsh-scope':
         specifier: workspace:^
         version: link:../../core/scope

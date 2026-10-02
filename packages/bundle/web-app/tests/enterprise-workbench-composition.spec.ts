@@ -23,6 +23,11 @@ function readEnterpriseOverlay(): PatchRow[] {
 }
 
 describe('enterprise workbench Web composition', () => {
+  it('enables native Host Schedule and time context for enterprise room agents', () => {
+    const overlay = readEnterpriseOverlay()
+    expect(overlay.find(row => row.id === 'schedule')?.disabled).toBe(false)
+    expect(overlay.find(row => row.id === 'time-context')?.disabled).toBe(false)
+  })
   it('omits Desktop-only account onboarding art from the enterprise Web startup graph', () => {
     const overlay = readEnterpriseOverlay()
     expect(overlay.find(row => row.id === 'ui-settings-account')?.disabled).toBe(true)

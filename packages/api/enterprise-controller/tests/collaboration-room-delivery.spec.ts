@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { roomMentionTargets, roomPrompt, roomRecipients, roomSourceCursor, roomTurnPost, roomTurnTriggers,
+import { roomMentionTargets, roomPrompt, roomRecipients, roomSourceCursor, roomTurnPost, roomTurnScheduleSource, roomTurnTriggers,
   releasedRoomEmployee, roomToolFact } from '../src/collaboration-room-delivery.ts'
 import type { RoomEvent } from '@deepseek-ai/dsh-enterprise-postgres'
 
@@ -18,6 +18,14 @@ describe('shared room execution input', () => {
         For requested files, create them and call present with existing paths before your final reply for room members to open or download. Reply here; external messaging requires an explicit request.
         [event-1] human:alice: @Research create report.txt and share it here"
       `)
+  })
+
+  it('directs group Agents to the native Schedule tool for recurring room work', () => {
+    const latest = event('1', 'alice', '@Research prepare a summary every day')
+    const prompt = roomPrompt('Research room', [latest], latest, { characters: 800, events: 1 }, new Map(), true)
+    expect(prompt).toContain('schedule_create')
+    expect(prompt).toContain('this group')
+    expect(prompt).toContain('Do not install cron')
   })
 
   it('retains exact source event IDs and current text while bounding older context', () => {
@@ -101,6 +109,18 @@ describe('shared room execution input', () => {
     ] as const
     expect(roomTurnTriggers(events, 1, 'room')).toEqual([])
     expect(roomTurnTriggers(events, 2, 'room')).toEqual([id])
+  })
+  it('recognizes a Host schedule input only inside its completed turn', () => {
+    const events = [
+      { type: 'turn/start', seq: 1, data: { turn: 1 } },
+      { type: 'user/message', seq: 2, data: { source: { kind: 'schedule' } } },
+      { type: 'turn/end', seq: 3, data: { turn: 1, reason: { kind: 'completed' } } },
+      { type: 'turn/start', seq: 4, data: { turn: 2 } },
+      { type: 'user/message', seq: 5, data: { source: { kind: 'user', surfaceId: 'room', rpcId: 'a'.repeat(64) } } },
+      { type: 'turn/end', seq: 6, data: { turn: 2, reason: { kind: 'completed' } } },
+    ] as const
+    expect(roomTurnScheduleSource(events, 1)).toBe(true)
+    expect(roomTurnScheduleSource(events, 2)).toBe(false)
   })
 
   it('recovers the exact employee selection after the live Agent is disposed', () => {

@@ -13,6 +13,7 @@ import type { WorkspaceId } from '@deepseek-ai/dsh-workspace'
 import { classifyPrivacyForScope, inspectEnterpriseMemory, memorySourceDigest } from '@deepseek-ai/dsh-enterprise-identity'
 import { MEMORY_ANNOUNCEMENT_SUMMARY_CHARS } from '@deepseek-ai/dsh-enterprise-surface'
 import type {} from '@deepseek-ai/dsh-session-persistence'
+import type {} from '@deepseek-ai/dsh-schedule'
 import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
 import type { EnterprisePrincipal } from '@deepseek-ai/dsh-enterprise-governance'
 import type { EnterpriseOperationsService, EnterpriseTeamControlService } from '@deepseek-ai/dsh-enterprise-operations'
@@ -26,7 +27,8 @@ import { CollaborationHttpHandler } from './collaboration-http.ts'
 import { CollaborationIdentity } from './collaboration-identity.ts'
 import { CollaborationRoomOutbox } from './collaboration-room-outbox.ts'
 import { installCollaborationAgentTools } from './collaboration-agent-tools.ts'
-import { releasedRoomEmployee, roomPrompt, roomSourceCursor, roomToolFact, roomTurnPost, roomTurnTriggers,
+import { GroupRoomSchedules } from './collaboration-group-schedules.ts'
+import { releasedRoomEmployee, roomPrompt, roomSourceCursor, roomToolFact, roomTurnPost, roomTurnScheduleSource, roomTurnTriggers,
   type RoomToolEvent, type RoomTurnEvent } from './collaboration-room-delivery.ts'
 import { projectTeamRoomFact, teamTurnSourceIds, type TeamRoomMember,
   type TeamTurnSourceRecord } from './collaboration-team-room.ts'
@@ -252,6 +254,7 @@ export function composeCollaboration(ctx: Context, services: {
       if (event.type === 'user/message') {
         const source = event.data.source
         relevant.push({ type: 'user/message', seq: event.seq, data: { source: {
+          kind: source.kind,
           ...'surfaceId' in source && typeof source.surfaceId === 'string' ? { surfaceId: source.surfaceId } : {},
           ...'originSurfaceId' in source && typeof source.originSurfaceId === 'string'
             ? { surfaceId: source.originSurfaceId } : {},
@@ -276,7 +279,20 @@ export function composeCollaboration(ctx: Context, services: {
     const result = roomTurnPost(events, turn)
     if (result === undefined) return
     const triggers = roomTurnTriggers(events, turn, row.id)
-    if (!(await Promise.all(triggers.map(id => roomEvents.getByEventId(row.orgId, row.id, id)))).some(value => value !== undefined)) return
+    const signedSource = (await Promise.all(triggers.map(id => roomEvents.getByEventId(row.orgId, row.id, id))))
+      .some(value => value !== undefined)
+    if (!signedSource) {
+      if (row.kind !== 'group' || row.teamDefinitionId !== undefined || row.archivedAt !== undefined
+        || !roomTurnScheduleSource(events, turn) || !row.memberEmployeeIds.includes(binding.employeeId)) return
+      const selected = await durableEmployee(binding.sessionId)
+      if (selected?.orgId !== row.orgId || selected.employeeId !== binding.employeeId
+        || !row.memberUserIds.includes(selected.ownerUserId)) return
+      const owner = (await database.identity.listUsers(row.orgId))
+        .find(user => user.id === selected.ownerUserId && !user.disabled)
+      if (owner === undefined || !(await security.authorizeApiAsync({
+        orgId: row.orgId, userId: owner.id, roles: owner.roles,
+      }, 'session.create', { workspaceId: row.workspaceId })).allowed) return
+    }
     const cursor = roomSourceCursor(binding.sessionId, result.sourceSeq)
     let posted = await roomEvents.findBySourceCursor(row.orgId, row.id, binding.sessionId, cursor)
     if (posted === undefined) {
@@ -559,7 +575,7 @@ export function composeCollaboration(ctx: Context, services: {
         }
         names.set('service:team', row.teamDefinitionId === undefined ? 'Team' : `${row.name} team`)
         return roomPrompt(row.name, history, current, { characters: services.limits.roomContextCharacters,
-          events: services.limits.roomContextEvents }, names)
+          events: services.limits.roomContextEvents }, names, row.kind === 'group')
       },
       reconcile: reconcileRoom,
       dispatchCommitted: async (_actor, row, event) => {
@@ -896,5 +912,16 @@ export function composeCollaboration(ctx: Context, services: {
     if (!result.delivered) throw new CollaborationError(result.reason, 409)
     return { accepted: true, routedSessionIds: result.targets.map(target => brandString<SessionId>(target.sessionId)) }
   })
-  return new CollaborationHttpHandler(service, security)
+  const schedule = () => {
+    const value = ctx.get('schedule')
+    if (value === undefined) throw new CollaborationError('schedules-unavailable', 503)
+    return value
+  }
+  const groupSchedules = new GroupRoomSchedules({
+    detail: (actor, id) => service.detail(actor, id),
+    sessions: id => store.sessions(id),
+    list: request => schedule().list(request),
+    delete: request => schedule().delete(request),
+  })
+  return new CollaborationHttpHandler(service, security, groupSchedules)
 }

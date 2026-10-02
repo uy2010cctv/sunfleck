@@ -15,6 +15,14 @@
 - id: session-persistence-jsonl
   disabled: true
 
+# Group-bound employee Sessions use the Host reminder service. Its native
+# daily and weekly rules retain their wall-clock zone across restarts.
+- id: time-context
+  disabled: false
+
+- id: schedule
+  disabled: false
+
 # The base Web composition declares Connection before this overlay's inserted
 # providers. Loader keeps it pending until enterprise auth has published both
 # security services; the ordinary Web profile retains its base-only injection.

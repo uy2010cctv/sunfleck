@@ -112,6 +112,24 @@ describe('collaboration HTTP request validation', () => {
     expect(setDuty).toHaveBeenCalledWith(expect.anything(), 'channel', [])
   })
 
+  it('lists and deletes only through the authorized group schedule adapter', async () => {
+    const list = vi.fn(async () => [{ id: 'schedule-1', title: 'Daily report', employeeName: 'Nova' }])
+    const remove = vi.fn(async () => ({ id: 'schedule-1', deleted: true }))
+    const handler = new CollaborationHttpHandler({} as never, security as never,
+      { list, delete: remove } as never)
+    const base = 'https://dsh/enterprise/surfaces/group/schedules'
+    expect(await (await handler.fetch(new Request(base))).json()).toEqual({
+      items: [{ id: 'schedule-1', title: 'Daily report', employeeName: 'Nova' }],
+    })
+    expect(list).toHaveBeenCalledWith(expect.objectContaining({ userId: 'member' }), 'group')
+    expect((await handler.fetch(new Request(base + '/delete', { method: 'POST', body: '{}' }))).status).toBe(400)
+    expect(remove).not.toHaveBeenCalled()
+    expect(await (await handler.fetch(new Request(base + '/delete', {
+      method: 'POST', body: JSON.stringify({ id: 'schedule-1' }),
+    }))).json()).toEqual({ id: 'schedule-1', deleted: true })
+    expect(remove).toHaveBeenCalledWith(expect.objectContaining({ userId: 'member' }), 'group', 'schedule-1')
+  })
+
   it('uploads raw attachment bytes and serves them back to room members', async () => {
     const uploadAttachment = vi.fn(async (_actor: unknown, _id: string,
       upload: { name: string; mimeType: string; data: Buffer }): Promise<AttachmentRef> =>

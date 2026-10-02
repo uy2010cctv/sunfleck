@@ -87,6 +87,9 @@
       "path": "../../preset/persona"
     },
     {
+      "path": "../../schedule/schedule"
+    },
+    {
       "path": "../../runtime-diagnostics/invariants"
     },
     {

@@ -1,6 +1,7 @@
 /** Cookie-authenticated collaboration endpoints; all native Session ids remain member- and workspace-scoped. */
 import type { EmployeeHttpSecurity } from './employee-http.ts'
 import { CollaborationError, type CollaborationService } from './collaboration-service.ts'
+import type { GroupRoomSchedules } from './collaboration-group-schedules.ts'
 import { authenticatedSegments, failure, guardResource, jsonObjectBody, optionalStringArrayField, optionalStringField,
   stringArrayField, stringField } from './http.ts'
 export type { CollaborationDetail, CollaborationOpenResult, CollaborationDelivery, CollaborationRoomEvent } from './collaboration-service.ts'
@@ -8,7 +9,8 @@ export type { CollaborationDetail, CollaborationOpenResult, CollaborationDeliver
 /** HTTP transport for the PostgreSQL collaboration service. */
 export class CollaborationHttpHandler {
   /** @param service - Conversation coordinator. @param security - Shared cookie and policy services. */
-  constructor(readonly service: CollaborationService, private readonly security: EmployeeHttpSecurity) {}
+  constructor(readonly service: CollaborationService, private readonly security: EmployeeHttpSecurity,
+    private readonly groupSchedules?: Pick<GroupRoomSchedules, 'list' | 'delete'>) {}
 
   /** Serve an authenticated conversation request.
    * @param request - Request under /enterprise/surfaces.
@@ -37,6 +39,10 @@ export class CollaborationHttpHandler {
           return value === undefined ? failure(404, 'not-found') : Response.json(value)
         }
         if (operation === 'member-options' && target === undefined) return Response.json(await this.service.getMemberOptions(principal, id))
+        if (operation === 'schedules' && target === undefined) {
+          if (this.groupSchedules === undefined) throw new CollaborationError('schedules-unavailable', 503)
+          return Response.json({ items: await this.groupSchedules.list(principal, id) })
+        }
         if (operation === undefined) return Response.json(await this.service.detail(principal, id))
         if (target === undefined && operation === 'events') {
           const params = new URL(request.url).searchParams
@@ -105,7 +111,13 @@ export class CollaborationHttpHandler {
           ...(respondPolicy === 'mention_duty' || respondPolicy === 'ingest_only' ? { respondPolicy } : {}),
         }), { status: 201 })
       }
-      if (id === undefined || (target !== undefined && operation !== 'members')) return failure(404, 'not-found')
+      if (id === undefined || (target !== undefined && operation !== 'members' && operation !== 'schedules')) return failure(404, 'not-found')
+      if (operation === 'schedules' && target === 'delete') {
+        const scheduleId = stringField(body, 'id')
+        if (scheduleId === undefined || scheduleId.length > 128) return failure(400, 'invalid-body')
+        if (this.groupSchedules === undefined) throw new CollaborationError('schedules-unavailable', 503)
+        return Response.json(await this.groupSchedules.delete(principal, id, scheduleId))
+      }
       if (operation === 'read') {
         const sequence = stringField(body, 'sequence')
         if (sequence === undefined || !/^[1-9][0-9]*$/u.test(sequence)

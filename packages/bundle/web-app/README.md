@@ -51,7 +51,7 @@ Most users never set these; the command-line flags feed the four settings below 
 | `surfaceContext` | `true` | Give the agent GUI-orientation context and expose `DSH_WEB_URL` to its shell commands |
 | `trustedHosts` | `[]` | Extra hosts allowed to reach the GUI from the network |
 
-The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-web-app) is the exhaustive source for every accepted field and its JSDoc. The shipped composition disables `schedule`, `ui-schedule`, and `time-context` by default.
+The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-web-app) is the exhaustive source for every accepted field and its JSDoc. The shipped composition disables `schedule`, `ui-schedule`, and `time-context` by default. The enterprise Web overlay enables Host Schedule and time context for group-bound employee Sessions; its group task list lives in room details.
 
 The [enterprise Web overlay](../../../apps/cli/config/enterprise.cordis.patch.yml) also disables the Desktop-only account settings plugin. Its onboarding artwork stays in the Desktop composition and is omitted from enterprise browser startup downloads.
 

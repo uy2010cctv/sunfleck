@@ -12,7 +12,7 @@ const detail: CollaborationDetail = { id: 'room', kind: 'group', name: '产品�
   humanMembers: [{ userId: 'admin', displayName: 'Kris' }, { userId: 'member', displayName: '同事' }],
   topics: [], dutyEmployeeIds: ['bot'], adminUserId: 'admin', viewerUserId: 'admin', viewerIsAdmin: true }
 function setup() {
-  vi.stubGlobal('fetch', vi.fn(async () => Response.json([])))
+  vi.stubGlobal('fetch', vi.fn(async () => Response.json({ items: [] })))
   const controller = new CollaborationController(vi.fn(), vi.fn(), vi.fn())
   return controller
 }
@@ -20,6 +20,15 @@ function mount(controller: CollaborationController, value = detail) {
   return render(<CollaborationGroupDetails detail={value} controller={controller} t={makeTranslate(zh)} />)
 }
 describe('room management controls', () => {
+  it('shows group tasks only in group details', () => {
+    const controller = setup()
+    const view = mount(controller)
+    expect(screen.getByRole('region', { name: '本群定时任务' })).toBeTruthy()
+    view.rerender(<CollaborationGroupDetails detail={{ ...detail, kind: 'channel' }}
+      controller={controller} t={makeTranslate(zh)} />)
+    expect(screen.queryByRole('region', { name: '本群定时任务' })).toBeNull()
+    controller.dispose()
+  })
   it('has one member selection entry per roster without a second inline add form', () => {
     const controller = setup()
     mount(controller)
