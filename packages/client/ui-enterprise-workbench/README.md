@@ -19,7 +19,7 @@ Enterprise digital-employee roster and operations workbench over DSH runtime fac
 
 The sidebar entry and workbench heading display Lichen Agent using the supplied two-part logo and embedded Tourney lettering. Functional navigation and descriptive copy retain their digital-employee terminology. The font ships under its [SIL Open Font License](LICENSES/tourney-OFL.txt).
 
-The sidebar scheduled-task shortcut shares a row with Cordis Plugin and opens a centered task dialog over the current conversation. The dialog reuses the workbench's scheduled-task creation, pause, resume, and archive actions, and refreshes its list when the enterprise read model is already loaded. The full workbench retains its Schedules page.
+The sidebar scheduled-task shortcut shares a row with Cordis Plugin, keeps its clock at full size when space is tight, and opens a centered task dialog over the current conversation. The dialog reuses the workbench's scheduled-task creation, pause, resume, and archive actions, and refreshes its list when the enterprise read model is already loaded. The full workbench retains its Schedules page.
 
 The schedule form fills the dialog width and lists each employee once with an avatar. Selecting an employee uses its latest published release when the task is saved; existing tasks retain their recorded release id.
 

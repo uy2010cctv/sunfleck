@@ -29,7 +29,7 @@ Feature plugins contribute group or channel browsing through the root `sidebar.s
 
 The sidebar is the navigation shell: users see the brand, start new sessions, collapse the rail, and reach Settings. Feature plugins fill its seats — ui-workspace fills `sidebar.workspaces`, ui-settings registers the trigger row and settings panel at `sidebar.settings`.
 
-When the scheduled-task shortcut is present, the expanded footer places it beside the Cordis Plugin action. The narrow rail stacks the icon controls so each keeps its normal hit area; Settings remains on its own row.
+When the scheduled-task shortcut is present, the expanded footer places it beside the Cordis Plugin action and gives its clock enough width for the label. The narrow rail stacks the icon controls so each keeps its normal hit area; Settings remains on its own row.
 
 ### Brand and New Session
 

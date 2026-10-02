@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest'
 
 const TOKENS = fileURLToPath(new URL('../src/client/tokens.css', import.meta.url))
 const WORKBENCH = fileURLToPath(new URL('../src/client/EnterpriseWorkbench.module.css', import.meta.url))
+const TRIGGER = fileURLToPath(new URL('../src/client/EnterpriseTrigger.module.css', import.meta.url))
 
 describe('enterprise theme aliases', () => {
   it('binds on body where the DSH theme presenter publishes its runtime tokens', () => {
@@ -14,6 +15,10 @@ describe('enterprise theme aliases', () => {
 })
 
 describe('enterprise workbench responsive shell', () => {
+  it('preserves the schedule clock width beside its sidebar label', () => {
+    const css = readFileSync(TRIGGER, 'utf8')
+    expect(css).toMatch(/\.trigger > svg\s*\{[^}]*flex:\s*none/su)
+  })
   it('lets the schedule dialog form fill its card without content-box input overflow', () => {
     const css = readFileSync(WORKBENCH, 'utf8')
     expect(css).toMatch(/\.scheduleDialog,\s*\.scheduleDialog \*\s*\{[^}]*box-sizing:\s*border-box/su)

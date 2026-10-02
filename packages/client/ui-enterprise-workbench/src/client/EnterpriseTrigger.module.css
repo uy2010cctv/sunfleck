@@ -26,6 +26,16 @@
   outline-offset: 2px;
 }
 
+.trigger > svg {
+  flex: none;
+}
+
+.trigger > span {
+  min-inline-size: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 @media (max-width: 18rem) {
   .trigger {
     inline-size: 36px;
