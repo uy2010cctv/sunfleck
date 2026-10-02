@@ -23,7 +23,7 @@ The sidebar scheduled-task shortcut shares a row with Cordis Plugin, keeps its c
 
 The schedule form fills the dialog width and lists each employee once with an avatar. Selecting an employee uses its latest published release when the task is saved; existing tasks retain their recorded release id.
 
-Group room details list only active Host reminders created in that group's employee Sessions. Members can ask an employee in the room to set a time; administrators can remove a listed task after confirmation. Signed scheduled replies render as separate room messages rather than details of an earlier Agent answer.
+Group room details list only the titles of active Host reminders created in that group's employee Sessions. Selecting a title opens a scrollable dialog with its employee, timing, identifier, and full instructions; administrators can remove the task there after confirmation. Members can ask an employee in the room to set a time. Signed scheduled replies render as separate room messages rather than details of an earlier Agent answer.
 
 The employee editor lists bound capability names and revisions per category. Already-bound assets remain selectable and are marked explicitly; updating a revision replaces the previous reference, and removing a binding changes only the local draft until Save and Publish. Category counts show bindings; catalog loading, errors, empty categories, and fully bound categories have separate messages.
 

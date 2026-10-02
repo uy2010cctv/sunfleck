@@ -4,11 +4,19 @@
 .help, .empty { margin: 8px 0; color: var(--dsw-alias-label-secondary); font-size: 12px; line-height: 1.5; }
 .loading { display: grid; place-items: center; min-height: 72px; }
 .error { color: var(--dsw-alias-state-error-primary); font-size: 12px; }
-.list { display: grid; gap: 12px; list-style: none; margin: 12px 0 0; padding: 0; }
-.list li { display: grid; gap: 5px; padding: 10px; border: 1px solid var(--dsw-alias-border-l1); border-radius: var(--dsw-radius-md); }
-.task { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; font-size: 13px; }
-.task strong { font-weight: 500; overflow-wrap: anywhere; }
-.task span, .list time { color: var(--dsw-alias-label-secondary); font-size: 12px; }
-.list p { margin: 0; font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
-.list li > button { justify-self: start; }
-.actions { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; font-size: 12px; }
+.list { display: grid; gap: 4px; list-style: none; margin: 12px 0 0; padding: 0; }
+.list li { min-width: 0; }
+.taskTitle { width: 100%; min-height: 38px; padding: 8px 10px; border: 0; border-radius: var(--dsw-radius-md); background: transparent; color: var(--dsw-alias-label-primary); font: inherit; font-size: 13px; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+.taskTitle:hover { background: var(--dsw-alias-interactive-bg-hover); }
+.taskTitle:focus-visible { outline: 2px solid var(--dse-color-focus); outline-offset: -2px; }
+.dialog { width: min(560px, 100%); max-height: 100%; }
+.dialogContent { min-height: 0; max-height: min(72vh, 640px); overflow: auto; }
+.detail { display: grid; gap: 18px; min-width: 0; font-size: 13px; }
+.detail dl { display: grid; gap: 12px; margin: 0; }
+.detail dl > div { display: grid; grid-template-columns: 80px minmax(0, 1fr); gap: 12px; }
+.detail dt { color: var(--dsw-alias-label-secondary); }
+.detail dd { min-width: 0; margin: 0; color: var(--dsw-alias-label-primary); overflow-wrap: anywhere; }
+.detail h3 { margin: 0; font-size: 13px; font-weight: 500; }
+.id { font-family: var(--dsw-font-mono); }
+.prompt { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.6; }
+.actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; font-size: 12px; }
