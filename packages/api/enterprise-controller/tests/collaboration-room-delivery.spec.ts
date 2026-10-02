@@ -26,6 +26,7 @@ describe('shared room execution input', () => {
     expect(prompt).toContain('schedule_create')
     expect(prompt).toContain('this group')
     expect(prompt).toContain('Do not install cron')
+    expect(prompt).toContain('Do not call room_post from a scheduled turn')
   })
 
   it('retains exact source event IDs and current text while bounding older context', () => {
@@ -48,6 +49,8 @@ describe('shared room execution input', () => {
     expect(prompt).toContain(`[${latest.event.id}]`)
     expect(prompt).toContain('external messaging requires an explicit request.')
     expect(prompt.length).toBeLessThanOrEqual(500)
+    expect(roomPrompt('room', [latest], latest, { characters: 500, events: 1 }, new Map(), true))
+      .toContain(`[${latest.event.id}]`)
   })
 
   it('routes explicit employee mentions and blocks self loops or excessive hops', () => {

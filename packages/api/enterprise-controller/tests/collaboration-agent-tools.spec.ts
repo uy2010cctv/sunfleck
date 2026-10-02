@@ -4,6 +4,7 @@ import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import { createUserMessage, ToolCallId } from '@deepseek-ai/dsh-llm'
+import type {} from '@deepseek-ai/dsh-schedule'
 import { brandString } from '@deepseek-ai/dsh-brand'
 import type { SessionRequestId } from '@deepseek-ai/dsh-api-session-controller'
 import type { CredentialKey, CredentialRecord } from '@deepseek-ai/dsh-credentials'
@@ -194,6 +195,16 @@ describe('shared room agent tools', () => {
     app.revoke()
     expect((await app.call('room_post', { content: 'Request', sourceEventId: app.initial.id,
       idempotencyKey: 'revoked', targetEmployeeIds: ['bot-b'] })).isError).toBe(true)
+    expect(app.events).toHaveLength(1)
+  })
+  it('rejects a stale room source after the Host Schedule service starts a new turn', async () => {
+    const app = await setup()
+    app.agent.session.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: 'Scheduled work is due' }], source: { kind: 'schedule' },
+    }), { surfaceOp: 'append' })
+    const result = await app.call('room_post', { content: 'Scheduled reply', sourceEventId: app.initial.id,
+      idempotencyKey: 'stale-source' })
+    expect(result.isError).toBe(true)
     expect(app.events).toHaveLength(1)
   })
   it('signs Bot mentions of current human members and rejects an outsider', async () => {

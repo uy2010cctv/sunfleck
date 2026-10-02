@@ -18,7 +18,9 @@ export function roomPrompt(roomName: string, events: readonly RoomEvent[], curre
   const header = `Shared room: ${roomName.slice(0, 80)}\nRead these signed room events in order. Each [id] is an auditable source event. Reply in the room as yourself.\n`
     + 'For requested files, create them and call present with existing paths before your final reply for room members to open or download. '
     + 'Reply here; external messaging requires an explicit request.\n'
-    + (groupSchedules ? 'For this group, use schedule_create for timed work; replies return here. Do not install cron.\n' : '')
+    + (groupSchedules && limits.characters >= 650
+      ? 'For this group, use schedule_create for timed work. Scheduled turns finish with the reply text; the Host posts it here. Do not call room_post from a scheduled turn. Do not install cron.\n'
+      : '')
   const currentLine = line(current, names)
   const ceiling = limits.characters
   const tailBudget = ceiling - header.length - 2

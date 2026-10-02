@@ -64,7 +64,7 @@ export function installCollaborationAgentTools(ctx: Context, options: Collaborat
     if (caller !== agent) throw new Error('room-tool-agent-mismatch')
     const binding = await options.resolveAgentRoom(agent)
     if (binding === undefined) throw new Error('room-tool-membership-required')
-    const latest = agent.session.deriveMessages().findLast(message => message.role === 'user' && message.source.kind === 'user')
+    const latest = agent.session.deriveMessages().findLast(message => message.role === 'user')
     const source = latest?.source
     if (source?.kind !== 'user' || !('rpcId' in source) || String(source.rpcId) !== sourceEventId
       || !('surfaceId' in source) || source.surfaceId !== binding.room.id) throw new Error('room-tool-source-mismatch')
