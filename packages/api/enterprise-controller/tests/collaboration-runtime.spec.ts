@@ -39,9 +39,13 @@ it('mounts room tools for a restored employee before its live actor map is popul
   composeCollaboration(ctx, { operations: () => { throw new Error('not used') }, teams: () => { throw new Error('not used') },
     limits: { roomContextCharacters: 6000, roomContextEvents: 24, maxBotHops: 2,
       roomDispatchPollMs: 100, roomDispatchLeaseMs: 1000 } })
+  ctx.provide('schedule' as never, {} as never)
   try {
     await ctx.serial(agentCarrier(agent), 'agent/created', { agent, source: 'startup' })
     expect(agent.ctx.tools.schemas(agent).map(tool => tool.name)).toContain('room_post')
+    const assembly = await ctx.systemPrompt.assemble({ scope: agent, agent })
+    expect(assembly.sections.find(section => section.name === 'enterprise-group-schedule')?.text)
+      .toContain('room_post without sourceEventId')
   } finally { await ctx.fiber.dispose() }
 })
 

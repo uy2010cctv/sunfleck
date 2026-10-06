@@ -855,7 +855,7 @@ export function composeCollaboration(ctx: Context, services: {
   }
   if (roomAvailable) roomTools = installCollaborationAgentTools(ctx, {
     roomEvents, identity: signer, maxHops: services.limits.maxBotHops, dispatchEmployeePost,
-    groupSchedules: ctx.get('schedule') !== undefined,
+    groupSchedules: () => ctx.get('schedule') !== undefined,
     memberEmployees: async row => Promise.all(row.memberEmployeeIds.map(async (employeeId) => {
       const draft = await database.catalog.getDraft(employeeId, row.orgId)
       const displayName = draft?.profile['displayName'] ?? draft?.profile['name']

@@ -18,7 +18,8 @@ export interface CollaborationAgentToolOptions {
   readonly roomEvents: Pick<PostgresRoomEventRepository, 'append' | 'getByEventId' | 'findByRequest' | 'ensureTaskOwner' | 'transferOwner'>
   readonly identity: Pick<CollaborationIdentity, 'signEmployee'>
   readonly maxHops: number
-  readonly groupSchedules: boolean
+  /** Current Host Schedule availability, sampled when an employee attaches. */
+  readonly groupSchedules: () => boolean
   readonly resolveAgentRoom: (agent: Agent) => Promise<RoomAgentBinding | undefined>
   readonly memberEmployees: (room: CollaborationRecord) => Promise<readonly { readonly employeeId: string
     readonly displayName: string }[]>
@@ -162,7 +163,7 @@ export function installCollaborationAgentTools(ctx: Context, options: Collaborat
     callCursors.set(String(agent.id), new Map())
     const disposers: Array<() => void> = []
     try {
-      if (options.groupSchedules && binding.room.kind === 'group') {
+      if (options.groupSchedules() && binding.room.kind === 'group') {
         disposers.push(agent.ctx.systemPrompt.section({ name: 'enterprise-group-schedule',
           order: agent.ctx.systemPrompt.getSectionOrder('TEAM_POLICY'), text: GROUP_SCHEDULE_POLICY }))
       }

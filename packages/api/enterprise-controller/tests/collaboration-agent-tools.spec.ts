@@ -83,7 +83,7 @@ async function setup(maxHops = 2, initiallyBound = true, kind: CollaborationReco
     },
   }
   const tools = installCollaborationAgentTools(ctx, {
-    roomEvents, identity, maxHops, groupSchedules: true,
+    roomEvents, identity, maxHops, groupSchedules: () => true,
     resolveAgentRoom: async candidate => bound && candidate === agent ? { room, employeeId: 'bot-a' } : undefined,
     memberEmployees: async () => [
       { employeeId: 'bot-a', displayName: 'Research' },
