@@ -13,7 +13,6 @@ import type {} from '@deepseek-ai/dsh-client-ui-workspace/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import { EnterpriseTrigger } from './EnterpriseTrigger.tsx'
-import { ScheduleTrigger } from './ScheduleTrigger.tsx'
 import { EnterpriseWorkbench } from './EnterpriseWorkbench.tsx'
 import { EmployeeSeat } from './EmployeeSeat.tsx'
 import type { EnterpriseWorkbenchInjected } from './EnterpriseWorkbench.tsx'
@@ -411,15 +410,6 @@ export function apply(ctx: Context): void {
     locale: NS,
     inject: triggerInjected,
   }, EnterpriseTrigger))
-  ctx.slots.inject('sidebar.footer.action', () => ctx.slots.register({
-    name: 'sidebar.footer.action',
-    id: 'enterprise-schedules',
-    order: 1000,
-    locale: NS,
-    inject: () => ({
-      openSchedules: () => { controller.openSchedules() },
-    }),
-  }, ScheduleTrigger))
   ctx.slots.inject('shell.overlay', () => ctx.slots.register({
     name: 'shell.overlay',
     id: 'enterprise-workbench',

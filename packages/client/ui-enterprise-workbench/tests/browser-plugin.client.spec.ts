@@ -352,38 +352,13 @@ describe('enterprise workbench browser plugin', () => {
     const { ctx, fiber } = await bench()
     const actions = ctx.slots.entries('sidebar.footer.action')
     expect(actions.map(entry => entry.options.id)).toContain('enterprise-workbench')
-    expect(actions.map(entry => entry.options.id)).toContain('enterprise-schedules')
-    expect(actions.find(entry => entry.options.id === 'enterprise-schedules')?.options.order)
-      .toBeGreaterThan(actions.find(entry => entry.options.id === 'enterprise-workbench')?.options.order ?? 0)
+    expect(actions.map(entry => entry.options.id)).not.toContain('enterprise-schedules')
     expect(ctx.slots.entries('shell.overlay').map(entry => entry.options.id))
       .toContain('enterprise-workbench')
 
     await fiber.dispose()
     expect(ctx.slots.entries('sidebar.footer.action')).toHaveLength(0)
     expect(ctx.slots.entries('shell.overlay')).toHaveLength(0)
-  })
-
-  it('opens the existing scheduled-task page from the sidebar shortcut', async () => {
-    const { ctx } = await bench()
-    const shortcut = ctx.slots.entries('sidebar.footer.action')
-      .find(entry => entry.options.id === 'enterprise-schedules')?.inject?.()
-    const openSchedules = shortcut?.['openSchedules']
-    if (typeof openSchedules !== 'function') throw new Error('scheduled-task shortcut missing')
-    openSchedules()
-    const workbench = ctx.slots.entries('shell.overlay')
-      .find(entry => entry.options.id === 'enterprise-workbench')?.inject?.()
-    const hooks = workbench?.['hooks']
-    if (typeof hooks !== 'object' || hooks === null || !('enterprise' in hooks)) {
-      throw new Error('enterprise workbench store missing')
-    }
-    const enterprise = hooks.enterprise
-    if (typeof enterprise !== 'object' || enterprise === null || !('getSnapshot' in enterprise)
-      || typeof enterprise.getSnapshot !== 'function') throw new Error('enterprise state missing')
-    expect(enterprise.getSnapshot()).toMatchObject({ open: true, page: 'schedules', scheduleDialogOpen: true })
-    const close = workbench?.['close']
-    if (typeof close !== 'function') throw new Error('enterprise close action missing')
-    close()
-    expect(enterprise.getSnapshot()).toMatchObject({ open: false, page: 'employees', scheduleDialogOpen: false })
   })
 
   it('waits for parent slot declarations when browser plugins load concurrently', async () => {

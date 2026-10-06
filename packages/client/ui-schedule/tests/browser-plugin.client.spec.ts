@@ -3,7 +3,7 @@ import { Context, Service } from '@deepseek-ai/cordis'
 import { describe, expect, it, vi, type Mock } from 'vitest'
 import { SlotRegistry } from '@deepseek-ai/dsh-client-ui-renderer/client'
 import { UiConversation } from '@deepseek-ai/dsh-client-ui-conversation/client'
-import { resolveSlotLabel, type HostObservable, type StoredEntry } from '@deepseek-ai/dsh-client-ui-slots'
+import { type HostObservable, type StoredEntry } from '@deepseek-ai/dsh-client-ui-slots'
 import { stubConfigForm } from '@deepseek-ai/dsh-client-test-runtime'
 import { apply as applyLocale, inject as localeInject } from '@deepseek-ai/dsh-client-locale/client'
 import { apply, inject } from '../src/client/index.ts'
@@ -98,6 +98,7 @@ async function baseContext(
   await ctx.plugin({ apply(provider: Context) {
     provider.provide('remote.schedule', (remote.schedule ?? {}) as never)
   } }).await()
+  ctx.provide('layout', { selectPanel: vi.fn() } as never)
   ctx.provide('uiWorkspace', { openSession: vi.fn(), startSession: vi.fn() } as never)
   ctx.provide('sidebarRightTabs', { register: sidebar.register } as never)
   ctx.provide('sidebarRight', { openTab: sidebar.openTab, tabsIn: sidebar.tabsIn } as never)
@@ -139,7 +140,7 @@ function declareTranscriptSeats(ctx: Context): () => void {
 describe('ui-schedule browser half', () => {
   it('declares only the services used by registration', () => {
     expect(inject).toEqual([
-      'slots', 'locale', 'remote', 'remote.schedule', 'conversation', 'uiConversation', 'uiWorkspace', 'sessions',
+      'slots', 'layout', 'locale', 'remote', 'remote.schedule', 'conversation', 'uiConversation', 'uiWorkspace', 'sessions',
       'workspaces', 'sidebarRightTabs', 'sidebarRight',
     ])
   })
@@ -415,17 +416,16 @@ describe('ui-schedule browser half', () => {
       name: 'root',
       children: {
         main: { kind: 'keyed', scope: 'root' },
-        'sidebar.panellist': { kind: 'list', scope: 'root' },
+        'sidebar.footer.action': { kind: 'list', scope: 'root' },
       },
     } as never, Empty)
     const entry = ctx.slots.entries('main')[0]!
     expect(entry.options.key).toBe('schedules')
-    const panel = ctx.slots.entries('sidebar.panellist')[0]!
+    const panel = ctx.slots.entries('sidebar.footer.action')[0]!
     expect(panel.options.id).toBe('schedules')
-    ctx.locale.setLocale('en')
-    expect(resolveSlotLabel(panel.options.label)).toBe('Automation tasks')
-    ctx.locale.setLocale('zh')
-    expect(resolveSlotLabel(panel.options.label)).toBe('自动化任务')
+    const trigger = injectedFace(panel, undefined as never) as { openTasks: () => void }
+    trigger.openTasks()
+    expect(ctx.layout.selectPanel).toHaveBeenCalledWith('schedules')
     const face = injectedFace(entry, undefined as never) as TaskManagerInjected
     const dispose = face.hooks.catalog.subscribe(vi.fn())
     try {
@@ -469,7 +469,7 @@ describe('ui-schedule browser half', () => {
       dispose()
       await fiber.dispose()
       expect(ctx.slots.entries('main')).toEqual([])
-      expect(ctx.slots.entries('sidebar.panellist')).toEqual([])
+      expect(ctx.slots.entries('sidebar.footer.action')).toEqual([])
       owner()
       await ctx.fiber.dispose()
     }

@@ -1,0 +1,46 @@
+.trigger {
+  inline-size: 100%;
+  min-block-size: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: var(--dse-space-2xs);
+  padding: 0 var(--dse-space-xs);
+  border: 0;
+  border-radius: var(--dse-radius-control);
+  background: transparent;
+  color: var(--dse-color-ink);
+  font: inherit;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color var(--dse-duration-micro) var(--dse-ease-out);
+}
+
+.trigger:hover,
+.trigger[aria-pressed='true'] {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.trigger:focus-visible {
+  outline: 2px solid var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary));
+  outline-offset: 2px;
+}
+
+.trigger > svg {
+  flex: none;
+}
+
+.trigger > span {
+  min-inline-size: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+@media (max-width: 18rem) {
+  .trigger {
+    inline-size: 36px;
+    min-block-size: 36px;
+    justify-content: center;
+    padding: 0;
+  }
+}

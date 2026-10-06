@@ -56,7 +56,7 @@ import { createSessionScheduleSource, type SessionScheduleSourceFactory } from '
 import { TaskTabBindings } from './task-tab-bindings.ts'
 import { TaskManagerPage, type TaskManagerInjected } from './TaskManagerPage.tsx'
 import type { TaskDetailInjected } from './TaskDetail.tsx'
-import { TaskManagerIcon } from './TaskManagerIcon.tsx'
+import { TaskManagerTrigger } from './TaskManagerTrigger.tsx'
 import { sessionLinkState } from './session-link.ts'
 import { en, NS, zh, type ScheduleCatalogKey } from './locales.ts'
 import { en as managerEn, zh as managerZh, type TaskManagerKey } from './task-manager-locales.ts'
@@ -75,7 +75,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 
 /** Required services for catalogs, ambient Session marks, the right Sidebar, Remote queries, and original-Session navigation. */
 export const inject = [
-  'slots', 'locale', 'remote', 'remote.schedule', 'conversation', 'uiConversation', 'uiWorkspace', 'sessions',
+  'slots', 'layout', 'locale', 'remote', 'remote.schedule', 'conversation', 'uiConversation', 'uiWorkspace', 'sessions',
   'workspaces', 'sidebarRightTabs', 'sidebarRight',
 ]
 
@@ -175,13 +175,13 @@ export function apply(ctx: ClientContext): void {
       onNewTask: () => { ctx.uiWorkspace.startSession() },
     }),
   }, TaskManagerPage))
-  ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({
-    name: 'sidebar.panellist',
+  ctx.slots.inject('sidebar.footer.action', () => ctx.slots.register({
+    name: 'sidebar.footer.action',
     id: PANEL_ID,
-    order: 10,
+    order: 1000,
     locale: MANAGER_NS,
-    label: () => t('panel'),
-  }, TaskManagerIcon))
+    inject: () => ({ openTasks: () => { ctx.layout.selectPanel(PANEL_ID) } }),
+  }, TaskManagerTrigger))
   // The created task is a Turn-level element, not a Tool-group row: the Turn
   // Definition publishes the settled result and this tail list entry renders
   // the card beneath the closing prose.
