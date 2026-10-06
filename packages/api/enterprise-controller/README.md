@@ -95,6 +95,8 @@ Charter rooms reject attachment-bearing posts with `team-attachments-unavailable
 <details>
 <summary>Working context for maintainers — click to expand</summary>
 
+The [recorded group Schedule interaction](../../../snapshots/session/group-schedule-cooperation/) pins the room tool schemas, current cooperation instructions, and Schedule-source posting through the shipped headless profile.
+
 Keep all Remote payloads JSON-safe and preserve authorization and audit calls when adding methods. Work-start idempotency must keep its opaque deterministic Session-ID derivation limited to organization, user, and idempotency key; reserve the canonical request fingerprint, immutable release ID, and resolved Session inputs in Enterprise Operations before native effects, never expose request values in a Session ID, reject a reused key whose reservation fingerprint differs, and only complete a reservation after WorkRecord persistence.
 
 </details>

@@ -94,6 +94,8 @@ kind: "package-reference"
 <details>
 <summary>维护者工作上下文——点击展开</summary>
 
+[群聊定时协作录制会话](../../../snapshots/session/group-schedule-cooperation/)通过随附的 headless profile 固定群聊工具 schema、当前协作指令与定时来源发帖行为。
+
 新增方法时须保持所有 Remote payload 可安全 JSON 序列化，并保留授权与审计调用。工作启动的幂等性必须让不透明的确定性 Session-ID 派生仅使用组织、用户和幂等键；在原生副作用前把 canonical 请求指纹、不可变 release ID 与已解析的 Session 输入预留到 Enterprise Operations，不得在 Session ID 中暴露请求值，reservation 指纹不同的复用键必须拒绝，并且仅在 WorkRecord 持久化后完成 reservation。
 
 </details>

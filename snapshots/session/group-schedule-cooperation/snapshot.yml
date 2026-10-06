@@ -1,0 +1,9 @@
+version: 1
+scenario: group-schedule-cooperation
+profile: headless
+composition: group-schedule-cooperation
+recording: authored
+header:
+  class: group-schedule-cooperation
+  pin: true
+permission: read-only

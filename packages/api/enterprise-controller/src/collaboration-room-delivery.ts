@@ -2,7 +2,7 @@
 import type { RoomEvent } from '@deepseek-ai/dsh-enterprise-postgres'
 
 /** Current instructions for autonomous, authorized group work started by Host Schedule. */
-export const GROUP_SCHEDULE_POLICY = 'For this group, use schedule_create for timed work. In a scheduled turn, use room_post without sourceEventId and explicitly address a colleague. An empty sourceEventId is also accepted in that case. If preparation is missing, start it with colleagues and continue on their replies. Final replies return here. Do not install cron.'
+export const GROUP_SCHEDULE_POLICY = 'For this group, use room_post to ask colleagues to act and explicitly address them. In regular room turns, use the latest received signed [id] as sourceEventId. In a scheduled turn, use room_post without sourceEventId or with an empty string. Use schedule_create for timed work. If preparation is missing, start it with colleagues and continue on their replies. Final replies return here. Do not install cron.'
 
 /** Compose bounded room delivery instructions and authorized, signed events for native user history.
  * @param roomName - Current room name.

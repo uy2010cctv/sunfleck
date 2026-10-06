@@ -22,7 +22,7 @@ describe('shared room execution input', () => {
 
   it('directs group Agents to the native Schedule tool for recurring room work', () => {
     const latest = event('1', 'alice', '@Research prepare a summary every day')
-    const prompt = roomPrompt('Research room', [latest], latest, { characters: 800, events: 1 }, new Map(), true)
+    const prompt = roomPrompt('Research room', [latest], latest, { characters: 1000, events: 1 }, new Map(), true)
     expect(prompt).toContain('schedule_create')
     expect(prompt).toContain('this group')
     expect(prompt).toContain('Do not install cron')

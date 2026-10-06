@@ -1,0 +1,3 @@
+- insert:
+    - id: snapshot-group-schedule
+      name: ../../../packages/api/enterprise-controller/tests/fixtures/group-schedule-replay.ts
