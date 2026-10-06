@@ -4,8 +4,8 @@
   display: inline-flex;
   align-items: center;
   justify-content: flex-start;
-  gap: var(--dse-space-2xs);
-  padding: 0 var(--dse-space-xs);
+  gap: var(--dse-space-3xs);
+  padding: 0 var(--dse-space-3xs);
   border: 0;
   border-radius: var(--dse-radius-control);
   background: transparent;
