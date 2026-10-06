@@ -161,7 +161,7 @@ export function composeCollaboration(ctx: Context, services: {
   }
   const roomAllowed = async (actor: EnterprisePrincipal, roomId: string): Promise<boolean> => {
     const row = await store.get(actor.orgId, roomId)
-    return row !== undefined && row.memberUserIds.includes(actor.userId)
+    return row !== undefined && row.archivedAt === undefined && row.memberUserIds.includes(actor.userId)
       && (await security.authorizeApiAsync(actor, 'session.create', { workspaceId: row.workspaceId })).allowed
   }
   const signer = new CollaborationIdentity(ctx.credentials, roomEvents, {
@@ -169,7 +169,7 @@ export function composeCollaboration(ctx: Context, services: {
     employee: async (orgId, employeeId, sessionId, roomId) => {
       const row = await store.get(orgId, roomId)
       const binding = await store.bySession(sessionId)
-      if (row === undefined || !row.memberEmployeeIds.includes(employeeId)) return false
+      if (row === undefined || row.archivedAt !== undefined || !row.memberEmployeeIds.includes(employeeId)) return false
       const selected = await roomEmployeeActor(sessionId)
       let ownerUserId: string | undefined
       if (binding?.surfaceId === roomId && binding.employeeId === employeeId
@@ -867,7 +867,7 @@ export function composeCollaboration(ctx: Context, services: {
       const selected = await roomEmployeeActor(sessionId)
       if (binding === undefined || selected === undefined || selected.employeeId !== binding.employeeId) return undefined
       const row = await store.get(selected.orgId, binding.surfaceId)
-      if (row === undefined || !row.memberEmployeeIds.includes(binding.employeeId)) return undefined
+      if (row === undefined || row.archivedAt !== undefined || !row.memberEmployeeIds.includes(binding.employeeId)) return undefined
       const owner = (await database.identity.listUsers(row.orgId)).find(value => value.id === selected.userId)
       if (owner === undefined || owner.disabled || !row.memberUserIds.includes(owner.id)) return undefined
       if (!(await security.authorizeApiAsync({ orgId: row.orgId, userId: owner.id, roles: owner.roles },

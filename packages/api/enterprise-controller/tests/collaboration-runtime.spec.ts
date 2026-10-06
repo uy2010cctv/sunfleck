@@ -14,7 +14,7 @@ import type { SessionPromptRequest } from '@deepseek-ai/dsh-api-session-controll
 
 const actor = { orgId: 'org', userId: 'alice', roles: ['administrator'] as const }
 
-it('mounts room tools for a restored employee before its live actor map is populated', async () => {
+it.each([false, true])('restores room tools only for active employee destinations (archived: %s)', async (archived) => {
   const ctx = new Context()
   await mountAgentLoopTestDependencies(ctx)
   await ctx.plugin(AgentLoop, { agents: [] })
@@ -25,7 +25,8 @@ it('mounts room tools for a restored employee before its live actor map is popul
   ctx.provide('enterprisePostgres' as never, {
     collaboration: { bySession: async () => binding,
       get: async () => ({ id: 'group', orgId: 'org', name: 'Group', kind: 'group', workspaceId: 'shared',
-        memberUserIds: ['alice'], memberEmployeeIds: ['employee-a'], dutyEmployeeIds: [] }) },
+        memberUserIds: ['alice'], memberEmployeeIds: ['employee-a'], dutyEmployeeIds: [],
+        ...(archived ? { archivedAt: 1 } : {}) }) },
     roomEvents: { claimDispatch: async () => [] },
     identity: { sessionOwnerUserId: async () => 'alice', sessionWorkspaceGrant: async () => ({ orgId: 'org' }),
       listUsers: async () => [{ id: 'alice', disabled: false, roles: ['administrator'] }] },
@@ -42,9 +43,10 @@ it('mounts room tools for a restored employee before its live actor map is popul
   ctx.provide('schedule' as never, {} as never)
   try {
     await ctx.serial(agentCarrier(agent), 'agent/created', { agent, source: 'startup' })
-    expect(agent.ctx.tools.schemas(agent).map(tool => tool.name)).toContain('room_post')
+    expect(agent.ctx.tools.schemas(agent).some(tool => tool.name === 'room_post')).toBe(!archived)
     const assembly = await ctx.systemPrompt.assemble({ scope: agent, agent })
-    expect(assembly.sections.find(section => section.name === 'enterprise-group-schedule')?.text)
+    if (archived) expect(assembly.sections.some(section => section.name === 'enterprise-group-schedule')).toBe(false)
+    else expect(assembly.sections.find(section => section.name === 'enterprise-group-schedule')?.text)
       .toContain('room_post without sourceEventId')
   } finally { await ctx.fiber.dispose() }
 })
