@@ -19,7 +19,7 @@ export function roomPrompt(roomName: string, events: readonly RoomEvent[], curre
     + 'For requested files, create them and call present with existing paths before your final reply for room members to open or download. '
     + 'Reply here; external messaging requires an explicit request.\n'
     + (groupSchedules && limits.characters >= 650
-      ? 'For this group, use schedule_create for timed work. Scheduled turns finish with the reply text; the Host posts it here. Do not call room_post from a scheduled turn. Do not install cron.\n'
+      ? 'For this group, use schedule_create for timed work. In a scheduled turn, use room_post without sourceEventId to ask a current room colleague to act; address them explicitly. If preparation is missing, start the preparation with colleagues and continue on their reply instead of asking a human to coordinate routine work. Your final reply is also posted here. Do not install cron.\n'
       : '')
   const currentLine = line(current, names)
   const ceiling = limits.characters

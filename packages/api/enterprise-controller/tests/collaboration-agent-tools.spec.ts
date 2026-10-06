@@ -207,6 +207,47 @@ describe('shared room agent tools', () => {
     expect(result.isError).toBe(true)
     expect(app.events).toHaveLength(1)
   })
+  it('lets a group Schedule turn wake a colleague through a signed, occurrence-scoped room post', async () => {
+    const app = await setup()
+    app.agent.session.append('turn/start', { turn: 2 })
+    app.agent.session.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: 'Scheduled work is due' }], source: { kind: 'schedule' },
+    }), { surfaceOp: 'append' })
+    const result = await app.call('room_post', { content: '@Data, verify the feature list.',
+      idempotencyKey: 'ask-data' })
+    expect(result.isError).toBeFalsy()
+    expect(app.events[1]?.event.tags).toContainEqual(['dsh-schedule'])
+    expect(app.events[1]?.event.tags).toContainEqual(['dsh-hop', '1'])
+    expect(app.events[1]?.event.tags).toContainEqual(['dsh-target', 'bot-b'])
+    expect(verifiedSignature(app.events[1]!.event)).toBe(true)
+    expect(app.delivered).toEqual([['bot-b']])
+    expect((await app.call('room_post', { content: '@Data, verify the feature list.',
+      idempotencyKey: 'ask-data' })).value).toEqual(result.value)
+    expect(app.events).toHaveLength(2)
+    app.agent.session.append('turn/end', { turn: 2, reason: { kind: 'completed' } })
+    app.agent.session.append('turn/start', { turn: 3 })
+    app.agent.session.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: 'Next scheduled occurrence' }], source: { kind: 'schedule' },
+    }), { surfaceOp: 'append' })
+    expect((await app.call('room_post', { content: '@Data, verify the feature list.',
+      idempotencyKey: 'ask-data' })).isError).toBeFalsy()
+    expect(app.events).toHaveLength(3)
+    expect(app.events[1]?.requestId).not.toBe(app.events[2]?.requestId)
+    expect((await app.call('room_post', { content: 'Stale', sourceEventId: app.initial.id,
+      idempotencyKey: 'stale' })).isError).toBe(true)
+    app.agent.session.append('turn/end', { turn: 3, reason: { kind: 'completed' } })
+    expect((await app.call('room_post', { content: '@Data late request',
+      idempotencyKey: 'late' })).isError).toBe(true)
+  })
+  it('does not allow a channel Schedule turn or an old Schedule turn to dispatch', async () => {
+    const app = await setup(2, true, 'channel')
+    app.agent.session.append('turn/start', { turn: 2 })
+    app.agent.session.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: 'Scheduled work is due' }], source: { kind: 'schedule' },
+    }), { surfaceOp: 'append' })
+    expect((await app.call('room_post', { content: '@Data review', idempotencyKey: 'channel' })).isError).toBe(true)
+    expect(app.delivered).toEqual([])
+  })
   it('signs Bot mentions of current human members and rejects an outsider', async () => {
     const app = await setup()
     const result = await app.call('room_post', { content: 'Alice, review is ready.', sourceEventId: app.initial.id,

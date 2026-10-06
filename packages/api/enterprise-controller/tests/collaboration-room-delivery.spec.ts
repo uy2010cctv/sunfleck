@@ -26,7 +26,9 @@ describe('shared room execution input', () => {
     expect(prompt).toContain('schedule_create')
     expect(prompt).toContain('this group')
     expect(prompt).toContain('Do not install cron')
-    expect(prompt).toContain('Do not call room_post from a scheduled turn')
+    expect(prompt).toContain('room_post')
+    expect(prompt).toContain('scheduled turn')
+    expect(prompt).toContain('preparation is missing')
   })
 
   it('retains exact source event IDs and current text while bounding older context', () => {

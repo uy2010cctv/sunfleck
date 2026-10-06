@@ -26,7 +26,7 @@ export interface CollaborationAgentToolOptions {
 
 const messageParameters = {
   content: { type: 'string', required: true, description: 'Self-contained room message or handoff request.' },
-  sourceEventId: { type: 'string', required: true, description: 'Signed room event id of the latest received room input.' },
+  sourceEventId: { type: 'string', description: 'Signed room event id of the latest received room input. Omit only in a group Schedule turn.' },
   idempotencyKey: { type: 'string', required: true, description: 'Stable logical action key. Reuse it unchanged when retrying this action.' },
 } as const
 
@@ -58,21 +58,31 @@ export function installCollaborationAgentTools(ctx: Context, options: Collaborat
   const pending = new Map<Agent, Promise<void>>()
   const disposed = new WeakSet<Agent>()
   const callCursors = new Map<string, Map<string, number>>()
+  const activeScheduleInputs = new Map<string, string>()
   let closed = false
 
-  const authorized = async (agent: Agent, caller: Agent | undefined, sourceEventId: string) => {
+  const authorized = async (agent: Agent, caller: Agent | undefined, sourceEventId?: string) => {
     if (caller !== agent) throw new Error('room-tool-agent-mismatch')
     const binding = await options.resolveAgentRoom(agent)
     if (binding === undefined) throw new Error('room-tool-membership-required')
-    const latest = agent.session.deriveMessages().findLast(message => message.role === 'user')
+    const latest = agent.session.deriveMessages().findLast(message => message.role === 'user'
+      && (message.source.kind === 'user' || message.source.kind === 'schedule'))
     const source = latest?.source
-    if (source?.kind !== 'user' || !('rpcId' in source) || String(source.rpcId) !== sourceEventId
-      || !('surfaceId' in source) || source.surfaceId !== binding.room.id) throw new Error('room-tool-source-mismatch')
+    if (source?.kind === 'schedule') {
+      if (latest === undefined || sourceEventId !== undefined || binding.room.kind !== 'group' || binding.room.teamDefinitionId !== undefined
+        || activeScheduleInputs.get(String(agent.id)) !== latest.id) {
+        throw new Error('room-tool-source-mismatch')
+      }
+      return { ...binding, source: undefined, hop: 1, scheduleInputId: latest.id }
+    }
+    if (source?.kind !== 'user' || sourceEventId === undefined || !('rpcId' in source)
+      || String(source.rpcId) !== sourceEventId || !('surfaceId' in source)
+      || source.surfaceId !== binding.room.id) throw new Error('room-tool-source-mismatch')
     const event = await options.roomEvents.getByEventId(binding.room.orgId, binding.room.id, sourceEventId)
     if (event === undefined) throw new Error('room-tool-source-not-found')
     const hop = sourceHop(event) + 1
     if (hop > options.maxHops) throw new Error('room-tool-hop-limit')
-    return { ...binding, source: event, hop }
+    return { ...binding, source: event, hop, scheduleInputId: undefined }
   }
 
   const targetsFor = (binding: RoomAgentBinding, targets: readonly string[]) => {
@@ -151,7 +161,7 @@ export function installCollaborationAgentTools(ctx: Context, options: Collaborat
     try {
       disposers.push(agent.ctx.tools.register(defineTool({
         name: 'room_post',
-        description: 'Post a signed message to this shared room. @ALL or @member display name wakes current Bot colleagues; targetEmployeeIds can address exact Bot ids. Use mentionedUserIds for human members. Reuse the action key for retries.',
+        description: 'Post a signed message to this shared room. @ALL or @member display name wakes current Bot colleagues; targetEmployeeIds can address exact Bot ids. A group Schedule turn may omit sourceEventId to ask a colleague to act. Use mentionedUserIds for human members. Reuse the action key for retries.',
         parameters: {
           ...messageParameters,
           targetEmployeeIds: { type: 'array', items: { type: 'string' }, description: 'Exact Bot member ids to wake. If omitted, @ALL or @display name in content selects current Bot members. Pass [] to post without waking Bots.' },
@@ -172,10 +182,13 @@ export function installCollaborationAgentTools(ctx: Context, options: Collaborat
             ?? roomMentionTargets(args.content, binding.employeeId, binding.room.memberEmployeeIds,
               await options.memberEmployees(binding.room)))
           const mentionedUserIds = humansFor(binding, args.mentionedUserIds ?? [])
-          const threadRoot = binding.source.threadRoot
-            ?? (binding.room.kind === 'channel' && binding.source.event.kind === 9 ? binding.source.event.id : undefined)
-          const event = await signedPost(agent, binding, `room_post:${args.idempotencyKey}`, String(exec.callId), {
-            type: 'text', content: args.content, sourceEventId: args.sourceEventId, hop: binding.hop, targetEmployeeIds: targets,
+          const threadRoot = binding.source?.threadRoot
+            ?? (binding.room.kind === 'channel' && binding.source?.event.kind === 9 ? binding.source.event.id : undefined)
+          const requestId = `room_post:${binding.scheduleInputId === undefined ? '' : `${binding.scheduleInputId}:`}${args.idempotencyKey}`
+          const event = await signedPost(agent, binding, requestId, String(exec.callId), {
+            type: 'text', content: args.content,
+            ...(binding.source === undefined ? { scheduled: true } : { sourceEventId: binding.source.event.id }),
+            hop: binding.hop, targetEmployeeIds: targets,
             ...(mentionedUserIds.length === 0 ? {} : { mentionedUserIds }),
             ...(threadRoot === undefined ? {} : { threadRoot }),
           })
@@ -190,6 +203,7 @@ export function installCollaborationAgentTools(ctx: Context, options: Collaborat
         description: 'Propose a signed handoff of a room task to another member employee and atomically transfer ownership only if you still own it. The first claim is tied to the received source event. Check transferred before assuming the target owns the task; reuse the same action key for retries.',
         parameters: {
           ...messageParameters,
+          sourceEventId: { type: 'string', required: true, description: 'Signed room event id of the latest received room input.' },
           taskId: { type: 'string', required: true, description: 'Stable task identity from room context; do not rename it during a handoff.' },
           targetEmployeeId: { type: 'string', required: true, description: 'Another current room employee id.' },
         },
@@ -206,6 +220,7 @@ export function installCollaborationAgentTools(ctx: Context, options: Collaborat
           exec.signal.throwIfAborted()
           requireText(args.content); requireText(args.idempotencyKey); requireText(args.taskId)
           const binding = await authorized(agent, exec.agent, args.sourceEventId)
+          if (binding.source === undefined) throw new Error('room-tool-source-mismatch')
           targetsFor(binding, [args.targetEmployeeId])
           const requestId = `room_handoff:${args.idempotencyKey}`
           const prior = await options.roomEvents.findByRequest(binding.room.orgId, binding.room.id, 'employee', binding.employeeId, requestId)
@@ -250,18 +265,24 @@ export function installCollaborationAgentTools(ctx: Context, options: Collaborat
   ctx.on('session/event', (session, event) => {
     const cursors = callCursors.get(String(session.id))
     if (cursors === undefined) return
+    if (event.type === 'turn/start' || event.type === 'turn/end') activeScheduleInputs.delete(String(session.id))
+    else if (event.type === 'user/message') {
+      if (event.data.source.kind === 'schedule') activeScheduleInputs.set(String(session.id), event.data.id)
+      else if (event.data.source.kind === 'user') activeScheduleInputs.delete(String(session.id))
+    }
     if (event.type === 'tool/call') cursors.set(String(event.data.callId), event.seq)
     else if (event.type === 'tool/ptc-dispatch-start') cursors.set(String(event.data.subCallId), event.seq)
     else if (event.type === 'tool/result') cursors.delete(String(event.data.message.toolCallId))
     else if (event.type === 'tool/ptc-dispatch') cursors.delete(String(event.data.subCallId))
   })
   ctx.on('agent/created', async ({ agent }) => { await attach(agent); return undefined })
-  ctx.on('agent/disposed', ({ agent }) => { disposed.add(agent); installed.get(agent)?.(); installed.delete(agent); callCursors.delete(String(agent.id)) })
+  ctx.on('agent/disposed', ({ agent }) => { disposed.add(agent); installed.get(agent)?.(); installed.delete(agent); callCursors.delete(String(agent.id)); activeScheduleInputs.delete(String(agent.id)) })
   ctx.effect(() => () => {
     closed = true
     for (const dispose of installed.values()) dispose()
     installed.clear()
     callCursors.clear()
+    activeScheduleInputs.clear()
   }, 'collaboration room agent tools')
   return { attach }
 }
