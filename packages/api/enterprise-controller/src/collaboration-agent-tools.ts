@@ -29,7 +29,7 @@ export interface CollaborationAgentToolOptions {
 
 const messageParameters = {
   content: { type: 'string', required: true, description: 'Self-contained room message or handoff request.' },
-  sourceEventId: { type: 'string', description: 'Signed room event id of the latest received room input. Omit only in a group Schedule turn.' },
+  sourceEventId: { type: 'string', description: 'Signed room event id of the latest received room input. In a group Schedule turn, omit this field or use an empty string.' },
   idempotencyKey: { type: 'string', required: true, description: 'Stable logical action key. Reuse it unchanged when retrying this action.' },
 } as const
 
@@ -72,7 +72,10 @@ export function installCollaborationAgentTools(ctx: Context, options: Collaborat
       && (message.source.kind === 'user' || message.source.kind === 'schedule'))
     const source = latest?.source
     if (source?.kind === 'schedule') {
-      if (latest === undefined || sourceEventId !== undefined || binding.room.kind !== 'group' || binding.room.teamDefinitionId !== undefined
+      if (sourceEventId !== undefined && sourceEventId !== '') {
+        throw new Error('room-tool-source-mismatch: In a group Schedule turn, omit sourceEventId or use an empty string.')
+      }
+      if (latest === undefined || binding.room.kind !== 'group' || binding.room.teamDefinitionId !== undefined
         || activeScheduleInputs.get(String(agent.id)) !== latest.id) {
         throw new Error('room-tool-source-mismatch')
       }

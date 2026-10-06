@@ -220,7 +220,7 @@ describe('shared room agent tools', () => {
       content: [{ type: 'text', text: 'Scheduled work is due' }], source: { kind: 'schedule' },
     }), { surfaceOp: 'append' })
     const result = await app.call('room_post', { content: '@Data, verify the feature list.',
-      idempotencyKey: 'ask-data' })
+      sourceEventId: '', idempotencyKey: 'ask-data' })
     expect(result.isError).toBeFalsy()
     expect(app.events[1]?.event.tags).toContainEqual(['dsh-schedule'])
     expect(app.events[1]?.event.tags).toContainEqual(['dsh-hop', '1'])

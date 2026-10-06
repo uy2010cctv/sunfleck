@@ -34,7 +34,7 @@ export interface RoomAttachmentTag {
 export type RoomSigningInput =
   | { readonly type: 'text'
     readonly content: string
-    /** Host-projected reply from a completed Schedule turn. */
+    /** Employee message originating from a Host Schedule turn. */
     readonly scheduled?: boolean
     readonly threadRoot?: string
     readonly sourceEventId?: string
