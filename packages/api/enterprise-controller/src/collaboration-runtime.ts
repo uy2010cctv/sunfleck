@@ -119,6 +119,14 @@ export function composeCollaboration(ctx: Context, services: {
       || release?.presetId !== selected.employeeId) return undefined
     return selected
   }
+  const roomEmployeeActor = async (sessionId: string) => {
+    const live = ctx.enterpriseWorkController.employeeActor(sessionId)
+    if (live !== undefined) return live
+    const selected = await durableEmployee(sessionId)
+    return selected === undefined ? undefined : {
+      orgId: selected.orgId, userId: selected.ownerUserId, employeeId: selected.employeeId,
+    }
+  }
   const teamRoster = async (row: CollaborationRecord, events: readonly SessionEvent[]): Promise<TeamRoomMember[]> => {
     const members = new Map<string, TeamRoomMember>()
     for (const event of events) {
@@ -162,11 +170,7 @@ export function composeCollaboration(ctx: Context, services: {
       const row = await store.get(orgId, roomId)
       const binding = await store.bySession(sessionId)
       if (row === undefined || !row.memberEmployeeIds.includes(employeeId)) return false
-      const live = ctx.enterpriseWorkController.employeeActor(sessionId)
-      const restored = live === undefined ? await durableEmployee(sessionId) : undefined
-      const selected = live ?? (restored === undefined ? undefined : {
-        orgId: restored.orgId, userId: restored.ownerUserId, employeeId: restored.employeeId,
-      })
+      const selected = await roomEmployeeActor(sessionId)
       let ownerUserId: string | undefined
       if (binding?.surfaceId === roomId && binding.employeeId === employeeId
         && selected?.orgId === orgId && selected.employeeId === employeeId) {
@@ -851,6 +855,7 @@ export function composeCollaboration(ctx: Context, services: {
   }
   if (roomAvailable) roomTools = installCollaborationAgentTools(ctx, {
     roomEvents, identity: signer, maxHops: services.limits.maxBotHops, dispatchEmployeePost,
+    groupSchedules: ctx.get('schedule') !== undefined,
     memberEmployees: async row => Promise.all(row.memberEmployeeIds.map(async (employeeId) => {
       const draft = await database.catalog.getDraft(employeeId, row.orgId)
       const displayName = draft?.profile['displayName'] ?? draft?.profile['name']
@@ -859,7 +864,7 @@ export function composeCollaboration(ctx: Context, services: {
     resolveAgentRoom: async (agent) => {
       const sessionId = String(agent.id)
       const binding = await store.bySession(sessionId)
-      const selected = ctx.enterpriseWorkController.employeeActor(sessionId)
+      const selected = await roomEmployeeActor(sessionId)
       if (binding === undefined || selected === undefined || selected.employeeId !== binding.employeeId) return undefined
       const row = await store.get(selected.orgId, binding.surfaceId)
       if (row === undefined || !row.memberEmployeeIds.includes(binding.employeeId)) return undefined

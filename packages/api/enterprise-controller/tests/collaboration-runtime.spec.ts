@@ -6,10 +6,44 @@ import { brandString } from '@deepseek-ai/dsh-brand'
 import type { EnterpriseOperationsService, EnterpriseTeamControlService } from '@deepseek-ai/dsh-enterprise-operations'
 import type { UserMessage } from '@deepseek-ai/dsh-llm'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
+import AgentLoop from '@deepseek-ai/dsh-agent-loop'
+import { agentCarrier } from '@deepseek-ai/dsh-agent'
+import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
 import type { SessionRequestId } from '@deepseek-ai/dsh-api-session-controller'
 import type { SessionPromptRequest } from '@deepseek-ai/dsh-api-session-controller'
 
 const actor = { orgId: 'org', userId: 'alice', roles: ['administrator'] as const }
+
+it('mounts room tools for a restored employee before its live actor map is populated', async () => {
+  const ctx = new Context()
+  await mountAgentLoopTestDependencies(ctx)
+  await ctx.plugin(AgentLoop, { agents: [] })
+  const agent = await ctx.agentLoop.create(SessionId('restored-room'), { provider: 'mock', model: 'mock' })
+  const binding = { surfaceId: 'group', topicId: '', employeeId: 'employee-a', sessionId: String(agent.id) }
+  agent.session.append('enterprise-employee/selected', { orgId: 'org', ownerUserId: 'alice',
+    employeeId: 'employee-a', releaseId: 'release-a', releaseVersion: 1 })
+  ctx.provide('enterprisePostgres' as never, {
+    collaboration: { bySession: async () => binding,
+      get: async () => ({ id: 'group', orgId: 'org', name: 'Group', kind: 'group', workspaceId: 'shared',
+        memberUserIds: ['alice'], memberEmployeeIds: ['employee-a'], dutyEmployeeIds: [] }) },
+    roomEvents: { claimDispatch: async () => [] },
+    identity: { sessionOwnerUserId: async () => 'alice', sessionWorkspaceGrant: async () => ({ orgId: 'org' }),
+      listUsers: async () => [{ id: 'alice', disabled: false, roles: ['administrator'] }] },
+    catalog: { getRelease: async () => ({ presetId: 'employee-a' }) },
+  } as never)
+  ctx.provide('sessionPersistence' as never, { open: async () => ({
+    read: async () => ({ events: agent.session.snapshotEvents() }), close: async () => {},
+  }) } as never)
+  ctx.provide('enterpriseWorkController' as never, { employeeActor: () => undefined } as never)
+  ctx.provide('enterpriseSecurity' as never, { authorizeApiAsync: async () => ({ allowed: true }) } as never)
+  composeCollaboration(ctx, { operations: () => { throw new Error('not used') }, teams: () => { throw new Error('not used') },
+    limits: { roomContextCharacters: 6000, roomContextEvents: 24, maxBotHops: 2,
+      roomDispatchPollMs: 100, roomDispatchLeaseMs: 1000 } })
+  try {
+    await ctx.serial(agentCarrier(agent), 'agent/created', { agent, source: 'startup' })
+    expect(agent.ctx.tools.schemas(agent).map(tool => tool.name)).toContain('room_post')
+  } finally { await ctx.fiber.dispose() }
+})
 
 function setup(state: 'completed' | 'waiting-human') {
   const ctx = new Context()

@@ -2,10 +2,11 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-session-persistence'
 import type { Agent } from '@deepseek-ai/dsh-agent'
+import type {} from '@deepseek-ai/dsh-system-prompt'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { CollaborationRecord, PostgresRoomEventRepository, RoomEvent } from '@deepseek-ai/dsh-enterprise-postgres'
 import type { CollaborationIdentity, RoomSigningInput } from './collaboration-identity.ts'
-import { roomMentionTargets } from './collaboration-room-delivery.ts'
+import { GROUP_SCHEDULE_POLICY, roomMentionTargets } from './collaboration-room-delivery.ts'
 
 /** Current authorized native employee destination. */
 export interface RoomAgentBinding {
@@ -17,6 +18,7 @@ export interface CollaborationAgentToolOptions {
   readonly roomEvents: Pick<PostgresRoomEventRepository, 'append' | 'getByEventId' | 'findByRequest' | 'ensureTaskOwner' | 'transferOwner'>
   readonly identity: Pick<CollaborationIdentity, 'signEmployee'>
   readonly maxHops: number
+  readonly groupSchedules: boolean
   readonly resolveAgentRoom: (agent: Agent) => Promise<RoomAgentBinding | undefined>
   readonly memberEmployees: (room: CollaborationRecord) => Promise<readonly { readonly employeeId: string
     readonly displayName: string }[]>
@@ -155,10 +157,15 @@ export function installCollaborationAgentTools(ctx: Context, options: Collaborat
   const unavailable = (agent: Agent): boolean => closed || disposed.has(agent)
   const attachNow = async (agent: Agent): Promise<void> => {
     if (unavailable(agent) || installed.has(agent)) return
-    if (await options.resolveAgentRoom(agent) === undefined || unavailable(agent)) return
+    const binding = await options.resolveAgentRoom(agent)
+    if (binding === undefined || unavailable(agent)) return
     callCursors.set(String(agent.id), new Map())
     const disposers: Array<() => void> = []
     try {
+      if (options.groupSchedules && binding.room.kind === 'group') {
+        disposers.push(agent.ctx.systemPrompt.section({ name: 'enterprise-group-schedule',
+          order: agent.ctx.systemPrompt.getSectionOrder('TEAM_POLICY'), text: GROUP_SCHEDULE_POLICY }))
+      }
       disposers.push(agent.ctx.tools.register(defineTool({
         name: 'room_post',
         description: 'Post a signed message to this shared room. @ALL or @member display name wakes current Bot colleagues; targetEmployeeIds can address exact Bot ids. A group Schedule turn may omit sourceEventId to ask a colleague to act. Use mentionedUserIds for human members. Reuse the action key for retries.',

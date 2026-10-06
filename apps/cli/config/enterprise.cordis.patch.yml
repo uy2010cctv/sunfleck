@@ -2,6 +2,7 @@
 # Required environment:
 # - DSH_ENTERPRISE_MASTER_KEY: base64-encoded 32-byte AES key
 # - DSH_ENTERPRISE_ADMIN_PASSWORD: initial administrator password (12+ chars)
+# - DSH_ENTERPRISE_MAX_BOT_HOPS: maximum room collaboration chain (1-8, default 8)
 
 - id: credentials
   name: '@deepseek-ai/dsh-credentials-encrypted'
@@ -134,6 +135,7 @@
       name: '@deepseek-ai/dsh-api-enterprise-controller'
       config:
         projectWorkspaceRoot: !!js process.env.DSH_ENTERPRISE_WORKSPACE_ROOT ?? dshHomePath('enterprise/workspaces/projects')
+        maxBotHops: !!js Number(process.env.DSH_ENTERPRISE_MAX_BOT_HOPS ?? 8)
 
     - id: tool-computer-use
       name: '@deepseek-ai/dsh-tool-computer-use'

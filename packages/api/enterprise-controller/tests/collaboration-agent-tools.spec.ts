@@ -83,7 +83,7 @@ async function setup(maxHops = 2, initiallyBound = true, kind: CollaborationReco
     },
   }
   const tools = installCollaborationAgentTools(ctx, {
-    roomEvents, identity, maxHops,
+    roomEvents, identity, maxHops, groupSchedules: true,
     resolveAgentRoom: async candidate => bound && candidate === agent ? { room, employeeId: 'bot-a' } : undefined,
     memberEmployees: async () => [
       { employeeId: 'bot-a', displayName: 'Research' },
@@ -108,6 +108,12 @@ async function setup(maxHops = 2, initiallyBound = true, kind: CollaborationReco
 }
 
 describe('shared room agent tools', () => {
+  it('assembles current group Schedule cooperation instructions for every request', async () => {
+    const app = await setup()
+    const assembly = await app.ctx.systemPrompt.assemble({ scope: app.agent, agent: app.agent })
+    expect(assembly.sections.find(section => section.name === 'enterprise-group-schedule')?.text)
+      .toContain('room_post without sourceEventId')
+  })
   it('keeps a channel root post and reply-to-reply under the signed original parent', async () => {
     const app = await setup(2, true, 'channel')
     const first = await app.call('room_post', { content: 'First reply', sourceEventId: app.initial.id,

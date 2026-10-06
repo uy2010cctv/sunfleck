@@ -1,6 +1,9 @@
 /** Bounded, source-labelled room context for native employee Sessions. */
 import type { RoomEvent } from '@deepseek-ai/dsh-enterprise-postgres'
 
+/** Current instructions for autonomous, authorized group work started by Host Schedule. */
+export const GROUP_SCHEDULE_POLICY = 'For this group, use schedule_create for timed work. In a scheduled turn, use room_post without sourceEventId and explicitly address a colleague. If preparation is missing, start it with colleagues and continue on their replies. Final replies return here. Do not install cron.'
+
 /** Compose bounded room delivery instructions and authorized, signed events for native user history.
  * @param roomName - Current room name.
  * @param events - Recent events in ascending sequence order.
@@ -15,12 +18,12 @@ export function roomPrompt(roomName: string, events: readonly RoomEvent[], curre
   groupSchedules = false): string {
   if (!Number.isSafeInteger(limits.characters) || limits.characters < 500
     || !Number.isSafeInteger(limits.events) || limits.events < 1) throw new Error('invalid room context limits')
-  const header = `Shared room: ${roomName.slice(0, 80)}\nRead these signed room events in order. Each [id] is an auditable source event. Reply in the room as yourself.\n`
+  const baseHeader = `Shared room: ${roomName.slice(0, 80)}\nRead these signed room events in order. Each [id] is an auditable source event. Reply in the room as yourself.\n`
     + 'For requested files, create them and call present with existing paths before your final reply for room members to open or download. '
     + 'Reply here; external messaging requires an explicit request.\n'
-    + (groupSchedules && limits.characters >= 650
-      ? 'For this group, use schedule_create for timed work. In a scheduled turn, use room_post without sourceEventId to ask a current room colleague to act; address them explicitly. If preparation is missing, start the preparation with colleagues and continue on their reply instead of asking a human to coordinate routine work. Your final reply is also posted here. Do not install cron.\n'
-      : '')
+  const header = baseHeader + (groupSchedules
+    && limits.characters >= baseHeader.length + GROUP_SCHEDULE_POLICY.length + current.event.id.length + 50
+    ? `${GROUP_SCHEDULE_POLICY}\n` : '')
   const currentLine = line(current, names)
   const ceiling = limits.characters
   const tailBudget = ceiling - header.length - 2
