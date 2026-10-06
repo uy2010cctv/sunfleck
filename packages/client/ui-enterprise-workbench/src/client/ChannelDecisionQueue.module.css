@@ -2,12 +2,12 @@
 .root h3 { margin: 0 0 8px; font-size: 12px; font-weight: 500; color: var(--dsw-alias-label-secondary); }
 .root p { margin: 7px 0; line-height: 1.5; }
 .root ul { list-style: none; padding: 0; margin: 0; display: grid; gap: 9px; }
-.card { border: 1px solid var(--dsw-alias-border-l1); border-radius: 9px; padding: 9px; background: var(--dsw-alias-bg-layer-1); }
+.card { border: 0.5px solid var(--dsw-alias-border-l1); border-radius: var(--dsw-radius-sm); padding: 9px; background: var(--dsw-alias-bg-layer-1); }
 .card p { margin: 5px 0 9px; color: var(--dsw-alias-label-primary); overflow-wrap: anywhere; }
 .status, .muted { color: var(--dsw-alias-label-secondary); font-size: 12px; }
 .actions, .feedback { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
-.actions button, .feedback button, .error button { min-height: 27px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 6px; padding: 4px 8px; background: var(--dsw-alias-bg-layer-1); color: var(--dsw-alias-label-primary); font: inherit; font-size: 12px; cursor: pointer; }
+.actions button, .feedback button, .error button { min-height: 27px; border: 0.5px solid var(--dsw-alias-border-l2); border-radius: var(--dsw-radius-sm); padding: 4px 8px; background: var(--dsw-alias-bg-layer-1); color: var(--dsw-alias-label-primary); font: inherit; font-size: 12px; cursor: pointer; }
 .actions button:first-child { background: var(--dsw-alias-button-primary-fill); color: var(--dsw-alias-label-primary-foreground); border-color: transparent; }
 .feedback { color: var(--dsw-alias-label-secondary); font-size: 12px; }
 .error { color: var(--dsw-alias-state-error-primary); font-size: 12px; }
-.root button:focus-visible { outline: 2px solid var(--dsw-alias-state-business-primary); outline-offset: 2px; }
+.root button:focus-visible { outline: 2px solid var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary)); outline-offset: 2px; }

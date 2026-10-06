@@ -115,6 +115,9 @@ export interface SurfaceMessageSource {
 
 declare module '@deepseek-ai/dsh-llm' {
   interface MessageSourceMap {
+    /** Producer attribution for the recorded message blocks.
+     * @persistenceAttribution
+     */
     'surface-message': SurfaceMessageSource
   }
 }

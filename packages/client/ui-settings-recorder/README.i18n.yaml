@@ -30,14 +30,23 @@
   en: 35938c562a5f89bb
   zh: 555e26c1bceffc7d
 /deepseek-ai-dsh-client-ui-settings-recorder/model-experience:
-  en: 5ba2657dd94e57e5
-  zh: 9142b04975d80ff7
-/deepseek-ai-dsh-client-ui-settings-recorder/model-experience/kv-cache-effect:
+  en: 215e7ba838619b7b
+  zh: a311da3843709f90
+/deepseek-ai-dsh-client-ui-settings-recorder/model-experience/recorder-settings:
+  en: 958285f35f7f3e77
+  zh: 4b491ab0330722b6
+/deepseek-ai-dsh-client-ui-settings-recorder/model-experience/recorder-settings/what-the-model-sees:
+  en: d086fe5822ab5113
+  zh: fff744cebfbf9a54
+/deepseek-ai-dsh-client-ui-settings-recorder/model-experience/recorder-settings/token-effect:
+  en: 515d4c36e288b1a2
+  zh: d1c8b0abfb8256d1
+/deepseek-ai-dsh-client-ui-settings-recorder/model-experience/recorder-settings/kv-cache-effect:
   en: 0ddfe1ff03381987
   zh: 67836bafc9cb24f6
 /deepseek-ai-dsh-client-ui-settings-recorder/known-limitations-and-deferred-work:
   en: 493c89bb8617d21f
   zh: 69083c0ac0468d61
 /deepseek-ai-dsh-client-ui-settings-recorder/known-limitations-and-deferred-work/dev-note:
-  en: 1ebf2945c373ed9d
-  zh: 8d9848f79ce82607
+  en: e67f633dc6fe7773
+  zh: 8ec3e73528ddb1a6

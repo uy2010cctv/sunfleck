@@ -1,12 +1,14 @@
 /* The framework-free boot page cannot depend on theme delivery succeeding. */
 
 .boot {
+  --dsw-focus-ring-color: var(--dsw-alias-state-business-primary, var(--dsh-boot-brand));
   --dsh-boot-bg: #FFFFFF;
   --dsh-boot-label-primary: #111317;
   --dsh-boot-label-secondary: #565F58;
   --dsh-boot-label-tertiary: #565F58;
   --dsh-boot-border: rgb(0 0 0 / 10%);
   --dsh-boot-brand: #111317;
+  --dsh-boot-radius: 8px;
 
   height: 100%;
   display: grid;
@@ -108,7 +110,7 @@
   align-self: flex-start;
   margin-top: 4px;
   border: 0.5px solid var(--dsw-alias-border-l2, var(--dsh-boot-border));
-  border-radius: 6px;
+  border-radius: var(--dsw-radius-sm, var(--dsh-boot-radius));
   padding: 6px 10px;
   background: transparent;
   color: var(--dsw-alias-label-primary, var(--dsh-boot-label-primary));
@@ -119,6 +121,6 @@
 }
 
 .recoveryAction:focus-visible {
-  outline: 2px solid var(--dsw-alias-brand-primary, var(--dsh-boot-brand));
+  outline: 2px solid var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary));
   outline-offset: 2px;
 }

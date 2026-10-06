@@ -4,7 +4,6 @@
   "include": ["src"],
   "references": [
     { "path": "../../governance/enterprise-governance" },
-    { "path": "../enterprise-identity" },
-    { "path": "../../runtime-diagnostics/invariants" }
+    { "path": "../enterprise-identity" }
   ]
 }

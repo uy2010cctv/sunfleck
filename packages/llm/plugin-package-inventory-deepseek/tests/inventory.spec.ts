@@ -224,6 +224,8 @@ describe('DeepSeek plugin package inventory', () => {
     await ctx.plugin(AgentRegistry)
     await ctx.plugin(DeepSeekLlmApiExtensionRegistry)
     await ctx.plugin(PluginInventory)
+    ctx.loader.builtins.noop = () => {}
+    await ctx.loader.create({ name: 'cordis:noop' })
     const prepared = await ctx.deepseekLlmApiExtensions.prepare({ body: { messages: [] }, signal: SIGNAL })
     expect(prepared.fields.dsh_plugin_packages).toEqual({ version: 1, packages: [] })
   })
@@ -251,19 +253,90 @@ describe('DeepSeek plugin package inventory', () => {
     ])
   })
 
-  it('resolves a declared preset plugin from its owning composition', async () => {
+  it('resolves preset plugins from the host and nested composition bases', async () => {
     const { ctx, root } = await harness()
     await packagePlugin(root, 'node_modules/preset-only', { name: 'preset-only', version: '4.0.0' })
-    await ctx.agentPresets.register({ id: 'fixture', plugins: [{ id: 'preset-only', name: 'preset-only/plugin.mjs' }] })
+    const nestedRoot = join(root, 'nested-preset')
+    await packagePlugin(nestedRoot, 'node_modules/preset-only', { name: 'preset-only', version: '5.0.0' })
+    const composition = join(nestedRoot, 'cordis.yml')
+    await writeFile(composition, '- id: nested\n  name: preset-only/plugin.mjs\n')
+    await ctx.agentPresets.register({ id: 'fixture', plugins: [
+      { id: 'preset-only', name: 'preset-only/plugin.mjs' },
+      { id: 'nested', name: 'cordis:include', config: { path: pathToFileURL(composition).href } },
+    ] })
     const agentScope = createScope(ctx, {})
     await ctx.agentPresets.mount(agentScope.ctx)
     const id = SessionId('preset-agent')
     const agent = { id, ctx: agentScope.ctx, session: { id } } as unknown as Agent
     await ctx.agents.register(agent)
+    const modules = ctx.agentPresets.inspectCompositions(agentScope.ctx)
+      .flatMap(row => row.modules).filter(row => row.moduleName === 'preset-only/plugin.mjs')
+    expect(modules.map(row => row.useHostBase)).toEqual([true, false])
+    expect(modules.map(row => new URL('probe.mjs', row.baseUrl).href)).toEqual([
+      new URL('probe.mjs', ctx.baseUrl).href,
+      new URL('probe.mjs', pathToFileURL(composition)).href,
+    ])
 
     const prepared = await ctx.deepseekLlmApiExtensions.prepare({ body: { messages: [] }, signal: SIGNAL, sessionId: id })
-    expect(prepared.fields.dsh_plugin_packages?.packages).toEqual([{ name: 'preset-only', version: '4.0.0' }])
+    expect(prepared.fields.dsh_plugin_packages?.packages).toEqual([
+      { name: 'preset-only', version: '4.0.0' },
+      { name: 'preset-only', version: '5.0.0' },
+    ])
   })
+
+  it.each([['v1', false], ['v1', true], ['v2', false], ['v2', true]] as const)(
+    'attributes a nested preset source checkout to the %s Loader-selected version with host collision %s',
+    async (version, hostInstalled) => {
+      const { ctx, root } = await harness()
+      const packageName = 'nested-source-plugin'
+      const specifier = `${packageName}/plugin.mjs`
+      if (hostInstalled) {
+        await packagePlugin(root, `node_modules/${packageName}`, { name: packageName, version: '1.0.0' })
+      }
+      const source = await packagePlugin(root, 'source-checkout', { name: packageName, version: '2.0.0' })
+      const moduleUrl = pathToFileURL(join(root, source.slice(2))).href
+      const nestedRoot = join(root, 'nested-source-preset')
+      await mkdir(nestedRoot)
+      const composition = join(nestedRoot, 'cordis.yml')
+      await writeFile(composition, `- id: source\n  name: ${specifier}\n`)
+      const internal = ctx.loader.internal!
+      const importModule = async (name: string, parentUrl: string, attributes: ImportAttributes): Promise<Record<string, unknown>> => (
+        name === specifier ? await import(moduleUrl) : await internal.import(name, parentUrl, attributes)
+      ) as Record<string, unknown>
+      const resolution = { format: 'module' as const, url: moduleUrl }
+      ctx.loader.internal = version === 'v1' ? {
+        ...internal,
+        version,
+        import: importModule,
+        resolveSync: () => resolution,
+        resolve: async () => resolution,
+        getModuleJobForImport: () => { throw new Error('Fixture imports do not request module jobs') },
+      } : {
+        ...internal,
+        version,
+        import: importModule,
+        resolveSync: () => resolution,
+        getOrCreateModuleJob: () => { throw new Error('Fixture imports do not request module jobs') },
+      }
+      await ctx.agentPresets.register({ id: 'fixture', plugins: [
+        { id: 'nested', name: 'cordis:include', config: { path: pathToFileURL(composition).href } },
+      ] })
+      const agentScope = createScope(ctx, {})
+      await ctx.agentPresets.mount(agentScope.ctx)
+      const id = SessionId(`source-preset-agent-${version}`)
+      const agent = { id, ctx: agentScope.ctx, session: { id } } as Agent
+      await ctx.agents.register(agent)
+
+      const modules = ctx.agentPresets.inspectCompositions(agentScope.ctx).flatMap(row => row.modules)
+      expect(modules.find(row => row.moduleName === specifier)).toMatchObject({
+        resolvedModuleUrl: moduleUrl, useHostBase: false,
+      })
+      const prepared = await ctx.deepseekLlmApiExtensions.prepare({ body: {}, signal: SIGNAL, sessionId: id })
+      expect(prepared.fields.dsh_plugin_packages?.packages).toEqual([
+        { name: packageName, version: '2.0.0' },
+      ])
+    },
+  )
 
   it('withdraws the inventory field when the contributing plugin reloads', async () => {
     const { ctx, disposeInventory } = await harness()

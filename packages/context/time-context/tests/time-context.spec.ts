@@ -162,6 +162,20 @@ function requestText(request: GenerateOptions): string {
 }
 
 describe('durable step context', () => {
+  it('records one clock when a Host fallback and a preset clock both prepare the request', async () => {
+    const { ctx } = await mount({ refreshIntervalMs: 0 })
+    await ctx.plugin({
+      name: 'enterprise-clock-fallback-test',
+      inject: timeContext.inject,
+      apply: child => timeContext.apply(child, { refreshIntervalMs: 0 }),
+    })
+    const session = Session.create(SessionId('shared-clock'))
+    openMessageTurn(session, 1, 'Asia/Shanghai')
+    await fire(ctx, sessionAgent(session), 1, 1)
+    expect(contextTexts(session)).toHaveLength(1)
+    await ctx.fiber.dispose()
+  })
+
   it('records turn, step, zoned time, and the preceding model-visible message baseline', async () => {
     const { ctx } = await mount({ timeZone: 'Asia/Shanghai' })
     const session = Session.create(SessionId('first'))

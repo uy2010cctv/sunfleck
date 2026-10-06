@@ -6,7 +6,6 @@
   },
   "include": ["src"],
   "references": [
-    { "path": "../channel-kernel" },
-    { "path": "../../runtime-diagnostics/invariants" }
+    { "path": "../channel-kernel" }
   ]
 }

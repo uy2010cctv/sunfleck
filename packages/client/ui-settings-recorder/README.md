@@ -76,7 +76,15 @@ The controls call the authenticated `enterpriseDevice` Remote. The Host validate
 <a id="model-experience"></a>
 ## Model Experience
 
-None, as the package only registers a browser Settings section and adds no model-visible input or tool.
+### Recorder Settings
+
+#### What the model sees
+
+Nothing. The package occupies `settings.local-models.recorder` and adds no model-visible input or tool.
+
+#### Token effect
+
+Zero tokens. Settings navigation and recorder controls do not enter Session history.
 
 #### KV Cache effect
 
@@ -101,5 +109,3 @@ The page controls deployed recorder adapters; it does not translate arbitrary ve
 None.
 
 </details>
-
-**Runtime invariant:** No companion is published. The page owns one Settings registration and observable browser state; the Host and recorder services own persistence and model processes.

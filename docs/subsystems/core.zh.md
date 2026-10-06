@@ -110,7 +110,7 @@ interface Agent {
    * turn and runs when the aborted activity converges to idle; a `disposed`
    * cancel leaves it parked. A wake submitted while already idle always opens
    * its turn boundary, even when its message is cleared before the driver
-   * claims ([cancel-convergence wake latch](../../../../.agents/notes/implemented/bug-fix/2026-08-07-cancel-convergence-wake-latch.md)).
+   * claims ([driver wake convergence](../../agent-loop/src/agent.ts)).
    * @param message - identified content and the source that supplied it.
    * @param target - the preferred next-turn or next-step inbox boundary.
    * @param wakeup - whether delivery may wake the driver.
@@ -357,6 +357,10 @@ type SessionStartSource = 'startup' | 'resume' | 'clear' | 'compact'
 
 `SessionEvent` 信封的确切条件字段、十三种核心事件变体（`turn/start`、`turn/end`、`step/start`、`step/end`、`user/message`、`system/message`、`assistant/message`、`assistant/attempt`、`tool/call`、`tool/result`、`request/header`、`request/context`、`session/end-seed`）、`deriveMessages()` 投影规则、`TurnEndReason` 原因以及执行封闭和独立事件规则都在 **[session.md](session.zh.md)** 中。日志如何持久化——`SessionPersistence` 接口、JSONL provider、`session/flush` 检查点、崩溃恢复与 `SessionHeader`——则在 **[persistence.md](persistence.zh.md)** 中。
 
+## 企业员工绑定
+
+`WorkspaceEmployeeDefaultRequest` 指定工作区；`WorkspaceEmployeeDefaultSaveRequest` 增加可空员工 ID 与预期修订号。`WorkspaceEmployeeDefaultView` 返回调用方可见的选择、修订号、可用状态与管理权限。`EnterpriseEmployeeSessionRequest` 指定空白 Session 与员工，`EnterpriseEmployeeSessionValue` 记录选中的不可变发布版本。[企业控制器](../../packages/api/enterprise-controller/README.zh.md)拥有授权、工作模式组合与回放语义。
+
 ## `ToolDefinition`
 
 唯一属于核心的流水线编写类型：每个已注册工具*是什么*——一个面向模型的 `ToolSchema` 加上一个 `execute` 函数，以及可选的最终内容回调与 UI 回调。工具作者很少手动构造它（`defineTool` DSL 会使用类型化参数构建），但它是注册表存储并由循环用于分发的约定。
@@ -499,11 +503,23 @@ Source: [`packages/core/agent-loop/src/index.ts`](../../packages/core/agent-loop
 Registry of YAML-declared presets and the revisions live Agents retain.
 
 ```ts cordis-catalog
+/** Gate request-visible presets while allowing a deployment to preserve internal Session replay.
+ * @param policy - Returns whether the current caller may use or inspect one preset.
+ * @returns Disposer that restores the unscoped roster when this deployment unloads.
+ */
+registerAccessPolicy(policy: (id: string) => Promise<boolean>): () => void
+
 /** Register and eagerly load a definition; activation failure remains visible in the roster.
  * @param definition Parsed configuration supplied by the declaring plugin.
  * @returns Definition disposer after activation or its diagnostic settles; the declaring plugin owns it.
  */
 async register(definition: PresetDefinition): Promise<() => Promise<void>>
+
+/** Inspect retained revisions, or the exact revision an Agent joined.
+ * @param ctx - optional Agent context; omission includes all retained revisions.
+ * @returns detached module references and isolation diagnostics; no match returns an empty list.
+ */
+inspectCompositions(ctx?: Context): AgentPresetInspection[]
 
 /** Read every declared preset, including activation failures.
  * @returns Display metadata and loading diagnostics.
@@ -525,7 +541,7 @@ async resolve(id?: string): Promise<AgentPreset>
  * @param agentPreset Preset identity.
  * @returns The declared composition beside its published metadata.
  */
-@Remote('read') readDocument(agentPreset: string): Promise<AgentPresetDocument>
+@Remote('read') async readDocument(agentPreset: string): Promise<AgentPresetDocument>
 
 /** Bind an unpublished Agent to the current preset revision.
  * @param ctx Agent context from its setup callback.
@@ -553,6 +569,12 @@ composedPreset(ctx: Context): string | undefined
  * @returns The service, or undefined.
  */
 serviceFor<K extends string & keyof Context>(agent: { ctx: Context }, name: K): Context[K] | undefined
+
+/** Immutable employee release mounted in this Agent's retained preset generation, if any.
+ * @param ctx - Scoped Agent context.
+ * @returns the mounted release identity and version, or undefined for a work mode.
+ */
+employeeReleaseFor(ctx: Context): { readonly releaseId: string; readonly releaseVersion: number } | undefined
 
 /** Rebind a blank Agent; the caller owns the blank-session check.
  * @param ctx Agent context.
@@ -1341,6 +1363,30 @@ Source: [`packages/api/enterprise-controller/src/index.ts`](../../packages/api/e
 Goal-first enterprise work entry point. This slice deliberately does not route models, teams, tools, or budgets.
 
 ```ts cordis-catalog
+/** Actor used by employee-private memory for a live, release-bound Session.
+ * @param sessionId - Session identity.
+ * @returns the selected employee and Session owner, if active.
+ */
+employeeActor(sessionId: string): { orgId: string; userId: string; employeeId: string } | undefined
+
+/** Read the caller-visible default employee for one authorized Workspace.
+ * @param request - Workspace identity.
+ * @returns the visible employee choice and revision.
+ */
+@Remote('workspaceDefault') async workspaceDefault(request: WorkspaceEmployeeDefaultRequest): Promise<WorkspaceEmployeeDefaultView>
+
+/** Set or clear a Workspace default under its manager policy and CAS revision.
+ * @param request - Workspace, employee choice, and expected revision.
+ * @returns the new caller-visible choice.
+ */
+@Remote('saveWorkspaceDefault') async saveWorkspaceDefault(request: WorkspaceEmployeeDefaultSaveRequest): Promise<WorkspaceEmployeeDefaultView>
+
+/** Select a published employee for one owned blank Session and record the release used.
+ * @param request - Owned Session and employee identity.
+ * @returns the Workspace and immutable release mounted in that Session.
+ */
+@Remote('selectEmployee') async selectEmployee(request: EnterpriseEmployeeSessionRequest): Promise<EnterpriseEmployeeSessionValue>
+
 /**
  * Resolve the workspace and employee that would start enterprise work.
  * @param request - Goal and optional workspace or employee choices.

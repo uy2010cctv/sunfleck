@@ -93,9 +93,6 @@
       "path": "../../schedule/schedule"
     },
     {
-      "path": "../../runtime-diagnostics/invariants"
-    },
-    {
       "path": "../../session-query/session-query"
     },
     {

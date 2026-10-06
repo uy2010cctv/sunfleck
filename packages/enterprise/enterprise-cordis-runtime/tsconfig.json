@@ -13,7 +13,6 @@
     { "path": "../../identity/enterprise-identity" },
     { "path": "../enterprise-cordis" },
     { "path": "../device-plane" },
-    { "path": "../enterprise-postgres" },
-    { "path": "../../runtime-diagnostics/invariants" }
+    { "path": "../enterprise-postgres" }
   ]
 }

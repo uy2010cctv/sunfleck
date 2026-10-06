@@ -8,7 +8,7 @@
 .controls select, .controls input { min-inline-size: 0; min-block-size: 38px; border: 1px solid var(--dse-color-border); border-radius: var(--dse-radius-control); color: var(--dse-color-ink); background: var(--dse-color-surface); font: inherit; padding-inline: var(--dse-space-xs); }
 .controls select { max-inline-size: min(30rem, 65vw); }
 .search { flex: 1; }
-.controls select:focus-visible, .controls input:focus-visible, .filters button:focus-visible { outline: 2px solid var(--dse-color-focus); outline-offset: 2px; }
+.controls select:focus-visible, .controls input:focus-visible, .filters button:focus-visible { outline: 2px solid var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary)); outline-offset: 2px; }
 .filters { display: flex; flex-wrap: wrap; gap: var(--dse-space-2xs); }
 .filters button { border: 1px solid var(--dse-color-border); border-radius: var(--dse-radius-control); padding: var(--dse-space-2xs) var(--dse-space-xs); background: var(--dse-color-surface); color: var(--dse-color-muted); font: inherit; font-size: .8125rem; cursor: pointer; }
 .filters button[aria-pressed='true'] { color: var(--dse-color-accent); background: var(--dse-color-accent-soft); border-color: var(--dse-color-accent); }

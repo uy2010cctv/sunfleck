@@ -37,7 +37,7 @@ Every request re-reads active non-group entries from the host Loader tree. When 
 
 At activation, the plugin samples the optional `ctx.pluginPackages` service. Shipped app boot mounts that service before profile Loader entries, so bare package and package-subpath identities use the same authoritative runtime resolution as their imports, including its misses, without requiring a `./package.json` export. If the service is absent, the plugin retains native Node package-search lookup for its lifetime and does not switch an existing inventory when a resolver mounts later. A low-level embedder that wants runtime resolution identities must therefore mount `PluginPackages` before both the Loader entries and this plugin.
 
-Each ordinary entry uses its owning Loader tree base. A standing preset's root entries use the harness base, matching the preset Loader's deliberate bare-package override; nested includes retain their own bases. Relative and absolute modules walk to their nearest manifest; a manifest without `name` marks a loose module and contributes no package identity. A named package manifest must also declare a non-empty `version`, and malformed package metadata fails request preparation. Exact name/version pairs are deduplicated and sorted with a locale-independent comparison, while simultaneously active different versions remain separate.
+Exact module URLs selected by the owning Loader take priority when resolving package manifests, including detached preset inspections. Each ordinary entry uses its owning Loader tree base for fallback resolution. A standing preset's root entries use the harness base, matching the preset Loader's deliberate bare-package override; nested includes retain their own bases. Relative and absolute modules walk to their nearest manifest; a manifest without `name` marks a loose module and contributes no package identity. A named package manifest must also declare a non-empty `version`, and malformed package metadata fails request preparation. Exact name/version pairs are deduplicated and sorted with a locale-independent comparison, while simultaneously active different versions remain separate.
 
 The version-1 `dsh_plugin_packages` field contains only `{ name, version }` pairs. Disabled, pending, failed, disposed, unloading, structural `cordis:` rows, ordinary dependencies, loose files without an owning package identity, programmatically mounted child fibers, and in-memory dynamic plugins are excluded.
 
@@ -76,5 +76,3 @@ None; package lifecycle changes do not alter the model-visible prefix.
 None.
 
 </details>
-
-**Runtime invariant:** No companion is published. Each request reads authoritative Loader fiber state and package manifests directly; the plugin retains no independently mutable inventory.

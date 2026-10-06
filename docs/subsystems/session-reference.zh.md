@@ -41,7 +41,7 @@ interface SessionReferenceInput {
 interface SessionReferenceCandidate {
   /** Opaque source session identity. */
   sessionId: SessionId
-  /** Latest log-backed title, falling back to the opaque session id. */
+  /** Latest projected, user-facing title. */
   label: string
   /** Display and canonical-mention text, preferring a subagent's durable creation label over {@link label}. */
   displayTitle?: string

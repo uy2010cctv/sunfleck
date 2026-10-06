@@ -24,6 +24,9 @@ export interface MemoryWritebackSource {
 
 declare module '@deepseek-ai/dsh-llm' {
   interface MessageSourceMap {
+    /** Producer attribution for the recorded message blocks.
+     * @persistenceAttribution
+     */
     'enterprise-memory-writeback': MemoryWritebackSource
   }
 }

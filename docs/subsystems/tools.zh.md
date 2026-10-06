@@ -25,6 +25,8 @@ interface ToolOutputDefinition {
 ```ts type-equiv
 /** A registered tool: its schema plus the execution function. */
 interface ToolDefinition extends ToolSchema {
+  /** Display-only configured integration identity; absence supplies no identity evidence. */
+  readonly integration?: ToolIntegration
   /** Mandatory canonical output declaration. */
   readonly output: ToolOutputDefinition
   /**

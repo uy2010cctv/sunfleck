@@ -3,7 +3,6 @@
   "compilerOptions": { "rootDir": "src", "outDir": "lib/types" },
   "include": ["src"],
   "references": [
-    { "path": "../../governance/enterprise-governance" },
-    { "path": "../../runtime-diagnostics/invariants" }
+    { "path": "../../governance/enterprise-governance" }
   ]
 }

@@ -30,6 +30,12 @@ Enterprise login gate and identity, role, asset-policy, and audit administration
 - 支持执行者和动作过滤的持久审计账本。
 - 仅管理员可见的“设置”分区，不再重复占用 Sidebar 入口；Host RBAC 仍是权威来源。
 
+## 记忆激活
+
+已确认的手动条目使用「保存并激活」。常规 Agent 知识自动激活；待处理通道仅在异常或已有提案时出现。激活的记忆可以停用而不删除其审计历史。
+
+自动捕获面板报告持久化的已完成轮次发件箱，不暴露复制的会话快照。已完成与跳过的工作保持紧凑；失败任务显示原因并提供重试入口。冲突候选继续走现有的异常审核通道。
+
 ## Model Experience
 
 ### 治理浏览器界面
@@ -60,9 +66,3 @@ Enterprise login gate and identity, role, asset-policy, and audit administration
 无。
 
 </details>
-
-## 记忆激活
-
-已确认的手动条目使用「保存并激活」。常规 Agent 知识自动激活；待处理通道仅在异常或已有提案时出现。激活的记忆可以停用而不删除其审计历史。
-
-自动捕获面板报告持久化的已完成轮次发件箱，不暴露复制的会话快照。已完成与跳过的工作保持紧凑；失败任务显示原因并提供重试入口。冲突候选继续走现有的异常审核通道。

@@ -23,6 +23,7 @@ When users type `/` or `@` at the caret in the Web GUI, this package opens a gro
 -----
 
 <a id="use-this-package"></a>
+
 The root-scoped `input-trigger.menu` factory renders the same candidate menu from owner-supplied stores and pick callbacks. Room composers supply a file-only candidate; their file picker and draft remain owned by the room.
 
 ## Use this package
@@ -59,7 +60,7 @@ Read these pages when the trigger pipeline is not enough. They move from the pip
 - [ui-commands](../ui-commands/README.md) — registers the `/` command source into this pipeline and owns the command popup shell.
 - [ui-reference](../ui-reference/README.md) — registers the `@` file and session reference sources.
 - [ui-conversation](../ui-conversation/README.md) — declares the input overlay slot and owns the composer and input machine.
-- [Web client architecture](../../../.agents/notes/implemented/architecture/2026-07-19-gui-web-client-architecture.md) — how browser plugin rows load and register slots.
+- [Web client architecture](../../../docs/subsystems/web-client.md) — how browser plugin rows load and register slots.
 
 -----
 
@@ -91,5 +92,3 @@ These limits define the current trigger pipeline. They are current package const
 None.
 
 </details>
-
-**Runtime invariant:** No companion is published. The trigger pipeline is a browser-side pure core (detect/reduce/match) plus a registry whose disposal is proven by the HMR-safety spec; it emits no cordis events and owns no cross-plugin mutable state.

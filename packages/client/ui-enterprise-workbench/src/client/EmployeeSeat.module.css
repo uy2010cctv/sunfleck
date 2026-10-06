@@ -1,8 +1,8 @@
 .anchor { min-width: 100px; max-width: 240px; }
-.seat { display: inline-flex; align-items: center; gap: 5px; max-width: 100%; min-height: 28px; padding: 0 8px; border: 0; border-radius: 16px; background: transparent; color: var(--dsw-alias-label-primary); font: inherit; font-size: var(--dsh-content-font-size, 13px); cursor: pointer; }
+.seat { display: inline-flex; align-items: center; gap: 5px; max-width: 100%; min-height: 28px; padding: 0 8px; border: 0; border-radius: var(--dsw-radius-lg); background: transparent; color: var(--dsw-alias-label-primary); font: inherit; font-size: var(--dsh-content-font-size, 13px); cursor: pointer; }
 .seat:hover, .seat[aria-expanded='true'] { background: var(--dsw-alias-interactive-bg-hover); }
 .seat span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .option { display: flex; align-items: center; gap: 8px; max-width: 280px; font-size: var(--dsh-content-font-size, 13px); }
-.optionAvatar, .seatAvatar { width: 22px; height: 22px; flex: none; border-radius: 50%; object-fit: cover; background: var(--dsw-alias-bg-layer-2); }
+.optionAvatar, .seatAvatar { width: 22px; height: 22px; flex: none; border-radius: 50%; corner-shape: round; object-fit: cover; background: var(--dsw-alias-bg-layer-2); }
 .optionText { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .option small { color: var(--dsw-alias-label-caption); font-size: calc(var(--dsh-content-font-size, 13px) - 1px); white-space: normal; }

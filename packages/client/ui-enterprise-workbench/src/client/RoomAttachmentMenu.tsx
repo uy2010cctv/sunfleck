@@ -1,6 +1,6 @@
 /** Workspace candidate menu restricted to file upload for a room composer. */
 import { useId, useLayoutEffect, useMemo } from 'react'
-import { IconPaperclipOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
+import { IconPaperclipOutlineRegular, MenuSurface } from '@deepseek-ai/dsh-client-ui-primitives'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type { PropsRenderFactories } from '@deepseek-ai/dsh-client-ui-slots'
 import type { InputTriggerCrumb, MenuState } from '@deepseek-ai/dsh-client-ui-input-trigger/client'
@@ -29,8 +29,8 @@ export function RoomAttachmentMenu({ open, fileLabel, sectionLabel, onPick, onDi
       highlight: { source, index: 0 } })
   }, [open, fileLabel, sectionLabel, source, menu])
   if (!open) return null
-  const fallback = <div role="listbox"><button type="button" role="option" aria-selected
-    onMouseDown={(event) => { event.preventDefault(); onPick() }}>{fileLabel}</button></div>
+  const fallback = <MenuSurface role="listbox"><button type="button" role="option" aria-selected
+    onMouseDown={(event) => { event.preventDefault(); onPick() }}>{fileLabel}</button></MenuSurface>
   return renderFactorySlot === undefined ? fallback : renderFactorySlot('input-trigger.menu', {
     menu, headers, onPick, onDismiss, onHover: () => {}, onCrumb: () => {},
   }, { fallback })

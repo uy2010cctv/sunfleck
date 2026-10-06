@@ -356,6 +356,12 @@ abstract rejectToken(token: string): Promise<void>
  * @returns a Host-only snapshot, or null while signed out or when the credential changed during the read.
  */
 abstract getPlatformSession(): Promise<PlatformSession | null>
+
+/**
+ * Read existing login identity without creating a device or returning credentials.
+ * @returns optional device/account identifiers and the provider's OS version string.
+ */
+abstract getDeviceIdentity(): Promise<{ deviceId?: string; userId?: AccountUserId; osVersion: string }>
 ```
 
 Source: [`packages/credentials/deepseek-account/src/index.ts`](../../packages/credentials/deepseek-account/src/index.ts)
@@ -469,12 +475,6 @@ async issueSessionAsync(userId: string): Promise<LoginResult>
  */
 async loginExternalAsync(identity: SsoMappedIdentity): Promise<LoginResult>
 
-/** Whether this principal may administer Host-level organization tenancy.
- * @param principal - authenticated enterprise principal.
- * @returns whether the principal has administrator authority in this Host organization.
- */
-isPlatformAdministrator(principal: EnterprisePrincipal): boolean
-
 /**
  * Whether this principal may administer Host-level organization tenancy.
  * @param principal - authenticated enterprise principal to test.
@@ -495,6 +495,12 @@ async authenticateCookieAsync(cookieHeader: string): Promise<EnterprisePrincipal
  */
 async logoutAsync(cookieHeader: string): Promise<void>
 
+/** Resolve the authorization owner of a native Session address.
+ * @param input - Session request containing an ordinary or direct-child address, or legacy root ids.
+ * @returns Ordinary Session id or child parent id; native history verifies the parent-child relation.
+ */
+sessionAuthorizationId(input: unknown): string | undefined
+
 /**
  * Resolve resource scope and authorize one asynchronous Host API operation.
  * @param principal - Authenticated caller.
@@ -513,7 +519,7 @@ async authorizeApiAsync(principal: EnterprisePrincipal, endpoint: string, input:
 async authorizeResourceAsync( principal: EnterprisePrincipal, action: EnterpriseAction, resource?: EnterpriseResource, ): Promise<EnterpriseAuthorizationDecision>
 
 /**
- * Project the native Workspace stream to the caller's personal and department grants.
+ * Project the native Workspace stream to the caller's personal, department and project grants.
  * Protected default and shared Workspaces explicitly carry `deletable: false`.
  * @param principal - authenticated stream owner.
  * @param frames - native Workspace baseline and increment stream.
@@ -522,20 +528,28 @@ async authorizeResourceAsync( principal: EnterprisePrincipal, action: Enterprise
 async *filterWorkspaceFollow( principal: EnterprisePrincipal, frames: AsyncIterable<unknown>, ): AsyncIterable<unknown>
 
 /**
- * Project a Session list to rows created by the authenticated user.
- * @param principal - authenticated user whose Session ownership is enforced.
+ * Project a Session list to owned and explicitly shared collaboration rows.
+ * @param principal - authenticated user whose Session access is enforced.
  * @param value - untrusted Session-list projection returned by the Host.
- * @returns the projection with non-owned Session rows removed.
+ * @returns the projection with inaccessible Session rows removed.
  */
 async filterSessionList(principal: EnterprisePrincipal, value: unknown): Promise<unknown>
 
 /**
- * Project Host-wide queue, job, and projection frames to the current user's Sessions.
- * @param principal - authenticated user whose Session ownership is enforced.
+ * Project Host-wide queue, job, and projection frames to accessible Sessions.
+ * @param principal - authenticated user whose Session access is enforced.
  * @param frames - unfiltered Host control-frame stream.
- * @returns a stream containing only frames and Session slices the user owns.
+ * @returns a stream containing only accessible frames and Session slices.
  */
 async *filterSessionControl( principal: EnterprisePrincipal, frames: AsyncIterable<unknown>, ): AsyncIterable<unknown>
+
+/** Stops a Session stream when the reader loses access.
+ * @param principal - Authenticated reader.
+ * @param sessionId - Session whose events are being delivered.
+ * @param frames - Native Session event stream.
+ * @returns Events delivered while ownership or current collaboration access permits them.
+ */
+async *filterSessionFollow( principal: EnterprisePrincipal, sessionId: string, frames: AsyncIterable<unknown>, ): AsyncIterable<unknown>
 
 /**
  * Decide whether one ordinary Session belongs to the authenticated user.
@@ -544,6 +558,13 @@ async *filterSessionControl( principal: EnterprisePrincipal, frames: AsyncIterab
  * @returns whether the Session is owned by that user.
  */
 async sessionOwnedBy(principal: EnterprisePrincipal, sessionId: string): Promise<boolean>
+
+/** Allows owned Sessions and recorded collaboration Sessions with current surface and Workspace membership.
+ * @param principal - Authenticated reader.
+ * @param sessionId - Canonical Session identity.
+ * @returns Whether the reader can access the Session without acquiring ownership.
+ */
+async sessionAccessibleBy(principal: EnterprisePrincipal, sessionId: string): Promise<boolean>
 
 /**
  * Persist the ownership grant for a Workspace created through the native API.
@@ -665,7 +686,7 @@ Source: [`packages/credentials/credentials/src/types.ts`](../../packages/credent
 
 #### `credentials/reference-updated` — emit
 
-Committed change to a provider-managed credential source: a `set`, an `unset`, or an external edit observed in storage. Ambient process-environment changes are not observable and never emit. Listener failures are contained and logged — a sync throw and an async rejection alike — without changing the committed operation's outcome, except `INVARIANT`-coded failures, which rethrow after every listener ran; that rethrow reaches the emitter only from synchronous listeners, so invariant checks on this event must not be async functions.
+Committed change to a provider-managed credential source: a `set`, an `unset`, or an external edit observed in storage. Ambient process-environment changes are not observable and never emit. Listener failures are contained and logged — a sync throw and an async rejection alike — without changing the committed operation's outcome.
 
 ```ts cordis-catalog
 /**
@@ -673,10 +694,7 @@ Committed change to a provider-managed credential source: a `set`, an `unset`, o
  * `unset`, or an external edit observed in storage. Ambient
  * process-environment changes are not observable and never emit. Listener
  * failures are contained and logged — a sync throw and an async rejection
- * alike — without changing the committed operation's outcome, except
- * `INVARIANT`-coded failures, which rethrow after every listener ran;
- * that rethrow reaches the emitter only from synchronous listeners, so
- * invariant checks on this event must not be async functions.
+ * alike — without changing the committed operation's outcome.
  * @param ref - the reference whose stored value changed.
  * @mode emit
  */

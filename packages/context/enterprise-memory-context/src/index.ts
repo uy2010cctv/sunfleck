@@ -1195,7 +1195,6 @@ export function apply(ctx: Context, config: Config): void {
   })
 }
 
-export { name } from './invariant.ts'
 export {
   compartmentKey, compartmentTag, ConsolidationRunningError, MemoryConsolidationRuntime,
   type ConsolidationCompartment, type ConsolidationDigestOutcome, type ConsolidationReflectionReport,

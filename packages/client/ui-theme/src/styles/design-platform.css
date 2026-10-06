@@ -200,6 +200,7 @@ body {
   --dsw-alias-bg-layer-1: var(--dsw-static-sunfleck-paper);
   --dsw-alias-bg-layer-2: var(--dsw-static-sunfleck-paper);
   --dsw-alias-bg-layer-3: var(--dsw-static-sunfleck-paper);
+  --dsw-alias-bg-document-selection: color-mix(in srgb, var(--dsw-static-blue-500) 40%, transparent);
   --dsw-alias-bg-mask-1: rgba(0, 0, 0, 0.24);
   --dsw-alias-bg-mask-2: rgba(0, 0, 0, 0.12);
   --dsw-alias-bg-mask-3: rgba(0, 0, 0, 0.48);
@@ -264,6 +265,10 @@ body {
   --dsw-alias-scrollbar-hover-l2: var(--dsw-static-sunfleck-paper-muted);
   --dsw-alias-state-business-primary: var(--dsw-static-sunfleck-acid-ink);
   --dsw-alias-state-business-tertiary: var(--dsw-static-sunfleck-paper-subtle);
+  --dsw-alias-label-deep-diving: color-mix(in srgb, var(--dsw-static-deepseek-500) 70%, var(--dsw-static-blue-950));
+  --dsw-alias-label-deep-diving-shimmer: color-mix(in srgb, var(--dsw-static-deepseek-500) 30%, var(--dsw-static-blue-950));
+  --dsw-alias-label-shimmer: color-mix(in srgb, var(--dsw-static-neutral-1000) 30%, transparent);
+  --dsw-alias-menu-icon: var(--dsw-static-neutral-bluish-800);
   --dsw-alias-code-diff-added: var(--dsw-static-green-500-a08);
   --dsw-alias-code-diff-deleted: var(--dsw-static-red-600-a08);
   --dsw-alias-file-diff-added-bg: rgb(230, 244, 231);
@@ -282,18 +287,24 @@ body {
   --dsw-alias-state-warn-primary: var(--dsw-static-sunfleck-amber-ink);
   --dsw-alias-state-warn-secondary: var(--dsw-static-sunfleck-amber-ink);
   --dsw-alias-state-warn-tertiary: var(--dsw-static-amber-100);
+  --dsw-alias-switch-thumb: var(--dsw-static-neutral-bluish-00);
   --dsw-alias-toast-bg: var(--dsw-static-neutral-bluish-800);
   --dsw-alias-tooltip-bg: var(--dsw-static-neutral-bluish-850);
   --dsw-specific-bubble-highlight: var(--dsw-static-sunfleck-paper-subtle);
   --dsw-specific-bubble: var(--dsw-static-sunfleck-paper-subtle);
   --dsw-specific-input-major: var(--dsw-static-sunfleck-paper);
   --dsw-specific-login-input: var(--dsw-static-sunfleck-paper-subtle);
-  --dsw-specific-menu: rgba(248, 249, 250, 0.58);
+  --dsw-specific-menu: var(--dsw-menu-surface-fill);
   --dsw-specific-selector: var(--dsw-static-sunfleck-paper-subtle);
   --dsw-specific-sidebar-fill: var(--dsw-static-sunfleck-paper);
   --dsw-specific-sidebar-nav-item-active-accent: var(--dsw-static-sunfleck-paper-subtle);
   --dsw-specific-sidebar-nav-item-active: var(--dsw-static-sunfleck-paper-subtle);
   --dsw-specific-sidebar-nav-item-hover: var(--dsw-static-sunfleck-paper-subtle);
+  --dsw-alias-tooltip-key-bg: color-mix(in srgb, var(--dsw-alias-tooltip-bg), white 18%);
+  --dsw-alias-turn-trigger-bg: var(--dsw-alias-markdown-code-block);
+  --dsw-alias-turn-trigger-bg-hover: var(--dsw-alias-interactive-bg-hover);
+  --dsw-menu-surface-fill: rgba(248, 249, 250, 0.58);
+  --dsw-alias-menu-group-header-fill: rgba(248, 249, 250, 0.94);
   --dsw-specific-tip: var(--dsw-static-neutral-bluish-60);
 
   background-color: var(--dsw-alias-bg-base);
@@ -302,6 +313,7 @@ body {
 body[data-ds-dark-theme] {
   --dsw-alias-bg-base: var(--dsw-static-sunfleck-ink);
   --dsw-alias-bg-document-preview: var(--dsw-static-neutral-bluish-950);
+  --dsw-alias-bg-document-selection: color-mix(in srgb, var(--dsw-static-blue-500) 40%, transparent);
   --dsw-alias-label-document-preview: var(--dsw-static-neutral-bluish-300);
   --dsw-alias-bg-layer-1: var(--dsw-static-sunfleck-ink-surface);
   --dsw-alias-bg-layer-2: var(--dsw-static-sunfleck-ink-subtle);
@@ -370,6 +382,10 @@ body[data-ds-dark-theme] {
   --dsw-alias-scrollbar-hover-l2: var(--dsw-static-sunfleck-ink-muted);
   --dsw-alias-state-business-primary: var(--dsw-static-sunfleck-citron);
   --dsw-alias-state-business-tertiary: var(--dsw-static-sunfleck-ink-subtle);
+  --dsw-alias-label-deep-diving: color-mix(in srgb, var(--dsw-static-deepseek-450) 55%, var(--dsw-static-neutral-bluish-400));
+  --dsw-alias-label-deep-diving-shimmer: color-mix(in srgb, var(--dsw-static-blue-300) 65%, var(--dsw-static-deepseek-400));
+  --dsw-alias-label-shimmer: color-mix(in srgb, var(--dsw-static-neutral-00) 45%, transparent);
+  --dsw-alias-menu-icon: var(--dsw-alias-label-primary-dimmed);
   --dsw-alias-code-diff-added: var(--dsw-static-green-500-a12);
   --dsw-alias-code-diff-deleted: var(--dsw-static-red-400-a12);
   --dsw-alias-file-diff-added-bg: rgb(31, 49, 36);
@@ -388,22 +404,37 @@ body[data-ds-dark-theme] {
   --dsw-alias-state-warn-primary: var(--dsw-static-sunfleck-amber-soft);
   --dsw-alias-state-warn-secondary: var(--dsw-static-sunfleck-amber-soft);
   --dsw-alias-state-warn-tertiary: var(--dsw-static-amber-900);
+  --dsw-alias-switch-thumb: var(--dsw-static-neutral-bluish-400);
   --dsw-alias-toast-bg: var(--dsw-static-neutral-bluish-750);
   --dsw-alias-tooltip-bg: var(--dsw-static-neutral-bluish-750);
   --dsw-specific-bubble-highlight: var(--dsw-static-sunfleck-ink-subtle);
   --dsw-specific-bubble: var(--dsw-static-sunfleck-ink-subtle);
   --dsw-specific-input-major: var(--dsw-static-sunfleck-ink-subtle);
   --dsw-specific-login-input: var(--dsw-static-sunfleck-ink-subtle);
-  --dsw-specific-menu: rgba(48, 49, 54, 0.5);
+  --dsw-specific-menu: var(--dsw-menu-surface-fill);
   --dsw-specific-selector: var(--dsw-static-sunfleck-ink-subtle);
   --dsw-specific-sidebar-fill: var(--dsw-static-sunfleck-ink);
   --dsw-specific-sidebar-nav-item-active-accent: var(--dsw-static-sunfleck-ink-subtle);
   --dsw-specific-sidebar-nav-item-active: var(--dsw-static-sunfleck-ink-subtle);
   --dsw-specific-sidebar-nav-item-hover: var(--dsw-static-sunfleck-ink-subtle);
   --dsw-specific-tip: var(--dsw-static-sunfleck-ink-subtle);
+  --dsw-alias-toast-label: var(--dsw-static-neutral-bluish-00);
+  --dsw-alias-turn-trigger-bg: var(--dsw-alias-interactive-bg-hover);
+  --dsw-alias-turn-trigger-bg-hover: var(--dsw-alias-interactive-bg-active);
+  --dsw-alias-tooltip-key-bg: color-mix(in srgb, var(--dsw-alias-tooltip-bg), white 18%);
+  --dsw-menu-surface-fill: rgba(67, 69, 74, 0.45);
+  --dsw-alias-menu-group-header-fill: rgba(48, 49, 54, 0.94);
 }
 
 body ::selection {
   background: var(--dsw-alias-brand-primary);
   color: var(--dsw-alias-label-primary-foreground);
+}
+
+html[data-platform='darwin'] body {
+  --dsw-specific-menu: rgba(248, 249, 250, 0.94);
+}
+
+html[data-platform='darwin'] body[data-ds-dark-theme] {
+  --dsw-specific-menu: rgba(48, 49, 54, 0.94);
 }

@@ -338,6 +338,7 @@ describe('enterprise work Remote controller', () => {
       resourcePolicy: async () => undefined,
       appendAudit: async (audit: Record<string, unknown>) => { audits.push(audit) },
       bindSessionWorkspace: async () => undefined,
+      workspaceGrant: async (workspaceId: string) => ({ workspaceId, orgId: 'org-a' }),
       listUsers: async () => [],
     } as never, {
       organizationId: 'org-a', sessionCookieName: 'dsh-enterprise-session', sessionTtlMs: 60_000,

@@ -46,7 +46,13 @@ export interface TeamRunMessageSource {
 
 declare module '@deepseek-ai/dsh-llm' {
   interface MessageSourceMap {
+    /** Producer attribution for the recorded message blocks.
+     * @persistenceAttribution
+     */
     'team-run-message': TeamRunMessageSource
+    /** Producer attribution for the recorded message blocks.
+     * @persistenceAttribution
+     */
     'team-runtime-followup': TeamRuntimeFollowupSource
   }
 }
@@ -568,5 +574,3 @@ export function apply(ctx: Context): void {
   ctx.provide('enterpriseTeamRuntimeDriver', adapter)
   ctx.effect(() => () => adapter.dispose(), 'enterprise-team-runtime: dispose Agent handles')
 }
-
-export { name } from './invariant.ts'

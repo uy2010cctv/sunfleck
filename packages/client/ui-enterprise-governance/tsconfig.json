@@ -14,7 +14,6 @@
     { "path": "../ui-primitives" },
     { "path": "../ui-settings/tsconfig.client.json" },
     { "path": "../ui-slots" },
-    { "path": "../../runtime-diagnostics/invariants" }
-    ,{ "path": "../../util/crypto" }
+    { "path": "../../util/crypto" }
   ]
 }

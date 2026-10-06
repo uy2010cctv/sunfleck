@@ -188,6 +188,7 @@ export function apply(ctx: Context, config: Config): void {
   ): Promise<PreStepDecision> => {
     const decision = await next()
     if (decision.kind === 'reject' || signal.aborted) return decision
+    if (decision.messages.some(message => message.source.kind === name)) return decision
     const now = Date.now()
     const state = ctx.sessionProjections.stateOf(agent.session, 'timeContext') as TimeContextProjection
     if (refreshIntervalMs > 0) {

@@ -12,7 +12,7 @@ Adding those concerns directly to a channel, a PostgreSQL task database, or a se
 
 ## Proposal
 
-This proposal adds enterprise definition, command, index, and projection capabilities around DSH rather than another execution engine. It extends, and does not supersede, the current [Agent Teams runtime decision](../../implemented/feature/2026-08-05-agent-teams.md) or its [experimental package boundary](../../implemented/architecture/2026-08-18-experimental-agent-teams-packages.md). The existing `TeamService`, roster, task, mailbox, continuation, and Session-log folds remain the execution foundation.
+This proposal adds enterprise definition, command, index, and projection capabilities around DSH rather than another execution engine. It extends, and does not supersede, the current [Agent Teams runtime decision](../../implemented/feature/2026-08-05-agent-teams.md) or its [experimental package boundary](../../archived/architecture/2026-08-18-experimental-agent-teams-packages.md). The existing `TeamService`, roster, task, mailbox, continuation, and Session-log folds remain the execution foundation.
 
 ### Delivery sequence
 

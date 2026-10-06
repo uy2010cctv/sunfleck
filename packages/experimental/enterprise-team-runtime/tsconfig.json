@@ -17,7 +17,6 @@
     { "path": "../../operations/enterprise-operations" },
     { "path": "../../enterprise/enterprise-postgres" },
     { "path": "../../enterprise/device-plane" },
-    { "path": "../agent-team" },
-    { "path": "../../runtime-diagnostics/invariants" }
+    { "path": "../agent-team" }
   ]
 }

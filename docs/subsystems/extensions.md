@@ -91,7 +91,8 @@ list(): CordisInspectProviderView[]
  * @param input - optional lossless JSON input.
  * @param agent - requesting Agent and scope.
  * @param signal - tool-call cancellation.
- * @returns provider JSON data.
+ * @returns provider JSON data; Client queries fail fast when Gateway has no live Client
+ * and retain only the first observed failure diagnostic for timeout reporting.
  */
 async query( platform: CordisInspectPlatform, providerId: string, methodName: string, input: JsonValue | undefined, agent: Agent, signal: AbortSignal, ): Promise<JsonValue>
 
@@ -100,7 +101,7 @@ async query( platform: CordisInspectPlatform, providerId: string, methodName: st
  * @param agent - Agent whose Session owns the query.
  * @param requestId - Pending Client query identity.
  * @param resolution - Client provider result or failure.
- * @returns whether this response settled the still-pending query.
+ * @returns acknowledgement with accepted true only for a success that settles the query; only the first failure diagnostic is retained.
  */
 resolveClientQuery( agent: Agent, requestId: CordisInspectRequestId, resolution: CordisInspectQueryResolution, ): CordisInspectResolveAck
 ```
@@ -344,11 +345,12 @@ async stop(agent: Agent, pluginId: CordisDynamicPluginId): Promise<DynamicCordis
 @Remote('syncInspectManifest') syncInspectManifest(providers: readonly CordisInspectProviderManifest[]): null
 
 /**
- * Claim one pending Client inspect query with its live result.
+ * Submit a Client inspect result or failure for a pending query.
  * @param agent - Session that owns the query.
  * @param requestId - exact pending query identity.
  * @param resolution - provider result or structured refusal.
- * @returns whether this answer won the query.
+ * @returns acknowledgement with accepted true only for a valid success that settles the query;
+ * pending-query failures return { accepted: false } and retain only the first diagnostic.
  */
 @Remote('resolveInspectQuery') resolveInspectQuery( agent: Agent, requestId: CordisInspectRequestId, resolution: CordisInspectQueryResolution, ): CordisInspectResolveAck
 
@@ -456,7 +458,7 @@ async savePersonal(input: { principal: EnterpriseCordisPrincipal workspaceId: st
 /**
  * Activate a personal Workspace Package using revision compare-and-swap.
  * @param input - principal, Workspace, Package, revision, and idempotency data.
- * @returns updated personal binding.
+ * @returns personal binding, unchanged when the requested Package is already active.
  */
 async activatePersonal(input: { principal: EnterpriseCordisPrincipal workspaceId: string pluginId: string packageId: string expectedRevision: number idempotencyKey: string }): Promise<CordisScopeBinding>
 
@@ -480,8 +482,8 @@ async restorePersonal(input: { principal: EnterpriseCordisPrincipal workspaceId:
 async submitDepartment(input: { principal: EnterpriseCordisPrincipal workspaceId: string draft: CordisPackageDraft sourceSessionId: string idempotencyKey: string }): Promise<CordisReviewRequest>
 
 /** Submit an existing owner-private version in a department Workspace without activating it for members.
- * @param input - owner, Workspace, saved version, and idempotency key.
- * @returns pending department review.
+ * @param input - owner, Workspace, saved version, and request key; the source Package identifies one review.
+ * @returns the existing review for that immutable version, or a new pending review.
  */
 async submitSavedDepartment(input: { principal: EnterpriseCordisPrincipal workspaceId: string packageId: string idempotencyKey: string }): Promise<CordisReviewRequest>
 
@@ -493,14 +495,14 @@ async submitSavedDepartment(input: { principal: EnterpriseCordisPrincipal worksp
 async deriveReview(input: { principal: EnterpriseCordisPrincipal reviewId: string expectedRevision: number draft: CordisPackageDraft idempotencyKey: string }): Promise<DerivedCordisPackage>
 
 /**
- * Approve a Package for department use or return it to its author.
+ * Approve a pending Package for department use or return it to its author.
  * @param input - principal, review transition, reason, CAS revision, and idempotency data.
  * @returns updated review request.
  */
 async reviewDepartment(input: { principal: EnterpriseCordisPrincipal reviewId: string packageId: string action: 'approve_department' | 'return_to_author' reason: string expectedRevision: number idempotencyKey: string }): Promise<CordisReviewRequest>
 
 /**
- * Publish a validated department Package as the organization binding.
+ * Publish a department-approved Package as the organization binding.
  * @param input - principal, review Package, CAS revision, and idempotency data.
  * @returns publication result and organization binding.
  */
@@ -516,14 +518,14 @@ async emergencyDisable(input: { principal: EnterpriseCordisPrincipal bindingId: 
 /**
  * Stop a binding within the caller's governed scope.
  * @param input - principal, binding, reason, CAS revision, and idempotency data.
- * @returns disabled binding.
+ * @returns disabled binding, unchanged when it is already disabled.
  */
 async stopBinding(input: { principal: EnterpriseCordisPrincipal bindingId: string expectedRevision: number reason: string idempotencyKey: string }): Promise<CordisScopeBinding>
 
 /**
  * Roll a private binding to an older Package or resume a governed binding's approved Package.
  * @param input - principal, binding, Package, reason, CAS revision, and idempotency data.
- * @returns updated binding.
+ * @returns binding, unchanged when the requested Package is already active.
  */
 async rollbackBinding(input: { principal: EnterpriseCordisPrincipal bindingId: string packageId: string expectedRevision: number reason: string idempotencyKey: string }): Promise<CordisScopeBinding>
 

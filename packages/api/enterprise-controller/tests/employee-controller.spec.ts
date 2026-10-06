@@ -144,6 +144,7 @@ describe('enterprise employee publication', () => {
     expect(declaration.plugins[0]!.config).toEqual({
       prefix: '你是企业数字员工“小钱”，岗位是“财务总监”，所属部门是“财务部”。\n\n'
         + '审核报销单据并编制财务报表。\n\n'
+        + '已发布能力：报销审核、财务分析。这些能力描述你的职责，不授予额外工具或数据权限。\n\n'
         + '身份一致性规则：当用户询问你是谁或要求自我介绍时，应基于上述数字员工身份、岗位和职责回答；'
         + '不要把自己描述为通用编码 Agent 或 DSH 系统本身。',
       suffix: 'Your working directory is {{cwd}}.',

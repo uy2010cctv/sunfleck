@@ -10,6 +10,8 @@
   border-bottom: 0.5px solid var(--dsw-alias-border-l2);
   background: none;
   color: var(--dsw-alias-label-tertiary);
+  font: inherit;
+  font-size: var(--dsh-content-font-size, 14px);
   cursor: pointer;
   text-align: left;
   transition: color 100ms ease;
@@ -19,12 +21,8 @@
   cursor: default;
 }
 
-.root:not(:disabled):hover {
-  color: var(--dsw-alias-label-primary);
-}
-
-.root:not([data-open]) {
-  margin-bottom: 8px;
+.root:hover:not(:disabled) {
+  color: var(--dsw-alias-label-secondary);
 }
 
 .chevron {
@@ -32,7 +30,7 @@
   width: 14px;
   height: 14px;
   margin-left: 4px;
-  color: var(--dsw-alias-label-caption);
+  color: inherit;
   transition: transform 100ms ease;
 }
 
@@ -43,10 +41,15 @@
 .label {
   min-width: 0;
   overflow: hidden;
-  font-size: var(--dsh-content-font-size-secondary, 13px);
+  font-size: inherit;
   line-height: calc(24px + var(--dsh-content-font-delta, 0px));
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.durationNumber {
+  font-family: var(--ds-font-family-code);
+  font-variant-numeric: tabular-nums;
 }
 
 /* Running mark: the glyph grows seed → sprout → breaking soil → tree →
@@ -75,6 +78,8 @@
   animation-delay: calc(var(--stage) * 0.5s - 3s);
 }
 
+.growthStage::before { content: attr(data-growth-stage); }
+
 @keyframes growthStage {
   0% { opacity: 0; transform: scale(0.2); }
   4% { opacity: 1; transform: scale(1.14); }
@@ -98,6 +103,7 @@
   from { background-position: 130% 0; }
   to { background-position: -70% 0; }
 }
+
 
 @media (prefers-reduced-motion: reduce) {
   .root,

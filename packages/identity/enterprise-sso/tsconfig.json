@@ -4,7 +4,6 @@
   "include": ["src"],
   "references": [
     { "path": "../../governance/enterprise-governance" },
-    { "path": "../../util/crypto" },
-    { "path": "../../runtime-diagnostics/invariants" }
+    { "path": "../../util/crypto" }
   ]
 }

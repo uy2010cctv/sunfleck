@@ -4,7 +4,6 @@
   "include": ["src"],
   "references": [
     { "path": "../../../vendor/cordis" },
-    { "path": "../../governance/enterprise-governance" },
-    { "path": "../../runtime-diagnostics/invariants" }
+    { "path": "../../governance/enterprise-governance" }
   ]
 }

@@ -242,9 +242,12 @@ describe('PluginInventoryGateway', () => {
     ctx.loader.builtins.orders = activePlugin
     ctx.loader.builtins.audit = activePlugin
     ctx.loader.builtins.protected = activePlugin
+    await ctx.loader.create({ name: 'cordis:orders' })
+    await ctx.loader.create({ name: 'cordis:audit' })
+    const protectedEntryId = await ctx.loader.create({ name: 'cordis:protected' })
     await ctx.plugin(PluginInventoryGateway, {
       profileManifestPath: manifest,
-      protectedEntryIds: ['cordis:protected'],
+      protectedEntryIds: [protectedEntryId],
     })
     const inventory = ctx.get('pluginInventory') as PluginInventoryGateway
 

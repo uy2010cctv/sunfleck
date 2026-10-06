@@ -57,7 +57,11 @@ The registry writes no declarations. The `read` Remote renders one declarationâ€
 
 Each declaration eagerly creates a registry-owned scope and an in-memory Loader tree. Updating or removing a declaration retires its previous revision. Agents, children and temporary historical reads retain references; releasing the final reference disposes the retired tree. Plugin registrations inherit the preset scope, and the Agent scopeâ€™s parent link controls visibility. The Host continues to share the Agent loop.
 
+A preset service provider and its consumers must share one `cordis:group` isolation realm. Entry-local isolation does not propagate through the Agent registration scope: ordinary Context lookup outside the group, including `agent.ctx`, still selects the Host realm. `agentPresets.serviceFor()` explicitly inspects the retained composition; it does not change ordinary service lookup.
+
 Activation auditing checks imports, missing services and globally leaked services. Import failures, activation failures and leaks reject the mount. A row waiting for a Host service stays mounted, and every read and binding re-audits it after the Host Loader tree settles, so startup order does not decide the outcome. Failure prevents new bindings to that definition. Session logs retain the preset ID and blank-session selections; recovery after restart uses the current definition of that ID and rejects a missing definition. A deployment can register one asynchronous access policy: request rosters omit denied presets, and reads or bindings of a denied id return not-found without listing hidden ids. Host-internal replay may remain authorized by the deployment policy.
+
+`inspectCompositions()` reads all revisions retained by this registry; passing an Agent context selects its exact revision, or returns an empty list when it has no binding here. Each `AgentPresetInspection` contains a preset ID, detached active-module references with their resolution bases and exact URLs selected by the owning Loader when its resolver is available, and leaked-service names. Inspectors query the runtime service rather than a module-local mount table; the results contain no Loader trees or fibers. [composition-inventory.ts](src/composition-inventory.ts) defines these records.
 
 | File | Responsibility |
 |---|---|
@@ -105,5 +109,3 @@ Existing Agents retain their plugins and prompts. New Agents build their prefixe
 None.
 
 </details>
-
-**Runtime invariant:** The companion checks services leaked globally after activation and Agents addressing a model without joining a configured preset.

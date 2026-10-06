@@ -6,7 +6,7 @@
   overflow-wrap: anywhere;
 }
 .header, .root section { padding-block: var(--dse-space-xs); }
-.root section + section { border-top: 1px solid var(--dsw-alias-border-l1); }
+.root section + section { border-top: 0.5px solid var(--dsw-alias-border-l1); }
 .root h2, .root h3, .root p { margin: 0; }
 .root h2, .root h3 { font-size: inherit; font-weight: 500; }
 .root h3 { margin-bottom: var(--dse-space-2xs); }
@@ -27,16 +27,16 @@
 }
 .topic { justify-content: space-between; width: 100%; padding: var(--dse-space-2xs); text-align: start; }
 .topic:hover, .topic[aria-current='true'], .action:hover, .notice button:hover { background: var(--dsw-alias-interactive-bg-hover); }
-.topic:focus-visible, .action:focus-visible, .notice button:focus-visible { outline: 2px solid var(--dse-color-focus); outline-offset: 2px; }
+.topic:focus-visible, .action:focus-visible, .notice button:focus-visible { outline: 2px solid var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary)); outline-offset: 2px; }
 .action { min-height: 28px; font-size: var(--dsh-content-font-size, 13px); color: var(--dsw-alias-label-secondary); }
-.actionAvatar { display: inline-grid; place-items: center; width: 20px; height: 20px; flex: none; border-radius: 50%; object-fit: cover; background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-label-primary); font-size: 12px; }
+.actionAvatar { display: inline-grid; place-items: center; width: 20px; height: 20px; flex: none; border-radius: 50%; corner-shape: round; object-fit: cover; background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-label-primary); font-size: 12px; }
 .action svg, .root li svg { flex: none; }
 .notice { padding-block: var(--dse-space-xs); }
 .loading { display: flex; justify-content: center; padding-block: var(--dse-space-xs); }
 .topic:disabled, .notice button:disabled { cursor: wait; opacity: 0.6; }
 
 .filter { display: flex; align-items: center; justify-content: space-between; gap: var(--dse-space-xs); margin-block: var(--dse-space-xs); }
-.filter select { min-width: 0; padding: var(--dse-space-2xs); color: inherit; background: var(--dsw-alias-interactive-bg-hover); border: 1px solid var(--dsw-alias-border-l1); border-radius: var(--dse-radius-control); font: inherit; }
+.filter select { min-width: 0; padding: var(--dse-space-2xs); color: inherit; background: var(--dsw-alias-interactive-bg-hover); border: 0.5px solid var(--dsw-alias-border-l1); border-radius: var(--dse-radius-control); font: inherit; }
 .root .memories li { display: block; padding-block: var(--dse-space-xs); }
 
 .root .topicGroup { display: block; }

@@ -9,7 +9,7 @@
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { Context } from '@deepseek-ai/cordis'
+import { Context, FiberState } from '@deepseek-ai/cordis'
 import { stubConfigForm } from '@deepseek-ai/dsh-client-test-runtime'
 import { afterEach, describe, expect, it } from 'vitest'
 import { UiConversation } from '@deepseek-ai/dsh-client-ui-conversation/client'
@@ -92,9 +92,12 @@ describe('tsdown client artifact', () => {
     ctx.provide('remote', { $on: () => () => {} } as never)
     ctx.provide('configForms', { developerTools: { enabled: createSnapshotStore(true) }, get: () => stubConfigForm().scope } as never)
     const locale = await import('@deepseek-ai/dsh-client-locale/client')
-    ctx.plugin({ inject: [...locale.inject], apply: locale.apply })
+    const localeFiber = ctx.plugin({ inject: [...locale.inject], apply: locale.apply })
+    await localeFiber.await()
+    expect(localeFiber.state).toBe(FiberState.ACTIVE)
     const fiber = ctx.plugin(exports as { apply: (ctx: Context) => void })
     await fiber.await()
+    expect(fiber.state).toBe(FiberState.ACTIVE)
     expect(slots.entries('conversation.view').map(e => e.options.id)).toEqual(['trajectory'])
     expect(events.entries().length).toBeGreaterThan(0)
     expect(views.entries()).toHaveLength(1)

@@ -1,3 +1,4 @@
+import type {} from '@deepseek-ai/cordis'
 import { createHash, randomUUID } from 'node:crypto'
 import type { EnterpriseRole } from '@deepseek-ai/dsh-enterprise-governance'
 import type { EnterpriseCordisRepository } from './repository.ts'

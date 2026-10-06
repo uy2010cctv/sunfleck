@@ -21,9 +21,6 @@
       "path": "../../context/file-reference"
     },
     {
-      "path": "../../runtime-diagnostics/invariants"
-    },
-    {
       "path": "../../util/workspace-path"
     },
     {

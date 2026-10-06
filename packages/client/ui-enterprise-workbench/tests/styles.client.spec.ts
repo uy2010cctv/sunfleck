@@ -63,7 +63,9 @@ describe('enterprise workbench responsive shell', () => {
     expect(css).toMatch(
       /@media\s*\(max-width:\s*39\.99rem\)[\s\S]*\.channelAttention button\s*\{[^}]*grid-template-columns:\s*auto minmax\(0,\s*1fr\)/su,
     )
-    expect(css).toMatch(/\.channelAttention button:focus-visible\s*\{[^}]*outline:\s*2px solid var\(--dse-color-focus\)/su)
+    const channelFocus = String.raw`\.channelAttention button:focus-visible\s*\{[^}]*outline:\s*2px solid var\(`
+      + String.raw`--dsw-focus-ring-color, var\(--dsw-alias-state-business-primary\)\)`
+    expect(css).toMatch(new RegExp(channelFocus, 'su'))
     expect(css.match(/@media\s*\(max-width:\s*39\.99rem\)[\s\S]*?\.channelActions\s*\{/gu)).toHaveLength(1)
   })
 })

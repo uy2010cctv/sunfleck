@@ -415,5 +415,3 @@ export function apply(ctx: Context, config: Config = {}): void {
     }),
   }))
 }
-
-export { name as invariantName } from './invariant.ts'

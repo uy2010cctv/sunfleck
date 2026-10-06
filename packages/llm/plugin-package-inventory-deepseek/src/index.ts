@@ -45,7 +45,10 @@ interface PackageManifest {
 }
 
 interface ActiveEntry {
-  readonly entry: Entry
+  readonly entry?: Entry
+  readonly moduleName: string
+  readonly baseUrl?: string
+  readonly resolvedModuleUrl?: string
   /** Bare-package base used by the Loader path that activated this entry. */
   readonly bareBaseUrl?: string
 }
@@ -101,7 +104,7 @@ function nearestManifest(modulePath: string): string | undefined {
 function loaderResolvedPackageManifest(entry: Entry, packageName: string, baseUrl: string): string | undefined {
   // Synthetic and Worker-resolved entries can retain provenance without a
   // Loader instance. They still have ordinary package resolution fallbacks.
-  const internal = entry.loader?.internal
+  const internal = entry.loader.internal
   if (internal === undefined || typeof Reflect.get(internal, 'resolveSync') !== 'function') return undefined
   let moduleUrl: string
   try {
@@ -111,6 +114,11 @@ function loaderResolvedPackageManifest(entry: Entry, packageName: string, baseUr
   } catch {
     return undefined
   }
+  return resolvedPackageManifest(moduleUrl, packageName)
+}
+
+/** Find the named package owning an exact Loader-selected module URL. */
+function resolvedPackageManifest(moduleUrl: string, packageName: string): string | undefined {
   if (!moduleUrl.startsWith('file:')) return undefined
   let current = dirname(fileURLToPath(moduleUrl))
   const root = parse(current).root
@@ -140,25 +148,26 @@ class PackageIdentityResolver {
   ) {}
 
   /** Resolve one Loader entry's owning package, or absence for a non-package loose module. */
-  resolve({ entry, bareBaseUrl }: ActiveEntry): DeepSeekPluginPackageIdentity | undefined {
+  resolve({ entry, moduleName, baseUrl, bareBaseUrl, resolvedModuleUrl }: ActiveEntry): DeepSeekPluginPackageIdentity | undefined {
     /* v8 ignore next -- Loader entry trees inherit a base URL; the fallback supports direct embedders. */
-    const treeBase = entry.parent.tree.ctx.baseUrl ?? this.hostBaseUrl
+    const treeBase = baseUrl ?? this.hostBaseUrl
     const anchors = [...new Set([bareBaseUrl ?? treeBase, treeBase, this.hostBaseUrl, import.meta.url])]
-    const key = `${anchors.join('\u0000')}\u0000${entry.options.name}`
+    const key = `${anchors.join('\u0000')}\u0000${moduleName}\u0000${resolvedModuleUrl ?? ''}`
     if (this.cache.has(key)) return this.cache.get(key)
 
-    const packageName = barePackageName(entry.options.name)
+    const packageName = barePackageName(moduleName)
     let manifest: string | undefined
     if (packageName !== undefined) {
-      manifest = (bareBaseUrl === undefined ? loaderResolvedPackageManifest(entry, packageName, treeBase) : undefined)
+      manifest = (resolvedModuleUrl === undefined ? undefined : resolvedPackageManifest(resolvedModuleUrl, packageName))
+        ?? (entry !== undefined && bareBaseUrl === undefined ? loaderResolvedPackageManifest(entry, packageName, treeBase) : undefined)
         ?? barePackageManifest(packageName, anchors, this.packages)
       if (manifest === undefined) {
         throw new Error(`plugin-package-inventory-deepseek: cannot resolve active package ${JSON.stringify(packageName)}`)
       }
-    } else if (!entry.options.name.startsWith('cordis:')) {
-      const moduleUrl = isAbsolute(entry.options.name)
-        ? pathToFileURL(entry.options.name)
-        : new URL(entry.options.name, treeBase)
+    } else if (!moduleName.startsWith('cordis:')) {
+      const moduleUrl = resolvedModuleUrl !== undefined ? new URL(resolvedModuleUrl) : isAbsolute(moduleName)
+        ? pathToFileURL(moduleName)
+        : new URL(moduleName, treeBase)
       if (moduleUrl.protocol === 'file:') manifest = nearestManifest(fileURLToPath(moduleUrl))
     }
     const identity = manifest === undefined ? undefined : identityFromManifest(manifest, packageName === undefined)
@@ -168,16 +177,15 @@ class PackageIdentityResolver {
 }
 
 /** Yield active, non-structural entries from one Loader tree. */
-function activeEntries(tree: EntryTree, rootBareBaseUrl?: string): ActiveEntry[] {
+function activeEntries(tree: EntryTree): ActiveEntry[] {
   return [...tree.entries()]
     .filter(entry => !entry.options.group
       && !entry.disabled
       && entry.fiber?.state === FiberState.ACTIVE)
     .map(entry => ({
       entry,
-      ...entry.parent.tree === tree && rootBareBaseUrl !== undefined
-        ? { bareBaseUrl: rootBareBaseUrl }
-        : {},
+      moduleName: entry.options.name,
+      ...entry.parent.tree.ctx.baseUrl === undefined ? {} : { baseUrl: entry.parent.tree.ctx.baseUrl },
     }))
 }
 
@@ -187,23 +195,23 @@ function compareWireText(left: string, right: string): number {
 }
 
 /** Collect the full active package set for one request. */
-async function collectActivePluginPackages(
+function collectActivePluginPackages(
   ctx: Context,
   resolver: PackageIdentityResolver,
   hostBaseUrl: string,
   sessionId?: string,
-): Promise<DeepSeekPluginPackageIdentity[]> {
+): DeepSeekPluginPackageIdentity[] {
   const entries = activeEntries(ctx.loader)
-  if (sessionId !== undefined && ctx.get('agentPresets') !== undefined) {
+  const presets = ctx.get('agentPresets')
+  if (sessionId !== undefined && presets !== undefined) {
     const agent = ctx.agents.get(brandString<SessionId>(sessionId))
     if (agent !== undefined) {
-      // The optional peer is loaded only when its service is present. Its existing
-      // mount query keeps Loader internals off the public AgentPresets service.
-      const { standingMountFor } = await import('@deepseek-ai/dsh-agent-preset-registry')
-      const presetTree = standingMountFor(agent.ctx)?.tree
-      // PresetTree deliberately resolves its root bare rows from the harness;
-      // nested ordinary includes retain their own tree base.
-      if (presetTree !== undefined) entries.push(...activeEntries(presetTree, hostBaseUrl))
+      for (const composition of presets.inspectCompositions(agent.ctx)) {
+        entries.push(...composition.modules.map(({ useHostBase, ...entry }) => ({
+          ...entry,
+          ...useHostBase ? { bareBaseUrl: hostBaseUrl } : {},
+        })))
+      }
     }
   }
   const unique = new Map<string, DeepSeekPluginPackageIdentity>()
@@ -227,10 +235,10 @@ export function apply(ctx: Context, config: Config): void {
   const hostBaseUrl = ctx.baseUrl ?? import.meta.url
   const resolver = new PackageIdentityResolver(hostBaseUrl, ctx.get('pluginPackages'))
   ctx.deepseekLlmApiExtensions.register('dsh_plugin_packages', {
-    prepare: async (request) => {
+    prepare: (request) => {
       const value: DeepSeekPluginPackageInventoryExtension = {
         version: 1,
-        packages: await collectActivePluginPackages(ctx, resolver, hostBaseUrl, request.sessionId),
+        packages: collectActivePluginPackages(ctx, resolver, hostBaseUrl, request.sessionId),
       }
       return { value }
     },

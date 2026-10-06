@@ -255,5 +255,3 @@ export async function apply(ctx: Context, config: EnterprisePostgresConfig): Pro
 }
 
 export const inject: readonly string[] = []
-
-export { name } from './invariant.ts'

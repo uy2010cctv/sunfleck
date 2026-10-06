@@ -18,8 +18,9 @@
 
 # Group-bound employee Sessions use the Host reminder service. Its native
 # daily and weekly rules retain their wall-clock zone across restarts.
-- id: time-context
-  disabled: false
+- insert:
+    - id: enterprise-time-context
+      name: '@deepseek-ai/dsh-time-context'
 
 - id: schedule
   disabled: false

@@ -93,6 +93,8 @@
    contenteditable grows with its content inside; the 14-line cap lives here
    because this is the box the cap describes. */
 .scroll {
+  --dsh-scrollbar-thumb: var(--dsw-alias-scrollbar-bg-l2);
+  --dsh-scrollbar-thumb-hover: var(--dsw-alias-scrollbar-hover-l2);
   max-height: var(--dsh-composer-text-max-height);
   overflow-y: auto;
   /* Keeps the bar off the card's right border; .input's right pad gives the

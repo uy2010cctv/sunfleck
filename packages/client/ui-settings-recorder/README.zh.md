@@ -76,7 +76,15 @@ kind: "package-reference"
 <a id="model-experience"></a>
 ## 模型体验
 
-无，因为本包只注册浏览器 Settings 区域，不增加模型可见输入或工具。
+### 录音设置
+
+#### 模型可见内容
+
+无。本包占用 `settings.local-models.recorder`，不增加模型可见输入或工具。
+
+#### Token 影响
+
+零 token。设置导航与录音控制不进入 Session 历史。
 
 #### KV Cache 影响
 
@@ -101,5 +109,3 @@ kind: "package-reference"
 无。
 
 </details>
-
-**运行时不变式：**不发布 companion。本页拥有一个 Settings 注册和可观察的浏览器状态；Host 和录音服务拥有持久化和模型进程。

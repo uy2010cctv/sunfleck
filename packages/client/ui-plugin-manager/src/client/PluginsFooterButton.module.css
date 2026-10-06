@@ -7,7 +7,7 @@
   padding: 0 10px 0 8px;
   box-sizing: border-box;
   border: none;
-  border-radius: 12px;
+  border-radius: var(--dsw-radius-md);
   background: transparent;
   color: inherit;
   font: inherit;
@@ -25,7 +25,7 @@
   width: 36px;
   height: 36px;
   border: none;
-  border-radius: 10px;
+  border-radius: var(--dsw-radius-md);
   background: transparent;
   color: inherit;
   cursor: pointer;
@@ -33,4 +33,4 @@
 
 .rail:hover { background: var(--dsw-alias-interactive-bg-hover, rgba(128, 128, 128, 0.14)); }
 
-.button:focus-visible, .rail:focus-visible { outline: 2px solid var(--dse-color-focus, currentColor); outline-offset: 2px; }
+.button:focus-visible, .rail:focus-visible { outline: 2px solid var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary)); outline-offset: 2px; }

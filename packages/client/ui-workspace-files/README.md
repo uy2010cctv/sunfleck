@@ -61,12 +61,23 @@ The two entries share one `SnapshotStore<{ open: boolean }>` created in `apply`,
 <a id="model-experience"></a>
 ## Model Experience
 
-The plugin is human-only: it adds no tools, no prompt sections, and no model-visible behavior. The model's own view of workspace files lives in its filesystem tools and the `@`-mention menu.
+### Workspace browsing
 
------
+#### What the model sees
+
+Nothing. The browser calls `ctx.remote.fileReferences.list` for its drawer; this package adds no tools or prompt sections. The model's filesystem tools and the `@`-mention menu retain their own context behavior.
+
+#### Token effect
+
+Zero tokens. Drawer listings do not enter Session history.
+
+#### KV Cache effect
+
+None; browsing or refreshing the drawer does not assemble a provider request.
+
+## Known Limitations and Deferred Work
 
 <a id="known-limitations-and-deferred-work"></a>
-## Known Limitations and Deferred Work
 
 - Levels are bounded by the Host file-discovery `maxResults` cap (20 by default); a directory with more entries than the cap is truncated. Raising the cap on the `file-reference-local` row lifts the same limit for both the tree and mentions.
 - The drawer lists names only — no sizes, mtimes, or open-in-editor actions yet.
@@ -75,6 +86,6 @@ The plugin is human-only: it adds no tools, no prompt sections, and no model-vis
 -----
 
 <a id="dev-note"></a>
-## Dev Note
+### Dev Note
 
 Rebuild the client bundle with `pnpm --filter @deepseek-ai/dsh-client-ui-workspace-files run bundle` (or the dev-web watch loop). The bundle must be re-served by the web runtime before the drawer appears; the client-hmr chain reloads the entry when the artifact changes.

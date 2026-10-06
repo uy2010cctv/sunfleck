@@ -1,0 +1,28 @@
+# Bilingual-pair consistency record for 2026-10-06-sunfleck-enterprise-attribution.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/persistence-changes/2026-10-06-sunfleck-enterprise-attribution.md
+/:
+  en: 3d5a424ae7d7e46b
+  zh: c22a8e4a62d8cc1a
+/2026-10-06-sunfleck-enterprise-attribution:
+  en: 33516a20d5cdd8d2
+  zh: e788e6e6a7e52c49
+/2026-10-06-sunfleck-enterprise-attribution/summary:
+  en: 889937f5796e85a6
+  zh: 31d8e05107c2060b
+/2026-10-06-sunfleck-enterprise-attribution/table-of-contents:
+  en: 6cf314a069ceb451
+  zh: 9adff678e9ecab3b
+/2026-10-06-sunfleck-enterprise-attribution/declaration:
+  en: 6907136f28e48c90
+  zh: 02f8298485f3d8e7
+/2026-10-06-sunfleck-enterprise-attribution/compatibility:
+  en: b8e2246525e19c83
+  zh: fc3f0489985d0e15
+/2026-10-06-sunfleck-enterprise-attribution/verification:
+  en: 9e6eb73be1ee4e7c
+  zh: 8520f7136c4a9b0d
+/2026-10-06-sunfleck-enterprise-attribution/dev-note:
+  en: b75c8458928b72b9
+  zh: 003ba4e17b4b5269

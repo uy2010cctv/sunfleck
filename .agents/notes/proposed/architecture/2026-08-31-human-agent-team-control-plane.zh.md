@@ -12,7 +12,7 @@ DSH 已经拥有持久 Session、Workspace、Employee Release、审批、subagen
 
 ## Proposal
 
-本提案在 DSH 周边增加企业定义、命令、索引和投影能力，而不是增加另一个执行引擎。它扩展但不取代现有 [Agent Teams 运行时决策](../../implemented/feature/2026-08-05-agent-teams.zh.md)及其 [experimental 包边界](../../implemented/architecture/2026-08-18-experimental-agent-teams-packages.zh.md)。现有 `TeamService`、roster、task、mailbox、continuation 和 Session log fold 继续作为执行基础。
+本提案在 DSH 周边增加企业定义、命令、索引和投影能力，而不是增加另一个执行引擎。它扩展但不取代现有 [Agent Teams 运行时决策](../../implemented/feature/2026-08-05-agent-teams.zh.md)及其 [experimental 包边界](../../archived/architecture/2026-08-18-experimental-agent-teams-packages.md)。现有 `TeamService`、roster、task、mailbox、continuation 和 Session log fold 继续作为执行基础。
 
 ### 交付阶段顺序
 

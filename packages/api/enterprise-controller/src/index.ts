@@ -244,6 +244,9 @@ export interface EmployeePromptOptimizerSource {
 
 declare module '@deepseek-ai/dsh-llm' {
   interface MessageSourceMap {
+    /** Producer attribution for the recorded message blocks.
+     * @persistenceAttribution
+     */
     'enterprise-employee-prompt-optimizer': EmployeePromptOptimizerSource
   }
 }
@@ -3180,4 +3183,3 @@ export const Config: z<Config> = z.object({
   channelGitHubMaxBodyBytes: z.natural().min(1).max(10_485_760).default(1_048_576),
   projectWorkspaceRoot: z.string().min(1).default(dshHomePath('enterprise/workspaces/projects')),
 })
-export { name } from './invariant.ts'
