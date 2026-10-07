@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { randomUUID } from 'node:crypto'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
-import { createServer } from 'node:http'
+import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import { homedir, hostname, platform } from 'node:os'
 import { dirname, join } from 'node:path'
 import { DeviceAgentClient } from './client.ts'
@@ -12,6 +12,8 @@ import { loadOrCreateDeviceIdentity } from './identity.ts'
 import { MacOSConfirmator } from './macos-confirmator.ts'
 import { PlaywrightMcpAdapter } from './playwright-mcp-adapter.ts'
 import { LocalPairingHandler } from './pairing.ts'
+import { readLocalDeviceStatus } from './status.ts'
+import { readLocalRequestBody } from './local-http.ts'
 
 interface ConnectionState { readonly server: string; readonly deviceId: string }
 
@@ -40,6 +42,12 @@ async function readConnection(path: string): Promise<ConnectionState | undefined
 async function main(): Promise<void> {
   const server = option('--server')
   if (server === undefined) throw new Error('usage: dsh-device-agent --server <DSH origin> [--port 47631]')
+  const serverOrigin = new URL(server).origin
+  const metadata: unknown = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'))
+  if (typeof metadata !== 'object' || metadata === null || !('version' in metadata) || typeof metadata.version !== 'string') {
+    throw new Error('Device Agent package version is unavailable.')
+  }
+  const agentVersion = metadata.version
   const stateRoot = option('--state-dir', join(homedir(), '.dsh', 'device-agent')) as string
   const identity = await loadOrCreateDeviceIdentity(join(stateRoot, 'identity.json'))
   const connectionPath = join(stateRoot, 'connection.json')
@@ -76,27 +84,54 @@ async function main(): Promise<void> {
   }
   if (connection?.server === server) startHeartbeat(connection)
   const handler = new LocalPairingHandler({
-    serverOrigin: new URL(server).origin, publicKey: identity.publicKey, deviceName: hostname(),
+    serverOrigin, publicKey: identity.publicKey, deviceName: hostname(),
     platform: platform() === 'darwin' ? 'macos' : platform() === 'win32' ? 'windows' : 'linux',
     challenge: randomUUID().replaceAll('-', ''),
+    status: async () => {
+      const savedConnection = await readConnection(connectionPath)
+      return readLocalDeviceStatus({
+        serverOrigin, agentVersion, connectionPresent: () => savedConnection?.server === server,
+      })
+    },
     complete: async (deviceId) => {
       connection = { server, deviceId }
       await saveConnection(connectionPath, connection)
       startHeartbeat(connection)
     },
   })
-  const local = createServer(async (req, res) => {
-    const chunks: Buffer[] = []
-    for await (const chunk of req) chunks.push(chunk as Buffer)
+  const handleLocalRequest = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
+    if (req.headers.origin !== serverOrigin) {
+      req.resume()
+      res.writeHead(403)
+      res.end()
+      return
+    }
+    const body = await readLocalRequestBody(req.iterator({ destroyOnReturn: false }))
+    if (body === undefined) {
+      req.resume()
+      res.writeHead(413, { 'access-control-allow-origin': serverOrigin, 'vary': 'Origin' })
+      res.end()
+      return
+    }
     const headers = Object.fromEntries(Object.entries(req.headers).filter(
       (entry): entry is [string, string] => typeof entry[1] === 'string',
     ))
     const response = await handler.fetch(new Request(`http://127.0.0.1${req.url ?? '/'}`, {
       method: req.method ?? 'GET', headers,
-      ...(chunks.length === 0 ? {} : { body: Buffer.concat(chunks) }),
+      ...(body.length === 0 ? {} : { body }),
     }))
     res.writeHead(response.status, Object.fromEntries(response.headers.entries()))
     res.end(response.body === null ? undefined : Buffer.from(await response.arrayBuffer()))
+  }
+  const local = createServer((req, res) => {
+    void handleLocalRequest(req, res).catch((error: unknown) => {
+      // A malformed or disconnected loopback request never terminates the companion.
+      void error
+      req.resume()
+      if (res.headersSent) { res.destroy(); return }
+      res.writeHead(400, { 'access-control-allow-origin': serverOrigin, 'vary': 'Origin' })
+      res.end()
+    })
   })
   const port = Number(option('--port', '47631'))
   await new Promise<void>((resolve, reject) => {

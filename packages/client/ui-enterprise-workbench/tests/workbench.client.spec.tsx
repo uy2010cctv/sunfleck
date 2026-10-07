@@ -127,6 +127,7 @@ function workbenchProps(overrides: Partial<EnterpriseWorkbenchProps> & {
         createdAt: '2026-08-26T00:00:00.000Z', updatedAt: '2026-08-26T00:00:00.000Z' }],
       archivedSessionIds: [], state: 'idle', phase: 'ready', error: null,
     } as never),
+    refreshDeviceDiagnostic: vi.fn(async () => true),
     close: vi.fn(),
     refresh: vi.fn(() => Promise.resolve()),
     startEmployee: vi.fn(() => Promise.resolve()),
@@ -251,7 +252,7 @@ describe('EnterpriseWorkbench', () => {
     }), expect.any(Object))
   })
 
-  it('connects the current computer without exposing device ids or key fields', () => {
+  it('opens setup without pairing an online computer until explicit account confirmation', async () => {
     const pairLocalDevice = vi.fn(() => Promise.resolve(true))
     render(<EnterpriseWorkbench {...workbenchProps({
       state: {
@@ -269,7 +270,74 @@ describe('EnterpriseWorkbench', () => {
     expect(screen.queryByText('device-secret-id')).toBeNull()
     expect(screen.queryByRole('textbox')).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: '连接此电脑' }))
+    expect(pairLocalDevice).not.toHaveBeenCalled()
+    expect(screen.getByRole('dialog', { name: '设置此电脑' })).toBeTruthy()
+    expect(screen.getByText(/在线只表示设备仍在发送心跳/u)).toBeTruthy()
+    expect(screen.getByRole('dialog', { name: '设置此电脑' }).textContent).toMatchSnapshot()
+  })
+
+  it('keeps pairing explicit and reports unknown permissions after local refresh', async () => {
+    const pairLocalDevice = vi.fn(async () => ({ deviceId: 'local-device-private' }))
+    const readLocalDeviceStatus = vi.fn(async () => ({
+      platform: 'macos' as const, version: '0.1.0', connectionPresent: false, serverOrigin: window.location.origin,
+      cua: { state: 'ready' as const }, permissions: { accessibility: 'unknown' as const, screenRecording: 'unknown' as const },
+      browser: { available: false },
+    }))
+    render(<EnterpriseWorkbench {...workbenchProps({
+      state: { mode: 'enterprise', page: 'devices', devices: { phase: 'ready', error: null, items: [] } },
+      pairLocalDevice, readLocalDeviceStatus,
+    } as never)} />)
+    fireEvent.click(screen.getByRole('button', { name: '连接此电脑' }))
+    fireEvent.click(screen.getByRole('button', { name: '检查本机助手' }))
+    await screen.findByText(/已检测到助手/u)
+    expect(pairLocalDevice).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: '配对到当前账号' }))
+    await screen.findByText(/打开 macOS 系统设置/u)
     expect(pairLocalDevice).toHaveBeenCalledWith(window.location.origin)
+    expect(readLocalDeviceStatus).toHaveBeenCalledTimes(2)
+    expect(screen.getAllByText('尚未确认')).toHaveLength(2)
+    expect(screen.queryByText('已允许')).toBeNull()
+    expect(screen.queryByText('local-device-private')).toBeNull()
+  })
+
+  it('shows successful read-only evidence separately from a failed diagnostic stop', async () => {
+    const retryLocalDeviceTestCleanup = vi.fn(async () => true)
+    const testLocalDevice = vi.fn(async () => ({ action: { state: 'completed' }, cleanup: 'failed', runId: 'diagnostic-private' }))
+    render(<EnterpriseWorkbench {...workbenchProps({
+      state: { mode: 'enterprise', page: 'devices', devices: { phase: 'ready', error: null, items: [{
+        deviceId: 'device-private', deviceName: 'Local computer', platform: 'macos', status: 'online',
+      }] } }, testLocalDevice, retryLocalDeviceTestCleanup,
+    } as never)} />)
+    fireEvent.click(screen.getByRole('button', { name: '测试连接' }))
+    await screen.findByText('屏幕尺寸读取成功')
+    expect(screen.getByText(/尚未确认测试操作权已终止/u)).toBeTruthy()
+    expect(screen.queryByText('diagnostic-private')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: '重试终止测试' }))
+    await waitFor(() => { expect(screen.queryByText(/尚未确认测试操作权已终止/u)).toBeNull() })
+    expect(retryLocalDeviceTestCleanup).toHaveBeenCalledWith('diagnostic-private')
+    expect(screen.getByText('屏幕尺寸读取成功')).toBeTruthy()
+  })
+
+  it('restores diagnostic cleanup after unmount and reopening without starting another test', async () => {
+    const retryLocalDeviceTestCleanup = vi.fn(async () => false)
+    const testLocalDevice = vi.fn()
+    const props = workbenchProps({
+      state: { mode: 'enterprise', page: 'devices', localDeviceDiagnostic: {
+        deviceId: 'device-private', runId: 'retained-diagnostic', phase: 'cleanup-required',
+      }, devices: { phase: 'ready', error: null, items: [{
+        deviceId: 'device-private', deviceName: 'Local computer', platform: 'macos', status: 'online',
+      }] } }, testLocalDevice, retryLocalDeviceTestCleanup,
+    } as never)
+    const mounted = render(<EnterpriseWorkbench {...props}/>)
+    await screen.findByRole('button', { name: '重试终止测试' })
+    mounted.unmount()
+    render(<EnterpriseWorkbench {...props}/>)
+    expect(await screen.findByRole('button', { name: '重试终止测试' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: '测试连接' }).hasAttribute('disabled')).toBe(true)
+    fireEvent.click(screen.getByRole('button', { name: '重试终止测试' }))
+    expect(retryLocalDeviceTestCleanup).toHaveBeenCalledWith('retained-diagnostic')
+    expect(testLocalDevice).not.toHaveBeenCalled()
+    expect(screen.queryByText('retained-diagnostic')).toBeNull()
   })
 
   it('creates a recorder pairing code without asking for a user id', async () => {

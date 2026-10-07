@@ -1290,3 +1290,12 @@
 .charterReadiness p { margin: 0; color: var(--dse-color-muted); font-size: 0.8125rem; line-height: 1.5; }
 .charterSaved { display: flex; flex-wrap: wrap; gap: var(--dse-space-xs); margin: 0; color: var(--dse-color-accent); font-size: 0.8125rem; }
 .charterSaved span { color: var(--dse-color-muted); }
+
+.deviceSetupContent { display: grid; gap: var(--dse-space-md); }
+.deviceSetupSteps { display: flex; flex-wrap: wrap; gap: var(--dse-space-2xs); list-style: none; padding: 0; margin: 0; }
+.deviceSetupSteps [aria-current='step'] button { border-color: var(--dse-color-accent); }
+.deviceSetupSection { display: grid; gap: var(--dse-space-sm); }
+.deviceSetupSection h3, .deviceSetupSection p { margin: 0; }
+.deviceSetupSection dl { display: grid; grid-template-columns: 1fr 1fr; gap: var(--dse-space-2xs); margin: 0; }
+.deviceSetupSection dd { margin: 0; }
+.deviceSetupCommand { padding: var(--dse-space-sm); white-space: pre-wrap; overflow-wrap: anywhere; font-size: 0.8125rem; }

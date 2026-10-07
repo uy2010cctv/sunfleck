@@ -27,6 +27,12 @@ exports[`EnterpriseWorkbench > groups newer pending and earlier approved reviews
 }
 `;
 
+exports[`EnterpriseWorkbench > opens setup without pairing an online computer until explicit account confirmation 1`] = `
+"设置此电脑在线只表示设备仍在发送心跳。本机配对、系统权限和浏览器配置需要分别确认1. 启动助手2. 检查并配对3. 系统权限4. 浏览器5. 连接测试6. 控制设置1. 启动助手请从管理员提供的 SUNFLECK 源码获取助手。当前为技术预览，尚无安装包安装 Node.js 22.19 或更新版本及 pnpm，在仓库文件夹中执行：pnpm install
+pnpm --filter @deepseek-ai/dsh-device-agent bundle
+node apps/device-agent/lib/bin.js --server http://localhost:3000保持助手运行，并在需要设置的这台电脑上打开本页面检查本机助手"
+`;
+
 exports[`EnterpriseWorkbench > presents the roster as a StaffDeck-inspired employee gallery without technical metadata > employee directory hierarchy 1`] = `
 [
   "员工名册",

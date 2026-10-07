@@ -2,6 +2,8 @@
 /** Enterprise digital-employee roster and operations overlay. */
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import QRCode from 'qrcode/lib/browser.js'
+import { DeviceSetup } from './DeviceSetup.tsx'
+import type { LocalDeviceStatus } from './localDevice.ts'
 import { EnterpriseBrand } from './EnterpriseBrand.tsx'
 import { dicebearAvatarUrl } from './avatar.ts'
 import {
@@ -100,9 +102,12 @@ export interface EnterpriseWorkbenchInjected {
   pollChannelBotInstall: (installId: string, verificationCode?: string) => Promise<EnterpriseChannelPollBotInstallResult>
   refreshChannels: () => Promise<boolean>
   refreshDevices: () => Promise<boolean>
-  pairLocalDevice: (dshOrigin: string) => Promise<boolean>
+  readLocalDeviceStatus: () => Promise<LocalDeviceStatus>
+  pairLocalDevice: (dshOrigin: string) => Promise<{ deviceId: string } | undefined>
   createRecorderPairing: () => Promise<{ pairingId: string; code: string; expiresAt: number }>
-  testLocalDevice: (deviceId: string) => Promise<import('@deepseek-ai/dsh-api-enterprise-controller/types').EnterpriseDeviceActionView>
+  testLocalDevice: (deviceId: string) => Promise<import('./store.ts').LocalDeviceTestResult | undefined>
+  refreshDeviceDiagnostic: () => Promise<boolean>
+  retryLocalDeviceTestCleanup: (runId: string) => Promise<boolean>
   loadDeviceActivity?: () => Promise<{ runs: readonly EnterpriseComputerUseRun[]; actions: readonly EnterpriseDeviceActionView[] }>
   transitionDeviceRun?: (run: EnterpriseComputerUseRun, state: 'active' | 'paused' | 'stopped') => Promise<EnterpriseComputerUseRun>
   startTeamRun: (input: { teamId: string; expectedTeamRevision: number; workspaceId: string; prompt: string }) => Promise<boolean>
@@ -679,13 +684,16 @@ function WorkRecordsPage({ page, releases, update, busy, t }: { page: Enterprise
   return <section aria-labelledby="work-page-title"><div className={css.sectionHead}><h2 id="work-page-title">{t('nav.work-records')}</h2><span>{page.items.length}</span></div><PageBoundary page={page} t={t} empty={<ActionableEmpty title={t('work.emptyTitle')} description={t('work.emptyBody')}/>}><div className={css.rows}>{page.items.map(record => <div className={css.row} key={`${record.sessionId}:${record.employeeReleaseId}`}><div><strong>{typeof record.sourceReferences.title === 'string' ? record.sourceReferences.title : t('record.unnamed')}</strong><span>{[employeeName(record.employeeReleaseId) ?? t('record.employeeUnknown'), t(SOURCE_KEYS[record.source]), formatDate(record.updatedAt)].filter(Boolean).join(' · ')}</span></div><label className={css.inlineField}>{t('work.state')}<select value={record.businessState} disabled={busy} onChange={(event) => { void update(record, event.target.value as EnterpriseBusinessState) }}><option value="active">{t(WORK_KEYS.active)}</option><option value="waiting-approval">{t(WORK_KEYS['waiting-approval'])}</option><option value="completed">{t(WORK_KEYS.completed)}</option><option value="failed">{t(WORK_KEYS.failed)}</option></select></label></div>)}</div></PageBoundary></section>
 }
 
-function DevicesPage({ page, api, busy, t }: {
+function DevicesPage({ page, api, busy, diagnostic, setupEpoch, t }: {
   page: EnterprisePageState<EnterpriseDeviceView>
   api: EnterpriseWorkbenchInjected
   busy: boolean
+  diagnostic?: import('./store.ts').LocalDeviceDiagnostic | undefined
+  setupEpoch?: number | undefined
   t: Translate
 }) {
-  const [testState, setTestState] = useState<{ deviceId: string; message: string; ok: boolean }>()
+  const [setupOpen, setSetupOpen] = useState(false)
+  const [testState, setTestState] = useState<{ deviceId: string; message: string; ok: boolean; cleanupRunId?: string | undefined }>()
   const [pairing, setPairing] = useState<{ phase: 'idle' | 'loading' | 'ready' | 'error'; code?: string; expiresAt?: number }>({ phase: 'idle' })
   const [activity, setActivity] = useState<{ phase: 'loading' | 'ready' | 'error'; runs: readonly EnterpriseComputerUseRun[]; actions: readonly EnterpriseDeviceActionView[] }>({ phase: 'loading', runs: [], actions: [] })
   const refreshActivity = (): void => {
@@ -699,6 +707,11 @@ function DevicesPage({ page, api, busy, t }: {
       .catch(() => { setActivity(current => ({ ...current, phase: 'error' })) })
   }
   useEffect(refreshActivity, [page.items])
+  useEffect(() => { void api.refreshDeviceDiagnostic() }, [])
+  useEffect(() => { setTestState(undefined) }, [setupEpoch])
+  useEffect(() => {
+    if (diagnostic?.phase === 'cleanup-required') setTestState({ deviceId: diagnostic.deviceId, cleanupRunId: diagnostic.runId, ok: diagnostic.action?.state === 'completed', message: diagnostic.action?.state === 'completed' ? t('device.testPassed') : t('device.setup.testFailed') })
+  }, [diagnostic])
   const transition = (run: EnterpriseComputerUseRun, state: 'active' | 'paused' | 'stopped'): void => {
     if (api.transitionDeviceRun !== undefined) void api.transitionDeviceRun(run, state).then(refreshActivity)
   }
@@ -713,10 +726,11 @@ function DevicesPage({ page, api, busy, t }: {
             .catch(() => { setPairing({ phase: 'error' }) })
         }}>{pairing.phase === 'loading' ? t('device.bindingRecorder') : t('device.bindRecorder')}</button>
         <button type="button" className={css.primaryButton} disabled={busy} onClick={() => {
-          void api.pairLocalDevice(window.location.origin)
+          setSetupOpen(true)
         }}>{busy ? t('device.connecting') : t('device.connect')}</button>
       </div>
     </div>
+    <DeviceSetup open={setupOpen} onClose={() => { setSetupOpen(false) }} api={api} devices={page.items} diagnostic={diagnostic} setupEpoch={setupEpoch} t={t}/>
     {pairing.phase === 'ready' && pairing.code !== undefined && pairing.expiresAt !== undefined
       && <div role="status" className={css.compactEmpty}><strong>{t('device.pairingTitle')}</strong>
         <span>{pairing.code}</span><span>{t('device.pairingBody', { time: formatDate(pairing.expiresAt) })}</span></div>}
@@ -735,18 +749,23 @@ function DevicesPage({ page, api, busy, t }: {
             <span>{t(`device.status.${device.status}`)}</span></div>
           {device.kind === 'recorder'
             ? <span className={css.mutedText}>{t('device.recorderBound')}</span>
-            : <button type="button" className={css.secondaryButton} disabled={busy || device.status !== 'online'} onClick={() => {
+            : <button type="button" className={css.secondaryButton} disabled={busy || device.status !== 'online' || diagnostic !== undefined || testState?.cleanupRunId !== undefined} onClick={() => {
               setTestState({ deviceId: device.deviceId, message: t('device.testing'), ok: false })
-              void api.testLocalDevice(device.deviceId).then((action) => {
-                const ok = action.state === 'completed'
+              void api.testLocalDevice(device.deviceId).then((result) => {
+                if (result === undefined) return
+                const ok = result.action?.state === 'completed'
                 setTestState({ deviceId: device.deviceId,
-                  message: ok ? t('device.testPassed') : t('device.testFailed', { state: action.state }), ok })
+                  message: ok ? t('device.testPassed') : t('device.testFailed', { state: result.action?.state ?? 'error' }), ok, ...(result.cleanup === 'failed' ? { cleanupRunId: result.runId } : {}) })
                 refreshActivity()
               }).catch(() => {
                 setTestState({ deviceId: device.deviceId, message: t('device.testFailed', { state: 'error' }), ok: false })
               })
             }}>{t('device.test')}</button>}
         </div>
+        {testState?.deviceId === device.deviceId && testState.cleanupRunId !== undefined && <div role="alert"><span>{t('device.setup.cleanupFailed')}</span><button type="button" className={css.secondaryButton} onClick={() => {
+          const runId = testState.cleanupRunId
+          if (runId !== undefined) void api.retryLocalDeviceTestCleanup(runId).then((stopped) => { if (stopped) { setTestState(current => current === undefined ? undefined : { deviceId: current.deviceId, message: current.message, ok: current.ok }); refreshActivity() } })
+        }}>{t('device.setup.retryCleanup')}</button></div>}
         {testState?.deviceId === device.deviceId && <span role="status" className={testState.ok ? css.successText : css.mutedText}>
           {testState.message}
         </span>}
@@ -2098,7 +2117,7 @@ export function EnterpriseWorkbench(props: EnterpriseWorkbenchProps) {
       return success
     },
   }
-  const mutationNotice = state.mutationError === null ? null : <div className={css.mutationError} role="alert" aria-label={props.t('mutation.errorAria')}><IconWarningOutlineRegular size={18} /><span>{state.mutationPhase === 'conflict' ? props.t('mutation.conflict') : state.mutationError}</span>{state.mutationPhase === 'conflict' ? <button type="button" onClick={() => { void props.resolveMutationConflict() }}>{props.t('mutation.reload')}</button> : <button type="button" onClick={() => { void props.retryMutation() }}>{props.t('mutation.retry')}</button>}<button type="button" onClick={props.dismissMutationError}>{props.t('mutation.dismiss')}</button></div>
+  const mutationNotice = state.mutationError === null ? null : <div className={css.mutationError} role="alert" aria-label={props.t('mutation.errorAria')}><IconWarningOutlineRegular size={18} /><span>{state.mutationPhase === 'conflict' ? props.t('mutation.conflict') : ['account-changed', 'diagnostic-pending', 'unavailable', 'upgrade-required', 'invalid-response', 'origin-denied', 'pairing-conflict', 'completion-failed'].includes(state.mutationError) ? props.t(`device.setup.error.${state.mutationError}` as EnterpriseWorkbenchKey) : state.mutationError}</span>{state.mutationPhase === 'conflict' ? <button type="button" onClick={() => { void props.resolveMutationConflict() }}>{props.t('mutation.reload')}</button> : <button type="button" onClick={() => { void props.retryMutation() }}>{props.t('mutation.retry')}</button>}<button type="button" onClick={props.dismissMutationError}>{props.t('mutation.dismiss')}</button></div>
   if (state.scheduleDialogOpen) return <Modal open title={props.t('nav.schedules')} closeLabel={props.t('close')}
     description={props.t('schedule.description')} onClose={requestClose}
     className={css.scheduleDialog ?? ''} contentClassName={css.scheduleDialogContent ?? ''}>
@@ -2121,7 +2140,7 @@ export function EnterpriseWorkbench(props: EnterpriseWorkbenchProps) {
         {partial && <div className={css.notice} role="status">{props.t('partial')}</div>}
         {page === 'employees' && <EmployeesPage state={state} workspaces={workspaces} api={api} guardDirty={guardDirty} renderEmployeeKnowledgeBindings={props.renderSlot} startWork={<StartWorkPanel workspaces={workspaces} releases={state.releases} prepareWork={props.prepareWork} startPreparedWork={props.startPreparedWork} onStarted={(sessionId) => { props.openRecord(sessionId as SessionId); props.close() }} t={props.t}/>} t={props.t} />}
         {page === 'projects' && <ProjectSpace projects={state.projects} surfaces={state.surfaces} workspaces={workspaces.items.map(item => ({ id: item.workspaceId, name: item.title }))} loadProjects={props.loadProjects} loadSurfaces={props.loadSurfaces} createProject={props.createProject} selectProject={props.selectProject} addProjectMember={props.addProjectMember} archiveProject={props.archiveProject} openRoom={props.openCollaboration} createRoom={props.createCollaboration} openGovernance={() => { requestPage('teams') }} t={props.t}/>}
-        {page === 'devices' && <DevicesPage page={devices} api={api} busy={mutationBusy} t={props.t}/>}
+        {page === 'devices' && <DevicesPage page={devices} api={api} busy={mutationBusy} diagnostic={state.localDeviceDiagnostic} setupEpoch={state.deviceSetupEpoch} t={props.t}/>}
         {page === 'work-records' && <WorkRecordsPage page={state.workRecords} releases={state.releases} update={props.updateWorkRecord} busy={mutationBusy} t={props.t} />}
         {page === 'approvals' && <ApprovalsPage page={state.approvals} api={api} busy={mutationBusy} t={props.t} />}
         {page === 'attention' && <TeamAttentionPage page={teamDecisions} runs={teamRuns} definitions={teamDefinitions} api={api} busy={mutationBusy} t={props.t} />}

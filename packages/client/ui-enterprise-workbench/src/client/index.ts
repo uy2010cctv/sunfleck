@@ -6,7 +6,7 @@ import type { EnterpriseEmployeeChannelOwner, EnterpriseEmployeeKnowledgeBinding
 import type { ClientRemote } from '@deepseek-ai/dsh-api-remotes/client'
 import type { EnterpriseChannelConfiguration } from '@deepseek-ai/dsh-api-enterprise-controller/types'
 import type {} from '@deepseek-ai/dsh-api-enterprise-controller/types'
-import type {} from '@deepseek-ai/dsh-client-connection/client'
+import type { ConnectionHandle } from '@deepseek-ai/dsh-client-connection/client'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
 import type {} from '@deepseek-ai/dsh-client-ui-workspace/client'
@@ -298,11 +298,17 @@ export function apply(ctx: Context): void {
     const disposers = [
       ctx.sessions.list.subscribe(recompute),
       ctx.workspaces.list.subscribe(recompute),
+      (ctx.get('connection') as ConnectionHandle).generation.subscribe(() => {
+        controller.resetDeviceOperations()
+        void controller.refreshDeviceDiagnostic().catch(() => { controller.resetDeviceOperations() })
+      }),
       ctx.on('connection/reset', () => {
+        controller.resetDeviceOperations()
+        void controller.refreshDeviceDiagnostic()
         if (controller.store.getSnapshot().open) void controller.refresh()
       }),
     ]
-    return () => { for (const dispose of disposers) dispose() }
+    return () => { controller.disposeDeviceOperations(); for (const dispose of disposers) dispose() }
   }, 'enterprise-workbench: projection subscriptions')
 
   const triggerInjected = (): EnterpriseTriggerInjected => ({
@@ -385,8 +391,11 @@ export function apply(ctx: Context): void {
     pollChannelBotInstall: installId => controller.pollChannelBotInstall(installId),
     refreshChannels: () => controller.refreshChannels(),
     refreshDevices: () => controller.refreshDevices(),
+    readLocalDeviceStatus: () => controller.readLocalDeviceStatus(),
     pairLocalDevice: dshOrigin => controller.pairLocalDevice(dshOrigin),
     createRecorderPairing: () => controller.createRecorderPairing(),
+    refreshDeviceDiagnostic: () => controller.refreshDeviceDiagnostic(),
+    retryLocalDeviceTestCleanup: runId => controller.retryLocalDeviceTestCleanup(runId),
     testLocalDevice: deviceId => controller.testLocalDevice(deviceId),
     setExtensionWorkspace: (workspaceId) => { controller.setExtensionWorkspace(workspaceId) },
     refreshExtensions: () => controller.refreshExtensions(),

@@ -17,12 +17,34 @@ import type {
 } from '@deepseek-ai/dsh-api-enterprise-controller/types'
 import type { AgentPresetRow } from '@deepseek-ai/dsh-agent-preset-registry/types'
 import type { JsonValue } from '@deepseek-ai/dsh-util-values'
+import { LocalDeviceError, readDeviceAccountIdentity, readLocalDeviceStatus } from './localDevice.ts'
 import { randomUUID } from '@deepseek-ai/dsh-util-crypto'
 import type {
   ISessions, SessionListState, SessionSummary,
 } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { IWorkspaces, WorkspaceSnapshot as WorkspaceListState } from '@deepseek-ai/dsh-api-workspace-controller/client'
 import { createSnapshotStore, type SnapshotStore } from '@deepseek-ai/dsh-client-store'
+
+/** Account-scoped diagnostic state retained across setup dialog and page remounts. */
+export interface LocalDeviceDiagnostic {
+  readonly deviceId: string
+  readonly phase: 'testing' | 'cleanup-required' | 'stopping'
+  readonly runId?: string
+  readonly action?: EnterpriseDeviceActionView
+}
+
+interface DeviceOperationContext {
+  readonly epoch: number
+  readonly account: string
+  readonly abort: AbortController
+}
+
+/** Independent outcomes of one screen-dimensions diagnostic and its run cleanup. */
+export interface LocalDeviceTestResult {
+  readonly action?: EnterpriseDeviceActionView
+  readonly cleanup: 'stopped' | 'failed'
+  readonly runId: string
+}
 
 /** Operational state shown for one digital employee. */
 export type EmployeeOperationalState = 'active' | 'attention' | 'ready' | 'unavailable'
@@ -289,6 +311,8 @@ export interface EnterpriseWorkbenchState {
   readonly assets: EnterprisePageState<EnterpriseAsset>
   readonly teams: EnterprisePageState<EnterpriseTeam>
   readonly channels: EnterprisePageState<EnterpriseChannelConfiguration>
+  readonly deviceSetupEpoch?: number
+  readonly localDeviceDiagnostic?: LocalDeviceDiagnostic | undefined
   readonly devices: EnterprisePageState<EnterpriseDeviceView>
   readonly teamDefinitions: EnterprisePageState<EnterpriseTeamDefinition>
   readonly teamRuns: EnterprisePageState<EnterpriseTeamRun>
@@ -631,6 +655,12 @@ export class EnterpriseWorkbenchController {
   private mutationAttemptId = 0
   private editorGeneration = 0
   private readonly employeeStarts = new Map<string, Promise<void>>()
+  /** Unsettled diagnostics are retained for their originating authenticated account. */
+  private readonly diagnosticsByAccount = new Map<string, LocalDeviceDiagnostic>()
+  private activeDeviceAccount: string | undefined
+  private deviceEpoch = 0
+  private deviceDisposed = false
+  private readonly deviceRequests = new Set<AbortController>()
   /** Work record this controller last revealed; the Session list no longer carries a current-selection fact. */
   private activeRecordSessionId: SessionId | undefined
 
@@ -639,13 +669,86 @@ export class EnterpriseWorkbenchController {
    * @param sessions - existing Session list and creation service.
    * @param workspaces - existing Workspace list service.
    * @param navigate - reveals a Session in the conversation surface (`ctx.uiWorkspace.openSession`).
+   * @param readDeviceAccount - Fresh authenticated identity used to isolate local setup operations.
    */
   constructor(
     private readonly api: EnterpriseWorkbenchRemote,
     private readonly sessions: ISessions,
     private readonly workspaces: IWorkspaces,
     private readonly navigate: (sessionId: SessionId) => void,
+    private readonly readDeviceAccount: () => Promise<string | undefined> = readDeviceAccountIdentity,
   ) {}
+
+  /** Invalidate local operations on connection loss or replacement. */
+  resetDeviceOperations(): void {
+    this.deviceEpoch++
+    this.pageRequestGeneration.set('devices', (this.pageRequestGeneration.get('devices') ?? 0) + 1)
+    for (const request of this.deviceRequests) request.abort()
+    this.deviceRequests.clear()
+    this.activeDeviceAccount = undefined
+    this.mutationAttemptId++
+    this.retryMutationAction = undefined
+    this.conflictMutationAction = undefined
+    this.store.set({ ...this.store.getSnapshot(), deviceSetupEpoch: this.deviceEpoch, localDeviceDiagnostic: undefined,
+      mutationPhase: 'idle', mutationError: null, retryAction: null })
+  }
+
+  /** Withdraw local operations when the owning plugin is disposed. */
+  disposeDeviceOperations(): void {
+    this.deviceDisposed = true
+    this.resetDeviceOperations()
+  }
+
+  /** Restore diagnostic state belonging to the account currently signed in.
+   * @returns Whether an authenticated account is available.
+   */
+  async refreshDeviceDiagnostic(): Promise<boolean> {
+    const epoch = this.deviceEpoch
+    let account: string | undefined
+    try { account = await this.readDeviceAccount() } catch { this.resetDeviceOperations(); return false }
+    if (epoch !== this.deviceEpoch || this.deviceDisposed) return false
+    if (this.activeDeviceAccount !== undefined && this.activeDeviceAccount !== account) this.resetDeviceOperations()
+    this.activeDeviceAccount = account
+    this.store.set({ ...this.store.getSnapshot(),
+      localDeviceDiagnostic: account === undefined ? undefined : this.diagnosticsByAccount.get(account) })
+    return account !== undefined
+  }
+
+  private async beginDeviceOperation(): Promise<DeviceOperationContext> {
+    const epoch = this.deviceEpoch
+    const account = await this.readDeviceAccount()
+    if (account === undefined || epoch !== this.deviceEpoch || this.deviceDisposed) throw new LocalDeviceError('account-changed')
+    if (this.activeDeviceAccount !== account) {
+      this.activeDeviceAccount = account
+      this.store.set({ ...this.store.getSnapshot(), localDeviceDiagnostic: this.diagnosticsByAccount.get(account) })
+    }
+    const abort = new AbortController()
+    this.deviceRequests.add(abort)
+    return { epoch, account, abort }
+  }
+
+  private currentDeviceOperation(context: DeviceOperationContext): boolean {
+    return !this.deviceDisposed && context.epoch === this.deviceEpoch && !context.abort.signal.aborted
+  }
+
+  private async checkDeviceOperation(context: DeviceOperationContext): Promise<void> {
+    if (!this.currentDeviceOperation(context)) throw new LocalDeviceError('account-changed')
+    let account: string | undefined
+    try { account = await this.readDeviceAccount() }
+    catch (_error) { this.resetDeviceOperations(); throw new LocalDeviceError('account-changed') }
+    if (!this.currentDeviceOperation(context) || account !== context.account) {
+      this.resetDeviceOperations()
+      throw new LocalDeviceError('account-changed')
+    }
+  }
+
+  private publishDiagnostic(account: string, diagnostic: LocalDeviceDiagnostic | undefined): void {
+    if (diagnostic === undefined) this.diagnosticsByAccount.delete(account)
+    else this.diagnosticsByAccount.set(account, diagnostic)
+    if (this.activeDeviceAccount === account && !this.deviceDisposed) {
+      this.store.set({ ...this.store.getSnapshot(), localDeviceDiagnostic: diagnostic })
+    }
+  }
 
   /** Open the workbench, loading its roster on first use. */
   open(): void {
@@ -1287,39 +1390,64 @@ export class EnterpriseWorkbenchController {
     })
   }
 
+  /** Read local companion setup facts without requesting permissions.
+   * @returns Validated local companion status.
+   */
+  readLocalDeviceStatus(): ReturnType<typeof readLocalDeviceStatus> { return readLocalDeviceStatus() }
+
   /** Pair the loopback Device Agent without exposing identifiers or keys to manual entry.
    * @param dshOrigin - Public DSH origin saved by the local Agent.
    * @param localBase - Loopback pairing endpoint.
    * @param fetcher - Browser fetch implementation.
-   * @returns whether pairing and projection refresh succeeded.
+   * @returns The paired device identity after local confirmation and refresh, or undefined when cancelled or failed.
    */
   async pairLocalDevice(
     dshOrigin: string,
     localBase = 'http://127.0.0.1:47631',
     fetcher: typeof globalThis.fetch = globalThis.fetch,
-  ): Promise<boolean> {
+  ): Promise<{ deviceId: string } | undefined> {
     const enterpriseDevices = this.api.enterpriseDevices
     if (enterpriseDevices === undefined) throw new Error('Device Plane is unavailable')
-    return this.runMutation('device-pair', async () => {
-      const identityResponse = await fetcher(`${localBase}/v1/identity`, { headers: { accept: 'application/json' } })
-      if (!identityResponse.ok) throw new Error('本机 Device Agent 未运行')
+    const confirmedAccount = this.activeDeviceAccount
+    if (confirmedAccount === undefined) return undefined
+    let context: DeviceOperationContext
+    try {
+      context = await this.beginDeviceOperation()
+      if (context.account !== confirmedAccount) { this.deviceRequests.delete(context.abort); return undefined }
+    } catch { return undefined }
+    let pairedDeviceId: string | undefined
+    const success = await this.runMutation('device-pair', async () => {
+      await this.checkDeviceOperation(context)
+      const localFetch: typeof fetcher = async (...args) => {
+        try { return await fetcher(args[0], { ...args[1], signal: context.abort.signal }) }
+        catch (error) { throw error instanceof LocalDeviceError ? error : new LocalDeviceError('unavailable') }
+      }
+      const identityResponse = await localFetch(`${localBase}/v1/identity`, { headers: { accept: 'application/json' } })
+      await this.checkDeviceOperation(context)
+      if (!identityResponse.ok) throw new LocalDeviceError(identityResponse.status === 403 ? 'origin-denied' : 'unavailable')
       const identity = await identityResponse.json() as Record<string, unknown>
+      await this.checkDeviceOperation(context)
       if (typeof identity['publicKey'] !== 'string' || typeof identity['deviceName'] !== 'string'
         || typeof identity['challenge'] !== 'string'
         || !['macos', 'windows', 'linux'].includes(String(identity['platform']))) {
-        throw new Error('本机 Device Agent 身份无效')
+        throw new LocalDeviceError('invalid-response')
       }
       const paired = valueOf(await enterpriseDevices.pair({
         publicKey: identity['publicKey'], deviceName: identity['deviceName'],
         platform: identity['platform'] as EnterpriseDevicePairRequest['platform'],
       }))
-      const completion = await fetcher(`${localBase}/v1/complete`, {
+      await this.checkDeviceOperation(context)
+      const completion = await localFetch(`${localBase}/v1/complete`, {
         method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ challenge: identity['challenge'], deviceId: paired.deviceId, dshOrigin }),
       })
-      if (!completion.ok) throw new Error('本机 Device Agent 未确认配对')
+      await this.checkDeviceOperation(context)
+      if (!completion.ok) throw new LocalDeviceError(completion.status === 409 ? 'pairing-conflict' : 'completion-failed')
+      pairedDeviceId = paired.deviceId
       return paired
-    }, () => this.refreshDevices())
+    }, async () => { await this.checkDeviceOperation(context); await this.refreshDevices(); await this.checkDeviceOperation(context) })
+    this.deviceRequests.delete(context.abort)
+    return success && pairedDeviceId !== undefined ? { deviceId: pairedDeviceId } : undefined
   }
 
   /** Create one owner-scoped, short-lived recorder binding code. */
@@ -1331,30 +1459,102 @@ export class EnterpriseWorkbenchController {
 
   /** Queue a harmless desktop observation and wait for persisted local evidence.
    * @param deviceId - Owned online device selected by the user.
-   * @returns terminal or timed-out action projection.
+   * @returns Independent observation and diagnostic-run cleanup outcomes.
    */
-  async testLocalDevice(deviceId: string): Promise<EnterpriseDeviceActionView> {
+  async testLocalDevice(deviceId: string): Promise<LocalDeviceTestResult | undefined> {
     const enterpriseDevices = this.api.enterpriseDevices
-    if (enterpriseDevices === undefined) throw new Error('Device Plane is unavailable')
+    if (enterpriseDevices?.transitionRun === undefined) throw new Error('Device Plane diagnostic cleanup is unavailable')
+    const context = await this.beginDeviceOperation()
+    if (this.diagnosticsByAccount.has(context.account)) {
+      this.deviceRequests.delete(context.abort)
+      throw new LocalDeviceError('diagnostic-pending')
+    }
     const sessionId = this.activeRecordSessionId
     const workspaceId = this.currentSessionWorkspaceId()
     if (sessionId === undefined || workspaceId === undefined) {
+      this.deviceRequests.delete(context.abort)
       throw new Error('Open a work record before testing this computer')
     }
-    const started = valueOf(await enterpriseDevices.startRun({
-      deviceId, workspaceId, sessionId, mode: 'observe',
-    }))
-    const operationId = `device-test:${randomUUID()}`
-    await enterpriseDevices.issuePermit({
-      deviceId, runId: started.runId, operationId, capability: 'desktop.observe',
-      adapter: 'cua', operation: { kind: 'desktop.screen-size' },
-    }).then(valueOf)
-    let action = valueOf(await enterpriseDevices.getAction({ operationId }))
-    for (let attempt = 0; attempt < 20 && (action.state === 'pending' || action.state === 'claimed'); attempt++) {
-      await new Promise(resolve => setTimeout(resolve, 500))
+    this.publishDiagnostic(context.account, { deviceId, phase: 'testing' })
+    let runId: string | undefined
+    let action: EnterpriseDeviceActionView | undefined
+    let cleanup: LocalDeviceTestResult['cleanup'] = 'failed'
+    try {
+      await this.checkDeviceOperation(context)
+      const started = valueOf(await enterpriseDevices.startRun({ deviceId, workspaceId, sessionId, mode: 'observe' }))
+      runId = started.runId
+      this.publishDiagnostic(context.account, { deviceId, runId, phase: 'testing' })
+      await this.checkDeviceOperation(context)
+      const operationId = `device-test:${randomUUID()}`
+      await enterpriseDevices.issuePermit({
+        deviceId, runId, operationId, capability: 'desktop.observe',
+        adapter: 'cua', operation: { kind: 'desktop.screen-size' },
+      }).then(valueOf)
+      await this.checkDeviceOperation(context)
       action = valueOf(await enterpriseDevices.getAction({ operationId }))
+      await this.checkDeviceOperation(context)
+      for (let attempt = 0; attempt < 20 && (action.state === 'pending' || action.state === 'claimed'); attempt++) {
+        await new Promise(resolve => setTimeout(resolve, 500))
+        await this.checkDeviceOperation(context)
+        action = valueOf(await enterpriseDevices.getAction({ operationId }))
+        await this.checkDeviceOperation(context)
+      }
+    } catch (_error) {
+      // Missing observation evidence remains independent from diagnostic-run cleanup.
+      action = undefined
+    } finally {
+      if (runId !== undefined) {
+        try {
+          await this.checkDeviceOperation(context)
+          await enterpriseDevices.transitionRun({ runId, state: 'stopped', expectedRevision: 1 }).then(valueOf)
+          await this.checkDeviceOperation(context)
+          cleanup = 'stopped'
+        } catch (_error) {
+          // The original account retains cleanup when its authorization is unavailable.
+          cleanup = 'failed'
+        }
+        this.publishDiagnostic(context.account, cleanup === 'stopped' ? undefined
+          : { deviceId, runId, phase: 'cleanup-required', ...(action === undefined ? {} : { action }) })
+      } else this.publishDiagnostic(context.account, undefined)
+      this.deviceRequests.delete(context.abort)
     }
-    return action
+    if (context.epoch !== this.deviceEpoch || runId === undefined) return undefined
+    return { ...(action === undefined ? {} : { action }), cleanup, runId }
+  }
+
+  /** Retry the current account's retained diagnostic using its latest revision.
+   * @param runId Identity returned by this controller's connection test.
+   * @returns Whether the diagnostic run is confirmed stopped.
+   */
+  async retryLocalDeviceTestCleanup(runId: string): Promise<boolean> {
+    let context: DeviceOperationContext
+    try { context = await this.beginDeviceOperation() } catch { return false }
+    const diagnostic = this.diagnosticsByAccount.get(context.account)
+    const enterpriseDevices = this.api.enterpriseDevices
+    if (diagnostic?.runId !== runId || diagnostic.phase !== 'cleanup-required' || enterpriseDevices?.listRuns === undefined) {
+      this.deviceRequests.delete(context.abort)
+      return false
+    }
+    this.publishDiagnostic(context.account, { ...diagnostic, phase: 'stopping' })
+    let stopped = false
+    try {
+      await this.checkDeviceOperation(context)
+      const runs = valueOf(await enterpriseDevices.listRuns({ limit: 100 }))
+      await this.checkDeviceOperation(context)
+      const run = runs.find(value => value.runId === runId)
+      if (run === undefined) return false
+      if (run.status !== 'stopped') {
+        await this.checkDeviceOperation(context)
+        await this.transitionDeviceRun(run, 'stopped')
+        await this.checkDeviceOperation(context)
+      }
+      stopped = true
+      return true
+    } catch (_error) { return false }
+    finally {
+      this.publishDiagnostic(context.account, stopped ? undefined : { ...diagnostic, phase: 'cleanup-required' })
+      this.deviceRequests.delete(context.abort)
+    }
   }
 
   /** Load recent run and action projections for the Device Plane control surface.
