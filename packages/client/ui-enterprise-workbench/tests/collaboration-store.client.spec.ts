@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { CollaborationController, type RoomEvent } from '../src/client/collaboration-store.ts'
 
-const surface = { id: 'group-1', kind: 'group', name: 'Renewal', memberCount: 4 }
+const surface = { id: 'group-1', kind: 'group' as const, name: 'Renewal', memberCount: 4 }
 const detail = { ...surface, workspaceId: 'workspace', members: [{ employeeId: 'analyst', displayName: 'Analyst' }], memberUserIds: ['me', 'other'], topics: [], dutyEmployeeIds: [], viewerUserId: 'me', viewerIsAdmin: true, adminUserId: 'me' }
 const human: RoomEvent = { sequence: '9007199254740993', id: 'human-1', pubkey: 'human-public-key', created_at: 1, kind: 9, tags: [['h', 'group-1']], content: 'Please research', sig: 'signed-human-event', author: { kind: 'human', id: 'me', displayName: 'Director' } }
 const bot: RoomEvent = { ...human, sequence: '9007199254740994', id: 'bot-1', pubkey: 'bot-public-key', content: 'I will hand this to Data Bot', sig: 'signed-bot-event', author: { kind: 'employee', id: 'analyst', displayName: 'Research Bot' }, sourceSessionId: 'execution' }
