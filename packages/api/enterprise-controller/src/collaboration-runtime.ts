@@ -518,7 +518,7 @@ export function composeCollaboration(ctx: Context, services: {
         })
       } finally { reads.clear() }
     })
-  ctx.effect(() => () => { roomRecovery.clear() }, 'collaboration room recovery metadata')
+  ctx.effect(() => async () => { await roomRecovery.dispose() }, 'collaboration room recovery')
   const service = new CollaborationService(store, {
     attachRoomTools: async (sessionId) => {
       const agent = ctx.agents.get(brandString<SessionId>(sessionId))
@@ -630,6 +630,10 @@ export function composeCollaboration(ctx: Context, services: {
           events: services.limits.roomContextEvents }, names, row.kind === 'group')
       },
       reconcile: row => roomRecovery.reconcile(row),
+      startRecovery: (row) => {
+        roomRecovery.start(row, (error) => { ctx.logger.error(`room recovery failed: ${String(error)}`) })
+      },
+      recoveryPending: row => roomRecovery.isPending(row),
       dispatchCommitted: async (_actor, row, event) => {
         if (outbox === undefined || leaseMs === undefined) throw new CollaborationError('room-dispatch-unavailable', 503)
         return { delivered: true, targets: await outbox.immediate(row.orgId, row.id, event.event.id, leaseMs) }

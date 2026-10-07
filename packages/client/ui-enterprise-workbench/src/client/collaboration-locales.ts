@@ -4,6 +4,7 @@ export const COLLABORATION_NS = 'enterprise.collaboration'
 export const en = {
   groups: 'Group chats', channels: 'Channels', addGroup: 'Create group', addChannel: 'Create channel',
   refresh: 'Refresh conversations', emptyGroup: 'No group chats', emptyChannel: 'No channels',
+  historySyncing: 'Syncing history',
   loadError: 'Could not load conversations', retry: 'Retry', create: 'Create', cancel: 'Cancel',
   name: 'Name', workspace: 'Workspace', chooseWorkspace: 'Select an accessible workspace',
   employees: 'Digital employees', people: 'People', team: 'Team charter', noTeam: 'No charter · respond to mentions',
@@ -98,6 +99,7 @@ export type CollaborationKey = keyof typeof en
 export const zh: Record<CollaborationKey, string> = {
   groups: '群聊', channels: '频道', addGroup: '创建群聊', addChannel: '创建频道',
   refresh: '刷新会话', emptyGroup: '暂无群聊', emptyChannel: '暂无频道',
+  historySyncing: '正在同步历史',
   loadError: '会话加载失败', retry: '重试', create: '创建', cancel: '取消',
   name: '名称', workspace: '工作区', chooseWorkspace: '选择可访问的工作区',
   employees: '数字员工', people: '成员', team: '团队章程', noTeam: '无章程 · @ 谁谁回应',

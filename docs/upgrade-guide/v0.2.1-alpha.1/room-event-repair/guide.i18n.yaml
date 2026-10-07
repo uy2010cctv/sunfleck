@@ -1,0 +1,16 @@
+# Bilingual-pair consistency record for guide.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/upgrade-guide/v0.2.1-alpha.1/room-event-repair/guide.md
+/:
+  en: eb35aac56a1991c2
+  zh: 5f0dbb11e8035aa8
+/room-event-repair-runs-asynchronously:
+  en: b5590b261c974aff
+  zh: d25ab4d5952fa214
+/room-event-repair-runs-asynchronously/change:
+  en: 7466ce912c17b7d6
+  zh: 995ad1f302f17642
+/room-event-repair-runs-asynchronously/migration:
+  en: 3b58459dc396caa3
+  zh: 25671fe7e82077e0

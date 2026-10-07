@@ -131,6 +131,10 @@ export interface CollaborationRoomRuntime {
     readonly employeeId?: string }[]>
   committed?(actor: EnterprisePrincipal, row: CollaborationRecord, event: RoomEvent): Promise<void>
   reconcile?(row: CollaborationRecord): Promise<void>
+  /** Start an owned repair after current room authorization; committed events remain immediately readable. */
+  startRecovery?(row: CollaborationRecord): void
+  /** Whether a repair or revision observation remains active for the room. */
+  recoveryPending?(row: CollaborationRecord): boolean
 }
 /** Existing native services supplied by the controller composition. */
 export interface CollaborationRuntime {
@@ -181,7 +185,7 @@ export class CollaborationService {
    * @param actor - Authenticated human.
    * @param id - Room identity.
    * @param options - Bounded cursor and thread selection.
-   * @returns Signed room events, incremental cursors, and the parent for a valid thread selection.
+   * @returns Committed signed events, repair state, incremental cursors, and the parent for a valid thread selection.
    * @throws A 404 error when the selected parent is absent, is not a text post, or is itself a reply.
    */
   async events(actor: EnterprisePrincipal, id: string, options: { readonly after?: string
@@ -190,19 +194,24 @@ export class CollaborationService {
     readonly threadRoot?: string }): Promise<{ items: readonly CollaborationRoomEvent[]
     nextCursor: string | null
     prevCursor: string | null
+    reconciling: boolean
     root?: CollaborationRoomEvent }> {
     const row = await this.authorized(actor, id)
     const room = this.requireRoom()
-    await room.reconcile?.(row)
+    if (room.startRecovery === undefined) await room.reconcile?.(row)
+    else room.startRecovery(row)
     const parent = options.threadRoot === undefined ? undefined : await room.get(row, options.threadRoot)
     if (options.threadRoot !== undefined && (parent === undefined || parent.event.kind !== 9 || parent.threadRoot !== undefined)) {
       throw new CollaborationError('thread-not-found', 404)
     }
     const events = await room.list(row, options)
     const authors = new Map<string, Promise<string>>()
-    return { items: await Promise.all(events.map(event => room.present(actor, row, event, authors))),
+    const items = await Promise.all(events.map(event => room.present(actor, row, event, authors)))
+    const root = parent === undefined ? undefined : await room.present(actor, row, parent, authors)
+    return { items,
       nextCursor: events.at(-1)?.sequence ?? null, prevCursor: events[0]?.sequence ?? null,
-      ...(parent === undefined ? {} : { root: await room.present(actor, row, parent, authors) }) }
+      reconciling: room.recoveryPending?.(row) ?? false,
+      ...(root === undefined ? {} : { root }) }
   }
 
   /** Advance this human's room cursor to an exact event from the displayed room page.

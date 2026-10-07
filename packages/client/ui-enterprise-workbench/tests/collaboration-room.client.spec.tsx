@@ -35,6 +35,21 @@ function setup(events: RoomEvent[] = [human, colleague, research, data, reaction
 }
 
 describe('shared room UI', () => {
+  it('keeps saved messages visible while showing a history synchronization status', () => {
+    const { controller, state, t } = setup([human])
+    const syncing = { ...state, roomReconciling: true }
+    const view = render(<CollaborationRoom controller={controller} state={syncing} t={t} />)
+    try {
+      expect(screen.getByRole('status').textContent).toBe('正在同步历史')
+      expect(screen.getByText(human.content)).toBeTruthy()
+      view.rerender(<CollaborationRoom controller={controller} state={{ ...state, roomReconciling: false,
+        events: [human, colleague] }} t={t} />)
+      expect(screen.queryByRole('status')).toBeNull()
+      expect(screen.getByText(colleague.content)).toBeTruthy()
+      expect(screen.getByText(human.content)).toBeTruthy()
+    } finally { controller.dispose() }
+  })
+
   it('shows attachment rejection beside its channel post without hiding it in execution details', () => {
     const failure: RoomEvent = { ...human, id: 'attachment-failure', sequence: '40', kind: 41000,
       author: { kind: 'service', id: 'attachment-admission', displayName: 'Attachment admission' },

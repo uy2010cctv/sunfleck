@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { CollaborationService, type CollaborationDelivery, type CollaborationMessageInput } from '../src/collaboration-service.ts'
 import type { CollaborationRecord, CollaborationSession, RoomEvent } from '@deepseek-ai/dsh-enterprise-postgres'
 import type { EnterprisePrincipal } from '@deepseek-ai/dsh-enterprise-governance'
@@ -9,7 +9,11 @@ const room: CollaborationRecord = { id: 'group', orgId: 'org', kind: 'group', na
   memberUserIds: ['alice', 'bob'], memberEmployeeIds: ['research', 'data'], dutyEmployeeIds: [] }
 
 function fixture(record: CollaborationRecord = room,
-  dispatchCommitted?: () => Promise<CollaborationDelivery>) {
+  dispatchCommitted?: () => Promise<CollaborationDelivery>, recovery?: {
+    reconcile: () => Promise<void>
+    startRecovery: () => void
+    recoveryPending: () => boolean
+  }) {
   const events: RoomEvent[] = []
   const routes: Array<{ targets: readonly string[]; route?: 'team' | 'ingest' }> = []
   const sessions: CollaborationSession[] = []
@@ -28,6 +32,7 @@ function fixture(record: CollaborationRecord = room,
       ({ pinned: patch.pinned ?? false, starred: patch.starred ?? false, muted: patch.muted ?? false }),
   } as never, {
     room: {
+      ...recovery,
       appendHuman: async (actor: EnterprisePrincipal, _record: CollaborationRecord, input: CollaborationMessageInput,
         dispatch: { readonly targets: readonly string[]; readonly route?: 'team' | 'ingest' }) => {
         routes.push(dispatch)
@@ -85,6 +90,33 @@ function fixture(record: CollaborationRecord = room,
   })
   return { service, events, routes, prompts, revoke: () => { permitted = false } }
 }
+
+it('returns committed signed events while repair is pending and exposes recovered events on later reads', async () => {
+  let release: () => void = () => { throw new Error('repair gate not initialized') }
+  let pending = false
+  let repaired = false
+  const gate = new Promise<void>((resolve) => { release = resolve })
+  const startRecovery = vi.fn(() => { pending = !repaired })
+  const app = fixture(room, undefined, { reconcile: async () => gate, startRecovery, recoveryPending: () => pending })
+  try {
+    await app.service.message(alice, room.id, { text: 'Committed', mentionedEmployeeIds: [] })
+    const page = app.service.events(alice, room.id, {})
+    const available = await Promise.race([page.then(() => true), new Promise<false>((resolve) => {
+      setImmediate(() => { resolve(false) })
+    })])
+    expect(available).toBe(true)
+    expect(await page).toMatchObject({ reconciling: true, items: [{ content: 'Committed' }] })
+    release()
+    pending = false
+    repaired = true
+    await app.service.message(alice, room.id, { text: 'Recovered', mentionedEmployeeIds: [] })
+    expect(await app.service.events(alice, room.id, {})).toMatchObject({ reconciling: false,
+      items: [{ content: 'Committed' }, { content: 'Recovered' }] })
+    app.revoke()
+    await expect(app.service.events(alice, room.id, {})).rejects.toThrow('not-found')
+    expect(startRecovery).toHaveBeenCalledTimes(2)
+  } finally { release() }
+})
 
 describe('charter room attachment admission', () => {
   it('rejects attachments before committing a signed charter post', async () => {

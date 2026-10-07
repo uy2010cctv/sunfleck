@@ -4,6 +4,8 @@
 .roomIcon { display: grid; place-items: center; width: 34px; height: 34px; flex: none; border-radius: var(--dsw-radius-md); background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-label-secondary); font-size: 20px; }
 .heading h1 { margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 16px; font-weight: 500; }
 .heading p { margin: 3px 0 0; color: var(--dsw-alias-label-secondary); font-size: 12px; }
+.historySync { display: inline-flex; align-items: center; gap: 6px; margin-left: 8px; vertical-align: middle; }
+.historySync svg { animation: rotation 1s linear infinite; }
 .headerActions { display: flex; gap: 4px; }
 .headerActions button, .sideHeader button, .search button { display: inline-grid; place-items: center; min-width: 30px; min-height: 30px; border: 0; border-radius: var(--dsw-radius-sm); padding: 4px; background: transparent; color: var(--dsw-alias-label-secondary); cursor: pointer; }
 .headerActions button:hover, .sideHeader button:hover, .search button:hover { background: var(--dsw-alias-interactive-bg-hover); }

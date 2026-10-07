@@ -94,6 +94,64 @@ describe('shared collaboration room', () => {
     }
   })
 
+  it.each([false, true])('exposes older history when reconciliation fills an empty first page (pending echo: %s)', async (pendingEcho) => {
+    const all = Array.from({ length: 123 }, (_, index) => ({ ...human, id: `repaired-${index}`, sequence: String(index + 1) }))
+    const request = fetcher(Response.json(detail), Response.json({ items: [], nextCursor: null, reconciling: true }),
+      Response.json({ items: all.slice(-100), nextCursor: '123', reconciling: false }),
+      Response.json({ items: all.slice(0, 23), nextCursor: '23', reconciling: false }))
+    const { value } = controller(request)
+    try {
+      await value.select(surface.id)
+      if (pendingEcho) value.state.set({ ...value.state.getSnapshot(), events: [{ ...human, id: 'pending-echo', sequence: '0', delivery: 'pending' }] })
+      value.setMainPanel('enterprise-collaboration')
+      await value.poll()
+      expect(request.mock.calls.at(-1)?.[0]).toBe('/enterprise/surfaces/group-1/events?limit=100')
+      expect(value.state.getSnapshot()).toMatchObject({ olderCursor: '24', roomReconciling: false })
+      await value.loadOlder()
+      expect(request.mock.calls.at(-1)?.[0]).toBe('/enterprise/surfaces/group-1/events?before=24&limit=100')
+      expect(value.state.getSnapshot().events.filter(event => event.delivery !== 'pending')).toEqual(all)
+      expect(value.state.getSnapshot().olderCursor).toBeNull()
+    } finally { value.dispose() }
+  })
+
+  it('preserves the first-page older cursor while polling later committed messages', async () => {
+    const initial = Array.from({ length: 20 }, (_, index) => ({ ...human, id: `initial-${index}`, sequence: String(index + 24) }))
+    const request = fetcher(Response.json(detail), Response.json({ items: initial, nextCursor: '43', reconciling: true }),
+      Response.json({ items: [{ ...bot, sequence: '44' }], nextCursor: '44', reconciling: false }))
+    const { value } = controller(request)
+    try {
+      await value.select(surface.id)
+      value.setMainPanel('enterprise-collaboration')
+      await value.poll()
+      expect(value.state.getSnapshot().olderCursor).toBe('24')
+    } finally { value.dispose() }
+  })
+
+  it('ignores a full history poll for a formerly empty room after switching', async () => {
+    const history = Promise.withResolvers<Response>()
+    const all = Array.from({ length: 100 }, (_, index) => ({ ...human, id: `late-${index}`, sequence: String(index + 24) }))
+    const request = vi.fn(async (url: string) => {
+      if (url.endsWith('group-1/events?limit=100')) return history.promise
+      if (url.includes('/events?')) return Response.json({ items: [], nextCursor: null, reconciling: url.includes('group-1') })
+      return Response.json({ ...detail, id: url.endsWith('next-room') ? 'next-room' : surface.id })
+    })
+    const { value } = controller(request)
+    let pending: Promise<void> | undefined
+    try {
+      await value.select(surface.id)
+      value.setMainPanel('enterprise-collaboration')
+      pending = value.poll()
+      await value.select('next-room')
+      history.resolve(Response.json({ items: all, nextCursor: '123', reconciling: false }))
+      await pending
+      expect(value.state.getSnapshot()).toMatchObject({ events: [], olderCursor: null, roomReconciling: false, selection: { detail: { id: 'next-room' } } })
+    } finally {
+      history.resolve(Response.json({ items: all, nextCursor: '123', reconciling: false }))
+      await pending
+      value.dispose()
+    }
+  })
+
   it('uses a configured first-page size and still exposes earlier messages', async () => {
     const recent = [{ ...human, sequence: '2' }, { ...bot, sequence: '3' }]
     const request = fetcher(Response.json(detail), Response.json({ items: recent, nextCursor: '3' }))
@@ -148,6 +206,54 @@ describe('shared collaboration room', () => {
       expect(value.state.getSnapshot().selection).toBeNull()
     } finally {
       metadata.resolve(Response.json(detail))
+      await pending
+      value.dispose()
+    }
+  })
+
+  it.each([null, 'true', 1])('rejects invalid reconciliation state %s', async (reconciling) => {
+    const request = fetcher(Response.json(detail), Response.json({ items: [human], nextCursor: human.sequence, reconciling }))
+    const { value } = controller(request)
+    try {
+      await value.select(surface.id)
+      expect(value.state.getSnapshot()).toMatchObject({ roomPhase: 'error', events: [], busy: false, roomReconciling: false })
+    } finally { value.dispose() }
+  })
+
+  it('shows saved messages during reconciliation and merges completed replies on polling', async () => {
+    const request = fetcher(Response.json(detail), Response.json({ items: [human], nextCursor: human.sequence, reconciling: true }),
+      Response.json({ items: [bot], nextCursor: bot.sequence, reconciling: false }))
+    const { value } = controller(request)
+    try {
+      await value.select(surface.id)
+      expect(value.state.getSnapshot()).toMatchObject({ roomPhase: 'ready', busy: false, roomReconciling: true, events: [human] })
+      value.setMainPanel('enterprise-collaboration')
+      await value.poll()
+      expect(value.state.getSnapshot()).toMatchObject({ roomReconciling: false, events: [human, bot] })
+    } finally { value.dispose() }
+  })
+
+  it('clears reconciliation state on leaving and ignores a former room poll after switching', async () => {
+    const poll = Promise.withResolvers<Response>()
+    const request = vi.fn(async (url: string) => {
+      if (url.includes('after=')) return poll.promise
+      if (url.includes('/events?')) return Response.json({ items: [human], nextCursor: human.sequence, reconciling: url.includes('group-1') })
+      return Response.json({ ...detail, id: url.endsWith('next-room') ? 'next-room' : surface.id })
+    })
+    const { value } = controller(request)
+    let pending: Promise<void> | undefined
+    try {
+      await value.select(surface.id)
+      value.setMainPanel('enterprise-collaboration')
+      pending = value.poll()
+      await value.select('next-room')
+      poll.resolve(Response.json({ items: [bot], nextCursor: bot.sequence, reconciling: true }))
+      await pending
+      expect(value.state.getSnapshot()).toMatchObject({ roomReconciling: false, events: [human], selection: { detail: { id: 'next-room' } } })
+      value.clearSelection()
+      expect(value.state.getSnapshot()).toMatchObject({ roomReconciling: false, selection: null, events: [] })
+    } finally {
+      poll.resolve(Response.json({ items: [], nextCursor: null }))
       await pending
       value.dispose()
     }

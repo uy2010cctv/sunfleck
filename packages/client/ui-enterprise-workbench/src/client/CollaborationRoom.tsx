@@ -766,7 +766,7 @@ export function CollaborationRoom({ state, controller, renderFactorySlot, t }: {
   return <main className={`${css.room} ${detail.kind === 'channel' ? css.channel : ''}`}>
 
     <header className={css.header}>
-      <div className={css.heading}><span className={css.roomIcon}>{detail.kind === 'channel' ? '#' : <IconUsersOutlineRegular size={18}/>}</span><div><h1>{detail.name}</h1><p>{t(detail.kind === 'group' ? 'groups' : 'channels')} · {detail.memberCount} {t('memberCount')}</p></div></div>
+      <div className={css.heading}><span className={css.roomIcon}>{detail.kind === 'channel' ? '#' : <IconUsersOutlineRegular size={18}/>}</span><div><h1>{detail.name}</h1><p>{t(detail.kind === 'group' ? 'groups' : 'channels')} · {detail.memberCount} {t('memberCount')}{state.roomReconciling && <span className={css.historySync} role="status"><IconLoadingOutlineRegular size={12}/>{t('historySyncing')}</span>}</p></div></div>
       <div className={css.headerActions}>
         <Tooltip label={t('searchRoom')}><button type="button" onClick={() => { setShowSearch(!showSearch) }} aria-label={t('searchRoom')} aria-expanded={showSearch}><IconSearchOutlineRegular size={17}/></button></Tooltip>
         <Tooltip label={t('roomDetails')}><button type="button" onClick={() => { setShowDetails(!showDetails); void controller.refreshCurrent() }} aria-label={t('roomDetails')} aria-expanded={showDetails}><IconUsersOutlineRegular size={17}/></button></Tooltip>

@@ -16,6 +16,8 @@ import type { RoomEvent } from '@deepseek-ai/dsh-enterprise-postgres'
 
 const actor = { orgId: 'org', userId: 'alice', roles: ['administrator'] as const }
 
+async function settleRoomRecovery(): Promise<void> { await new Promise<void>(resolve => setImmediate(resolve)) }
+
 it.each(['grant', 'cleared', 'different employee'] as const)(
   'rechecks current scheduled reply authority: %s', async (change) => {
     const ctx = new Context()
@@ -78,6 +80,7 @@ it.each(['grant', 'cleared', 'different employee'] as const)(
         maxBotHops: 2, roomDispatchPollMs: 100, roomDispatchLeaseMs: 1000 } })
     try {
       await handler.service.events(actor, row.id, {})
+      await settleRoomRecovery()
       expect(append).not.toHaveBeenCalled()
       if (change !== 'grant') {
         expect(read).toHaveBeenCalledTimes(2)
@@ -85,11 +88,13 @@ it.each(['grant', 'cleared', 'different employee'] as const)(
       }
       granted = true
       await handler.service.events(actor, row.id, {})
+      await settleRoomRecovery()
       expect(append).toHaveBeenCalledOnce()
       expect(posted?.event.content).toBe('Reply')
       expect(posted?.event.tags).toContainEqual(['dsh-schedule'])
       expect(read).toHaveBeenCalledTimes(2)
       await handler.service.events(actor, row.id, {})
+      await settleRoomRecovery()
       expect(read).toHaveBeenCalledTimes(2)
     } finally { await ctx.fiber.dispose() }
   })
@@ -137,6 +142,7 @@ it('reads complete room history once, reuses unchanged recovery, and resolves pa
       maxBotHops: 2, roomDispatchPollMs: 100, roomDispatchLeaseMs: 1000 } })
   try {
     const first = await handler.service.events(actor, row.id, {})
+    await settleRoomRecovery()
     expect(first.items).toHaveLength(20)
     expect(first.items.every(value => value.author.displayName === 'Alice')).toBe(true)
     expect(read).toHaveBeenCalledOnce()
@@ -145,10 +151,12 @@ it('reads complete room history once, reuses unchanged recovery, and resolves pa
     expect(read).toHaveBeenCalledWith()
     expect(findUserById).toHaveBeenCalledOnce()
     await Promise.all([handler.service.events(actor, row.id, {}), handler.service.events(actor, row.id, {})])
+    await settleRoomRecovery()
     expect(open).toHaveBeenCalledOnce()
     expect(findUserById).toHaveBeenCalledTimes(3)
     revision = '2'
     await handler.service.events(actor, row.id, {})
+    await settleRoomRecovery()
     expect(open).toHaveBeenCalledTimes(2)
     row.memberUserIds = []
     await expect(handler.service.events(actor, row.id, {})).rejects.toThrow('not-found')
@@ -181,11 +189,14 @@ it('observes Team child revisions and reads each root and child once per recover
       maxBotHops: 2, roomDispatchPollMs: 100, roomDispatchLeaseMs: 1000 } })
   try {
     await handler.service.events(actor, row.id, {})
+    await settleRoomRecovery()
     expect(read.mock.calls.map(([id]) => id)).toEqual(['root', 'child'])
     await handler.service.events(actor, row.id, {})
+    await settleRoomRecovery()
     expect(read).toHaveBeenCalledTimes(2)
     childRevision = '2'
     await handler.service.events(actor, row.id, {})
+    await settleRoomRecovery()
     expect(read.mock.calls.map(([id]) => id)).toEqual(['root', 'child', 'root', 'child'])
   } finally { await ctx.fiber.dispose() }
 })
