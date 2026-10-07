@@ -1294,7 +1294,8 @@
 .deviceSetupDialog { width: min(680px, 100%); max-height: 100%; }
 .deviceSetupContent { display: grid; gap: var(--dse-space-md); min-height: 0; overflow: auto; }
 .deviceSetupSteps { display: flex; flex-wrap: wrap; gap: var(--dse-space-2xs); list-style: none; padding: 0; margin: 0; }
-.deviceSetupSteps [aria-current='step'] button { border-color: var(--dse-color-accent); }
+.deviceSetupSteps li { padding: var(--dse-space-2xs) var(--dse-space-sm); border: 1px solid var(--dse-color-border); border-radius: var(--dse-radius-control); }
+.deviceSetupSteps [aria-current='step'] { border-color: var(--dse-color-accent); }
 .deviceSetupSection { display: grid; gap: var(--dse-space-sm); }
 .deviceSetupSection h3, .deviceSetupSection p { margin: 0; }
 .deviceSetupSection dl { display: grid; grid-template-columns: 1fr 1fr; gap: var(--dse-space-2xs); margin: 0; }

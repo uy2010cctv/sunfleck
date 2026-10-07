@@ -106,16 +106,17 @@ export function DeviceSetup({ open, onClose, api, diagnostic, setupEpoch, t }: {
         void verify(pairedDeviceId, token).finally(() => { if (token === generation.current) setPending(false) })
       }}>{t('device.setup.verifyAction')}</button>
     </div>}
-    {status !== undefined && <details open={phase === 'connected' && !desktopReady} className={css.deviceSetupSection}>
-      <summary>{t('device.setup.permissionsHelp')}</summary>
+    {status !== undefined && <div className={css.deviceSetupSection}>
       <dl><dt>{t('device.setup.accessibility')}</dt><dd>{t(`device.setup.permission.${status.permissions.accessibility}`)}</dd><dt>{t('device.setup.screenRecording')}</dt><dd>{t(`device.setup.permission.${status.permissions.screenRecording}`)}</dd></dl>
-      {!desktopReady && <><p>{t(status.platform === 'macos' ? 'device.setup.macPermissions' : 'device.setup.otherPlatform')}</p><p>{t('device.setup.restart')}</p></>}
-      <p>{t(status.browser.available ? 'device.setup.browserReady' : 'device.setup.browserUnknown')}</p>
-      <button type="button" className={css.secondaryButton} disabled={pending} onClick={() => { void refresh() }}>{t('device.setup.recheck')}</button>
-    </details>}
+      <details><summary>{t('device.setup.permissionsHelp')}</summary><div className={css.deviceSetupSection}>
+        {!desktopReady && <><p>{t(status.platform === 'macos' ? 'device.setup.macPermissions' : 'device.setup.otherPlatform')}</p><p>{t('device.setup.restart')}</p></>}
+        <p>{t(status.browser.available ? 'device.setup.browserReady' : 'device.setup.browserUnknown')}</p>
+        <button type="button" className={css.secondaryButton} disabled={pending} onClick={() => { void refresh() }}>{t('device.setup.recheck')}</button>
+      </div></details>
+    </div>}
     <details open={phase === 'unavailable'} className={css.deviceSetupSection}><summary>{t('device.setup.installHelp')}</summary><p>{t('device.setup.install')}</p><p>{t('device.setup.prerequisites')}</p><pre className={css.deviceSetupCommand}>{t('device.setup.commands', { origin: window.location.origin })}</pre><p>{t('device.setup.keepRunning')}</p></details>
     {phase === 'unavailable' && <button type="button" className={css.primaryButton} disabled={pending} onClick={() => { void refresh() }}>{t('device.setup.check')}</button>}
-    {phase === 'connected' && <><p>{t('device.setup.stopBody')}</p><button type="button" className={css.primaryButton} onClick={onClose}>{t('device.setup.done')}</button></>}
+    {phase === 'connected' && <><details><summary>{t('device.setup.controlHelp')}</summary><p>{t('device.setup.stopBody')}</p></details><button type="button" className={css.primaryButton} onClick={onClose}>{t('device.setup.done')}</button></>}
     {cleanupRunId !== undefined && <div role="alert"><p>{t('device.setup.cleanupFailed')}</p><button type="button" className={css.secondaryButton} disabled={pending} onClick={() => {
       const token = generation.current; setPending(true)
       void api.retryLocalDeviceTestCleanup(cleanupRunId).then((stopped) => { if (!stopped && token === generation.current) setError('device.setup.cleanupFailed') }).finally(() => { if (token === generation.current) setPending(false) })
