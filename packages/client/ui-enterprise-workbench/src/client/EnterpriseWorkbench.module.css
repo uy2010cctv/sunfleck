@@ -1291,7 +1291,8 @@
 .charterSaved { display: flex; flex-wrap: wrap; gap: var(--dse-space-xs); margin: 0; color: var(--dse-color-accent); font-size: 0.8125rem; }
 .charterSaved span { color: var(--dse-color-muted); }
 
-.deviceSetupContent { display: grid; gap: var(--dse-space-md); }
+.deviceSetupDialog { width: min(680px, 100%); max-height: 100%; }
+.deviceSetupContent { display: grid; gap: var(--dse-space-md); min-height: 0; overflow: auto; }
 .deviceSetupSteps { display: flex; flex-wrap: wrap; gap: var(--dse-space-2xs); list-style: none; padding: 0; margin: 0; }
 .deviceSetupSteps [aria-current='step'] button { border-color: var(--dse-color-accent); }
 .deviceSetupSection { display: grid; gap: var(--dse-space-sm); }

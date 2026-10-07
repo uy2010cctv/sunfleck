@@ -57,7 +57,7 @@ export function DeviceSetup({ open, onClose, api, devices, diagnostic, setupEpoc
     finally { setPending(false) }
   }
   return <Modal open={open} title={t('device.setup.title')} closeLabel={t('close')} onClose={onClose}
-    description={t('device.setup.intro')} contentClassName={css.deviceSetupContent ?? ''}>
+    description={t('device.setup.intro')} className={css.deviceSetupDialog ?? ''} contentClassName={css.deviceSetupContent ?? ''}>
     <ol className={css.deviceSetupSteps} aria-label={t('device.setup.steps')}>
       {(['install', 'check', 'permissions', 'browser', 'test', 'done'] as const).map((name, index) => <li key={name} aria-current={index === step ? 'step' : undefined}><button type="button" className={css.secondaryButton} disabled={pending || index === 4 && !paired || index > 1 && index < 4 && status === undefined} onClick={() => { setStep(index); setError(undefined) }}>{t(`device.setup.step.${name}`)}</button></li>)}
     </ol>
