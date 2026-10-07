@@ -53,7 +53,7 @@ it.each(['grant', 'cleared', 'different employee'] as const)(
     const row = { id: 'group', orgId: 'org', name: 'Group', kind: 'group', workspaceId: 'shared',
       memberUserIds: ['alice'], memberEmployeeIds: ['employee-a'], dutyEmployeeIds: [] }
     const binding = { surfaceId: row.id, topicId: '', employeeId: 'employee-a', sessionId: 'session' }
-    const events = [
+    const events: { type: string; seq: number; data: object }[] = [
       { type: 'enterprise-employee/selected', seq: 0, data: { orgId: 'org', ownerUserId: 'alice',
         employeeId: 'employee-a', releaseId: 'release-a', releaseVersion: 1 } },
       { type: 'turn/start', seq: 1, data: { turn: 1 } },
