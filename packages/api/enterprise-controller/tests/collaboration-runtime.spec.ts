@@ -18,6 +18,35 @@ const actor = { orgId: 'org', userId: 'alice', roles: ['administrator'] as const
 
 async function settleRoomRecovery(): Promise<void> { await new Promise<void>(resolve => setImmediate(resolve)) }
 
+it('returns reconciling false while an unchanged room waits on a metadata check', async () => {
+  const ctx = new Context()
+  const row = { id: 'group', orgId: 'org', name: 'Group', kind: 'group', workspaceId: 'shared',
+    memberUserIds: ['alice'], memberEmployeeIds: ['employee-a'], dutyEmployeeIds: [] }
+  let release: () => void = () => { throw new Error('metadata gate not initialized') }
+  const gate = new Promise<void>((resolve) => { release = resolve })
+  let blocked = false
+  const read = vi.fn(async () => ({ events: [] }))
+  ctx.provide('enterprisePostgres' as never, {
+    collaboration: { get: async () => row, sessions: async () => [{ surfaceId: row.id, topicId: '',
+      employeeId: 'employee-a', sessionId: 'session' }] }, roomEvents: { list: async () => [], claimDispatch: async () => [] },
+  } as never)
+  ctx.provide('sessionPersistence' as never, {
+    open: async () => ({ read, close: async () => {} }),
+    stat: async () => { if (blocked) await gate; return { revision: 'unchanged' } },
+  } as never)
+  ctx.provide('enterpriseSecurity' as never, { authorizeApiAsync: async () => ({ allowed: true }) } as never)
+  const handler = composeCollaboration(ctx, { operations: () => { throw new Error('unused') },
+    teams: () => { throw new Error('unused') }, limits: { roomContextCharacters: 6000, roomContextEvents: 24,
+      maxBotHops: 2, roomDispatchPollMs: 100, roomDispatchLeaseMs: 1000 } })
+  try {
+    await handler.service.events(actor, row.id, {})
+    await settleRoomRecovery()
+    blocked = true
+    expect(await handler.service.events(actor, row.id, {})).toMatchObject({ reconciling: false })
+    expect(read).toHaveBeenCalledOnce()
+  } finally { release(); await ctx.fiber.dispose() }
+})
+
 it.each(['grant', 'cleared', 'different employee'] as const)(
   'rechecks current scheduled reply authority: %s', async (change) => {
     const ctx = new Context()

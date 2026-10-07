@@ -19,6 +19,7 @@ it('coalesces asynchronous repair and awaits it before disposal rejects new work
   await entry
   expect(recover).toHaveBeenCalledOnce()
   expect(recovery.isPending(row)).toBe(true)
+  expect(recovery.isRepairing(row)).toBe(true)
   recovery.clear()
   let disposed = false
   const disposal = recovery.dispose().then(() => { disposed = true })
@@ -30,6 +31,7 @@ it('coalesces asynchronous repair and awaits it before disposal rejects new work
     await expect(recovery.reconcile(row)).rejects.toThrow('disposed')
   } finally { release(); await disposal }
   expect(recovery.isPending(row)).toBe(false)
+  expect(recovery.isRepairing(row)).toBe(false)
   expect(failed).not.toHaveBeenCalled()
 })
 
@@ -42,6 +44,7 @@ it('reports asynchronous repair errors and retries on a later authorized request
   recovery.start(row, failed)
   await failure
   await new Promise<void>(resolve => setImmediate(resolve))
+  expect(recovery.isRepairing(row)).toBe(false)
   recovery.start(row, failed)
   await recovery.dispose()
   expect(failed).toHaveBeenCalledOnce()

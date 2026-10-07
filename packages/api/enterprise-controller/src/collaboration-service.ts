@@ -133,7 +133,7 @@ export interface CollaborationRoomRuntime {
   reconcile?(row: CollaborationRecord): Promise<void>
   /** Start an owned repair after current room authorization; committed events remain immediately readable. */
   startRecovery?(row: CollaborationRecord): void
-  /** Whether a repair or revision observation remains active for the room. */
+  /** Whether native history is actively being replayed into signed room facts. */
   recoveryPending?(row: CollaborationRecord): boolean
 }
 /** Existing native services supplied by the controller composition. */

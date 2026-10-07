@@ -5,6 +5,7 @@ import type { CollaborationRecord, CollaborationSession } from '@deepseek-ai/dsh
 export class CollaborationRoomRecovery {
   private readonly completed = new Map<string, { fingerprint: string; children: readonly string[] }>()
   private readonly pending = new Map<string, Promise<void>>()
+  private readonly repairing = new Set<string>()
   private generation = 0
   private closed = false
 
@@ -38,6 +39,12 @@ export class CollaborationRoomRecovery {
    * @returns Whether a repair or revision check is running.
    */
   isPending(row: CollaborationRecord): boolean { return this.pending.has(JSON.stringify([row.orgId, row.id])) }
+
+  /** Observe whether native history is being replayed into signed room facts.
+   * @param row - Authorized room identity.
+   * @returns Whether the room's actual replay callback is active.
+   */
+  isRepairing(row: CollaborationRecord): boolean { return this.repairing.has(JSON.stringify([row.orgId, row.id])) }
 
   /** Reject new recovery work and await accepted repairs before releasing metadata.
    * @returns Completion of every accepted repair.
@@ -76,10 +83,14 @@ export class CollaborationRoomRecovery {
     await Promise.all([...new Set([...bindings.map(binding => binding.sessionId), ...(previous?.children ?? [])])].map(observe))
     const fingerprint = () => JSON.stringify([row, bindings, [...revisions].sort(([a], [b]) => a.localeCompare(b))])
     if (previous?.fingerprint === fingerprint()) return
-    const complete = await this.recover(row, bindings, async (id) => {
-      children.add(id)
-      if (!revisions.has(id)) await observe(id)
-    })
+    let complete: boolean
+    this.repairing.add(key)
+    try {
+      complete = await this.recover(row, bindings, async (id) => {
+        children.add(id)
+        if (!revisions.has(id)) await observe(id)
+      })
+    } finally { this.repairing.delete(key) }
     if (!complete) { this.completed.delete(key); return }
     for (const id of revisions.keys()) {
       if (revisions.get(id) !== await this.revision(id)) { this.completed.delete(key); return }

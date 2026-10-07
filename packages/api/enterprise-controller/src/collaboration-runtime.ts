@@ -633,7 +633,7 @@ export function composeCollaboration(ctx: Context, services: {
       startRecovery: (row) => {
         roomRecovery.start(row, (error) => { ctx.logger.error(`room recovery failed: ${String(error)}`) })
       },
-      recoveryPending: row => roomRecovery.isPending(row),
+      recoveryPending: row => roomRecovery.isRepairing(row),
       dispatchCommitted: async (_actor, row, event) => {
         if (outbox === undefined || leaseMs === undefined) throw new CollaborationError('room-dispatch-unavailable', 503)
         return { delivered: true, targets: await outbox.immediate(row.orgId, row.id, event.event.id, leaseMs) }
