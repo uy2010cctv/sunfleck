@@ -514,6 +514,24 @@ function Composer({ state, controller, renderFactorySlot, t, threadRoot }: {
   </form>
 }
 
+/** Visible event position retained across earlier-history reads and concurrent live updates. */
+interface HistoryAnchor { readonly eventId: string; readonly offset: number; readonly firstSequence: string | undefined }
+function historyAnchor(node: HTMLDivElement, firstSequence: string | undefined): HistoryAnchor | undefined {
+  const bounds = node.getBoundingClientRect()
+  const entries = [...node.querySelectorAll<HTMLElement>('[data-event-id]')]
+  const visible = entries.find((entry) => {
+    const rect = entry.getBoundingClientRect()
+    return rect.bottom > bounds.top && rect.top < bounds.bottom
+  }) ?? entries[0]
+  const eventId = visible?.dataset.eventId
+  return visible === undefined || eventId === undefined ? undefined
+    : { eventId, offset: visible.getBoundingClientRect().top - bounds.top, firstSequence }
+}
+function restoreHistoryAnchor(node: HTMLDivElement, anchor: HistoryAnchor): void {
+  const visible = [...node.querySelectorAll<HTMLElement>('[data-event-id]')].find(entry => entry.dataset.eventId === anchor.eventId)
+  if (visible !== undefined) node.scrollTop += visible.getBoundingClientRect().top - node.getBoundingClientRect().top - anchor.offset
+}
+
 /** One shared timeline for people and Bots, with a room context and thread rail. */
 export function CollaborationRoom({ state, controller, renderFactorySlot, t }: {
   readonly state: CollaborationState
@@ -525,11 +543,11 @@ export function CollaborationRoom({ state, controller, renderFactorySlot, t }: {
   const [searchInput, setSearchInput] = useState('')
   const [showSearch, setShowSearch] = useState(false)
   const scroll = useRef<HTMLDivElement>(null)
-  const scrollBeforePrepend = useRef<{ height: number; top: number }>()
+  const scrollBeforePrepend = useRef<HistoryAnchor>()
   const atBottom = useRef(true)
   const threadScroll = useRef<HTMLDivElement>(null)
   const threadAtBottom = useRef(true)
-  const threadBeforePrepend = useRef<{ height: number; top: number }>()
+  const threadBeforePrepend = useRef<HistoryAnchor>()
   const threadCloseButton = useRef<HTMLButtonElement>(null)
   const threadOrigin = useRef<HTMLElement | null>(null)
   const selectedThread = state.selection?.threadRoot
@@ -549,10 +567,10 @@ export function CollaborationRoom({ state, controller, renderFactorySlot, t }: {
     if (element === null) return
     const before = threadBeforePrepend.current
     if (before !== undefined) {
-      element.scrollTop = before.top + element.scrollHeight - before.height
-      threadBeforePrepend.current = undefined
+      restoreHistoryAnchor(element, before)
+      if (state.threadEvents[0]?.sequence !== before.firstSequence || !state.threadLoadingOlder) threadBeforePrepend.current = undefined
     } else if (threadAtBottom.current) element.scrollTop = element.scrollHeight
-  }, [selectedThread, state.threadEvents, state.threadPhase])
+  }, [selectedThread, state.threadEvents, state.threadPhase, state.threadLoadingOlder])
   const roomId = state.selection?.detail.id
   const latestSequence = state.events.at(-1)?.sequence
   useEffect(() => {
@@ -574,13 +592,31 @@ export function CollaborationRoom({ state, controller, renderFactorySlot, t }: {
     scrollBeforePrepend.current = undefined
     atBottom.current = true
   }, [roomId])
+  useEffect(() => {
+    if (state.olderError) { scrollBeforePrepend.current = undefined; return }
+    if (state.selection?.detail.kind !== 'channel' || state.roomPhase !== 'ready'
+      || state.olderCursor === null || state.loadingOlder || state.olderError) return
+    const node = scroll.current
+    if (node !== null) scrollBeforePrepend.current = historyAnchor(node, state.events[0]?.sequence)
+    void controller.loadOlder()
+  }, [controller, roomId, state.selection?.detail.kind, state.roomPhase, state.olderCursor, state.loadingOlder, state.olderError])
+  useEffect(() => {
+    if (state.threadOlderError) { threadBeforePrepend.current = undefined; return }
+    if (state.selection?.detail.kind !== 'channel' || state.selection.threadRoot === undefined
+      || state.threadPhase !== 'ready' || state.threadOlderCursor == null
+      || state.threadLoadingOlder || state.threadOlderError) return
+    const node = threadScroll.current
+    if (node !== null) threadBeforePrepend.current = historyAnchor(node, state.threadEvents[0]?.sequence)
+    void controller.loadOlderThread()
+  }, [controller, roomId, state.selection?.detail.kind, state.selection?.threadRoot, state.threadPhase,
+    state.threadOlderCursor, state.threadLoadingOlder, state.threadOlderError])
   useLayoutEffect(() => {
     const previous = scrollBeforePrepend.current
     const node = scroll.current
     if (previous === undefined || node === null) return
-    node.scrollTop = previous.top + node.scrollHeight - previous.height
-    scrollBeforePrepend.current = undefined
-  }, [state.events[0]?.sequence])
+    restoreHistoryAnchor(node, previous)
+    if (state.events[0]?.sequence !== previous.firstSequence || !state.loadingOlder) scrollBeforePrepend.current = undefined
+  }, [state.events[0]?.sequence, state.loadingOlder])
   useLayoutEffect(() => {
     const node = scroll.current
     if (node !== null && atBottom.current && scrollBeforePrepend.current === undefined) node.scrollTop = node.scrollHeight
@@ -782,16 +818,21 @@ export function CollaborationRoom({ state, controller, renderFactorySlot, t }: {
         </div> : <div ref={scroll} className={css.scroll} role="region" aria-label={t('roomTimeline')}
           onScroll={(event) => {
             const node = event.currentTarget
+            if (scrollBeforePrepend.current !== undefined) {
+              scrollBeforePrepend.current = historyAnchor(node, scrollBeforePrepend.current.firstSequence)
+            }
             atBottom.current = node.scrollHeight - node.scrollTop - node.clientHeight < 48
           }}>
           {state.roomPhase === 'loading' && <div className={css.center}><IconLoadingOutlineRegular size={20}/></div>}
           {state.roomPhase === 'error' && <div className={css.center} role="alert">{t('loadError')}<button type="button" onClick={() => { void controller.select(detail.id) }}>{t('retry')}</button></div>}
           {state.roomPhase === 'ready' && <>
-            {state.olderCursor !== null && <button className={css.more} type="button" onClick={() => {
+            {detail.kind !== 'channel' && state.olderCursor !== null && <button className={css.more} type="button" disabled={state.loadingOlder} onClick={() => {
               const node = scroll.current
-              if (node !== null) scrollBeforePrepend.current = { height: node.scrollHeight, top: node.scrollTop }
+              if (node !== null) scrollBeforePrepend.current = historyAnchor(node, state.events[0]?.sequence)
               void controller.loadOlder()
             }}>{t('loadOlder')}</button>}
+            {state.loadingOlder && detail.kind === 'channel' && <div className={css.more} role="status">{t('historyLoading')}</div>}
+            {state.olderError && <div className={css.historyError} role="alert">{t('loadError')}<button type="button" onClick={() => { const node = scroll.current; if (node !== null) scrollBeforePrepend.current = historyAnchor(node, state.events[0]?.sequence); void controller.loadOlder() }}>{t('retry')}</button></div>}
             {timeline.length === 0 && <div className={css.center}>{t('emptyRoom')}</div>}
             {displayItems.map((item) => {
               const { orphanThread } = item
@@ -799,7 +840,7 @@ export function CollaborationRoom({ state, controller, renderFactorySlot, t }: {
                 const replies = orphanThread.events.filter(event => event.kind === 9)
                 const last = replies.at(-1)
                 const authors = [...new Map(replies.map(reply => [`${reply.author.kind}:${reply.author.id}`, reply])).values()].slice(-3)
-                return <button type="button" key={item.event.id} className={css.threadChip}
+                return <button type="button" data-event-id={orphanThread.rootId} key={item.event.id} className={css.threadChip}
                   onClick={() => { void controller.openThread(orphanThread.rootId) }}>
                   <span className={css.threadStack}>{authors.map(reply => <span key={reply.author.id} className={css.threadAvatar}
                     aria-label={reply.author.displayName}>{reply.author.displayName.slice(0, 1)}</span>)}</span>
@@ -853,6 +894,9 @@ export function CollaborationRoom({ state, controller, renderFactorySlot, t }: {
         </div> : <>
           <div className={css.threadScroll} ref={threadScroll} onScroll={() => {
             const element = threadScroll.current
+            if (element !== null && threadBeforePrepend.current !== undefined) {
+              threadBeforePrepend.current = historyAnchor(element, threadBeforePrepend.current.firstSequence)
+            }
             if (element !== null) threadAtBottom.current = element.scrollHeight - element.scrollTop - element.clientHeight < 80
           }}>
             {root !== undefined && <div className={css.threadRootPost}>
@@ -862,14 +906,15 @@ export function CollaborationRoom({ state, controller, renderFactorySlot, t }: {
                 {...(rootWorking === undefined ? {} : { working: rootWorking })}
                 onReaction={(id, emoji) => { void controller.react(id, emoji) }} onInspect={(id) => { void controller.inspect(id) }} t={t}/>
             </div>}
-            {state.threadOlderCursor != null && <button type="button" className={css.more} disabled={state.threadLoadingOlder}
+            {detail.kind !== 'channel' && state.threadOlderCursor != null && <button type="button" className={css.more} disabled={state.threadLoadingOlder}
               onClick={() => {
                 const element = threadScroll.current
-                if (element !== null) threadBeforePrepend.current = { height: element.scrollHeight, top: element.scrollTop }
+                if (element !== null) threadBeforePrepend.current = historyAnchor(element, state.threadEvents[0]?.sequence)
                 void controller.loadOlderThread()
               }}>{t('loadOlder')}</button>}
+            {state.threadLoadingOlder && detail.kind === 'channel' && <div className={css.more} role="status">{t('historyLoading')}</div>}
             {state.threadOlderError && <div className={css.historyError} role="alert">{t('loadError')}
-              <button type="button" onClick={() => { void controller.loadOlderThread() }}>{t('retry')}</button></div>}
+              <button type="button" onClick={() => { const node = threadScroll.current; if (node !== null) threadBeforePrepend.current = historyAnchor(node, state.threadEvents[0]?.sequence); void controller.loadOlderThread() }}>{t('retry')}</button></div>}
             <h3 className={css.threadReplyHeading}>{t('threadRepliesHeading')}</h3>
             {state.threadPhase === 'loading' && <div className={css.center}><IconLoadingOutlineRegular size={20}/></div>}
             {state.threadPhase === 'error' && <div className={css.center} role="alert">{t('loadError')}

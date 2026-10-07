@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { useSyncExternalStore } from 'react'
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import { CollaborationRoom, reactionSummaries, stripReplyBoilerplate } from '../src/client/CollaborationRoom.tsx'
@@ -35,6 +36,90 @@ function setup(events: RoomEvent[] = [human, colleague, research, data, reaction
 }
 
 describe('shared room UI', () => {
+  it.each(['room', 'thread'] as const)('keeps the visible %s message fixed when live append precedes older history', async (target) => {
+    const old = { ...(target === 'room' ? human : colleague), sequence: '3', ...(target === 'thread' ? { threadRoot: human.id } : {}) }
+    const live = { ...colleague, id: 'live', sequence: '4', content: '实时追加', ...(target === 'thread' ? { threadRoot: human.id } : {}) }
+    const earlier = { ...human, id: 'earlier', sequence: '2', content: '更早消息', ...(target === 'thread' ? { threadRoot: human.id } : {}) }
+    const { controller, state, t } = setup(target === 'room' ? [old] : [human])
+    const pending = Promise.withResolvers<undefined>()
+    vi.spyOn(controller, target === 'room' ? 'loadOlder' : 'loadOlderThread').mockReturnValue(pending.promise)
+    let oldPosition = 200
+    let height = 1000
+    const size = vi.spyOn(HTMLElement.prototype, 'scrollHeight', 'get').mockImplementation(() => height)
+    const client = vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(200)
+    const rect = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      const container = target === 'thread' ? this.closest('article')?.parentElement : this.closest('[role="region"]')
+      const top = this.dataset.eventId === old.id ? oldPosition - (container?.scrollTop ?? 0)
+        : this.dataset.eventId !== undefined ? -1000 : 0
+      return { x: 0, y: top, top, bottom: top + (this.dataset.eventId === undefined ? 200 : 30), left: 0, right: 100, width: 100,
+        height: this.dataset.eventId === undefined ? 200 : 30, toJSON: () => ({}) }
+    })
+    const channel = { ...state, selection: { detail: { ...state.selection!.detail, kind: 'channel' as const }, ...(target === 'thread' ? { threadRoot: human.id } : {}) },
+      ...(target === 'room' ? { olderCursor: '3' } : { threadPhase: 'ready' as const, threadRootEvent: human, threadEvents: [old], threadOlderCursor: '3' }) }
+    const view = render(<CollaborationRoom controller={controller} state={channel} t={t}/>)
+    try {
+      const node = target === 'room' ? screen.getByRole('region', { name: '消息记录' }) : screen.getByRole('heading', { name: '回复' }).parentElement!
+      node.scrollTop = 100
+      fireEvent.scroll(node)
+      height = 1100
+      view.rerender(<CollaborationRoom controller={controller} state={{ ...channel,
+        ...(target === 'room' ? { events: [old, live], loadingOlder: true } : { threadEvents: [old, live], threadLoadingOlder: true }) }} t={t}/>)
+      expect(node.scrollTop).toBe(100)
+      oldPosition = 300; height = 1200
+      view.rerender(<CollaborationRoom controller={controller} state={{ ...channel,
+        ...(target === 'room' ? { events: [earlier, old, live], olderCursor: null, loadingOlder: false }
+          : { threadEvents: [earlier, old, live], threadOlderCursor: null, threadLoadingOlder: false }) }} t={t}/>)
+      expect(node.scrollTop).toBe(200)
+    } finally {
+      pending.resolve(undefined)
+      await pending.promise
+      view.unmount(); controller.dispose()
+      rect.mockRestore(); size.mockRestore(); client.mockRestore()
+    }
+  })
+  it('automatically fills channel history without a load-older button', async () => {
+    const all = Array.from({ length: 123 }, (_, index) => ({ ...human, id: `history-${index}`, sequence: String(index + 1), content: `历史消息${index + 1}` }))
+    const controller = new CollaborationController(vi.fn(async (url: string) => {
+      const params = new URL(url, 'https://example.test').searchParams
+      return Response.json({ items: all.filter(event => BigInt(event.sequence) < BigInt(params.get('before')!)).slice(-100), nextCursor: null })
+    }), vi.fn(), vi.fn())
+    const seed = setup([])
+    seed.controller.dispose()
+    controller.state.set({ ...seed.state, selection: { detail: { ...seed.state.selection!.detail, kind: 'channel' } }, events: all.slice(-20), olderCursor: '104' })
+    const View = () => {
+      const current = useSyncExternalStore(callback => controller.state.subscribe(callback), () => controller.state.getSnapshot())
+      return <CollaborationRoom controller={controller} state={current} t={seed.t}/>
+    }
+    try {
+      render(<View/>)
+      await screen.findByText('历史消息1')
+      expect(controller.state.getSnapshot().events).toHaveLength(123)
+      expect(screen.queryByRole('button', { name: '加载更早的消息' })).toBeNull()
+      expect({ first: screen.getByText('历史消息1').textContent, last: screen.getByText('历史消息123').textContent,
+        loadOlderButtons: screen.queryAllByRole('button', { name: '加载更早的消息' }).length }).toMatchSnapshot()
+    } finally { controller.dispose() }
+  })
+
+  it('automatically fills channel thread replies without a load-older button', async () => {
+    const replies = Array.from({ length: 123 }, (_, index) => ({ ...human, id: `reply-${index}`, threadRoot: human.id, sequence: String(index + 2), content: `线程消息${index + 1}` }))
+    const controller = new CollaborationController(vi.fn(async (url: string) => {
+      const params = new URL(url, 'https://example.test').searchParams
+      return Response.json({ items: replies.filter(event => BigInt(event.sequence) < BigInt(params.get('before')!)).slice(-100), nextCursor: null })
+    }), vi.fn(), vi.fn())
+    const seed = setup([human])
+    seed.controller.dispose()
+    controller.state.set({ ...seed.state, selection: { detail: { ...seed.state.selection!.detail, kind: 'channel' }, threadRoot: human.id }, threadPhase: 'ready', threadRootEvent: human, threadEvents: replies.slice(-100), threadOlderCursor: '25' })
+    const View = () => {
+      const current = useSyncExternalStore(callback => controller.state.subscribe(callback), () => controller.state.getSnapshot())
+      return <CollaborationRoom controller={controller} state={current} t={seed.t}/>
+    }
+    try {
+      render(<View/>)
+      await screen.findByText('线程消息1')
+      expect(controller.state.getSnapshot().threadEvents).toHaveLength(123)
+      expect(screen.queryByRole('button', { name: '加载更早的消息' })).toBeNull()
+    } finally { controller.dispose() }
+  })
   it('keeps saved messages visible while showing a history synchronization status', () => {
     const { controller, state, t } = setup([human])
     const syncing = { ...state, roomReconciling: true }

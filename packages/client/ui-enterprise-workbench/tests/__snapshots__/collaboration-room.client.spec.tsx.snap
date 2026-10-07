@@ -1,0 +1,9 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`shared room UI > automatically fills channel history without a load-older button 1`] = `
+{
+  "first": "历史消息1",
+  "last": "历史消息123",
+  "loadOlderButtons": 0,
+}
+`;

@@ -38,7 +38,7 @@ Roster cards and the capability overview request provider counts through the exi
 
 ## Configuration
 
-Room entry requests metadata and the latest event page concurrently. `roomInitialPageSize` sets the number of latest events in that first page; Load earlier and thread pages fetch up to 100 events per request. The history remains available through Load earlier. Each request verifies room access, and authorization loss clears the selected room. Saved messages remain visible while missing execution history synchronizes; the room header shows a synchronization status until a subsequent event poll reports completion.
+Room entry requests metadata and the latest event page concurrently. `roomInitialPageSize` sets the number of latest events in that first page; Load earlier and thread pages fetch up to 100 events per request. Channels automatically fill preceding timeline and focused-thread pages without a Load earlier button; groups retain manual paging. Live polling remains independent of history reads. Earlier pages preserve the visible event position, and failures pause automatic paging until explicit retry. Each request verifies room access, and authorization loss clears the selected room. Saved messages remain visible while missing execution history synchronizes; the room header shows a synchronization status until a subsequent event poll reports completion.
 
 | Field | Default | Accepted values | Effect |
 | --- | --- | --- | --- |

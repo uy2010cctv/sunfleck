@@ -23,6 +23,47 @@ function controller(request: ReturnType<typeof fetcher>) {
 }
 
 describe('shared collaboration room', () => {
+  it('reads older history while the live poll is pending', async () => {
+    const live = Promise.withResolvers<Response>()
+    const request = vi.fn(async (url: string) => url.includes('after=') ? live.promise : Response.json({ items: [human], nextCursor: human.sequence }))
+    const { value } = controller(request)
+    value.state.set({ ...value.state.getSnapshot(), selection: { detail }, roomPhase: 'ready', events: [bot], olderCursor: bot.sequence })
+    value.setMainPanel('enterprise-collaboration')
+    const polling = value.poll()
+    try {
+      await value.loadOlder()
+      expect(value.state.getSnapshot().events.map(event => event.id)).toEqual([human.id, bot.id])
+      expect(value.state.getSnapshot().olderCursor).toBeNull()
+    } finally { live.resolve(Response.json({ items: [], nextCursor: null })); await polling; value.dispose() }
+  })
+
+  it('discards late older history after switching rooms', async () => {
+    const old = Promise.withResolvers<Response>()
+    const next = { ...detail, id: 'next-room' }
+    const request = vi.fn(async (url: string) => url.includes('before=') ? old.promise
+      : url.includes('/events?') ? Response.json({ items: [], nextCursor: null }) : Response.json(next))
+    const { value } = controller(request)
+    value.state.set({ ...value.state.getSnapshot(), selection: { detail }, roomPhase: 'ready', events: [bot], olderCursor: bot.sequence })
+    const pending = value.loadOlder()
+    try {
+      await value.select(next.id)
+      old.resolve(Response.json({ items: [human], nextCursor: null }))
+      await pending
+      expect(value.state.getSnapshot()).toMatchObject({ selection: { detail: { id: next.id } }, events: [], loadingOlder: false })
+    } finally { old.resolve(Response.json({ items: [], nextCursor: null })); await pending; value.dispose() }
+  })
+
+  it('retains a failed history cursor for explicit retry without dropping messages', async () => {
+    const request = fetcher(new Response(null, { status: 503 }), Response.json({ items: [human], nextCursor: human.sequence }))
+    const { value } = controller(request)
+    value.state.set({ ...value.state.getSnapshot(), selection: { detail }, roomPhase: 'ready', events: [bot], olderCursor: bot.sequence })
+    try {
+      await value.loadOlder()
+      expect(value.state.getSnapshot()).toMatchObject({ events: [bot], olderCursor: bot.sequence, olderError: true, loadingOlder: false })
+      await value.loadOlder()
+      expect(value.state.getSnapshot()).toMatchObject({ olderCursor: null, olderError: false, loadingOlder: false })
+    } finally { value.dispose() }
+  })
   it('starts room metadata and the latest twenty events together', async () => {
     const metadata = Promise.withResolvers<Response>()
     const events = Promise.withResolvers<Response>()
