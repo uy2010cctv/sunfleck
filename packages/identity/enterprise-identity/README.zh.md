@@ -20,6 +20,10 @@ Persistent enterprise organizations, users, sessions, resource policies, and aud
 <a id="package-details"></a>
 ## 包详情
 
+可选能力 `sessionAccessFacts({ orgId, userId, sessionIds })` 返回请求 Session id 当前的所有者、Workspace 和协作事实。它必须保留其他组织的协作绑定，供授权层拒绝；缺失事实时拒绝访问。未提供该能力的适配器使用逐条读取。
+
+`findUserById(orgId, userId)` 读取单个用户当前的资料、角色、部门和停用状态；用户不存在或组织不匹配时返回 `undefined`。读取不会保留权限结果。
+
 为组织、树状部门、用户成员关系、角色、外部身份、哈希登录会话、受管 Workspace 授权、Session-Workspace 绑定、含成员、按员工绑定的群会话、话题与当值名册的 dm、群聊与频道协作面、已审核组织记忆、免审核直写的记忆分区（私有 agent、pair，以及按项目 ID 标注的成员制项目分区）、资源策略和可归因审计记录提供 SQLite 持久化。不直接存储 Bearer Token、密码或记忆来源的原始对话。
 
 `EnterpriseIdentityStore` 是 Host 使用的持久化契约。SQLite `EnterpriseIdentityRepository` 只是其中一种实现；部署方可以注入事务型 PostgreSQL 实现，而不让认证逻辑依赖 SQLite 文件路径。

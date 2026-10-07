@@ -10,6 +10,7 @@ import type {
   EnterpriseOrganization,
   EnterprisePrincipalView,
   EnterpriseResourcePolicy,
+  EnterpriseSessionAccessFacts,
   EnterpriseUserInput,
   EnterpriseUserView,
   CreateEnterpriseUserOptions,
@@ -259,6 +260,19 @@ export class PgEnterpriseIdentityRepository {
       disabled: row.disabled, roles: await this.roles(row.id),
       ...await this.departmentsForUser(row.id), departmentRevision: Number(row.department_revision),
     })))
+  }
+
+  /** Read one current user in the requested organization.
+   * @param orgId - Organization the user must belong to.
+   * @param userId - Canonical user identity.
+   * @returns Current profile and memberships, or undefined outside the organization.
+   */
+  async findUserById(orgId: string, userId: string): Promise<EnterpriseUserView | undefined> {
+    const result = await this.database.query<UserRow>(
+      'SELECT id, org_id, username, display_name, disabled, department_revision FROM users WHERE org_id = $1 AND id = $2',
+      [orgId, userId],
+    )
+    return result.rows[0] === undefined ? undefined : this.userFromRow(result.rows[0])
   }
 
   /** Executes `PgEnterpriseIdentityRepository.findUser` for this instance.
@@ -756,6 +770,60 @@ export class PgEnterpriseIdentityRepository {
       'SELECT owner_user_id FROM enterprise_session_workspaces WHERE session_id = $1', [sessionId],
     )
     return result.rows[0]?.owner_user_id ?? undefined
+  }
+
+  /** Read current ownership, Workspace and collaboration facts for a bounded Session list.
+   * @param input - Caller organization, user and requested Session ids.
+   * @returns Facts for requested ids without retaining authorization results; absent collaboration tables supply ordinary ownership facts.
+   */
+  async sessionAccessFacts(input: {
+    orgId: string
+    userId: string
+    sessionIds: readonly string[]
+  }): Promise<ReadonlyMap<string, EnterpriseSessionAccessFacts>> {
+    if (input.sessionIds.length === 0) return new Map()
+    const installed = await this.database.query<{ table_name: string | null }>(
+      "SELECT to_regclass('dsh_enterprise_collaboration_sessions') AS table_name",
+    )
+    const collaborationInstalled = installed.rows[0]?.table_name != null
+    const collaborationColumns = collaborationInstalled
+      ? 'directory.org_id AS collaboration_org_id, config.workspace_id AS collaboration_workspace_id, member.user_id IS NOT NULL AS collaboration_member'
+      : 'NULL::text AS collaboration_org_id, NULL::text AS collaboration_workspace_id, false AS collaboration_member'
+    const collaborationJoins = collaborationInstalled ? `
+      LEFT JOIN dsh_enterprise_collaboration_sessions session ON session.session_id = requested.session_id
+      LEFT JOIN dsh_enterprise_surface_directory directory ON directory.surface_id = session.surface_id
+      LEFT JOIN dsh_enterprise_collaboration_config config ON config.surface_id = session.surface_id
+      LEFT JOIN dsh_enterprise_collaboration_members member ON member.surface_id = session.surface_id
+        AND directory.org_id = $1 AND member.user_id = $2` : ''
+    const result = await this.database.query<{
+      session_id: string
+      owner_user_id: string | null
+      workspace_id: string | null
+      workspace_org_id: string | null
+      workspace_kind: EnterpriseWorkspaceGrant['kind'] | null
+      project_id: string | null
+      collaboration_org_id: string | null
+      collaboration_workspace_id: string | null
+      collaboration_member: boolean
+    }>(`SELECT requested.session_id, binding.owner_user_id, workspace.workspace_id,
+      workspace.org_id AS workspace_org_id, workspace.kind AS workspace_kind, link.project_id,
+      ${collaborationColumns}
+      FROM unnest(${collaborationInstalled ? '$3' : '$1'}::text[]) AS requested(session_id)
+      LEFT JOIN enterprise_session_workspaces binding ON binding.session_id = requested.session_id
+      LEFT JOIN enterprise_workspace_grants workspace ON workspace.workspace_id = binding.workspace_id
+      LEFT JOIN enterprise_project_workspace_links link ON link.workspace_id = workspace.workspace_id
+      ${collaborationJoins}`, collaborationInstalled ? [input.orgId, input.userId, input.sessionIds] : [input.sessionIds])
+    return new Map(result.rows.map(row => [row.session_id, {
+      ...(row.owner_user_id === null ? {} : { ownerUserId: row.owner_user_id }),
+      ...(row.workspace_id === null || row.workspace_org_id === null || row.workspace_kind === null ? {} : { workspace: {
+        workspaceId: row.workspace_id, orgId: row.workspace_org_id,
+        kind: row.project_id === null ? row.workspace_kind : 'project',
+        ...(row.project_id === null ? {} : { projectId: row.project_id }),
+      } }),
+      ...(row.collaboration_org_id === null || row.collaboration_workspace_id === null ? {} : { collaboration: {
+        orgId: row.collaboration_org_id, workspaceId: row.collaboration_workspace_id, member: row.collaboration_member,
+      } }),
+    }]))
   }
 
   /** Reads a recorded collaboration Session and the caller's explicit membership.

@@ -29,6 +29,9 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { createRequire } from 'node:module'
 import { dirname, isAbsolute, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
+import { gzip } from 'node:zlib'
+import z from '@deepseek-ai/schemastery'
+import Negotiator from 'negotiator'
 import { Service } from '@deepseek-ai/cordis'
 import type { Context } from '@deepseek-ai/cordis'
 import type { Entry } from '@deepseek-ai/cordis-plugin-loader'
@@ -46,6 +49,14 @@ declare module '@deepseek-ai/cordis' {
     /** The web plugin table (provided by the client-modules node half). */
     clientModules: ClientModuleRegistry
   }
+}
+
+/** Immutable bundle compression for socket-backed Web requests. */
+export interface Config {
+  /** Reuse gzip representations of revisioned scripts and source maps. @default 'none' */
+  compression?: 'none' | 'gzip'
+  /** Gzip DEFLATE level from 0 through 9. @default 1 */
+  compressionLevel?: number
 }
 
 /** The declared fields a graph row carries, normalized (absent array declarations become empty). */
@@ -595,6 +606,14 @@ window.__ModuleLoader__={
  */
 export class ClientModuleRegistry extends Service {
   static inject = ['loader']
+  static Config: z<Config> = z.object({
+    compression: z.union([z.const('none'), z.const('gzip')]).default('none'),
+    compressionLevel: z.number().step(1).min(0).max(9).default(1),
+  })
+
+  private readonly compressedBodies = new WeakMap<Buffer, Promise<Buffer>>()
+  private readonly compression: 'none' | 'gzip'
+  private readonly compressionLevel: number
 
   private readonly table = new Map<string, WebPluginRecord>()
   private readonly sources = new Map<string, ClientPackageSource>()
@@ -615,9 +634,13 @@ export class ClientModuleRegistry extends Service {
    * Build the service: subscribe, seed, and run the activation flush.
    * Bundle routes follow the optional Web carrier's injected lifecycle.
    * @param ctx - plugin context carrying Loader and an optional Web carrier.
+   * @param config - immutable bundle compression policy; omission disables compression.
    */
-  constructor(ctx: Context) {
+  constructor(ctx: Context, config: Config = {}) {
     super(ctx, 'clientModules')
+    const resolved = ClientModuleRegistry.Config(config) as Required<Config>
+    this.compression = resolved.compression
+    this.compressionLevel = resolved.compressionLevel
     // Subscribe before seeding so a fiber arriving mid-activation lands in the
     // same dirty set (Set idempotence makes the overlap harmless). An entry-less
     // fiber is a child plugin or a manual mount — never a loader row; O(1) drop.
@@ -679,7 +702,7 @@ export class ClientModuleRegistry extends Service {
    * returns the same immutable headers without materializing a body. Each body
    * is built once on its first `GET`; script construction never reads maps.
    * @param request - shell-carrier request for a `/plugins` resource.
-   * @returns the exact response also exposed by the optional Web route.
+   * @returns the identity representation; Web carriers may negotiate gzip.
    */
   async fetchBundle(request: Request): Promise<Response> {
     const resource = await this.bundleResource(request.method, request.url)
@@ -1125,7 +1148,7 @@ export class ClientModuleRegistry extends Service {
     return response
   }
 
-  private async bundleResource(method: string | undefined, url: string): Promise<{
+  private async bundleResource(method: string | undefined, url: string, acceptable = true): Promise<{
     status: number
     headers?: Record<string, string>
     body?: Buffer
@@ -1137,6 +1160,7 @@ export class ClientModuleRegistry extends Service {
       ?? this.previousBatchResponses.get(resourceUrl)
       ?? this.chunkResponse(requestUrl)
     if (response !== undefined) {
+      if (!acceptable) return { status: 406, headers: { vary: 'Accept-Encoding' } }
       return {
         status: 200,
         headers: { 'content-type': response.contentType, 'cache-control': IMMUTABLE_CACHE },
@@ -1148,9 +1172,36 @@ export class ClientModuleRegistry extends Service {
     return { status: 404 }
   }
 
+  private gzipBody(body: Buffer): Promise<Buffer> {
+    let compressed = this.compressedBodies.get(body)
+    if (compressed === undefined) {
+      compressed = new Promise<Buffer>((resolve, reject) => {
+        gzip(body, { level: this.compressionLevel }, (error, result) => {
+          if (error === null) resolve(result)
+          else reject(error)
+        })
+      }).catch((error: unknown) => {
+        this.compressedBodies.delete(body)
+        throw error
+      })
+      this.compressedBodies.set(body, compressed)
+    }
+    return compressed
+  }
+
   private readonly serveBundle = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
     /* v8 ignore next -- `?? '/'` arm: node:http always sets url on server requests. */
-    const response = await this.bundleResource(req.method, req.url ?? '/')
+    const encoding = this.compression === 'gzip'
+      ? new Negotiator(req).encoding(['gzip', 'identity'])
+      : 'identity'
+    const response = await this.bundleResource(req.method, req.url ?? '/', encoding !== undefined)
+    if (response.status === 200 && response.headers !== undefined && this.compression === 'gzip') {
+      response.headers.vary = 'Accept-Encoding'
+      if (encoding === 'gzip') {
+        response.headers['content-encoding'] = 'gzip'
+        if (response.body !== undefined) response.body = await this.gzipBody(response.body)
+      }
+    }
     res.writeHead(response.status, response.headers)
     res.end(response.body)
   }

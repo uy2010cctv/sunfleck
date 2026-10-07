@@ -1,6 +1,8 @@
 import { Context, Service, symbols } from '@deepseek-ai/cordis'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
+import { EnterpriseSecurity } from '@deepseek-ai/dsh-enterprise-auth-web'
+import { EnterpriseIdentityRepository } from '@deepseek-ai/dsh-enterprise-identity'
 import TypertGatewayService from '@deepseek-ai/dsh-api-gateway'
 import { bindTypertRemote, Remote, type InvocationDescriptor } from '@deepseek-ai/dsh-typert-protocol'
 import TypertRegistry from '@deepseek-ai/dsh-typert-registry'
@@ -63,6 +65,26 @@ afterEach(async () => {
 })
 
 describe('enterprise Workspace gateway enforcement', () => {
+  it('dispatches Session lists through fresh bulk enterprise access facts', async () => {
+    const harness = await setup({ allowed: true })
+    const repository = new EnterpriseIdentityRepository(':memory:')
+    let owner = harness.principal.userId
+    const bulk = vi.fn(async () => new Map([['session-member', { ownerUserId: owner }]]))
+    Object.assign(repository, { sessionAccessFacts: bulk })
+    const security = new EnterpriseSecurity(repository, {
+      organizationId: 'org-a', sessionCookieName: 'unused', sessionTtlMs: 60000,
+      secureCookies: true, autoProvisionSsoUsers: false,
+    })
+    harness.security.filterSessionList.mockImplementation(async (principal, value) => await security.filterSessionList(principal, value))
+    try {
+      expect(await harness.gateway.dispatchRpc('session/list', { args: {} }, new AbortController().signal)).toEqual({ ok: true, value: { items: [{ sessionId: 'session-member' }] } })
+      expect(bulk).toHaveBeenCalledWith({ orgId: 'org-a', userId: harness.principal.userId, sessionIds: ['session-member', 'session-other'] })
+      owner = 'other'
+      expect(await harness.gateway.dispatchRpc('session/list', { args: {} }, new AbortController().signal)).toEqual({ ok: true, value: { items: [] } })
+      expect(bulk).toHaveBeenCalledTimes(2)
+    } finally { repository.close() }
+  })
+
   it('denies protected deletes before the native Workspace command runs', async () => {
     const harness = await setup({ allowed: false })
     const result = await harness.gateway.dispatchRpc(
@@ -164,7 +186,7 @@ async function setup(decision: { allowed: boolean }) {
     recordWorkspaceCreated: vi.fn(async () => {}),
     bindSessionWorkspaceAsync: vi.fn(async () => {}),
     filterWorkspaceFollow: vi.fn(async function* () { yield { type: 'projected' } }),
-    filterSessionList: vi.fn(async (_principal, value: unknown) => ({
+    filterSessionList: vi.fn(async (_principal: typeof principal, value: unknown): Promise<unknown> => ({
       ...(record(value) ? value : {}), items: [{ sessionId: 'session-member' }],
     })),
     sessionAuthorizationId: (input: unknown) => {

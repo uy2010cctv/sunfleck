@@ -13,6 +13,7 @@ export {
   EnterpriseIdentityRepository,
   type IdentityAwaitable,
   type EnterpriseIdentityStore,
+  type EnterpriseSessionAccessFacts,
   sessionTokenHash,
   type AuditQuery,
   type EnterpriseAuditRecord,

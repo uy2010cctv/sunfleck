@@ -33,6 +33,61 @@ class RecordingDatabase implements PostgresDatabase {
 }
 
 describe('PgEnterpriseIdentityRepository', () => {
+  it.each([2, 100, 1000])('reads one user with three queries in an organization of %i users', async (count) => {
+    class UserDatabase extends RecordingDatabase {
+      override async query<Row extends Record<string, unknown> = Record<string, unknown>>(
+        text: string, values: readonly unknown[] = [],
+      ): Promise<PostgresQueryResult<Row>> {
+        this.queries.push({ text, values })
+        if (!text.includes('FROM users')) return { rows: [], rowCount: 0 }
+        const rows = Array.from({ length: count }, (_, index) => ({
+          id: `user-${String(index)}`, org_id: 'org-a', username: `user-${String(index)}`,
+          display_name: 'Synthetic user', disabled: false, department_revision: 0,
+        })).filter(row => values[0] === row.org_id && (values[1] === undefined || values[1] === row.id))
+        return { rows: rows as Row[], rowCount: rows.length }
+      }
+    }
+    const database = new UserDatabase()
+    const repository = new PgEnterpriseIdentityRepository(database)
+    expect((await repository.listUsers('org-a')).find(user => user.id === 'user-0')?.id).toBe('user-0')
+    expect(database.queries).toHaveLength(1 + 2 * count)
+    database.queries.length = 0
+    expect(await repository.findUserById('org-a', 'user-0')).toMatchObject({ id: 'user-0' })
+    expect(database.queries).toHaveLength(3)
+    expect(database.queries[0]?.values).toEqual(['org-a', 'user-0'])
+    database.queries.length = 0
+    expect(await repository.findUserById('org-b', 'user-0')).toBeUndefined()
+    expect(database.queries).toHaveLength(1)
+    expect(await repository.findUserById('org-a', 'missing')).toBeUndefined()
+  })
+
+  it.each([114, 1000])('reads access facts for %i requested Sessions with two queries', async (count) => {
+    class AccessDatabase extends RecordingDatabase {
+      constructor(readonly installed: boolean) { super() }
+      override async query<Row extends Record<string, unknown> = Record<string, unknown>>(
+        text: string, values: readonly unknown[] = [],
+      ): Promise<PostgresQueryResult<Row>> {
+        this.queries.push({ text, values })
+        if (text.includes('to_regclass')) return { rows: [{ table_name: this.installed ? 'installed' : null }] as Row[], rowCount: 1 }
+        return { rows: [{ session_id: 'session-0', owner_user_id: 'owner', workspace_id: 'workspace', workspace_org_id: 'org-a', workspace_kind: 'personal', project_id: 'linked-project', collaboration_org_id: this.installed ? 'org-b' : null, collaboration_workspace_id: this.installed ? 'shared' : null, collaboration_member: false }] as Row[], rowCount: 1 }
+      }
+    }
+    const sessionIds = Array.from({ length: count }, (_, index) => `session-${String(index)}`)
+    for (const installed of [true, false]) {
+      const database = new AccessDatabase(installed)
+      const repository = new PgEnterpriseIdentityRepository(database)
+      const facts = await repository.sessionAccessFacts({ orgId: 'org-a', userId: 'owner', sessionIds })
+      expect(database.queries).toHaveLength(2)
+      expect(database.queries[1]?.values).toEqual(installed ? ['org-a', 'owner', sessionIds] : [sessionIds])
+      expect(database.queries[1]?.text).toContain('FROM unnest(')
+      expect(database.queries[1]?.text.includes('JOIN dsh_enterprise_collaboration_sessions')).toBe(installed)
+      expect(facts.get('session-0')?.workspace).toMatchObject({ kind: 'project', projectId: 'linked-project' })
+      expect(facts.get('session-0')?.collaboration).toEqual(installed ? { orgId: 'org-b', workspaceId: 'shared', member: false } : undefined)
+      expect(await repository.sessionAccessFacts({ orgId: 'org-a', userId: 'owner', sessionIds: [] })).toEqual(new Map())
+      expect(database.queries).toHaveLength(2)
+    }
+  })
+
   it('resolves collaboration membership with organization, user, and recorded session predicates', async () => {
     class CollaborationDatabase extends RecordingDatabase {
       override async query<Row extends Record<string, unknown> = Record<string, unknown>>(

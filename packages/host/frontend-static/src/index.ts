@@ -13,6 +13,7 @@
  */
 
 import type { ServerResponse } from 'node:http'
+import { createHash } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import { dirname, extname, join, normalize, resolve, sep } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
@@ -67,11 +68,13 @@ const STATIC_MISS_CODES: ReadonlySet<string | undefined> = new Set([
  * @param authorizeIndex - authenticates an index response before its bytes are read.
  * @param renderIndex - produces the index.html body (structured injection
  * rendering) for the dist root and configured index path.
+ * @param ifNoneMatch - request asset validators; index authentication is independent.
  */
 export async function serveStatic(
   pathname: string, res: ServerResponse, distRoot: string, distIndex: string,
   authorizeIndex: () => boolean,
   renderIndex: () => Promise<string>,
+  ifNoneMatch?: string,
 ): Promise<void> {
   const target = resolve(normalize(join(distRoot, pathname)))
   // Traversal rejection: the target must be distRoot itself (`/`) or stay under
@@ -92,6 +95,18 @@ export async function serveStatic(
     } else {
       body = await readFile(target)
       type = MIME[extname(target)] ?? 'application/octet-stream'
+      const etag = `W/"${createHash('sha256').update(body).digest('hex')}"`
+      res.setHeader('etag', etag)
+      res.setHeader('cache-control', 'public, no-cache')
+      res.setHeader('vary', 'Accept-Encoding')
+      if (ifNoneMatch?.split(',').some((value) => {
+        const tag = value.trim()
+        return tag === '*' || tag.replace(/^W\//, '') === etag.slice(2)
+      })) {
+        res.writeHead(304)
+        res.end()
+        return
+      }
     }
   } catch (error) {
     // Only absent or non-file targets are 404; other filesystem failures reach
@@ -135,6 +150,7 @@ export function apply(ctx: Context, config: Config): void {
       distIndex,
       () => ctx.connection.authorizeIndex(req, res),
       renderIndex,
+      req.headers['if-none-match'],
     )
   }), 'frontend-static: fallback seat')
 }

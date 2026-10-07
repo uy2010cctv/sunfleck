@@ -45,6 +45,8 @@ The served HTML carries one document base, `<base href="./">`, ahead of every in
 
 Root and configured-index responses call `ctx.connection.authorizeIndex` before reading HTML. A valid process token receives a 303 redirect plus the persistent browser cookie; an existing valid cookie serves the index; every other index request receives the Connection-owned 401 response. Non-index files remain public static assets. Connection owns the token, cookie, expiry, and signing-record semantics.
 
+Non-index assets send a content-derived weak ETag and `Cache-Control: public, no-cache`. A matching `If-None-Match` receives 304 without an asset body; changed files are read and validated again, so rebuilds remain visible. Index responses still authenticate and render for each request.
+
 ### Observable failures
 
 Traversal returns 403 rather than an error page. An absent or non-file target inside the dist root returns an empty 404, so a stale link or a mistyped pathname is an explicit failure rather than a silent SPA fallback. Claiming the seat twice throws, and while the seat is unclaimed the webserver answers 404 — which is what a browser sees if this plugin's fiber is disposed.

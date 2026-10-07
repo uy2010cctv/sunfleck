@@ -221,6 +221,9 @@
     # entry by the kernel, never fetched).
     - id: modules
       name: '@deepseek-ai/dsh-client-modules'
+      config:
+        compression: gzip
+        compressionLevel: 6
 
     # Owns both ends of the web transport: node half binds the gateway to the
     # webserver under /api; browser half is the fetch/SSE client. Every API

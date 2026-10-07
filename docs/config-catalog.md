@@ -184,7 +184,7 @@ export interface Config {
 ## `@deepseek-ai/dsh-api-enterprise-controller`
 
 - `inject`: `enterprisePostgres` · `enterpriseSecurity` · `enterpriseRequestContext` · `enterpriseCordis` · `agentPresets` · `agents` · `sessions` · `sessionPersistence` · `sessionProjections` · `loader` · `credentials` · `llm` · `sessionController` · `webServer` · `workspaceRegistry` · `attachments`
-- `source`: [`packages/api/enterprise-controller/src/index.ts:3142`](../packages/api/enterprise-controller/src/index.ts)
+- `source`: [`packages/api/enterprise-controller/src/index.ts:3145`](../packages/api/enterprise-controller/src/index.ts)
 
 ```ts config-catalog
 /** Deployment limits for shared-room model context and Bot handoffs. */
@@ -533,6 +533,25 @@ export interface Config {
 }
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-client-hmr -->
+
+<!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-client-modules -->
+<a id="deepseek-aidsh-client-modules"></a>
+
+## `@deepseek-ai/dsh-client-modules`
+
+- `inject`: `loader`
+- `source`: [`packages/client/modules/src/index.ts:55`](../packages/client/modules/src/index.ts)
+
+```ts config-catalog
+/** Immutable bundle compression for socket-backed Web requests. */
+export interface Config {
+  /** Reuse gzip representations of revisioned scripts and source maps. @default 'none' */
+  compression?: 'none' | 'gzip'
+  /** Gzip DEFLATE level from 0 through 9. @default 1 */
+  compressionLevel?: number
+}
+```
+<!-- END GENERATED config-catalog:@deepseek-ai/dsh-client-modules -->
 
 <!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-client-product-analytics -->
 <a id="deepseek-aidsh-client-product-analytics"></a>
@@ -1705,7 +1724,7 @@ export interface Config {
 ## `@deepseek-ai/dsh-host-frontend-static`
 
 - `inject`: `webServer` · `connection`
-- `source`: [`packages/host/frontend-static/src/index.ts:30`](../packages/host/frontend-static/src/index.ts)
+- `source`: [`packages/host/frontend-static/src/index.ts:31`](../packages/host/frontend-static/src/index.ts)
 
 ```ts config-catalog
 /** Plugin config: the dist anchor. */
@@ -4704,7 +4723,6 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 | `@deepseek-ai/dsh-browser-use` | — | [`packages/browser-use/browser-use/src/index.ts`](../packages/browser-use/browser-use/src/index.ts) |
 | `@deepseek-ai/dsh-client-file-upload` | `agents` · `attachments` · `commands` · `connection` | [`packages/client/file-upload/src/index.ts`](../packages/client/file-upload/src/index.ts) |
 | `@deepseek-ai/dsh-client-locale` | — | [`packages/client/locale/src/index.ts`](../packages/client/locale/src/index.ts) |
-| `@deepseek-ai/dsh-client-modules` | `loader` | [`packages/client/modules/src/index.ts`](../packages/client/modules/src/index.ts) |
 | `@deepseek-ai/dsh-client-resources` | — | [`packages/client/resources/src/index.ts`](../packages/client/resources/src/index.ts) |
 | `@deepseek-ai/dsh-client-ui-agent-preset` | — | [`packages/client/ui-agent-preset/src/index.ts`](../packages/client/ui-agent-preset/src/index.ts) |
 | `@deepseek-ai/dsh-client-ui-approval` | — | [`packages/client/ui-approval/src/index.ts`](../packages/client/ui-approval/src/index.ts) |

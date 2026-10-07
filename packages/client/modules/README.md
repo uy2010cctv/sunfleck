@@ -47,7 +47,7 @@ The shell seeds a frozen module table (`PLATFORM_MODULES`: React, Cordis, and st
 
 ### Build requirements
 
-The host serves built client bundles, so `pnpm run build` must have produced each `lib/client.js` before launch; a missing bundle fails activation loudly with one build instruction and a package/path list. Source launch maps host imports to TypeScript source but still consumes the built client export. The package accepts no plugin config of its own.
+The host serves built client bundles, so `pnpm run build` must have produced each `lib/client.js` before launch; a missing bundle fails activation loudly with one build instruction and a package/path list. Source launch maps host imports to TypeScript source but still consumes the built client export. `compression` defaults to `none`; `gzip` makes the Web route select gzip or identity by `Accept-Encoding` weights and emit `Vary: Accept-Encoding`; refusing both representations returns 406 without building a body. `compressionLevel` accepts 0–9 and defaults to 1; the shipped Web composition selects 6. Gzip bytes for immutable scripts and JSON source maps are computed on the first `GET` and shared by concurrent and subsequent requests; a failure clears the compressed cache for retry. `HEAD` never builds a body, and `fetchBundle()` always returns identity bytes.
 
 -----
 
@@ -130,7 +130,7 @@ These limits define what the module system does not do. They are current package
 - **Metadata-based revisions** — revisions identify filesystem generations, not content equality. Metadata-only changes can reload a plugin; changes invisible in mtime, ctime, and size cannot be distinguished.
 - **Flat module graph by design** — every bundle is one module node whose edges point only at table leaves; the interface (`loadCache`/`edges`/`invalidate`) already supports a general module graph, so the externalization granularity can change without an interface change.
 - **Bootstrap and code replacement limits** — the page retains its modules bootstrap and static platform identities. Removing or replacing the bootstrap requires a page reload; live replacement requests report a page-local error while retaining its fiber and exports; replacing package code and all existing consumers is outside ordinary enable/disable synchronization.
-- **Lazy delivery retains requested bodies** — the Host holds each bundle and lazy response plan; a script or map body remains cached after its first `GET`, and HMR additionally retains one prior startup generation. Memory grows only for response bodies that clients request while preserving one-generation race tolerance.
+- **Lazy delivery retains requested bodies** — the Host holds each bundle and lazy response plan; a script or map body remains cached after its first `GET`, and HMR additionally retains one prior startup generation. With gzip enabled, each requested raw body additionally retains one compressed representation; its weak cache expires with the raw body and retains no extra old revisions. Memory grows with requested resources and their sizes while preserving one-generation race tolerance; there is no fixed byte cap.
 - **An unrequested prior-generation map reads the current map file** — combo revisions track executable bundles, not debug artifacts. If HMR rebuilds a map before the retained prior URL receives its first map `GET`, that response uses the current authored map with the prior bundle offsets; requesting the map before the rebuild fixes that URL's response.
 
 <a id="dev-note"></a>

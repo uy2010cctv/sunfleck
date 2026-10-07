@@ -436,6 +436,13 @@ interface SqliteMemoryRow {
  * adapter owned by the deployment; callers must not depend on SQLite internals.
  */
 export type IdentityAwaitable<T> = T | Promise<T>
+/** Current Session ownership and sharing facts for one list authorization. */
+export interface EnterpriseSessionAccessFacts {
+  readonly ownerUserId?: string
+  readonly workspace?: Pick<EnterpriseWorkspaceGrant, 'orgId' | 'workspaceId' | 'kind' | 'projectId'>
+  readonly collaboration?: { readonly orgId: string; readonly workspaceId: string; readonly member: boolean }
+}
+
 /** Data used by `EnterpriseIdentityStore`. */
 export interface EnterpriseIdentityStore {
   close(): IdentityAwaitable<void>
@@ -445,6 +452,12 @@ export interface EnterpriseIdentityStore {
   listOrganizations(): IdentityAwaitable<EnterpriseOrganization[]>
   createUser(user: EnterpriseUserInput, options?: CreateEnterpriseUserOptions): IdentityAwaitable<void>
   listUsers(orgId: string): IdentityAwaitable<EnterpriseUserView[]>
+  /** Read one current user without listing the organization.
+   * @param orgId - Organization the user must belong to.
+   * @param userId - Canonical user identity.
+   * @returns Current profile, roles, departments and disabled state, or undefined outside the organization.
+   */
+  findUserById(orgId: string, userId: string): IdentityAwaitable<EnterpriseUserView | undefined>
   findUser(orgId: string, username: string): IdentityAwaitable<EnterpriseUserView | undefined>
   updateUserProfile(input: UpdateEnterpriseUserProfileInput): IdentityAwaitable<void>
   setRoles(userId: string, roles: readonly EnterpriseRole[]): IdentityAwaitable<void>
@@ -465,6 +478,16 @@ export interface EnterpriseIdentityStore {
   }): IdentityAwaitable<void>
   sessionWorkspaceGrant(sessionId: string): IdentityAwaitable<EnterpriseWorkspaceGrant | undefined>
   sessionOwnerUserId(sessionId: string): IdentityAwaitable<string | undefined>
+  /** Read current access facts only for the requested Session ids; no permission decisions are retained.
+   * @param input - Caller organization, user and deduplicated Session ids.
+   * @returns Facts keyed by Session id; missing rows remain inaccessible.
+   * Other-organization collaboration bindings remain present for denial.
+   */
+  sessionAccessFacts?(input: {
+    orgId: string
+    userId: string
+    sessionIds: readonly string[]
+  }): IdentityAwaitable<ReadonlyMap<string, EnterpriseSessionAccessFacts>>
   /** Resolves collaboration binding and current explicit membership, including revoked members.
    * @param input - Organization, human user, and Session to match.
    * @returns The recorded binding and membership, or undefined for an ordinary Session or absent provider.
@@ -665,6 +688,11 @@ export class EnterpriseIdentityRepository implements EnterpriseIdentityStore {
       ...this.departmentsForUser(user.id),
       departmentRevision: user.department_revision,
     }))
+  }
+
+  findUserById(orgId: string, userId: string): EnterpriseUserView | undefined {
+    const user = this.user(userId)
+    return user?.orgId === orgId ? user : undefined
   }
 
   findUser(orgId: string, username: string): EnterpriseUserView | undefined {

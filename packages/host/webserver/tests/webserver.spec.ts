@@ -5,8 +5,10 @@
  * taps, fallback-seat semantics, per-request error containment, teardown).
  */
 
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { once } from 'node:events'
+import { request as httpRequest } from 'node:http'
+import { gunzipSync } from 'node:zlib'
 import { connect } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -15,6 +17,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { Context, FiberState } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 import Include from '@deepseek-ai/cordis-plugin-include'
+import ClientModuleRegistry from '../../../client/modules/src/index.ts'
 import HttpServer, { renderIndexInjections } from '../src/index.ts'
 
 let root: string | undefined
@@ -27,8 +30,8 @@ afterEach(async () => {
   root = undefined
 })
 
-/** Write a cordis.yml with one webserver row, then boot it through the real Loader. */
-async function loadComposition(port = 0, gzip = false): Promise<Context> {
+/** Boot the HTTP server and optional immutable bundle provider through a test-only cordis.yml. */
+async function loadComposition(port = 0, gzip = false, bundles = false): Promise<Context> {
   root = await mkdtemp(join(tmpdir(), 'dsh-webserver-loader-'))
   const configPath = join(root, 'cordis.yml')
   await writeFile(configPath, [
@@ -43,15 +46,33 @@ async function loadComposition(port = 0, gzip = false): Promise<Context> {
         '    compressionThresholdBytes: 16',
       ]
       : []),
+    ...(bundles ? [
+      "- name: '@fixture/bundle'",
+      "- name: 'cordis:modules'",
+      '  config:',
+      '    compression: gzip',
+      '    compressionLevel: 6',
+    ] : []),
     '',
   ].join('\n'))
 
+  if (bundles) {
+    const packageRoot = join(root, 'node_modules', '@fixture', 'bundle')
+    await mkdir(packageRoot, { recursive: true })
+    await writeFile(join(packageRoot, 'package.json'), JSON.stringify({
+      name: '@fixture/bundle', exports: { './client': './client.js', './package.json': './package.json' },
+      dsh: { client: { platform: 'web' } },
+    }))
+    await writeFile(join(packageRoot, 'client.js'), 'module.exports = ' + JSON.stringify('synthetic bundle '.repeat(512)))
+  }
   context = new Context()
   context.baseUrl = pathToFileURL(root).href + '/'
   await context.plugin(Loader)
   context.loader.builtins.include = Include
+  context.loader.builtins.modules = ClientModuleRegistry
   const modules = new Map<string, unknown>([
     ['@deepseek-ai/dsh-host-webserver', HttpServer],
+    ['@fixture/bundle', () => {}],
   ])
   context.loader.internal = {
     version: 'v2',
@@ -374,4 +395,48 @@ describe('real Loader composition', () => {
       root = firstRoot
     }
   })
+})
+
+
+it('reuses revisioned bundle gzip through the Loader and outer gzip middleware', async () => {
+  const loaded = await loadComposition(0, true, true)
+  const service = loaded.clientModules
+  const url = '/' + service.graph().batches[0]!.url
+  const read = (path: string, encoding: string, method = 'GET') => new Promise<{
+    status: number | undefined
+    encoding: string | undefined
+    vary: string | undefined
+    body: Buffer
+  }>((resolve, reject) => {
+    const req = httpRequest({ host: '127.0.0.1', port: loaded.webServer.port, path, method,
+      headers: { 'accept-encoding': encoding } }, (res) => {
+      const chunks: Buffer[] = []
+      res.on('data', (chunk: Buffer) => { chunks.push(chunk) })
+      res.on('end', () => { resolve({ status: res.statusCode, encoding: res.headers['content-encoding'],
+        vary: res.headers.vary, body: Buffer.concat(chunks) }) })
+    })
+    req.on('error', reject)
+    req.end()
+  })
+  const raw = await read(url, 'identity')
+  const responses = await Promise.all(Array.from({ length: 10 }, () => read(url, 'gzip')))
+  for (const response of responses) {
+    expect(response.status).toBe(200)
+    expect(response.encoding).toBe('gzip')
+    expect(response.vary).toBe('Accept-Encoding')
+    expect(gunzipSync(response.body)).toEqual(raw.body)
+  }
+  const map = await read(url.replace('/client.js', '/client.js.map'), 'gzip')
+  expect(JSON.parse(gunzipSync(map.body).toString())).toMatchObject({ version: 3 })
+  expect((await read(url, 'gzip;q=0')).encoding).toBeUndefined()
+  expect((await read(url, 'gzip;q=0.1,identity;q=1')).encoding).toBeUndefined()
+  for (const method of ['GET', 'HEAD']) {
+    const unacceptable = await read(url, 'gzip;q=0,identity;q=0', method)
+    expect(unacceptable.status).toBe(406)
+    expect(unacceptable.body.length).toBe(0)
+    expect(unacceptable.encoding).toBeUndefined()
+    expect(unacceptable.vary).toBe('Accept-Encoding')
+  }
+  expect((await read(url, 'gzip', 'HEAD')).body.length).toBe(0)
+  expect((await read(url + 'missing', 'gzip')).status).toBe(404)
 })

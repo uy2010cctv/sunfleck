@@ -20,6 +20,10 @@ PostgreSQL persistence and safe SQLite migration for DSH enterprise identity。
 <a id="package-details"></a>
 ## 包详情
 
+非空 Session 列表的 `sessionAccessFacts` 使用两次 SELECT：一次检查可选协作表，另一次仅按请求 id 读取所有者、Workspace/项目关联和当前协作成员关系。协作表不存在时提供普通所有者事实。空列表不发起查询。
+
+`findUserById(orgId, userId)` 读取单个用户当前的资料、角色、部门和停用状态；用户不存在或组织不匹配时返回 `undefined`。读取不会保留权限结果。
+
 为 DSH 企业组织、用户、角色、外部身份、哈希会话、部门树、Workspace 授权、Session 绑定、已审核记忆、免审核直写的私有 agent 与 pair 记忆分区以及按项目 ID 标注的项目分区、资源策略、受管资产和可归因审计记录提供 PostgreSQL 持久化。SQLite 迁移命令会保留 ID，并在一个事务内导入所有控制面记录。
 
 `enterprise_workspace_employee_defaults` 表为每个工作区保存一个可为空的员工身份和单调递增 revision。比较交换写入在清除默认值后仍保留 revision，并拒绝不存在的工作区或过期 revision；管理员和员工可见性校验由认证控制器负责。

@@ -20,6 +20,10 @@ PostgreSQL persistence and safe SQLite migration for DSH enterprise identity.
 <a id="package-details"></a>
 ## Package Details
 
+`sessionAccessFacts` uses two SELECTs for a non-empty Session list: one checks the optional collaboration table, and one reads ownership, Workspace/project links and current collaboration membership only for requested ids. An absent collaboration table supplies ordinary ownership facts. Empty lists make no queries.
+
+`findUserById(orgId, userId)` reads the current profile, roles, departments, and disabled state for one user; a missing user or organization mismatch returns `undefined`. Reads do not retain permission results.
+
 PostgreSQL persistence for DSH enterprise organizations, users, roles, external identities, hashed sessions, department trees, Workspace grants, Session bindings, reviewed memory plus private agent and pair compartments written without review and project compartments tagged by project id, resource policies, managed assets, and attributable audit records. Its SQLite migration command preserves IDs and imports all control-plane rows in one transaction.
 
 The `enterprise_workspace_employee_defaults` table stores one nullable employee identity and monotonically increasing revision per Workspace. Compare-and-swap writes preserve the revision after clearing a default and refuse a missing Workspace or stale revision; the authenticated controller owns the manager and employee-visibility checks.

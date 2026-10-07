@@ -94,6 +94,33 @@ async function request(port: number, path: string, init?: RequestInit): Promise<
 }
 
 describe('real Loader composition', () => {
+  it('revalidates unchanged public assets without a response body and observes rebuilds', async () => {
+    const loaded = await loadComposition()
+    const url = `http://127.0.0.1:${String(loaded.webServer.port)}/app.js`
+    const initial = await fetch(url)
+    const tag = initial.headers.get('etag')
+    expect(tag).toMatch(/^W\/"[a-f0-9]{64}"$/)
+    expect(initial.headers.get('cache-control')).toBe('public, no-cache')
+    expect(await initial.text()).toBe('export {}')
+    const cached = await fetch(url, { headers: { 'if-none-match': tag! } })
+    expect(cached.status).toBe(304)
+    expect(cached.headers.get('vary')).toBe('Accept-Encoding')
+    expect(await cached.text()).toBe('')
+    const listed = await fetch(url, { headers: { 'if-none-match': `"other", ${tag!}` } })
+    expect(listed.status).toBe(304)
+    const head = await fetch(url, { method: 'HEAD', headers: { 'if-none-match': '*' } })
+    expect(head.status).toBe(304)
+    await writeFile(join(root!, 'dist', 'app.js'), 'export const rebuilt = true')
+    const changed = await fetch(url, { headers: { 'if-none-match': tag! } })
+    expect(changed.status).toBe(200)
+    expect(changed.headers.get('etag')).not.toBe(tag)
+    expect(await changed.text()).toBe('export const rebuilt = true')
+    const missing = await fetch(url + '.missing', { headers: { 'if-none-match': '*' } })
+    expect(missing.status).toBe(404)
+    const index = await fetch(`http://127.0.0.1:${String(loaded.webServer.port)}/`, { headers: { 'if-none-match': '*' } })
+    expect(index.status).toBe(401)
+  })
+
   it('serves explicit index entries and files while preserving HTTP error semantics', { timeout: 60_000 }, async () => {
     const loaded = await loadComposition()
     const unloaded = [...loaded.loader.entries()]

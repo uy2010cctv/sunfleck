@@ -1,8 +1,8 @@
 import { mkdtemp, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { EnterpriseIdentityRepository } from '@deepseek-ai/dsh-enterprise-identity'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { EnterpriseIdentityRepository, type EnterpriseSessionAccessFacts } from '@deepseek-ai/dsh-enterprise-identity'
 import { createPasswordVerifier } from '@deepseek-ai/dsh-enterprise-sso'
 import {
   EnterpriseSecurity,
@@ -46,6 +46,93 @@ describe('EnterpriseSecurity', () => {
   afterEach(async () => {
     repository.close()
     await rm(root, { recursive: true, force: true })
+  })
+
+  it('reads only the current human user for each resource authorization', async () => {
+    const principal = security.loginLocal('org-a', 'member', 'enterprise-password')!.principal
+    const listing = vi.spyOn(repository, 'listUsers')
+    const lookup = vi.spyOn(repository, 'findUserById')
+    await security.authorizeResourceAsync(principal, 'memory.read', { orgId: 'org-a', visibility: 'organization' })
+    await security.authorizeResourceAsync(principal, 'memory.read', { orgId: 'org-a', visibility: 'organization' })
+    expect(listing).not.toHaveBeenCalled()
+    expect(lookup).toHaveBeenCalledTimes(2)
+    expect(lookup).toHaveBeenLastCalledWith(principal.orgId, principal.userId)
+  })
+
+  it('applies current department revocation to an existing principal', async () => {
+    repository.saveDepartment({ id: 'dept-a', orgId: 'org-a', parentId: null, name: 'Department', sortOrder: 0, expectedRevision: 0 })
+    repository.setUserDepartments({ orgId: 'org-a', userId: 'member-1', departmentIds: ['dept-a'], expectedRevision: 0 })
+    const principal = security.loginLocal('org-a', 'member', 'enterprise-password')!.principal
+    const resource = { orgId: 'org-a', visibility: 'organization' as const, scope: { type: 'department' as const, departmentId: 'dept-a' } }
+    expect((await security.authorizeResourceAsync(principal, 'memory.read', resource)).allowed).toBe(true)
+    repository.setUserDepartments({ orgId: 'org-a', userId: 'member-1', departmentIds: [], expectedRevision: 1 })
+    expect((await security.authorizeResourceAsync(principal, 'memory.read', resource)).allowed).toBe(false)
+  })
+
+  it('filters a Session list with one fresh bulk read while preserving duplicate rows', async () => {
+    const principal = security.loginLocal('org-a', 'member', 'enterprise-password')!.principal
+    let owner = principal.userId
+    const bulk = vi.fn(async () => new Map([['owned', { ownerUserId: owner }]]))
+    Object.assign(repository, { sessionAccessFacts: bulk })
+    const single = vi.spyOn(repository, 'sessionOwnerUserId')
+    const items = [{ sessionId: 'owned', title: 'first' }, { sessionId: 'hidden' }, { sessionId: 'owned', title: 'second' }]
+    expect(await security.filterSessionList(principal, { items })).toEqual({ items: [items[0], items[2]] })
+    expect(bulk).toHaveBeenCalledOnce()
+    expect(bulk).toHaveBeenCalledWith({ orgId: 'org-a', userId: principal.userId, sessionIds: ['owned', 'hidden'] })
+    expect(single).not.toHaveBeenCalled()
+    owner = 'other'
+    expect(await security.filterSessionList(principal, { items })).toEqual({ items: [] })
+    expect(bulk).toHaveBeenCalledTimes(2)
+  })
+
+  it('avoids bulk reads for lists without valid Session ids', async () => {
+    const principal = security.loginLocal('org-a', 'member', 'enterprise-password')!.principal
+    const bulk = vi.fn(async () => new Map())
+    Object.assign(repository, { sessionAccessFacts: bulk })
+    expect(await security.filterSessionList(principal, { items: [null, {}, { sessionId: 1 }] })).toEqual({ items: [] })
+    expect(bulk).not.toHaveBeenCalled()
+  })
+
+  it('matches individual Session policy for bulk ownership, collaboration and project facts', async () => {
+    const principal = security.loginLocal('org-a', 'member', 'enterprise-password')!.principal
+    const shared = repository.saveWorkspaceGrant({ workspaceId: 'shared', orgId: 'org-a', name: 'Shared', kind: 'personal', ownerUserId: principal.userId, rootPath: '/synthetic/shared', sandboxMode: 'read-only', expectedRevision: 0 })
+    let member = true
+    const projectAccess = vi.fn(async () => ({ member, active: true }))
+    const policy = new EnterpriseSecurity(repository, config, { projectAccess })
+    const facts = new Map<string, EnterpriseSessionAccessFacts>([
+      ['owned', { ownerUserId: principal.userId }],
+      ['other', { ownerUserId: 'other' }],
+      ['shared', { workspace: shared, collaboration: { orgId: 'org-a', workspaceId: 'shared', member: true } }],
+      ['revoked-owner', { ownerUserId: principal.userId, workspace: shared, collaboration: { orgId: 'org-a', workspaceId: 'shared', member: false } }],
+      ['cross-org-owner', { ownerUserId: principal.userId, workspace: shared, collaboration: { orgId: 'org-b', workspaceId: 'shared', member: true } }],
+      ['mismatch', { workspace: shared, collaboration: { orgId: 'org-a', workspaceId: 'different', member: true } }],
+      ['project-a', { ownerUserId: principal.userId, workspace: { ...shared, kind: 'project', projectId: 'project-a' } }],
+      ['project-b', { ownerUserId: principal.userId, workspace: { ...shared, kind: 'project', projectId: 'project-a' } }],
+      ['project-missing', { ownerUserId: principal.userId, workspace: { ...shared, kind: 'project' } }],
+      ['project-cross-org', { ownerUserId: principal.userId, workspace: { ...shared, orgId: 'org-b', kind: 'project', projectId: 'project-a' } }],
+    ])
+    Object.assign(repository, {
+      collaborationSessionAccess: async ({ sessionId }: { sessionId: string }) => facts.get(sessionId)?.collaboration,
+      sessionOwnerUserId: async (sessionId: string) => facts.get(sessionId)?.ownerUserId,
+      sessionWorkspaceGrant: async (sessionId: string) => facts.get(sessionId)?.workspace,
+    })
+    const ids = [...facts.keys(), 'missing']
+    const expected: string[] = []
+    for (const id of ids) if (await policy.sessionAccessibleBy(principal, id)) expected.push(id)
+    expect(expected).toEqual(['owned', 'shared', 'project-a', 'project-b'])
+    projectAccess.mockClear()
+    const grants = vi.spyOn(repository, 'listWorkspaceGrants')
+    Object.assign(repository, { sessionAccessFacts: async () => facts })
+    const list = { items: ids.map(sessionId => ({ sessionId })) }
+    expect(await policy.filterSessionList(principal, list)).toEqual({ items: expected.map(sessionId => ({ sessionId })) })
+    expect(projectAccess).toHaveBeenCalledOnce()
+    expect(grants).toHaveBeenCalledOnce()
+    member = false
+    facts.set('shared', { workspace: shared, collaboration: { orgId: 'org-a', workspaceId: 'shared', member: false } })
+    expect(await policy.filterSessionList(principal, list)).toEqual({ items: [{ sessionId: 'owned' }] })
+    expect(projectAccess).toHaveBeenCalledTimes(2)
+    facts.set('shared', { workspace: shared, collaboration: { orgId: 'org-a', workspaceId: 'shared', member: true } })
+    expect(await policy.filterSessionList({ ...principal, actorType: 'employee' }, { items: [{ sessionId: 'shared' }] })).toEqual({ items: [] })
   })
 
   it('issues an HttpOnly session for local login and authenticates its cookie', () => {

@@ -7,6 +7,7 @@ import type {
 import { authorizeEnterprise } from '@deepseek-ai/dsh-enterprise-governance'
 import {
   type EnterpriseIdentityStore,
+  type EnterpriseSessionAccessFacts,
   type EnterprisePrincipalView,
   type EnterpriseWorkspaceGrant,
 } from '@deepseek-ai/dsh-enterprise-identity'
@@ -652,7 +653,7 @@ export class EnterpriseSecurity {
   ): Promise<EnterpriseAuthorizationDecision> {
     const user = principal.actorType === 'employee'
       ? undefined
-      : (await this.repository.listUsers(principal.orgId)).find(candidate => candidate.id === principal.userId)
+      : await this.repository.findUserById(principal.orgId, principal.userId)
     const authorizationPrincipal: EnterprisePrincipal = principal.actorType === 'employee' ? principal : {
       ...principal,
       actorType: 'human',
@@ -782,9 +783,34 @@ export class EnterpriseSecurity {
     if (!record(value)) return { items: [] }
     const items = Array.isArray(value['items']) ? value['items'] : []
     const visible: unknown[] = []
+    const bulk = this.repository.sessionAccessFacts
+    if (bulk === undefined) {
+      for (const item of items) {
+        if (!record(item) || typeof item['sessionId'] !== 'string') continue
+        if (await this.sessionAccessibleBy(principal, item['sessionId'])) visible.push(item)
+      }
+      return { ...value, items: visible }
+    }
+    const sessionIds = [...new Set(items.flatMap(item => record(item) && typeof item['sessionId'] === 'string' ? [item['sessionId']] : []))]
+    if (sessionIds.length === 0) return { ...value, items: visible }
+    const facts = await bulk.call(this.repository, { orgId: principal.orgId, userId: principal.userId, sessionIds })
+    const projectMembership = new Map<string, Promise<boolean>>()
+    const projectMember = (projectId: string): Promise<boolean> => {
+      let result = projectMembership.get(projectId)
+      if (result === undefined) {
+        result = this.currentProjectMember(principal, projectId)
+        projectMembership.set(projectId, result)
+      }
+      return result
+    }
+    let workspaceGrants: Promise<EnterpriseWorkspaceGrant[]> | undefined
+    const visibleGrants = (): Promise<EnterpriseWorkspaceGrant[]> =>
+      workspaceGrants ??= this.visibleWorkspaceGrants(principal, projectMember)
     for (const item of items) {
       if (!record(item) || typeof item['sessionId'] !== 'string') continue
-      if (await this.sessionAccessibleBy(principal, item['sessionId'])) visible.push(item)
+      const current = facts.get(item['sessionId'])
+      if (current !== undefined && await this.sessionAccessAllowed(principal, current.collaboration,
+        async () => current.ownerUserId, async () => current.workspace, visibleGrants, projectMember)) visible.push(item)
     }
     return { ...value, items: visible }
   }
@@ -861,28 +887,50 @@ export class EnterpriseSecurity {
     const collaboration = await this.repository.collaborationSessionAccess?.({
       orgId: principal.orgId, userId: principal.userId, sessionId,
     })
+    return this.sessionAccessAllowed(principal, collaboration,
+      async () => await this.repository.sessionOwnerUserId(sessionId),
+      async () => await this.repository.sessionWorkspaceGrant(sessionId),
+      async () => await this.visibleWorkspaceGrants(principal),
+      async projectId => await this.currentProjectMember(principal, projectId))
+  }
+
+  private async currentProjectMember(principal: EnterprisePrincipal, projectId: string): Promise<boolean> {
+    return (await this.projectAccess?.(principal.orgId, principal.userId, projectId))?.member === true
+  }
+
+  private async sessionAccessAllowed(
+    principal: EnterprisePrincipal,
+    collaboration: EnterpriseSessionAccessFacts['collaboration'],
+    owner: () => Promise<string | undefined>,
+    workspace: () => Promise<EnterpriseSessionAccessFacts['workspace']>,
+    visibleGrants: () => Promise<readonly EnterpriseWorkspaceGrant[]>,
+    projectMember: (projectId: string) => Promise<boolean>,
+  ): Promise<boolean> {
     if (collaboration === undefined) {
-      if (!await this.sessionOwnedBy(principal, sessionId)) return false
-      const binding = await this.repository.sessionWorkspaceGrant(sessionId)
+      if (await owner() !== principal.userId) return false
+      const binding = await workspace()
       if (binding?.kind !== 'project') return true
       return binding.projectId !== undefined && binding.orgId === principal.orgId
-        && (await this.projectAccess?.(principal.orgId, principal.userId, binding.projectId))?.member === true
+        && await projectMember(binding.projectId)
     }
     if (principal.actorType === 'employee' || !collaboration.member || collaboration.orgId !== principal.orgId) return false
-    const binding = await this.repository.sessionWorkspaceGrant(sessionId)
+    const binding = await workspace()
     if (binding?.orgId !== principal.orgId || binding.workspaceId !== collaboration.workspaceId) return false
-    return (await this.visibleWorkspaceGrants(principal))
+    return (await visibleGrants())
       .some(grant => grant.workspaceId === collaboration.workspaceId && grant.orgId === principal.orgId)
   }
 
   /** Merge ordinary grants with project Workspaces visible to the current project member. */
-  private async visibleWorkspaceGrants(principal: EnterprisePrincipal): Promise<EnterpriseWorkspaceGrant[]> {
+  private async visibleWorkspaceGrants(
+    principal: EnterprisePrincipal,
+    projectMember: (projectId: string) => Promise<boolean> = async projectId => await this.currentProjectMember(principal, projectId),
+  ): Promise<EnterpriseWorkspaceGrant[]> {
     const ordinary = await this.repository.listWorkspaceGrants({ orgId: principal.orgId, userId: principal.userId })
     if (this.projectAccess === undefined) return ordinary
     const candidates = (await this.repository.listOrganizationWorkspaceGrants(principal.orgId))
       .filter(grant => grant.kind === 'project')
     const project = await Promise.all(candidates.map(async grant => grant.projectId !== undefined
-      && (await this.projectAccess?.(principal.orgId, principal.userId, grant.projectId))?.member === true
+      && await projectMember(grant.projectId)
       ? grant : undefined))
     return [...ordinary, ...project.filter((grant): grant is EnterpriseWorkspaceGrant => grant !== undefined)]
   }

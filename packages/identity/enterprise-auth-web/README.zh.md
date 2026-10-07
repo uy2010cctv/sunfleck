@@ -20,6 +20,8 @@ Enterprise Web authentication, session cookies, central API RBAC, and audit。
 <a id="package-details"></a>
 ## 包详情
 
+Session 列表授权使用可选批量访问事实，保留条目顺序和重复行。Workspace 和项目成员关系读取仅在该列表请求内复用；后续请求重新读取当前成员关系。未提供批量事实的适配器保留逐条读取。实时 Session 流仍对每个 frame 检查访问权限。
+
 持久 Web 认证与授权：
 
 - `/auth` 状态、本地/SSO 登录、Callback、退出和管理端点。
@@ -37,7 +39,7 @@ Enterprise Web authentication, session cookies, central API RBAC, and audit。
 
 Web 插件接受部署方提供的 `EnterpriseIdentityStore` 实现。`databasePath` 仍可作为本地部署的可选 SQLite 后备；PostgreSQL 组合应通过该注入边界提供 仓库，Web 包本身不会再强制打开 SQLite。 该插件只关闭自己创建的 SQLite 仓库。外部提供的 `identityStore` 或 `enterprisePostgres.identity` 在 auth 卸载或初始化失败后仍归部署方所有。
 
-`EnterpriseSecurity` 在应用共享层级策略前，为人类主体补充部门归属和负责部门。员工定义通过负责人的目录归属解析；绑定员工的渠道通过不可变发布版本解析到该定义。未绑定员工的渠道只对创建者可见，管理员仍可创建新渠道记录。记忆管理只列出组织记忆和已授权部门记忆，部门经理可维护本部门记忆，组织记忆变更保留给管理员。
+`EnterpriseSecurity` 每次资源授权都按组织和用户 id 读取当前人类用户，再在应用共享层级策略前补充部门归属和负责部门。员工定义通过负责人的目录归属解析；绑定员工的渠道通过不可变发布版本解析到该定义。未绑定员工的渠道只对创建者可见，管理员仍可创建新渠道记录。记忆管理只列出组织记忆和已授权部门记忆，部门经理可维护本部门记忆，组织记忆变更保留给管理员。
 
 注册原始 `WebRoute` 处理器的插件必须在读取请求体或领域数据前认证浏览器请求。`enterpriseKnowledge.read` 与 `enterpriseKnowledge.manage` 分类让知识插件复用企业 Session、能力 RBAC、请求主体和审计存储，不能把同源路由当作授权。
 

@@ -8,12 +8,18 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { runInNewContext } from 'node:vm'
+import { gzip, gunzipSync } from 'node:zlib'
 import { Context, FiberState, type Fiber } from '@deepseek-ai/cordis'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { renderIndexInjections, type WebServer, type WebRoute } from '@deepseek-ai/dsh-host-webserver'
 import * as modulesClient from '../src/client/index.ts'
 import { ClientModuleRegistry, bootInjections, orderByModuleGraph } from '../src/index.ts'
 import type { ClientModuleLoaderTarget, WebBootEntry, WebBootGraph } from '../src/client/index.ts'
+
+vi.mock('node:zlib', async (original) => {
+  const zlib = await original<typeof import('node:zlib')>()
+  return { ...zlib, gzip: vi.fn(zlib.gzip) }
+})
 
 const MODULES_ID = '@deepseek-ai/dsh-client-modules'
 const UI_RENDERER_ID = '@deepseek-ai/dsh-client-ui-renderer'
@@ -113,6 +119,7 @@ function constructWithRoute(
     contextBaseUrl?: string
     entryBaseUrl?: string
     internal?: NonNullable<Context['loader']['internal']>
+    config?: { compression: 'none' | 'gzip'; compressionLevel: number }
   } = {},
 ): { context: Context; service: ClientModuleRegistry; route: Promise<WebRoute> } {
   const ctx = new Context()
@@ -142,7 +149,7 @@ function constructWithRoute(
     tapIndex: () => () => {},
   }
   ctx.provide('webServer', webServer as WebServer)
-  const service = new ClientModuleRegistry(ctx)
+  const service = new ClientModuleRegistry(ctx, options.config)
   owned.ready = route.promise
   return { context: ctx, service, route: route.promise }
 }
@@ -153,7 +160,7 @@ function construct(packageNames: string[]): ClientModuleRegistry {
 }
 
 /** Invoke the registered plugin route and capture status, headers, and bytes. */
-async function routeRequest(route: Promise<WebRoute>, url: string, method = 'GET'): Promise<{
+async function routeRequest(route: Promise<WebRoute>, url: string, method = 'GET', encoding?: string): Promise<{
   status: number
   headers: Record<string, string> | undefined
   body: Buffer
@@ -172,7 +179,7 @@ async function routeRequest(route: Promise<WebRoute>, url: string, method = 'GET
       return response
     },
   } as unknown as ServerResponse
-  await (await route).handler({ method, url } as IncomingMessage, response)
+  await (await route).handler({ method, url, headers: encoding === undefined ? {} : { 'accept-encoding': encoding } } as IncomingMessage, response)
   return { status, headers, body }
 }
 
@@ -1125,4 +1132,87 @@ describe('module graph order', () => {
     expect(() => construct(['@fixture/cycle-a', '@fixture/cycle-b']))
       .toThrow('module graph cycle @fixture/cycle-a -> @fixture/cycle-b -> @fixture/cycle-a')
   })
+})
+
+
+describe('immutable bundle gzip', () => {
+  it('validates the gzip level and preserves disabled defaults', () => {
+    expect(ClientModuleRegistry.Config({})).toEqual({ compression: 'none', compressionLevel: 1 })
+    for (const level of [-1, 10, 1.5]) {
+      expect(() => ClientModuleRegistry.Config({ compressionLevel: level })).toThrow()
+    }
+  })
+  function compressedFixture(compression: 'none' | 'gzip' = 'gzip') {
+    writeBuiltPackage(UI_RENDERER_ID, {})
+    const fixture = constructWithRoute([UI_RENDERER_ID], { config: { compression, compressionLevel: 6 } })
+    const url = '/' + fixture.service.graph().batches[0]!.url
+    return { ...fixture, url }
+  }
+
+  it('shares one compression across concurrent and subsequent requests', async () => {
+    const { route, service, url } = compressedFixture()
+    vi.mocked(gzip).mockClear()
+    const responses = await Promise.all(Array.from({ length: 10 }, () => routeRequest(route, url, 'GET', 'gzip')))
+    expect(gzip).toHaveBeenCalledTimes(1)
+    const raw = Buffer.from(await (await service.fetchBundle(new Request('http://localhost' + url))).arrayBuffer())
+    for (const response of responses) {
+      expect(response.headers).toMatchObject({ 'content-encoding': 'gzip', vary: 'Accept-Encoding' })
+      expect(gunzipSync(response.body)).toEqual(raw)
+    }
+    await routeRequest(route, url, 'GET', 'gzip')
+    expect(gzip).toHaveBeenCalledTimes(1)
+  })
+
+  it.each(['identity', 'gzip;q=0', 'gzip;q=0.1,identity;q=1', 'br', ''])('honors identity for %s', async (encoding) => {
+    const { route, url } = compressedFixture()
+    vi.mocked(gzip).mockClear()
+    const response = await routeRequest(route, url, 'GET', encoding)
+    expect(response.headers?.['content-encoding']).toBeUndefined()
+    expect(response.headers?.vary).toBe('Accept-Encoding')
+    expect(gzip).not.toHaveBeenCalled()
+  })
+
+  it.each(['GET', 'HEAD'])('rejects forbidden gzip and identity for %s without compressing or returning bytes', async (method) => {
+    const { route, url } = compressedFixture()
+    vi.mocked(gzip).mockClear()
+    const response = await routeRequest(route, url, method, 'gzip;q=0,identity;q=0')
+    expect(response.status).toBe(406)
+    expect(response.body.length).toBe(0)
+    expect(response.headers).toEqual({ vary: 'Accept-Encoding' })
+    expect(gzip).not.toHaveBeenCalled()
+  })
+
+  it('keeps HEAD lazy, returns errors unchanged, and leaves compression disabled by default', async () => {
+    const { route, url } = compressedFixture()
+    vi.mocked(gzip).mockClear()
+    expect((await routeRequest(route, url, 'HEAD', 'gzip')).body.length).toBe(0)
+    expect(gzip).not.toHaveBeenCalled()
+    expect((await routeRequest(route, url + 'wrong', 'GET', 'gzip')).status).toBe(404)
+    expect((await routeRequest(route, url, 'POST', 'gzip')).status).toBe(405)
+    const disabled = compressedFixture('none')
+    expect((await routeRequest(disabled.route, disabled.url, 'GET', 'gzip')).headers?.['content-encoding']).toBeUndefined()
+    expect(gzip).not.toHaveBeenCalled()
+  })
+  it('retries failed compression and separates HMR generations and source-map bytes', async () => {
+    const { route, service, url } = compressedFixture()
+    vi.mocked(gzip).mockClear()
+    vi.mocked(gzip).mockImplementationOnce((...args: Parameters<typeof gzip>) => {
+      args[2](new Error('synthetic compression failure'), Buffer.alloc(0))
+    })
+    await expect(routeRequest(route, url, 'GET', 'gzip')).rejects.toThrow('synthetic compression failure')
+    const old = await routeRequest(route, url, 'GET', 'gzip')
+    expect(gzip).toHaveBeenCalledTimes(2)
+    const mapped = await routeRequest(route, mapUrl(url), 'GET', 'gzip')
+    expect(JSON.parse(gunzipSync(mapped.body).toString())).toMatchObject({ version: 3 })
+    const path = service.clientPath(UI_RENDERER_ID)!
+    writeFileSync(path, 'module.exports = { rebuilt: true }\n')
+    service.rebuilt(UI_RENDERER_ID)
+    const nextUrl = '/' + service.graph().batches[0]!.url
+    expect(nextUrl).not.toBe(url)
+    const next = await routeRequest(route, nextUrl, 'GET', 'gzip')
+    expect(gunzipSync(next.body)).not.toEqual(gunzipSync(old.body))
+    expect((await routeRequest(route, url, 'GET', 'gzip')).body).toEqual(old.body)
+    expect(gzip).toHaveBeenCalledTimes(4)
+  })
+
 })

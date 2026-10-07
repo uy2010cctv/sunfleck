@@ -32,6 +32,16 @@ describe('EnterpriseIdentityRepository', () => {
     await rm(root, { recursive: true, force: true })
   })
 
+  it('reads current user state only within the requested organization', () => {
+    expect(repository.findUserById('org-a', 'user-1')).toMatchObject({ id: 'user-1', disabled: false })
+    expect(repository.findUserById('org-b', 'user-1')).toBeUndefined()
+    expect(repository.findUserById('org-a', 'missing')).toBeUndefined()
+    repository.setUserDisabled('user-1', true)
+    expect(repository.findUserById('org-a', 'user-1')).toMatchObject({ disabled: true })
+    repository.setRoles('user-1', ['auditor'])
+    expect(repository.findUserById('org-a', 'user-1')?.roles).toEqual(['auditor'])
+  })
+
   it('persists organizations, users, and role memberships across restart', () => {
     repository.setRoles('user-1', ['administrator', 'auditor'])
     repository.close()

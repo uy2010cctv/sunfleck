@@ -20,6 +20,8 @@ Enterprise Web authentication, session cookies, central API RBAC, and audit.
 <a id="package-details"></a>
 ## Package Details
 
+Session list authorization uses optional bulk access facts, preserving item order and duplicate rows. Workspace and project membership reads are reused only within that list request; later requests read current membership again. Adapters without bulk facts retain individual reads. Live Session streams continue checking access for every frame.
+
 Persistent Web authentication and authorization:
 
 - `/auth` status, local/SSO login, callbacks, logout, and administrator endpoints.
@@ -37,7 +39,7 @@ Enterprise HTTP RPC payloads reserve the top-level `principal` key. After sessio
 
 The Web plugin accepts a deployment-owned `identityStore` implementing the `EnterpriseIdentityStore` contract. `databasePath` remains an optional SQLite fallback for local deployments; PostgreSQL composition must provide the repository through this seam rather than making the Web package open SQLite. The plugin closes only the SQLite repository it constructs itself. A supplied `identityStore` or `enterprisePostgres.identity` remains deployment-owned across auth unload and failed initialization.
 
-`EnterpriseSecurity` hydrates human principals with department membership and managed departments before applying the shared hierarchy policy. Employee definitions resolve through their owner's directory assignment; employee-bound channels resolve through the immutable release to that definition. Unbound channels remain private to their creator, while administrators may create new channel records. Memory administration lists organization memory plus authorized departments, permits department managers to maintain their department, and reserves organization memory changes for administrators.
+`EnterpriseSecurity` reads the current human user by organization and user id on each resource authorization, then hydrates department membership and managed departments before applying the shared hierarchy policy. Employee definitions resolve through their owner's directory assignment; employee-bound channels resolve through the immutable release to that definition. Unbound channels remain private to their creator, while administrators may create new channel records. Memory administration lists organization memory plus authorized departments, permits department managers to maintain their department, and reserves organization memory changes for administrators.
 
 Plugins that register raw `WebRoute` handlers must authenticate their browser requests before reading bodies or domain data. The `enterpriseKnowledge.read` and `enterpriseKnowledge.manage` classifications let the knowledge plugin reuse the enterprise Session, capability RBAC, request principal, and audit sink instead of treating same-origin routing as authorization.
 

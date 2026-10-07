@@ -20,6 +20,10 @@ Persistent enterprise organizations, users, sessions, resource policies, and aud
 <a id="package-details"></a>
 ## Package Details
 
+The optional `sessionAccessFacts({ orgId, userId, sessionIds })` capability returns current ownership, Workspace and collaboration facts for the requested Session ids. It must preserve collaboration bindings from other organizations so authorization can deny them; absent facts deny access. Adapters without it use individual reads.
+
+`findUserById(orgId, userId)` reads the current profile, roles, departments, and disabled state for one user; a missing user or organization mismatch returns `undefined`. Reads do not retain permission results.
+
 SQLite persistence for organizations, nested departments, users and memberships, roles, external identities, hashed login sessions, managed Workspace grants, Session-to-Workspace bindings, dm, group, and channel collaboration surfaces with members, per-employee group sessions, topics, and duty rosters, reviewed organizational memory plus compartments written without review — private agent, pair, and the member-gated project compartment tagged by project id — resource policies, and attributable audit records. Bearer tokens, passwords, and raw memory source conversations are never stored directly.
 
 `EnterpriseIdentityStore` is the Host-facing persistence contract. The SQLite `EnterpriseIdentityRepository` is one implementation; deployments may inject a transactional PostgreSQL-backed implementation without coupling authentication to SQLite file paths.
