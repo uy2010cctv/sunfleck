@@ -4178,7 +4178,7 @@ importers:
   packages/client/ui-enterprise-workbench:
     dependencies:
       '@deepseek-ai/schemastery':
-        specifier: workspace:~
+        specifier: link:../../../vendor/schemastery
         version: link:../../../vendor/schemastery
       emoji-picker-element:
         specifier: 1.29.1
