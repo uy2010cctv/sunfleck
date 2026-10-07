@@ -1469,11 +1469,17 @@ export class EnterpriseWorkbenchController {
       this.deviceRequests.delete(context.abort)
       throw new LocalDeviceError('diagnostic-pending')
     }
-    const sessionId = this.activeRecordSessionId
-    const workspaceId = this.currentSessionWorkspaceId()
+    const listed = this.sessions.list.getSnapshot()
+    const spaces = this.workspaces.list.getSnapshot()
+    const eligible = (id: SessionId): boolean => !spaces.archivedSessionIds.includes(id)
+      && spaces.items.some(space => space.sessionIds.includes(id))
+    const sessionId = listed.ids.find(id => eligible(id) && (listed.byId[id]?.retainedBy?.mainView ?? 0) > 0)
+      ?? (this.activeRecordSessionId !== undefined && eligible(this.activeRecordSessionId) ? this.activeRecordSessionId : undefined)
+      ?? listed.ids.find(eligible)
+    const workspaceId = spaces.items.find(space => sessionId !== undefined && space.sessionIds.includes(sessionId))?.workspaceId
     if (sessionId === undefined || workspaceId === undefined) {
       this.deviceRequests.delete(context.abort)
-      throw new Error('Open a work record before testing this computer')
+      throw new LocalDeviceError('no-test-context')
     }
     this.publishDiagnostic(context.account, { deviceId, phase: 'testing' })
     let runId: string | undefined
@@ -1734,15 +1740,6 @@ export class EnterpriseWorkbenchController {
         extensionReviews: pageFailure(current.extensionReviews, error) })
       return false
     }
-  }
-
-  /** Resolve only the Workspace actually containing the work record this controller last revealed.
-   * @returns Result produced by this API.
-  */
-  private currentSessionWorkspaceId(): string | undefined {
-    const currentSessionId = this.activeRecordSessionId
-    if (currentSessionId === undefined) return undefined
-    return this.workspaces.list.getSnapshot().items.find(workspace => workspace.sessionIds.includes(currentSessionId))?.workspaceId
   }
 
   /** Prepare a goal-first work request, attaching the revealed work record when one exists.

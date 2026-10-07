@@ -238,6 +238,31 @@ function controllerServices() {
 }
 
 describe('EnterpriseWorkbenchController enterprise read models', () => {
+  it('tests the current workspace conversation without opening a work record', async () => {
+    const services = controllerServices()
+    services.sessions.list.getSnapshot = () => sessions([
+      { id: 'session-1' }, { id: 'session-2', retainedBy: { mainView: 1 } },
+    ])
+    const startRun = vi.fn(() => ok({ runId: 'auto-test' }))
+    const controller = new EnterpriseWorkbenchController(controllerApi({ enterpriseDevices: {
+      startRun, issuePermit: () => ok({}), getAction: () => ok({ state: 'completed' }),
+      transitionRun: () => ok({ status: 'stopped' }),
+    } }) as never, services.sessions as never, services.workspaces as never, () => {}, async () => 'account-a')
+    await controller.testLocalDevice('device-1')
+    expect(startRun).toHaveBeenCalledWith({ deviceId: 'device-1', workspaceId: 'workspace-1', sessionId: 'session-2', mode: 'observe' })
+  })
+
+  it('uses an existing permitted conversation when none is currently displayed', async () => {
+    const services = controllerServices()
+    services.sessions.list.getSnapshot = () => sessions([{ id: 'session-1' }])
+    const startRun = vi.fn(() => ok({ runId: 'auto-test' }))
+    const controller = new EnterpriseWorkbenchController(controllerApi({ enterpriseDevices: {
+      startRun, issuePermit: () => ok({}), getAction: () => ok({ state: 'completed' }),
+      transitionRun: () => ok({ status: 'stopped' }),
+    } }) as never, services.sessions as never, services.workspaces as never, () => {}, async () => 'account-a')
+    await controller.testLocalDevice('device-1')
+    expect(startRun).toHaveBeenCalledWith(expect.objectContaining({ sessionId: 'session-1' }))
+  })
   it('pairs a local Device Agent without exposing private key material', async () => {
     const pair = vi.fn(() => ok({ deviceId: 'device-1' }))
     const list = vi.fn(() => ok([{ deviceId: 'device-1', deviceName: 'Kris Mac', platform: 'macos', status: 'online' }]))

@@ -128,6 +128,11 @@ function workbenchProps(overrides: Partial<EnterpriseWorkbenchProps> & {
       archivedSessionIds: [], state: 'idle', phase: 'ready', error: null,
     } as never),
     refreshDeviceDiagnostic: vi.fn(async () => true),
+    readLocalDeviceStatus: vi.fn(async () => ({
+      platform: 'macos', version: '0.1.0', connectionPresent: true, serverOrigin: window.location.origin,
+      cua: { state: 'ready' }, permissions: { accessibility: 'unknown', screenRecording: 'unknown' },
+      browser: { available: false },
+    })),
     close: vi.fn(),
     refresh: vi.fn(() => Promise.resolve()),
     startEmployee: vi.fn(() => Promise.resolve()),
@@ -272,14 +277,15 @@ describe('EnterpriseWorkbench', () => {
     fireEvent.click(screen.getByRole('button', { name: '连接此电脑' }))
     expect(pairLocalDevice).not.toHaveBeenCalled()
     expect(screen.getByRole('dialog', { name: '设置此电脑' })).toBeTruthy()
-    expect(screen.getByText(/在线只表示设备仍在发送心跳/u)).toBeTruthy()
+    await screen.findByText(/已检测到助手/u)
+    expect(screen.getByText(/自动识别助手/u)).toBeTruthy()
     expect(screen.getByRole('dialog', { name: '设置此电脑' }).textContent).toMatchSnapshot()
   })
 
   it('keeps pairing explicit and reports unknown permissions after local refresh', async () => {
     const pairLocalDevice = vi.fn(async () => ({ deviceId: 'local-device-private' }))
     const readLocalDeviceStatus = vi.fn(async () => ({
-      platform: 'macos' as const, version: '0.1.0', connectionPresent: false, serverOrigin: window.location.origin,
+      platform: 'macos' as const, version: '0.1.0', connectionPresent: true, serverOrigin: window.location.origin,
       cua: { state: 'ready' as const }, permissions: { accessibility: 'unknown' as const, screenRecording: 'unknown' as const },
       browser: { available: false },
     }))
@@ -288,7 +294,6 @@ describe('EnterpriseWorkbench', () => {
       pairLocalDevice, readLocalDeviceStatus,
     } as never)} />)
     fireEvent.click(screen.getByRole('button', { name: '连接此电脑' }))
-    fireEvent.click(screen.getByRole('button', { name: '检查本机助手' }))
     await screen.findByText(/已检测到助手/u)
     expect(pairLocalDevice).not.toHaveBeenCalled()
     fireEvent.click(screen.getByRole('button', { name: '配对到当前账号' }))
@@ -298,6 +303,29 @@ describe('EnterpriseWorkbench', () => {
     expect(screen.getAllByText('尚未确认')).toHaveLength(2)
     expect(screen.queryByText('已允许')).toBeNull()
     expect(screen.queryByText('local-device-private')).toBeNull()
+  })
+
+  it.each(['windows', 'linux'] as const)('allows an explicit desktop check on %s without claiming macOS grants', async (platform) => {
+    const testLocalDevice = vi.fn(async () => ({ action: { state: 'completed' }, cleanup: 'stopped', runId: 'manual-test' }))
+    render(<EnterpriseWorkbench {...workbenchProps({
+      state: { mode: 'enterprise', page: 'devices' },
+      pairLocalDevice: vi.fn(async () => ({ deviceId: 'local-device' })), testLocalDevice,
+      readLocalDeviceStatus: vi.fn(async () => ({
+        platform, version: '0.1.0', connectionPresent: true, serverOrigin: window.location.origin,
+        cua: { state: 'ready' }, permissions: { accessibility: 'unsupported', screenRecording: 'unsupported' },
+        browser: { available: true },
+      })),
+    } as never)} />)
+    fireEvent.click(screen.getByRole('button', { name: '连接此电脑' }))
+    await screen.findByText(/已检测到助手/u)
+    fireEvent.click(screen.getByRole('button', { name: '配对到当前账号' }))
+    await screen.findByRole('heading', { name: '电脑已连接' })
+    expect(testLocalDevice).not.toHaveBeenCalled()
+    const check = screen.getByRole('button', { name: '检查电脑操作' })
+    expect(check.hasAttribute('disabled')).toBe(false)
+    fireEvent.click(check)
+    await screen.findByText('屏幕尺寸读取成功')
+    expect(testLocalDevice).toHaveBeenCalledWith('local-device')
   })
 
   it('shows successful read-only evidence separately from a failed diagnostic stop', async () => {

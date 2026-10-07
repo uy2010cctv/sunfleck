@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import QRCode from 'qrcode/lib/browser.js'
 import { DeviceSetup } from './DeviceSetup.tsx'
-import type { LocalDeviceStatus } from './localDevice.ts'
+import { LocalDeviceError, type LocalDeviceStatus } from './localDevice.ts'
 import { EnterpriseBrand } from './EnterpriseBrand.tsx'
 import { dicebearAvatarUrl } from './avatar.ts'
 import {
@@ -730,7 +730,7 @@ function DevicesPage({ page, api, busy, diagnostic, setupEpoch, t }: {
         }}>{busy ? t('device.connecting') : t('device.connect')}</button>
       </div>
     </div>
-    <DeviceSetup open={setupOpen} onClose={() => { setSetupOpen(false) }} api={api} devices={page.items} diagnostic={diagnostic} setupEpoch={setupEpoch} t={t}/>
+    <DeviceSetup open={setupOpen} onClose={() => { setSetupOpen(false) }} api={api} diagnostic={diagnostic} setupEpoch={setupEpoch} t={t}/>
     {pairing.phase === 'ready' && pairing.code !== undefined && pairing.expiresAt !== undefined
       && <div role="status" className={css.compactEmpty}><strong>{t('device.pairingTitle')}</strong>
         <span>{pairing.code}</span><span>{t('device.pairingBody', { time: formatDate(pairing.expiresAt) })}</span></div>}
@@ -757,8 +757,8 @@ function DevicesPage({ page, api, busy, diagnostic, setupEpoch, t }: {
                 setTestState({ deviceId: device.deviceId,
                   message: ok ? t('device.testPassed') : t('device.testFailed', { state: result.action?.state ?? 'error' }), ok, ...(result.cleanup === 'failed' ? { cleanupRunId: result.runId } : {}) })
                 refreshActivity()
-              }).catch(() => {
-                setTestState({ deviceId: device.deviceId, message: t('device.testFailed', { state: 'error' }), ok: false })
+              }).catch((failure) => {
+                setTestState({ deviceId: device.deviceId, message: failure instanceof LocalDeviceError ? t(`device.setup.error.${failure.code}`) : t('device.testFailed', { state: 'error' }), ok: false })
               })
             }}>{t('device.test')}</button>}
         </div>
@@ -2117,7 +2117,7 @@ export function EnterpriseWorkbench(props: EnterpriseWorkbenchProps) {
       return success
     },
   }
-  const mutationNotice = state.mutationError === null ? null : <div className={css.mutationError} role="alert" aria-label={props.t('mutation.errorAria')}><IconWarningOutlineRegular size={18} /><span>{state.mutationPhase === 'conflict' ? props.t('mutation.conflict') : ['account-changed', 'diagnostic-pending', 'unavailable', 'upgrade-required', 'invalid-response', 'origin-denied', 'pairing-conflict', 'completion-failed'].includes(state.mutationError) ? props.t(`device.setup.error.${state.mutationError}` as EnterpriseWorkbenchKey) : state.mutationError}</span>{state.mutationPhase === 'conflict' ? <button type="button" onClick={() => { void props.resolveMutationConflict() }}>{props.t('mutation.reload')}</button> : <button type="button" onClick={() => { void props.retryMutation() }}>{props.t('mutation.retry')}</button>}<button type="button" onClick={props.dismissMutationError}>{props.t('mutation.dismiss')}</button></div>
+  const mutationNotice = state.mutationError === null ? null : <div className={css.mutationError} role="alert" aria-label={props.t('mutation.errorAria')}><IconWarningOutlineRegular size={18} /><span>{state.mutationPhase === 'conflict' ? props.t('mutation.conflict') : ['no-test-context', 'account-changed', 'diagnostic-pending', 'unavailable', 'upgrade-required', 'invalid-response', 'origin-denied', 'pairing-conflict', 'completion-failed'].includes(state.mutationError) ? props.t(`device.setup.error.${state.mutationError}` as EnterpriseWorkbenchKey) : state.mutationError}</span>{state.mutationPhase === 'conflict' ? <button type="button" onClick={() => { void props.resolveMutationConflict() }}>{props.t('mutation.reload')}</button> : <button type="button" onClick={() => { void props.retryMutation() }}>{props.t('mutation.retry')}</button>}<button type="button" onClick={props.dismissMutationError}>{props.t('mutation.dismiss')}</button></div>
   if (state.scheduleDialogOpen) return <Modal open title={props.t('nav.schedules')} closeLabel={props.t('close')}
     description={props.t('schedule.description')} onClose={requestClose}
     className={css.scheduleDialog ?? ''} contentClassName={css.scheduleDialogContent ?? ''}>

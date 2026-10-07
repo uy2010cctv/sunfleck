@@ -1,5 +1,5 @@
 /** Loopback companion responses, restricted to setup facts and coded failures. */
-export type LocalDeviceErrorCode = 'diagnostic-pending' | 'account-changed' | 'unavailable' | 'upgrade-required' | 'invalid-response' | 'origin-denied' | 'pairing-conflict' | 'completion-failed'
+export type LocalDeviceErrorCode = 'no-test-context' | 'diagnostic-pending' | 'account-changed' | 'unavailable' | 'upgrade-required' | 'invalid-response' | 'origin-denied' | 'pairing-conflict' | 'completion-failed'
 
 /** A companion failure translated by the owning locale dictionary. */
 export class LocalDeviceError extends Error {

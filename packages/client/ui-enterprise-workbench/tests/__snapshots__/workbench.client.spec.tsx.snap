@@ -28,9 +28,9 @@ exports[`EnterpriseWorkbench > groups newer pending and earlier approved reviews
 `;
 
 exports[`EnterpriseWorkbench > opens setup without pairing an online computer until explicit account confirmation 1`] = `
-"设置此电脑在线只表示设备仍在发送心跳。本机配对、系统权限和浏览器配置需要分别确认1. 启动助手2. 检查并配对3. 系统权限4. 浏览器5. 连接测试6. 控制设置1. 启动助手请从管理员提供的 SUNFLECK 源码获取助手。当前为技术预览，尚无安装包安装 Node.js 22.19 或更新版本及 pnpm，在仓库文件夹中执行：pnpm install
+"设置此电脑自动识别助手，确认一次当前账号，即可查看连接检查结果1. 识别助手2. 确认账号3. 连接结果已检测到助手：macOS，版本 0.1.0将此电脑绑定到当前账号。检查只读取屏幕尺寸，不点击、不输入、不截屏配对到当前账号权限与浏览器辅助功能尚未确认屏幕录制尚未确认打开 macOS 系统设置 → 隐私与安全性，在“辅助功能”和“屏幕录制”中允许运行助手的应用。这些开关需要你亲自确认。若列表里没有助手，点击“+”添加实际运行助手的应用；源码运行时通常是 Node.js，后台助手与终端可能是不同进程。授权后重启后台助手，再重新检查如果 macOS 提示退出并重新打开助手，请重启后重新检查。“尚未确认”不代表已授权尚未确认浏览器是否可用重新检查权限安装说明请从管理员提供的 SUNFLECK 源码获取助手。当前为技术预览，尚无安装包安装 Node.js 22.19 或更新版本及 pnpm，在仓库文件夹中执行：pnpm install
 pnpm --filter @deepseek-ai/dsh-device-agent bundle
-node apps/device-agent/lib/bin.js --server http://localhost:3000保持助手运行，并在需要设置的这台电脑上打开本页面检查本机助手"
+node apps/device-agent/lib/bin.js --server http://localhost:3000保持助手运行，并在需要设置的这台电脑上打开本页面"
 `;
 
 exports[`EnterpriseWorkbench > presents the roster as a StaffDeck-inspired employee gallery without technical metadata > employee directory hierarchy 1`] = `
