@@ -48,7 +48,7 @@ describe('authorized native session context', () => {
   it('associates presented files with the closing reply of their own complete native turn', async () => {
     const ctx = new Context()
     const disposed = vi.fn()
-    const observeSession = vi.fn(async () => ({ events: [
+    const observeSession = vi.fn(async () => ({ header: {}, events: [
       { type: 'assistant/message', seq: 2, data: { turn: 1, message: { content: [{ type: 'text', text: 'Working' }] } } },
       { type: 'deliverables/presented', seq: 3, data: { turn: 1, files: [{ path: 'earlier.txt' }] } },
       { type: 'assistant/message', seq: 6, data: { turn: 1, message: { content: [{ type: 'text', text: 'Earlier report' }] } } },
@@ -64,7 +64,7 @@ describe('authorized native session context', () => {
       { type: 'assistant/message', seq: 22, data: { turn: 5, message: { content: [{ type: 'text', text: '  ' }] } } },
       { type: 'turn/end', seq: 23, data: { turn: 5, reason: { kind: 'completed' } } },
     ], [Symbol.dispose]: disposed }))
-    ctx.provide('enterprisePostgres' as never, { identity } as never)
+    ctx.provide('enterprisePostgres' as never, { identity, collaboration: { bySession: async () => undefined } } as never)
     ctx.provide('enterpriseSecurity' as never, deps.security as never)
     ctx.provide('sessionQuery' as never, { observeSession } as never)
     try {
@@ -80,6 +80,30 @@ describe('authorized native session context', () => {
       expect(disposed).toHaveBeenCalledOnce()
     } finally { await ctx.fiber.dispose() }
   })
+  it.each(['direct', 'team-child'] as const)('keeps %s channel files on the committed body when its final receipt is suppressed', async (bindingKind) => {
+    const ctx = new Context()
+    const disposed = vi.fn()
+    ctx.provide('enterprisePostgres' as never, { identity,
+      collaboration: { bySession: async (id: string) => bindingKind === 'team-child' && id === 'session' ? undefined : { surfaceId: 'channel' },
+        get: async () => ({ kind: 'channel' }) },
+      roomEvents: { findBySourceCursor: async (_org: string, _room: string, _session: string, cursor: string) => cursor === '3'
+        ? { authorKind: 'employee', requestId: 'room_post:body', event: { kind: 9 } } : undefined },
+    } as never)
+    ctx.provide('enterpriseSecurity' as never, deps.security as never)
+    ctx.provide('sessionQuery' as never, { observeSession: async () => ({ header: bindingKind === 'team-child' ? { parentSession: 'lead' } : {}, events: [
+      { type: 'turn/start', seq: 1, data: { turn: 1 } },
+      { type: 'tool/ptc-dispatch-start', seq: 3, data: { name: 'room_post' } },
+      { type: 'deliverables/presented', seq: 4, data: { turn: 1, files: [{ path: 'report.txt' }] } },
+      { type: 'assistant/message', seq: 6, data: { turn: 1, message: { content: [{ type: 'text', text: 'Already posted' }] } } },
+      { type: 'turn/end', seq: 7, data: { turn: 1, reason: { kind: 'completed' } } },
+    ], [Symbol.dispose]: disposed }) } as never)
+    try {
+      const response = await composeSessionContext(ctx).fetch(new Request('https://dsh/enterprise/session-context/presented/session'))
+      expect(await response.json()).toEqual({ sessionId: 'session', files: [{ path: 'report.txt', seq: 4, index: 0, replySourceSeq: 3 }] })
+      expect(disposed).toHaveBeenCalledOnce()
+    } finally { await ctx.fiber.dispose() }
+  })
+
   it('denies revoked workspace access even when the session remains owned', async () => {
     deps.security.authorizeApiAsync = async () => ({ allowed: false, reason: 'resource-hidden' })
     expect((await new SessionContextHttpHandler(deps).fetch(request())).status).toBe(403)

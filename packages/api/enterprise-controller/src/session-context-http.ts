@@ -11,7 +11,7 @@ import type { EnterpriseProjects, Project, ProjectId } from '@deepseek-ai/dsh-en
 import type { SessionId } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-session-query'
 import type {} from '@deepseek-ai/dsh-tool-present/types'
-import { roomTurnPost, type RoomTurnEvent } from './collaboration-room-delivery.ts'
+import { roomTurnPost, roomTurnPostedSource, roomSourceCursor, type RoomTurnEvent } from './collaboration-room-delivery.ts'
 import { employeePresetDefinition } from './employee-preset.ts'
 import { employeeReleaseProjectionDefinition } from './employee-session.ts'
 import type { EmployeeReleaseSelection } from './contract/work.ts'
@@ -23,7 +23,7 @@ export interface PresentedFileEntry {
   readonly description?: string
   readonly seq: number
   readonly index: number
-  /** Native source sequence of the completed turn's room reply, when available. */
+  /** Native source sequence of this turn's displayed room post, when available. */
   readonly replySourceSeq?: number
 }
 
@@ -189,16 +189,43 @@ export function composeSessionContext(ctx: Context): SessionContextHttpHandler {
     ...(query === undefined ? {} : { presentedFiles: async (id: string) => {
       using observation = await query.observeSession(brandString<SessionId>(id))
       const files: PresentedFileEntry[] = []
+      const binding = await postgres.collaboration.bySession(id)
+        ?? (observation.header.parentSession === undefined ? undefined
+          : await postgres.collaboration.bySession(String(observation.header.parentSession)))
+      const grant = binding === undefined ? undefined : await postgres.identity.sessionWorkspaceGrant(id)
+      const room = binding === undefined || grant === undefined ? undefined
+        : await postgres.collaboration.get(grant.orgId, binding.surfaceId)
+      const channel = binding !== undefined && grant !== undefined && room?.kind === 'channel'
+        ? { orgId: grant.orgId, surfaceId: binding.surfaceId } : undefined
       const turns = new Map<number, RoomTurnEvent[]>()
+      let activeTurn: number | undefined
       for (const event of observation.events) {
-        if (event.type !== 'assistant/message' && event.type !== 'turn/end') continue
+        if (event.type === 'turn/start') activeTurn = event.data.turn
+        if (event.type === 'tool/ptc-dispatch-start') {
+          if (activeTurn === undefined) continue
+          const records = turns.get(activeTurn) ?? []
+          records.push({ type: event.type, seq: event.seq, data: { name: event.data.name } })
+          turns.set(activeTurn, records)
+          continue
+        }
+        if (event.type !== 'assistant/message' && event.type !== 'turn/end'
+          && event.type !== 'turn/start' && event.type !== 'tool/call') continue
         const records = turns.get(event.data.turn) ?? []
-        records.push(event)
+        records.push(event.type === 'tool/call' ? { type: event.type, seq: event.seq, data: { name: event.data.name } } : event)
         turns.set(event.data.turn, records)
+        if (event.type === 'turn/end') activeTurn = undefined
       }
+      const deliveryReplies = new Map<number, number | undefined>()
       for (const event of observation.events) {
         if (event.type !== 'deliverables/presented') continue
-        const replySourceSeq = roomTurnPost(turns.get(event.data.turn) ?? [], event.data.turn)?.sourceSeq
+        if (!deliveryReplies.has(event.data.turn)) {
+          const records = turns.get(event.data.turn) ?? []
+          const published = channel === undefined ? undefined : await roomTurnPostedSource(records, event.data.turn,
+            async sequence => await postgres.roomEvents.findBySourceCursor(channel.orgId, channel.surfaceId, id, String(sequence))
+              ?? await postgres.roomEvents.findBySourceCursor(channel.orgId, channel.surfaceId, id, roomSourceCursor(id, sequence)))
+          deliveryReplies.set(event.data.turn, published ?? roomTurnPost(records, event.data.turn)?.sourceSeq)
+        }
+        const replySourceSeq = deliveryReplies.get(event.data.turn)
         event.data.files.forEach((file, index) => {
           files.push({ ...file, seq: event.seq, index, ...(replySourceSeq === undefined ? {} : { replySourceSeq }) })
         })

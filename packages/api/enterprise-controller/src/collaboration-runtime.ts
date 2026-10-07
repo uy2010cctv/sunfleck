@@ -30,7 +30,8 @@ import { CollaborationRoomOutbox } from './collaboration-room-outbox.ts'
 import { CollaborationRoomRecovery } from './collaboration-room-recovery.ts'
 import { installCollaborationAgentTools } from './collaboration-agent-tools.ts'
 import { GroupRoomSchedules } from './collaboration-group-schedules.ts'
-import { releasedRoomEmployee, roomPrompt, roomSourceCursor, roomToolFact, roomTurnPost, roomTurnScheduleSource, roomTurnTriggers,
+import { releasedRoomEmployee, roomPrompt, roomSourceCursor, roomToolFact, roomTurnPost, roomTurnPostedSource,
+  roomTurnScheduleSource, roomTurnTriggers,
   type RoomToolEvent, type RoomTurnEvent } from './collaboration-room-delivery.ts'
 import { projectTeamRoomFact, teamTurnSourceIds, type TeamRoomMember,
   type TeamTurnSourceRecord } from './collaboration-team-room.ts'
@@ -274,6 +275,8 @@ export function composeCollaboration(ctx: Context, services: {
   const nativeRoomEvents = (events: readonly SessionEvent[]): RoomTurnEvent[] => {
     const relevant: RoomTurnEvent[] = []
     for (const event of events) {
+      if (event.type === 'tool/call' || event.type === 'tool/ptc-dispatch-start') relevant.push({
+        type: event.type, seq: event.seq, data: { name: event.data.name } })
       if (event.type === 'turn/start') relevant.push({ type: 'turn/start', seq: event.seq,
         data: { turn: event.data.turn } })
       if (event.type === 'user/message') {
@@ -299,10 +302,16 @@ export function composeCollaboration(ctx: Context, services: {
     }
     return relevant
   }
+  const postedChannelBody = async (row: CollaborationRecord, sessionId: string,
+    events: readonly RoomTurnEvent[], turn: number): Promise<number | undefined> => row.kind !== 'channel' ? undefined
+    : roomTurnPostedSource(events, turn, async sequence =>
+      await roomEvents.findBySourceCursor(row.orgId, row.id, sessionId, String(sequence))
+        ?? await roomEvents.findBySourceCursor(row.orgId, row.id, sessionId, roomSourceCursor(sessionId, sequence)))
   const projectNativeTurn = async (row: CollaborationRecord, binding: CollaborationSession,
     events: readonly RoomTurnEvent[], turn: number, failed?: () => void): Promise<void> => {
     const result = roomTurnPost(events, turn)
     if (result === undefined) return
+    if (await postedChannelBody(row, binding.sessionId, events, turn) !== undefined) return
     const cursor = roomSourceCursor(binding.sessionId, result.sourceSeq)
     let posted = await roomEvents.findBySourceCursor(row.orgId, row.id, binding.sessionId, cursor)
     const deferred = (): void => { if (posted === undefined) failed?.() }
@@ -455,8 +464,10 @@ export function composeCollaboration(ctx: Context, services: {
     if (verifiedSourceEventId === undefined) { failed?.(); return }
     await projectRoomToolEvents(row, { surfaceId: row.id, topicId: rootBinding.topicId,
       employeeId: member.employeeId, sessionId: memberSessionId }, raw, turn, verifiedSourceEventId, failed)
-    const reply = roomTurnPost(nativeRoomEvents(raw), turn)
+    const relevant = nativeRoomEvents(raw)
+    const reply = roomTurnPost(relevant, turn)
     if (reply === undefined) return
+    if (await postedChannelBody(row, memberSessionId, relevant, turn) !== undefined) return
     const cursor = roomSourceCursor(memberSessionId, reply.sourceSeq)
     if (await roomEvents.findBySourceCursor(row.orgId, row.id, memberSessionId, cursor) !== undefined) return
     const signed = await signer.signEmployee({ orgId: row.orgId, employeeId: member.employeeId,

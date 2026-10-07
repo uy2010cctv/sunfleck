@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { roomMentionTargets, roomPrompt, roomRecipients, roomSourceCursor, roomTurnPost, roomTurnScheduleSource, roomTurnTriggers,
+import { roomMentionTargets, roomPrompt, roomRecipients, roomSourceCursor, roomTurnPost, roomTurnPostedSource,
+  roomTurnScheduleSource, roomTurnTriggers,
   releasedRoomEmployee, roomToolFact } from '../src/collaboration-room-delivery.ts'
 import type { RoomEvent } from '@deepseek-ai/dsh-enterprise-postgres'
 
@@ -85,6 +86,34 @@ describe('shared room execution input', () => {
 
   it('builds one persistent projection cursor from a native Session event', () => {
     expect(roomSourceCursor('session-1', 34)).toBe('session-1:34')
+  })
+
+  it('selects the last committed direct or PTC room post in a completed turn', async () => {
+    const events = [
+      { type: 'turn/start', seq: 1, data: { turn: 1 } },
+      { type: 'tool/call', seq: 3, data: { name: 'room_post' } },
+      { type: 'tool/ptc-dispatch-start', seq: 5, data: { name: 'room_post' } },
+      { type: 'assistant/message', seq: 7, data: { turn: 1, message: { content: [{ type: 'text', text: 'Already posted' }] } } },
+      { type: 'turn/end', seq: 8, data: { turn: 1, reason: { kind: 'completed' } } },
+    ] as const
+    const posted = { ...event('1', 'writer', 'Delivered body', []), requestId: 'room_post:body' }
+    expect(await roomTurnPostedSource(events, 1, async () => posted)).toBe(5)
+    expect(await roomTurnPostedSource(events, 1, async seq => seq === 3 ? posted : undefined)).toBe(3)
+    expect(await roomTurnPostedSource(events, 1, async () => undefined)).toBeUndefined()
+    expect(await roomTurnPostedSource(events, 1, async () => event('1', 'writer', 'Activity', []))).toBeUndefined()
+  })
+
+  it('keeps failure and later-turn replies when a previous post exists', async () => {
+    const posted = { ...event('1', 'writer', 'Delivered body', []), requestId: 'room_post:body' }
+    const events = [
+      { type: 'turn/start', seq: 1, data: { turn: 1 } },
+      { type: 'tool/call', seq: 3, data: { name: 'room_post' } },
+      { type: 'turn/end', seq: 4, data: { turn: 1, reason: { kind: 'error' } } },
+      { type: 'turn/start', seq: 5, data: { turn: 2 } },
+      { type: 'turn/end', seq: 6, data: { turn: 2, reason: { kind: 'completed' } } },
+    ] as const
+    expect(await roomTurnPostedSource(events, 1, async () => posted)).toBeUndefined()
+    expect(await roomTurnPostedSource(events, 2, async () => posted)).toBeUndefined()
   })
 
   it('projects the final visible assistant text after the native turn closes', () => {

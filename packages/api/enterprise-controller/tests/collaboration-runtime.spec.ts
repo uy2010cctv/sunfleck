@@ -18,6 +18,60 @@ const actor = { orgId: 'org', userId: 'alice', roles: ['administrator'] as const
 
 async function settleRoomRecovery(): Promise<void> { await new Promise<void>(resolve => setImmediate(resolve)) }
 
+it.each([
+  { kind: 'channel', committed: true, ending: 'completed', posts: 0 },
+  { kind: 'channel', committed: false, ending: 'completed', posts: 1 },
+  { kind: 'channel', committed: true, ending: 'error', posts: 1 },
+  { kind: 'group', committed: true, ending: 'completed', posts: 1 },
+] as const)('projects completed replies for $kind (posted=$committed, ending=$ending)', async (scenario) => {
+  const ctx = new Context()
+  const row = { id: 'room', orgId: 'org', name: 'Room', kind: scenario.kind, workspaceId: 'shared',
+    memberUserIds: ['alice'], memberEmployeeIds: ['employee-a'], dutyEmployeeIds: [] }
+  const binding = { surfaceId: row.id, topicId: '', employeeId: 'employee-a', sessionId: 'session' }
+  const trigger = { id: 'a'.repeat(64), pubkey: 'key', sig: 'sig', kind: 9, content: 'Report', created_at: 1, tags: [] }
+  const raw = [
+    { type: 'enterprise-employee/selected', seq: 0, data: { orgId: 'org', ownerUserId: 'alice',
+      employeeId: 'employee-a', releaseId: 'release-a', releaseVersion: 1 } },
+    { type: 'turn/start', seq: 1, data: { turn: 1 } },
+    { type: 'user/message', seq: 2, data: { source: { kind: 'user', surfaceId: row.id, rpcId: trigger.id } } },
+    { type: 'tool/call', seq: 3, data: { turn: 1, callId: 'post', name: 'room_post' } },
+    { type: 'assistant/message', seq: 4, data: { turn: 1, message: { content: [{ type: 'text', text: 'Already replied' }] } } },
+    { type: 'turn/end', seq: 5, data: { turn: 1, reason: { kind: scenario.ending } } },
+  ]
+  const published: RoomEvent = { orgId: 'org', surfaceId: row.id, sequence: '1', authorKind: 'employee', authorId: 'employee-a',
+    sourceSessionId: 'session', requestId: 'room_post:body', event: { ...trigger, id: 'b'.repeat(64), content: 'Actual body' } }
+  const append = vi.fn(async (input: Omit<RoomEvent, 'sequence'>) => ({ ...input, sequence: '2' }))
+  const records = new Map<CredentialKey, CredentialRecord>()
+  ctx.provide('credentials' as never, { readRecord: async (key: CredentialKey) => records.get(key),
+    modifyRecord: async (key: CredentialKey, update: (value: CredentialRecord | undefined) => Promise<CredentialRecord | undefined>) => {
+      const value = await update(records.get(key)); if (value !== undefined) records.set(key, value); return value
+    } } as never)
+  ctx.provide('enterprisePostgres' as never, {
+    collaboration: { get: async () => row, sessions: async () => [binding], bySession: async () => binding },
+    roomEvents: { list: async () => [], claimDispatch: async () => [], append,
+      findBySourceCursor: async (_org: string, _room: string, _session: string, cursor: string) => cursor === 'session:3'
+        ? { ...published, requestId: undefined, event: { ...trigger, kind: 41000 } }
+        : cursor === '3' && scenario.committed ? published : undefined,
+      getByEventId: async () => ({ ...published, authorKind: 'human', authorId: 'alice', event: trigger }),
+      getRoomActorKey: async () => undefined, ensureRoomActorKey: async ({ pubkey }: { pubkey: string }) => pubkey },
+    identity: { sessionOwnerUserId: async () => 'alice', sessionWorkspaceGrant: async () => ({ orgId: 'org' }),
+      listUsers: async () => [{ id: 'alice', disabled: false, roles: ['administrator'] }] },
+    catalog: { getRelease: async () => ({ presetId: 'employee-a' }) },
+  } as never)
+  ctx.provide('sessionPersistence' as never, { open: async () => ({ read: async () => ({ events: raw }), close: async () => {} }),
+    stat: async () => ({ revision: '1' }) } as never)
+  ctx.provide('enterpriseWorkController' as never, { employeeActor: () => undefined } as never)
+  ctx.provide('enterpriseSecurity' as never, { authorizeApiAsync: async () => ({ allowed: true }) } as never)
+  const handler = composeCollaboration(ctx, { operations: () => { throw new Error('unused') }, teams: () => { throw new Error('unused') },
+    limits: { roomContextCharacters: 6000, roomContextEvents: 24, maxBotHops: 2, roomDispatchPollMs: 100, roomDispatchLeaseMs: 1000 } })
+  try {
+    await handler.service.events(actor, row.id, {})
+    await settleRoomRecovery()
+    expect(append).toHaveBeenCalledTimes(scenario.posts)
+    if (scenario.posts > 0) expect(append.mock.calls[0]?.[0].event.content).toBe('Already replied')
+  } finally { await ctx.fiber.dispose() }
+})
+
 it('returns reconciling false while an unchanged room waits on a metadata check', async () => {
   const ctx = new Context()
   const row = { id: 'group', orgId: 'org', name: 'Group', kind: 'group', workspaceId: 'shared',

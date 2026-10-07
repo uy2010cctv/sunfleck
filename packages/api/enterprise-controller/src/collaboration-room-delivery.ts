@@ -121,6 +121,29 @@ export type RoomTurnEvent =
     readonly data: { readonly source?: { readonly kind?: string
       readonly surfaceId?: string
       readonly rpcId?: string } } }
+  | { readonly type: 'tool/call' | 'tool/ptc-dispatch-start'
+    readonly seq: number
+    readonly data: { readonly name: string } }
+
+/** Find an actual room_post publication belonging to this successfully completed turn.
+ * @param events - Native records in sequence order, including direct and PTC calls.
+ * @param turn - Completed native turn number.
+ * @param publication - Scoped lookup of a committed room event by native call sequence.
+ * @returns Last published body cursor, or undefined when the native reply remains necessary.
+ */
+export async function roomTurnPostedSource(events: readonly RoomTurnEvent[], turn: number,
+  publication: (sequence: number) => Promise<RoomEvent | undefined>): Promise<number | undefined> {
+  const start = events.findLast(event => event.type === 'turn/start' && event.data.turn === turn)
+  const end = events.findLast(event => event.type === 'turn/end' && event.data.turn === turn)
+  if (start === undefined || end?.type !== 'turn/end' || end.data.reason.kind !== 'completed') return undefined
+  for (const event of events.toReversed()) {
+    if (event.seq <= start.seq || event.seq >= end.seq
+      || (event.type !== 'tool/call' && event.type !== 'tool/ptc-dispatch-start') || event.data.name !== 'room_post') continue
+    const posted = await publication(event.seq)
+    if (posted?.authorKind === 'employee' && posted.event.kind === 9 && posted.requestId?.startsWith('room_post:')) return event.seq
+  }
+  return undefined
+}
 
 /** Select the last user-visible reply or one stable failure marker from a completed native turn.
  * @param events - Native assistant and turn-end records in sequence order.

@@ -32,3 +32,9 @@ it('uses full-log reply ownership when a preceding native turn is outside the lo
 it('keeps declared files off workflow events sharing the same source Session', () => {
   expect(filesForRoomReply([later], { ...later, kind: 41000 }, [laterFile])).toEqual([])
 })
+
+it('shows a later declaration on its published body when no final receipt is sent', () => {
+  const body = { ...reply, tags: [['dsh-source', 'work:5']] }
+  const file = { ...laterFile, replySourceSeq: 5 }
+  expect(filesForRoomReply([body], body, [file])).toEqual([file])
+})
