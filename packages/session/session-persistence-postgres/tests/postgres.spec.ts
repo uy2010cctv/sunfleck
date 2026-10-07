@@ -62,11 +62,27 @@ class MemoryPostgresDatabase implements PostgresDatabase {
     this.events.get(id)?.delete(seq)
   }
 
+  replaceHeader(id: string, header: unknown): void {
+    const row = this.headers.get(id)
+    if (row === undefined) throw new Error('missing test header')
+    row.header_json = header
+  }
+
   seedSchemaVersion(version: number): void {
     this.meta.set('schema-version', String(version))
   }
 
   private rows(text: string, values: readonly unknown[]): Record<string, unknown>[] {
+    if (text.includes('AS event_count')) {
+      const row = this.headers.get(values[0] as string)
+      if (row === undefined) return []
+      const events = [...(this.events.get(row.id)?.values() ?? [])]
+      const title = events.filter(event => (event.event_json as { type?: string }).type === 'session/title')
+        .sort((a, b) => b.seq - a.seq)[0]
+      return [{ ...this.header(row), event_count: events.length,
+        conversation_started: events.some(event => (event.event_json as { type?: string }).type === 'turn/start'),
+        title_event_json: title === undefined ? null : JSON.stringify(title.event_json) }]
+    }
     if (text.startsWith('CREATE ') || text.startsWith('CREATE INDEX') || text.startsWith('ALTER TABLE') || text.startsWith('SET TRANSACTION') || text.startsWith('SELECT pg_advisory_xact_lock')) return []
     if (text.startsWith('SELECT value FROM dsh_session_persistence_meta')) {
       const key = text.includes("'schema-version'") ? 'schema-version' : 'store-id'
@@ -184,6 +200,31 @@ const sessionTitle = {
 } as const
 
 describe('PostgresSessionStore', () => {
+  it('observes a session revision without selecting the complete event log', async () => {
+    const database = new MemoryPostgresDatabase()
+    const persistence = new PostgresSessionPersistence(new Context(), { database })
+    const writer = await persistence.create({ ...header, version: SESSION_FORMAT_VERSION })
+    await writer.append([turnStart, turnEnd])
+    await writer.close()
+    database.queries.length = 0
+    const snapshot = await persistence.stat(header.id)
+    expect(snapshot).toMatchObject({ header: { id: header.id }, eventCount: 2, conversationStarted: true })
+    expect(database.queries.some(query => query.startsWith('SELECT seq, event_json'))).toBe(false)
+    expect(await persistence.stat(header.id)).toEqual(snapshot)
+    expect(await persistence.stat('missing' as never)).toBeUndefined()
+  })
+
+  it.each(['id', 'version'] as const)('rejects an invalid stored %s during lightweight observation', async (field) => {
+    const database = new MemoryPostgresDatabase()
+    const persistence = new PostgresSessionPersistence(new Context(), { database })
+    const currentHeader = { ...header, version: SESSION_FORMAT_VERSION }
+    const writer = await persistence.create(currentHeader)
+    await writer.append([turnStart])
+    await writer.close()
+    database.replaceHeader(header.id, { ...currentHeader, [field]: field === 'id' ? 'different' : -1 })
+    await expect(persistence.stat(header.id)).rejects.toThrow(field === 'id' ? 'stored session identity mismatch' : 'format')
+  })
+
   it('exposes a SessionPersistence service provider', () => {
     expect(PostgresSessionPersistence.name).toBe('PostgresSessionPersistence')
   })

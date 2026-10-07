@@ -120,7 +120,8 @@ export interface CollaborationRoomRuntime {
     readonly unread: number
   }>
   markRead(row: CollaborationRecord, userId: string, sequence: string): Promise<boolean>
-  present(actor: EnterprisePrincipal, row: CollaborationRecord, event: RoomEvent): Promise<CollaborationRoomEvent>
+  present(actor: EnterprisePrincipal, row: CollaborationRecord, event: RoomEvent,
+    authors?: Map<string, Promise<string>>): Promise<CollaborationRoomEvent>
   prompt(row: CollaborationRecord, current: RoomEvent): Promise<string>
   dispatchCommitted?(actor: EnterprisePrincipal, row: CollaborationRecord,
     event: RoomEvent): Promise<CollaborationDelivery>
@@ -198,9 +199,10 @@ export class CollaborationService {
       throw new CollaborationError('thread-not-found', 404)
     }
     const events = await room.list(row, options)
-    return { items: await Promise.all(events.map(event => room.present(actor, row, event))),
+    const authors = new Map<string, Promise<string>>()
+    return { items: await Promise.all(events.map(event => room.present(actor, row, event, authors))),
       nextCursor: events.at(-1)?.sequence ?? null, prevCursor: events[0]?.sequence ?? null,
-      ...(parent === undefined ? {} : { root: await room.present(actor, row, parent) }) }
+      ...(parent === undefined ? {} : { root: await room.present(actor, row, parent, authors) }) }
   }
 
   /** Advance this human's room cursor to an exact event from the displayed room page.

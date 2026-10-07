@@ -23,6 +23,136 @@ function controller(request: ReturnType<typeof fetcher>) {
 }
 
 describe('shared collaboration room', () => {
+  it('starts room metadata and the latest twenty events together', async () => {
+    const metadata = Promise.withResolvers<Response>()
+    const events = Promise.withResolvers<Response>()
+    const request = vi.fn(async (url: string) => url.includes('/events?') ? events.promise : metadata.promise)
+    const { value } = controller(request)
+    const pending = value.select(surface.id)
+    try {
+      expect(request.mock.calls.map(args => args[0])).toEqual([
+        '/enterprise/surfaces/group-1', '/enterprise/surfaces/group-1/events?limit=20',
+      ])
+      events.resolve(Response.json({ items: [human], nextCursor: human.sequence }))
+      expect(value.state.getSnapshot()).toMatchObject({ selection: null, events: [], busy: true })
+    } finally {
+      events.resolve(Response.json({ items: [human], nextCursor: human.sequence }))
+      metadata.resolve(Response.json(detail))
+      await pending
+      value.dispose()
+    }
+  })
+
+  it('loads all older history after a twenty-event first page', async () => {
+    const all = Array.from({ length: 123 }, (_, index) => ({ ...human, id: `history-${index}`, sequence: String(index + 1) }))
+    const request = vi.fn(async (url: string) => {
+      if (!url.includes('/events?')) return Response.json(detail)
+      const params = new URL(url, 'https://example.test').searchParams
+      const before = Number(params.get('before') ?? 124)
+      const items = all.filter(event => Number(event.sequence) < before).slice(-Number(params.get('limit')))
+      return Response.json({ items, nextCursor: items.at(-1)?.sequence ?? null })
+    })
+    const { value } = controller(request)
+    try {
+      await value.select(surface.id)
+      expect(value.state.getSnapshot().events).toHaveLength(20)
+      expect(value.state.getSnapshot().olderCursor).toBe('104')
+      await value.loadOlder()
+      expect(value.state.getSnapshot().events).toHaveLength(120)
+      expect(value.state.getSnapshot().olderCursor).toBe('4')
+      await value.loadOlder()
+      expect(value.state.getSnapshot().events).toEqual(all)
+      expect(value.state.getSnapshot().olderCursor).toBeNull()
+    } finally { value.dispose() }
+  })
+
+  it.each(['metadata', 'events'])('erases a parallel selection when %s denies access', async (denied) => {
+    const metadata = Promise.withResolvers<Response>()
+    const events = Promise.withResolvers<Response>()
+    const request = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === '/enterprise/surfaces') return Response.json([])
+      const response = url.includes('/events?') ? events.promise : metadata.promise
+      init?.signal?.addEventListener('abort', () => {
+        metadata.resolve(Response.json(detail))
+        events.resolve(Response.json({ items: [human], nextCursor: null }))
+      }, { once: true })
+      return response
+    })
+    const { value } = controller(request)
+    const pending = value.select(surface.id)
+    try {
+      const deniedResponse = denied === 'metadata' ? metadata : events
+      deniedResponse.resolve(new Response(null, { status: 403 }))
+      await pending
+      expect(value.state.getSnapshot()).toMatchObject({ selection: null, events: [], busy: false, error: 'forbidden' })
+      expect(request.mock.calls[0]?.[1]?.signal?.aborted).toBe(true)
+    } finally {
+      metadata.resolve(Response.json(detail))
+      events.resolve(Response.json({ items: [human], nextCursor: null }))
+      await pending
+      value.dispose()
+    }
+  })
+
+  it('uses a configured first-page size and still exposes earlier messages', async () => {
+    const recent = [{ ...human, sequence: '2' }, { ...bot, sequence: '3' }]
+    const request = fetcher(Response.json(detail), Response.json({ items: recent, nextCursor: '3' }))
+    const value = new CollaborationController(request, vi.fn(), vi.fn(), undefined, undefined, 2)
+    try {
+      await value.select(surface.id)
+      expect(request.mock.calls[1]?.[0]).toBe('/enterprise/surfaces/group-1/events?limit=2')
+      expect(value.state.getSnapshot().olderCursor).toBe('2')
+    } finally { value.dispose() }
+  })
+
+  it.each(['switch', 'leave', 'dispose'])('fences both pending room reads on %s', async (action) => {
+    const metadata = Promise.withResolvers<Response>()
+    const events = Promise.withResolvers<Response>()
+    const next = { ...detail, id: 'next-room' }
+    const request = vi.fn(async (url: string) => {
+      if (url.includes('/next-room')) return Response.json(url.includes('/events?') ? { items: [bot], nextCursor: null } : next)
+      return url.includes('/events?') ? events.promise : metadata.promise
+    })
+    const { value } = controller(request)
+    const pending = value.select(surface.id)
+    try {
+      expect(value.state.getSnapshot().selection).toBeNull()
+      if (action === 'switch') await value.select(next.id)
+      else if (action === 'leave') value.clearSelection()
+      else value.dispose()
+      const current = value.state.getSnapshot()
+      metadata.resolve(Response.json(detail))
+      events.resolve(Response.json({ items: [human], nextCursor: null }))
+      await pending
+      expect(value.state.getSnapshot()).toBe(current)
+      if (action === 'switch') expect(current.selection?.detail.id).toBe(next.id)
+    } finally {
+      metadata.resolve(Response.json(detail))
+      events.resolve(Response.json({ items: [human], nextCursor: null }))
+      await pending
+      value.dispose()
+    }
+  })
+
+  it('stops loading and aborts pending metadata when the event read fails', async () => {
+    const metadata = Promise.withResolvers<Response>()
+    const request = vi.fn(async (url: string) => url.includes('/events?') ? new Response(null, { status: 500 }) : metadata.promise)
+    const { value } = controller(request)
+    const pending = value.select(surface.id)
+    try {
+      await pending
+      expect(value.state.getSnapshot()).toMatchObject({ roomPhase: 'error', busy: false, events: [] })
+      expect(request.mock.calls[0]?.[0]).toBe('/enterprise/surfaces/group-1')
+      metadata.resolve(Response.json(detail))
+      await pending
+      expect(value.state.getSnapshot().selection).toBeNull()
+    } finally {
+      metadata.resolve(Response.json(detail))
+      await pending
+      value.dispose()
+    }
+  })
+
   it('retains the explicit team attachment rejection for the composer notice', async () => {
     const request = fetcher(Response.json(detail), Response.json({ items: [], nextCursor: null }),
       Response.json({ error: 'team-attachments-unavailable' }, { status: 409 }))
@@ -115,7 +245,7 @@ describe('shared collaboration room', () => {
       requests.push({ url, method, ...(body === undefined ? {} : { body }) })
       if (url.endsWith('/read')) { seen.newMessages = false; seen.mentions = false
         return Response.json({ sequence: bot.sequence }) }
-      if (url.endsWith('/events?limit=100')) return Response.json({ items: [human, bot], nextCursor: null })
+      if (url.endsWith('/events?limit=20')) return Response.json({ items: [human, bot], nextCursor: null })
       if (url === '/enterprise/surfaces') return Response.json([{ ...surface, attention: { ...seen } }])
       return Response.json(detail)
     })
@@ -152,7 +282,7 @@ describe('shared collaboration room', () => {
     expect(openRoom).toHaveBeenCalledOnce()
     expect(inspect).not.toHaveBeenCalled()
     expect(request.mock.calls.map(args => args[0])).toEqual(['/enterprise/surfaces', '/enterprise/surfaces/group-1',
-      '/enterprise/surfaces/group-1/events?limit=100'])
+      '/enterprise/surfaces/group-1/events?limit=20'])
     value.dispose()
   })
 
@@ -210,7 +340,7 @@ describe('shared collaboration room', () => {
         if (++sends === 1) throw new Error('connection lost after commit')
         return Response.json({ delivered: true, event: human, targets: [] })
       }
-      return Response.json(url.endsWith('/events?limit=100') ? { items: [], nextCursor: null } : detail)
+      return Response.json(url.endsWith('/events?limit=20') ? { items: [], nextCursor: null } : detail)
     })
     const value = new CollaborationController(request, vi.fn(), vi.fn())
     await value.select('group-1')
@@ -248,7 +378,7 @@ describe('shared collaboration room', () => {
       if (url.endsWith('/read')) return Response.json({ sequence: human.sequence })
       if (url.endsWith('/messages')) return Response.json({ delivered: true, event: reply, targets: [] })
       if (url.endsWith('/reactions')) return Response.json({ event: reaction })
-      return Response.json(url.endsWith('/events?limit=100') ? { items: [human], nextCursor: null } : detail)
+      return Response.json(url.endsWith('/events?limit=20') ? { items: [human], nextCursor: null } : detail)
     })
     const value = new CollaborationController(request, vi.fn(), vi.fn())
     await value.select('group-1')
@@ -275,7 +405,7 @@ describe('shared collaboration room', () => {
         bodies.push({ url, body: JSON.parse(typeof init.body === 'string' ? init.body : '') as Record<string, unknown> })
         return Response.json({ delivered: true, event: fileEvent, targets: [] })
       }
-      if (url.endsWith('/events?limit=100')) return Response.json({ items: [fileEvent], nextCursor: null })
+      if (url.endsWith('/events?limit=20')) return Response.json({ items: [fileEvent], nextCursor: null })
       return Response.json(detailWithSeed)
     })
     const { value } = controller(request)
@@ -300,7 +430,7 @@ describe('shared collaboration room', () => {
         return Response.json(renamed)
       }
       if (url === '/enterprise/surfaces') return Response.json([{ ...surface, name: 'New name' }])
-      if (url.endsWith('/events?limit=100')) return Response.json({ items: [], nextCursor: null })
+      if (url.endsWith('/events?limit=20')) return Response.json({ items: [], nextCursor: null })
       return Response.json(renamed)
     })
     const { value } = controller(request)
@@ -360,7 +490,7 @@ describe('shared collaboration room', () => {
         return Response.json(surface)
       }
       if (url === '/enterprise/surfaces') return Response.json([surface])
-      if (url.endsWith('/events?limit=100')) return Response.json({ items: [], nextCursor: null })
+      if (url.endsWith('/events?limit=20')) return Response.json({ items: [], nextCursor: null })
       return Response.json(detail)
     })
     const roomCreated = vi.fn()

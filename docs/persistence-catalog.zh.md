@@ -5695,7 +5695,7 @@ SHA-256: `570a4dcb14935695a3ac3c6664f2f79415a88015a70f5b3c1585e6e0b6a0a7d9`
 
 SHA-256: `f41fea115fc6a8a3245f6e27b3ef832cc6e6a2ad9ed2b95ce10267b70aa9883f`
 
-来源：[`packages/api/enterprise-controller/src/collaboration-runtime.ts:37`](../packages/api/enterprise-controller/src/collaboration-runtime.ts) · [`packages/api/session-controller/src/types.ts:409`](../packages/api/session-controller/src/types.ts) · [`packages/experimental/enterprise-team-runtime/src/index.ts:61`](../packages/experimental/enterprise-team-runtime/src/index.ts)
+来源：[`packages/api/enterprise-controller/src/collaboration-runtime.ts:39`](../packages/api/enterprise-controller/src/collaboration-runtime.ts) · [`packages/api/session-controller/src/types.ts:409`](../packages/api/session-controller/src/types.ts) · [`packages/experimental/enterprise-team-runtime/src/index.ts:61`](../packages/experimental/enterprise-team-runtime/src/index.ts)
 
 | 属性 | 存在性 | 类型 |
 |---|---|---|

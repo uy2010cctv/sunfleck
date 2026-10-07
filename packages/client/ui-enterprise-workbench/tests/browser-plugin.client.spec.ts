@@ -8,7 +8,6 @@ import {
   apply, CHANNEL_BINDING_BROADCAST_CHANNEL, channelBindingCallbackUri,
   channelBotInstallCallbackUri, completeChannelBindingCallback, completeChannelBotInstallCallback, inject,
 } from '../src/client/index.ts'
-import { apply as applyNode } from '../src/index.ts'
 import { en, NS, zh } from '../src/client/locales.ts'
 
 const SIGNED_STATE_A = `${'a'.repeat(43)}.${'b'.repeat(43)}`
@@ -380,7 +379,4 @@ describe('enterprise workbench browser plugin', () => {
     expect(ctx.locale.bind(NS)('title')).toBe(zh.title)
   })
 
-  it('keeps the node half behavior-free', () => {
-    expect(applyNode).not.toThrow()
-  })
 })

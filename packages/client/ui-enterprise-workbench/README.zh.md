@@ -12,6 +12,7 @@ Enterprise digital-employee roster and operations workbench over DSH runtime fac
 
 ## 目录
 
+- [配置](#configuration)
 - [包详情](#package-details)
 - [开发备注](#dev-note)
 
@@ -32,6 +33,16 @@ Enterprise digital-employee roster and operations workbench over DSH runtime fac
 员工知识库绑定贡献在查看其他能力分类时仍保持挂载，因此进入编辑器或发布后重新加载时会读取已保存数量。隐藏控件不会暂停其读取生命周期。
 
 员工卡片与能力概览通过既有知识槽位的 `summaryOnly` 请求提供方数量。提供方读取已保存绑定或知识库元数据，无需挂载编辑器；`refreshKey` 在页面刷新时重新读取统计。空值代表正在加载或暂不可用，显示横线；确认结果为空时才显示零。
+
+<a id="configuration"></a>
+
+## 配置
+
+进入房间时并发请求详情和最新事件页。`roomInitialPageSize` 设置首屏读取的最新事件数；加载更早消息和线程分页每次最多读取 100 条事件。完整历史仍可通过加载更早消息访问。每次请求都验证房间访问权，权限被撤销时清空已选房间。
+
+| 字段 | 默认值 | 可用值 | 作用 |
+| --- | --- | --- | --- |
+| `roomInitialPageSize` | `20` | `1` 到 `100` 的整数 | 进入房间时读取的最新事件数。 |
 
 <a id="package-details"></a>
 

@@ -27170,7 +27170,7 @@
         "packages/experimental/enterprise-team-runtime/src/index.ts#UserRpcMessageSource"
       ],
       "sources": [
-        "packages/api/enterprise-controller/src/collaboration-runtime.ts:37",
+        "packages/api/enterprise-controller/src/collaboration-runtime.ts:39",
         "packages/api/session-controller/src/types.ts:409",
         "packages/experimental/enterprise-team-runtime/src/index.ts:61"
       ]

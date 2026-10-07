@@ -359,7 +359,7 @@ describe('shared room UI', () => {
       if (url.endsWith('/messages')) {
         return new Promise<Response>((resolve) => { resolveSend = resolve })
       }
-      return Response.json(url.endsWith('/events?limit=100') ? { items: [], nextCursor: null } : state.selection?.detail ?? {})
+      return Response.json(url.endsWith('/events?limit=20') ? { items: [], nextCursor: null } : state.selection?.detail ?? {})
     }))
     render(<CollaborationRoom controller={controller} state={state} t={t}/>)
     fireEvent.change(screen.getByRole('textbox', { name: '消息' }), { target: { value: '即时上屏' } })

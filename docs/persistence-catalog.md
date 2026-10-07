@@ -5693,7 +5693,7 @@ Array of [`UserMessage`](#persistence-type-sha256-60729590e869b9b6e68a4d0f4c84af
 
 SHA-256: `f41fea115fc6a8a3245f6e27b3ef832cc6e6a2ad9ed2b95ce10267b70aa9883f`
 
-Sources: [`packages/api/enterprise-controller/src/collaboration-runtime.ts:37`](../packages/api/enterprise-controller/src/collaboration-runtime.ts) · [`packages/api/session-controller/src/types.ts:409`](../packages/api/session-controller/src/types.ts) · [`packages/experimental/enterprise-team-runtime/src/index.ts:61`](../packages/experimental/enterprise-team-runtime/src/index.ts)
+Sources: [`packages/api/enterprise-controller/src/collaboration-runtime.ts:39`](../packages/api/enterprise-controller/src/collaboration-runtime.ts) · [`packages/api/session-controller/src/types.ts:409`](../packages/api/session-controller/src/types.ts) · [`packages/experimental/enterprise-team-runtime/src/index.ts:61`](../packages/experimental/enterprise-team-runtime/src/index.ts)
 
 | Property | Presence | Type |
 |---|---|---|

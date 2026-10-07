@@ -158,14 +158,12 @@ export class PostgresSessionPersistence extends SessionPersistence {
   async flush(): Promise<void> { await Promise.all([...this.writers.values()].map(writer => writer.flush())) }
 
   async stat(id: SessionId, options?: SessionPersistenceStatOptions): Promise<SessionPersistenceSnapshot | undefined> {
-    const stored = await this.store.loadStored(id, options?.signal)
+    const stored = await this.store.readSnapshot(id, options?.signal)
     if (stored === undefined) return undefined
-    const decoded = decodeStoredPrefix(stored.meta)
-    this.validate(id, decoded.header, [...stored.events])
-    return {
-      header: decoded.header, revision: stored.revision, eventCount: stored.events.length,
-      conversationStarted: stored.events.some(event => event.type === 'turn/start'),
-    }
+    const decoded = decodeStoredPrefix(stored.header)
+    assertStoredId(id, decoded.header)
+    assertVersion(decoded.header)
+    return { ...stored, header: decoded.header }
   }
 
   async list(options?: SessionPersistenceListOptions): Promise<readonly SessionPersistenceSnapshot[]> {

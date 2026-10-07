@@ -266,6 +266,9 @@ export class CollaborationController {
   /** @param fetch - Authenticated same-origin transport.
    * @param inspectSession - Native Session navigation for an execution source link.
    * @param openRoom - Selects the existing native main-panel slot.
+   * @param roomCreated - Refreshes the enterprise directory after room creation.
+   * @param executionSessionsChanged - Publishes execution Session ids hidden from Workspace browsing.
+   * @param roomInitialPageSize - Validated number of latest room events loaded on entry.
    */
   constructor(
     private readonly fetch: CollaborationFetch,
@@ -273,6 +276,7 @@ export class CollaborationController {
     private readonly openRoom: () => void,
     private readonly roomCreated?: () => void,
     private readonly executionSessionsChanged?: (ids: readonly string[]) => void,
+    private readonly roomInitialPageSize = 20,
   ) {}
 
   private patch(patch: Partial<CollaborationState>): void {
@@ -406,19 +410,22 @@ export class CollaborationController {
   /** Open the same shared timeline for every member and employee. */
   async select(id: string): Promise<void> {
     const request = this.begin()
-    this.patch({ busy: true, creation: null, error: null, roomPhase: 'loading', events: [], olderCursor: null, threadEvents: [], threadRootEvent: undefined, threadOlderCursor: null, threadLoadingOlder: false, threadOlderError: false, threadPhase: 'idle', searchResults: [], searchPhase: 'idle' })
+    this.patch({ selection: null, busy: true, creation: null, error: null, roomPhase: 'loading', events: [], olderCursor: null, threadEvents: [], threadRootEvent: undefined, threadOlderCursor: null, threadLoadingOlder: false, threadOlderError: false, threadPhase: 'idle', searchResults: [], searchPhase: 'idle' })
     this.openRoom()
     try {
-      const current = detail(await this.read(`/${encodeURIComponent(id)}`, request.signal))
-      if (this.cancelled(request)) return
-      this.patch({ selection: { detail: current } })
-      const page = eventPage(await this.read(`/${encodeURIComponent(id)}/events?limit=100`, request.signal))
+      const metadata = this.read(`/${encodeURIComponent(id)}`, request.signal).then((value) => {
+        const current = detail(value)
+        if (!this.cancelled(request)) this.patch({ selection: { detail: current } })
+      })
+      const events = this.read(`/${encodeURIComponent(id)}/events?limit=${this.roomInitialPageSize}`, request.signal).then(eventPage)
+      const [, page] = await Promise.all([metadata, events])
       if (this.cancelled(request)) return
       this.rememberExecutionSessions(page.items.flatMap(item => item.sourceSessionId === undefined ? [] : [item.sourceSessionId]))
-      this.patch({ events: page.items, olderCursor: page.items.length === 100 ? page.items[0]?.sequence ?? null : null, roomPhase: 'ready', busy: false })
+      this.patch({ events: page.items, olderCursor: page.items.length >= this.roomInitialPageSize ? page.items[0]?.sequence ?? null : null, roomPhase: 'ready', busy: false })
     } catch (error) {
       if (this.cancelled(request)) return
       if (this.revoke(error)) return
+      request.abort()
       this.patch({ roomPhase: 'error', busy: false, error: error instanceof HttpFailure ? error.message : 'request-failed' })
     }
   }

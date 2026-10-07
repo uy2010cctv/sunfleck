@@ -591,6 +591,22 @@ export interface Config {
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-client-shortcuts -->
 
+<!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-client-ui-enterprise-workbench -->
+<a id="deepseek-aidsh-client-ui-enterprise-workbench"></a>
+
+## `@deepseek-ai/dsh-client-ui-enterprise-workbench`
+
+- `source`: [`packages/client/ui-enterprise-workbench/src/config.ts:5`](../packages/client/ui-enterprise-workbench/src/config.ts)
+
+```ts config-catalog
+/** Browser collaboration timeline preferences. */
+export interface Config {
+  /** Latest room events fetched on entry; older pages remain available. */
+  roomInitialPageSize: number
+}
+```
+<!-- END GENERATED config-catalog:@deepseek-ai/dsh-client-ui-enterprise-workbench -->
+
 <!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-client-ui-plugin-manager -->
 <a id="deepseek-aidsh-client-ui-plugin-manager"></a>
 
@@ -4738,7 +4754,6 @@ export interface Config {
 | `@deepseek-ai/dsh-client-ui-directory-picker-browse` | — | [`packages/client/ui-directory-picker-browse/src/index.ts`](../packages/client/ui-directory-picker-browse/src/index.ts) |
 | `@deepseek-ai/dsh-client-ui-directory-picker-native` | — | [`packages/client/ui-directory-picker-native/src/index.ts`](../packages/client/ui-directory-picker-native/src/index.ts) |
 | `@deepseek-ai/dsh-client-ui-enterprise-governance` | — | [`packages/client/ui-enterprise-governance/src/index.ts`](../packages/client/ui-enterprise-governance/src/index.ts) |
-| `@deepseek-ai/dsh-client-ui-enterprise-workbench` | — | [`packages/client/ui-enterprise-workbench/src/index.ts`](../packages/client/ui-enterprise-workbench/src/index.ts) |
 | `@deepseek-ai/dsh-client-ui-goal` | — | [`packages/client/ui-goal/src/index.ts`](../packages/client/ui-goal/src/index.ts) |
 | `@deepseek-ai/dsh-client-ui-input-trigger` | — | [`packages/client/ui-input-trigger/src/index.ts`](../packages/client/ui-input-trigger/src/index.ts) |
 | `@deepseek-ai/dsh-client-ui-jobs` | — | [`packages/client/ui-jobs/src/index.ts`](../packages/client/ui-jobs/src/index.ts) |

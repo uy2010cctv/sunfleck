@@ -11,8 +11,184 @@ import { agentCarrier } from '@deepseek-ai/dsh-agent'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
 import type { SessionRequestId } from '@deepseek-ai/dsh-api-session-controller'
 import type { SessionPromptRequest } from '@deepseek-ai/dsh-api-session-controller'
+import type { CredentialKey, CredentialRecord } from '@deepseek-ai/dsh-credentials'
+import type { RoomEvent } from '@deepseek-ai/dsh-enterprise-postgres'
 
 const actor = { orgId: 'org', userId: 'alice', roles: ['administrator'] as const }
+
+it.each(['grant', 'cleared', 'different employee'] as const)(
+  'rechecks current scheduled reply authority: %s', async (change) => {
+    const ctx = new Context()
+    const row = { id: 'group', orgId: 'org', name: 'Group', kind: 'group', workspaceId: 'shared',
+      memberUserIds: ['alice'], memberEmployeeIds: ['employee-a'], dutyEmployeeIds: [] }
+    const binding = { surfaceId: row.id, topicId: '', employeeId: 'employee-a', sessionId: 'session' }
+    const events = [
+      { type: 'enterprise-employee/selected', seq: 0, data: { orgId: 'org', ownerUserId: 'alice',
+        employeeId: 'employee-a', releaseId: 'release-a', releaseVersion: 1 } },
+      { type: 'turn/start', seq: 1, data: { turn: 1 } },
+      { type: 'user/message', seq: 2, data: { source: { kind: 'schedule' } } },
+      { type: 'assistant/message', seq: 3, data: { turn: 1, message: { content: [{ type: 'text', text: 'Reply' }] } } },
+      { type: 'turn/end', seq: 4, data: { turn: 1, reason: { kind: 'completed' } } },
+    ]
+    let granted = change !== 'grant'
+    let revision = '1'
+    let changed = false
+    let posted: RoomEvent | undefined
+    const read = vi.fn(async () => ({ events: [...events] }))
+    const append = vi.fn(async (value: Omit<RoomEvent, 'sequence'>) => {
+      posted = { ...value, sequence: '1' }
+      return posted
+    })
+    const records = new Map<CredentialKey, CredentialRecord>()
+    ctx.provide('credentials' as never, {
+      readRecord: async (key: CredentialKey) => records.get(key),
+      modifyRecord: async (key: CredentialKey,
+        update: (value: CredentialRecord | undefined) => Promise<CredentialRecord | undefined>) => {
+        const value = await update(records.get(key))
+        if (value !== undefined) records.set(key, value)
+        return value
+      },
+    } as never)
+    ctx.provide('enterprisePostgres' as never, {
+      collaboration: { get: async () => row, sessions: async () => [binding], bySession: async () => binding },
+      roomEvents: { list: async () => [], claimDispatch: async () => [], findBySourceCursor: async () => {
+        if (change !== 'grant' && !changed) {
+          changed = true
+          revision = '2'
+          events.push(change === 'cleared'
+            ? { type: 'enterprise-employee/cleared', seq: events.length, data: {} }
+            : { type: 'enterprise-employee/selected', seq: events.length, data: { orgId: 'org', ownerUserId: 'alice',
+              employeeId: 'employee-b', releaseId: 'release-b', releaseVersion: 1 } })
+        }
+        return posted
+      }, append,
+      getRoomActorKey: async () => undefined, ensureRoomActorKey: async ({ pubkey }: { pubkey: string }) => pubkey },
+      identity: { sessionOwnerUserId: async () => 'alice',
+        sessionWorkspaceGrant: async () => granted ? { orgId: 'org' } : undefined,
+        listUsers: async () => [{ id: 'alice', disabled: false, roles: ['administrator'] }] },
+      catalog: { getRelease: async () => ({ presetId: 'employee-a' }) },
+    } as never)
+    ctx.provide('sessionPersistence' as never, {
+      open: async () => ({ read, close: async () => {} }), stat: async () => ({ revision }),
+    } as never)
+    ctx.provide('enterpriseWorkController' as never, { employeeActor: () => undefined } as never)
+    ctx.provide('enterpriseSecurity' as never, { authorizeApiAsync: async () => ({ allowed: true }) } as never)
+    const handler = composeCollaboration(ctx, { operations: () => { throw new Error('unused') },
+      teams: () => { throw new Error('unused') }, limits: { roomContextCharacters: 6000, roomContextEvents: 24,
+        maxBotHops: 2, roomDispatchPollMs: 100, roomDispatchLeaseMs: 1000 } })
+    try {
+      await handler.service.events(actor, row.id, {})
+      expect(append).not.toHaveBeenCalled()
+      if (change !== 'grant') {
+        expect(read).toHaveBeenCalledTimes(2)
+        return
+      }
+      granted = true
+      await handler.service.events(actor, row.id, {})
+      expect(append).toHaveBeenCalledOnce()
+      expect(posted?.event.content).toBe('Reply')
+      expect(posted?.event.tags).toContainEqual(['dsh-schedule'])
+      expect(read).toHaveBeenCalledTimes(2)
+      await handler.service.events(actor, row.id, {})
+      expect(read).toHaveBeenCalledTimes(2)
+    } finally { await ctx.fiber.dispose() }
+  })
+
+it('reads complete room history once, reuses unchanged recovery, and resolves page authors once', async () => {
+  const ctx = new Context()
+  const row = { id: 'group', orgId: 'org', name: 'Group', kind: 'group', workspaceId: 'shared',
+    memberUserIds: ['alice'], memberEmployeeIds: ['employee-a'], dutyEmployeeIds: [] }
+  const raw: Array<{ type: string; seq: number; data: object }> = Array.from({ length: 300 }, (_, seq) => ({
+    type: 'session/title', seq, data: { title: 'Title' },
+  }))
+  raw.push({ type: 'enterprise-employee/selected', seq: raw.length, data: { orgId: 'org', ownerUserId: 'alice',
+    employeeId: 'employee-a', releaseId: 'release-a', releaseVersion: 1 } })
+  for (let turn = 1; turn <= 5; turn += 1) {
+    raw.push({ type: 'turn/start', seq: raw.length, data: { turn } })
+    raw.push({ type: 'user/message', seq: raw.length, data: { source: { kind: 'schedule' } } })
+    raw.push({ type: 'assistant/message', seq: raw.length,
+      data: { turn, message: { content: [{ type: 'text', text: 'Reply' }] } } })
+    raw.push({ type: 'turn/end', seq: raw.length, data: { turn, reason: { kind: 'completed' } } })
+  }
+  const read = vi.fn(async (offset: number = 0, length: number = Number.MAX_SAFE_INTEGER) => ({
+    events: raw.slice(offset, offset + length),
+  }))
+  const open = vi.fn(async () => ({ read, close: async () => {} }))
+  const findUserById = vi.fn(async () => ({ displayName: 'Alice' }))
+  const sessionOwnerUserId = vi.fn(async () => 'alice')
+  const findBySourceCursor = vi.fn(async () => ({ event: { id: 'existing' } }))
+  let revision = '1'
+  const list = vi.fn(async () => Array.from({ length: 20 }, (_, index) => ({
+    authorKind: 'human', authorId: 'alice', sequence: String(index + 1),
+    event: { id: `event-${index}`, pubkey: 'key', sig: 'sig', created_at: 1, kind: 9, tags: [], content: 'Message' },
+  })))
+  ctx.provide('enterprisePostgres' as never, {
+    collaboration: { get: async () => row, sessions: async () => [{ surfaceId: row.id, topicId: '',
+      employeeId: 'employee-a', sessionId: 'session' }] },
+    roomEvents: { list, findBySourceCursor, claimDispatch: async () => [] },
+    identity: { findUserById, sessionOwnerUserId, sessionWorkspaceGrant: async () => ({ orgId: 'org' }),
+      listUsers: async () => [{ id: 'alice', disabled: false, roles: ['administrator'] }] },
+    catalog: { getRelease: async () => ({ presetId: 'employee-a' }) },
+  } as never)
+  ctx.provide('sessionPersistence' as never, { open, stat: async () => ({ revision }) } as never)
+  ctx.provide('enterpriseSecurity' as never, { authorizeApiAsync: async () => ({ allowed: true }) } as never)
+  const handler = composeCollaboration(ctx, { operations: () => { throw new Error('unused') },
+    teams: () => { throw new Error('unused') }, limits: { roomContextCharacters: 6000, roomContextEvents: 24,
+      maxBotHops: 2, roomDispatchPollMs: 100, roomDispatchLeaseMs: 1000 } })
+  try {
+    const first = await handler.service.events(actor, row.id, {})
+    expect(first.items).toHaveLength(20)
+    expect(first.items.every(value => value.author.displayName === 'Alice')).toBe(true)
+    expect(read).toHaveBeenCalledOnce()
+    expect(findBySourceCursor).toHaveBeenCalledTimes(5)
+    expect(sessionOwnerUserId).toHaveBeenCalledTimes(5)
+    expect(read).toHaveBeenCalledWith()
+    expect(findUserById).toHaveBeenCalledOnce()
+    await Promise.all([handler.service.events(actor, row.id, {}), handler.service.events(actor, row.id, {})])
+    expect(open).toHaveBeenCalledOnce()
+    expect(findUserById).toHaveBeenCalledTimes(3)
+    revision = '2'
+    await handler.service.events(actor, row.id, {})
+    expect(open).toHaveBeenCalledTimes(2)
+    row.memberUserIds = []
+    await expect(handler.service.events(actor, row.id, {})).rejects.toThrow('not-found')
+    expect(list).toHaveBeenCalledTimes(4)
+  } finally { await ctx.fiber.dispose() }
+})
+
+it('observes Team child revisions and reads each root and child once per recovery pass', async () => {
+  const ctx = new Context()
+  const row = { id: 'group', orgId: 'org', name: 'Team', kind: 'group', workspaceId: 'shared',
+    memberUserIds: ['alice'], memberEmployeeIds: ['employee-a'], dutyEmployeeIds: [], teamDefinitionId: 'team-a' }
+  const logs = new Map<string, readonly object[]>([
+    ['root', [{ type: 'team/member', seq: 0,
+      data: { member: { id: 'child', name: 'Child', release: { presetId: 'employee-a' } } } }]],
+    ['child', [{ type: 'session/title', seq: 0, data: { title: 'Child' } }]],
+  ])
+  let childRevision = '1'
+  const read = vi.fn(async (id: string) => ({ events: logs.get(id) ?? [] }))
+  const open = vi.fn(async (id: string) => ({ read: async () => read(id), close: async () => {} }))
+  ctx.provide('enterprisePostgres' as never, {
+    collaboration: { get: async () => row, sessions: async () => [{ surfaceId: row.id, topicId: 'run',
+      employeeId: '', sessionId: 'root' }] }, roomEvents: { list: async () => [], claimDispatch: async () => [] },
+  } as never)
+  ctx.provide('sessionPersistence' as never, {
+    open, stat: async (id: string) => ({ revision: id === 'child' ? childRevision : '1' }),
+  } as never)
+  ctx.provide('enterpriseSecurity' as never, { authorizeApiAsync: async () => ({ allowed: true }) } as never)
+  const handler = composeCollaboration(ctx, { operations: () => { throw new Error('unused') },
+    teams: () => { throw new Error('unused') }, limits: { roomContextCharacters: 6000, roomContextEvents: 24,
+      maxBotHops: 2, roomDispatchPollMs: 100, roomDispatchLeaseMs: 1000 } })
+  try {
+    await handler.service.events(actor, row.id, {})
+    expect(read.mock.calls.map(([id]) => id)).toEqual(['root', 'child'])
+    await handler.service.events(actor, row.id, {})
+    expect(read).toHaveBeenCalledTimes(2)
+    childRevision = '2'
+    await handler.service.events(actor, row.id, {})
+    expect(read.mock.calls.map(([id]) => id)).toEqual(['root', 'child', 'root', 'child'])
+  } finally { await ctx.fiber.dispose() }
+})
 
 it.each([false, true])('restores room tools only for active employee destinations (archived: %s)', async (archived) => {
   const ctx = new Context()
@@ -32,7 +208,7 @@ it.each([false, true])('restores room tools only for active employee destination
       listUsers: async () => [{ id: 'alice', disabled: false, roles: ['administrator'] }] },
     catalog: { getRelease: async () => ({ presetId: 'employee-a' }) },
   } as never)
-  ctx.provide('sessionPersistence' as never, { open: async () => ({
+  ctx.provide('sessionPersistence' as never, { stat: async () => ({ revision: '1' }), open: async () => ({
     read: async () => ({ events: agent.session.snapshotEvents() }), close: async () => {},
   }) } as never)
   ctx.provide('enterpriseWorkController' as never, { employeeActor: () => undefined } as never)
@@ -65,7 +241,7 @@ function setup(state: 'completed' | 'waiting-human') {
     },
 
   } as never)
-  ctx.provide('sessionPersistence' as never, { open: async () => ({
+  ctx.provide('sessionPersistence' as never, { stat: async () => ({ revision: '1' }), open: async () => ({
     read: async () => ({ events: [
       { type: 'user/message', data: { source: { kind: 'user', rpcId: 'followup-1',
         runId: 'run-old', originSurfaceId: 'group', actorUserId: 'alice' } } },

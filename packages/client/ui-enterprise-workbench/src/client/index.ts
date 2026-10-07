@@ -25,6 +25,7 @@ import {
   CHANNEL_BOT_INSTALL_CALLBACK_PARAM, channelBindingCallbackUri, channelBotInstallCallbackUri,
   isOfficialChannelBindingState,
 } from './channelBindingProfiles.ts'
+import { Config } from '../config.ts'
 import { applyCollaboration } from './collaboration.ts'
 import './tokens.css'
 
@@ -209,6 +210,7 @@ export const inject = [
  * @param ctx - Input value used by this API.
 */
 export function apply(ctx: Context): void {
+  const config = Config((globalThis as { __DSH_ENTERPRISE_WORKBENCH_CONFIG__?: unknown }).__DSH_ENTERPRISE_WORKBENCH_CONFIG__ ?? {})
   if (typeof window !== 'undefined') {
     void completeChannelBindingCallback(ctx.remote.enterpriseChannel, window)
     void completeChannelBotInstallCallback(ctx.remote.enterpriseChannel, window)
@@ -235,7 +237,7 @@ export function apply(ctx: Context): void {
     cordisReview: ctx.remote.cordisReview,
     cordisGovernance: ctx.remote.cordisGovernance,
   }, ctx.sessions, ctx.workspaces, (sessionId) => { ctx.uiWorkspace.openSession(sessionId) })
-  const collaboration = applyCollaboration(ctx, () => { void controller.loadSurfaces() })
+  const collaboration = applyCollaboration(ctx, () => { void controller.loadSurfaces() }, config.roomInitialPageSize)
 
   const attemptedDefaults = new Set<string>()
   ctx.inject(['conversation'], (scope) => {

@@ -219,6 +219,7 @@
     ,"packages/session/session-persistence-postgres/tests/**"
   ],
   "references": [
+    { "path": "./packages/client/ui-enterprise-workbench/tsconfig.host.json" },
     { "path": "./packages/channel/channel-kernel" },
     { "path": "./packages/channel/channel-wecom" },
     { "path": "./packages/governance/enterprise-governance" },

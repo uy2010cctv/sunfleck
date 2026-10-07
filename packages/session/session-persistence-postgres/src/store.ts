@@ -16,6 +16,7 @@ interface HeaderRow extends Record<string, unknown> {
   readonly revision: string | number
   readonly conversation_started?: boolean
   readonly title_event_json?: unknown
+  readonly event_count?: string | number
 }
 
 interface EventRow extends Record<string, unknown> {
@@ -110,6 +111,33 @@ export class PostgresSessionStore {
     signal?.throwIfAborted()
     const header = result.rows[0]
     return header === undefined ? undefined : this.revision(header)
+  }
+
+  /** Observe stored metadata without transferring the event log.
+   * @param id - Session to observe.
+   * @param signal - Optional cancellation.
+   * @returns Header, revision, and indexed event metadata, or undefined for a missing Session.
+   */
+  async readSnapshot(id: SessionId, signal?: AbortSignal): Promise<SessionPersistenceSnapshot | undefined> {
+    await this.observe(signal)
+    const result = await this.database.query<HeaderRow>(
+      `SELECT header.id, header.header_json, header.incarnation, header.revision,
+        (SELECT count(*) FROM dsh_session_events event WHERE event.session_id = header.id) AS event_count,
+        EXISTS(SELECT 1 FROM dsh_session_events event
+          WHERE event.session_id = header.id AND event.event_type = 'turn/start') AS conversation_started,
+        (SELECT event.event_json FROM dsh_session_events event
+          WHERE event.session_id = header.id AND event.event_type = 'session/title'
+          ORDER BY event.seq DESC LIMIT 1) AS title_event_json
+       FROM dsh_session_headers header WHERE header.id = $1`, [id],
+    )
+    signal?.throwIfAborted()
+    const row = result.rows[0]
+    if (row === undefined) return undefined
+    const title = sessionTitle(row.title_event_json)
+    return { header: parseHeader(row.header_json), revision: this.revision(row),
+      eventCount: Number(row.event_count),
+      ...(row.conversation_started === undefined ? {} : { conversationStarted: row.conversation_started }),
+      ...(title === undefined ? {} : { title }) }
   }
 
   /** Executes `PostgresSessionStore.loadStoredFrom` for this instance.

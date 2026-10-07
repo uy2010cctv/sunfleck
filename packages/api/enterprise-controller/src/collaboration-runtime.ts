@@ -1,5 +1,6 @@
 /** Native Session and TeamRun adapters for PostgreSQL conversations; no separate employee runtime is created. */
 import { randomUUID } from 'node:crypto'
+import { AsyncLocalStorage } from 'node:async_hooks'
 import type { Context } from '@deepseek-ai/cordis'
 import { brandString } from '@deepseek-ai/dsh-brand'
 import { hasSessionPromptRequest } from '@deepseek-ai/dsh-api-session-controller'
@@ -26,6 +27,7 @@ import { findCollaborationRequest } from './collaboration-receipt.ts'
 import { CollaborationHttpHandler } from './collaboration-http.ts'
 import { CollaborationIdentity } from './collaboration-identity.ts'
 import { CollaborationRoomOutbox } from './collaboration-room-outbox.ts'
+import { CollaborationRoomRecovery } from './collaboration-room-recovery.ts'
 import { installCollaborationAgentTools } from './collaboration-agent-tools.ts'
 import { GroupRoomSchedules } from './collaboration-group-schedules.ts'
 import { releasedRoomEmployee, roomPrompt, roomSourceCursor, roomToolFact, roomTurnPost, roomTurnScheduleSource, roomTurnTriggers,
@@ -76,7 +78,9 @@ export function composeCollaboration(ctx: Context, services: {
   let roomTools: ReturnType<typeof installCollaborationAgentTools> | undefined
   let outbox: CollaborationRoomOutbox | undefined
   const teamMemberRooms = new Map<string, { row: CollaborationRecord; rootSessionId: string; employeeId: string }>()
-  const readSessionEvents = async (sessionId: string): Promise<SessionEvent[]> => {
+  type RecoverySnapshot = { readonly events: SessionEvent[]; readonly revision: string | undefined }
+  const recoveryReads = new AsyncLocalStorage<Map<string, Promise<RecoverySnapshot>>>()
+  const loadSessionEvents = async (sessionId: string): Promise<SessionEvent[]> => {
     let handle: Awaited<ReturnType<typeof ctx.sessionPersistence.open>>
     try {
       handle = await ctx.sessionPersistence.open(brandString<SessionId>(sessionId), 'read')
@@ -87,14 +91,31 @@ export function composeCollaboration(ctx: Context, services: {
       throw error
     }
     try {
-      const all: SessionEvent[] = []
-      for (let offset = 0; ; offset += 256) {
-        const { events } = await handle.read(offset, 256)
-        all.push(...events)
-        if (events.length < 256) break
-      }
-      return all
+      return [...(await handle.read()).events]
     } finally { await handle.close() }
+  }
+  const sessionRevision = async (sessionId: string) =>
+    (await ctx.sessionPersistence.stat(brandString<SessionId>(sessionId)))?.revision
+  const loadSessionSnapshot = async (sessionId: string): Promise<RecoverySnapshot> => {
+    const revision = await sessionRevision(sessionId)
+    return { revision, events: await loadSessionEvents(sessionId) }
+  }
+  const readSessionSnapshot = (sessionId: string): Promise<RecoverySnapshot> => {
+    const reads = recoveryReads.getStore()
+    const pending = reads?.get(sessionId) ?? loadSessionSnapshot(sessionId)
+    reads?.set(sessionId, pending)
+    return pending
+  }
+  const readSessionEvents = async (sessionId: string): Promise<SessionEvent[]> =>
+    (await readSessionSnapshot(sessionId)).events
+  const readCurrentSessionEvents = async (sessionId: string): Promise<SessionEvent[]> => {
+    let snapshot = await readSessionSnapshot(sessionId)
+    if (snapshot.revision !== await sessionRevision(sessionId)) {
+      snapshot = await loadSessionSnapshot(sessionId)
+      if (snapshot.revision !== await sessionRevision(sessionId)) throw new CollaborationError('room-session-changing', 409)
+      recoveryReads.getStore()?.set(sessionId, Promise.resolve(snapshot))
+    }
+    return snapshot.events
   }
   const durableEmployee = async (sessionId: string) => {
     const selections: Array<
@@ -106,7 +127,7 @@ export function composeCollaboration(ctx: Context, services: {
       | { readonly type: 'enterprise-employee/cleared'
         readonly data: object }
     > = []
-    for (const event of await readSessionEvents(sessionId)) {
+    for (const event of await readCurrentSessionEvents(sessionId)) {
       if (event.type === 'enterprise-employee/selected') selections.push({ type: event.type, data: event.data })
       if (event.type === 'enterprise-employee/cleared') selections.push({ type: event.type, data: event.data })
     }
@@ -176,14 +197,14 @@ export function composeCollaboration(ctx: Context, services: {
         && selected?.orgId === orgId && selected.employeeId === employeeId) {
         ownerUserId = selected.userId
       } else if (binding?.surfaceId === roomId && binding.employeeId === '' && row.teamDefinitionId !== undefined
-        && (await teamRoster(row, await readSessionEvents(sessionId))).some(member => member.employeeId === employeeId)) {
+        && (await teamRoster(row, await readCurrentSessionEvents(sessionId))).some(member => member.employeeId === employeeId)) {
         ownerUserId = await database.identity.sessionOwnerUserId(sessionId)
       } else {
         const member = teamMemberRooms.get(sessionId)
         const root = member === undefined ? undefined : await store.bySession(member.rootSessionId)
         if (member?.row.id !== roomId || member.row.orgId !== orgId || member.employeeId !== employeeId
           || root?.surfaceId !== roomId || root.employeeId !== ''
-          || !(await teamRoster(row, await readSessionEvents(member.rootSessionId)))
+          || !(await teamRoster(row, await readCurrentSessionEvents(member.rootSessionId)))
             .some(value => value.sessionId === sessionId && value.employeeId === employeeId)) return false
         ownerUserId = await database.identity.sessionOwnerUserId(member.rootSessionId)
       }
@@ -279,32 +300,34 @@ export function composeCollaboration(ctx: Context, services: {
     return relevant
   }
   const projectNativeTurn = async (row: CollaborationRecord, binding: CollaborationSession,
-    events: readonly RoomTurnEvent[], turn: number): Promise<void> => {
+    events: readonly RoomTurnEvent[], turn: number, failed?: () => void): Promise<void> => {
     const result = roomTurnPost(events, turn)
     if (result === undefined) return
+    const cursor = roomSourceCursor(binding.sessionId, result.sourceSeq)
+    let posted = await roomEvents.findBySourceCursor(row.orgId, row.id, binding.sessionId, cursor)
+    const deferred = (): void => { if (posted === undefined) failed?.() }
     const triggers = roomTurnTriggers(events, turn, row.id)
     const signedSource = (await Promise.all(triggers.map(id => roomEvents.getByEventId(row.orgId, row.id, id))))
       .some(value => value !== undefined)
     if (!signedSource) {
+      if (triggers.length > 0) { deferred(); return }
       if (row.kind !== 'group' || row.teamDefinitionId !== undefined || row.archivedAt !== undefined
         || !roomTurnScheduleSource(events, turn) || !row.memberEmployeeIds.includes(binding.employeeId)) return
       const selected = await durableEmployee(binding.sessionId)
       if (selected?.orgId !== row.orgId || selected.employeeId !== binding.employeeId
-        || !row.memberUserIds.includes(selected.ownerUserId)) return
+        || !row.memberUserIds.includes(selected.ownerUserId)) { deferred(); return }
       const owner = (await database.identity.listUsers(row.orgId))
         .find(user => user.id === selected.ownerUserId && !user.disabled)
       if (owner === undefined || !(await security.authorizeApiAsync({
         orgId: row.orgId, userId: owner.id, roles: owner.roles,
-      }, 'session.create', { workspaceId: row.workspaceId })).allowed) return
+      }, 'session.create', { workspaceId: row.workspaceId })).allowed) { deferred(); return }
     }
-    const cursor = roomSourceCursor(binding.sessionId, result.sourceSeq)
-    let posted = await roomEvents.findBySourceCursor(row.orgId, row.id, binding.sessionId, cursor)
     if (posted === undefined) {
       const employeeId = binding.employeeId === '' && row.teamDefinitionId !== undefined
         ? (await teamRoster(row, await readSessionEvents(binding.sessionId)))
           .find(member => member.sessionId === binding.sessionId)?.employeeId
         : binding.employeeId
-      if (employeeId === undefined || employeeId === '') return
+      if (employeeId === undefined || employeeId === '') { deferred(); return }
       const event = await signer.signEmployee({ orgId: row.orgId, employeeId,
         sessionId: binding.sessionId }, row.id, { type: 'text', content: result.text,
         sourceCursor: cursor,
@@ -321,19 +344,23 @@ export function composeCollaboration(ctx: Context, services: {
       const user = (await database.identity.listUsers(row.orgId)).find(value => value.id === ownerUserId)
       if (user !== undefined && !user.disabled && row.memberUserIds.includes(user.id)) {
         try { await services.roomEventCommitted({ orgId: row.orgId, userId: user.id, roles: user.roles }, row, posted) }
-        catch (error: unknown) { ctx.logger.error(`room workflow trigger failed: ${String(error)}`) }
+        catch (error: unknown) { failed?.(); ctx.logger.error(`room workflow trigger failed: ${String(error)}`) }
       }
     }
   }
   const projectTeamEvent = async (row: CollaborationRecord, binding: CollaborationSession,
-    event: SessionEvent, history: readonly SessionEvent[]): Promise<void> => {
+    event: SessionEvent, history: readonly SessionEvent[], failed?: () => void): Promise<void> => {
     if (binding.employeeId !== '' || row.teamDefinitionId === undefined
       || (event.type !== 'team/message/queued' && event.type !== 'team/task'
         && event.type !== 'team/decision' && event.type !== 'team/run')) return
     const cursor = roomSourceCursor(binding.sessionId, event.seq)
     if (await roomEvents.findBySourceCursor(row.orgId, row.id, binding.sessionId, cursor) !== undefined) return
     const fact = projectTeamRoomFact(event, await teamRoster(row, history))
-    if (fact === undefined) return
+    if (fact === undefined) {
+      if (event.type === 'team/message/queued'
+        && event.data.message.content.some(block => block.type === 'text' && block.text.trim() !== '')) failed?.()
+      return
+    }
     const input = { type: 'workflow' as const, content: fact.content, sourceCursor: cursor,
       stepId: `${binding.topicId}:${event.type}:${event.seq}` }
     const signed = fact.authorKind === 'employee'
@@ -351,7 +378,7 @@ export function composeCollaboration(ctx: Context, services: {
       sourceEventCursor: cursor })
   }
   const projectRoomToolEvents = async (row: CollaborationRecord, binding: CollaborationSession,
-    history: readonly SessionEvent[], turn: number, sourceEventId?: string): Promise<void> => {
+    history: readonly SessionEvent[], turn: number, sourceEventId?: string, failed?: () => void): Promise<void> => {
     const toolEvents: RoomToolEvent[] = []
     for (const event of history) {
       if (event.type === 'tool/call') toolEvents.push({ type: event.type, seq: event.seq,
@@ -362,23 +389,28 @@ export function composeCollaboration(ctx: Context, services: {
         ...(event.data.error === undefined ? {} : { error: {} }) } })
     }
     if (!toolEvents.some(event => event.data.turn === turn)) return
-    const triggers = sourceEventId === undefined
-      ? roomTurnTriggers(nativeRoomEvents(history), turn, row.id) : [sourceEventId]
-    const source = (await Promise.all(triggers.map(id => roomEvents.getByEventId(row.orgId, row.id, id))))
-      .find(value => value !== undefined)
-    if (source === undefined) return
-    const threadRoot = row.kind === 'channel'
-      ? source.threadRoot ?? (source.event.kind === 9 ? source.event.id : undefined) : undefined
-    const employeeId = binding.employeeId === '' && row.teamDefinitionId !== undefined
-      ? (await teamRoster(row, history)).find(member => member.sessionId === binding.sessionId)?.employeeId
-      : binding.employeeId
-    if (employeeId === undefined || employeeId === '') return
+    const pendingFacts: NonNullable<ReturnType<typeof roomToolFact>>[] = []
     for (const event of toolEvents) {
       if (event.data.turn !== turn) continue
       const fact = roomToolFact(toolEvents, event)
       if (fact === undefined) continue
       const cursor = roomSourceCursor(binding.sessionId, fact.sourceSeq)
-      if (await roomEvents.findBySourceCursor(row.orgId, row.id, binding.sessionId, cursor) !== undefined) continue
+      if (await roomEvents.findBySourceCursor(row.orgId, row.id, binding.sessionId, cursor) === undefined) pendingFacts.push(fact)
+    }
+    if (pendingFacts.length === 0) return
+    const triggers = sourceEventId === undefined
+      ? roomTurnTriggers(nativeRoomEvents(history), turn, row.id) : [sourceEventId]
+    const source = (await Promise.all(triggers.map(id => roomEvents.getByEventId(row.orgId, row.id, id))))
+      .find(value => value !== undefined)
+    if (source === undefined) { if (triggers.length > 0) failed?.(); return }
+    const threadRoot = row.kind === 'channel'
+      ? source.threadRoot ?? (source.event.kind === 9 ? source.event.id : undefined) : undefined
+    const employeeId = binding.employeeId === '' && row.teamDefinitionId !== undefined
+      ? (await teamRoster(row, history)).find(member => member.sessionId === binding.sessionId)?.employeeId
+      : binding.employeeId
+    if (employeeId === undefined || employeeId === '') { failed?.(); return }
+    for (const fact of pendingFacts) {
+      const cursor = roomSourceCursor(binding.sessionId, fact.sourceSeq)
       const signed = await signer.signEmployee({ orgId: row.orgId, employeeId, sessionId: binding.sessionId }, row.id,
         { type: 'workflow', content: fact.content, stepId: `tool:${binding.sessionId}:${fact.sourceSeq}`,
           sourceEventId: source.event.id, sourceCursor: cursor,
@@ -389,11 +421,11 @@ export function composeCollaboration(ctx: Context, services: {
     }
   }
   const projectTeamMemberTurn = async (memberSessionId: string, turn: number,
-    childEvents?: readonly SessionEvent[], leadEvents?: readonly SessionEvent[]): Promise<void> => {
+    childEvents?: readonly SessionEvent[], leadEvents?: readonly SessionEvent[], failed?: () => void): Promise<void> => {
     const member = teamMemberRooms.get(memberSessionId)
     if (member === undefined) return
     const rootBinding = await store.bySession(member.rootSessionId)
-    if (rootBinding?.surfaceId !== member.row.id || rootBinding.employeeId !== '') return
+    if (rootBinding?.surfaceId !== member.row.id || rootBinding.employeeId !== '') { failed?.(); return }
     const row = await store.get(member.row.orgId, member.row.id)
     if (row === undefined || !row.memberEmployeeIds.includes(member.employeeId)) return
     const raw = childEvents ?? await readSessionEvents(memberSessionId)
@@ -415,14 +447,14 @@ export function composeCollaboration(ctx: Context, services: {
       const queued = rootEvents.find(event => event.type === 'team/message/queued'
         && String(event.data.message.id) === id && String(event.data.message.targetId) === memberSessionId)
       if (queued === undefined) continue
-      await projectTeamEvent(row, rootBinding, queued, rootEvents)
+      await projectTeamEvent(row, rootBinding, queued, rootEvents, failed)
       const posted = await roomEvents.findBySourceCursor(row.orgId, row.id, member.rootSessionId,
         roomSourceCursor(member.rootSessionId, queued.seq))
       verifiedSourceEventId ??= posted?.event.id
     }
-    if (verifiedSourceEventId === undefined) return
+    if (verifiedSourceEventId === undefined) { failed?.(); return }
     await projectRoomToolEvents(row, { surfaceId: row.id, topicId: rootBinding.topicId,
-      employeeId: member.employeeId, sessionId: memberSessionId }, raw, turn, verifiedSourceEventId)
+      employeeId: member.employeeId, sessionId: memberSessionId }, raw, turn, verifiedSourceEventId, failed)
     const reply = roomTurnPost(nativeRoomEvents(raw), turn)
     if (reply === undefined) return
     const cursor = roomSourceCursor(memberSessionId, reply.sourceSeq)
@@ -433,49 +465,60 @@ export function composeCollaboration(ctx: Context, services: {
       authorKind: 'employee', authorId: member.employeeId, sourceSessionId: memberSessionId,
       sourceEventCursor: cursor })
   }
-  const reconcileRoom = async (row: CollaborationRecord): Promise<void> => {
-    for (const binding of await store.sessions(row.id)) {
+  const roomRecovery = new CollaborationRoomRecovery(id => store.sessions(id),
+    async id => (await ctx.sessionPersistence.stat(brandString<SessionId>(id)))?.revision,
+    async (row, bindings, observeChild) => {
+      const reads = new Map<string, Promise<RecoverySnapshot>>()
       try {
-        if (binding.employeeId === '' && row.teamDefinitionId !== undefined) {
-          const raw = await readSessionEvents(binding.sessionId)
-          const roster = await rememberTeamMembers(row, binding.sessionId, raw)
-          for (const event of raw) {
-            try { await projectTeamEvent(row, binding, event, raw) }
-            catch (error: unknown) { ctx.logger.error(`room Team fact recovery failed: ${String(error)}`) }
-          }
-          const relevant = nativeRoomEvents(raw)
-          for (const ending of relevant) {
-            if (ending.type === 'turn/end') {
-              try { await projectRoomToolEvents(row, binding, raw, ending.data.turn) }
-              catch (error: unknown) { ctx.logger.error(`room Team tool recovery failed: ${String(error)}`) }
-              try { await projectNativeTurn(row, binding, relevant, ending.data.turn) }
-              catch (error: unknown) { ctx.logger.error(`room Team Lead recovery failed: ${String(error)}`) }
-            }
-          }
-          for (const member of roster) {
-            if (member.sessionId === binding.sessionId) continue
-            const child = await readSessionEvents(member.sessionId)
-            for (const event of child) {
-              if (event.type === 'turn/end') {
-                try { await projectTeamMemberTurn(member.sessionId, event.data.turn, child, raw) }
-                catch (error: unknown) { ctx.logger.error(`room Team member recovery failed: ${String(error)}`) }
+        return await recoveryReads.run(reads, async () => {
+          let complete = true
+          for (const binding of bindings) {
+            try {
+              if (binding.employeeId === '' && row.teamDefinitionId !== undefined) {
+                const raw = await readSessionEvents(binding.sessionId)
+                const roster = await rememberTeamMembers(row, binding.sessionId, raw)
+                for (const event of raw) {
+                  try { await projectTeamEvent(row, binding, event, raw, () => { complete = false }) }
+                  catch (error: unknown) { complete = false; ctx.logger.error(`room Team fact recovery failed: ${String(error)}`) }
+                }
+                const relevant = nativeRoomEvents(raw)
+                for (const ending of relevant) {
+                  if (ending.type === 'turn/end') {
+                    try { await projectRoomToolEvents(row, binding, raw, ending.data.turn, undefined, () => { complete = false }) }
+                    catch (error: unknown) { complete = false; ctx.logger.error(`room Team tool recovery failed: ${String(error)}`) }
+                    try { await projectNativeTurn(row, binding, relevant, ending.data.turn, () => { complete = false }) }
+                    catch (error: unknown) { complete = false; ctx.logger.error(`room Team Lead recovery failed: ${String(error)}`) }
+                  }
+                }
+                for (const member of roster) {
+                  if (member.sessionId === binding.sessionId) continue
+                  await observeChild(member.sessionId)
+                  const child = await readSessionEvents(member.sessionId)
+                  for (const event of child) {
+                    if (event.type === 'turn/end') {
+                      try { await projectTeamMemberTurn(member.sessionId, event.data.turn, child, raw, () => { complete = false }) }
+                      catch (error: unknown) { complete = false; ctx.logger.error(`room Team member recovery failed: ${String(error)}`) }
+                    }
+                  }
+                }
+                continue
               }
-            }
+              const raw = await readSessionEvents(binding.sessionId)
+              const relevant = nativeRoomEvents(raw)
+              for (const ending of relevant) {
+                if (ending.type === 'turn/end') {
+                  try { await projectRoomToolEvents(row, binding, raw, ending.data.turn, undefined, () => { complete = false }) }
+                  catch (error: unknown) { complete = false; ctx.logger.error(`room Bot tool recovery failed: ${String(error)}`) }
+                  await projectNativeTurn(row, binding, relevant, ending.data.turn, () => { complete = false })
+                }
+              }
+            } catch (error: unknown) { complete = false; ctx.logger.error(`room Bot post recovery failed: ${String(error)}`) }
           }
-          continue
-        }
-        const raw = await readSessionEvents(binding.sessionId)
-        const relevant = nativeRoomEvents(raw)
-        for (const ending of relevant) {
-          if (ending.type === 'turn/end') {
-            try { await projectRoomToolEvents(row, binding, raw, ending.data.turn) }
-            catch (error: unknown) { ctx.logger.error(`room Bot tool recovery failed: ${String(error)}`) }
-            await projectNativeTurn(row, binding, relevant, ending.data.turn)
-          }
-        }
-      } catch (error: unknown) { ctx.logger.error(`room Bot post recovery failed: ${String(error)}`) }
-    }
-  }
+          return complete
+        })
+      } finally { reads.clear() }
+    })
+  ctx.effect(() => () => { roomRecovery.clear() }, 'collaboration room recovery metadata')
   const service = new CollaborationService(store, {
     attachRoomTools: async (sessionId) => {
       const agent = ctx.agents.get(brandString<SessionId>(sessionId))
@@ -555,11 +598,15 @@ export function composeCollaboration(ctx: Context, services: {
       markRead: (row, userId, sequence) => roomEvents.markRead(row.orgId, row.id, userId, sequence),
       get: (row, eventId) => roomEvents.getByEventId(row.orgId, row.id, eventId),
       search: (row, query, limit) => roomEvents.search(row.orgId, row.id, query, { limit }),
-      present: async (actor, row, value) => {
-        const displayName = value.authorKind === 'human'
-          ? (await database.identity.listUsers(row.orgId)).find(user => user.id === value.authorId)?.displayName ?? value.authorId
+      present: async (actor, row, value, authors) => {
+        const key = JSON.stringify([value.authorKind, value.authorId])
+        const resolveName = async () => value.authorKind === 'human'
+          ? (await database.identity.findUserById(row.orgId, value.authorId))?.displayName ?? value.authorId
           : value.authorKind === 'employee'
             ? (await employee(actor, value.authorId))?.displayName ?? value.authorId : value.authorId
+        const pending = authors?.get(key) ?? resolveName()
+        authors?.set(key, pending)
+        const displayName = await pending
         return { ...value.event, sequence: value.sequence,
           author: { kind: value.authorKind, id: value.authorId, displayName },
           ...(value.threadRoot === undefined ? {} : { threadRoot: value.threadRoot }),
@@ -582,7 +629,7 @@ export function composeCollaboration(ctx: Context, services: {
         return roomPrompt(row.name, history, current, { characters: services.limits.roomContextCharacters,
           events: services.limits.roomContextEvents }, names, row.kind === 'group')
       },
-      reconcile: reconcileRoom,
+      reconcile: row => roomRecovery.reconcile(row),
       dispatchCommitted: async (_actor, row, event) => {
         if (outbox === undefined || leaseMs === undefined) throw new CollaborationError('room-dispatch-unavailable', 503)
         return { delivered: true, targets: await outbox.immediate(row.orgId, row.id, event.event.id, leaseMs) }

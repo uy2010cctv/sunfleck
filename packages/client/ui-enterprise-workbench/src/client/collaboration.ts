@@ -45,8 +45,11 @@ function activeProjects(value: unknown): readonly { id: string; name: string }[]
 
 /** Extend the existing shell without requiring collaboration on non-enterprise hosts.
  * @param ctx - Browser plugin scope owning the navigation registration.
+ * @param roomCreated - Refreshes the enterprise directory after a room is created.
+ * @param roomInitialPageSize - Validated number of latest events fetched on room entry.
+ * @returns Actions for opening or creating rooms from the workbench.
  */
-export function applyCollaboration(ctx: Context, roomCreated?: () => void): CollaborationWorkbenchActions {
+export function applyCollaboration(ctx: Context, roomCreated?: () => void, roomInitialPageSize = 20): CollaborationWorkbenchActions {
   let current: CollaborationController | undefined
   ctx.inject(['layout', 'slots', 'locale', 'sessions', 'workspaces', 'uiWorkspace', 'remote', 'remote.agentPresets', 'remote.enterpriseTeamDefinition'], (scope) => {
     const controller = new CollaborationController(
@@ -58,6 +61,7 @@ export function applyCollaboration(ctx: Context, roomCreated?: () => void): Coll
       () => { scope.layout.selectPanel(PANEL_ID) },
       roomCreated,
       (ids) => { scope.uiWorkspace.setHiddenSessions('enterprise-collaboration', ids.map(SessionId)) },
+      roomInitialPageSize,
     )
     current = controller
     scope.effect(() => {
