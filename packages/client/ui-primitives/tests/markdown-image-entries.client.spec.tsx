@@ -147,3 +147,48 @@ it.each([parseGfm, parseGfmWithMath])('uses the shared image categories for bare
   }
   expect(JSON.stringify(parse('![report](/work/test dir/report.pdf)'))).not.toContain('"type":"image"')
 })
+
+it.each([
+  '<img src="tmp-etax-qr/qr-big.png" width="190">',
+  "<img alt='QR preview' height='900' src='tmp-etax-qr/qr-big.png' />",
+])('renders a simple image tag as a contained, clickable workspace preview: %s', (text) => {
+  const { container, openFile } = mount(text)
+  const image = container.querySelector('img')!
+  expect(new URL(image.getAttribute('src')!).searchParams.get('path')).toBe('/workspace/tmp-etax-qr/qr-big.png')
+  expect(image.getAttribute('loading')).toBe('lazy')
+  expect(image.getAttribute('decoding')).toBe('async')
+  expect(image.getAttribute('width')).toBeNull()
+  fireEvent.click(screen.getByRole('button'))
+  expect(screen.getByRole('dialog').querySelector('img')?.getAttribute('src')).toBe(image.getAttribute('src'))
+  fireEvent.keyDown(window, { key: 'Escape' })
+  expect(screen.queryByRole('dialog')).toBeNull()
+  expect(openFile).not.toHaveBeenCalled()
+})
+
+it.each([
+  '<img src="image.png" onerror="alert(1)">',
+  '<img src="image.png" style="position:fixed">',
+  '<img src="image.png" src="other.png">',
+  '<img src="javascript:alert(1)">',
+  '<img src="image.png"><script>alert(1)</script>',
+  '`<img src="image.png">`',
+  '```html\n<img src="image.png">\n```',
+  '\\<img src="image.png">',
+])('keeps unsafe tags and authored code inert: %s', (text) => {
+  const { container } = mount(text)
+  expect(container.querySelector('img')).toBeNull()
+  expect(container.querySelector('script')).toBeNull()
+  expect(container.textContent).toContain('<img')
+})
+
+it.each(['image.png', 'https://example.com/diagram.png'])('keeps image tags inert until settlement: %s', (src) => {
+  const text = `<img src="${src}" alt="Preview">`
+  const content = (streaming: boolean) => <MarkdownDelegateProvider fileImages={fileImages}>
+    <MarkdownText text={text} streaming={streaming} />
+  </MarkdownDelegateProvider>
+  const view = render(content(true))
+  expect(view.container.querySelector('img')).toBeNull()
+  view.rerender(content(false))
+  expect(screen.getByRole('img').getAttribute('alt')).toBe('Preview')
+  expect(screen.getByRole('img').getAttribute('src')).toBe(src.startsWith('https:') ? src : fileImages.resolve(src))
+})

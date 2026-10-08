@@ -444,16 +444,20 @@
 }
 
 .imageButton {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 240px;
   max-width: 100%;
+  aspect-ratio: 1;
   padding: 0;
   border: 0;
   border-radius: var(--dsw-radius-sm);
-  background: transparent;
+  background: var(--dsw-alias-bg-base);
   vertical-align: middle;
   cursor: zoom-in;
 }
-.imageButton .image { max-width: min(100%, 640px); max-height: 360px; }
+.imageButton .image { max-width: 100%; max-height: 240px; object-fit: contain; }
 .imageButton:focus-visible { outline: var(--dsw-focus-ring-width) solid var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary)); outline-offset: 3px; }
 .previewName {
   display: block;

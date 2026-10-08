@@ -6,7 +6,8 @@
  *
  * External link and image destinations pass a protocol allowlist; settled
  * local file links use an explicit owner callback. Images additionally require
- * absolute HTTP(S), raw HTML renders as literal text (no HTML enters the
+ * absolute HTTP(S); standalone simple img tags become Markdown images. Other
+ * raw HTML renders as literal text (no HTML enters the
  * DOM), and KaTeX runs without trusted commands. Fragment-anchor URLs fail
  * the allowlist, so footnote references and back-references render as plain
  * text rather than in-page links.
@@ -354,6 +355,7 @@ function renderNode(node: Md.RootContent, key: Key, context: MarkdownRenderConte
     case 'linkReference':
       return renderLinkReference(node, key, context)
     case 'image':
+      if (context.streaming && node.data?.settledImageTag === true) return node.alt ?? ''
       return renderImage(node.url, node.alt ?? '', key, context)
     case 'imageReference':
       return renderImageReference(node, key, context)

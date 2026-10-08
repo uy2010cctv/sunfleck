@@ -167,8 +167,8 @@ class StreamingRenderer {
  * `body` variant uses the full document typography.
  * The provider's `openFile` enables local Markdown links in settled messages,
  * including `#L24` and `#L24-L30` destinations (ranges open at their first line).
- * @returns A GFM document with TeX math rendered through KaTeX; raw HTML and
- * unsafe protocols are disabled. Local links without an opener remain text;
+ * @returns A GFM document with TeX math rendered through KaTeX; standalone
+ * img tags become images, while other HTML and unsafe protocols stay inert. Local links without an opener remain text;
  * absolute HTTP(S) images render directly.
  */
 export const MarkdownText = memo(function MarkdownText({

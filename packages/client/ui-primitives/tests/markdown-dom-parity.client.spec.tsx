@@ -251,6 +251,7 @@ const CORPUS: Record<string, string> = {
     '',
     '`https://example.com/preview?q=one%20two#result` 与 `curl http://127.0.0.1:3199/` 以及 `javascript:alert(1)`。',
   ].join('\n'),
+  'standalone-image-tag': '<img src="https://example.com/diagram.png" alt="Preview" width="190">',
   'definition-only': '[unused]: https://example.com/unused',
   'streaming-typical-partial': '## Streaming\n\n- first\n- **unfinished',
 }
