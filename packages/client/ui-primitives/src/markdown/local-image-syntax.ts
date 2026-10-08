@@ -2,6 +2,13 @@
 import type { Root, RootContent, PhrasingContent } from 'mdast'
 import { classifyFileType } from '../FileTypeIcon.tsx'
 
+declare module 'mdast' {
+  interface ImageData {
+    /** Recovered HTML image tags defer network requests until the message settles. */
+    settledImageTag?: boolean
+  }
+}
+
 /**
  * Recover unescaped image-only paragraphs with bare-space paths or simple img tags.
  * @param root - Parsed Markdown tree, modified in place.
